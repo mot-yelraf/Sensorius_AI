@@ -1,0 +1,123 @@
+<!-- ui_templates/modals/switch_settings.html -->
+
+<div class="modal-backdrop" style="display:none">
+  <div
+    class="modal"
+    id="switchSettingsModal"
+    data-switch-id="{{ switch_id }}"
+    data-channel-indices="{{ channel_indices | join(',') }}"
+    data-channel-count="{{ channel_indices | length }}"
+  >
+    <div class="modal-header">
+      <h3 class="modal-title">Edit Switch Settings</h3>
+    </div>
+
+    <div class="modal-body">
+      <h3 style="text-align:center; margin-top:0.25rem; margin-bottom:0.75rem;">
+        {{ switch_id }}
+      </h3>
+
+      <form method="POST" action="/submit-switch-settings">
+        <input type="hidden" name="switch_id" value="{{ switch_id }}" />
+
+        <table style="width:100%; border-collapse:collapse;">
+          <!-- DEVICE (readonly) -->
+          <tr>
+            <td><label for="device">DEVICE:</label></td>
+            <td>
+              <input
+                type="text"
+                id="device"
+                name="device"
+                readonly
+                style="background-color: lightgray;"
+                value="{{ settings.Switch.DEVICE if settings.Switch and settings.Switch.DEVICE is not none else 'switch' }}"
+              />
+            </td>
+          </tr>
+
+          <!-- SWITCH_ID (readonly) -->
+          <tr>
+            <td><label for="switch_id_field">SWITCH_ID:</label></td>
+            <td>
+              <input
+                type="text"
+                id="switch_id_field"
+                name="switch_id_field"
+                readonly
+                style="background-color: lightgray;"
+                value="{{ settings.Switch.SWITCH_ID if settings.Switch and settings.Switch.SWITCH_ID is not none else switch_id }}"
+              />
+            </td>
+          </tr>
+
+          <!-- LOCATION -->
+          <tr>
+            <td><label for="location">LOCATION:</label></td>
+            <td>
+              <input
+                type="text"
+                id="location"
+                name="location"
+                required
+                value="{{ settings.Switch.SWITCH_LOCATION if settings.Switch and settings.Switch.SWITCH_LOCATION is not none else 'Unknown' }}"
+              />
+            </td>
+          </tr>
+
+          <!-- Channel Labels header -->
+          <tr>
+            <th colspan="2" style="text-align:left; padding-top:1rem;">
+              Channel Labels
+            </th>
+          </tr>
+
+          <!-- Channel label rows -->
+          {% for ch in channels %}
+          <tr>
+            <td>
+              <label for="SWITCH_{{ ch.index }}">SWITCH_{{ ch.index }}:</label>
+            </td>
+            <td>
+              <input
+                type="text"
+                id="SWITCH_{{ ch.index }}"
+                name="SWITCH_{{ ch.index }}"
+                placeholder="CH{{ ch.index }} label"
+                value="{{ ch.label | default('') | e }}"
+              />
+            </td>
+          </tr>
+          {% endfor %}
+        </table>
+
+        <div class="modal-footer" style="margin-top:0.75rem;">
+          <div class="footer-buttons">
+            <!-- Home / close -->
+            <button
+              class="button black"
+              type="button"
+              onclick="window.closeSwitchSettingsModal && window.closeSwitchSettingsModal();"
+            >
+              Home
+            </button>
+
+            <!-- Advanced Automations -->
+            <button
+              class="button green"
+              type="button"
+              onclick="openAdvancedSwitchModal('{{ switch_id }}')"
+            >
+              Automations
+            </button>
+
+            <!-- Save -->
+            <button class="button blue" type="submit">
+              Save
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,202 @@
+<!-- ui_templates/modals/system_device_locations.html -->
+
+<style>
+.location-item {
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 10px;
+  margin: 8px 0;
+  background: #97DEBA;
+  color: #000;
+}
+.location-id {
+  font-size: 0.9rem;
+  opacity: 0.9;
+  margin-bottom: 6px;
+  color: #000;
+}
+.location-input {
+  width: 100%;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #666;
+  background: #F5FFFA;
+  color: #000;
+}
+.modal-content {
+  background: #F5FFFA;
+  color: #000;
+}
+
+/* Button standards – keep local until fully centralized in app.css */
+.button {
+  display: inline-block;
+  padding: 10px 20px;
+  margin: 10px;
+  font-size: 16px;
+  font-weight: bold;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: background 0.3s, transform 0.2s;
+}
+.button:hover {
+  transform: translateY(0px);
+}
+.green   { background-color: #28a745; color: white; }
+.green:hover { background-color: #218838; }
+.red     { background-color: #dc3545; color: white; }
+.red:hover { background-color: #c82333; }
+.neutral { background-color: #f7f1c1; color: #212529; }
+.neutral:hover { background-color: #f7efb0; }
+.black   { background-color: #000; color: white; }
+.black:hover { background-color: #333; }
+.yellow  { background-color: #ffc107; color: #212529; }
+.yellow:hover { background-color: #e0a800; }
+.blue    { background-color: #2259f2; color: white; }
+.blue:hover { background-color: blue; }
+</style>
+
+<div id="device-locations-overlay"
+     class="onboard-overlay"
+     style="display:none;">
+  <div class="onboard-modal" style="max-width:720px;">
+    <div class="onboard-title">Device Locations</div>
+
+    <!-- scrollable body -->
+    <div class="locations-scroll"
+         style="max-height:420px; overflow:auto; margin:12px 0; padding-right:6px;">
+      <div id="locations-list">
+        <div style="opacity:.7; padding:8px;">(empty)</div>
+      </div>
+    </div>
+
+    <!-- footer buttons -->
+    <div class="modal-footer"
+         style="display:flex; justify-content:space-between; gap:12px; margin-top:12px;">
+      <button id="btn-locations-cancel" class="button black">Back</button>
+      <button id="btn-locations-save" class="button blue">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Global helpers – same API as before
+window.openLocationsModal = function() {
+  const ov = document.getElementById("device-locations-overlay");
+  if (ov) ov.style.display = "flex";
+};
+window.closeLocationsModal = function() {
+  const ov = document.getElementById("device-locations-overlay");
+  if (ov) ov.style.display = "none";
+};
+
+// startLocationsFromSetup row builder: capture host/kind flags we need on Save
+window.startLocationsFromSetup = async function(formEl) {
+  try {
+    window.openLocationsModal();
+    const list = document.getElementById("locations-list");
+    if (list) {
+      list.innerHTML = '<div style="opacity:.7; padding:8px;">Loading...</div>';
+    }
+
+    const resp = await fetch("/device-locations");
+    if (!resp.ok) {
+      throw new Error("HTTP " + resp.status);
+    }
+    const data = await resp.json();
+
+    if (list) {
+      list.innerHTML = "";
+      (data || []).forEach(dev => {
+        const wrap = document.createElement("div");
+        wrap.className = "location-item";
+
+        const idDiv = document.createElement("div");
+        idDiv.className = "location-id";
+        idDiv.textContent = `${(dev.type || "").toUpperCase()} — ${dev.id || ""}`;
+
+        const input = document.createElement("input");
+        input.className = "location-input";
+        input.value = dev.location || "";
+        input.placeholder = "Enter location";
+
+        input.dataset.deviceId   = dev.id || "";
+        input.dataset.deviceType = (dev.type || "").toLowerCase();
+
+        const host = dev.host
+          || dev.hostname
+          || ((/^(picow|nodus|switch|sensor)$/i).test(dev.type || "")
+              ? `${dev.id}.local`
+              : window.location.hostname);
+
+        input.dataset.deviceHost = host;
+        const isRemote = (host && host !== window.location.hostname);
+        input.dataset.isRemote   = String(isRemote);
+        input.dataset.kind = (
+          (dev.kind)
+          || ((dev.type || "").toLowerCase() === "switch" ? "switch" : "sensor")
+        ).toLowerCase();
+
+        wrap.appendChild(idDiv);
+        wrap.appendChild(input);
+        list.appendChild(wrap);
+      });
+
+      if (!(data || []).length) {
+        list.innerHTML = '<div style="opacity:.7; padding:8px;">No devices found.</div>';
+      }
+    }
+  } catch (e) {
+    console.error(e);
+    const list = document.getElementById("locations-list");
+    if (list) {
+      list.innerHTML =
+        '<div style="color:#b3212d; padding:8px;">Failed to load device locations.</div>';
+    }
+  }
+  return false;
+};
+
+// Delegated buttons (Back / Save)
+document.addEventListener("click", async (ev) => {
+  if (ev.target && ev.target.id === "btn-locations-cancel") {
+    window.closeLocationsModal();
+  }
+
+  if (ev.target && ev.target.id === "btn-locations-save") {
+    try {
+      const inputs = document.querySelectorAll("#locations-list .location-input");
+      const payload = [];
+      inputs.forEach(inp => {
+        const id   = (inp.dataset.deviceId || "").trim();
+        const type = (inp.dataset.deviceType || "").trim().toLowerCase();
+        const loc  = (inp.value || "").trim();
+        if (id && type && loc) {
+          payload.push({ id, type, location: loc });
+        }
+      });
+
+      const resp = await fetch("/device-locations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => "");
+        throw new Error("HTTP " + resp.status + " " + text);
+      }
+
+      const res = await resp.json().catch(() => ({}));
+      if (window.showToast) window.showToast("Locations saved","ok");
+
+      window.closeLocationsModal();
+      setTimeout(() => window.location.reload(), 200);
+    } catch (e) {
+      console.error(e);
+      if (window.showToast) window.showToast("Failed to Save","error");
+    }
+  }
+});
+</script>

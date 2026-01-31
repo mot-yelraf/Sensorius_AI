@@ -1,0 +1,3155 @@
+"""HTML rendering helpers and shared UI constants."""
+import re
+from rPiUtils import printDM, debug_enabled, html_escape
+from collections import defaultdict
+from pathlib import Path
+
+MODULE = "rPiHtml"
+DEBUG = debug_enabled(MODULE)
+
+APP_TITLE = "Sensorius"
+APP_NAME_SHORT = f"{APP_TITLE} AI"
+APP_NAME_LONG = f"{APP_TITLE} Automatio Instrumentorum"
+APP_VERSION = "v0.7"
+
+def get_gauge_config():
+    gauge_config = {
+        "Air Quality": {"unit": "AQI", "min": 0, "max": 500, "ticks": [0, 50, 100, 150, 200, 300, 400, 500], "zones": [{"strokeStyle": "#66cc66", "min": 0, "max": 50}, {"strokeStyle": "#ffcc00", "min": 50, "max": 100}, {"strokeStyle": "#ffa500", "min": 100, "max": 150}, {"strokeStyle": "#ff0000", "min": 150, "max": 200}, {"strokeStyle": "#800080", "min": 200, "max": 300}, {"strokeStyle": "#800000", "min": 300, "max": 500}]},
+        "Gas": {"unit": "Ω", "min": 500, "max": 2000500, "ticks": [500, 500500, 1000500, 1500500, 2000500], "zones": [{"strokeStyle": "#f3d2fc", "min": 500, "max": 2000500}]},
+        "CO2": {"unit": "ppm", "min": 0, "max": 3000, "ticks": [0, 200, 400, 800, 1200, 1600, 2000, 3000], "zones": [{"strokeStyle": "#f00", "min": 0, "max": 200}, {"strokeStyle": "#ffcc00", "min": 200, "max": 400}, {"strokeStyle": "#66cc66", "min": 400, "max": 1600}, {"strokeStyle": "#ffcc00", "min": 1600, "max": 2000}, {"strokeStyle": "#f00", "min": 2000, "max": 3000}]},
+        "Temperature": {"unit": "°C", "min": -20, "max": 60, "ticks": [-20, 0, 10, 20, 30, 40, 60], "zones": [{"strokeStyle": "#00f", "min": -20, "max": 0}, {"strokeStyle": "#3399ff", "min": 0, "max": 10}, {"strokeStyle": "#66cc66", "min": 10, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 40}, {"strokeStyle": "#f00", "min": 40, "max": 60}]},
+        "Rel-Humidity": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#bf9000", "min": 0, "max": 20}, {"strokeStyle": "#ffcc00", "min": 20, "max": 30}, {"strokeStyle": "#add8e6", "min": 30, "max": 70}, {"strokeStyle": "#66b2ff", "min": 70, "max": 80}, {"strokeStyle": "#0033cc", "min": 80, "max": 100}]},
+        "Humidity": {"unit": "g/m³", "min": 0, "max": 130, "ticks": [0, 26, 52, 78, 104, 130], "zones": [{"strokeStyle": "#bf9000", "min": 0, "max": 26}, {"strokeStyle": "#ffcc00", "min": 26, "max": 52}, {"strokeStyle": "#add8e6", "min": 52, "max": 78}, {"strokeStyle": "#66b2ff", "min": 78, "max": 104}, {"strokeStyle": "#0033cc", "min": 104, "max": 130}]},
+        "Ambient VPD": {"unit": "kPa", "min": 0.0, "max": 5.0, "ticks": [0, 0.4, 0.8, 1.2, 1.6, 2, 3, 4, 5], "zones": [{"strokeStyle": "#0033cc", "min": 0.0, "max": 0.4}, {"strokeStyle": "#66cc66", "min": 0.4, "max": 0.8}, {"strokeStyle": "#03a603", "min": 0.8, "max": 1.2}, {"strokeStyle": "#3e803e", "min": 1.2, "max": 1.6}, {"strokeStyle": "#bf9000", "min": 1.6, "max": 5.0}]},
+        "Baro-Pressure": {"unit": "hPa", "min": 700, "max": 1100, "ticks": [700, 750, 800, 850, 900, 950, 1000, 1050, 1100], "zones": [{"strokeStyle": "#add8e6", "min": 700, "max": 1100}]},
+        "Temperature_F": {"unit": "°F", "min": 0, "max": 140, "ticks": [0, 32, 50, 70, 90, 110, 140], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 32}, {"strokeStyle": "#3399ff", "min": 32, "max": 50}, {"strokeStyle": "#66cc66", "min": 50, "max": 86}, {"strokeStyle": "#ffcc00", "min": 86, "max": 104}, {"strokeStyle": "#f00", "min": 104, "max": 140}]},
+        "Plant Temperature": {"unit": "°C", "min": -20, "max": 60, "ticks": [-20, 0, 10, 20, 30, 40, 60], "zones": [{"strokeStyle": "#00f", "min": -20, "max": 0}, {"strokeStyle": "#3399ff", "min": 0, "max": 10}, {"strokeStyle": "#66cc66", "min": 10, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 40}, {"strokeStyle": "#f00", "min": 40, "max": 60}]},
+        "Plant Rel-Humidity": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#bf9000", "min": 0, "max": 20}, {"strokeStyle": "#ffcc00", "min": 20, "max": 30}, {"strokeStyle": "#add8e6", "min": 30, "max": 70}, {"strokeStyle": "#66b2ff", "min": 70, "max": 80}, {"strokeStyle": "#0033cc", "min": 80, "max": 100}]},
+        "Plant Humidity": {"unit": "g/m³", "min": 0, "max": 130, "ticks": [0, 26, 52, 78, 104, 130], "zones": [{"strokeStyle": "#bf9000", "min": 0, "max": 26}, {"strokeStyle": "#ffcc00", "min": 26, "max": 52}, {"strokeStyle": "#add8e6", "min": 52, "max": 78}, {"strokeStyle": "#66b2ff", "min": 78, "max": 104}, {"strokeStyle": "#0033cc", "min": 104, "max": 130}]},
+        "Plant VPD": {"unit": "kPa", "min": 0.0, "max": 5.0, "ticks": [0, 0.4, 0.8, 1.2, 1.6, 2, 3, 4, 5], "zones": [{"strokeStyle": "#0033cc", "min": 0.0, "max": 0.4}, {"strokeStyle": "#66cc66", "min": 0.4, "max": 0.8}, {"strokeStyle": "#03a603", "min": 0.8, "max": 1.2}, {"strokeStyle": "#3e803e", "min": 1.2, "max": 1.6}, {"strokeStyle": "#bf9000", "min": 1.6, "max": 5.0}]},
+        "Plant Baro-Pressure": {"unit": "hPa", "min": 700, "max": 1100, "ticks": [700, 750, 800, 850, 900, 950, 1000, 1050, 1100], "zones": [{"strokeStyle": "#add8e6", "min": 700, "max": 1100}]},
+        "Plant Temperature_F": {"unit": "°F", "min": 0, "max": 140, "ticks": [0, 32, 50, 70, 90, 110, 140], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 32}, {"strokeStyle": "#3399ff", "min": 32, "max": 50}, {"strokeStyle": "#66cc66", "min": 50, "max": 86}, {"strokeStyle": "#ffcc00", "min": 86, "max": 104}, {"strokeStyle": "#f00", "min": 104, "max": 140}]},
+        "Soil-Moisture": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#bf9000", "min": 0, "max": 20}, {"strokeStyle": "#ffcc00", "min": 20, "max": 50}, {"strokeStyle": "#add8e6", "min": 50, "max": 70}, {"strokeStyle": "#66b2ff", "min": 70, "max": 80}, {"strokeStyle": "#0033cc", "min": 80, "max": 100}]},
+        "Soil-Temp": {"unit": "°C", "min": -20, "max": 60, "ticks": [-20, 0, 10, 20, 30, 40, 60], "zones": [{"strokeStyle": "#00f", "min": -20, "max": 0}, {"strokeStyle": "#3399ff", "min": 0, "max": 10}, {"strokeStyle": "#66cc66", "min": 10, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 40}, {"strokeStyle": "#f00", "min": 40, "max": 60}]},
+        "Soil-Temp_F": {"unit": "°F", "min": 0, "max": 140, "ticks": [0, 32, 50, 70, 90, 110, 140], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 32}, {"strokeStyle": "#3399ff", "min": 32, "max": 50}, {"strokeStyle": "#66cc66", "min": 50, "max": 86}, {"strokeStyle": "#ffcc00", "min": 86, "max": 104}, {"strokeStyle": "#f00", "min": 104, "max": 140}]},
+        "Soil-pH": {"unit": "pH", "min": 0, "max": 10, "ticks": [1, 3, 5, 7, 9], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 4.5}, {"strokeStyle": "#3399ff", "min": 4.5, "max": 5.5}, {"strokeStyle": "#66cc66", "min": 5.5, "max": 6.5}, {"strokeStyle": "#ffcc00", "min": 6.5, "max": 7.5}, {"strokeStyle": "#f00", "min": 7.5, "max": 8.5}, {"strokeStyle": "#800000", "min": 8.5, "max": 10}]},
+        "Soil-EC": {"unit": "mS/cm", "min": 0, "max": 10, "ticks": [0, 2, 4, 6, 8, 10], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 0.8}, {"strokeStyle": "#3399ff", "min": 0.8, "max": 1.8}, {"strokeStyle": "#66cc66", "min": 1.8, "max": 2.5}, {"strokeStyle": "#ffcc00", "min": 2.5, "max": 4.0}, {"strokeStyle": "#800000", "min": 4.0, "max": 10}]},
+        "Light Intensity": {"unit": "lux", "min": 0,  "max": 120000, "ticks": [0, 20000, 40000, 60000, 80000, 100000, 120000], "zones": [{"strokeStyle": "#ffff00", "min": 0, "max": 120000}]},
+        "Auto Light": {"unit": "lux", "min": 0,  "max": 120000, "ticks": [0, 20000, 40000, 60000, 80000, 100000, 120000], "zones": [{"strokeStyle": "#ffff00", "min": 0, "max": 120000}]},
+        "PPFD": {"unit": "µmol·m⁻²·s⁻¹", "min": 0, "max": 2000, "ticks": [0, 400, 800, 1200, 1600, 2000], "zones": [{"strokeStyle": "#ffff00", "min": 0, "max": 2000}]},
+        "DLI": {"unit": "mol·m⁻²·day⁻¹", "min": 0, "max": 70, "ticks": [0, 10, 20, 30, 40, 50, 60, 70], "zones": [{"strokeStyle": "#ffff00", "min": 0, "max": 70}]},
+    }
+    return gauge_config
+
+def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, display_style=None):
+
+    import json
+    import re
+    from types import SimpleNamespace
+    from collections import defaultdict
+    from rPiUtils import get_timestamp
+    import rPiAddDevice
+    from rPiSensorSettingsManager import SensorSettingsManager
+    from rPiHtml import render_graph_modal
+    if isinstance(switch_controllers, dict):
+        switch_controllers = {
+            (k if isinstance(k, str) else str(k)).lower(): v
+            for k, v in switch_controllers.items()
+        }
+    switch_installed = any(
+        ctrl.is_present for ctrl in switch_controllers.values()
+    ) if isinstance(switch_controllers, dict) else (
+        switch_controllers.is_present if switch_controllers else False
+    )
+    
+    def _safe(s: str) -> str:
+        return re.sub(r"[^A-Za-z0-9_-]", "_", s)
+        # ...existing imports at top of render_dashboard...
+
+    UNKNOWN_KEY = "__unknown__"
+
+    def _norm_loc(s: str | None) -> str:
+        v = (s or "").strip().lower()
+        # treat common unknowns the same way
+        if v in ("", "unknown", "n/a", "na", "none", "-"):
+            return UNKNOWN_KEY
+        return v
+
+    # ---------- build a unified switches_by_loc once ----------
+    from rPiSwitchSettingsManager import SwitchSettingsManager
+
+    sw_mgr = None
+    try:
+        sw_mgr = SwitchSettingsManager("switch_settings")
+    except Exception:
+        pass
+
+    # ✅ Initialize buckets
+    switches_by_loc: dict[str, list] = defaultdict(list)
+
+    # ---- Preload on-disk locations (id → location) to avoid stale in-memory values
+    switch_locations_on_disk: dict[str, str] = {}
+    first_switch_id_on_disk: str | None = None
+    if sw_mgr:
+        try:
+            all_sw_ids = sw_mgr.list_switches() or []
+            if all_sw_ids:
+                first_switch_id_on_disk = all_sw_ids[0]
+            for _sid in all_sw_ids:
+                try:
+                    loc = sw_mgr.get_setting(_sid, "Switch.SWITCH_LOCATION", None)
+                    if isinstance(loc, str) and loc.strip():
+                        switch_locations_on_disk[_sid] = loc.strip()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # 1) Local Pi switches — build a presenter that always uses on-disk location
+    if switch_controllers:
+        local_iter = switch_controllers.values() if isinstance(switch_controllers, dict) else [switch_controllers]
+        for ctrl in local_iter:
+            try:
+                if not getattr(ctrl, "is_present", False):
+                    continue
+
+                sw_id = getattr(ctrl, "switch_id", None)
+                # Prefer exact id match; if missing and only one local switch exists, use that
+                fresh_loc = None
+                if isinstance(sw_id, str) and sw_id.strip():
+                    fresh_loc = switch_locations_on_disk.get(sw_id.strip())
+                if not fresh_loc and first_switch_id_on_disk and len(switch_locations_on_disk) == 1:
+                    fresh_loc = switch_locations_on_disk.get(first_switch_id_on_disk)
+
+                # Last resort: whatever the controller currently holds (should be rare)
+                effective_loc = (fresh_loc or getattr(ctrl, "location", None) or "Unknown").strip()
+                
+
+                # Build a neutral presenter decoupled from controller .location timing
+                channels = list(getattr(ctrl, "switches", []))  # e.g. ["Fan", "Light", "Pump"]
+                last_state = dict(getattr(ctrl, "last_state", {}))  # {label: bool}
+                last_time  = dict(getattr(ctrl, "last_set_time", {}))
+                override   = dict(getattr(ctrl, "override_script", {}))
+
+                local_presenter = SimpleNamespace(
+                    switch_id = sw_id or "local-switch",
+                    location  = effective_loc,
+                    is_present = True,
+                    switches   = channels,
+                    last_state = last_state,
+                    last_set_time = last_time,
+                    override_script = override,
+                )
+
+                loc_key = _norm_loc(effective_loc)
+                switches_by_loc[loc_key].append(local_presenter)
+
+                if DEBUG:
+                    try:
+                        bucket_names = list(switches_by_loc.keys())
+                        printDM(f"sw_by_loc buckets={bucket_names} total_items={sum(len(v) for v in switches_by_loc.values())}",
+                                location=f"{MODULE}.render_dashboard")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+    # 2) Add remote Pico2 W switches discovered via MQTT
+    # helper to guess a location for a switch if it's not stored
+    def _infer_switch_location(sw_id: str) -> str:
+        # try settings first
+        if sw_mgr:
+            try:
+                loc = sw_mgr.get_setting(sw_id, "Switch.SWITCH_LOCATION", "")
+                if isinstance(loc, str) and loc.strip():
+                    return loc.strip()
+            except Exception:
+                pass
+        # try discovery-time location attached to switch topics
+        try:
+            nodus_map = getattr(mqtt_ingest, "nodus_switch_topic_map", {}) or {}
+            for topic, meta in nodus_map.items():
+                try:
+                    if meta.get("switch_id") == sw_id:
+                        loc = (getattr(mqtt_ingest, "device_location", {}) or {}).get(topic)
+                        if isinstance(loc, str) and loc.strip():
+                            return loc.strip()
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        # heuristic: share suffix with a sensor id (e.g., '-dzia16')
+        tail = sw_id.split("-", 1)[-1] if "-" in sw_id else sw_id
+        for _sid, _loc in (sensor_locations or {}).items():
+            if _sid.endswith(tail) or tail in _sid:
+                return (_loc or "").strip()
+        return ""
+
+    # read cached state: { "switch-dzia16": {"GP28": "on", "GP27": "off", ...}, ... }
+    remote_cache = getattr(mqtt_ingest, "_switch_state_cache", {}) or {}
+
+    # include switches discovered via /itaot even if they haven't emitted state yet
+    discovered_switches: dict[str, dict[str, str]] = {}  # switch_id -> {label: channel_id}
+    try:
+        nodus_map = getattr(mqtt_ingest, "nodus_switch_topic_map", {}) or {}
+        for meta in nodus_map.values():
+            try:
+                sw_id = (meta.get("switch_id") or "").strip()
+                if not sw_id:
+                    continue
+                channel_id = (meta.get("channel_id") or "").strip()
+                label = (meta.get("label") or channel_id or "").strip()
+                if not label:
+                    continue
+                bucket = discovered_switches.setdefault(sw_id, {})
+                bucket.setdefault(label, channel_id or label)
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    all_remote_ids = set(remote_cache.keys()) | set(discovered_switches.keys())
+    for sw_id in sorted(all_remote_ids):
+        try:
+            ch_map = remote_cache.get(sw_id, {}) or {}
+            label_map = discovered_switches.get(sw_id, {})
+
+            channels = list(label_map.keys()) if label_map else list(ch_map.keys())
+            if not channels:
+                continue
+
+            last_state = {}
+            for label in channels:
+                channel_id = label_map.get(label, label)
+                raw = ch_map.get(channel_id)
+                if raw is None:
+                    raw = ch_map.get(label)
+                if raw is None:
+                    continue
+                last_state[label] = (str(raw).lower() == "on")
+
+            # presenter shaped like local controllers so the table code below works unchanged
+            presenter = SimpleNamespace(
+                switch_id=sw_id,
+                location=_infer_switch_location(sw_id),
+                is_present=True,
+                switches=channels,                 # NOTE: list of channel labels
+                last_state=last_state,             # {label: bool}
+                last_set_time={ch: "" for ch in channels},
+                override_script=defaultdict(bool), # nothing to override yet for remote
+            )
+
+            loc_key = _norm_loc(presenter.location)
+
+            # even if we fail to infer a location, put it under empty-key bucket;
+            # the rendering loop can still find it if a sensor shares that location later
+            switches_by_loc[loc_key].append(presenter)
+        except Exception:
+            pass
+            
+        if DEBUG:
+            try:
+                bucket_names = list(switches_by_loc.keys())
+                printDM(f"sw_by_loc buckets={bucket_names} total_items={sum(len(v) for v in switches_by_loc.values())}",
+                        location=f"{MODULE}.render_dashboard")
+            except Exception:
+                pass
+
+    GAUGE_SIZES = {
+        "Small": {
+            "canvas_width": 260,
+            "canvas_height": 205,
+            "container_width": "260px",
+            "font_rem": "1.1rem",
+            "font_px": "10px",
+            "stats_font": "0.85rem",
+        },
+        "Large": {
+            "canvas_width": 500,
+            "canvas_height": 415,
+            "container_width": "500px",
+            "font_rem": "1.7rem",
+            "font_px": "17px",
+            "stats_font": "1.7rem",
+        }
+    }
+
+    layout = GAUGE_SIZES.get(gauge_size, GAUGE_SIZES["Small"])
+    
+    # --- Resolve display_style: "Gauge" or "Graph6hr" or "Graph24hr" from system settings if not provided ---
+    if not display_style:
+        try:
+            from rPiSettings import rPiSettings
+            sys_settings = rPiSettings()
+            display_style = sys_settings.get_displayStyle()  # "Gauge" or "Graph6hr" or "Graph24hr"
+        except Exception:
+            display_style = "Gauge"
+
+    display_style = (display_style or "Gauge")
+    display_style_js = display_style.lower()
+
+    yield "<!DOCTYPE html>"
+    yield f"<html><head><title>{APP_NAME_LONG}</title>"
+    yield "<meta charset='UTF-8'>"
+    yield "<script src='https://cdn.jsdelivr.net/npm/gaugeJS@1.3.7/dist/gauge.min.js'></script>"
+    yield "<script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'></script>"
+    yield "<script src='https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns'></script>"
+    yield "<script src='https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.4.0'></script>"
+    yield from render_graph_modal(switch_installed=switch_installed)
+    # global assets for templates
+    yield "<link rel='stylesheet' href='/ui_static/css/app.css'>"
+    yield "<script type='module' src='/ui_static/js/advanced_automation.js'></script>"
+    yield "</head><body>"
+    yield (
+      f"<div class='dashboard' "
+      f"style='--container-width:{layout['container_width']};"
+      f"--stats-font:{layout['stats_font']};"
+      f"--canvas-width:{layout['canvas_width']};"
+      f"--canvas-height:{layout['canvas_height']};'>"
+    )    
+    # Sensor settings resolution and lookup map
+    mgr = SensorSettingsManager("sensor_settings")
+    sensor_lookup = {s.lower(): s for s in mgr.list_ids()}
+    for sid in available:
+        normalized = sid.lower()
+        if normalized not in sensor_lookup:
+            sensor_lookup[normalized] = sid  # include MQTT-only sensors
+
+    if sensor_id:
+        normalized_sensor_id = sensor_id.lower()
+        actual_sensor_id = sensor_lookup.get(normalized_sensor_id)
+        has_sensor_toml = actual_sensor_id is not None
+    else:
+        actual_sensor_id = None
+        has_sensor_toml = False
+
+    sensor_display_map = {}
+    for sid in all_values:
+        try:
+            normalized_id = sid.lower()
+            actual_id = sensor_lookup.get(normalized_id)
+            if actual_id:
+                try:
+                    metrics = mgr.get_display_metrics(actual_id)
+                except Exception:
+                    metrics = list(gauge_config.keys())  # fallback to default gauges
+                sensor_display_map[sid] = metrics
+        except Exception as e:
+            printDM(f"Error getting display metrics for {sid}: {e}", location=f"{MODULE}.render_dashboard")
+
+    # --- Location filter dropdown  ---
+    # Build the union of known locations from sensors and switches
+    # NOTE: switches_by_loc uses normalized keys; keep a display map
+    loc_display_map = {}  # norm -> display
+    def _titlecase_or_raw(s: str) -> str:
+        try:
+            t = s.strip()
+            return t if not t else t[0].upper() + t[1:]
+        except Exception:
+            return s
+
+    # From sensors currently in play
+    for _sid, _loc in (sensor_locations or {}).items():
+        norm = _norm_loc(_loc)
+        if norm not in loc_display_map:
+            disp = (_loc or "Unknown").strip() or "Unknown"
+            loc_display_map[norm] = disp
+
+    # From switches buckets already built above
+    for norm_loc_key in switches_by_loc.keys():
+        if norm_loc_key not in loc_display_map:
+            disp = "Unknown" if norm_loc_key == UNKNOWN_KEY else _titlecase_or_raw(norm_loc_key)
+            loc_display_map[norm_loc_key] = disp
+
+    # Sort by display label, but keep 'Unknown' last if present
+    known_items = [(k, v) for k, v in loc_display_map.items()]
+    known_items.sort(key=lambda kv: (kv[1].lower() == "unknown", kv[1].lower()))
+    
+    # --- measurement status helpers (direct vs MQTT) ---
+    def _get_sensor_map():
+        """
+        Try to access the live sensor objects (so we can read `sensor.meas_status`).
+        Returns either a dict {sensor_id: obj} or an iterable of objs (each with .sensor_id).
+        """
+        try:
+            import rPiWebRoutes as routes
+            return getattr(routes, "sensor_map", None)
+        except Exception:
+            return None
+
+    def _active_sensor_for(sid: str):
+        """
+        Resolve the active sensor object for sid from sensor_map if available.
+        """
+        sm = _get_sensor_map()
+        sid_l = (sid or "").lower()
+        if isinstance(sm, dict):
+            return sm.get(sid) or sm.get(sid_l) or sm.get(sid_l.replace("_", "-"))
+        try:
+            from collections.abc import Iterable
+            if isinstance(sm, Iterable):
+                for obj in sm:
+                    if getattr(obj, "sensor_id", "").lower() == sid_l:
+                        return obj
+        except Exception:
+            pass
+        return None
+
+    def _hostname_variants_from_sid(sid: str) -> list[str]:
+        """
+        Our standard SID format is <kind>-<bus>-<hostname>. Return possible host keys for mqtt_ingest.device_status.
+        """
+        try:
+            host = (sid or "").rsplit("-", 1)[-1].strip()
+            if not host:
+                return []
+            return [host, f"{host}.local"]
+        except Exception:
+            return []
+
+    def _resolve_meas_status(sid: str) -> str:
+        """
+        Order of precedence:
+          1) Direct sensor object’s sensor.meas_status if available
+          2) MQTT ingest device_status[hostname or hostname.local]
+          3) Fallback: 'pending'
+        Returns one of: 'online' | 'offline' | 'pending'
+        """
+        # 1) direct/local sensor object
+        try:
+            sensor_obj = _active_sensor_for(sid)
+            st = getattr(getattr(sensor_obj, "sensor", sensor_obj), "meas_status", None)
+            if isinstance(st, str) and st.strip().lower() in {"online", "offline", "pending"}:
+                return st.strip().lower()
+        except Exception:
+            pass
+
+        # 2) mqtt-ingested remote
+        try:
+            for host in _hostname_variants_from_sid(sid):
+                st = (getattr(mqtt_ingest, "device_status", {}) or {}).get(host)
+                if isinstance(st, str) and st.strip().lower() in {"online", "offline", "pending"}:
+                    return st.strip().lower()
+        except Exception:
+            pass
+
+        # 3) fallback
+        return "pending"
+
+    def _status_color_hex(status: str) -> str:
+        """
+        Map status -> color (matches your CSS palette):
+          pending = yellow, online = green, offline = red
+        """
+        s = (status or "").strip().lower()
+        if s == "online":
+            return "#28a745"  # green
+        if s == "offline":
+            return "#dc3545"  # red
+        return "#ffc107"      # yellow (pending)
+
+    if DEBUG:
+        for sid, metrics in sensor_display_map.items():
+            printDM(f"Display Metrics for {sid}: {metrics}", location=f"{MODULE}.render_dashboard")
+
+    yield "<div style='text-align:center; width:100%;'>"
+
+    yield "<h2 id='sensor_header'>"
+    yield "<a href='javascript:void(0)' onclick='openGraphModal()' title='View Graph' style='margin-right:8px; vertical-align:middle;'>"
+    yield "  <svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' role='img'>"
+    yield "    <title>Full Screen Graphs</title>"
+    yield "    <!-- Y-axis -->"
+    yield "    <line x1='2' y1='2' x2='2' y2='22' stroke='black' stroke-width='1'/>"
+    yield "    <!-- X-axis -->"
+    yield "    <line x1='2' y1='22' x2='22' y2='22' stroke='black' stroke-width='1'/>"
+    yield "    <!-- Sine wave -->"
+    yield "    <path d='M2 12 C 5 6, 9 6, 12 12 S 19 18, 22 12'"
+    yield "          fill='none' stroke='blue' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/>"
+    yield "  </svg>"
+    yield "</a>"
+    yield f" {APP_NAME_SHORT} "
+    yield "<a href='/edit-system' title='Open System Settings' style='margin-left:8px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
+    yield "    <svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' role='img' aria-label='Settings' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
+    yield "      <!-- outer ring -->"
+    yield "      <circle cx='12' cy='12' r='7'/>"
+    yield "      <!-- teeth (flat) -->"
+    yield "      <rect x='11' y='1'  width='2' height='4' rx='1' fill='currentColor' stroke='none'/>"
+    yield "      <rect x='11' y='19' width='2' height='4' rx='1' fill='currentColor' stroke='none'/>"
+    yield "      <rect x='1'  y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none'/>"
+    yield "      <rect x='19' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none'/>"
+    yield "      <rect x='11' y='1'  width='2' height='4' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
+    yield "      <rect x='11' y='19' width='2' height='4' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
+    yield "      <rect x='1'  y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
+    yield "      <rect x='19' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
+    yield "      <!-- hub -->"
+    yield "      <circle cx='12' cy='12' r='2.25'/>"
+    yield "    </svg>"
+    yield "</a>"
+    yield "</h2>"
+  
+    yield "<p id='update_time'>--</p>"
+
+    yield "<form method='get' style='margin-top:1rem;'>"
+    #yield "<label for='sensor_id'>Location </label>"
+    yield "<select name='sensor_id' id='sensor_id' onchange='this.form.submit()' style='background-color:#e6faff;'>"
+    # treat any non 'loc:*' as All (back-compat: direct sensor ids will land here)
+    is_loc_filter = isinstance(sensor_id, str) and sensor_id.startswith("loc:")
+    yield f"<option value='All' {'selected' if (not is_loc_filter or sensor_id == 'All') else ''}>All Locations</option>"
+    for norm, disp in known_items:
+        val = f"loc:{disp}"
+        sel = "selected" if sensor_id == val else ""
+        yield f"<option value='{val}' {sel}>{disp}</option>"
+    yield "</select>"
+    yield "<a id='refresh_link' class='refresh-link' href='/' title='Refresh dashboard' aria-label='Refresh dashboard'>⟳</a>"
+    yield "</form>"
+    
+    # Per-sensor gauge blocks
+    for sid, sensor_metrics in expected_gauge_map.items():
+        sidLower = sid.lower()
+        sidUpper = sid.upper()
+        values = all_values.get(sid) or {}
+        stats  = all_stats.get(sid)  or {}
+        topic = f"sensor/{sid}/data"
+        location = (sensor_locations or {}).get(sid) or ""
+        # ---- measurement status indicator ----
+        _meas_status = _resolve_meas_status(sid)
+        _dot_color   = _status_color_hex(_meas_status)
+
+        yield f"<div style='text-align:center; width:100%; margin-top:1rem;'>"
+  
+        yield f"<h3 id='{sid}_header'>"      
+        yield (            
+            f" <span class='sensor-status-dot' id='{sid}_statusdot' data-sid='{sid}'"
+            f"      title='Connection status: {_meas_status}' "
+            f"      aria-label='Connectionss status: {_meas_status}' "
+            f"      style='display:inline-block;width:15px;height:15px;"
+            f"             border-radius:50%;vertical-align:middle;margin-right:6px;margin-bottom:4px;"
+            f"             background:{_dot_color};border:1px solid #666;'></span>"
+            f" {sidUpper} "
+        )        
+        yield f"  <a href='#' onclick=\"window.editSensorSettings && window.editSensorSettings('{sidLower}'); return false;\" title='Open {sid} Settings' style='margin-left:2px; margin-right:8px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
+        yield "    <svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' role='img' aria-label='Settings' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
+        yield "      <!-- outer ring -->"
+        yield "      <circle cx='12' cy='12' r='7'/>"
+        yield "      <!-- teeth (flat) -->"
+        yield "      <rect x='11' y='1'  width='2' height='4' rx='1' fill='currentColor' stroke='none'/>"
+        yield "      <rect x='11' y='19' width='2' height='4' rx='1' fill='currentColor' stroke='none'/>"
+        yield "      <rect x='1'  y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none'/>"
+        yield "      <rect x='19' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none'/>"
+        yield "      <rect x='11' y='1'  width='2' height='4' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
+        yield "      <rect x='11' y='19' width='2' height='4' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
+        yield "      <rect x='1'  y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
+        yield "      <rect x='19' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
+        yield "      <!-- hub -->"
+        yield "      <circle cx='12' cy='12' r='2.25'/>"
+        yield "    </svg>"
+        yield "  </a>"
+        yield (f"{location}")
+
+        yield "</h3>"
+        yield "</div>"
+        yield f"<div class='sensor-row' id='row_{sid}'>"
+
+        for metric in sensor_metrics:
+            if metric not in gauge_config:
+                continue
+            config = gauge_config[metric]
+            val = values.get(metric)
+            if val is None:
+                for k in values.keys():
+                    if k.lower().replace("-", "").replace("_", "") == metric.lower().replace("-", "").replace("_", ""):
+                        val = values[k]
+                        break
+
+            stat = stats.get(metric, {})
+            display_val = val if val is not None else "--"
+
+            from datetime import datetime
+
+            def _strip_microseconds(ts: str) -> str:
+                try:
+                    dt = datetime.fromisoformat(ts).replace(microsecond=0)
+                    if dt.tzinfo:
+                        dt = dt.replace(tzinfo=None)
+                    return dt.isoformat(sep=" ")
+                except Exception:
+                    # Best-effort: remove fractional seconds and any trailing TZ offset
+                    try:
+                        return re.sub(r"(Z|[+-]\d{2}:\d{2})$", "", re.sub(r"\.\d{1,6}(?=Z|[+-]\d{2}:\d{2}|$)", "", ts))
+                    except Exception:
+                        return ts  # leave unchanged if it can’t be parsed
+        
+            min_val = stat.get("min", "--")
+            avg_val = stat.get("avg", "--")
+            max_val = stat.get("max", "--")
+            min_ts = stat.get("min_ts", "--")
+            max_ts = stat.get("max_ts", "--")
+            if isinstance(min_ts, str):
+                #min_ts = min_ts.replace("T", "<br>")
+                min_ts = _strip_microseconds(min_ts).replace(" ", "<br>")
+            if isinstance(max_ts, str):
+                #max_ts = max_ts.replace("T", "<br>")
+                max_ts = _strip_microseconds(max_ts).replace(" ", "<br>")
+            try:
+                avg_val = f"{float(avg_val):.1f}"
+            except Exception:
+                pass
+
+            safe_metric = _safe(metric)
+            safe_id = f"{sid}_{safe_metric}"
+
+            yield f"<div class='metric-container' id='{safe_id}_container' data-sensor='{sid}' data-metric='{metric}'>"
+            yield f"<div class='metric-title'>{metric} ({config['unit']})</div>"
+
+            yield "<div class='gauge-container'>"
+            yield f"<div class='gauge-view'><canvas id='{safe_id}Gauge'></canvas></div>"
+            yield "</div>"
+
+            yield "<div class='graph-container'>"
+            yield f"<div class='graph-view'>"
+            yield f"<canvas class='micrograph-canvas' width='{layout['canvas_width']}' height='{layout['canvas_height']}'></canvas>"
+            yield "</div>"
+            yield "</div>"
+
+            yield f"<div class='metric-current-value' id='{safe_id}_val'>{display_val}</div>"
+
+            yield f"<div class='metric-stats' id='{safe_id}_stats'>"
+
+            yield f"<div>Min<br><small>{min_val} at<br>{min_ts}</small></div>"
+            yield f"<div>Avg<br>{avg_val}</div>"
+            yield f"<div>Max<br><small>{max_val} at<br>{max_ts}</small></div>"
+
+            yield "</div>"  # metric-stats
+            yield "</div>"  # metric-container
+
+        matched_switches = switches_by_loc.get(_norm_loc(location), [])
+
+        if DEBUG and matched_switches:
+            printDM(f"[render_dashboard] {sid} @ '{location}' matched {len(matched_switches)} switch controller(s)", location="rPiHtml")
+
+        # ── render-time dedupe: ensure each switch_id renders at most once per location ──
+        _rendered_swids_here: set[str] = set()
+
+        for switch_ctrl in matched_switches:
+            # Normalize id for dedupe (case-insensitive); also keep raw for lookups/UI
+            sw_id: str = (getattr(switch_ctrl, "switch_id", "") or "").strip()
+            sw_id_key: str = sw_id.lower() if sw_id else "__no_switch_id__"
+
+            if sw_id_key in _rendered_swids_here:
+                if DEBUG:
+                    printDM(f"[render_dashboard] skip duplicate render of switch '{sw_id}' in location '{location}'", location="rPiHtml")
+                continue
+            _rendered_swids_here.add(sw_id_key)
+
+            # ------ decide which labels to render (prefer on-disk truth) ------
+            render_labels = []
+
+            try:
+                doc = sw_mgr.load(sw_id) or {}
+                sw_blk = doc.get("Switch", {}) if isinstance(doc, dict) else {}
+
+                sw_type = str(sw_blk.get("TYPE", "") or "").strip().lower()
+                has_en_keys = ("SWITCH_1_EN" in sw_blk) or ("SWITCH_2_EN" in sw_blk)
+
+                if sw_type in ("picow", "pico2w") or has_en_keys:
+                    # Pico2 W: *_EN means enabled
+                    pairs = [("SWITCH_1", "SWITCH_1_EN"), ("SWITCH_2", "SWITCH_2_EN")]
+                    tmp = []
+                    for lbl_key, en_key in pairs:
+                        label = (sw_blk.get(lbl_key) or "").strip()
+                        en_val = sw_blk.get(en_key, "")
+                        enabled = (isinstance(en_val, (int, float)) or (isinstance(en_val, str) and en_val.strip() != ""))
+                        if label and enabled:
+                            tmp.append(label)
+                    if tmp:
+                        render_labels = tmp
+                else:
+                    # Pi: require BOTH a label and an integer PIN to render the channel
+                    tmp = []
+                    for n in range(1, 33):
+                        label = (str(sw_blk.get(f"SWITCH_{n}", "") or "").strip())
+                        pin   = sw_blk.get(f"SWITCH_{n}_PIN", None)
+                        if not label:
+                            continue
+                        if isinstance(pin, (int, float)):
+                            tmp.append(label)
+                    if tmp:
+                        render_labels = tmp
+
+            except Exception:
+                # fall back below
+                pass
+
+            # Final fallback: whatever the controller reported (may be stale)
+            if not render_labels:
+                render_labels = list(getattr(switch_ctrl, "switches", []))
+
+            # ----------------------------------------------------------------------
+            yield "<div class='switch-metric-container'>"
+            yield f"<div style='text-align:center; width:100%; margin-top:-1.5rem; margin-bottom:-1.0rem;'>"
+            yield f"<h3 id='{sw_id}_header'>{sw_id.upper()} "
+            yield f"  <a href='javascript:void(0)' onclick='editSwitchSettings(\"{sw_id}\")' title='Open {sw_id} Settings' style='margin-left:2px; margin-right:8px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
+            yield "    <svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' role='img' aria-label='Settings' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
+            yield "      <circle cx='12' cy='12' r='7'/>"
+            yield "      <rect x='11' y='1'  width='2' height='4' rx='1' fill='currentColor' stroke='none'/>"
+            yield "      <rect x='11' y='19' width='2' height='4' rx='1' fill='currentColor' stroke='none'/>"
+            yield "      <rect x='1'  y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none'/>"
+            yield "      <rect x='19' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none'/>"
+            yield "      <rect x='11' y='1'  width='2' height='4' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
+            yield "      <rect x='11' y='19' width='2' height='4' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
+            yield "      <rect x='1'  y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
+            yield "      <rect x='19' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
+            yield "      <circle cx='12' cy='12' r='2.25'/>"
+            yield "    </svg>"
+            yield "  </a>"
+            yield f"{switch_ctrl.location}</h3>"
+            yield "</div>"
+
+            yield "<div class='switch-container'>"
+            yield "<div class='switch-view'>"
+
+            yield "<table class='switch-table'>"
+            yield "<thead><tr>"
+            yield "<th>Switch</th><th>State</th><th>Automation</th><th>Events</th>"
+            yield "</tr></thead>"
+            yield "<tbody>"
+
+            # if nothing is enabled for a Pico2 W, show a friendly row
+            if not render_labels:
+                yield "<tr><td colspan='4' style='opacity:0.7;'>No enabled switch channels</td></tr>"
+
+            for label in render_labels:
+                safe_label = label.lower().replace(" ", "_")
+                is_on = bool(getattr(switch_ctrl, "last_state", {}).get(label, False))
+                state_str = "on" if is_on else "off"
+                current_state_text = " ON" if is_on else "OFF"
+                override_enabled = bool(getattr(switch_ctrl, "override_script", {}).get(label, False))
+                checked_attr = "checked" if override_enabled else ""
+                last_time_str = getattr(switch_ctrl, "last_set_time", {}).get(label, "")
+
+                # ── build a stable key "hostname::label" when hostname exists ─────────
+                switch_key = f"{sw_id}::{label}" if sw_id else f"::{label}"  
+                box_id  = f"{sw_id}-{safe_label}_box" if sw_id else f"{safe_label}_box"
+                state_id= f"{sw_id}-{safe_label}_state" if sw_id else f"{safe_label}_state"
+                time_id = f"{sw_id}-{safe_label}_time"  if sw_id else f"{safe_label}_time"
+                
+                yield "<tr>"
+                yield f"<td>{label}</td>"
+                # Switch cell
+                yield "<td>"
+                yield (
+                    f"<button "
+                    f"  id='{box_id}_btn' "
+                    f"  class='button {'green' if is_on else 'black'}' "
+                    f"  title='Toggle state for {label}' "
+                    f"  data-switch-name='{label}' "
+                    f"  data-switch-key='{switch_key}' "
+                    f"  data-switch-id='{sw_id}' "
+                    f"  data-state='{state_str}' "
+                    f"  onclick='toggleSwitchInline(this)'>"
+                    f"{'On' if is_on else 'Off'}"
+                    f"</button>"
+                )
+                yield "</td>"
+
+                # Override checkbox cell
+                # --- Automation button cell (replaces previous checkbox) ---
+                label_norm = (label or "").strip()
+                safe_key   = _safe(f"{getattr(switch_ctrl,'switch_id','')}_{label_norm}_automation")
+
+                try:
+                    from rPiAutomationManager import AutomationManager
+                    am  = AutomationManager()
+                    sid = getattr(switch_ctrl, "switch_id", "") or ""
+                    switch_key_full = f"{sid}::{label_norm}" if sid else f"::{label_norm}"
+                    rule_enabled = am.get_advanced_enabled_for_switch_key(sid, switch_key_full)
+                except Exception:
+                    rule_enabled = False
+
+                enabled = bool(rule_enabled)
+
+
+                # Button shows Enabled/Disabled and uses our existing .button .green/.black styles
+                yield "<td>"
+                yield (
+                    f'<button '
+                    f'  id="{safe_key}_btn" '
+                    f'  class="button {"green" if enabled else "black"}" '
+                    f'  title="Enable/Disable automation for {label_norm}" '
+                    f'  onclick="toggleAutomation(this, {json.dumps(getattr(switch_ctrl, "switch_id", ""))!s}, {json.dumps(label_norm)!s}); return false;">'
+                    f'{"Enabled" if enabled else "Disabled"}'
+                    f'</button>'
+                )
+                yield "</td>"
+
+                yield "<td>"
+                yield f"  <div id='{safe_label}_events' class='switch-events' role='listbox' aria-label='Recent switch events'>"
+                yield f"    <ul id='{safe_label}_events_list' class='switch-events-list' data-switch-key='{switch_key}'></ul>"
+                yield f"  </div>"
+                yield "</td>"
+                yield "</tr>"                
+                
+            yield "</tbody>"
+            yield "</table>"
+            yield "</div>"  # .switch-view
+            yield "</div>"  # .switch-container
+            yield "</div>"  # .switch-metric-container
+
+        yield "</div>"  # sensor-row
+
+    # --- z-index so toasts always appear above stacked modals ---
+    yield "<style>"
+    yield ".toast-container{position:fixed; top:16px; left:50%; transform:translateX(-50%); z-index:99999}"
+    yield ".toast{padding:10px 14px; border-radius:8px; background:#222; color:#fff; box-shadow:0 2px 10px rgba(0,0,0,.25)}"
+    yield ".toast.ok{background:#1f693a}"
+    yield ".toast.error{background:#8b0000}"
+    yield ".onboard-overlay{z-index: 99990}"      # ensure overlay is high
+    yield ".onboard-modal{position:relative; z-index: 99991}"
+    yield "</style>"
+
+    
+    yield "<script type='module'>"
+    yield "\"use strict\";"
+    
+    yield "let stepCount = 0;"
+    yield f"const gaugeConfig = {json.dumps(gauge_config)};"
+    yield f"const currentValues = {json.dumps(all_values)};"
+    yield f"const sensorStats = {json.dumps(all_stats)};"
+    yield f"const expectedGaugeMap = {json.dumps(expected_gauge_map)};"
+    yield "const lastTimestamps = {};"
+    yield f"const displayStyle = {json.dumps(display_style_js)};"
+    yield "window.displayStyle = displayStyle;"
+
+    yield "function toSafe(s) { return (s || '').replace(/[^A-Za-z0-9_-]/g, '_'); }"
+
+    yield "if (window.location.search.includes('refresh=true')) {"
+    yield "  window.history.replaceState(null, '', window.location.pathname);"
+    yield "  window.location.reload(true);"
+    yield "}"
+
+    yield "function closeMenu() {"
+    yield "  const menu = document.getElementById('menu');"
+    yield "  if (menu) menu.style.display = 'none';"
+    yield "}"
+
+    yield "function updateLocalTime() {"
+    yield "  const ts = document.getElementById('update_time');"
+    yield "  if (ts) {"
+    yield "    const now = new Date();"
+    yield "    const formatted = now.toLocaleString('en-CA', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' }).replace(',', '');"
+    yield "    ts.textContent = formatted;"
+    yield "  }"
+    yield "}"
+
+    # Dynamic sensor UI helpers 
+    yield "document.addEventListener('DOMContentLoaded',()=>{"
+    yield "  const form = document.querySelector('form');"
+    yield "  const btn = document.getElementById('saveBtn');"
+    yield "  const spinner = document.getElementById('saveSpinner');"
+    yield "  if(form && btn && spinner){"
+    yield "    form.addEventListener('submit',()=>{"
+    yield "      spinner.style.display='inline-block';"
+    yield "      btn.disabled=true;"
+    yield "    });"
+    yield "  }"
+    yield "});"
+    
+    yield "let knownSensors = new Set();"
+
+    yield "function ensureSensorInSelector(sid) {"
+    yield "  const sel = document.getElementById('sensorSelect');"
+    yield "  if (!sel) return;"
+    yield "  if (![...sel.options].some(o => o.value === sid)) {"
+    yield "    const opt = document.createElement('option');"
+    yield "    opt.value = sid;"
+    yield "    opt.textContent = sid;"
+    yield "    sel.appendChild(opt);"
+    yield "  }"
+    yield "}"
+
+    yield "function ensureSensorUI(sid, metricList, locationText) {" 
+    yield " if (!sid) return;" 
+    yield " const pageSensor = document.getElementById('sensor_id')?.value || 'All';" 
+    yield " if (pageSensor !== 'All' && pageSensor !== sid) return;" 
+    yield "" 
+    yield " const safeId = (x) => x.replace(/[^a-zA-Z0-9_\\-]/g,'_');" 
+    yield " const toSafeMetric = (m) => (typeof toSafe === 'function' ? toSafe(m) : safeId(m));" 
+    yield ""  
+    yield " const existingRow = document.querySelector('.sensor-row');" 
+    yield " const byGraphModal = document.getElementById('graphModal')?.parentElement || null;" 
+    yield " const parent = (existingRow && existingRow.parentElement) || byGraphModal || document.body;" 
+    yield ""
+
+    #  Create header if missing        
+    yield "  const headerId = `${sid}_header`; "
+    yield "  if (!document.getElementById(headerId)) {"
+    yield "    const headerWrap = document.createElement('div');"
+    yield "    headerWrap.style.textAlign = 'center';"
+    yield "    headerWrap.style.width = '100%';"
+    yield "    headerWrap.style.marginTop = '-1.5rem';"
+    yield "    headerWrap.style.marginBottom = '-1.0rem';"
+    yield "    const locText = (locationText || sid);"
+    yield "    const sidUpper = (sid || '').toUpperCase();"
+    yield "    const sidLower = (sid || '').toLowerCase();"
+    yield "    const pendingColor = '#ffc107';"  # default; poller will repaint
+    yield "    headerWrap.innerHTML = `"
+    yield "      <h3 id='${sid}_header'>"
+    yield "        <span class='sensor-status-dot' id='${sid}_statusdot' data-sid='${sid}'"
+    yield "              title='Connection status: pending' aria-label='Connections status: pending'"
+    yield "              style='display:inline-block;width:15px;height:15px;border-radius:50%;"
+    yield "                     vertical-align:middle;margin-right:6px;margin-bottom:4px;"
+    yield "                     background:${pendingColor};border:1px solid #666;'></span>"
+    yield "        ${sidUpper}"
+    yield f"       <a href='#' onclick=\"window.editSensorSettings && window.editSensorSettings('{sidLower}'); return false;\" title='Open {sid} Settings' style='margin-left:2px; margin-right:8px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
+    yield "          <svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' role='img' aria-label='Settings' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
+    yield "            <circle cx='12' cy='12' r='7'/>"
+    yield "            <rect x='11' y='1'  width='2' height='4' rx='1' fill='currentColor' stroke='none'/>"
+    yield "            <rect x='11' y='19' width='2' height='4' rx='1' fill='currentColor' stroke='none'/>"
+    yield "            <rect x='1'  y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none'/>"
+    yield "            <rect x='19' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none'/>"
+    yield "            <rect x='11' y='1'  width='2' height='4' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
+    yield "            <rect x='11' y='19' width='2' height='4' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
+    yield "            <rect x='1'  y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
+    yield "            <rect x='19' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
+    yield "            <circle cx='12' cy='12' r='2.25'/>"
+    yield "          </svg>"
+    yield "        </a>"
+    yield "        ${locText}"
+    yield "      </h3>`;"
+    yield "    parent.appendChild(headerWrap);"
+    yield "  } else {"
+    yield "    const hdr = document.getElementById(headerId);"
+    yield "    if (hdr && !document.getElementById(`${sid}_statusdot`)) {"
+    yield "      const dot = document.createElement('span');"
+    yield "      dot.className = 'sensor-status-dot';"
+    yield "      dot.id = `${sid}_statusdot`;"
+    yield "      dot.setAttribute('data-sid', sid);"
+    yield "      dot.setAttribute('title', 'Connection status: pending');"
+    yield "      dot.setAttribute('aria-label', 'Connection status: pending');"
+    yield "      dot.setAttribute('style', 'display:inline-block;width:15px;height:15px;border-radius:50%;"
+    yield "                                   vertical-align:middle;margin-right:6px;margin-bottom:4px;"
+    yield "                                   background:#ffc107;border:1px solid #666;');"
+    yield "      hdr.insertBefore(dot, hdr.firstChild);"
+    yield "    }"
+    yield "  }"
+    
+    #  Create row wrapper if missing
+    yield "  const rowId = `row_${sid}`;"
+    yield "  let row = document.getElementById(rowId);"
+    yield "  if (!row) {"
+    yield "    row = document.createElement('div');"
+    yield "    row.id = rowId;"
+    yield "    row.className = 'sensor-row';"
+    yield "    parent.appendChild(row);"
+    yield "  }"
+    yield ""
+    #  Ensure metric containers exist
+    yield "  (metricList || []).forEach(metric => {"
+    yield "    const safeMetric = toSafeMetric(metric);"
+    yield "    const containerId = `${sid}_${safeMetric}_container`;"
+    yield "    if (document.getElementById(containerId)) return;"
+    yield ""
+    yield "    const container = document.createElement('div');"
+    yield "    container.className = 'metric-container';"
+    yield "    container.id = containerId;"
+    yield "    container.dataset.sensor = sid;"
+    yield "    container.dataset.metric = metric;"
+    yield ""
+    yield "    const safe = `${sid}_${safeMetric}`;"
+    yield "    container.innerHTML = "
+    yield "      `<div class='metric-title'>${metric}</div>` +"
+    yield "      `<div class='gauge-container'><div class='gauge-view' id='${safe}GaugeContainer'>` +"
+    yield "        `<canvas id='${safe}Gauge'></canvas>` +"
+    yield "      `</div></div>` +"
+    yield "      `<div class='metric-current-value' id='${safe}_val'>--</div>` +"
+    yield "      `<div class='metric-stats' id='${safe}_stats'>` +"
+    yield "        `<div>Min<br><small>--</small></div>` +"
+    yield "        `<div>Avg<br>--</div>` +"
+    yield "        `<div>Max<br><small>--</small></div>` +"
+    yield "      `</div>`;"
+    yield ""
+    yield "    row.appendChild(container);"
+    yield "    if (window.ensureContainerDisplayStyle) {"
+    yield "      window.ensureContainerDisplayStyle(container);"
+    yield "    }"
+    yield "  });"
+    yield "}"
+
+    # helpers for what type of metric container is being displayed
+    yield "window.DISPLAY_STYLES = ['Gauge', 'Graph6hr', 'Graph24hr'];"
+    yield "window.metricDisplayStyles = window.metricDisplayStyles || {};"
+
+    yield "window.normalizeDisplayStyle = function(raw) {"
+    yield "  const s = (raw || '').toString().toLowerCase();"
+    yield "  if (s === 'gauge') return 'Gauge';"
+    yield "  if (s === 'graph' || s === 'graph24' || s === 'graph24hr' || s === '24h' || s === '24hr') return 'Graph24hr';"
+    yield "  if (s === 'graph6' || s === 'graph6hr' || s === '6h' || s === '6hr') return 'Graph6hr';"
+    yield "  return 'Gauge';"
+    yield "};"
+
+    yield "window.detectDisplayStyleFromDom = function(container) {"
+    yield "  if (!container) return 'Gauge';"
+    yield "  const ds = container.dataset.displayStyle;"
+    yield "  if (ds) return window.normalizeDisplayStyle(ds);"
+    yield "  const hasMicro = !!container.querySelector('.micrograph-canvas');"
+    yield "  if (hasMicro) {"
+    yield "    const r1 = container.dataset.range || container.dataset.graphRange || '';"
+    yield "    const r = r1.toString().toLowerCase();"
+    yield "    if (r.indexOf('6') >= 0) return 'Graph6hr';"
+    yield "    return 'Graph24hr';"
+    yield "  }"
+    yield "  const hasGauge = !!container.querySelector('canvas[id$=\"Gauge\"]');"
+    yield "  if (hasGauge) return 'Gauge';"
+    yield "  return 'Gauge';"
+    yield "};"
+
+    yield "window.registerContainerStyle = function(container, style) {"
+    yield "  if (!container || !container.id) return;"
+    yield "  const norm = window.normalizeDisplayStyle(style);"
+    yield "  window.metricDisplayStyles[container.id] = norm;"
+    yield "  container.dataset.displayStyle = norm;"
+    yield "};"
+
+    yield "window.getContainerStyle = function(container) {"
+    yield "  if (!container || !container.id) return 'Gauge';"
+    yield "  const fromMap = window.metricDisplayStyles[container.id];"
+    yield "  if (fromMap) return fromMap;"
+    yield "  const inferred = window.detectDisplayStyleFromDom(container);"
+    yield "  window.metricDisplayStyles[container.id] = inferred;"
+    yield "  container.dataset.displayStyle = inferred;"
+    yield "  return inferred;"
+    yield "};"
+
+    yield "window.getContainerStyleById = function(containerId) {"
+    yield "  if (!containerId) return 'Gauge';"
+    yield "  const el = document.getElementById(containerId);"
+    yield "  if (!el) return 'Gauge';"
+    yield "  return window.getContainerStyle(el);"
+    yield "};"
+
+    yield "document.addEventListener('DOMContentLoaded', function() {"
+    yield "  try {"
+    yield "    const all = document.querySelectorAll('.metric-container');"
+    yield "    all.forEach(function(c) {"
+    yield "      if (!c.id) return;"
+    yield "      const cur = window.metricDisplayStyles[c.id];"
+    yield "      if (cur) {"
+    yield "        c.dataset.displayStyle = cur;"
+    yield "      } else {"
+    yield "        const inferred = window.detectDisplayStyleFromDom(c);"
+    yield "        window.metricDisplayStyles[c.id] = inferred;"
+    yield "        c.dataset.displayStyle = inferred;"
+    yield "      }"
+    yield "    });"
+    yield "  } catch (e) {"
+    yield "    console.warn('init metricDisplayStyles error', e);"
+    yield "  }"
+    yield "});"
+
+    # ---- gauge init ----
+    yield "function initGauge() {"
+    yield "  const metricContainers = document.querySelectorAll('.metric-container');"
+    yield "  metricContainers.forEach(container => {"
+    yield "    const sensor = container.dataset.sensor;"
+    yield "    const metric = container.dataset.metric;"
+    yield "    const safe = `${sensor}_${toSafe(metric)}`;"
+    yield "    const canvasId = `${safe}Gauge`;"
+    yield "    const labelId = `${safe}_val`;"
+    yield "    const canvas = document.getElementById(canvasId);"
+    yield "    const label = document.getElementById(labelId);"
+    yield "    if (!canvas || !label) return;"  # only skip if structure truly broken
+    yield "    const config = gaugeConfig?.[metric];"
+    yield "    if (!config) return;"
+    yield "    let value = currentValues?.[sensor]?.[metric];"
+    yield "    const isNull = (value == null);"
+    yield "    if (isNull) value = 0;"
+    yield "    const opts = {"
+    yield "      angle: -0.2, lineWidth: 0.25, radiusScale: 0.9,"
+    yield "      pointer: { length: 0.5, strokeWidth: 0.035, color: '#000000' },"
+    yield "      staticZones: config.zones || [],"
+    yield "      staticLabels: {"
+    yield "        font: '12px sans-serif',"
+    yield "        labels: config.ticks, color: '#000', fractionDigits: 1"
+    yield "      },"
+    yield "      colorStart: '#6FADCF', colorStop: '#8FC0DA', strokeColor: '#E0E0E0',"
+    yield "      generateGradient: true, highDpiSupport: true"
+    yield "    };"
+    yield "    canvas.width = 160;"
+    yield "    canvas.height = 160;"
+    yield "    const gauge = new Gauge(canvas).setOptions(opts);"
+    yield "    gauge.maxValue = config.max;"
+    yield "    gauge.setMinValue(config.min);"
+    yield "    gauge.animationSpeed = 32;"
+    yield "    gauge.set(value);"
+    yield "    gauge.render();"
+    yield "    window[`${safe}_gauge`] = gauge;"
+    yield "    label.innerText = isNull ? '--' : value + ' ' + config.unit;"
+    yield "    if (window.registerContainerStyle) {"
+    yield "      window.registerContainerStyle(container, 'Gauge');"
+    yield "    }"    
+    yield "  });"
+    yield "}"
+
+    # ---- onload setup and periodic refreshes ----
+    yield "let retryCount = 0;"
+    yield "const maxRetries = 3;"
+    yield "function checkAndRetryIfNoGauges() {"
+    yield "  let retryNeeded = false;"
+    yield "  for (const [sensorID, metrics] of Object.entries(expectedGaugeMap)) {"
+    yield "    for (const metric of metrics) {"
+    yield "      const sensor = sensorID;"
+    yield "      const metricLabel = metric;"
+    yield "      const safe = `${sensor}_${toSafe(metricLabel)}`;"
+    yield "      const el = document.getElementById(`${safe}_val`);"
+    yield "      if (!el) {"
+    yield "        retryNeeded = true;"
+    yield "        console.log(`[checkAndRetry] Missing gauge: ${safe}`);"
+    yield "      }"
+    yield "    }"
+    yield "  }"
+    yield "  if (retryNeeded) {"
+    yield "    if (retryCount < maxRetries) {"
+    yield "      retryCount++;"
+    yield "      console.log(`[checkAndRetry] Retrying initGauge() in 1s (attempt ${retryCount})`);"
+    yield "      setTimeout(initGauge, 1000);"
+    yield "    } else {"
+    yield "      console.log(`[checkAndRetry] Max retries reached.`);"
+    yield "    }"
+    yield "  }"
+    yield "}"
+    
+    yield "document.addEventListener('DOMContentLoaded', () => {"
+    #  Seed known sensors from server-rendered expectation map
+    yield "  try { knownSensors = new Set(Object.keys(expectedGaugeMap || {})); } catch(_) { knownSensors = new Set(); }"
+    yield "  checkAndRetryIfNoGauges();"
+    yield "});"
+
+    # ---- async functions ----
+    yield "function formatIsoForStats(ts) {"
+    yield "  if (!ts || typeof ts !== 'string') return '--';"
+    # Remove fractional seconds like .123456 just before Z, an offset, or end
+    yield "  const noMicros = ts.replace(/\\.\\d{1,6}(?=Z|[+-]\\d{2}:\\d{2}|$)/, '');"
+    # Strip trailing timezone info (Z or ±HH:MM)
+    yield "  const noTz = noMicros.replace(/(Z|[+-]\\d{2}:\\d{2})$/, '');"
+    # Turn date/time separator into a line break for the stats block
+    yield "  return noTz.replace('T', '<br>').replace(' ', '<br>');"
+    yield "}"
+    yield ""
+    yield "function renderStatsHtml(minVal, avgVal, maxVal, minTs, maxTs) {"
+    yield "  return `<div>Min<br><small>${minVal} at<br> ${minTs}</small></div>` +"
+    yield "         `<div>Avg<br>${avgVal}</div>` +"
+    yield "         `<div>Max<br><small>${maxVal} at<br> ${maxTs}</small></div>`;"
+    yield "}"
+    yield ""
+    yield "function toFixedOrDash(v) {"
+    yield "  const n = Number.parseFloat(v);"
+    yield "  return Number.isFinite(n) ? n.toFixed(1) : '--';"
+    yield "}"
+
+    yield "async function updateGauges() {"
+    yield "  const sensorIdEl = document.getElementById('sensor_id');"
+    yield "  const sensorId = sensorIdEl ? sensorIdEl.value : 'All';"
+    yield "  let d = null;"
+    #yield "  console.warn('updateGauges: step 1 - get sensor data');"
+    
+    yield "  try {"
+    yield "    const res = await fetch(window.location.pathname + '?json_only=true&sensor_id=' + encodeURIComponent(sensorId));"
+    yield "    if (!res.ok) {"
+    yield "      console.warn('updateGauges: non-OK response', res.status);"
+    yield "      return;"
+    yield "    }"
+    yield "    d = await res.json();"
+    yield "  } catch (e) {"
+    yield "    console.warn('updateGauges: fetch failed', e);"
+    yield "    return;"
+    yield "  }"
+    yield ""
+    #yield "  console.warn('updateGauges: step 2 - check switch events');"
+    
+    yield "  const available = Array.isArray(d.available) ? d.available : [];"
+    yield "  const nextExpMap = d.expected_gauge_map || {};"
+    yield "  const locations  = d.locations || {};"
+    yield ""
+    yield "  if (d.switch_status) {"
+    yield "    try { updateSwitchEventsFromStatus(d.switch_status); }"
+    yield "    catch (e) { console.warn('updateSwitchEventsFromStatus failed', e); }"
+    yield "  }"
+    yield ""
+    #yield "  console.warn('updateGauges: step 3 - sensor available loop');"
+    
+    yield "  for (const sid of available) {"
+    yield "    const metrics = Array.isArray(nextExpMap[sid]) ? nextExpMap[sid] : [];"
+    yield "    if (!metrics.length) continue;"
+    yield ""
+    yield "    if (!knownSensors.has(sid)) {"
+    yield "      ensureSensorInSelector(sid);"
+    yield "      expectedGaugeMap[sid] = metrics;"
+    yield "      ensureSensorUI(sid, metrics, locations[sid]);"
+    yield "      try { initGauge(); }"
+    yield "      catch (e) { console.error('initGauge() failed for new sensor', sid, e); }"
+    yield "      knownSensors.add(sid);"
+    yield "      refreshOnceAfterSensorAdded();"
+    yield "    } else {"
+    yield "      const needsNewUI = metrics.some(m => {"
+    yield "        const safeM = (typeof toSafe === 'function') ? toSafe(m) : m.replace(/[^a-zA-Z0-9_\\-]/g,'_');"
+    yield "        return !document.getElementById(`${sid}_${safeM}_container`);"
+    yield "      });"
+    yield "      if (needsNewUI) {"
+    yield "        expectedGaugeMap[sid] = metrics;"
+    yield "        ensureSensorUI(sid, metrics, locations[sid]);"
+    yield "        try { initGauge(); }"
+    yield "        catch (e) { console.error('initGauge() failed while extending metrics', sid, e); }"
+    yield "      }"
+    yield "    }"
+    yield "  }"  # close for sid of available
+    yield ""
+    yield "  const values     = d.values      || {}; "
+    yield "  const stats      = d.stats       || {}; "
+    yield "  const timestamps = d.timestamps  || {}; "
+    yield ""
+    yield "  let dataChanged = false;"
+    yield "  for (const sid in timestamps) {"
+    yield "    const newTs = timestamps[sid];"
+    yield "    const oldTs = lastTimestamps[sid];"
+    yield "    if (newTs && newTs !== oldTs) {"
+    yield "      dataChanged = true;"
+    yield "      lastTimestamps[sid] = newTs;"
+    yield "    }"
+    yield "  }"
+    yield ""
+    #yield "  console.warn('updateGauges: step 4 - check sensor stats');"
+    
+    yield "  for (const sid in values) {"
+    yield "    const vset = values[sid] || {};"
+    yield "    const sset = stats[sid]  || {};"
+    yield "    for (const metric in vset) {"
+    yield "      const safe = `${sid}_${toSafe(metric)}`;"
+    yield "      const val  = vset[metric];"
+    yield "      const labelEl = document.getElementById(`${safe}_val`);"
+    yield "      const g       = window[`${safe}_gauge`];"
+    yield "      if (labelEl) {"
+    yield "        const unit = (gaugeConfig?.[metric]?.unit) || '';"
+    yield "        labelEl.textContent = (typeof val === 'number') ? `${val} ${unit}` : '--';"
+    yield "      }"
+    yield "      if (g && typeof val === 'number') {"
+    yield "        try { g.set(val); } catch (e) { console.warn('Gauge set() failed', safe, e); }"
+    yield "      }"
+    yield ""
+    yield "      const stat = sset[metric] || {};"
+    yield "      const min = toFixedOrDash(stat.min);"
+    yield "      const avg = toFixedOrDash(stat.avg);"
+    yield "      const max = toFixedOrDash(stat.max);"
+    yield ""
+    yield "      let min_ts = (stat.min_ts !== undefined && stat.min_ts !== null) ? String(stat.min_ts) : '--';"
+    yield "      let max_ts = (stat.max_ts !== undefined && stat.max_ts !== null) ? String(stat.max_ts) : '--';"
+    yield "      if (min_ts !== '--') min_ts = formatIsoForStats(min_ts);"
+    yield "      if (max_ts !== '--') max_ts = formatIsoForStats(max_ts);"
+    yield ""
+    yield "      const blk = document.getElementById(`${safe}_stats`);"
+    yield "      if (blk) blk.innerHTML = renderStatsHtml(min, avg, max, min_ts, max_ts);"
+    yield "    }"
+    yield "  }"
+    yield ""
+    yield "  const ts = document.getElementById('update_time');"
+    yield "  if (ts) {"
+    yield "    const flashClass = dataChanged ? 'flash-green' : 'flash-red';"
+    yield "    ts.classList.remove('flash-green', 'flash-red');"
+    yield "    void ts.offsetWidth;"
+    yield "    ts.classList.add(flashClass);"
+    yield "    setTimeout(() => ts.classList.remove(flashClass), 1000);"
+    yield "  }"
+    yield "  if (dataChanged && typeof window.refreshAllMicrographs === 'function') {"
+    yield "    window.refreshAllMicrographs(true);"
+    yield "  }"
+    yield ""
+    yield "}"
+          
+    # Call this right after a sensor is fully onboarded and all metrics were rendered:
+    yield "function refreshOnceAfterSensorAdded() {"
+    yield "  try {"
+    # avoid refresh loops if user-triggered refresh already occurred
+    yield "    if (!sessionStorage.getItem('didAutoRefreshAfterAdd')) {"
+    yield "        sessionStorage.setItem('didAutoRefreshAfterAdd', '1');"
+    # small delay so UI updates + logs flush, then reload
+    yield "        setTimeout(() => window.location.reload(), 400);"
+    yield "    }"
+    yield "  } catch (e) {"
+    # If storage is disabled, just reload
+    yield "    setTimeout(() => window.location.reload(), 400);"
+    yield "  }"
+    yield "}"
+    
+    # on load, clear the flag so next add can refresh again.
+    yield "window.addEventListener('load', () => {"
+    # If the page made it back up, we can safely clear this.
+    yield "  sessionStorage.removeItem('didAutoRefreshAfterAdd');"
+    yield "});"
+
+    yield "const vpdBackgroundMicro = {"
+    yield "  id: 'vpdBackgroundMicro',"
+    yield "  beforeDraw(chart){"
+    yield "    const { ctx, chartArea, scales, options } = chart;"
+    yield "    if (!options?.plugins?.vpdMicro) return;"
+    yield "    const y = scales?.y || Object.values(scales).find(s => s.type==='linear');"
+    yield "    if (!y) return;"
+    yield "    const zones = ["
+    yield "      { color: '#0033cc', min: 0.0, max: 0.4 },"
+    yield "      { color: '#66cc66', min: 0.4, max: 0.8 },"
+    yield "      { color: '#03a603', min: 0.8, max: 1.2 },"
+    yield "      { color: '#3e803e', min: 1.2, max: 1.6 },"
+    yield "      { color: '#bf9000', min: 1.6, max: 5.0 },"
+    yield "    ];"
+    yield "    ctx.save();"
+    yield "    zones.forEach(z => {"
+    yield "      const yTop = y.getPixelForValue(z.max);"
+    yield "      const yBot = y.getPixelForValue(z.min);"
+    yield "      ctx.fillStyle = z.color;"
+    yield "      ctx.fillRect(chartArea.left, yTop, chartArea.right - chartArea.left, yBot - yTop);"
+    yield "    });"
+    yield "    ctx.restore();"
+    yield "  }"
+    yield "};"
+    yield "if (window.Chart) { try { window.Chart.register(vpdBackgroundMicro); } catch(e){} }"
+  
+    yield "async function showMicrographForContainer(container) {"
+    yield "  if (!container) return;"
+    yield "  if (typeof updateContainerDisplayStyle === 'function') {"
+    yield "    updateContainerDisplayStyle(container);"
+    yield "  }"
+    yield "  const gauge = container.querySelector('.gauge-container');"
+    yield "  const graph = container.querySelector('.graph-container');"
+    yield "  const canvas = container.querySelector('.micrograph-canvas');"
+    yield "  if (!canvas || !gauge || !graph) { return; }"
+    yield ""
+    yield "  canvas.style.cursor = 'wait';"
+    yield "  try {"
+    yield "    const sensor = (container.dataset.sensor || '').trim();"
+    yield "    const metric = (container.dataset.metric || '').trim();"
+    yield "    if (!sensor || !metric) {"
+    yield "      return;"
+    yield "    }"
+    yield ""
+    yield "    let style = 'Graph24hr';"
+    yield "    if (typeof window.getContainerStyle === 'function') {"
+    yield "      style = window.getContainerStyle(container);"
+    yield "    }"
+    yield ""
+    yield "    let range = '24h';"
+    yield "    let xTitleText = '24 Hours';"
+    yield "    if (style === 'Graph6hr') {"
+    yield "      range = '6h';"
+    yield "      xTitleText = '6 Hours';"
+    yield "    } else if (style === 'Graph24hr') {"
+    yield "      range = '24h';"
+    yield "      xTitleText = '24 Hours';"
+    yield "    } else if (style === 'Gauge') {"
+    yield "      range = '24h';"
+    yield "      xTitleText = '24 Hours';"
+    yield "    }"
+    yield ""
+    yield "    await new Promise(function(r) { setTimeout(r, 10); });"
+    yield ""
+    yield "    const url = '/graph-data?sensor_id=' + encodeURIComponent(sensor)"
+    yield "              + '&metric1=' + encodeURIComponent(metric)"
+    yield "              + '&range=' + encodeURIComponent(range);"
+    yield "    const resp = await fetch(url, { cache: 'no-store' });"
+    yield "    if (!resp.ok) {"
+    yield "      return;"
+    yield "    }"
+    yield ""
+    yield "    const jsonData = await resp.json();"
+    yield "    const allSeries = jsonData.series || {};"
+    yield "    const entries = Object.entries(allSeries);"
+    yield "    if (!entries.length) {"
+    yield "      return;"
+    yield "    }"
+    yield ""
+    yield "    const exactKey = sensor + '::' + metric;"
+    yield "    const suffix = '::' + metric;"
+    yield "    let chosen = null;"
+    yield ""
+    yield "    for (const kv of entries) {"
+    yield "      const k = kv[0];"
+    yield "      const v = kv[1];"
+    yield "      if (k === exactKey) { chosen = [k, v]; break; }"
+    yield "    }"
+    yield ""
+    yield "    if (!chosen) {"
+    yield "      for (const kv of entries) {"
+    yield "        const k = kv[0];"
+    yield "        const v = kv[1];"
+    yield "        if (k.endsWith(suffix)) { chosen = [k, v]; break; }"
+    yield "      }"
+    yield "    }"
+    yield ""
+    yield "    if (!chosen) {"
+    yield "      chosen = entries[0];"
+    yield "    }"
+    yield ""
+    yield "    const seriesObj = chosen[1] || {};"
+    yield "    const labels = seriesObj.ts || [];"
+    yield "    const values = seriesObj.vals || [];"
+    yield ""
+    yield "    if (!values.length) {"
+    yield "      return;"
+    yield "    }"
+    yield ""
+    yield "    const metricName = container.dataset.metric || metric;"
+    yield "    const isVPD = /vpd/i.test(metricName);"
+    yield ""
+    yield "    const chartOptions = {"
+    yield "      responsive: false,"
+    yield "      plugins: {"
+    yield "        legend: { display: false },"
+    yield "        tooltip: { enabled: true },"
+    yield "        vpdMicro: !!isVPD"
+    yield "      },"
+    yield "      scales: {"
+    yield "        x: {"
+    yield "          type: 'time',"
+    yield "          time: {"
+    yield "            tooltipFormat: 'yyyy/MM/dd HH:mm',"
+    yield "            displayFormats: { hour: 'HH:mm' }"
+    yield "          },"
+    yield "          title: { display: true, text: xTitleText },"
+    yield "          ticks: {"
+    yield "            display: false,"
+    yield "            autoSkip: true,"
+    yield "            maxTicksLimit: 6"
+    yield "          },"
+    yield "          grid: { display: true }"
+    yield "        },"
+    yield "        y: { title: { display: false }, ticks: { precision: 1 } }"
+    yield "      }"
+    yield "    };"
+    yield ""
+    yield "    if (isVPD) {"
+    yield "      chartOptions.scales.y.min = 0;"
+    yield "      chartOptions.scales.y.max = 5.0;"
+    yield "    }"
+    yield ""
+    yield "    let chart = chartMap.get(canvas);"
+    yield "    if (!chart) {"
+    yield "      const ctx = canvas.getContext('2d');"
+    yield "      chart = new Chart(ctx, {"
+    yield "        type: 'line',"
+    yield "        data: {"
+    yield "          labels: labels,"
+    yield "          datasets: [{"
+    yield "            data: values,"
+    yield "            borderColor: '#00bfff',"
+    yield "            backgroundColor: 'rgba(255,255,255,1)',"
+    yield "            pointRadius: 0,"
+    yield "            tension: 0.3"
+    yield "          }]"
+    yield "        },"
+    yield "        options: chartOptions"
+    yield "      });"
+    yield "      chartMap.set(canvas, chart);"
+    yield "    } else {"
+    yield "      chart.data.labels = labels;"
+    yield "      if (chart.data.datasets && chart.data.datasets.length > 0) {"
+    yield "        chart.data.datasets[0].data = values;"
+    yield "      } else {"
+    yield "        chart.data.datasets = [{"
+    yield "          data: values"
+    yield "        }];"
+    yield "      }"
+    yield "      chart.update();"
+    yield "    }"
+    yield ""
+    yield "    graph.style.display = 'block';"
+    yield "    gauge.style.display = 'none';"
+    yield "  } catch (e) {"
+    yield "    console.warn('showMicrographForContainer error', e);"
+    yield "  } finally {"
+    yield "    canvas.style.cursor = 'default';"
+    yield "  }"
+    yield "}"
+               
+    yield "const chartMap = new WeakMap();"
+    yield "document.querySelectorAll('.metric-container').forEach(container => {"
+    yield "  const gauge = container.querySelector('.gauge-container');"
+    yield "  const graph = container.querySelector('.graph-container');"
+    yield "  const canvas = container.querySelector('.micrograph-canvas');"
+
+    gauge_config = get_gauge_config()
+    yield "  const sensorUnits = {"
+    for metric, cfg in gauge_config.items():
+        unit = cfg.get("unit", "")
+        yield f"    '{metric}': '{unit}',"
+    yield "  };"
+
+    yield "  container.addEventListener('click', async () => {"
+    yield "    const gauge = container.querySelector('.gauge-container');"
+    yield "    const graph = container.querySelector('.graph-container');"
+    yield "    const canvas = container.querySelector('.micrograph-canvas');"
+    yield "    if (!canvas || !gauge || !graph) { return; }"
+
+    yield "    let style = 'Gauge';"
+    yield "    if (typeof window.getContainerStyle === 'function') {"
+    yield "      style = window.getContainerStyle(container);"
+    yield "    }"
+
+    yield "    let nextStyle = 'Gauge';"
+    yield "    if (style === 'Gauge') {"
+    yield "      nextStyle = 'Graph6hr';"
+    yield "    } else if (style === 'Graph6hr') {"
+    yield "      nextStyle = 'Graph24hr';"
+    yield "    } else if (style === 'Graph24hr') {"
+    yield "      nextStyle = 'Gauge';"
+    yield "    } else {"
+    yield "      nextStyle = 'Gauge';"
+    yield "    }"
+
+    yield "    if (typeof window.registerContainerStyle === 'function') {"
+    yield "      window.registerContainerStyle(container, nextStyle);"
+    yield "    }"
+
+    yield "    if (nextStyle !== 'Gauge') {"
+    yield "      const oldChart = chartMap.get(canvas);"
+    yield "      if (oldChart) {"
+    yield "        try { oldChart.destroy(); } catch (e) { console.warn('chart destroy failed', e); }"
+    yield "        chartMap.delete(canvas);"
+    yield "      }"
+    yield "    }"
+
+    yield "    if (nextStyle === 'Gauge') {"
+    yield "      const oldChart = chartMap.get(canvas);"
+    yield "      if (oldChart) {"
+    yield "        try { oldChart.destroy(); } catch (e) { console.warn('chart destroy failed', e); }"
+    yield "        chartMap.delete(canvas);"
+    yield "      }"
+    yield "      graph.style.display = 'none';"
+    yield "      gauge.style.display = 'block';"
+    yield "      return;"
+    yield "    }"
+
+    yield "    await showMicrographForContainer(container);"
+    yield "  });"
+    yield "});"
+
+    yield "(function() {"
+    yield "  const ds = (typeof window.displayStyle !== 'undefined' && window.displayStyle != null)"
+    yield "    ? String(window.displayStyle)"
+    yield "    : '';"
+    yield "  const normalized = ds.toLowerCase();"
+
+    yield "  if (normalized === 'graph6hr' || normalized === 'graph24hr') {"
+    yield "    const all = document.querySelectorAll('.metric-container');"
+    yield "    all.forEach(container => {"
+    yield "      const targetStyle = (normalized === 'graph6hr') ? 'Graph6hr' : 'Graph24hr';"
+    yield "      if (typeof window.registerContainerStyle === 'function') {"
+    yield "        window.registerContainerStyle(container, targetStyle);"
+    yield "      }"
+    yield "      showMicrographForContainer(container);"
+    yield "    });"
+    yield "  }"
+    yield "})();"
+       
+    yield "(function() {"
+    yield "  let lastRun = 0;"
+    yield "  const MIN_INTERVAL_MS = 60000;"
+    yield ""
+    yield "  async function refreshAllMicrographs(force = false) {"
+    yield "  console.warn('refreshAllMicrographs called');"
+
+    yield "    const now = Date.now();"
+    yield "    if (!force && (now - lastRun) < MIN_INTERVAL_MS) {"
+    yield "      return;"
+    yield "    }"
+    yield "    lastRun = now;"
+    yield ""
+    yield "    const containers = document.querySelectorAll('.metric-container');"
+    yield "    for (const container of containers) {"
+    yield "      try {"
+    yield "        const gauge = container.querySelector('.gauge-container');"
+    yield "        const graph = container.querySelector('.graph-container');"
+    yield "        if (!gauge || !graph) continue;"
+    yield ""
+    yield "        const graphVisible = graph.style.display !== 'none';"
+    yield "        const gaugeVisible = gauge.style.display !== 'none';"
+    yield ""
+    yield "        if (graphVisible && !gaugeVisible) {"
+    yield "          await showMicrographForContainer(container);"
+    yield "        }"
+    yield "      } catch (e) {"
+    yield "        console.warn('[micrograph] refresh error', e);"
+    yield "      }"
+    yield "    }"
+    yield "  }"
+    yield ""
+    yield "  window.refreshAllMicrographs = refreshAllMicrographs;"
+    yield ""
+    yield "  document.addEventListener('DOMContentLoaded', function() {"
+    yield "    try {"
+    yield "      const style = (window.displayStyle || 'Gauge').toString().toLowerCase();"
+    yield "      if (style === 'graph6hr' || style === 'graph24hr') {"
+    yield "        setTimeout(() => refreshAllMicrographs(true), 500);"
+    yield "      }"
+    yield "    } catch (e) {"
+    yield "      console.warn('[micrograph] DOMContentLoaded init error', e);"
+    yield "    }"
+    yield "  });"
+    yield "})();"
+
+    yield "function updateContainerDisplayStyle(container) {"
+    yield "  if (!container) return;"
+    yield ""
+    yield "  const sensorId = (container.dataset.sensor || '').trim();"
+    yield "  const metric   = (container.dataset.metric || '').trim();"
+    yield "  if (!sensorId || !metric) return;"
+    yield ""
+    yield "  const safeMetric = (typeof toSafe === 'function') ? toSafe(metric) : metric.replace(/[^a-zA-Z0-9_\\-]/g,'_');"
+    yield "  const safeBase   = `${sensorId}_${safeMetric}`;"
+    yield ""
+    yield "  let graph = container.querySelector('.graph-container');"
+    yield "  if (!graph) {"
+    yield "    const gauge = container.querySelector('.gauge-container');"
+    yield "    if (!gauge) return;"
+    yield "    graph = document.createElement('div');"
+    yield "    graph.className = 'graph-container';"
+    yield "    graph.style.display = 'none';"
+    yield "    graph.innerHTML = "
+    yield "      `<div class='graph-view' id='${safeBase}GraphContainer'>` +"
+    yield "        `<canvas class='micrograph-canvas' id='${safeBase}Micrograph' width='220' height='60'></canvas>` +"
+    yield "      `</div>`;"
+    yield "    gauge.insertAdjacentElement('afterend', graph);"
+    yield "  }"
+    yield "}"
+    yield ""
+    yield "window.ensureContainerDisplayStyle = function(container) {"
+    yield "  if (!container) return;"
+    yield "  const raw = (window.displayStyle || 'Gauge').toString().toLowerCase();"
+    yield "  if (raw === 'graph' || raw === 'graph6hr' || raw === 'graph24hr') {"
+    yield "    updateContainerDisplayStyle(container);"
+    yield "    if (typeof window.registerContainerStyle === 'function') {"
+    yield "      const mapped = (raw === 'graph6hr') ? 'Graph6hr' : (raw === 'graph24hr' ? 'Graph24hr' : 'Graph24hr');"
+    yield "      window.registerContainerStyle(container, mapped);"
+    yield "    }"
+    yield "  }"
+    yield "};"
+    yield ""
+    yield "document.addEventListener('DOMContentLoaded', function() {"
+    yield "  try {"
+    yield "    const style = (window.displayStyle || 'Gauge').toString().toLowerCase();"
+    yield "    if (style === 'graph' || style === 'graph6hr' || style === 'graph24hr') {"
+    yield "      const all = document.querySelectorAll('.metric-container');"
+    yield "      for (const c of all) {"
+    yield "        window.ensureContainerDisplayStyle(c);"
+    yield "      }"
+    yield "    }"
+    yield "  } catch (e) {"
+    yield "    console.warn('ensureContainerDisplayStyle DOMContentLoaded error', e);"
+    yield "  }"
+    yield "});"
+    
+    # --- Sensor Settings Modal opener (uses BackdropModal) ---
+    yield "window.editSensorSettings = async function(id) {"
+    yield "  try {"
+    yield "    const url = `/edit-sensor?sensor_id=${encodeURIComponent(id)}&embed=1&t=${Date.now()}`;"
+    yield "    const res = await fetch(url, { cache: 'no-store' });"
+    yield "    const html = await res.text();"
+    yield "    if (!res.ok) {"
+    yield "      console.error('[editSensorSettings] non-OK', res.status, html.slice(0,200));"
+    yield "      alert('Failed to load Sensor Settings');"
+    yield "      return;"
+    yield "    }"
+    yield "    if (!window.BackdropModal) {"
+    yield "      console.error('BackdropModal is not defined');"
+    yield "      return;"
+    yield "    }"
+    yield "    if (!html || !html.trim()) {"
+    yield "      console.error('[editSensorSettings] empty HTML');"
+    yield "      return;"
+    yield "    }"
+    # remove any existing sensor settings modal/backdrop
+    yield "    window.BackdropModal.close('sensorSettingsModal');"
+    # mount the new one
+    yield "    const modal = window.BackdropModal.openFromHtml(html, 'sensorSettingsModal');"
+    yield "    if (modal) modal.dataset.sensorId = id;"
+    yield "  } catch (e) {"
+    yield "    console.error('Failed to load sensor modal', e);"
+    yield "  }"
+    yield "};"
+      
+    # --- SWITCH HELPERS  ---
+    yield "function _safeName(name) { return (name || '').toLowerCase().replaceAll(' ', '_'); }"
+    yield "function _realName(s) {"
+    yield "  if (typeof s !== 'string') return '';"
+    yield "  return s.includes(' ') ? s : s.replaceAll('_',' ');"
+    yield "}"
+
+    yield "function _cssEsc(s){try{return CSS&&CSS.escape?CSS.escape(String(s)):String(s);}catch(_){return String(s);}}"
+    
+    yield "function _splitKey(key){"
+    yield "  const k=String(key||'');"
+    yield "  if(k.includes('::')){const [sid,...rest]=k.split('::');return {switchId:sid,label:rest.join('::'),channel:rest.join('::')};}"
+    yield "  if(k.includes(':')){const [sid,...rest]=k.split(':');return {switchId:sid,label:rest.join(':'),channel:rest.join(':')};}"
+    yield "  return {switchId:'',label:k,channel:k};"
+    yield "}"
+    
+    yield "function _stripIsoExtras(ts){"
+    yield "  const s = String(ts||'');"
+    yield "  const noMicros = s.replace(/\\.\\d{1,6}(?=Z|[+-]\\d{2}:\\d{2}|$)/,'');"
+    yield "  const noTz = noMicros.replace(/(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2})(?:Z|[+-]\\d{2}:\\d{2})\\b/, '$1');"
+    yield "  return noTz.replace('T',' ');"
+    yield "}"
+
+    yield "const _switchEventsCache = new Map();  "
+    yield "const _switchRefreshBlockUntil = new Map();"
+    
+    yield "function _findEventsListElem(key){"
+    yield "  const {switchId,label}=_splitKey(key);"
+    yield "  const norm=(s)=>String(s||'').trim().toLowerCase().replaceAll('_',' ').replace(/\\s+/g,' ').replace(/s$/,'');"
+    # 1) exact match on the *UL*
+    yield "  let el=document.querySelector(`ul.switch-events-list[data-switch-key=\"${_cssEsc(key)}\"]`);"
+    yield "  if(el) return el;"
+    # 2) suffix match ::Label
+    yield "  el=document.querySelector(`ul.switch-events-list[data-switch-key$=\"::${_cssEsc(label)}\"]`);"
+    yield "  if(el) return el;"
+    # 3) id by label
+    yield "  const id1=_safeName(label)+\"_events_list\";"
+    yield "  el=document.getElementById(id1);"
+    yield "  if(el && el.tagName==='UL') return el;"
+    # 4) id by switchId+label
+    yield "  const id2=_safeName((switchId?switchId+\"_\":\"\")+label)+\"_events_list\";"
+    yield "  el=document.getElementById(id2);"
+    yield "  if(el && el.tagName==='UL') return el;"
+    # 5) defensive row walk
+    yield "  if(el && el.tagName!=='UL'){"
+    yield "    const row=el.closest('tr');"
+    yield "    const ul=row?row.querySelector('ul.switch-events-list'):null;"
+    yield "    if(ul) return ul;"
+    yield "  }"
+    # 6) FINAL fallback: scan all ULs; match label loosely (case-insensitive, ignore trailing 's')
+    yield "  const want=norm(label);"
+    yield "  for(const ul of document.querySelectorAll('ul.switch-events-list')){"
+    yield "    const k=ul.getAttribute('data-switch-key')||'';"
+    yield "    const {label:lab2}=_splitKey(k);"
+    yield "    if(norm(lab2)===want) return ul;"
+    yield "  }"
+    yield "  return null;"
+    yield "}"
+
+    yield "window.showSwitchSettingsModal = function(html){"
+    # Parse incoming HTML and mount a fresh #switchSettingsModal
+    yield "  const wrapper = document.createElement('div');"
+    yield "  wrapper.innerHTML = html;"
+    yield "  const modal = wrapper.querySelector('#switchSettingsModal') || wrapper.firstElementChild;"
+    yield "  if (!modal) return;"
+    yield "  const existing = document.getElementById('switchSettingsModal');"
+    yield "  if (existing) existing.remove();"
+    yield "  document.body.appendChild(modal);"
+    yield "  if (window.SwitchModal && typeof window.SwitchModal.mount === 'function') {"
+    yield "    window.SwitchModal.mount(modal);"
+    yield "  }"
+    yield "  window.SwitchModal && window.SwitchModal.open();"
+    yield "};"
+
+    yield "if (typeof window.showToast !== 'function') {"
+    yield "  window.showToast = function(text, type){"
+    yield "    let c = document.querySelector('.toast-container');"
+    yield "    if (!c){ c = document.createElement('div'); c.className='toast-container'; document.body.appendChild(c); }"
+    yield "    const t = document.createElement('div'); t.className = `toast ${type||''}`; t.textContent = text||'';"
+    yield "    c.appendChild(t); setTimeout(()=>{ t.remove(); if(!c.children.length) c.remove(); }, 2500);"
+    yield "  };"
+    yield "}"
+    
+    yield "if (typeof window.postNodusSetting !== 'function') {"
+    yield "  window.postNodusSetting = async function(host, filename, section, key, value){"
+    yield "    const url = `http://${host}:8000/set-nodus-setting`;"
+    yield "    const res = await fetch(url, {"
+    yield "      method: 'POST',"
+    yield "      headers: {'Content-Type':'application/json'},"
+    yield "      body: JSON.stringify({ filename, section, key, value })"
+    yield "    });"
+    yield "    if (!res.ok) throw new Error(await res.text());"
+    yield "    return true;"
+    yield "  };"
+    yield "}"
+
+    # --- Switch Settings Modal opener (uses BackdropModal, preserves old semantics) ---
+    yield "window.editSwitchSettings = async function(id) {"
+    yield "  try {"
+    yield "    const url = `/edit-switch?switch_id=${encodeURIComponent(id)}&embed=1&t=${Date.now()}`;"
+    yield "    const res = await fetch(url, { cache: 'no-store' });"
+    yield "    const html = await res.text();"
+    yield "    if (!res.ok) {"
+    yield "      console.error('[editSwitchSettings] non-OK', res.status, html.slice(0,200));"
+    yield "      alert('Failed to load Switch Settings');"
+    yield "      return;"
+    yield "    }"
+    yield "    if (!window.BackdropModal) {"
+    yield "      console.error('BackdropModal is not defined');"
+    yield "      return;"
+    yield "    }"
+    yield "    if (!html || !html.trim()) {"
+    yield "      console.error('[editSwitchSettings] empty HTML');"
+    yield "      return;"
+    yield "    }"
+    # --- remove any existing switch modal/backdrop (old behavior preserved) ---
+    yield "    window.BackdropModal.close('switchSettingsModal');"
+    # --- mount the new one ---
+    yield "    const modal = window.BackdropModal.openFromHtml(html, 'switchSettingsModal');"
+    yield "    if (modal) modal.dataset.switchId = id;"
+    yield "  } catch (e) {"
+    yield "    console.error('Failed to load switch modal', e);"
+    yield "  }"
+    yield "};"
+    
+    # --- Global helper to close Switch Settings modal (removes backdrop) ---
+    yield "window.closeSwitchSettingsModal = function() {"
+    yield "  const modal = document.getElementById('switchSettingsModal');"
+    yield "  if (!modal) return;"
+    yield "  const backdrop = modal.closest('.modal-backdrop');"
+    yield "  if (backdrop && backdrop.parentNode) {"
+    yield "    backdrop.parentNode.removeChild(backdrop);"
+    yield "  } else if (modal.parentNode) {"
+    yield "    modal.parentNode.removeChild(modal);"
+    yield "  }"
+    yield "};"
+
+    # --- Unified BackdropModal helper (all modals use this) ---
+    yield "window.BackdropModal = window.BackdropModal || (function(){"
+    yield "  function ensureHost(){"
+    yield "    let host = document.querySelector('#modal-host');"
+    yield "    if (!host) {"
+    yield "      host = document.createElement('div');"
+    yield "      host.id = 'modal-host';"
+    yield "      document.body.appendChild(host);"
+    yield "    }"
+    yield "    return host;"
+    yield "  }"
+    yield "  function close(modalId){"
+    yield "    if (!modalId) return;"
+    yield "    const modal = document.getElementById(modalId);"
+    yield "    if (!modal) return;"
+    yield "    const backdrop = modal.closest('.modal-backdrop');"
+    yield "    if (backdrop && backdrop.parentNode) {"
+    yield "      backdrop.parentNode.removeChild(backdrop);"
+    yield "    } else if (modal.parentNode) {"
+    yield "      modal.parentNode.removeChild(modal);"
+    yield "    }"
+    yield "  }"
+    yield "  function openFromHtml(html, modalId){"
+    yield "    if (!html || !html.trim()) {"
+    yield "      console.error('BackdropModal.openFromHtml: empty HTML');"
+    yield "      return null;"
+    yield "    }"
+    yield "    const tmp = document.createElement('div');"
+    yield "    tmp.innerHTML = html.trim();"
+    yield "    const backdrop = tmp.querySelector('.modal-backdrop');"
+    yield "    const modal = tmp.querySelector('#' + modalId);"
+    yield "    if (!modal) {"
+    yield "      console.error('BackdropModal.openFromHtml: modalId not found in HTML', modalId);"
+    yield "      return null;"
+    yield "    }"
+    yield "    const mount = ensureHost();"
+    yield "    if (backdrop) {"
+    yield "      mount.appendChild(backdrop);"
+    yield "      backdrop.style.display = 'flex';"
+    yield "    } else {"
+    yield "      mount.appendChild(modal);"
+    yield "      modal.style.display = 'block';"
+    yield "    }"
+    yield "    return modal;"
+    yield "  }"
+    yield "  return { openFromHtml, close };"
+    yield "})();"
+    
+    # --- Global ESC + backdrop click close behavior ---
+    yield "document.addEventListener('keydown', function(ev){"
+    yield "  if (ev.key !== 'Escape') return;"
+    yield "  const backdrops = document.querySelectorAll('.modal-backdrop');"
+    yield "  if (!backdrops.length) return;"
+    yield "  const last = backdrops[backdrops.length - 1];"
+    yield "  const modal = last.querySelector('.modal');"
+    yield "  const id = modal ? modal.id : null;"
+    yield "  if (id && window.BackdropModal) window.BackdropModal.close(id);"
+    yield "});"
+    yield "document.addEventListener('click', function(ev){"
+    yield "  const backdrop = ev.target.closest('.modal-backdrop');"
+    yield "  if (!backdrop) return;"
+    yield "  if (ev.target !== backdrop) return;"  # only click on the dim background
+    yield "  const modal = backdrop.querySelector('.modal');"
+    yield "  const id = modal ? modal.id : null;"
+    yield "  if (id && window.BackdropModal) window.BackdropModal.close(id);"
+    yield "});"    
+    
+    # --- Named close helpers (used by buttons in templates) ---
+    yield "window.closeSwitchSettingsModal = function(){"
+    yield "  if (window.BackdropModal) window.BackdropModal.close('switchSettingsModal');"
+    yield "};"
+    yield "window.closeSensorSettingsModal = function(){"
+    yield "  if (window.BackdropModal) window.BackdropModal.close('sensorSettingsModal');"
+    yield "};"
+    yield "window.closeSystemCalibrationModal = function(){"
+    yield "  if (window.BackdropModal) window.BackdropModal.close('systemCalibrationModal');"
+    yield "};"
+
+    # --- System Calibration modal opener (shared) ---
+    yield "window.openSystemCalibrationModal = async function(sensorId) {"
+    yield "  try {"
+    yield "    const params = new URLSearchParams();"
+    yield "    const sid = (sensorId && String(sensorId).trim()) || '';"
+    yield "    if (sid) params.set('sensor_id', sid);"
+    yield "    const url = `/ui/modal/system-calibration?${params.toString()}`;"
+    yield "    const resp = await fetch(url, { cache: 'no-store' });"
+    yield "    const html = await resp.text();"
+    yield "    if (!resp.ok) {"
+    yield "      console.error('[SystemCal] non-OK', resp.status, html.slice(0,200));"
+    yield "      alert('Failed to load System Calibration');"
+    yield "      return;"
+    yield "    }"
+    yield "    if (!window.BackdropModal) {"
+    yield "      console.error('BackdropModal not defined');"
+    yield "      return;"
+    yield "    }"
+    yield "    const modal = window.BackdropModal.openFromHtml(html, 'systemCalibrationModal');"
+    yield "    if (!modal) {"
+    yield "      alert('Unable to open System Calibration modal');"
+    yield "      return;"
+    yield "    }"
+    # reload system_calibration.js every time
+    yield "    const TAG_ID = 'system-calibration-js';"
+    yield "    const existing = document.getElementById(TAG_ID);"
+    yield "    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);"
+    yield "    await new Promise((resolve, reject) => {"
+    yield "      const s = document.createElement('script');"
+    yield "      s.id = TAG_ID;"
+    yield "      s.src = '/ui_static/js/system_calibration.js?v=' + Date.now();"
+    yield "      s.onload = resolve;"
+    yield "      s.onerror = reject;"
+    yield "      document.head.appendChild(s);"
+    yield "    });"
+    yield "    const modalInDom = document.querySelector('#systemCalibrationModal');"
+    yield "    if (!modalInDom) {"
+    yield "      console.error('[SystemCal] modal not found after mount');"
+    yield "      alert('Unable to open System Calibration modal');"
+    yield "      return;"
+    yield "    }"
+    yield "    if (window.initSystemCalibrationModal) {"
+    yield "      const ok = await window.initSystemCalibrationModal(modalInDom);"
+    yield "      if (!ok) {"
+    yield "        console.error('[SystemCal] initSystemCalibrationModal returned false');"
+    yield "        alert('Unable to open System Calibration modal');"
+    yield "      }"
+    yield "    } else {"
+    yield "      console.error('[SystemCal] initSystemCalibrationModal is not defined');"
+    yield "      alert('Unable to open System Calibration modal');"
+    yield "    }"
+    yield "  } catch (err) {"
+    yield "    console.error('[SystemCal] error', err);"
+    yield "    alert('Error opening System Calibration modal');"
+    yield "  }"
+    yield "};"
+
+    # when a keyed update is requested, never fall back to name-only.
+    yield "function _selectSwitchElements(name, key) {"
+    yield "  const real = _realName(name);"
+    yield "  const safe = _safeName(real);"
+    yield "  let box = null, labelEl = null, timeEl = null;"
+    yield "  if (key) {"
+    yield "    box     = document.querySelector(`.switch-box[data-switch-key='${key}'], button.button[data-switch-key='${key}']`);"
+    yield "    labelEl = document.querySelector(`.switch-state[data-switch-key='${key}']`)"
+    yield "          || document.querySelector(`.switch-state[data-switch-name='${real}'][data-switch-key='${key}']`);"
+    yield "    timeEl  = document.querySelector(`.switch-time[data-switch-key='${key}']`)"
+    yield "          || document.querySelector(`.switch-time[data-switch-name='${real}'][data-switch-key='${key}']`);"
+    # if a key was provided but no keyed element exists, return nulls to avoid cross-device overwrite
+    yield "    if (!box) { return { real, safe, box:null, labelEl:null, timeEl:null }; }"
+    yield "  }"
+    yield "  if (!box) {"
+    # No key path → fall back by name or id (legacy single-device pages)
+    yield "    box     = document.querySelector(`.switch-box[data-switch-name='${real}'], button.button[data-switch-name='${real}']`) "
+    yield "           || document.getElementById(`${safe}_btn`) "
+    yield "           || document.getElementById(`${safe}_box`);"
+    yield "    labelEl = document.querySelector(`.switch-state[data-switch-name='${real}']`) || document.getElementById(`${safe}_state`);"
+    yield "    timeEl  = document.querySelector(`.switch-time[data-switch-name='${real}']`)  || document.getElementById(`${safe}_time`);"
+    yield "  }"
+    yield "  if (!labelEl) {"
+    yield "    const pref = (key ? key.replaceAll('::','_') + '_' : '') + safe;"
+    yield "    labelEl = document.getElementById(`${pref}_state`) || document.getElementById(`${safe}_state`);"
+    yield "  }"
+    yield "  if (!timeEl) {"
+    yield "    const pref = (key ? key.replaceAll('::','_') + '_' : '') + safe;"
+    yield "    timeEl  = document.getElementById(`${pref}_time`)  || document.getElementById(`${safe}_time`);"
+    yield "  }"
+    yield "  return { real, safe, box, labelEl, timeEl };"
+    yield "}"
+
+    yield "function updateSwitchVisuals(name, stateData, key) {"
+    yield "  const { safe, box, labelEl, timeEl } = _selectSwitchElements(name, key);"
+    yield "  if (!box) { return; }"
+    yield "  const isOn = !!(stateData && (stateData.state===true || String(stateData.state).toLowerCase()==='on'));"
+    yield "  const lastTime = stateData && stateData.time ? stateData.time : '';"
+    yield "  setSwitchBoxState(box, isOn);"
+    yield "  if (labelEl) {"
+    yield "    labelEl.textContent = isOn ? ' ON' : 'OFF';"
+    yield "    labelEl.style.color = isOn ? '#080' : '#666';"
+    yield "    labelEl.style.fontWeight = 'bold';"
+    yield "  }"
+    yield "}"
+
+    # --- WebSocket live switch updates ---
+    yield "let switchWS;"
+    yield "function startSwitchWS(){"
+    yield "  const proto = (location.protocol === 'https:') ? 'wss' : 'ws';"
+    yield "  const url   = `${proto}://${location.host}/ws/switch-updates`;"
+    yield "  try{"
+    yield "    switchWS = new WebSocket(url);"
+    yield "    switchWS.onopen = () => console.debug('Switch WS connected');"
+    yield "    switchWS.onmessage = (ev) => {"
+    yield "      try{"
+    yield "        const msg = JSON.parse(ev.data);"
+    yield "        if (msg.type === 'switch_event'){"
+    yield "          const key = msg.key || '';"
+    yield "          const hasKeyedBoxes = !!document.querySelector('.switch-box[data-switch-key]');"
+    yield "          const label = key.includes('::') ? key.split('::')[1] : key;"
+    yield "          const data  = { state: !!msg.state, time: [] };"
+    yield "          updateSwitchVisuals(label, data, key);"
+    yield "          if (typeof appendSwitchEventLine === 'function'){"
+    yield "            const line = `${msg.state ? 'On' : 'Off'} ${msg.timestamp || ''}`;"
+    yield "            appendSwitchEventLine(key, line);"
+    yield "          }"
+    yield "        } else if (msg.type === 'automation_toggle'){"
+    yield "          const swId  = msg.switch_id || '';"
+    yield "          const label = msg.label || '';"
+    yield "          const q = label"
+    yield "            ? `[data-switch-id=\"${swId}\"][data-label=\"${label}\"]`"
+    yield "            : `[data-switch-id=\"${swId}\"]`;"
+    yield "          const chk = document.querySelector(`${q} input[type=\"checkbox\"].auto-enabled`);"
+    yield "          if (chk) { chk.checked = !!msg.enabled; }"
+    yield "        }"
+    yield "      } catch(e){ console.warn('Bad WS payload', e); }"
+    yield "    };"
+    yield "    switchWS.onclose = () => {"
+    yield "      console.warn('Switch WS closed; retrying...');"
+    yield "      setTimeout(startSwitchWS, 2000);"
+    yield "    };"
+    yield "  } catch(e){"
+    yield "    console.warn('WS not available; polling fallback active');"
+    yield "  }"
+    yield "}"
+    yield "document.addEventListener('DOMContentLoaded', startSwitchWS);"
+
+    # keep for backup
+    yield "async function refreshAndApplySwitchStatus() {"
+    yield "  try {"
+    yield "    const resp = await fetch('/switch-status-update');"
+    yield "    if (!resp.ok) return;"
+    yield "    const statusMap = await resp.json();"
+    yield "    if (!statusMap) return;"
+    yield "    const hasKeyedBoxes = !!document.querySelector('.switch-box[data-switch-key]');"
+    yield "    const now = Date.now();"
+    yield "    Object.entries(statusMap).forEach(([key, data]) => {"
+    yield "      const hasKey = key.includes('::');"
+    yield "      if (!hasKey && hasKeyedBoxes) return;"
+    yield "      if (hasKey && (_switchRefreshBlockUntil.get(key) || 0) > now) return;"
+    yield "      const label = hasKey ? key.split('::')[1] : key;"
+    yield "      updateSwitchVisuals(label, data, hasKey ? key : '');"
+    yield "    });"
+    yield "    updateSwitchEventsFromStatus(statusMap);"
+    yield "  } catch (err) { console.error('Error refreshing switch status', err); }"
+    yield "}"
+
+    yield "function setSwitchBoxState(box, isOn) {"
+    yield "  if (!box) return;"
+    yield "  const state = isOn ? 'on' : 'off';"
+    yield "  box.dataset.state = state;"
+    # normalize label for the new button-style toggles
+    yield "  if (box.tagName === 'BUTTON') {"
+    yield "    box.textContent = isOn ? 'On' : 'Off';"
+    yield "    box.classList.toggle('green', isOn);"
+    yield "    box.classList.toggle('black', !isOn);"
+    yield "  } else {"
+    # legacy fallback (old .switch-box DIVs)
+    yield "    box.classList.toggle('on',  isOn);"
+    yield "    box.classList.toggle('off', !isOn);"
+    yield "    box.style.background = isOn ? 'green' : '#aaa';"
+    yield "    box.style.border     = isOn ? '2px solid #080' : '1px solid #666';"
+    yield "  }"
+    yield "}"
+
+    # --- JS: Update switch events listbox ---
+    yield "function updateSwitchEventsFromStatus(statusData){"
+    yield "  if(!statusData || typeof statusData!=='object') return;"
+    yield "  for(const [key,data] of Object.entries(statusData)){"
+    yield "    const listElem=_findEventsListElem(key);"
+    yield "    if(!listElem){"
+    yield "      continue;"
+    yield "    }"
+    yield ""
+    yield "    const hasTime = Object.prototype.hasOwnProperty.call(data,'time');"
+    yield "    let events=[];"
+    yield "    if(Array.isArray(data?.time)){"
+    yield "      events = data.time.slice();"
+    yield "    } else if(typeof data?.time==='string'){"
+    yield "      events = [data.time];"
+    yield "    } else if(Array.isArray(data?.events)){"
+    yield "      events = data.events.slice();"
+    yield "    } else if(data && (data.state!==undefined || data.time!==undefined)){"
+    yield "      const isOn = (data.state===true) || (String(data.state).toLowerCase()==='on');"
+    yield "      const ts   = (typeof data.time==='string') ? data.time : '';"
+    yield "      events = [ ts ? ((isOn?' ON ':'OFF ')+ts) : (isOn?' ON':'OFF') ];"
+    yield "    }"
+    yield ""
+    yield "    if(!hasTime || events.length===0){"
+    yield "      continue;"
+    yield "    }"
+    yield ""
+    yield "    const normLine=(evt)=>{"
+    yield "      if(evt && typeof evt==='object'){"
+    yield "        const isOn=(String(evt.state).toLowerCase()==='on')||(evt.state===true);"
+    yield "        const tsRaw=evt.ts||evt.time||'';"
+    yield "        const ts=_stripIsoExtras(tsRaw);"
+    yield "        const line = ts ? ((isOn?' On ':' Off ')+ts) : (isOn?' On':' Off');"
+    yield "        return line.trim();"
+    yield "      }"
+    yield "      let s=String(evt||'').replace(/^'+|'+$/g,'');"
+    yield "      s=s.replace(/(\\d{4}-\\d{2}-\\d{2}[T\\s]\\d{2}:\\d{2}:\\d{2})(?:\\.\\d{1,6}(?=Z|[+-]\\d{2}:\\d{2}|$))?/g,(_,a)=>a);"
+    yield "      s=s.replace(/(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2})(?:Z|[+-]\\d{2}:\\d{2})\\b/g,'$1');"
+    yield "      s=s.replace('T',' ');"
+    yield "      return s;"
+    yield "    };"
+    yield ""
+    yield "    const newLines = events.map(normLine).filter(Boolean);"
+    yield "    const existingLines = Array.from(listElem.querySelectorAll('li'))"
+    yield "          .map(li => (li.textContent || '').trim())"
+    yield "          .filter(Boolean);"
+    yield ""
+    yield "    const mergedLines = existingLines.slice();"
+    yield "    for(const line of newLines){"
+    yield "      if(!mergedLines.includes(line)){"
+    yield "        mergedLines.push(line);"
+    yield "      }"
+    yield "    }"
+    yield ""
+    yield "    const extractTs = (line) => {"
+    yield "      const m = String(line || '').match(/(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2})/);"
+    yield "      return m ? m[1] : '';"
+    yield "    };"
+    yield ""
+    yield "    const sortedLines = mergedLines.slice().sort((a,b) => {"
+    yield "      const ta = extractTs(a);"
+    yield "      const tb = extractTs(b);"
+    yield "      if (ta && tb) {"
+    yield "        return tb.localeCompare(ta);"
+    yield "      }"
+    yield "      if (tb) return 1;"
+    yield "      if (ta) return -1;"
+    yield "      return 0;"
+    yield "    });"
+    yield ""
+    yield "    const MAX_EVENTS = 5;"
+    yield "    const trimmedLines = sortedLines.slice(0, MAX_EVENTS);"
+    yield ""
+    yield "    const sig   = trimmedLines.join('\\n');"
+    yield "    const prev  = _switchEventsCache.get(key) || listElem.dataset.eventsSig || '';"
+    yield "    if(sig===prev){"
+    yield "      continue;"
+    yield "    }"
+    yield ""
+    yield "    listElem.textContent='';"
+    yield "    for(const textLine of trimmedLines){"
+    yield "      const li=document.createElement('li');"
+    yield "      li.textContent=textLine;"
+    yield "      if(/^on\\b/i.test(textLine)) li.classList.add('switch-event-on');"
+    yield "      else                          li.classList.add('switch-event-off');"
+    yield "      listElem.appendChild(li);"
+    yield "    }"
+    yield "    _switchEventsCache.set(key,sig);"
+    yield "    listElem.dataset.eventsSig=sig;"
+    yield "  }"
+    yield "}"
+
+    yield "window.toggleSwitchInline = function(elOrLabel) {"
+    yield "  let el = null;"
+    yield "  let real = '';"
+    yield ""
+    # If called as onclick='toggleSwitchInline(this)', elOrLabel is the div.switch-box
+    yield "  if (elOrLabel && typeof elOrLabel === 'object' && elOrLabel.nodeType === 1) {"
+    yield "    el = elOrLabel;"
+    yield "    real = el.dataset.switchName || '';"
+    yield "  } else {"
+    # Back-compat: called with a label string
+    yield "    real = _realName(elOrLabel);"
+    yield "    const safe = _safeName(real);"
+    yield "    el = document.getElementById(`${safe}_box`) || document.querySelector(`.switch-box[data-switch-name='${real}']`);"
+    yield "  }"
+    yield ""
+    yield "  if (!el) { console.warn('[toggleSwitchInline] no element for', elOrLabel); return; }"
+    yield "  el.classList.add('switch-pending');"
+    yield ""
+    yield "  const key = el.dataset.switchKey || '';"
+    yield "  const switchId = el.dataset.switchId || '';"
+    yield "  const params = new URLSearchParams();"
+    yield "  params.set('switch_name', real);"
+    yield "  if (key) params.set('switch_key', key);"
+    yield "  if (switchId) params.set('switch_id', switchId);"
+    yield ""
+    yield "  fetch(`/switch/toggle?${params.toString()}`, { method: 'POST' })"
+    yield "    .then(async r => {"
+    yield "      if (r.status === 409) {"
+    yield "        const info = await r.json().catch(() => null);"
+    yield "        const msg = (info && info.message) || 'Multiple devices have this label. Please specify a device.';"
+    yield "        console.warn('Ambiguous switch label', info && info.options);"
+    yield "        alert(msg);"
+    yield "        throw new Error('Ambiguous');"
+    yield "      }"
+    yield "      if (key) _switchRefreshBlockUntil.set(key, Date.now() + 1200);"
+    yield "      if (!r.ok) {"
+    yield "        const txt = await r.text().catch(() => '');"
+    yield "        throw new Error(`HTTP ${r.status} ${txt}`);"
+    yield "      }"
+    yield "      return r.json();"
+    yield "    })"
+    yield "    .then(data => {"
+    # pass key through so updateSwitchVisuals/_selectSwitchElements can disambiguate
+    yield "      updateSwitchVisuals(real, data, key);"
+    # Keep the status map keyed by 'switch_id::label' when possible
+    yield "      updateSwitchEventsFromStatus({ [key || `::${real}`]: data });"
+    yield "    })"
+    yield "    .catch(e => console.warn('toggleSwitchInline failed', e))"
+    yield "    .finally(() => {"
+    yield "      el.classList.remove('switch-pending');"
+    yield "      setTimeout(() => refreshAndApplySwitchStatus(), 30000);"
+    yield "    });"
+    yield "};"
+
+    yield "window.toggleAutomation = async function(btn, switchId, label) {"
+    yield "  try {"
+    yield "    const key = `${switchId}::${label}`;"
+    yield "    const isEnabled = ((btn.textContent || '').trim().toLowerCase() === 'enabled');"
+    yield "    const nextEnabled = !isEnabled;"  # we now toggle the RULE state
+    yield "    btn.disabled = true;"
+    yield "    const res = await fetch(`/switch/override?switch_key=${encodeURIComponent(key)}`, {"
+    yield "      method: 'POST',"
+    yield "      headers: { 'Content-Type': 'application/json' },"
+    yield "      body: JSON.stringify({ enabled: nextEnabled })"  # enabled = RULE enabled
+    yield "    });"
+    yield "    if (!res.ok) {"
+    yield "      console.error('Override update failed', await res.text());"
+    yield "      btn.disabled = false;"
+    yield "      return;"
+    yield "    }"
+    yield "    const json = await res.json();"
+    yield "    const ruleEnabled = !!json.enabled;"  # server returns the authoritative rule state"
+    yield "    btn.textContent = ruleEnabled ? 'Enabled' : 'Disabled';"
+    yield "    btn.classList.toggle('green', ruleEnabled);"
+    yield "    btn.classList.toggle('black', !ruleEnabled);"
+    yield "  } catch (e) {"
+    yield "    console.error('toggleAutomation error', e);"
+    yield "  } finally {"
+    yield "    btn.disabled = false;"
+    yield "  }"
+    yield "};"
+
+    yield "document.addEventListener('click', async (ev) => {"
+    yield "  const btn = ev.target.closest('.switch-toggle');"
+    yield "  if (!btn) return;"
+    yield "  const key        = btn.dataset.switchKey || '';"
+    yield "  const _switch_id = btn.dataset.switchId  || '';"
+    yield "  const label      = btn.dataset.switchLabel || '';"
+    yield "  try {"
+    yield "    const params = new URLSearchParams();"
+    yield "    if (label)      params.set('switch_name', label);"
+    yield "    if (key)        params.set('switch_key', key);"
+    yield "    if (_switch_id) params.set('switch_id', _switch_id);"
+    yield "    const res = await fetch(`/switch/toggle?${params.toString()}`, { method: 'POST' });"
+    yield "    if (res.status === 409) {"
+    yield "      const info = await res.json();"
+    yield "      console.warn('Ambiguous switch name. Options:', info.options);"
+    yield "      return;"
+    yield "    }"
+    yield "    const data = await res.json();"
+    yield "    if (data && data.state !== undefined) {"
+    # Build an effective key consistent with status/WS events
+    yield "      const keyEff = key || (_switch_id && label ? `${_switch_id}::${label}` : '');"
+    # Mirror the inline path’s short refresh block to avoid flicker
+    yield "      if (keyEff && typeof _switchRefreshBlockUntil !== 'undefined' && _switchRefreshBlockUntil) {"
+    yield "        try {"
+    yield "          _switchRefreshBlockUntil.set(keyEff, Date.now() + 1200);"
+    yield "        } catch (_) { /* non-fatal */ }"
+    yield "      }"
+    # Update this specific switch’s indicator
+    yield "      if (label) {"
+    yield "        updateSwitchVisuals(label, data, keyEff);"
+    yield "      }"
+    # Update this switch’s events list
+    yield "      if (keyEff) {"
+    yield "        updateSwitchEventsFromStatus({ [keyEff]: data });"
+    yield "      }"
+    yield "    }"
+    yield "  } catch (e) {"
+    yield "    console.error('Toggle failed', e);"
+    yield "  }"
+    yield "});"
+    
+    yield "function _currentSwitchIdFromSettings(){"
+    yield "  const mm = document.getElementById('switchSettingsModal');"
+    yield "  if (!mm) return '';"
+    yield "  const ds = (mm.dataset && mm.dataset.switchId) ? mm.dataset.switchId.trim() : '';"
+    yield "  if (ds) return ds;"
+    yield "  const form = mm.querySelector('form');"
+    yield "  if (!form) return '';"
+    yield "  const a = form.querySelector('input[name=\"switch_id_field\"]');"
+    yield "  if (a && a.value && a.value.trim()) return a.value.trim();"
+    yield "  const b = form.querySelector('input[name=\"switch_id\"]');"
+    yield "  if (b && b.value && b.value.trim()) return b.value.trim();"
+    yield "  return '';"
+    yield "}"
+    
+    yield "function _currentChannelIndicesFromSettings(){"
+    yield "  const mm = document.getElementById('switchSettingsModal');"
+    yield "  const raw = (mm && mm.dataset && mm.dataset.channelIndices ? mm.dataset.channelIndices : '').trim();"
+    yield "  if (!raw) return [1];"
+    yield "  return raw.split(',').map(function(s){ return parseInt(s.trim(),10); }).filter(function(n){ return Number.isFinite(n) && n>0; });"
+    yield "}"
+
+    yield "window.openAdvancedSwitchModal = async function(switchId){"
+    yield "  try {"
+    yield "    const switchIdVal = (switchId && String(switchId).trim()) || (window._currentSwitchIdFromSettings && _currentSwitchIdFromSettings()) || '';"
+    yield "    if (!switchIdVal) { alert('No switch selected.'); return; }"
+    yield ""
+    # --- Remove any existing advanced automation modal/backdrop entirely ---
+    yield "    (function(){"
+    yield "      const oldModal = document.querySelector('#automationManagerModal');"
+    yield "      if (oldModal) {"
+    yield "        const oldBackdrop = oldModal.closest('.modal-backdrop');"
+    yield "        if (oldBackdrop && oldBackdrop.parentNode) oldBackdrop.parentNode.removeChild(oldBackdrop);"
+    yield "      }"
+    yield "    })();"
+    yield ""
+    # --- Fetch fresh template HTML ---
+    yield "    const r = await fetch(`/ui/modal/advanced-automation?switch_id=${encodeURIComponent(switchIdVal)}`, { cache:'no-store' });"
+    yield "    if (!r.ok) { console.error('modal fetch failed', r.status); alert('Failed to load Automations modal'); return; }"
+    yield "    const html = await r.text();"
+    yield "    if (!html || !html.trim()) { console.error('modal html empty'); alert('Unable to open Automations modal'); return; }"
+    yield ""
+    # --- Parse & mount ---
+    yield "    const host = document.createElement('div');"
+    yield "    host.innerHTML = html.trim();"
+    yield "    const backdrop = host.querySelector('.modal-backdrop');"
+    yield "    const modal    = host.querySelector('#automationManagerModal');"
+    yield "    if (!backdrop || !modal) {"
+    yield "      console.error('Malformed template. Expected .modal-backdrop and #automationManagerModal. Got:', html.slice(0,200));"
+    yield "      alert('Unable to open Automations modal'); return;"
+    yield "    }"
+    # Stamp IDs for init
+    yield "    modal.dataset.switchId = switchIdVal;"
+    yield "    backdrop.dataset.switchId = switchIdVal;"
+    yield ""
+    yield "    const mount = document.querySelector('#modal-host') || document.body;"
+    yield "    mount.appendChild(backdrop);"
+    yield ""
+    # === Ensure the latest automation script is loaded (fixed) ===
+    yield "    async function ensureAutomationJs(){"
+    yield "      const TAG_ID = 'advanced-automation-js';"
+    yield "      const ver = Date.now();"
+    yield "      const existing = document.getElementById(TAG_ID);"
+    yield "      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);"
+    yield "      await new Promise((resolve, reject) => {"
+    yield "        const s = document.createElement('script');"
+    yield "        s.id = TAG_ID;"
+    yield "        s.src = `/ui_static/js/advanced_automation.js?v=${ver}`;"
+    yield "        s.onload = resolve;"
+    yield "        s.onerror = reject;"
+    yield "        document.head.appendChild(s);"
+    yield "      });"
+    yield "    }"
+    yield "    await ensureAutomationJs();"
+    yield ""
+    # --- Validate the required nodes are actually in the DOM now ---
+    yield "    const modalInDom = document.querySelector('#automationManagerModal');"
+    yield "    const hasList = modalInDom && modalInDom.querySelector('#automationList');"
+    yield "    const hasSwitch = modalInDom && modalInDom.querySelector('#actionSwitch');"
+    yield "    if (!modalInDom || !hasList || !hasSwitch) {"
+    yield "      console.error('Required nodes missing after mount', { modalInDom, hasList, hasSwitch });"
+    yield "      alert('Unable to open Automations modal'); return;"
+    yield "    }"
+    yield ""
+    yield "    if (window.initAdvancedAutomationModal) {"
+    yield "      const ok = await window.initAdvancedAutomationModal(modalInDom);"
+    yield "      if (!ok) { console.error('initAdvancedAutomationModal returned false'); alert('Unable to open Automations modal'); return; }"
+    yield "    } else {"
+    yield "      console.error('initAdvancedAutomationModal not found after script load');"
+    yield "      alert('Automations script not available.');"
+    yield "      return;"
+    yield "    }"
+    yield "  } catch (e) {"
+    yield "    console.error('openAdvancedSwitchModal failed', e);"
+    yield "    alert('Unable to open Automations modal');"
+    yield "  }"
+    yield "};"
+
+    yield "window.closeAdvancedSwitchModal = function(){"
+    yield "  const adv = document.getElementById('advancedSwitchModal');"
+    yield "  if (!adv) return;"
+    yield "  adv.style.display = 'none';"
+    yield "  const cond = document.getElementById('conditionsContainer');"
+    yield "  const acts = document.getElementById('actionsContainer');"
+    yield "  if (cond) cond.innerHTML = '';"
+    yield "  if (acts) acts.innerHTML = '';"
+    yield "};"
+
+    # ---------- builders ----------
+    yield "window.fetchSensorIds = async function(){"
+    yield "  try { const r = await fetch('/sensor-ids'); return await r.json(); }"
+    yield "  catch(e){ console.error('Failed to load sensors', e); return []; }"
+    yield "};"
+    
+    yield "window.SwitchModal = window.SwitchModal || (function(){"
+    yield "  function mount(modal){"
+    yield "    if (!modal) return;"
+    yield "    if (modal.id !== 'switchSettingsModal') modal.id = 'switchSettingsModal';"
+    yield "    modal.dataset.switchMounted = '1';"
+    yield "    modal.style.display = 'none';"
+    yield "  }"
+    yield "  function open(){"
+    yield "    const m = document.getElementById('switchSettingsModal');"
+    yield "    if (m) m.style.display = 'block';"
+    yield "  }"
+    yield "  function close(){"
+    yield "    const m = document.getElementById('switchSettingsModal');"
+    yield "    if (m) m.remove();"
+    yield "  }"
+    yield "  return { mount, open, close };"
+    yield "})();"
+    yield ""
+  
+    yield "const SENSOR_STATUS_COLORS = { online:'#28a745', offline:'#dc3545', pending:'#ffc107' };"
+    yield "async function refreshAndApplySensorStatus(){"
+    yield "  try {"
+    yield "    const url = new URL(window.location.href);"
+    yield "    url.searchParams.set('json_only','true');"
+    yield "    const resp = await fetch(url.toString(), { cache:'no-store' });"
+    yield "    if (!resp.ok) return;"
+    yield "    const data = await resp.json();"
+    yield "    const statuses = data && data.statuses ? data.statuses : {};"
+    yield "    Object.entries(statuses).forEach(([sid,st]) => {"
+    yield "      const dot = document.getElementById(`${sid}_statusdot`);"
+    yield "      if (!dot) return;"
+    yield "      const s = (st||'pending').toLowerCase();"
+    yield "      const color = SENSOR_STATUS_COLORS[s] || SENSOR_STATUS_COLORS.pending;"
+    yield "      dot.style.background = color;"
+    yield "      dot.title = `Measurement status: ${s}`;"
+    yield "      dot.setAttribute('aria-label', `Measurement status: ${s}`);"
+    yield "    });"
+    yield "  } catch (_) { /* silent */ }"
+    yield "}"
+    yield "window.addEventListener('load', ()=>{"
+    yield "  setTimeout(refreshAndApplySensorStatus, 400);"
+    yield "  setInterval(refreshAndApplySensorStatus, 5000);"
+    yield "});"
+      
+    yield "window.toggleScriptEnable = async function(btn, channel, scriptName, enabled){"
+    yield "  try {"
+    yield "    btn.disabled = true;"
+    yield "    const next = !enabled;"
+    yield "    btn.textContent = next ? 'On':'Off';"
+    yield "    btn.classList.toggle('green', next);"
+    yield "    btn.classList.toggle('black', !next);"
+    yield "    btn.setAttribute('onclick', `toggleScriptEnable(this, \"${channel}\", \"${scriptName}\", ${next})`);"
+    yield "  } finally { btn.disabled = false; }"
+    yield "};"
+
+    yield "window.fetchMetrics = async function(sensorId){"
+    yield "  try { const r = await fetch(`/sensor-metrics?sensor_id=${encodeURIComponent(sensorId)}`); return await r.json(); }"
+    yield "  catch(e){ console.error('Failed metrics for', sensorId, e); return {}; }"
+    yield "};"
+
+    # ---- single onload ----
+    yield "window.onload = function() {"
+    yield "  setTimeout(checkAndRetryIfNoGauges, 1000);"
+
+    yield "  initGauge();"
+    yield "  refreshAndApplySwitchStatus();"
+
+    yield "  const sel = document.getElementById('sensorSelect');"
+    yield "  if (sel) {"
+    yield "    sel.addEventListener('change', function() {"
+    yield "      const selected = this.value;"
+    yield "      const path = window.location.pathname;"
+    yield "      window.location.href = `${path}?sensor_id=${encodeURIComponent(selected)}`;"
+    yield "    });"
+    yield "  }"
+
+    yield "  setInterval(updateLocalTime, 1000);"
+    yield "  setInterval(checkAndRetryIfNoGauges, 60000);"
+    yield "  setInterval(updateGauges, 15000);"
+    yield "  setInterval(refreshAndApplySwitchStatus, 30000);"
+    yield "  setInterval(function() {"
+    yield "    if (typeof window.refreshAllMicrographs === 'function') {"
+    yield "      window.refreshAllMicrographs(false);"
+    yield "    }"
+    yield "  }, 60000);"
+    yield "}"
+    
+    yield "</script>"
+    
+    yield "<div id='modal-host'></div>"
+    yield "</div>"
+    yield "</body></html>"
+
+def core_helpers_html() -> str:
+    # styles sit OUTSIDE <script> to avoid parser issues
+    return (
+        "<style>"
+        ".toast-container{position:fixed; top:16px; left:50%; transform:translateX(-50%); z-index:99999}"
+        ".toast{padding:10px 14px; border-radius:8px; background:#222; color:#fff; box-shadow:0 2px 10px rgba(0,0,0,.25)}"
+        ".toast.ok{background:#1f693a}"
+        ".toast.error{background:#8b0000}"
+        ".onboard-overlay{z-index:99990}"
+        ".onboard-modal{position:relative; z-index:99991}"
+        "</style>"
+        "<script>"
+        "(function(){"
+        "  if (typeof window.showToast !== 'function') {"
+        "    window.showToast = function(text, type){"
+        "      var c = document.querySelector('.toast-container');"
+        "      if (!c){ c = document.createElement('div'); c.className='toast-container'; document.body.appendChild(c); }"
+        "      var t = document.createElement('div'); t.className = 'toast ' + (type||''); t.textContent = text||'';"
+        "      c.appendChild(t); setTimeout(function(){ t.remove(); if(!c.children.length) c.remove(); }, 2500);"
+        "    };"
+        "  }"
+        "  if (typeof window.postNodusSetting !== 'function') {"
+        "    window.postNodusSetting = async function(host, filename, section, key, value){"
+        "      var url = 'http://' + host + ':8000/set-nodus-setting';"
+        "      var res = await fetch(url, {"
+        "        method: 'POST',"
+        "        headers: {'Content-Type':'application/json'},"
+        "        body: JSON.stringify({ filename: filename, section: section, key: key, value: value })"
+        "      });"
+        "      if (!res.ok) throw new Error(await res.text());"
+        "      return true;"
+        "    };"
+        "  }"
+        "})();"
+        "</script>"
+    )
+
+def render_graph_modal(switch_installed=None):
+    # Read tz offset/name from system settings for client display/normalization
+    try:
+        from rPiSettings import rPiSettings
+        _sys = rPiSettings()
+        tz_offset = int(_sys.get_setting("Time", "TZ_OFFSET", 0) or 0)  # seconds (e.g., -21600)
+        tz_name   = str(_sys.get_setting("Time", "TZ_NAME", "") or "")
+    except Exception:
+        tz_offset, tz_name = 0, ""
+
+    import json as _json
+
+    # ---------- CSS ----------
+    yield """
+    <style>
+    .button {
+      display: inline-block;
+      padding: 10px 20px;
+      margin: 10px;
+      font-size: 16px; font-weight: bold;
+      border-radius: 6px; border: none; cursor: pointer;
+      transition: background 0.3s, transform 0.2s;
+    }
+    .button:hover { transform: translateY(0px); }
+    .green{background:#28a745;color:#fff}.green:hover{background:#218838}
+    .red{background:#dc3545;color:#fff}.red:hover{background:#c82333}
+    .neutral{background:#f7f1c1;color:#212529}.neutral:hover{background:#f7efb0}
+    .black{background:#000;color:#fff}.black:hover{background:#333}
+    .yellow{background:#ffc107;color:#212529}.yellow:hover{background:#e0a800}
+    .blue{background:#2259f2;color:#fff}.blue:hover{background:blue}
+
+    #fullscreen_graph_container {
+      display: none; position: fixed; top:0; left:0; width:100%; height:100vh;
+      background:white; z-index:1001; flex-direction:column; justify-content:flex-start;
+      padding-top:3rem; padding-bottom:4rem; overflow:hidden; box-sizing:border-box;
+    }
+    #fullscreen_graph { flex:1; width:100%; }
+    #graphModal {
+      display:none; position:fixed; top:0; left:0; width:100%; height:100%;
+      background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;
+    }
+    #graphModal .modal-content {
+      background:#F5FFFA; padding:1rem; border-radius:0.5rem;
+      max-width:560px; width:92%; max-height:90%; overflow-y:auto;
+    }
+    .spinner{
+      width:16px;height:16px;border:2px solid #ccc;border-top:2px solid #333;border-radius:50%;
+      animation:spin 1s linear infinite; display:inline-block;vertical-align:middle
+    }
+    @keyframes spin { to{ transform:rotate(360deg) } }
+
+    .axis-grid{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:.5rem 1rem;
+      margin-bottom:.75rem
+    }
+    .axis-grid h3{grid-column:1/3;margin:.25rem 0 .25rem 0}
+    .axis-grid label{font-size:.9rem}
+    </style>
+    """
+
+    # ---------- Modal shell ----------
+    yield "<div id='graphModal' class='modal'>"
+    yield "  <div class='modal-content'>"
+    yield "    <h2 style='text-align:center;'>Graph Sensor Metrics</h2>"
+
+    # Axis pickers
+    yield "    <div class='axis-grid'>"
+    yield "      <h3>Left Y-Axis</h3>"
+    yield "      <select id='sensor1_select' style='width:100%'></select>"
+    yield "      <select id='metric1_select' style='width:100%'></select>"
+    yield "      <h3>Right Y-Axis A</h3>"
+    yield "      <select id='sensor2_select' style='width:100%'></select>"
+    yield "      <select id='metric2_select' style='width:100%'></select>"
+    yield "      <h3>Right Y-Axis B</h3>"
+    yield "      <select id='sensor3_select' style='width:100%'></select>"
+    yield "      <select id='metric3_select' style='width:100%'></select>"
+    yield "    </div>"
+
+    # Time ranges
+    yield "    <label>Time Range:</label><br>"
+    yield "    <div style='display:flex; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.5rem;'>"
+    for label, val in [
+        ("1Hr", "1h"),
+        ("3Hr", "3h"),
+        ("6Hr", "6h"),
+        ("12Hr", "12h"),
+        ("24Hr", "24h"),
+        ("3Day", "3d"),
+        ("7Day", "7d"),
+        ("30Day", "30d"),
+    ]:
+        checked_attr = " checked" if val == "24h" else ""
+        yield (
+            f"      <label><input type='radio' name='range' value='{val}'"
+            f"{checked_attr} onchange='toggleCustomTime(false)'>{label}</label>"
+        )
+    yield "    </div>"
+
+    yield "    <div style='display:flex; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.5rem;'>"
+    yield "      <label><input type='radio' name='range' value='custom' onchange='toggleCustomTime(true)'>Custom</label>"
+    yield "    </div>"
+    yield "    <div id='custom_time_inputs' style='display:none;'>"
+    yield "      <label>Start:</label><input type='datetime-local' id='start_time'><br>"
+    yield "      <label>End:</label><input type='datetime-local' id='end_time'>"
+    yield "    </div>"
+
+    # ---------- Switch section ----------
+    switch_map: dict[str, list[str]] = {}
+    if switch_installed:
+        try:
+            from rPiSwitchSettingsManager import SwitchSettingsManager
+
+            sw_mgr = SwitchSettingsManager("switch_settings")
+            sw_ids = sw_mgr.list_switches() or []
+            for sid in sw_ids:
+                try:
+                    doc = sw_mgr.load(sid) or {}
+                    if hasattr(sw_mgr, "get_switch_channel_names"):
+                        labels = list(sw_mgr.get_switch_channel_names(doc) or [])
+                    else:
+                        swblk = (doc or {}).get("Switch", {}) if isinstance(doc, dict) else {}
+                        labels: list[str] = []
+                        for i in range(1, 7):
+                            lab = str(swblk.get(f"SWITCH_{i}", "") or "").strip()
+                            en = str(swblk.get(f"SWITCH_{i}_EN", "") or "").strip()
+                            pin = str(swblk.get(f"SWITCH_{i}_PIN", "") or "").strip()
+                            if lab and (en or pin):
+                                labels.append(lab)
+                    if labels:
+                        switch_map[sid] = labels
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        yield "    <div id='switch_lines_section' style='margin:1rem 0;'>"
+        yield "      <div style='margin-bottom:0.4rem;'>Switch Transitions:</div>"
+        if switch_map:
+            yield "      <label for='switch_select'>Switch:</label>"
+            yield "      <select id='switch_select' style='width:100%; margin-bottom:0.5rem;'></select>"
+            yield "      <div id='channel_checkboxes' style='display:flex; flex-wrap:wrap; gap:0.75rem;'></div>"
+        else:
+            yield "      <div style='opacity:0.8;'>No switches found.</div>"
+        yield "    </div>"
+
+    # Footer bar
+    yield "    <div style='margin-top:1rem; display:flex; justify-content:space-between;'>"
+    yield (
+        "      <button class='button black' "
+        "onclick=\"document.getElementById('graphModal').style.display='none'\">Cancel</button>"
+    )
+    yield "      <button id='graphButton' class='button blue' onclick='loadGraph(event)'>"
+    yield "        <span class='spinner' style='display:none;margin-right:6px;'></span>"
+    yield "        <span class='button-text'>Graph It</span>"
+    yield "      </button>"
+    yield "    </div>"
+
+    yield "  </div>"
+    yield "</div>"
+
+    # ---------- Fullscreen canvas ----------
+    yield """
+    <div id="fullscreen_graph_container">
+        <button class='button black'
+                onclick="closeFullscreenGraph()"
+                style="position:absolute;bottom:1rem;left:50%;transform:translateX(-50%);z-index:1002;">
+            Close
+        </button>
+        <canvas id="fullscreen_graph" style="width:100%; height:90vh;"></canvas>
+        <div id="switch_legend" style="display:flex; justify-content:center; gap:1rem; margin-bottom:0.5rem;"></div>
+    </div>
+    """
+
+    # ---------- Scripts ----------
+    yield "<script>"
+    yield "function toggleCustomTime(enabled){ document.getElementById('custom_time_inputs').style.display = enabled ? 'block' : 'none'; }"
+
+    # Timezone injection
+    yield f"const TZ_OFFSET_S = {tz_offset};"
+    yield f"const TZ_NAME = {_json.dumps(tz_name)};"
+
+    # Switch map injection
+    if switch_map:
+        yield f"const SWITCH_MAP = {_json.dumps(switch_map)};"
+    else:
+        yield "const SWITCH_MAP = {};"
+
+    # Core JS (no // comments)
+    yield r"""
+    function toLocalMs(rawTs){
+      if (rawTs == null) return NaN;
+      if (typeof rawTs === 'number' && Number.isFinite(rawTs)) return rawTs * 1000;
+      if (typeof rawTs === 'string' && /^\d+(\.\d+)?$/.test(rawTs.trim())) return Number(rawTs) * 1000;
+      const t = new Date(rawTs).getTime();
+      return Number.isFinite(t) ? t : NaN;
+    }
+    function localOrUndef(v){
+      if (v === undefined || v === null || v === '') return undefined;
+      const ms = toLocalMs(v);
+      return Number.isFinite(ms) ? ms : undefined;
+    }
+
+    async function fetchJSON(url){
+      const r = await fetch(url, {cache: 'no-store'});
+      try { return await r.json(); } catch { return null; }
+    }
+
+    async function populateSensors(selectIds){
+      const sensors = await fetchJSON('/sensor-ids') || [];
+      for(const id of selectIds){
+        const sel = document.getElementById(id);
+        if(!sel) continue;
+        sel.innerHTML = "<option value=''>-- Select Sensor --</option>";
+        sensors.forEach(s => {
+          const o = document.createElement('option');
+          o.value = s;
+          o.textContent = s;
+          sel.appendChild(o);
+        });
+      }
+    }
+
+    async function populateMetricsFor(sensorSelId, metricSelId){
+      const sidEl = document.getElementById(sensorSelId);
+      const sid = (sidEl && sidEl.value ? sidEl.value : "").trim();
+      const msel = document.getElementById(metricSelId);
+      if(!msel) return;
+      msel.innerHTML = "<option value=''>-- Select Metric --</option>";
+      if(!sid) return;
+
+      const payload = await fetchJSON(`/sensor-metrics?sensor_id=${encodeURIComponent(sid)}`);
+      let metricNames = [];
+      if(Array.isArray(payload)) metricNames = payload;
+      else if(payload && typeof payload === 'object'){
+        if(Array.isArray(payload.metrics)) metricNames = payload.metrics;
+        else metricNames = Object.keys(payload);
+      }
+      metricNames.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        msel.appendChild(opt);
+      });
+    }
+
+    async function initGraphBuilder(){
+      try{
+        await populateSensors(['sensor1_select','sensor2_select','sensor3_select']);
+        const s1 = document.getElementById('sensor1_select');
+        const s2 = document.getElementById('sensor2_select');
+        const s3 = document.getElementById('sensor3_select');
+
+        if(s1) s1.onchange = () => populateMetricsFor('sensor1_select','metric1_select');
+        if(s2) s2.onchange = () => populateMetricsFor('sensor2_select','metric2_select');
+        if(s3) s3.onchange = () => populateMetricsFor('sensor3_select','metric3_select');
+
+        await populateMetricsFor('sensor1_select','metric1_select');
+        await populateMetricsFor('sensor2_select','metric2_select');
+        await populateMetricsFor('sensor3_select','metric3_select');
+
+        const swSel = document.getElementById('switch_select');
+        const chBox = document.getElementById('channel_checkboxes');
+        if(swSel){
+          swSel.innerHTML = "<option value=''>-- Select Switch --</option>";
+          Object.keys(SWITCH_MAP).forEach(sid => {
+            const o = document.createElement('option');
+            o.value = sid;
+            o.textContent = sid;
+            swSel.appendChild(o);
+          });
+          swSel.onchange = () => {
+            if(!chBox) return;
+            chBox.innerHTML = '';
+            const sid = swSel.value;
+            if(!sid) return;
+            (SWITCH_MAP[sid] || []).forEach(label => {
+              const encoded = btoa(unescape(encodeURIComponent(sid + '::' + label))).replace(/=/g,'');
+              const id = 'ch_' + encoded;
+              const wrap = document.createElement('label');
+              wrap.innerHTML = "<input type='checkbox' id='" + id + "' data-label='" + label + "'> " + label;
+              chBox.appendChild(wrap);
+            });
+          };
+        }
+      }catch(e){
+        console.error('Graph builder init failed', e);
+      }
+    }
+
+    function loadGraph(event){
+      const button = event.target.closest('button');
+      const spinner = button.querySelector('.spinner');
+      const text = button.querySelector('.button-text');
+      button.disabled = true;
+      spinner.style.display='inline-block';
+      text.textContent='Preparing Graph...';
+
+      const s1 = document.getElementById('sensor1_select').value;
+      const s2 = document.getElementById('sensor2_select').value;
+      const s3 = document.getElementById('sensor3_select').value;
+      const m1 = document.getElementById('metric1_select').value;
+      const m2 = document.getElementById('metric2_select').value;
+      const m3 = document.getElementById('metric3_select').value;
+
+      const rangeEl  = document.querySelector('input[name="range"]:checked');
+      const rangeVal = rangeEl ? rangeEl.value : '24h';
+      const start = document.getElementById('start_time') ? document.getElementById('start_time').value : "";
+      const end   = document.getElementById('end_time')   ? document.getElementById('end_time').value   : "";
+
+      const params = new URLSearchParams({
+        sensor_id: s1 || '',
+        metric1: m1 || '',
+        metric2: m2 || '',
+        metric3: m3 || '',
+        sensor_id1: s1 || '',
+        sensor_id2: s2 || '',
+        sensor_id3: s3 || '',
+        range: rangeVal
+      });
+
+      if(rangeVal === 'custom'){
+        if(!start || !end){
+          alert('Enter start and end times.');
+          button.disabled=false;
+          spinner.style.display='none';
+          text.textContent='Graph It';
+          return;
+        }
+        params.set('start', start);
+        params.set('end', end);
+      }
+
+      const swSel = document.getElementById('switch_select');
+      if(swSel && swSel.value){
+        params.set('switch_id', swSel.value);
+        const chBox = document.getElementById('channel_checkboxes');
+        const cbs = chBox ? chBox.querySelectorAll('input[type="checkbox"]') : [];
+        (cbs || []).forEach(cb => {
+          if(cb.checked){
+            const label = cb.getAttribute('data-label') || '';
+            if(label) params.append('channels', label);
+          }
+        });
+      }
+
+      fetch('/graph-data?' + params.toString())
+        .then(r => r.json())
+        .then(data => {
+          document.getElementById('graphModal').style.display='none';
+          renderGraphFullscreen_V2(data);
+        })
+        .catch(e => {
+          console.error('Graph error:', e);
+          alert('Graph load failed');
+        })
+        .finally(() => {
+          button.disabled=false;
+          spinner.style.display='none';
+          text.textContent='Graph It';
+        });
+    }
+
+    const vpdBackgroundPlugin = {
+      id: 'vpdBackground',
+      beforeDraw(chart) {
+        const enabled = !!(chart && chart.options && chart.options.plugins &&
+                           chart.options.plugins.vpdZones &&
+                           chart.options.plugins.vpdZones.enabled);
+        if (!enabled) return;
+
+        const ctx = chart.ctx;
+        const chartArea = chart.chartArea;
+        const scales = chart.scales;
+        if (!chartArea) return;
+
+        const zones = [
+          { color: '#800080', min: 0.0, max: 0.4 },
+          { color: '#3399ff', min: 0.4, max: 0.8 },
+          { color: '#add8e6', min: 0.8, max: 1.2 },
+          { color: '#66cc66', min: 1.2, max: 1.6 },
+          { color: '#f00',    min: 1.6, max: 5.0 }
+        ];
+
+        const allScales = scales || {};
+        const yScale =
+          allScales.y1 ||
+          Object.values(allScales).find(s => s && s.axis === 'y');
+        if (!yScale) return;
+
+        ctx.save();
+        ctx.globalAlpha = 0.3;
+        zones.forEach(z => {
+          const y1 = yScale.getPixelForValue(z.min);
+          const y2 = yScale.getPixelForValue(z.max);
+          const top = Math.min(y1, y2);
+          const height = Math.abs(y2 - y1);
+          ctx.fillStyle = z.color;
+          ctx.fillRect(chartArea.left, top, chartArea.right - chartArea.left, height);
+        });
+        ctx.globalAlpha = 1.0;
+        ctx.restore();
+      }
+    };
+
+    function renderGraphFullscreen_V2(data){
+      const canvas = document.getElementById('fullscreen_graph');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      document.getElementById('fullscreen_graph_container').style.display = 'block';
+
+      const win = (data && data.window) || {};
+      const xMin = localOrUndef(
+        win.since_iso !== undefined ? win.since_iso : win.since_epoch_s
+      );
+      const xMax = localOrUndef(
+        win.until_iso !== undefined ? win.until_iso : win.until_epoch_s
+      );
+
+      const datasets = [];
+      const series = (data && data.series) || {};
+      const keys = Object.keys(series || {});
+      let leftAssigned = false;
+
+      keys.forEach(function(k, idx){
+        const entry = series[k] || {};
+        const ts   = entry.ts   || [];
+        const vals = entry.vals || [];
+        const points = [];
+        for (let i = 0; i < ts.length; i++){
+          const x = toLocalMs(ts[i]);
+          const y = Number(vals[i]);
+          if (Number.isFinite(x) && Number.isFinite(y)){
+            points.push({ x: x, y: y });
+          }
+        }
+        const yAxisID = leftAssigned ? 'y2' : 'y1';
+        if (!leftAssigned) leftAssigned = true;
+
+        datasets.push({
+          label: (data.display_names && data.display_names[k]) || k,
+          data: points,
+          borderColor: (idx === 0 ? 'blue' : (idx === 1 ? 'green' : 'purple')),
+          yAxisID: yAxisID,
+          tension: 0.2,
+          pointRadius: 0
+        });
+      });
+
+      function isVPDLabel(s){
+        return /(^|\b)(ambient\s+)?vpd(\b|$)/i.test(String(s));
+      }
+      const leftName   = datasets[0] ? (datasets[0].label || '') : '';
+      const rightNames = datasets.filter(function(d){ return d.yAxisID === 'y2'; })
+                                 .map(function(d){ return d.label; });
+
+      const leftIsVPD  = isVPDLabel(leftName);
+      const rightIsVPD = rightNames.some(isVPDLabel);
+      const anyVPD     = leftIsVPD || rightIsVPD;
+
+      const legendContainer = document.getElementById('switch_legend');
+      if (legendContainer) legendContainer.innerHTML = '';
+      const allAnnotations = {};
+      if (data && data.switch_lines){
+        let colorIdx = 0;
+        const pal = [
+          { on:'#006400', off:'#8B0000' },
+          { on:'#228B22', off:'#B22222' },
+          { on:'#2F4F4F', off:'#A0522D' },
+          { on:'#008080', off:'#8B4513' }
+        ];
+        Object.entries(data.switch_lines).forEach(function(pair){
+          const label  = pair[0];
+          const events = pair[1] || [];
+          const colors = pal[colorIdx % pal.length];
+          colorIdx += 1;
+
+          if (legendContainer){
+            const el = document.createElement('div');
+            el.innerHTML =
+              "<span style='color:" + colors.on  + "'>&#9632;</span> " +
+              label + " (ON), " +
+              "<span style='color:" + colors.off + "'>&#9632;</span> OFF";
+            legendContainer.appendChild(el);
+          }
+
+          events.forEach(function(ev, i){
+            const stamp = ev[0];
+            const state = ev[1];
+            const tMs = toLocalMs(stamp);
+            if (!Number.isFinite(tMs)) return;
+            const id = label + "_" + (state ? "on" : "off") + "_" + String(i);
+            allAnnotations[id] = {
+              type: 'line',
+              xMin: tMs,
+              xMax: tMs,
+              borderColor: state ? colors.on : colors.off,
+              borderWidth: 2
+            };
+          });
+        });
+      }
+
+      function isMidnight(ms){
+        const d = new Date(ms);
+        return d.getHours() === 0 && d.getMinutes() === 0;
+      }
+      function fmtDate(ms){
+        return new Date(ms).toLocaleDateString(undefined, { month:'short', day:'numeric' });
+      }
+      function fmtTime(ms){
+        return new Date(ms).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+      }
+
+      if (window.graphChart){
+        window.graphChart.destroy();
+      }
+
+      const axisTitles = {
+        y1: (data.axis_titles && data.axis_titles.y1) || 'Left',
+        y2: (data.axis_titles && data.axis_titles.y2) ||
+            (rightNames.join(' / ') || '')
+      };
+
+      const y1Opts = {
+        position: 'left',
+        beginAtZero: false,
+        title: { display: true, text: axisTitles.y1 }
+      };
+      const y2Opts = {
+        position: 'right',
+        beginAtZero: false,
+        title: { display: (keys.length > 1), text: axisTitles.y2 },
+        grid: { drawOnChartArea: false },
+        display: (keys.length > 1)
+      };
+
+      if (leftIsVPD){
+        y1Opts.min = 0;
+        y1Opts.max = 5;
+      }
+      if (rightIsVPD){
+        y2Opts.min = 0;
+        y2Opts.max = 5;
+      }
+
+      const annotationPlugin = Chart.registry.getPlugin('annotation');
+      const pluginsArr = [vpdBackgroundPlugin];
+      if (annotationPlugin){
+        pluginsArr.push(annotationPlugin);
+      }
+
+      window.graphChart = new Chart(ctx, {
+        type: 'line',
+        data: { datasets: datasets },
+        options: {
+          parsing: false,
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              type: 'time',
+              min: xMin,
+              max: xMax,
+              time: { unit: 'hour', tooltipFormat: 'PP p' },
+              title: {
+                display: true,
+                text: (typeof TZ_NAME === 'string' && TZ_NAME)
+                  ? ('Time (' + TZ_NAME + ')')
+                  : 'Time'
+              },
+              ticks: {
+                source: 'auto',
+                autoSkip: true,
+                maxRotation: 0,
+                callback: function(val, idx, ticks){
+                  const tval = (ticks[idx] && ('value' in ticks[idx]))
+                    ? ticks[idx].value
+                    : val;
+                  return isMidnight(tval) ? fmtDate(tval) : fmtTime(tval);
+                }
+              },
+              grid: {
+                color: function(c){
+                  const v = c && c.tick ? c.tick.value : undefined;
+                  return isMidnight(v) ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.1)';
+                },
+                lineWidth: function(c){
+                  const v = c && c.tick ? c.tick.value : undefined;
+                  return isMidnight(v) ? 1.5 : 1;
+                }
+              }
+            },
+            y1: y1Opts,
+            y2: y2Opts
+          },
+          plugins: {
+            annotation: { annotations: allAnnotations },
+            vpdZones: { enabled: anyVPD }
+          }
+        },
+        plugins: pluginsArr
+      });
+    }
+
+    function closeFullscreenGraph(){
+      const cont = document.getElementById('fullscreen_graph_container');
+      if (cont) cont.style.display = 'none';
+      if (window.graphChart){
+        window.graphChart.destroy();
+        window.graphChart = null;
+      }
+    }
+
+    window.openGraphModal = function(){
+      const gm = document.getElementById('graphModal');
+      if (gm){
+        gm.style.display = 'flex';
+        initGraphBuilder();
+      }
+    };
+    """
+    yield "</script>"

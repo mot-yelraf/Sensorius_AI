@@ -1,0 +1,479 @@
+"""System settings manager with RAM caching and foldered layout support."""
+
+from __future__ import annotations
+
+import os, time
+import json
+import threading
+import copy
+import shutil
+import hashlib
+from pathlib import Path
+from collections import OrderedDict
+from datetime import datetime
+from rPiUtils import debug_enabled, printDM, get_pi_network_info, get_time_settings
+
+MODULE = "rPiSettings"
+DEBUG = debug_enabled(MODULE)
+
+class rPiSettings:
+    # ---- class-level cache (path -> settings / mtime) ----
+    _cache_by_path: dict[str, OrderedDict] = {}
+    _mtime_by_path: dict[str, float | None] = {}
+    _lock = threading.RLock()
+    _startup_backup_done = False
+
+    # ---- foldered-layout constants ----
+    DEFAULT_BASE_DIR = r"system_settings"
+    STANDARD_FILENAME = "settings.toml"
+
+    def __init__(
+        self,
+        filename: str | None = "settings.toml",   # legacy single-file path (kept for drop-in)
+        make_startup_backup: bool = True,
+        apply_live: bool = True,
+        base_dir: str = DEFAULT_BASE_DIR,         # foldered layout root
+        device_id: str | None = None              # system_settings/<device_id>/settings.toml
+    ):
+        """
+        If 'device_id' is provided (or discoverable), settings live at:
+            <base_dir>/<device_id>/settings.toml
+        Otherwise we fall back to the legacy single-file 'filename'.
+
+        Writes always target the new foldered path; reads prefer new path, fallback to legacy.
+        """
+        self._cache = None
+        self._mtime = None
+        
+        # Resolve device_id (default to Pi hostname)
+        if device_id is None:
+            try:
+                net_info = get_pi_network_info()
+                device_id = (net_info.get("hostname") or "").strip()
+            except Exception:
+                device_id = ""
+        self.device_id = device_id
+
+        # Resolve base dir (absolute)
+        self.base_dir = Path(rf"{base_dir}").expanduser().resolve()
+
+        # Candidate paths
+        self._new_path = (self.base_dir / self.device_id / self.STANDARD_FILENAME) if self.device_id else None
+        # Legacy single-file path (absolute)
+        self._legacy_path = Path(rf"{filename}").expanduser().resolve() if filename else None
+
+        # Choose initial active path for reading
+        self._abs_path = self._resolve_read_path()
+
+        # Ensure parent directories for new path will exist on write
+        if self._new_path:
+            try:
+                self._new_path.parent.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+
+        # ensure a real file exists for this host on first boot
+        self._seed_from_factory_if_missing()
+
+        self.apply_live = apply_live
+        self._dirty = False
+
+        # --- Create .bak backup on first instantiation (of the path we are reading) ---
+        if make_startup_backup:
+            self._ensure_startup_backup()
+
+        # Load into RAM (and from disk only if needed)
+        self.settings = self._load_settings_cached()
+
+        # Apply live values & keep cache/write-through consistent
+        if self.apply_live:
+            self.apply_auto_values()
+
+        # convenience attrs used elsewhere in the project
+        self.broker = self.get_setting("SensorNetwork", "BROKER")
+        self.sensor_ids = self.get_all_sensor_ids()
+
+        if DEBUG:
+            printDM(
+                f"Using settings path: {self._abs_path} (device_id={self.device_id or 'N/A'})",
+                location=MODULE,
+            )
+
+    # ---------- path resolution ----------
+    def _resolve_read_path(self) -> str:
+        """
+        Prefer new foldered path if it exists, else fall back to legacy file.
+        If neither exists, default to NEW path if we have a device_id, else legacy filename.
+        """
+        # prefer new if present
+        if self._new_path and self._new_path.exists():
+            return str(self._new_path.resolve())
+        # fallback legacy if present
+        if self._legacy_path and self._legacy_path.exists():
+            return str(self._legacy_path.resolve())
+        # neither exists: choose where we'll write next
+        if self._new_path:
+            return str(self._new_path.resolve())
+        # worst case: legacy path string (may not exist yet)
+        return str(self._legacy_path.resolve()) if self._legacy_path else os.path.abspath(self.STANDARD_FILENAME)
+
+    def _resolve_write_path(self) -> str:
+        """
+        Always write to NEW foldered layout if we have a device_id,
+        otherwise write to legacy path (for strict drop-in scenarios).
+        """
+        if self._new_path:
+            self._new_path.parent.mkdir(parents=True, exist_ok=True)
+            return str(self._new_path.resolve())
+        # fallback: legacy
+        if self._legacy_path:
+            self._legacy_path.parent.mkdir(parents=True, exist_ok=True)
+            return str(self._legacy_path.resolve())
+        # last resort: local CWD settings.toml
+        return os.path.abspath(self.STANDARD_FILENAME)
+
+    def _candidate_paths(self) -> list[str]:
+        """
+        All absolute path variants that may be cached:
+        - NEW: <base_dir>/<device_id>/settings.toml
+        - LEGACY: <legacy filename>
+        """
+        paths: list[str] = []
+        if self._new_path:
+            paths.append(str(self._new_path.resolve()))
+        if self._legacy_path:
+            paths.append(str(self._legacy_path.resolve()))
+        # include current abs path
+        paths.append(str(Path(self._abs_path).resolve()))
+        # de-dup
+        return list(dict.fromkeys(paths))
+
+    # ---- public helpers to manually control cache if needed ----
+    @classmethod
+    def invalidate_cache(cls, path: str | None = None):
+        """Invalidate cache for a specific file or all files."""
+        with cls._lock:
+            if path:
+                ap = os.path.abspath(path)
+                cls._cache_by_path.pop(ap, None)
+                cls._mtime_by_path.pop(ap, None)
+                if DEBUG:
+                    printDM(f"Invalidated settings cache: {ap}", location=MODULE)
+            else:
+                cls._cache_by_path.clear()
+                cls._mtime_by_path.clear()
+                if DEBUG:
+                    printDM("Invalidated settings cache: ALL", location=MODULE)
+
+    def invalidate_this_cache(self):
+        """Invalidate cache entries for this instance's candidate paths."""
+        with self.__class__._lock:
+            for p in self._candidate_paths():
+                self.__class__._cache_by_path.pop(p, None)
+                self.__class__._mtime_by_path.pop(p, None)
+                if DEBUG:
+                    printDM(f"Invalidated settings cache: {p}", location=MODULE)
+
+    # ---- core: cached load with mtime check ----
+    def _load_settings_cached(self, force: bool = False) -> OrderedDict:
+        path = self._abs_path
+        with self._lock:
+            file_exists = os.path.exists(path)
+            new_mtime = os.path.getmtime(path) if file_exists else None
+            cached = self._cache_by_path.get(path)
+            cached_mtime = self._mtime_by_path.get(path)
+
+            needs_refresh = (
+                force
+                or cached is None
+                or cached_mtime != new_mtime
+                or (not file_exists)   # avoid serving stale if file was deleted
+            )
+
+            if needs_refresh:
+                parsed = self._parse_settings_from_disk(path) if file_exists else OrderedDict()
+                self._cache_by_path[path] = parsed
+                self._mtime_by_path[path] = new_mtime
+                if DEBUG:
+                    src = "disk" if file_exists else "empty"
+                    printDM(f"Loaded settings from {src}, cached mtime={new_mtime}", location=MODULE)
+            else:
+                if DEBUG:
+                    printDM("Loaded settings from RAM cache", location=MODULE)
+
+            # return a defensive copy so callers can’t mutate shared cache
+            return copy.deepcopy(self._cache_by_path[path])
+
+    def _maybe_reload(self):
+        """
+        Ensure this instance's 'settings' reflects the latest on-disk contents.
+        Uses the class-level cache keyed by self._abs_path.
+        """
+        # Let the cached loader decide whether a refresh is needed by mtime.
+        doc = self._load_settings_cached(force=False)
+        # Keep instance copy in sync so existing call sites keep working.
+        self.settings = doc
+
+    # ---- original parser kept intact ----
+    def _parse_settings_from_disk(self, path: str) -> OrderedDict:
+        settings = OrderedDict()
+        section = None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for raw in f:
+                    line = raw.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if line.startswith("[") and line.endswith("]"):
+                        section = line[1:-1]
+                        settings[section] = OrderedDict()
+                    elif "=" in line and section:
+                        key, value = map(str.strip, line.split("=", 1))
+                        # lists handled above already
+                        if value.startswith('[') and value.endswith(']'):
+                            value = json.loads(value.replace("'", '"'))
+                        elif value.startswith('"') and value.endswith('"'):
+                            value = value[1:-1]
+                        else:
+                            lv = value.lower()
+                            if lv == "true":
+                                value = True
+                            elif lv == "false":
+                                value = False
+                            else:
+                                try:
+                                    value = float(value) if "." in value else int(value)
+                                except Exception:
+                                    pass
+                        settings[section][key] = value
+                                               
+        except Exception as e:
+            printDM(f"Settings parse error: {e}", location=MODULE)
+        return settings
+
+    # NEW: perform a one-time backup of the original file
+    def _ensure_startup_backup(self):
+        with self.__class__._lock:
+            if self.__class__._startup_backup_done:
+                return
+            src = self._abs_path
+            if os.path.exists(src):
+                bak = src + ".bak"
+                try:
+                    if not os.path.exists(bak):
+                        shutil.copy2(src, bak)
+                        if DEBUG:
+                            printDM(f"Startup backup created: {bak}", location=MODULE)
+                except Exception as e:
+                    printDM(f"Startup backup failed: {e}", location=MODULE)
+            self.__class__._startup_backup_done = True
+
+    def _seed_from_factory_if_missing(self):
+        """
+        If the active write path doesn’t exist yet, initialize settings from
+        system_settings/factory/settings.toml (if present), then save once.
+        """
+        write_path = self._resolve_write_path()
+        if os.path.exists(write_path):
+            return  # already seeded or migrated
+
+        factory_path = self.base_dir / "factory" / self.STANDARD_FILENAME
+        # Start from factory defaults if available; else start empty
+        if factory_path.exists():
+            self.settings = self._parse_settings_from_disk(str(factory_path))
+        else:
+            self.settings = OrderedDict()
+
+        # We’ll apply live values after this in __init__
+        self._dirty = True
+        self.save_settings()
+
+    # helper to hash a rendered TOML so we can skip no-op writes
+    def _hash_text(self, s: str) -> str:
+        return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+    # ---- write-through save keeps RAM cache in sync ----
+    def save_settings(self, settings: OrderedDict | None = None):
+        if not self._dirty and settings is None:
+            return
+        settings_to_save = settings or self.settings
+
+        # render to text first so we can compare with what’s on disk
+        lines = []
+        for section, pairs in settings_to_save.items():
+            lines.append(f"[{section}]\n")
+            for key, value in pairs.items():
+                if isinstance(value, list):
+                    value = json.dumps(value)
+                elif isinstance(value, str):
+                    value = f'"{value}"'
+                elif isinstance(value, bool):  # NEW
+                    value = "true" if value else "false"
+                else:
+                    # ints/floats and other JSON-like scalars
+                    # (if you ever store dicts here, consider json.dumps)
+                    pass
+
+                lines.append(f"{key} = {value}\n")
+            lines.append("\n")
+        new_text = "".join(lines)
+
+        # compute write target (NEW layout preferred)
+        write_path = self._resolve_write_path()
+        # Read current on-disk (if exists) to skip no-op write
+        old_text = ""
+        if os.path.exists(write_path):
+            try:
+                with open(write_path, "r", encoding="utf-8") as f:
+                    old_text = f.read()
+            except Exception:
+                old_text = ""
+
+        if self._hash_text(new_text) == self._hash_text(old_text):
+            if DEBUG:
+                printDM("save_settings skipped (no changes)", location=MODULE)
+            self._dirty = False
+            # ensure our active path is the write path now
+            self._abs_path = write_path
+            return
+
+        # ensure parent exists for new layout
+        Path(write_path).parent.mkdir(parents=True, exist_ok=True)
+
+        # write to disk (atomic replace via temp)
+        tmp_path = write_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(new_text)
+        os.replace(tmp_path, write_path)
+
+        # switch active path to NEW layout (if we just migrated)
+        self._abs_path = write_path
+        self._dirty = False
+        if DEBUG:
+            printDM(f"Settings saved → {write_path}", location=MODULE)
+
+        # update class cache + mtime + our instance copy
+        with self._lock:
+            # clear any legacy/new entries to prevent dual-cache
+            for p in self._candidate_paths():
+                self.__class__._cache_by_path.pop(p, None)
+                self.__class__._mtime_by_path.pop(p, None)
+            # set the new one
+            self.__class__._cache_by_path[write_path] = copy.deepcopy(settings_to_save)
+            try:
+                self.__class__._mtime_by_path[write_path] = os.path.getmtime(write_path)
+            except Exception:
+                self.__class__._mtime_by_path[write_path] = None
+
+    def set_in_memory(self, section: str, key: str, value):
+        """Update a setting in RAM only; defer disk write until save_settings()."""
+        with self._lock:
+            if section not in self.settings or not isinstance(self.settings[section], OrderedDict):
+                self.settings[section] = OrderedDict()
+            self.settings[section][key] = value
+            self._dirty = True
+
+    def set_many_in_memory(self, updates: list[tuple[str, str, object]]):
+        """Batch in-RAM updates. 'updates' is a list of (section, key, value)."""
+        with self._lock:
+            for section, key, value in updates:
+                if section not in self.settings or not isinstance(self.settings[section], OrderedDict):
+                    self.settings[section] = OrderedDict()
+                self.settings[section][key] = value
+            self._dirty = True
+
+    def has_unsaved_changes(self) -> bool:
+        return bool(self._dirty)
+
+    # ---- public API unchanged below ----
+    def get_active_settings_path(self) -> str:
+        return self._abs_path
+
+    def apply_auto_values(self):
+        # Update network and time from live Pi info
+        net_info = get_pi_network_info()
+        time_info = get_time_settings() or {}
+
+        if net_info.get("hostname"):
+            self.replace_setting("Network", "HOSTNAME", net_info["hostname"])
+
+        # Accept either case from get_time_settings()
+        tz        = time_info.get("TZ",        time_info.get("tz"))
+        tz_offset = time_info.get("TZ_OFFSET", time_info.get("tzOffset"))
+        tz_name   = time_info.get("TZ_NAME",   time_info.get("tzName"))
+
+        # Current values from the (possibly factory-seeded) file
+        cur_tz        = self.get_setting("Time", "TZ",        None)
+        cur_tz_offset = self.get_setting("Time", "TZ_OFFSET", None)
+        cur_tz_name   = self.get_setting("Time", "TZ_NAME",   None)
+
+        # Only overwrite if we actually detected a TZ (i.e., not None/empty)
+        if tz:
+            self.replace_setting("Time", "TZ", tz)
+            if tz_offset is not None:
+                # Keep your current convention: seconds (factory uses -21600)
+                self.replace_setting("Time", "TZ_OFFSET", int(tz_offset))
+            if tz_name:
+                self.replace_setting("Time", "TZ_NAME", tz_name)
+        else:
+            # No detection → keep whatever was there (factory defaults)
+            # Do nothing.
+            pass
+
+        # Default broker if missing
+        host = self.get_setting("Network", "HOSTNAME", "")
+        broker = self.get_setting("SensorNetwork", "BROKER", "")
+        if not broker:
+            self.replace_setting("SensorNetwork", "BROKER", f"localhost")
+
+    def replace_setting(self, section, key, value):
+        if section not in self.settings:
+            self.settings[section] = OrderedDict()
+        self.settings[section][key] = value
+        self._dirty = True
+        self.save_settings()  # write-through + updates RAM cache
+
+    def get_section(self, name: str, reload_if_changed: bool = False) -> dict:
+        if reload_if_changed:
+            self._maybe_reload()
+        # read from the instance copy (kept in sync by _maybe_reload / save_settings)
+        return (self.settings or {}).get(name, {})
+
+    def get_setting(self, section: str, key: str, default=None, *, reload_if_changed: bool = False):
+        if reload_if_changed:
+            self._maybe_reload()
+        return (self.settings or {}).get(section, {}).get(key, default)
+
+    def get_broker(self, reload_if_changed: bool = False) -> str | None:
+        sn = self.get_section("SensorNetwork", reload_if_changed=reload_if_changed)
+        b = sn.get("BROKER")
+        return str(b) if b else None
+
+    def get_all_clients(self, reload_if_changed: bool = False) -> list[str]:
+        sn = self.get_section("SensorNetwork", reload_if_changed=reload_if_changed)
+        val = sn.get("CLIENTS", [])
+        return list(val) if isinstance(val, (list, tuple)) else []
+
+    def add_client(self, hostname):
+        clients = self.get_all_clients()
+        if hostname not in clients:
+            clients.append(hostname)
+            self.replace_setting("SensorNetwork", "CLIENTS", clients)
+
+    def remove_client(self, hostname):
+        clients = self.get_all_clients()
+        if hostname in clients:
+            clients.remove(hostname)
+            self.replace_setting("SensorNetwork", "CLIENTS", clients)
+
+    def get_all_sensor_ids(self):
+        value = self.settings.get("SensorNetwork", {}).get("PISENSOR", [])
+        if isinstance(value, str):
+            return [value]
+        return value
+
+    def get_gaugeSize(self):
+        return self.get_setting("Display", "gauge_size", "Large")
+
+    def get_displayStyle(self):
+        return self.get_setting("Display", "display_style", "Gauge")

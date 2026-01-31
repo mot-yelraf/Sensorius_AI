@@ -1,0 +1,266 @@
+/* ========== Theme & globals ========== */
+:root{
+  --bg:#ffffff; --panel:#f8f9fb; --accent:#2259f2;
+  --text:#222; --muted:#6b7280; --line:#e5e7eb;
+  --ok:#28a745; --danger:#dc3545; --dark:#111;
+
+  /* Dashboard tunables (override from Python if desired) */
+  --container-width: 530px;     /* formerly layout['container_width'] */
+  --stats-font: 0.9rem;         /* formerly layout['stats_font'] */
+  --canvas-width: 480;          /* formerly layout['canvas_width'] */
+  --canvas-height: 280;         /* formerly layout['canvas_height'] */
+}
+
+html,body{height:100%}
+body{
+  margin:0;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+}
+
+/* Utility & minor effects */
+#update_time { transition: color 0.6s ease; }
+.flash-green { color: green !important; }
+.flash-red   { color: red !important; }
+.refresh-link{ margin-left:8px; text-decoration:none; font-size:1.1em; line-height:1; vertical-align:middle; display:inline-block; }
+.refresh-link:focus,.refresh-link:hover{ opacity:0.85; }
+
+.spinner{
+  width:16px;height:16px;border:2px solid #ccc;border-top:2px solid #333;border-radius:50%;
+  animation:spin 1s linear infinite; display:inline-block;vertical-align:middle
+}
+@keyframes spin { to{ transform:rotate(360deg) } }
+
+/* ========== Buttons (shared) ========== */
+.button{
+  display:inline-block; padding:10px 20px; margin:10px;
+  font-size:16px; font-weight:bold; border-radius:6px;
+  border:none; cursor:pointer; transition:background .3s, transform .2s;
+  color:#fff; background:#111; /* default black if no color class */
+}
+.button:hover{ transform:translateY(0) }
+.button.blue   { background-color: var(--accent); }
+.button.blue:hover { filter:brightness(0.9); }
+.button.green  { background-color: #28a745; }
+.button.green:hover { background-color:#218838; }
+.button.red    { background-color: #dc3545; }
+.button.red:hover { background-color:#c82333; }
+.button.black  { background-color:#000; }
+.button.black:hover { background-color:#333; }
+.button.yellow { background-color:#ffc107; color:#212529; }
+.button.yellow:hover { background-color:#e0a800; }
+.button.neutral{ background-color:#f7f1c1; color:#212529; }
+.button.neutral:hover{ background-color:#f7efb0; }
+
+/* ========== Dashboard layout ========== */
+.sensor-row{
+  display:flex; flex-wrap:wrap; justify-content:center; align-items:flex-start;
+  gap:1rem; width:100%;
+}
+
+/* Metric card */
+.metric-container{
+  display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+  width: var(--container-width);
+  padding: .5rem; border:1px solid #ccc; border-radius:12px;
+  background-color:#e6faff; margin-bottom:1rem; position:relative; box-sizing:border-box; flex:0 1 auto;
+}
+.metric-title{ font-size:1.2rem; font-weight:bold; margin-bottom:.3rem; text-align:center; }
+.metric-current-value{ font-size:1.75rem; font-weight:bold; margin-top:-.4rem; margin-bottom:.4rem; text-align:center; }
+.metric-stats{
+  display:flex; justify-content:space-between;
+  width: var(--container-width);
+  font-size: var(--stats-font);
+  margin-top:.5rem; margin-bottom:1rem;
+}
+.metric-stats div{ flex:1; text-align:center; }
+
+/* Gauge / graph / switch panes */
+.gauge-view, .graph-view, .switch-view{
+  width:100%; height:100%; display:flex; justify-content:center; align-items:center;
+}
+.gauge-container, .graph-container, .switch-container{
+  width:100%; height:auto; position:relative;
+}
+.graph-container{ display:none; }
+
+/* Switch “card” */
+.switch-metric-container{
+  display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start;
+  width: 530px; padding:1rem; border:1px solid #ccc; border-radius:12px; background-color:#ffffe0;
+  margin-bottom:1.5rem; box-sizing:border-box;
+}
+
+.switch-table{
+  width:100%; border-collapse:collapse; margin-top:.5rem; font-size:.95rem; background-color:#ffffe0;
+}
+.switch-table th, .switch-table td{
+  border:1px solid #ccc; padding:.4rem .6rem; text-align:center; vertical-align:middle; background-color:#ffffe0;
+}
+.switch-table th{ font-weight:bold; }
+
+/* Switch state block */
+.switch-box{
+  width:20px; height:40px; border:1px solid #666; background:#aaa; cursor:pointer;
+  display:inline-block; vertical-align:middle; border-radius:4px; background-color:#ffffe0;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+.switch-box.on, .switch-box[data-state='on']  { background-color:#2ecc71; border-color:#27ae60; color:#0b2917; }
+.switch-box.off, .switch-box[data-state='off']{ background-color:#e5e7eb; border-color:#cbd5e1; color:#333; }
+
+.switch-state{ font-weight:bold; margin-left:.5rem; color:#006600; }
+.switch-override{ transform:scale(1.2); cursor:pointer; background-color:#ffffe0; }
+
+/* Time/event list */
+.switch-time{ font-size:.85rem; color:#444; font-style:italic; }
+.switch-time-summary{ white-space:nowrap; display:block; }
+
+.switch-events{
+  font-size:.50rem; background-color:#ffffe0; border:1px solid #ccc; border-radius:6px;
+  padding:.25rem .5rem; margin-top:.25rem; height:4.5rem;
+  white-space:nowrap; overflow-x:auto; overflow-y:auto; min-width:26ch; max-width:100%;
+}
+.switch-events.hidden{ display:none; }
+.switch-events-list{ list-style:none; padding:0; margin:0; }
+.switch-events-list li{ padding:.15rem 0; }
+.switch-events-list li.switch-event-on { color:green; }
+.switch-events-list li.switch-event-off{ color:#000; }
+
+/* Canvas sizing via CSS vars (numbers only; unit added in rule) */
+canvas{
+  width: calc(var(--canvas-width) * 1px);
+  height: calc(var(--canvas-height) * 1px);
+  margin-top:10px; display:block; max-width:100%; box-sizing:border-box;
+}
+
+/* Simple menu in dashboard */
+.menu-icon{ position:fixed; top:1rem; left:1rem; z-index:10; cursor:pointer; font-size:1.5rem; }
+.menu-items{
+  display:none; position:fixed; top:3rem; left:1rem; background:#eee; padding:1rem;
+  border-radius:.5rem; box-shadow:0 0 5px rgba(0,0,0,0.2);
+}
+.menu-items a{ display:block; margin-bottom:.5rem; color:#333; text-decoration:none; }
+
+/* ========== Modal system (Automations etc.) ========== */
+.modal-backdrop{
+  position:fixed; inset:0; background:rgba(0,0,0,.25);
+  display:flex; align-items:center; justify-content:center; padding:2rem;
+  z-index:9999;
+}
+.modal{
+  width:min(1050px, 96vw); max-height:90vh; overflow:auto;
+  background:#fff; border-radius:14px; box-shadow:0 10px 30px rgba(0,0,0,.18);
+}
+.modal-header, .modal-footer{
+  padding:1rem 1.25rem; border-bottom:1px solid var(--line);
+  display:flex; align-items:center; justify-content:space-between;
+}
+.modal-footer{ border-top:1px solid var(--line); border-bottom:0 }
+.modal-title{ margin:auto; font-size:1.1rem; }
+.modal-body{ padding:1rem 1.25rem }
+
+/* Two-pane layout inside modal */
+.split{
+  display:grid; gap:1rem;
+  grid-template-columns: 320px 1fr;
+  min-height:520px;
+}
+.panel{
+  background:var(--panel); border:1px solid var(--line); border-radius:12px;
+  display:flex; flex-direction:column; overflow:hidden;
+}
+
+/* Left: list of automations */
+.list-header{
+  font-weight:600; padding:.75rem 1rem; border-bottom:1px solid var(--line);
+  display:flex; align-items:center; justify-content:space-between;
+}
+.list{ padding:.5rem; overflow:auto; flex:1; }
+.list-item{
+  cursor:pointer; padding:.6rem .75rem; border-radius:10px;
+  border:1px solid transparent; display:flex; justify-content:space-between; align-items:center;
+}
+.list-item + .list-item{ margin-top:.5rem }
+.list-item:hover{ background:#fff; border-color:var(--line) }
+.list-item.active{ background:#eef2ff; border-color:#c7d2fe }
+.item-name{ font-weight:600 }
+.item-badge{ font-size:.75rem; padding:.2rem .5rem; border-radius:999px; background:#e5e7eb; color:#111 }
+
+/* Right: configuration form */
+.form{ padding:1rem; overflow:auto; flex:1; display:flex; flex-direction:column; gap:1rem; }
+.row{ display:grid; gap:.75rem; grid-template-columns:1fr 140px 1fr; align-items:end; }
+.row.two{ grid-template-columns: repeat(2, 1fr); }
+.row.single{ grid-template-columns: 1fr; }
+.row.three{ grid-template-columns: repeat(3, 1fr); }
+.row.four{ grid-template-columns: repeat(4, 1fr); }
+
+label{ font-size:.80rem; color:var(--muted); margin-bottom:.2rem; display:block }
+input[type="text"], input[type="number"], input[type="time"], select{
+  padding:.5rem .55rem; border-radius:10px; border:1px solid var(--line);
+  background:#fff; font-size:.95rem; width:100%; box-sizing:border-box;
+}
+input[type="number"]{ width:auto; min-width:8ch; max-width:10ch; text-align:right; }
+.inline{ display:flex; align-items:center; gap:.5rem; }
+
+.section{ border:1px dashed var(--line); border-radius:12px; padding:.8rem; background:#fff; }
+.section-title{ font-weight:700; margin:0 0 .5rem 0; font-size:.98rem }
+.muted{ color:var(--muted); font-size:.85rem; }
+
+/* Condition groups */
+.cond-group{
+  padding-bottom:.6rem; margin-bottom:.6rem; border-bottom:3px solid var(--line);
+}
+.cond-group:last-child{ border-bottom:none; margin-bottom:0; padding-bottom:0; }
+
+/* Time condition (single row) */
+.cond.time{
+  display:grid; align-items:end; gap:.5rem;
+  grid-template-columns: 120px 1fr 1fr 36px; /* Type | Start | Stop | × */
+}
+
+/* Sensor condition (two rows) */
+.cond.sensor-top{
+  display:grid; align-items:end; gap:.5rem;
+  grid-template-columns: 120px minmax(220px, 480px);
+}
+.cond.sensor-bottom{
+  display:grid; align-items:end; gap:.5rem;
+  grid-template-columns: minmax(200px, 320px) 80px 8ch 8ch 36px; /* Metric | Op | Thr | Hyst | × */
+}
+select.sensor-select{ max-width:480px; width:100%; }
+select.metric-select{ max-width:320px; width:100%; }
+select.op-select{ max-width:80px; width:100%; }
+
+/* OR separator */
+.cond.or{
+  display:grid; align-items:center; gap:.5rem;
+  grid-template-columns: 120px 1fr 36px; /* Type | Chip | × */
+}
+.or-chip{
+  display:inline-flex; align-items:center; justify-content:center;
+  font-weight:800; letter-spacing:.08em; border-radius:999px; padding:.45rem .9rem; width:max-content;
+  border:1px solid var(--line); background:#fff; user-select:none;
+}
+
+/* Condition remove button */
+.remove{
+  border:none; background:var(--danger); color:#fff; border-radius:8px; padding:.35rem 0;
+  width:36px; height:36px; line-height:1; font-weight:700; cursor:pointer;
+}
+
+/* Footer / misc */
+.footer-buttons{ display:flex; justify-content:space-between; width:100%; }
+.json-preview{
+  font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  background:#0b1020; color:#d7e2ff; padding:.75rem; border-radius:10px; font-size:.85rem;
+  max-height:180px; overflow:auto; border:1px solid #1f2a44;
+}
+
+/* Responsive tightening for modal condition rows */
+@media (max-width: 1150px){
+  .cond.sensor-top{ grid-template-columns: 120px minmax(200px, 420px); }
+  .cond.sensor-bottom{ grid-template-columns: minmax(180px, 280px) 80px 8ch 8ch 36px; }
+  select.sensor-select{ max-width:420px; }
+  select.metric-select{ max-width:280px; }
+}

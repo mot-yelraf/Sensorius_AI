@@ -1,0 +1,186 @@
+<!-- ui_templates/modals/system_remove_device.html -->
+
+<style>
+.remove-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-radius: 6px;
+}
+.remove-item:hover {
+  background: #f0f4ff;
+}
+.remove-none {
+  color: #666;
+  padding: 6px;
+}
+
+/* Button standards (kept local for now; can be dropped once fully in app.css) */
+.button {
+  display: inline-block;
+  padding: 10px 20px;
+  margin: 10px;
+  font-size: 16px;
+  font-weight: bold;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: background 0.3s, transform 0.2s;
+}
+.button:hover {
+  transform: translateY(0px);
+}
+.green   { background-color: #28a745; color: white; }
+.green:hover { background-color: #218838; }
+.red     { background-color: #dc3545; color: white; }
+.red:hover { background-color: #c82333; }
+.neutral { background-color: #f7f1c1; color: #212529; }
+.neutral:hover { background-color: #f7efb0; }
+.black   { background-color: #000; color: white; }
+.black:hover { background-color: #333; }
+.yellow  { background-color: #ffc107; color: #212529; }
+.yellow:hover { background-color: #e0a800; }
+.blue    { background-color: #2259f2; color: white; }
+.blue:hover { background-color: blue; }
+</style>
+
+<div id="remove-device-overlay"
+     class="onboard-overlay"
+     style="display:none;">
+  <div class="onboard-modal" style="min-width:520px;">
+    <div class="onboard-title">Remove Device(s)</div>
+
+    <div id="remove-device-status"
+         class="detail"
+         style="margin-bottom:8px;color:#444"></div>
+
+    <div id="remove-device-list"
+         style="max-height:260px;overflow:auto;border:1px solid #eee;border-radius:8px;padding:8px;background:#fafafa;">
+      <div class="detail">Loading devices…</div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
+      <label style="font-size:.9rem;color:#333;">
+        <input type="checkbox" id="remove-device-confirm">
+        I understand this deletes settings and data
+      </label>
+      <div class="onboard-actions">
+        <button id="remove-device-run"
+                disabled
+                class="button red"
+                onclick="submitRemoveDevices()">
+          Remove Selected
+        </button>
+        <button style="margin-left:8px"
+                class="button black"
+                onclick="closeRemoveDeviceModal()">
+          Back
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function openRemoveDeviceModal() {
+  const ov = document.getElementById("remove-device-overlay");
+  if (ov) {
+    ov.style.display = "flex";
+    loadRemovableDevices();
+  }
+}
+
+function closeRemoveDeviceModal() {
+  const ov = document.getElementById("remove-device-overlay");
+  if (ov) ov.style.display = "none";
+}
+
+function _setRemoveStatus(msg) {
+  const el = document.getElementById("remove-device-status");
+  if (el) el.textContent = msg || "";
+}
+
+async function loadRemovableDevices() {
+  _setRemoveStatus("");
+  const listEl = document.getElementById("remove-device-list");
+  if (!listEl) return;
+
+  listEl.innerHTML = "<div class=\"detail\">Loading…</div>";
+  try {
+    const resp = await fetch("/remove-device-list");
+    const js = await resp.json();
+    const devs = (js && js.devices) || [];
+
+    if (!devs.length) {
+      listEl.innerHTML = "<div class=\"remove-none\">No devices found to remove.</div>";
+    } else {
+      const frag = document.createDocumentFragment();
+      devs.forEach(d => {
+        const row = document.createElement("div");
+        row.className = "remove-item";
+
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.value = d;
+        cb.name = "device_ids";
+        cb.onchange = toggleRemoveEnable;
+
+        const lbl = document.createElement("label");
+        lbl.textContent = d;
+        lbl.style.cursor = "pointer";
+
+        row.appendChild(cb);
+        row.appendChild(lbl);
+        frag.appendChild(row);
+      });
+      listEl.innerHTML = "";
+      listEl.appendChild(frag);
+    }
+  } catch (e) {
+    console.error(e);
+    listEl.innerHTML = "<div class=\"remove-none\">Failed to load devices.</div>";
+  }
+  toggleRemoveEnable();
+}
+
+function toggleRemoveEnable() {
+  const anySel = [...document.querySelectorAll('#remove-device-list input[type="checkbox"]')]
+    .some(x => x.checked);
+  const confirmed = !!(document.getElementById("remove-device-confirm") &&
+                       document.getElementById("remove-device-confirm").checked);
+  const btn = document.getElementById("remove-device-run");
+  if (btn) btn.disabled = !(anySel && confirmed);
+}
+
+document.addEventListener("change", (ev) => {
+  if (ev && ev.target && ev.target.id === "remove-device-confirm") {
+    toggleRemoveEnable();
+  }
+});
+
+async function submitRemoveDevices() {
+  const checked = document.querySelectorAll('#remove-device-list input[type="checkbox"]:checked');
+  const ids = [...checked].map(x => x.value);
+  if (!ids.length) return;
+
+  _setRemoveStatus("Removing…");
+  const runBtn = document.getElementById("remove-device-run");
+  if (runBtn) runBtn.disabled = true;
+
+  try {
+    const resp = await fetch("/remove-device", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ device_ids: ids })
+    });
+    const js = await resp.json();
+    const ok = (js && js.summary) || "Done";
+    _setRemoveStatus(ok);
+    await loadRemovableDevices();
+  } catch (e) {
+    console.error(e);
+    _setRemoveStatus("Failed: " + e);
+  }
+}
+</script>

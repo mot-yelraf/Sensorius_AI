@@ -1,0 +1,648 @@
+// ui_static/js/advanced_automation.js
+
+// ----- tiny helpers -----
+const $ = (s, r = document) => r.querySelector(s);
+const create = (t, c) => { const el = document.createElement(t); if (c) el.className = c; return el; };
+
+// ----- module state (set per-modal in init) -----
+let currentSwitchId = "";
+let automations = [];
+let selectedId = null;
+let sensorDirectory = [];
+let switchLabels = {};
+let switchChannels = 1;
+
+// ----- API helpers -----
+async function fetchJSON(url) {
+  const r = await fetch(url, { cache: "no-store" });
+  if (!r.ok) throw new Error(`${url} ${r.status}`);
+  return await r.json();
+}
+
+async function fetchSensorIds() {
+  return await fetchJSON("/sensor-ids");
+}
+
+async function fetchSensorMetrics(sensorId) {
+  const data = await fetchJSON(`/sensor-metrics?sensor_id=${encodeURIComponent(sensorId)}`);
+  return Object.keys(data || {});
+}
+
+async function fetchSwitchInfo() {
+  return await fetchJSON(`/switch-info?switch_id=${encodeURIComponent(currentSwitchId)}`);
+}
+
+async function fetchAdvancedAutomations() {
+  const data = await fetchJSON(`/advanced/automations?switch_id=${encodeURIComponent(currentSwitchId)}`);
+  return data.items || [];
+}
+
+async function enableAutomation(ruleId, enabled) {
+  const fd = new FormData();
+  fd.append("switch_id", currentSwitchId);
+  fd.append("rule_id", ruleId);
+  fd.append("enabled", enabled ? "true" : "false");
+  await fetch("/advanced/automations/enable", { method: "POST", body: fd });
+}
+
+async function deleteAutomation(ruleId) {
+  const fd = new FormData();
+  fd.append("switch_id", currentSwitchId);
+  fd.append("rule_id", ruleId);
+  await fetch("/advanced/automations/delete", { method: "POST", body: fd });
+}
+
+// Returns the inner modal (#automationManagerModal) reliably from any descendant/backdrop
+function getModalRoot(fromEl) {
+  return (
+    (fromEl && fromEl.closest && fromEl.closest("#automationManagerModal")) ||
+    (fromEl && fromEl.querySelector && fromEl.querySelector("#automationManagerModal")) ||
+    document.querySelector("#automationManagerModal")
+  );
+}
+
+// Wait until a selector exists under root (polls per animation frame). Returns the element or null on timeout.
+async function waitForSelector(root, selector, timeoutMs = 2000) {
+  const start = performance.now();
+  for (;;) {
+    const modal = getModalRoot(root) || root || document;
+    const el = modal.querySelector(selector);
+    if (el) return el;
+    if (performance.now() - start > timeoutMs) {
+      console.warn(`[AdvancedAutomation] waitForSelector timeout: ${selector}`);
+      return null; // <-- do not throw
+    }
+    await new Promise(r => requestAnimationFrame(r));
+  }
+}
+
+// ----- UI helpers (scoped to current modal) -----
+function q(root, sel){ return root ? root.querySelector(sel) : null; }
+
+function renderList(rootLike) {
+  const modal = getModalRoot(rootLike);
+  if (!modal) { console.warn("[AdvancedAutomation] modal root missing in renderList"); return; }
+  const list = modal.querySelector("#automationList");
+  if (!list)  { console.warn("[AdvancedAutomation] #automationList not found"); return; }
+
+  list.innerHTML = "";
+  automations.forEach(a => {
+    const item = create("div", "list-item" + (a.id === selectedId ? " active" : ""));
+    item.onclick = () => { selectedId = a.id; renderList(modal); loadSelectedIntoForm(modal); };
+    const name  = create("div", "item-name");  name.textContent  = a.name || "(unnamed)";
+    const badge = create("div", "item-badge"); badge.textContent = a.enabled ? "Enabled" : "Disabled";
+    item.append(name, badge);
+    list.appendChild(item);
+  });
+}
+
+function showPreview(modal, obj) {
+  const box = q(modal, "#jsonPreview");
+  if (!box) return;
+  box.hidden = false;
+  box.textContent = JSON.stringify(obj, null, 2);
+}
+
+// ----- Conditions builder -----
+function addCondition(modal, cond) {
+  const container = q(modal, "#conditionsContainer");
+  const initialType = (cond?.type || "sensor");
+  const group = create("div", "cond-group");
+
+  // Type
+  const typeWrap = create("div");
+  const typeLab = create("label");
+  typeLab.textContent = "Type";
+  const typeSel = create("select");
+  typeSel.innerHTML = `
+    <option value="sensor">sensor</option>
+    <option value="time">time of day</option>
+    <option value="timer">timer</option>
+    <option value="or">or</option>`;
+  typeSel.value = initialType;
+  typeSel.style.width = "8rem";
+  typeWrap.append(typeLab, typeSel);
+
+  // Time inputs
+  const startWrap = create("div");
+  const startLab = create("label");
+  startLab.textContent = "Start Time";
+  const startIn = create("input");
+  startIn.type = "time";
+  startIn.step = 60;
+  startIn.value = cond?.start || "00:00";
+  startWrap.append(startLab, startIn);
+
+  const endWrap = create("div");
+  const endLab = create("label");
+  endLab.textContent = "Stop Time";
+  const endIn = create("input");
+  endIn.type = "time";
+  endIn.step = 60;
+  endIn.value = cond?.end || "00:00";
+  endWrap.append(endLab, endIn);
+
+  // Day-of-week controls for time-of-day
+  const dowWrap = create("div");
+  dowWrap.style.display = "flex";
+  dowWrap.style.flexWrap = "wrap";
+  dowWrap.style.alignItems = "center";
+  dowWrap.style.gap = "0.5rem";
+
+  const dowLab = create("label");
+  dowLab.textContent = "Days";
+
+  const dowBox = create("div");
+  dowBox.className = "dow-box";
+  dowBox.style.display = "flex";
+  dowBox.style.flexWrap = "wrap";
+  dowBox.style.alignItems = "center";
+  dowBox.style.gap = "0.5rem";
+
+  const defaultDays = Array.isArray(cond?.days)
+    ? cond.days
+        .map(d => parseInt(d, 10))
+        .filter(n => Number.isFinite(n) && n >= 0 && n <= 6)
+    : [0, 1, 2, 3, 4, 5, 6];
+
+  const dowLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  dowLabels.forEach((name, idx) => {
+    const cbLabel = create("label", "dow-pill");
+    cbLabel.style.display = "inline-flex";
+    cbLabel.style.alignItems = "center";
+
+    const cb = create("input");
+    cb.type = "checkbox";
+    cb.classList.add("dow-checkbox");
+    cb.dataset.day = String(idx);
+    cb.checked = defaultDays.includes(idx);
+
+    cbLabel.append(cb, document.createTextNode(" " + name));
+    dowBox.appendChild(cbLabel);
+  });
+  dowWrap.append(dowLab, dowBox);
+
+  // Timer controls
+  const timerDurWrap = create("div");
+  timerDurWrap.style.display = "flex";
+  timerDurWrap.style.flexDirection = "column";
+  timerDurWrap.style.gap = "0.25rem";
+
+  const timerDurLab  = create("label");
+  timerDurLab.textContent = "Duration (minutes)";
+
+  const timerDurIn   = create("input");
+  timerDurIn.type = "number";
+  timerDurIn.min  = "1";
+  timerDurIn.max  = "60";
+  timerDurIn.step = "1";
+  timerDurIn.value = cond?.duration_min ?? 5;
+  timerDurIn.classList.add("timer-duration");
+  timerDurIn.style.width = "4.5rem";
+
+  timerDurWrap.append(timerDurLab, timerDurIn);
+
+  const timerFreqWrap = create("div");
+  timerFreqWrap.style.display = "flex";
+  timerFreqWrap.style.flexDirection = "column";
+  timerFreqWrap.style.gap = "0.25rem";
+
+  const timerFreqLab  = create("label");
+  timerFreqLab.textContent = "Every";
+
+  const timerFreqSel  = create("select");
+  timerFreqSel.classList.add("timer-frequency");
+  timerFreqSel.innerHTML = `
+    <option value="1">1 hour</option>
+    <option value="3">3 hours</option>
+    <option value="6">6 hours</option>
+    <option value="12">12 hours</option>
+    <option value="24">24 hours</option>`;
+  timerFreqSel.value = String(cond?.freq_hours || 1);
+  timerFreqSel.style.width = "7rem";
+
+  timerFreqWrap.append(timerFreqLab, timerFreqSel);
+
+  // Sensor controls
+  const sensorWrap = create("div");
+  const sensorLab = create("label");
+  sensorLab.textContent = "Sensor";
+  const sensorSel = create("select");
+  sensorSel.classList.add("sensor-select");
+  sensorSel.innerHTML = "";
+  if (sensorDirectory.length === 0) {
+    const opt = create("option");
+    opt.value = "";
+    opt.textContent = "(no sensors)";
+    opt.disabled = true;
+    opt.selected = true;
+    sensorSel.appendChild(opt);
+  } else {
+    for (const s of sensorDirectory) {
+      const opt = create("option");
+      opt.value = s.id;
+      opt.textContent = `${s.label} (${s.id})`;
+      sensorSel.appendChild(opt);
+    }
+    sensorSel.value = cond?.sensor || sensorDirectory[0]?.id || "";
+  }
+  sensorWrap.append(sensorLab, sensorSel);
+
+  const metricWrap = create("div");
+  const metricLab = create("label");
+  metricLab.textContent = "Metric";
+  const metricSel = create("select");
+  metricSel.classList.add("metric-select");
+  metricWrap.append(metricLab, metricSel);
+
+  function refreshMetricOptions(){
+    const sensorId = sensorSel.value;
+    const found = sensorDirectory.find(s => s.id === sensorId);
+    metricSel.innerHTML = "";
+    const metrics = found?.metrics || [];
+    if (metrics.length === 0) {
+      const opt = create("option");
+      opt.value = "";
+      opt.textContent = "(no metrics)";
+      opt.disabled = true;
+      opt.selected = true;
+      metricSel.appendChild(opt);
+      return;
+    }
+    for (const m of metrics) {
+      const opt = create("option");
+      opt.value = m;
+      opt.textContent = m;
+      metricSel.appendChild(opt);
+    }
+    if (cond?.metric && metrics.includes(cond.metric)) metricSel.value = cond.metric;
+  }
+
+  const opWrap = create("div");
+  const opLab = create("label");
+  opLab.textContent = "Operator";
+  const opSel = create("select");
+  opSel.classList.add("op-select");
+  opSel.innerHTML = `<option value=">">&gt;</option><option value="<">&lt;</option><option value="==">==</option><option value="!=">!=</option>`;
+  opSel.value = cond?.op || ">";
+  opWrap.append(opLab, opSel);
+
+  const valueWrap = create("div");
+  const valueLab = create("label");
+  valueLab.textContent = "Threshold (0.1 steps)";
+  const valueIn = create("input");
+  valueIn.type = "number";
+  valueIn.step = "0.1";
+  valueIn.value = cond?.value ?? 0;
+  valueWrap.append(valueLab, valueIn);
+
+  const hystWrap = create("div");
+  const hystLab = create("label");
+  hystLab.textContent = "Hysteresis (0.1 steps)";
+  const hystIn = create("input");
+  hystIn.type = "number";
+  hystIn.step = "0.1";
+  hystIn.value = cond?.hyst ?? 0;
+  hystWrap.append(hystLab, hystIn);
+
+  const rem = create("button","remove");
+  rem.type = "button";
+  rem.setAttribute("aria-label","Remove condition");
+  rem.textContent = "×";
+  rem.title = "Remove condition";
+  rem.onclick = () => group.remove();
+
+  const orChip = create("div","or-chip");
+  orChip.textContent = "OR";
+
+function renderAsTime() {
+  group.innerHTML = "";
+
+  // First row: Type + Start + End + Remove
+  const row1 = create("div", "cond time");
+  row1.style.display = "flex";
+  row1.style.flexWrap = "wrap";
+  row1.style.gap = "0.5rem";
+  row1.append(typeWrap, startWrap, endWrap, rem);
+
+  // Second row: Days (full width)
+  const row2 = create("div", "cond time-days");
+  row2.style.display = "block";
+  row2.style.marginTop = "0.25rem";
+  row2.append(dowWrap);
+
+  group.append(row1, row2);
+}
+
+  function renderAsTimer(){
+    group.innerHTML = "";
+
+    const row = create("div", "cond timer");
+    row.style.display = "flex";
+    row.style.flexWrap = "wrap";
+    row.style.alignItems = "flex-end";
+    row.style.gap = "0.75rem";
+
+    row.append(typeWrap, timerDurWrap, timerFreqWrap, rem);
+    group.appendChild(row);
+  }
+
+  function renderAsSensor(){
+    group.innerHTML = "";
+    const top = create("div", "cond sensor-top");
+    top.append(typeWrap, sensorWrap);
+    refreshMetricOptions();
+    const bottom = create("div", "cond sensor-bottom");
+    bottom.append(metricWrap, opWrap, valueWrap, hystWrap, rem);
+    group.append(top, bottom);
+  }
+
+  function renderAsOr(){
+    group.innerHTML = "";
+    const row = create("div", "cond or");
+    row.append(typeWrap, orChip, rem);
+    group.appendChild(row);
+  }
+
+  if (initialType === "time")        renderAsTime();
+  else if (initialType === "timer")  renderAsTimer();
+  else if (initialType === "or")     renderAsOr();
+  else                               renderAsSensor();
+
+  sensorSel.addEventListener("change", refreshMetricOptions);
+  typeSel.addEventListener("change", () => {
+    if (typeSel.value === "time")        renderAsTime();
+    else if (typeSel.value === "timer")  renderAsTimer();
+    else if (typeSel.value === "or")     renderAsOr();
+    else                                 renderAsSensor();
+  });
+
+  container.appendChild(group);
+}
+
+// ----- Form helpers -----
+function loadSelectedIntoForm(rootLike){
+  const modal = getModalRoot(rootLike);
+  if (!modal) { console.warn("[AdvancedAutomation] modal root missing in loadSelectedIntoForm"); return; }
+
+  const a = automations.find(x => x.id === selectedId);
+  const auto = a || {
+    id: selectedId || `auto-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`,
+    name: "", enabled:false, conditions: [], actions: []
+  };
+
+  const nameEl   = modal.querySelector("#autoName");
+  const enEl     = modal.querySelector("#autoEnabled");
+  const swSelEl  = modal.querySelector("#actionSwitch");
+  const setSelEl = modal.querySelector("#actionSet");
+  const delayEl  = modal.querySelector("#actionDelay");
+  const box      = modal.querySelector("#conditionsContainer");
+
+  if (!nameEl || !enEl || !swSelEl || !setSelEl || !delayEl || !box) {
+    console.warn("[AdvancedAutomation] form elements missing; skipping loadSelectedIntoForm");
+    return;
+  }
+
+  nameEl.value      = auto.name || "";
+  enEl.checked      = !!auto.enabled;
+
+  const firstAction = (Array.isArray(auto.actions) && auto.actions[0]) ? auto.actions[0] : null;
+  const defaultSwitchKey = swSelEl.options?.[0]?.value || "";
+  swSelEl.value = firstAction?.switch_key || defaultSwitchKey;
+  setSelEl.value = firstAction?.set ? "on" : "off";
+  delayEl.value  = Number.isFinite(firstAction?.delay_s) ? firstAction.delay_s : 0;
+
+  box.innerHTML = "";
+  if ((auto.conditions||[]).length === 0) addCondition(modal,{type:"sensor"});
+  else auto.conditions.forEach(c => addCondition(modal,c));
+
+  showPreview(modal, auto);
+}
+
+function serializeForm(modal){
+  const name = q(modal,"#autoName").value.trim();
+  const enabled = q(modal,"#autoEnabled").checked;
+
+  const groups = [...modal.querySelectorAll("#conditionsContainer .cond-group")];
+  const conditions = groups.map(group => {
+    const typeVal = group.querySelector("select")?.value || "sensor";
+
+    if (typeVal === "time"){
+      const inputs = group.querySelectorAll(".time input[type='time']");
+      const start = inputs[0]?.value || "00:00";
+      const end   = inputs[1]?.value || "00:00";
+
+      const dayChecks = group.querySelectorAll(".time input.dow-checkbox");
+      const days = Array.from(dayChecks)
+        .filter(cb => cb.checked)
+        .map(cb => parseInt(cb.dataset.day || "0", 10))
+        .filter(n => Number.isFinite(n) && n >= 0 && n <= 6);
+
+      return { type:"time", start, end, days };
+    } else if (typeVal === "timer") {
+      const durInput = group.querySelector(".timer-duration");
+      const freqSel  = group.querySelector(".timer-frequency");
+
+      let duration = parseInt(durInput?.value || "1", 10);
+      if (!Number.isFinite(duration) || duration < 1) duration = 1;
+      if (duration > 60) duration = 60;
+
+      let freq = parseInt(freqSel?.value || "1", 10);
+      if (!Number.isFinite(freq) || freq <= 0) freq = 1;
+
+      return { type:"timer", duration_min: duration, freq_hours: freq };
+    } else if (typeVal === "or"){
+      return { type:"or" };
+    } else {
+      const sensor = group.querySelector(".sensor-top select.sensor-select")?.value || "";
+      const metric = group.querySelector(".sensor-bottom select.metric-select")?.value || "";
+      const op     = group.querySelector(".sensor-bottom select.op-select")?.value || ">";
+      const nums   = [...group.querySelectorAll(".sensor-bottom input[type='number']")];
+      const value  = parseFloat(nums[0]?.value || "0");
+      const hyst   = parseFloat(nums[1]?.value || "0");
+      return { type:"sensor", sensor, metric, op, value, hyst };
+    }
+  });
+
+  const singleAction = {
+    switch_key: q(modal,"#actionSwitch").value,
+    set:        q(modal,"#actionSet").value === "on",
+    delay_s:    Math.max(0, Math.min(60, parseInt(q(modal,"#actionDelay").value || "0", 10))),
+  };
+
+  return {
+    id: selectedId || `auto-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`,
+    name, enabled, conditions,
+    actions: [ singleAction ]
+  };
+}
+
+// ----- Data loaders -----
+async function loadSensors(){
+  const ids = await fetchSensorIds();
+  sensorDirectory = await Promise.all(ids.map(async id => ({
+    id, label: id, metrics: await fetchSensorMetrics(id).catch(() => [])
+  })));
+}
+
+async function loadSwitchInfoInto(rootLike) {
+  const modal = getModalRoot(rootLike);
+  if (!modal) { console.warn("[AdvancedAutomation] modal root missing in loadSwitchInfoInto"); return; }
+
+  const info = await fetchSwitchInfo().catch(err => {
+    console.warn("[AdvancedAutomation] fetchSwitchInfo failed:", err);
+    return { labels:{}, channels:1 };
+  });
+
+  switchLabels = info.labels || {};
+  switchChannels = info.channels || 1;
+
+  const sel = modal.querySelector("#actionSwitch") || document.querySelector("#actionSwitch");
+  if (!sel) {
+    console.warn("[AdvancedAutomation] #actionSwitch not found in DOM yet; skipping populate.");
+    return;
+  }
+
+  sel.innerHTML = "";
+  for (let i = 1; i <= switchChannels; i++) {
+    const lab = switchLabels[i] || `CH${i}`;
+    const opt = create("option");
+    opt.value = `${currentSwitchId}::${lab}`;
+    opt.textContent = lab;
+    sel.appendChild(opt);
+  }
+}
+
+async function loadAutomationsListInto(rootLike) {
+  const modal = getModalRoot(rootLike);
+  if (!modal) { console.warn("[AdvancedAutomation] modal root missing in loadAutomationsListInto"); return; }
+
+  const items = await fetchAdvancedAutomations().catch(err => {
+    console.warn("[AdvancedAutomation] fetchAdvancedAutomations failed:", err);
+    return [];
+  });
+
+  automations = (items || []).map(it => {
+    let parsed = {};
+    try { parsed = JSON.parse(it.script_json || "{}"); } catch {}
+    return {
+      id: it.rule_id,
+      name: parsed.name || it.rule_id,
+      enabled: !!it.enabled,
+      conditions: parsed.conditions || [],
+      actions: Array.isArray(parsed.actions) ? parsed.actions : (parsed.actions ? [parsed.actions] : [])
+    };
+  });
+
+  selectedId = automations[0]?.id ?? null;
+  renderList(modal);
+  loadSelectedIntoForm(modal);
+}
+
+// ----- Public save/delete wired to backend -----
+async function saveCurrent(modal){
+  const doc = serializeForm(modal);
+  const payload = {
+    switch_id: currentSwitchId,
+    rule_id: doc.id,
+    enabled: doc.enabled ? "true" : "false",
+    script_json: JSON.stringify({
+      name: doc.name,
+      enabled: doc.enabled,
+      conditions: doc.conditions,
+      actions: doc.actions
+    })
+  };
+  const res = await fetch("/submit-advanced-trigger", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error("Save failed");
+  await loadAutomationsListInto(modal);
+  showPreview(modal, doc);
+}
+
+async function deleteSelected(modal){
+  if (!selectedId) return;
+  await deleteAutomation(selectedId);
+  await loadAutomationsListInto(modal);
+}
+
+// ----- Expose one init entry point -----
+window.initAdvancedAutomationModal = async function (modalEl) {
+  try {
+    if (!modalEl) { console.error("initAdvancedAutomationModal: missing modalEl"); return false; }
+
+    // Prefer backdrop as the wider scope; get the inner modal root early
+    const scope = modalEl.closest(".modal-backdrop") || modalEl;
+    const modalRoot = getModalRoot(modalEl) || modalEl;
+
+    // Switch id from either element
+    currentSwitchId =
+      modalEl.dataset?.switchId ||
+      scope.dataset?.switchId ||
+      "";
+    if (!currentSwitchId) {
+      console.error("initAdvancedAutomationModal: missing data-switch-id");
+      return false;
+    }
+
+    // Ensure DOM is attached and subtree exists before queries
+    await Promise.resolve();
+    await new Promise(r => requestAnimationFrame(r));
+
+    // Wait (non-throwing) for the critical elements inside the modal
+    const elList   = await waitForSelector(modalRoot, "#automationList",       2000);
+    const elSwitch = await waitForSelector(modalRoot, "#actionSwitch",         2000);
+    const elName   = await waitForSelector(modalRoot, "#autoName",             2000);
+    const elConds  = await waitForSelector(modalRoot, "#conditionsContainer",  2000);
+
+    // If essentials are missing, surface but don't throw
+    if (!elList || !elSwitch || !elName || !elConds) {
+      console.warn("[AdvancedAutomation] essential nodes missing; modal will still open but UI may be incomplete", {
+        hasList: !!elList, hasSwitch: !!elSwitch, hasName: !!elName, hasConds: !!elConds
+      });
+    }
+
+    // ---- wire buttons (use modalRoot; fall back to scope) ----
+    const rootForQuery = modalRoot || scope;
+    const btnNew  = rootForQuery.querySelector("#btnNewAutomation");
+    const btnAdd  = rootForQuery.querySelector("#btnAddCondition");
+    const btnSave = rootForQuery.querySelector("#btnSetAutomation");
+    const btnDel  = rootForQuery.querySelector("#btnRemove");
+    const btnOk   = rootForQuery.querySelector("#btnOk");
+
+    if (btnNew) btnNew.onclick = () => {
+      selectedId = `auto-${(crypto.randomUUID?.() || Math.random().toString(36).slice(2))}`;
+      const defKey = rootForQuery.querySelector("#actionSwitch")?.options?.[0]?.value || "";
+      automations.push({ id:selectedId, name:"", enabled:false, conditions:[], actions:[{ switch_key:defKey, set:false, delay_s:0 }] });
+      renderList(modalRoot);
+      loadSelectedIntoForm(modalRoot);
+    };
+    if (btnAdd)  btnAdd.onclick  = () => addCondition(modalRoot, { type:"sensor" });
+    if (btnSave) btnSave.onclick = () => saveCurrent(modalRoot).then(()=>alert("Saved.")).catch(e=>alert(e.message));
+    if (btnDel)  btnDel.onclick  = () => deleteSelected(modalRoot);
+    if (btnOk)   btnOk.onclick   = () => {
+      const bd = (modalRoot.closest?.(".modal-backdrop") || scope.closest?.(".modal-backdrop") || scope);
+      if (bd && bd.parentNode) bd.parentNode.removeChild(bd);
+    };
+
+    // ---- load data and hydrate (non-throwing) ----
+    try { await loadSensors(); } catch (e) { console.warn("[AdvancedAutomation] loadSensors failed:", e); }
+    await loadSwitchInfoInto(modalRoot);
+    await loadAutomationsListInto(modalRoot);
+
+    // ---- finally show (parent sets display:none initially) ----
+    const backdrop = modalRoot.closest?.(".modal-backdrop") || scope.closest?.(".modal-backdrop") || scope;
+    backdrop.style.display = "flex";
+
+    return true;
+  } catch (err) {
+    console.error("initAdvancedAutomationModal failed:", err);
+    return false; // never throw to caller
+  }
+};
+
+
+

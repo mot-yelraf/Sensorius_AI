@@ -1,0 +1,250 @@
+<!-- ui_templates/modals/system_calibration.html -->
+<div class="modal-backdrop" style="display:none; z-index:10000;">
+  <div class="modal" id="systemCalibrationModal"
+       data-start-sensor-id="{{ start_sensor_id | default('') }}"
+       data-sensor-id="{{ start_sensor_id | default('') }}"
+       data-device-kind="{{ device_kind | default('') }}"
+       data-is-apvpd="{{ 'true' if is_apvpd else 'false' }}">
+    <div class="modal-header">
+      <h3 class="modal-title">Device &amp; System Calibration</h3>
+    </div>
+
+    <div class="modal-body">
+      <div class="split">
+        <!-- Left pane: Device calibration + APVPD plant calibration -->
+        <aside class="panel">
+          <div class="list-header">
+            <span>Device Calibration</span>
+          </div>
+
+          <div class="list" style="padding:1rem;">
+            <p class="muted" style="margin-top:0;">
+              You are calibrating this device:
+            </p>
+
+            <div class="device-summary" style="font-size:0.9rem; margin-bottom:0.75rem;">
+              <div><strong>Sensor ID:</strong> {{ start_sensor_id }}</div>
+              {% if device_label or device_kind %}
+              <div>
+                <strong>Device:</strong>
+                {{ device_label if device_label is defined and device_label else device_kind | default("Unknown") }}
+              </div>
+              {% endif %}
+              {% if sensor_location %}
+              <div><strong>Location:</strong> {{ sensor_location }}</div>
+              {% endif %}
+            </div>
+
+            {# --- APVPD-specific device calibration: Ambient BME280 on i2c-1 --- #}
+            {% if is_apvpd %}
+              <h4 style="margin-top:0.75rem;">Ambient BME280 Offsets</h4>
+              <p class="muted" style="font-size:0.85rem;">
+                These offsets apply to the Ambient BME280 sensor on the i2c-1 bus.
+              </p>
+
+              <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+                <tbody>
+                  <tr data-dev-cal-row="1">
+                    <td style="padding:0.25rem 0.5rem;">
+                      Ambient Temperature Offset (°C)
+                    </td>
+                    <td style="padding:0.25rem 0.5rem; text-align:right;">
+                      <input type="number"
+                             step="any"
+                             data-key="ambient_temp_offset"
+                             class="devCalInput"
+                             style="width:100%; text-align:right;"
+                             value="{{ ambient_temp_offset | default(0) }}">
+                    </td>
+                  </tr>
+                  <tr data-dev-cal-row="1">
+                    <td style="padding:0.25rem 0.5rem;">
+                      Ambient RH Offset (%)
+                    </td>
+                    <td style="padding:0.25rem 0.5rem; text-align:right;">
+                      <input type="number"
+                             step="any"
+                             data-key="ambient_rh_offset"
+                             class="devCalInput"
+                             style="width:100%; text-align:right;"
+                             value="{{ ambient_rh_offset | default(0) }}">
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div style="margin-top:0.75rem; display:flex; gap:0.75rem; flex-direction:column;">
+                <div style="display:flex; gap:0.75rem; align-items:center;">
+                  <button type="button"
+                          class="button blue"
+                          id="devCalApplyBtn">
+                    Apply Device Calibration
+                  </button>
+                  <div style="display:flex; gap:0.75rem; align-items:center;">
+                    <span id="devCalStatus"
+                          class="muted"
+                          style="font-size:0.8rem;"></span>
+                  </div>
+                </div>
+
+                <hr style="margin:0.75rem 0;">
+
+                <h4>Plant Sensor Calibration</h4>
+                <p class="muted" style="font-size:0.85rem;">
+                  Run the APVPD plant calibration routine for this sensor.
+                </p>
+                <div style="display:flex; gap:0.75rem; align-items:center;">
+                  <button type="button" class="button green" id="plantCalBtn">
+                    Calibrate Plant Sensor
+                  </button>
+                  <span id="plantCalStatus"
+                        class="muted"
+                        style="font-size:0.8rem;"></span>
+                </div>
+              </div>
+
+            {# --- Non-APVPD devices: generic offsets list if provided --- #}
+            {% elif device_offsets %}
+              <h4 style="margin-top:0.75rem;">Offsets</h4>
+              <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+                <tbody>
+                  {% for off in device_offsets %}
+                  <tr data-dev-cal-row="1">
+                    <td style="padding:0.25rem 0.5rem;">
+                      {{ off.label }}
+                      {% if off.unit %} ({{ off.unit }}){% endif %}
+                    </td>
+                    <td style="padding:0.25rem 0.5rem; text-align:right;">
+                      <input type="number"
+                             step="any"
+                             data-key="{{ off.key }}"
+                             class="devCalInput"
+                             style="width:100%; text-align:right;"
+                             value="{{ off.value | default(0) }}">
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+
+              <div style="margin-top:0.75rem; display:flex; gap:0.75rem; align-items:center;">
+                <button type="button"
+                        class="button blue"
+                        id="devCalApplyBtn">
+                  Apply Device Calibration
+                </button>
+                <div style="margin-top:0.75rem; display:flex; gap:0.75rem; align-items:center;">
+                  <span id="devCalStatus"
+                        class="muted"
+                        style="font-size:0.8rem;"></span>
+                </div>
+              </div>
+
+            {% else %}
+              <p class="muted" style="margin-top:1rem;">
+                This device does not expose per-metric offsets yet.
+              </p>
+            {% endif %}
+          </div>
+        </aside>
+
+        <!-- Right pane: System calibration (T & RH) -->
+        <section class="panel">
+          <h3 class="modal-title">System Calibration (Temperature &amp; RH)</h3>
+
+          <div style="display:flex; gap:1rem; align-items:flex-end; margin-top:0.5rem;">
+            <div style="flex:1;">
+              <h4 for="sysCalRefSensor">Choose reference sensor</h4>
+              <select id="sysCalRefSensor" style="width:100%;">
+                <option value="">-- Select reference --</option>
+                {% for sid in candidate_sensors %}
+                  <option value="{{ sid }}"
+                          {% if sid == start_sensor_id %}selected{% endif %}>
+                    {{ sid }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div style="flex:0 0 140px;">
+              <h4 for="sysCalRangeHours">Cal Range (hours)</h4>
+              <input id="sysCalRangeHours" type="number"
+                     min="24" max="72" step="1"
+                     value="{{ default_range_hours | default(24) }}"
+                     style="width:100%;">
+            </div>
+          </div>
+
+          <div class="list-header" style="margin-top:1rem;">
+            <span>Sensors to Calibrate</span>
+          </div>
+
+          <div class="list" style="padding:1rem;">
+            <p class="muted">
+              These sensors report Temperature &amp; RH and can be calibrated against the
+              selected reference using the selected calibration range (suggested: 24–72 hours).
+            </p>
+
+            <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+              <thead>
+                <tr>
+                  <th style="text-align:left; padding:0.25rem 0.5rem;">Use</th>
+                  <th style="text-align:left; padding:0.25rem 0.5rem;">Sensor ID</th>
+                  <th style="text-align:right; padding:0.25rem 0.5rem;">ΔTemp (°C)</th>
+                  <th style="text-align:right; padding:0.25rem 0.5rem;">ΔRH (%)</th>
+                </tr>
+              </thead>
+              <tbody id="sysCalSensorsTable">
+                {% for sid in candidate_sensors %}
+                <tr data-sensor-id="{{ sid }}">
+                  <td style="padding:0.25rem 0.5rem;">
+                    <input type="checkbox"
+                           class="sysCalSensorCheck"
+                           value="{{ sid }}"
+                           {% if sid != start_sensor_id %}checked{% endif %}>
+                  </td>
+                  <td style="padding:0.25rem 0.5rem;">{{ sid }}</td>
+                  <td style="padding:0.25rem 0.5rem; text-align:right;"
+                      class="sysCalDeltaTemp">–</td>
+                  <td style="padding:0.25rem 0.5rem; text-align:right;"
+                      class="sysCalDeltaRh">–</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+
+            <div style="margin-top:0.75rem; display:flex; gap:0.75rem; align-items:center;">
+              <button type="button"
+                      class="button blue"
+                      id="sysCalPreviewBtn">
+                Preview Offsets
+              </button>
+              <button type="button"
+                      class="button green"
+                      id="sysCalApplyBtn"
+                      disabled>
+                Apply Calibration
+              </button>
+            </div>
+            <!-- Full-width status / preview text below the buttons -->
+            <div id="sysCalStatus"
+                  class="muted"
+                  style="font-size:0.8rem; line-height:1.3;">
+              <!-- JS (scRenderPreviewStatus) will write:
+                    Reference: ... · Window: ...
+                    apvpd-luvk44: Temp: ...; RH: ...; pairs=...
+              -->
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <div class="footer-buttons">
+              <button type="button" class="button black" id="sysCalHomeBtn">
+                Back
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>

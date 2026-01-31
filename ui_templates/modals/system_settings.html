@@ -1,0 +1,122 @@
+<!-- ui_templates/modals/system_settings.html -->
+
+<style>
+/* Keep your existing button styles here for now to avoid regressions.
+   If you've fully moved them into app.css, you can delete this. */
+.button {
+  display: inline-block;
+  padding: 10px 20px;
+  margin: 10px;
+  font-size: 16px;
+  font-weight: bold;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: background 0.3s, transform 0.2s;
+}
+.button:hover {
+  transform: translateY(0px);
+}
+.green   { background-color: #28a745; color: white; }
+.green:hover { background-color: #218838; }
+.red     { background-color: #dc3545; color: white; }
+.red:hover { background-color: #c82333; }
+.neutral { background-color: #f7f1c1; color: #212529; }
+.neutral:hover { background-color: #f7efb0; }
+.black   { background-color: #000; color: white; }
+.black:hover { background-color: #333; }
+.yellow  { background-color: #ffc107; color: #212529; }
+.yellow:hover { background-color: #e0a800; }
+.blue    { background-color: #2259f2; color: white; }
+.blue:hover { background-color: blue; }
+</style>
+
+<div id="setupPiModal"
+     class="modal"
+     style="display:block; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:999;">
+  <div class="modal-content"
+       style="background:#F5FFFA; margin:10% auto; padding:1rem; width:480px; border-radius:8px; position:relative;">
+    <h2 style="text-align:center;">
+      {{ app_name_long }} {{ app_version }}<br>System Settings
+    </h2>
+    <hr>
+    <form method="POST" action="/submit-pi-setup" onsubmit="return true;">
+      <table style="width:100%; border-collapse:collapse;">
+        <tr>
+          <td><label for="hostname">Hostname:</label></td>
+          <td>
+            <input type="text" id="hostname" name="hostname" value="{{ hostname }}" readonly>
+          </td>
+        </tr>
+        <tr>
+          <td><label for="broker">Sensorius Hub:</label></td>
+          <td>
+            <input type="text" id="broker" name="broker" value="{{ broker }}">
+          </td>
+        </tr>
+        <tr>
+          <td><label for="tz">Time Zone:</label></td>
+          <td>
+            <input type="text" id="tz" name="tz" value="{{ tz }}">
+          </td>
+        </tr>
+      </table>
+      <hr>
+      <table style="width:100%; border-collapse:collapse;">
+        <tr>
+          <td><label for="gauge_size">Gauge Size:</label></td>
+          <td>
+            <select name="gauge_size" id="gauge_size">
+              <option value="Small" {% if gauge_size == "Small" %}selected{% endif %}>Small</option>
+              <option value="Large" {% if gauge_size == "Large" %}selected{% endif %}>Large</option>
+            </select>
+          </td>
+          <td><label for="diaplay_style">Display Style:</label></td>
+          <td>
+            <select name="display_style" id="display_style">
+              <option value="Gauge" {% if display_style == "Gauge" %}selected{% endif %}>Gauge</option>
+              <option value="Graph6hr" {% if display_style == "Graph6hr" %}selected{% endif %}> 6Hr Graph</option>
+              <option value="Graph24hr" {% if display_style == "Graph24hr" %}selected{% endif %}>24Hr Graph</option>
+            </select>
+          </td>        
+        </tr>
+      </table>
+
+      <hr>
+
+      <div style="margin-top:1rem; display:flex; justify-content:space-between;">
+        <!-- Keep Home & Clear DB behavior as-is -->
+        <button type="button" class="button black" onclick="window.location.href='/'">Home</button>
+        <button type="button" class="button yellow" id="btn-homeassistant">Home Assistant</button>
+        <button type="button" class="button yellow" onclick="return startLocationsFromSetup(this.form)">Edit Locations</button>
+        <button type="submit" class="button blue">Save</button>
+      </div>
+
+      <div style="margin-top:1.5rem; margin-bottom:1rem; display:flex; justify-content:space-between;">
+        <!-- These still call your existing JS functions defined by the sub-modals -->
+        <button type="button" class="button red" onclick="window.location.href='/clear-data'">Clear DB</button>
+        <button type="button" class="button red" onclick="openRemoveDeviceModal()">Remove Device</button>
+        <button type="button" class="button green" onclick="return startOnboardFromSetup(this.form)">Add Device</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// These helpers are mostly used if you ever embed this modal differently.
+// For now they keep the same IDs you were using: setupPiModal.
+function openSetupModal(){
+  var el = document.getElementById('setupPiModal');
+  if (el) el.style.display = 'block';
+}
+function closeSetupModal(){
+  var el = document.getElementById('setupPiModal');
+  if (el) el.style.display = 'none';
+}
+// Your old code made it visible on window load; we now start at display:block,
+// but keeping this doesn't hurt if you later change initial visibility.
+window.addEventListener('load', function() {
+  var el = document.getElementById('setupPiModal');
+  if (el) el.style.display = 'block';
+});
+</script>

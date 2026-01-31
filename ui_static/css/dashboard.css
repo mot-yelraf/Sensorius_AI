@@ -1,0 +1,143 @@
+/* ---- Dashboard tunables (override if needed) ---- */
+:root{
+  --container-width: 530px;   /* was layout['container_width'] */
+  --stats-font: 0.9rem;       /* was layout['stats_font'] */
+  --canvas-width: 480px;      /* was layout['canvas_width'] */
+  --canvas-height: 280px;     /* was layout['canvas_height'] */
+}
+
+/* Base */
+body{
+  font-family:sans-serif;
+  background:#fff;
+  margin:0;
+  padding:1rem;
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:center;
+  gap:2rem;
+}
+#update_time{ transition: color 0.6s ease; }
+.flash-green{ color: green !important; }
+.flash-red{ color: red !important; }
+.refresh-link{
+  margin-left:8px; text-decoration:none; font-size:1.1em; line-height:1;
+  vertical-align:middle; display:inline-block;
+}
+.refresh-link:focus, .refresh-link:hover{ opacity:0.85; }
+
+/* Buttons */
+.button{
+  display:inline-block; padding:10px 20px; margin:10px;
+  font-size:16px; font-weight:bold; border-radius:6px; border:none;
+  cursor:pointer; transition:background 0.3s, transform 0.2s;
+}
+.button:hover{ transform: translateY(0px); }
+
+/* Button colors */
+.green{ background-color:#28a745; color:#fff; }
+.green:hover{ background-color:#218838; }
+.red{ background-color:#dc3545; color:#fff; }
+.red:hover{ background-color:#c82333; }
+.neutral{ background-color:#f7f1c1; color:#212529; }
+.neutral:hover{ background-color:#f7efb0; }
+.black{ background-color:#000; color:#fff; }
+.black:hover{ background-color:#333; }
+.yellow{ background-color:#ffc107; color:#212529; }
+.yellow:hover{ background-color:#e0a800; }
+.blue{ background-color:#2259f2; color:#fff; }
+.blue:hover{ background-color:blue; }
+
+/* Spinner */
+.spinner{
+  width:16px; height:16px; border:2px solid #ccc; border-top:2px solid #333; border-radius:50%;
+  animation:spin 1s linear infinite; display:inline-block; vertical-align:middle;
+}
+@keyframes spin{ to{ transform: rotate(360deg); } }
+
+/* Sensor row */
+.sensor-row{
+  display:flex; flex-wrap:wrap; justify-content:center; align-items:flex-start; gap:1rem; width:100%;
+}
+
+/* Metric container — uses CSS variable for width */
+.metric-container{
+  display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+  width: var(--container-width);
+  padding: .5rem; border:1px solid #ccc; border-radius:12px; background-color:#e6faff;
+  margin-bottom:1rem; position:relative; box-sizing:border-box; flex:0 1 auto;
+}
+
+/* Metric content */
+.metric-title{ font-size:1.2rem; font-weight:bold; margin-bottom:.3rem; text-align:center; }
+.metric-current-value{ font-size:1.75rem; font-weight:bold; margin-top:-.4rem; margin-bottom:.4rem; text-align:center; }
+.metric-stats{
+  display:flex; justify-content:space-between; width: var(--container-width);
+  font-size: var(--stats-font); margin-top:.5rem; margin-bottom:1rem;
+}
+.metric-stats div{ flex:1; text-align:center; }
+
+/* Gauge/graph/switch containers */
+.gauge-view, .graph-view, .switch-view{
+  width:100%; height:100%; display:flex; justify-content:center; align-items:center;
+}
+.gauge-container, .graph-container, .switch-container{
+  width:100%; height:auto; position:relative;
+}
+.graph-container{ display:none; }
+
+/* Switch “card” */
+.switch-metric-container{
+  display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start;
+  width:530px; padding:1rem; border:1px solid #ccc; border-radius:12px; background-color:#ffffe0;
+  margin-bottom:1.5rem; box-sizing:border-box;
+}
+
+.switch-table{
+  width:100%; border-collapse:collapse; margin-top:.5rem; font-size:.95rem; background-color:#ffffe0;
+}
+.switch-table th, .switch-table td{
+  border:1px solid #ccc; padding:.4rem .6rem; text-align:center; vertical-align:middle; background-color:#ffffe0;
+}
+.switch-table th{ font-weight:bold; }
+
+.switch-box{
+  width:20px; height:40px; border:1px solid #666; background:#aaa; cursor:pointer;
+  display:inline-block; vertical-align:middle; border-radius:4px; background-color:#ffffe0;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+.switch-box.on, .switch-box[data-state='on']{ background-color:#2ecc71; border-color:#27ae60; color:#0b2917; }
+.switch-box.off, .switch-box[data-state='off']{ background-color:#e5e7eb; border-color:#cbd5e1; color:#333; }
+
+.switch-state{ font-weight:bold; margin-left:.5rem; color:#006600; }
+.switch-override{ transform:scale(1.2); cursor:pointer; background-color:#ffffe0; }
+
+/* Time/event blocks */
+.switch-time{ font-size:.85rem; color:#444; font-style:italic; }
+.switch-time-summary{ white-space:nowrap; display:block; }
+
+.switch-events{
+  font-size:.50rem; background-color:#ffffe0; border:1px solid #ccc; border-radius:6px;
+  padding:.25rem .5rem; margin-top:.25rem; height:4.5rem;
+  white-space:nowrap; overflow-x:auto; overflow-y:auto; min-width:26ch; max-width:100%;
+}
+.switch-events.hidden{ display:none; }
+.switch-events-list{ list-style:none; padding:0; margin:0; }
+.switch-events-list li{ padding:.15rem 0; }
+.switch-events-list li.switch-event-on{ color:green; }
+.switch-events-list li.switch-event-off{ color:#000; }
+
+/* Canvas sizing */
+canvas{
+  width: var(--canvas-width);
+  height: var(--canvas-height);
+  margin-top:10px; display:block; max-width:100%; box-sizing:border-box;
+}
+
+/* Simple menu */
+.menu-icon{ position:fixed; top:1rem; left:1rem; z-index:10; cursor:pointer; font-size:1.5rem; }
+.menu-items{
+  display:none; position:fixed; top:3rem; left:1rem; background:#eee; padding:1rem;
+  border-radius:.5rem; box-shadow:0 0 5px rgba(0,0,0,0.2);
+}
+.menu-items a{ display:block; margin-bottom:.5rem; color:#333; text-decoration:none; }

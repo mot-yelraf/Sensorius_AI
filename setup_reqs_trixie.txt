@@ -1,0 +1,71 @@
+# --- Core sensor / I2C stack ---
+Adafruit-Blinka>=8.60           # Py3.13 tweaks upstream (ok to float to latest)  [Bl]
+adafruit-circuitpython-busdevice>=5.2.12
+adafruit-circuitpython-connectionmanager>=3.1.4
+adafruit-circuitpython-register>=1.10.3
+adafruit-circuitpython-requests>=4.1.12
+adafruit-circuitpython-typing>=1.12.1
+
+# Specific drivers (keep pins if your hardware is sensitive; otherwise allow minor bumps)
+adafruit-circuitpython-bme280>=2.6.28
+adafruit-circuitpython-bme680>=3.7.13
+adafruit-circuitpython-pm25>=2.1.20
+adafruit-circuitpython-seesaw>=1.16.6
+adafruit-extended-bus==1.0.2
+
+# GPIO / I2C helpers (prefer modern stack on Pi 4/5)
+lgpio==0.2.2.0
+rpi-lgpio==0.6
+# RPi.GPIO is legacy; keep only if you still run on older boards/OS images
+# RPi.GPIO==0.7.1
+
+rpi_ws281x==5.0.0
+smbus2==0.5.0
+
+# --- Web stack ---
+fastapi==0.119.1        # Python 3.14 readiness; fine on 3.11/3.13 too  [FA]   # see notes
+# starlette: let FastAPI choose a compatible version
+pydantic==2.12.0        # Current series; Py3.13+ compatible                      # see notes
+httpx==0.28.1
+uvicorn[standard]==0.38.0
+python-multipart==0.0.20
+aiofiles==24.1.0
+jinja2==3.1.6
+orjson==3.11.3
+
+# --- Data + math tools ---
+numpy==2.3.4            # fresh wheels incl. aarch64                              # see notes
+matplotlib==3.10.7
+pillow==11.2.1
+python-dateutil==2.9.0.post0
+pyparsing==3.2.3
+packaging==25.0
+contourpy==1.3.2
+cycler==0.12.1
+kiwisolver==1.4.8
+fonttools==4.58.1
+
+# --- Utilities / monitoring ---
+psutil==7.0.0
+pyserial==3.5
+pyusb==1.3.1
+pywebview==5.4
+watchfiles==1.1.0
+
+# --- MQTT ---
+paho-mqtt==2.1.0
+
+# --- Typing / support libs (pin lightly or let deps manage) ---
+typing-inspection==0.4.1
+typing_extensions==4.14.0
+annotated-types==0.7.0
+anyio==4.9.0
+sniffio==1.3.1
+h11==0.16.0
+httpcore==1.0.9
+
+# --- Testing ---
+pytest==8.4.0
+pytest-cov==6.1.1
+coverage==7.8.2
+python-dotenv==1.1.0

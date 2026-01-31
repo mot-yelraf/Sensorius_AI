@@ -1,0 +1,139 @@
+<!-- ui_templates/modals/sensor_settings.html -->
+
+<div class="modal-backdrop" style="display:none">
+  <div
+    class="modal"
+    id="sensorSettingsModal"
+    data-sensor-id="{{ sensor_id }}"
+  >
+    <div class="modal-header">
+      <h3 class="modal-title">Edit Sensor Settings</h3>
+    </div>
+
+    <div class="modal-body">
+      <h3 style="text-align:center; margin-top:0.25rem; margin-bottom:0.75rem;">
+        {{ sensor_id }}
+      </h3>
+
+      <form method="POST" action="/submit-sensor-settings">
+        <input type="hidden" name="sensor_id" value="{{ sensor_id }}" />
+
+        <table style="width:100%; border-collapse:collapse;">
+          <!-- LOCATION (readonly, for now, as in original) -->
+          <tr>
+            <td><label for="location">LOCATION:</label></td>
+            <td>
+              <input
+                type="text"
+                id="location"
+                name="location"
+                readonly
+                value="{{ location or 'Unknown' }}"
+              />
+            </td>
+          </tr>
+        </table>
+
+        <h3 style="margin-top:1.5rem;">Select Metrics to Use</h3>
+
+        <table style="width:100%; border-collapse:collapse;">
+          <tr>
+            {% for i in range(1, 4) %}
+            <td style="padding:0.5rem; text-align:center;">
+              <label for="metric_{{ i }}">Metric {{ i }}</label><br />
+              <select
+                name="metric_{{ i }}"
+                id="metric_{{ i }}"
+                style="width:100%;"
+              >
+                {% for opt in metric_options %}
+                {% set val = opt or '' %}
+                {% set label = opt if opt else 'Empty' %}
+                <option
+                  value="{{ val | e }}"
+                  {% if val == current_metrics[i-1] %}selected{% endif %}
+                >
+                  {{ label | e }}
+                </option>
+                {% endfor %}
+              </select>
+            </td>
+            {% endfor %}
+          </tr>
+
+          <tr>
+            {% for i in range(4, 7) %}
+            <td style="padding:0.5rem; text-align:center;">
+              <label for="metric_{{ i }}">Metric {{ i }}</label><br />
+              <select
+                name="metric_{{ i }}"
+                id="metric_{{ i }}"
+                style="width:100%;"
+              >
+                {% for opt in metric_options %}
+                {% set val = opt or '' %}
+                {% set label = opt if opt else 'Empty' %}
+                <option
+                  value="{{ val | e }}"
+                  {% if val == current_metrics[i-1] %}selected{% endif %}
+                >
+                  {{ label | e }}
+                </option>
+                {% endfor %}
+              </select>
+            </td>
+            {% endfor %}
+          </tr>
+        </table>
+
+        <div
+          class="modal-footer"
+          style="margin-top:1rem; display:flex; gap:.5rem; justify-content:space-between; align-items:center;"
+        >
+          <!-- Home: just close modal now, no full reload -->
+          <button
+            type="button"
+            class="button black"
+            onclick="window.closeSensorSettingsModal && window.closeSensorSettingsModal();"
+          >
+            Home
+          </button>
+
+          <!-- System Calibration -->
+          <button
+            type="button"
+            class="button green"
+            id="sysCalBtn"
+            onclick="window.openSystemCalibrationModal && window.openSystemCalibrationModal('{{ sensor_id }}');"
+          >
+            Calibrate Sensor
+          </button>
+
+          <!-- Save -->
+          <button type="submit" class="button blue" id="saveBtn">
+            Save
+            <span
+              id="saveSpinner"
+              class="spinner"
+              style="display:none; width:16px; height:16px; border:2px solid #ccc; border-top:2px solid #333; border-radius:50%; animation:spin 1s linear infinite; vertical-align:middle;"
+            ></span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const form = document.querySelector("#sensorSettingsModal form");
+  const saveBtn = document.getElementById("saveBtn");
+  const spinner = document.getElementById("saveSpinner");
+  if (form && saveBtn && spinner) {
+    form.addEventListener("submit", () => {
+      spinner.style.display = "inline-block";
+      saveBtn.disabled = true;
+    });
+  }
+});
+</script>

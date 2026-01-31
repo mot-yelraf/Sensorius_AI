@@ -1,0 +1,5 @@
+sensorius_data.*
+._*
+__pycache__/
+*.pyc
+

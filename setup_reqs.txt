@@ -1,0 +1,71 @@
+# Core sensor and I2C packages
+Adafruit-Blinka==8.58.1
+adafruit-circuitpython-bme280==2.6.28
+adafruit-circuitpython-bme680==3.7.13
+adafruit-circuitpython-scd30==2.2.15
+adafruit-circuitpython-seesaw==1.16.6
+adafruit-circuitpython-busdevice==5.2.12
+adafruit-circuitpython-connectionmanager==3.1.4
+adafruit-circuitpython-pixelbuf==2.0.8
+adafruit-circuitpython-pm25==2.1.20
+adafruit-circuitpython-register==1.10.3
+adafruit-circuitpython-requests==4.1.12
+adafruit-circuitpython-typing==1.12.1
+Adafruit-PlatformDetect==3.79.0
+Adafruit-PureIO==1.1.11
+adafruit-python-shell==1.9.1
+adafruit-extended-bus==1.0.2
+lgpio==0.2.2.0
+rpi-lgpio==0.6
+RPi.GPIO==0.7.1
+rpi_ws281x==5.0.0
+smbus2==0.5.0
+
+# Web stack
+fastapi==0.115.12
+starlette==0.46.0
+pydantic==2.11.5
+pydantic_core==2.33.2
+httpx==0.28.1
+uvicorn[standard]==0.34.3
+python-multipart==0.0.20
+aiofiles==24.1.0
+jinja2==3.1.6
+orjson==3.11.2
+
+# Data + math tools
+numpy==2.2.6
+matplotlib==3.8.4
+pillow==11.2.1
+python-dateutil==2.9.0.post0
+pyparsing==3.2.3
+packaging==25.0
+contourpy==1.3.2
+cycler==0.12.1
+kiwisolver==1.4.8
+fonttools==4.58.1
+
+# Utilities and monitoring
+psutil==7.0.0
+pyserial==3.5
+pyusb==1.3.1
+pywebview==5.4
+watchfiles==1.1.0
+
+# MQTT
+paho-mqtt==2.1.0
+
+# Typing and support libs
+typing-inspection==0.4.1
+typing_extensions==4.14.0
+annotated-types==0.7.0
+anyio==4.9.0
+sniffio==1.3.1
+h11==0.16.0
+httpcore==1.0.9
+
+# Optional testing/dev tools
+pytest==8.4.0
+pytest-cov==6.1.1
+coverage==7.8.2
+python-dotenv==1.1.0

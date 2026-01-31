@@ -1,0 +1,152 @@
+<!-- ui_templates/modals/system_ha_integration.html -->
+
+<div id="ha-settings-overlay"
+     class="onboard-overlay"
+     style="display:none;"
+     data-enabled="{{ ha_enabled | default(false) }}"
+     data-username="{{ ha_username | default('') }}"
+     data-password="{{ ha_password | default('') }}"
+     data-broker="{{ ha_broker | default('') }}"
+     data-port="{{ ha_port | default(1883) }}">
+  <div class="onboard-modal" style="max-width:520px;">
+    <div class="onboard-title">Home Assistant</div>
+
+    <div style="display:flex; flex-direction:column; gap:12px; margin-top:12px;">
+      <label style="display:flex; align-items:center; gap:10px;">
+        <input type="checkbox" id="ha-enabled">
+        <span>Enabled</span>
+      </label>
+
+      <label style="display:flex; flex-direction:column; gap:6px;">
+        <span>Broker</span>
+        <input type="text" id="ha-broker" placeholder="homeassistant.local">
+      </label>
+
+      <label style="display:flex; flex-direction:column; gap:6px;">
+        <span>Port</span>
+        <input type="number" id="ha-port" min="1" max="65535" step="1">
+      </label>
+
+      <label style="display:flex; flex-direction:column; gap:6px;">
+        <span>Username</span>
+        <input type="text" id="ha-username" autocomplete="username">
+      </label>
+
+      <label style="display:flex; flex-direction:column; gap:6px;">
+        <span>Password</span>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input type="password" id="ha-password" autocomplete="current-password" style="flex:1;">
+          <button type="button" class="button black" id="ha-pass-toggle" style="margin:0; padding:6px 10px;">
+            Show
+          </button>
+        </div>
+      </label>
+    </div>
+
+    <div class="modal-footer"
+         style="display:flex; justify-content:space-between; gap:12px; margin-top:18px;">
+      <button id="btn-ha-cancel" class="button black">Back</button>
+      <button id="btn-ha-save" class="button blue">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+window.openHomeAssistantModal = function() {
+  const ov = document.getElementById("ha-settings-overlay");
+  if (!ov) return;
+  const enabled = String(ov.dataset.enabled || "").toLowerCase() === "true";
+  const broker = ov.dataset.broker || "";
+  const port = ov.dataset.port || "1883";
+  const username = ov.dataset.username || "";
+  const password = ov.dataset.password || "";
+
+  const elEnabled = document.getElementById("ha-enabled");
+  const elBroker = document.getElementById("ha-broker");
+  const elPort = document.getElementById("ha-port");
+  const elUser = document.getElementById("ha-username");
+  const elPass = document.getElementById("ha-password");
+  const elToggle = document.getElementById("ha-pass-toggle");
+
+  if (elEnabled) elEnabled.checked = enabled;
+  if (elBroker) elBroker.value = broker;
+  if (elPort) elPort.value = port;
+  if (elUser) elUser.value = username;
+  if (elPass) {
+    elPass.value = password;
+    elPass.type = "password";
+  }
+  if (elToggle) elToggle.textContent = "Show";
+
+  ov.style.display = "flex";
+};
+
+window.closeHomeAssistantModal = function() {
+  const ov = document.getElementById("ha-settings-overlay");
+  if (ov) ov.style.display = "none";
+};
+
+document.addEventListener("click", async (ev) => {
+  if (ev.target && ev.target.id === "btn-homeassistant") {
+    window.openHomeAssistantModal();
+  }
+
+  if (ev.target && ev.target.id === "btn-ha-cancel") {
+    window.closeHomeAssistantModal();
+  }
+
+  if (ev.target && ev.target.id === "ha-pass-toggle") {
+    const input = document.getElementById("ha-password");
+    if (!input) return;
+    const show = (input.type === "password");
+    input.type = show ? "text" : "password";
+    ev.target.textContent = show ? "Hide" : "Show";
+  }
+
+  if (ev.target && ev.target.id === "btn-ha-save") {
+    try {
+      const enabled = !!document.getElementById("ha-enabled")?.checked;
+      const broker = (document.getElementById("ha-broker")?.value || "").trim();
+      const portRaw = (document.getElementById("ha-port")?.value || "1883").trim();
+      const username = (document.getElementById("ha-username")?.value || "").trim();
+      const password = (document.getElementById("ha-password")?.value || "").trim();
+
+      const port = Math.max(1, Math.min(65535, parseInt(portRaw, 10) || 1883));
+
+      const resp = await fetch("/submit-homeassistant-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled,
+          broker,
+          port,
+          username,
+          password
+        })
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => "");
+        throw new Error("HTTP " + resp.status + " " + text);
+      }
+
+      const res = await resp.json().catch(() => ({}));
+      if (window.showToast) window.showToast("Home Assistant settings saved", "ok");
+
+      const ov = document.getElementById("ha-settings-overlay");
+      if (ov) {
+        ov.dataset.enabled = String(enabled);
+        ov.dataset.broker = broker;
+        ov.dataset.port = String(port);
+        ov.dataset.username = username;
+        ov.dataset.password = password;
+      }
+
+      window.closeHomeAssistantModal();
+    } catch (e) {
+      console.error(e);
+      if (window.showToast) window.showToast("Failed to save Home Assistant settings", "error");
+    }
+  }
+});
+</script>
