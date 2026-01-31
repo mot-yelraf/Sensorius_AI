@@ -21,7 +21,7 @@ import paho.mqtt.client as mqtt
 from collections import defaultdict, OrderedDict
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from rPiUtils import printDM, debug_enabled
+from rPiUtils import printDM, debug_enabled, get_timestamp
 from rPiDataLogger import rPiDataLogger, build_switch_key
 
 MODULE = "rPiMQTTIngest"
@@ -2063,7 +2063,8 @@ class rPiMQTTIngest:
         """
         Nodus state/event topics:
           topic:   "nodus/<channel_id>/state" or "nodus/<channel_id>/event"
-          payload: "ON" | "OFF"
+          payload: "ON" | "OFF"  (legacy)
+                   or JSON {"timestamp": <epoch|iso>, "event": {...}, "source": "..."}
         Uses /itaot-derived maps to resolve switch_id/channel_id/label.
         """
         try:
@@ -2079,22 +2080,81 @@ class rPiMQTTIngest:
             if not switch_id or not channel_id or kind not in ("state", "event"):
                 return
 
-            is_on = str(payload).strip().upper() == "ON"
-            cache = self._switch_state_cache.setdefault(switch_id, {})
-            cache[channel_id] = "on" if is_on else "off"
-            if label:
-                cache[label] = "on" if is_on else "off"
-            self._known_switch_ids.add(switch_id)
+            payload_text = "" if payload is None else str(payload).strip()
+            is_on: bool | None = None
+            ts_iso: str | None = None
+            source = "mqtt-nodus"
 
-            if kind == "event":
+            # JSON payload (preferred)
+            if payload_text.startswith("{") and payload_text.endswith("}"):
+                try:
+                    obj = json.loads(payload_text)
+                except Exception:
+                    obj = None
+
+                if isinstance(obj, dict):
+                    # optional source
+                    source = (obj.get("source") or source) if isinstance(obj.get("source"), str) else source
+
+                    # parse timestamp if present
+                    ts_val = obj.get("timestamp")
+                    if ts_val is not None:
+                        ts_iso = _iso_from_payload_ts(ts_val)
+
+                    # extract ON/OFF from "event" dict
+                    ev = obj.get("event") or {}
+                    if isinstance(ev, dict) and ev:
+                        # Prefer a key that matches the channel label or SWITCH_n
+                        state_val = None
+                        if label and label in ev:
+                            state_val = ev.get(label)
+                        else:
+                            # fall back to first value
+                            try:
+                                state_val = list(ev.values())[0]
+                            except Exception:
+                                state_val = None
+                        if state_val is not None:
+                            is_on = str(state_val).strip().lower() in ("on", "1", "true", "t", "yes", "y")
+
+            # Legacy plain-text payload
+            if is_on is None:
+                is_on = payload_text.upper() == "ON"
+
+            if kind == "state":
+                cache = self._switch_state_cache.setdefault(switch_id, {})
+                cache[channel_id] = "on" if is_on else "off"
+                if label:
+                    cache[label] = "on" if is_on else "off"
+                self._known_switch_ids.add(switch_id)
+            elif kind == "event":
                 self._maybe_persist_switch_event(
                     switch_id=switch_id,
                     channel_id=channel_id,
                     is_on=is_on,
-                    ts_iso=None,
-                    source="mqtt-nodus",
-                    sensor_lineage=None,
+                    ts_iso=ts_iso,
+                    source=source,
+                    sensor_lineage=f"Switch_{switch_id}",
                 )
+                # keep label cache in sync after persist (persist updates channel_id cache)
+                if label:
+                    cache = self._switch_state_cache.setdefault(switch_id, {})
+                    cache[label] = "on" if is_on else "off"
+                self._known_switch_ids.add(switch_id)
+                # Push live updates to the UI (label-based key for listbox match)
+                try:
+                    import rPiWebRoutes as routes
+                    switch_broadcast = getattr(getattr(routes, "app", object()), "state", object()).switch_broadcast
+                    if switch_broadcast:
+                        asyncio.create_task(switch_broadcast({
+                            "type": "switch_event",
+                            "key": f"{switch_id}::{label or channel_id}",
+                            "state": bool(is_on),
+                            "timestamp": ts_iso or get_timestamp(),
+                            "source": source,
+                        }))
+                except Exception:
+                    pass
 
         except Exception as e:
             printDM(f"[handle_nodus_switch_topic] err: {e}", location=MODULE)

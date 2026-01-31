@@ -73,6 +73,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     fastStats = FastStats(data_logger, statter, hz=1.0)
     asyncio.create_task(fastStats.start())
 
+    def _resolve_channel_id_from_label(switch_id: str, label: str) -> str | None:
+        try:
+            if not mqtt_ingest:
+                return None
+            norm_label = (label or "").strip().lower()
+            return (mqtt_ingest.nodus_label_to_channel or {}).get((str(switch_id), norm_label))
+        except Exception:
+            return None
+
     @router.get("/", response_class=HTMLResponse)
     async def current_data_page(request: Request, sensor_id: str = Query(None), json_only: bool = Query(False)):
         try:
@@ -273,8 +282,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         def _switch_key(switch_id: str, label: str) -> str:
             sid = (switch_id or "").strip()
             lab = (label or "").strip()
+            ch_id = _resolve_channel_id_from_label(sid, lab)
             if _build_switch_key is not None:
                 try:
+                    if ch_id:
+                        return _build_switch_key(sid, lab, ch_id)
                     # new-style signature
                     return _build_switch_key(switch_id=sid, label=lab)
                 except TypeError:
@@ -4461,8 +4473,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         """
         sid = (switch_id or "").strip()
         lab = (label or "").strip()
+        ch_id = _resolve_channel_id_from_label(sid, lab)
         if _build_switch_key is not None:
             try:
+                if ch_id:
+                    return _build_switch_key(sid, lab, ch_id)
                 return _build_switch_key(sid, lab)
             except Exception:
                 pass
