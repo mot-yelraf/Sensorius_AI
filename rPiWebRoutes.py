@@ -290,7 +290,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 except Exception:
                     metrics = []
             if not metrics:
-                metrics = list(gauge_config.keys())
+                vals = all_values.get(sid) or {}
+                if vals:
+                    ordered = [k for k in gauge_config.keys() if k in vals]
+                    extras = [k for k in vals.keys() if k not in gauge_config]
+                    metrics = ordered + extras
+                else:
+                    metrics = list(gauge_config.keys())
             expected_gauge_map[sid] = metrics
 
         # Use the location map we already built
