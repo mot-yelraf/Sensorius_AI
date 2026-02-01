@@ -1,6 +1,6 @@
 """HTML rendering helpers and shared UI constants."""
 import re
-from rPiUtils import printDM, debug_enabled, html_escape
+from rPiUtils import printDM, debug_enabled, html_escape, normalize_hostname_base, mdns_hostname
 from collections import defaultdict
 from pathlib import Path
 
@@ -400,10 +400,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         Our standard SID format is <kind>-<bus>-<hostname>. Return possible host keys for mqtt_ingest.device_status.
         """
         try:
-            host = (sid or "").rsplit("-", 1)[-1].strip()
+            host = normalize_hostname_base((sid or "").rsplit("-", 1)[-1].strip())
             if not host:
                 return []
-            return [host, f"{host}.local"]
+            return [host, mdns_hostname(host)]
         except Exception:
             return []
 

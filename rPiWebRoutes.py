@@ -33,7 +33,14 @@ from collections import OrderedDict
 import shutil, httpx
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from rPiUtils import printDM, debug_enabled, get_timestamp, normalize_sensor_id
+from rPiUtils import (
+    printDM,
+    debug_enabled,
+    get_timestamp,
+    normalize_sensor_id,
+    normalize_hostname_base,
+    mdns_hostname,
+)
 from rPiSettings import rPiSettings
 from rPiDataLogger import rPiDataLogger
 try:
@@ -73,6 +80,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     fastStats = FastStats(data_logger, statter, hz=1.0)
     asyncio.create_task(fastStats.start())
 
+    def _is_recent_sensor(sid: str, window: timedelta = timedelta(minutes=10)) -> bool:
+        ts = data_logger.get_latest_timestamp(sid)
+        if not ts:
+            return False
+        try:
+            dt = datetime.fromisoformat(ts)
+        except Exception:
+            return False
+        now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+        return dt >= (now - window)
+
     def _resolve_channel_id_from_label(switch_id: str, label: str) -> str | None:
         try:
             if not mqtt_ingest:
@@ -89,8 +107,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             available = []
 
             def _strip_local_suffix(name: str) -> str:
-                s = (name or "").strip()
-                return s[:-6] if s.endswith(".local") else s
+                return normalize_hostname_base(name)
 
             def _is_switch_id(name: str) -> bool:
                 n = (name or "").strip().lower()
@@ -189,7 +206,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             mqtt_discovered = mqtt_ingest.get_known_devices()
 
             local_ids = _get_local_sensor_ids()
-            available = _normalize_available(local_ids, list(mqtt_discovered))
+            # Include sensors that have logged data, even if discovery missed /itaot.
+            merged_local = list(local_ids or [])
+            for sid in (sensors_from_logger or []):
+                if sid and sid not in merged_local:
+                    merged_local.append(sid)
+            available = _normalize_available(merged_local, list(mqtt_discovered))
+
+            # Filter to sensors with recent data only.
+            available = [sid for sid in available if _is_recent_sensor(sid)]
 
             # ---- Build a fresh location map for all 'available' sensors ----
             sensor_locations_map = { sid: resolve_location_for_sid(sid) for sid in available }
@@ -488,7 +513,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             try:
                 dev_map = getattr(ing, "device_status", {}) or {}
                 host = _host_base_from_sid(sid)
-                for key in (host, f"{host}.local"):
+                base = normalize_hostname_base(host)
+                for key in (host, base, mdns_hostname(base)):
                     st = dev_map.get(key or "")
                     if isinstance(st, str) and st.strip().lower() in {"online", "offline", "pending"}:
                         return st.strip().lower()
@@ -1367,7 +1393,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 # Nudge ingest discovery immediately (no restart required)
                 try:
                     # match the form you persist in CLIENTS (you showed ".local")
-                    host_for_ingest = f"{sensor_id_for_step}.local"
+                    host_for_ingest = mdns_hostname(sensor_id_for_step)
                     mqtt_ingest.add_client(host_for_ingest)
                     printDM(f"[onboard] nudged discovery for {host_for_ingest}", location="rPiWebRoutes")
                 except Exception as e:
@@ -1524,7 +1550,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         """
         candidates = []
         if hostname:
-            candidates.append(f"http://{hostname}.local:8000/set-nodus-setting")
+            candidates.append(f"http://{mdns_hostname(hostname)}:8000/set-nodus-setting")
             candidates.append(f"http://{hostname}:8000/set-nodus-setting")
         if ip_hint:
             candidates.append(f"http://{ip_hint}:8000/set-nodus-setting")
@@ -1916,10 +1942,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     # 'remove a device' helpers
     def _normalize_dev_id(name: str | None) -> str | None:
-        s = (name or "").strip()
-        if not s:
-            return None
-        return s[:-6] if s.endswith(".local") else s
+        base = normalize_hostname_base(name)
+        return base or None
 
     def _collect_ingest_ids() -> list[str]:
         """
@@ -2223,7 +2247,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         except Exception:
             base = device_id
 
-        for key in (device_id, base, f"{base}.local"):
+        for key in (device_id, base, mdns_hostname(base)):
             if not key:
                 continue
             for dname in ("device_type", "expected_gauge_map", "latest_meta"):
@@ -2543,8 +2567,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     async def list_sensor_ids():
         # helpers (re-use same patterns used elsewhere in this file)
         def _strip_local_suffix(h: str) -> str:
-            s = (h or "").strip()
-            return s[:-6] if s.endswith(".local") else s
+            return normalize_hostname_base(h)
 
         def _is_switch_id(name: str) -> bool:
             return (name or "").strip().lower().startswith("switch-")
@@ -2591,15 +2614,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # 3) ids that have already logged rows
         logged_ids = []
-        """
         try:
             logged_ids = data_logger.get_available_sensors() or []
         except Exception:
             logged_ids = []
-        logged_ids = []
         if DEBUG:
             printDM(f"[{MODULE}] #3 - data_logger sensors {logged_ids}", location=MODULE)
-        """
 
         # merge + sanitize + dedupe, then sort for stable UI
         merged = []
@@ -2620,6 +2640,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if DEBUG:
             printDM(f"[{MODULE}] #4 - merged sensors {merged}", location=MODULE)
 
+        merged = [sid for sid in merged if _is_recent_sensor(sid)]
         return JSONResponse(sorted(merged))
 
     @router.get("/sensor-metrics", response_class=JSONResponse)
@@ -2747,9 +2768,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 printDM(f"resolve_nodus_base_url: no Network.HOSTNAME for {sensor_id}", location=MODULE)
             return None
 
-        # Normalize to something resolvable via mDNS if no dot present
-        if "." not in hostname and not hostname.endswith(".local"):
-            hostname = f"{hostname}.local"
+        # Normalize to something resolvable via mDNS
+        hostname = mdns_hostname(hostname)
 
         base_url = f"http://{hostname}:8000"
         if DEBUG:
@@ -2969,7 +2989,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 host = (local_doc.get("Sensor", {}).get("HOSTNAME") or "").strip()
             if not host:
                 host = sensor_id_norm
-            return f"http://{host}.local:8000"
+            return f"http://{mdns_hostname(host)}:8000"
 
         # Build a proper updates[] payload for Nodus
         def _nodus_updates_from_display(device_file: str, display_block: dict) -> dict:
@@ -3231,11 +3251,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 tried = []
                 targets = []
 
-                ip = await _ipv4_first(f"{hostname}.local", 8000, timeout=2.0)
+                ip = await _ipv4_first(mdns_hostname(hostname), 8000, timeout=2.0)
                 if ip:
                     targets.append(f"http://{ip}:8000")
                 targets.extend((
-                    f"http://{hostname}.local:8000",
+                    f"http://{mdns_hostname(hostname)}:8000",
                     f"http://{hostname}:8000",
                 ))
 
@@ -3407,7 +3427,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # 3) Fallback: proxy directly to Nodus (legacy behavior)
             if hostname:
                 for url in (
-                    f"http://{hostname}.local:8000/calibration-status",
+                    f"http://{mdns_hostname(hostname)}:8000/calibration-status",
                     f"http://{hostname}:8000/calibration-status",
                 ):
                     try:

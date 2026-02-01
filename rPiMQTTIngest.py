@@ -21,7 +21,7 @@ import paho.mqtt.client as mqtt
 from collections import defaultdict, OrderedDict
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from rPiUtils import printDM, debug_enabled, get_timestamp
+from rPiUtils import printDM, debug_enabled, get_timestamp, normalize_hostname_base, mdns_hostname
 from rPiDataLogger import rPiDataLogger, build_switch_key
 
 MODULE = "rPiMQTTIngest"
@@ -665,11 +665,7 @@ class rPiMQTTIngest:
         - remove a single trailing '.local'
         - never return empty
         """
-        s = (name or "").strip()
-        if not s:
-            return None
-        if s.endswith(".local"):
-            s = s[:-6]
+        s = normalize_hostname_base(name)
         return s or None
 
     def _host_from_sid_base(self, sid: str | None) -> str | None:
@@ -1104,7 +1100,7 @@ class rPiMQTTIngest:
         if not s:
             return None
         if s.endswith(".local"):
-            return s
+            return mdns_hostname(s)
 
         # Try to find a host that already advertises this peer id
         for host, peers in (self.host_to_peer_ids or {}).items():
@@ -1115,7 +1111,7 @@ class rPiMQTTIngest:
                 pass
 
         # Last-resort: assume mDNS hostname matches id
-        return f"{s}.local"
+        return mdns_hostname(s)
 
     def get_measure_status(self, name: str, grace_sec: float = 120.0) -> str:
         """
@@ -1242,6 +1238,47 @@ class rPiMQTTIngest:
 
         is_pi_multi = isinstance(info.get("sensors"), list)
         base = self._normalize_host_key(hostname) or hostname
+
+        def _norm_ipv4(addr: str | None) -> str | None:
+            raw = (addr or "").strip()
+            if not raw:
+                return None
+            parts = raw.split(".")
+            if len(parts) != 4:
+                return None
+            for part in parts:
+                if not part.isdigit():
+                    return None
+                try:
+                    val = int(part)
+                except Exception:
+                    return None
+                if val < 0 or val > 255:
+                    return None
+            return raw
+
+        def _extract_ipv4addr(payload: dict) -> str | None:
+            if not isinstance(payload, dict):
+                return None
+            for key in ("ipv4addr", "IPV4ADDR", "IPv4Addr", "ipv4"):
+                ip = _norm_ipv4(payload.get(key))
+                if ip:
+                    return ip
+            for key, val in payload.items():
+                if isinstance(key, str) and key.lower() in {"ipv4addr", "ipv4"}:
+                    ip = _norm_ipv4(val)
+                    if ip:
+                        return ip
+            return None
+
+        try:
+            ip_from_itaot = _extract_ipv4addr(info)
+            if ip_from_itaot:
+                if not hasattr(self, "_host_ipv4addr"):
+                    self._host_ipv4addr = {}
+                self._host_ipv4addr[base] = ip_from_itaot
+        except Exception:
+            pass
 
         # ---------- Pi multi-sensor schema ----------
         if is_pi_multi:
@@ -2361,6 +2398,7 @@ class rPiMQTTIngest:
         if not hasattr(self, "last_check_time"):      self.last_check_time = {}
         if not hasattr(self, "device_offline_count"): self.device_offline_count = {}
         if not hasattr(self, "_host_ip_cache"):       self._host_ip_cache = {}
+        if not hasattr(self, "_host_ipv4addr"):      self._host_ipv4addr = {}
 
         # Per-host state to enforce your policy:
         # - first_hayd_done: set True after the first successful /hayd since process start
@@ -2504,10 +2542,9 @@ class rPiMQTTIngest:
             Return True if a valid payload was received and parsed (even if no new subs).
 
             Behavior:
-              - Use cached IPv4 when available (cache key is canonical base, no '.local').
-              - If IP attempt fails, invalidate cache and try hostname once (fallback).
-              - Only cache IP on confirmed success.
-              - Never report success based on /hayd; fallback is /itaot only.
+              - Use hostname first for discovery (2-3 attempts).
+              - If hostname fails, resolve mDNS IPv4 and verify against /itaot ipv4addr cache.
+              - If mDNS IP matches, try it once; if it fails, try cached ipv4addr once.
             """
             async with self._disc_sem:
                 # Canonical identity used for status/cache dicts
@@ -2519,27 +2556,22 @@ class rPiMQTTIngest:
                     except Exception:
                         return False
 
-                # Choose exactly one primary target: cached IP > resolver > hostname
+                # Primary target is always the provided hostname (no IP preference)
                 try:
-                    cached = self._host_ip_cache.get(base)
-                    if cached:
-                        host = cached
-                    else:
-                        host, _ = await _pick_host_for(hostname, PORT)  # returns (host_to_use, base)
+                    primary_host = hostname or base
                 except Exception:
-                    host = hostname
+                    primary_host = hostname
 
-                # Choose a single fallback hostname target (one-shot)
-                # If caller passes "apvpd-luvk44.local" keep it; otherwise add ".local"
-                fallback_host = hostname if str(hostname).endswith(".local") else f"{hostname}.local"
+                # mDNS host (used for resolution only, not as a URL target)
+                mdns_host = primary_host if str(primary_host).endswith(".local") else f"{primary_host}.local"
 
-                async def _fetch_itaot(target_host: str) -> tuple[bool, str]:
+                async def _fetch_itaot(target_host: str, retries: int) -> tuple[bool, str]:
                     """
                     Returns (ok, err_type) where err_type is '' on ok,
                     otherwise a short string for debug context.
                     """
                     url = f"http://{target_host}:{PORT}/itaot"
-                    for attempt in range(MAX_ITAOT_RETRIES):
+                    for attempt in range(max(1, int(retries))):
                         t0 = time.monotonic()
                         try:
                             resp = await client.get(url, timeout=ITAOT_TIMEOUT_S, headers=REQUEST_HEADERS)
@@ -2603,22 +2635,37 @@ class rPiMQTTIngest:
                     return False, "NoValidPayload"
 
                 try:
-                    # 1) Primary attempt (cached IP or resolved host)
-                    ok, _err = await _fetch_itaot(host)
+                    # 1) Hostname first (2-3 attempts)
+                    ok, _err = await _fetch_itaot(primary_host, retries=3)
                     if ok:
-                        # Cache IP only on confirmed success
-                        if _is_ip(host):
-                            self._host_ip_cache[base] = host
                         return True
 
-                    # 2) One-shot fallback: only if the primary target was an IP
-                    if _is_ip(host):
-                        self._host_ip_cache.pop(base, None)  # invalidate failing cached IP
+                    # 2) Resolve mDNS IP and verify it matches /itaot ipv4addr cache
+                    mdns_ip = await _ipv4_first_maybe_async(mdns_host, PORT)
+                    itaot_ipv4 = None
+                    try:
+                        itaot_ipv4 = self._host_ipv4addr.get(base)
+                    except Exception:
+                        itaot_ipv4 = None
 
-                        ok2, _err2 = await _fetch_itaot(fallback_host)
-                        if DEBUG:
-                            printDM(f"→ {fallback_host}/itaot fallback result={ok2}", location=MODULE)
-                        return bool(ok2)
+                    mdns_ok_to_try = bool(mdns_ip and itaot_ipv4 and mdns_ip == itaot_ipv4)
+                    if mdns_ok_to_try:
+                        ok2, _err2 = await _fetch_itaot(mdns_ip, retries=2)
+                        if ok2:
+                            self._host_ip_cache[base] = mdns_ip
+                            return True
+                    elif DEBUG and mdns_ip and itaot_ipv4 and mdns_ip != itaot_ipv4:
+                        printDM(
+                            f"[mqtt_discovery_loop] mdns ip {mdns_ip} != itaot ipv4addr {itaot_ipv4} for {base}",
+                            location=MODULE,
+                        )
+
+                    # 3) Final fallback: cached ipv4addr from /itaot
+                    if itaot_ipv4:
+                        ok3, _err3 = await _fetch_itaot(itaot_ipv4, retries=2)
+                        if ok3:
+                            self._host_ip_cache[base] = itaot_ipv4
+                            return True
 
                     return False
 

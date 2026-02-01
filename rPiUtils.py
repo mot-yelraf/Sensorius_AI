@@ -56,6 +56,32 @@ def html_escape(text):
 def normalize_sensor_id(sensor_id):
     return sensor_id.lower().replace("_", "-")
 
+def normalize_hostname_base(name: str | None) -> str:
+    """
+    Return a canonical host base (no trailing .local), preserving case.
+    Accepts inputs like "host", "host.local", or "host.local.local".
+    """
+    s = (name or "").strip()
+    if not s:
+        return ""
+    while s.endswith(".local"):
+        s = s[:-6]
+    return s
+
+def mdns_hostname(name: str | None) -> str:
+    """
+    Return an mDNS-friendly hostname.
+    - If name already includes .local, keep a single .local.
+    - If name has no dot, append .local.
+    - If name is an IP or FQDN (contains a dot), return as-is.
+    """
+    base = normalize_hostname_base(name)
+    if not base:
+        return ""
+    if "." in base:
+        return base
+    return f"{base}.local"
+
 def get_timestamp(include_microseconds: bool = True) -> str:
     """
     Return an ISO8601 local timestamp with timezone offset.
@@ -162,7 +188,7 @@ def get_pi_network_info(interface: str = "wlan0", force_refresh: bool = False) -
     """
     # Always be able to return these, even if nmcli fails
     hostname = socket.gethostname()
-    broker = f"{hostname}.local"
+    broker = mdns_hostname(hostname)
     soft = {"ssid": "", "password": "", "hostname": hostname, "broker": broker}
 
     # --- lightweight cache / backoff (function attributes, no globals) ---
@@ -274,4 +300,3 @@ class SettingsWrapper:
 
     def __contains__(self, section):
         return section in self.settings
-

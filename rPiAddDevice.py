@@ -36,7 +36,7 @@ import tomllib
 from typing import Dict, Any, Optional, List, Tuple
 from zoneinfo import ZoneInfo
 
-from rPiUtils import get_pi_network_info, get_time_settings, printDM, debug_enabled
+from rPiUtils import get_pi_network_info, get_time_settings, printDM, debug_enabled, mdns_hostname
 
 MODULE = "rPiAddDevice"
 DEBUG = debug_enabled(MODULE)
@@ -668,27 +668,25 @@ def _atomic_write_text(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 def update_hub_clients(settings_path: str, new_sensor_id: str) -> bool:
+    from rPiUtils import mdns_hostname, normalize_hostname_base
+
     def _ensure_local_suffix(name: str) -> str:
-        name = (name or "").strip()
-        return name if name.endswith(".local") else f"{name}.local"
+        return mdns_hostname(name)
 
     def _normalize_clients(names: List[str]) -> List[str]:
         seen = {}
         for n in names:
-            n = (n or "").strip()
-            if not n:
+            base = normalize_hostname_base(n)
+            if not base:
                 continue
-            base = n[:-6] if n.endswith(".local") else n
-            seen.setdefault(base, _ensure_local_suffix(n))
-            if n.endswith(".local"):
-                seen[base] = n
+            seen.setdefault(base, _ensure_local_suffix(base))
         return list(seen.values())
 
     settings_file = Path(settings_path)
     settings_dir = settings_file.parent
     settings_dir.mkdir(parents=True, exist_ok=True)
 
-    broker_desired = f"{PI_HOSTNAME}.local"
+    broker_desired = mdns_hostname(PI_HOSTNAME)
     new_client_norm = _ensure_local_suffix(new_sensor_id)
 
     if not settings_file.exists():
@@ -788,7 +786,7 @@ def build_picow_settings_updates(
 ) -> list[Dict[str, Any]]:
     _hostname   = host
     ssid_resolved, psk_resolved = resolve_pi_wifi_credentials()
-    broker_val = pi_info.get("broker", "") or f"{PI_HOSTNAME}.local"
+    broker_val = pi_info.get("broker", "") or mdns_hostname(PI_HOSTNAME)
 
     return [
         {"section": "Network", "key": "SSID",      "value": ssid_resolved},
