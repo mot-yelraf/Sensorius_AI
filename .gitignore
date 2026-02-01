@@ -1,5 +1,12 @@
 sensorius_data.*
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
 ._*
+.DS_Store
 __pycache__/
 *.pyc
-
