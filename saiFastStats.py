@@ -13,7 +13,7 @@ import asyncio, orjson
 
 class FastStats:
     def __init__(self, datalogger, statter, hz=1.0):
-        self.data_logger = datalogger            # rPiDataLogger (has RAM snapshots)
+        self.data_logger = datalogger            # saiDataLogger (has RAM snapshots)
         self.statter = statter          # your async statter for stats
         self.subs: set[WebSocket] = set()
         self.period = 1.0 / hz

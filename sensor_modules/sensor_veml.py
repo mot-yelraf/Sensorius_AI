@@ -11,7 +11,7 @@ import time
 from cPyUtils import printDM, debug_enabled, get_timestamp
 
 MODULE = "VEML7700Sensor"
-DEBUG = debug_enabled("rPiSensorFactory")
+DEBUG = debug_enabled("saiSensorFactory")
 
 class VEML7700Sensor(BaseSensor):
     # ---------- constants & defaults ----------

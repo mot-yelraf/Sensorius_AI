@@ -8,9 +8,9 @@ watchdog monitor to detect stalled loops and trigger recovery actions.
 
 import asyncio
 import time
-from rPiUtils import printDM, debug_enabled
+from saiUtils import printDM, debug_enabled
 
-MODULE = "rPiTaskSupervisor"
+MODULE = "saiTaskSupervisor"
 DEBUG = debug_enabled(MODULE)
 
 class TaskSupervisor:

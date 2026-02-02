@@ -36,9 +36,9 @@ import tomllib
 from typing import Dict, Any, Optional, List, Tuple
 from zoneinfo import ZoneInfo
 
-from rPiUtils import get_pi_network_info, get_time_settings, printDM, debug_enabled, mdns_hostname
+from saiUtils import get_pi_network_info, get_time_settings, printDM, debug_enabled, mdns_hostname
 
-MODULE = "rPiAddDevice"
+MODULE = "saiAddDevice"
 DEBUG = debug_enabled(MODULE)
 
 # ---------- logger ----------
@@ -55,9 +55,9 @@ PI_TIMEZONE = ZoneInfo("America/Denver")
 
 # ---------- manager-aware base dirs & filenames ----------
 try:
-    from rPiSettings import rPiSettings
-    _SYS_BASE_DIR     = getattr(rPiSettings, "DEFAULT_BASE_DIR", r"system_settings")
-    _SYS_STD_FILENAME = getattr(rPiSettings, "STANDARD_FILENAME", "settings.toml")
+    from saiSettings import saiSettings
+    _SYS_BASE_DIR     = getattr(saiSettings, "DEFAULT_BASE_DIR", r"system_settings")
+    _SYS_STD_FILENAME = getattr(saiSettings, "STANDARD_FILENAME", "settings.toml")
 except Exception:
     _SYS_BASE_DIR     = r"system_settings"
     _SYS_STD_FILENAME = "settings.toml"
@@ -65,7 +65,7 @@ except Exception:
 HUB_SETTINGS_PATH = str(Path(_SYS_BASE_DIR) / PI_HOSTNAME / _SYS_STD_FILENAME)
 
 try:
-    from rPiSensorSettingsManager import SensorSettingsManager
+    from saiSensorSettingsManager import SensorSettingsManager
     _SENSOR_BASE_DIR     = getattr(SensorSettingsManager, "_default_base_dir", r"sensor_settings")
     _SENSOR_STD_FILENAME = getattr(SensorSettingsManager, "STANDARD_FILENAME", "sensor.toml")
 except Exception:
@@ -73,7 +73,7 @@ except Exception:
     _SENSOR_STD_FILENAME = "sensor.toml"
 
 try:
-    from rPiSwitchSettingsManager import SwitchSettingsManager
+    from saiSwitchSettingsManager import SwitchSettingsManager
     _SWITCH_BASE_DIR     = getattr(SwitchSettingsManager, "_default_base_dir", r"switch_settings")
     _SWITCH_STD_FILENAME = getattr(SwitchSettingsManager, "STANDARD_FILENAME", "switch.toml")
 except Exception:
@@ -668,7 +668,7 @@ def _atomic_write_text(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 def update_hub_clients(settings_path: str, new_sensor_id: str) -> bool:
-    from rPiUtils import mdns_hostname, normalize_hostname_base
+    from saiUtils import mdns_hostname, normalize_hostname_base
 
     def _ensure_local_suffix(name: str) -> str:
         return mdns_hostname(name)

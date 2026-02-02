@@ -1,9 +1,9 @@
 # sensor_modules/sensor_apvpd.py
-from rPiUtils import printDM, debug_enabled
+from saiUtils import printDM, debug_enabled
 from sensor_modules.base import BaseSensor, find_sensor_bus
 
 MODULE = "VPDPlantSensor"
-DEBUG = debug_enabled("rPiSensorFactory")
+DEBUG = debug_enabled("saiSensorFactory")
 
 
 class VPDPlantSensor(BaseSensor):

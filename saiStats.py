@@ -7,13 +7,13 @@ from datetime import datetime, timedelta
 import sqlite3
 import json
 import os
-from rPiUtils import printDM, debug_enabled, get_timestamp
-from rPiSettings import rPiSettings
+from saiUtils import printDM, debug_enabled, get_timestamp
+from saiSettings import saiSettings
 
-MODULE = "rPiStats"
+MODULE = "saiStats"
 DEBUG = debug_enabled(MODULE)
 
-class rPiStats:
+class saiStats:
     def __init__(self, db_path="sensorius_data.db"):
         self.db_path = db_path
 
@@ -69,10 +69,10 @@ class rPiStats:
         return results
 
 def create_stats_router(settings, gc_mgr):
-    from rPiDataLogger import rPiDataLogger
+    from saiDataLogger import saiDataLogger
     router = APIRouter()
-    statter = rPiStats()
-    data_logger = rPiDataLogger()
+    statter = saiStats()
+    data_logger = saiDataLogger()
 
     @router.get("/stats", response_class=JSONResponse)
     async def get_24hr_stats(sensor_id: str = Query(None)):

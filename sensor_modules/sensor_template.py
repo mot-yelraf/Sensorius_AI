@@ -1,10 +1,10 @@
 # sensor_modules/sensor_dummy.py
 import math
-from rPiUtils import printDM, debug_enabled
+from saiUtils import printDM, debug_enabled
 from sensor_modules.base import BaseSensor, find_sensor_bus
 
 MODULE = "SensorTemplate"
-DEBUG = debug_enabled("rPiSensorFactory")
+DEBUG = debug_enabled("saiSensorFactory")
 
 class SensorTemplate(BaseSensor):
     def __init__(self, settings, supervisor):

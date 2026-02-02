@@ -33,7 +33,7 @@ from collections import OrderedDict
 import shutil, httpx
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from rPiUtils import (
+from saiUtils import (
     printDM,
     debug_enabled,
     get_timestamp,
@@ -41,23 +41,23 @@ from rPiUtils import (
     normalize_hostname_base,
     mdns_hostname,
 )
-from rPiSettings import rPiSettings
-from rPiDataLogger import rPiDataLogger
+from saiSettings import saiSettings
+from saiDataLogger import saiDataLogger
 try:
-    from rPiDataLogger import build_switch_key as _build_switch_key
+    from saiDataLogger import build_switch_key as _build_switch_key
 except Exception:
     _build_switch_key = None
-from rPiStats import rPiStats
-from rPiHtml import render_dashboard, get_gauge_config
-from rPiFastStats import FastStats
-from rPiSensorSettingsManager import SensorSettingsManager
-from rPiSwitchSettingsManager import SwitchSettingsManager
-from rPiAddDevice import HUB_SETTINGS_PATH, _SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR
+from saiStats import saiStats
+from saiHtml import render_dashboard, get_gauge_config
+from saiFastStats import FastStats
+from saiSensorSettingsManager import SensorSettingsManager
+from saiSwitchSettingsManager import SwitchSettingsManager
+from saiAddDevice import HUB_SETTINGS_PATH, _SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR
 
-MODULE = "rPiWebRoutes"
+MODULE = "saiWebRoutes"
 DEBUG = debug_enabled(MODULE)
-data_logger = rPiDataLogger()
-statter = rPiStats()
+data_logger = saiDataLogger()
+statter = saiStats()
 
 # In-memory calibration state per sensor_id.
 # This never touches disk and is lost on Sensorius restart (which is fine).
@@ -166,7 +166,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             def _get_sensor_map():
                 sm = getattr(app.state, "sensor_map", None)
                 if sm is None:
-                    import rPiWebRoutes as routes
+                    import saiWebRoutes as routes
                     sm = getattr(routes, "sensor_map", None)
                 return sm
 
@@ -197,7 +197,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     return loc.strip()
 
                 try:
-                    from rPiSensorSettingsManager import SensorSettingsManager
+                    from saiSensorSettingsManager import SensorSettingsManager
                     mgr = SensorSettingsManager("sensor_settings")
                     loc = mgr.get_setting(sid, "Sensor.LOCATION", None)
                     if isinstance(loc, str) and loc.strip():
@@ -293,13 +293,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             all_values = {v_sid: (v or {})}
             all_stats  = {s_sid: (s or {})}
 
-        from rPiSettings import rPiSettings
-        fresh_settings = rPiSettings(apply_live=False)
+        from saiSettings import saiSettings
+        fresh_settings = saiSettings(apply_live=False)
         gaugeSize = fresh_settings.get_setting("Display", "gauge_size") or "Small"
         gauge_config = get_gauge_config()
         displayStyle = fresh_settings.get_setting("Display", "display_style") or "Gauge"
 
-        from rPiSensorSettingsManager import SensorSettingsManager
+        from saiSensorSettingsManager import SensorSettingsManager
         sensor_mgr = SensorSettingsManager()
         expected_gauge_map = {}
         for sid in all_values:
@@ -326,7 +326,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             printDM(f"sensor_locations: {sensor_locations}", location=f"{MODULE}:cdp")
 
         try:
-            from rPiDataLogger import build_switch_key as _build_switch_key
+            from saiDataLogger import build_switch_key as _build_switch_key
         except Exception:
             _build_switch_key = None
 
@@ -499,7 +499,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return None
 
         # prefer the instance passed into register_routes; fallback to current if caller passed None
-        from rPiMQTTIngest import get_current_ingest as _get_ing
+        from saiMQTTIngest import get_current_ingest as _get_ing
         ing = mqtt_ingest or _get_ing()
 
         def _host_base_from_sid(sid: str) -> str | None:
@@ -614,7 +614,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         from datetime import datetime, timedelta, timezone
         from fastapi.responses import JSONResponse
         from fastapi import HTTPException
-        from rPiUtils import printDM
+        from saiUtils import printDM
 
         MODULE = "graph-data"
         db_path = getattr(data_logger, "db_path", "sensorius_data.db")
@@ -622,8 +622,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # --- Local zone from settings (seconds offset) ---
         def _local_tz():
             try:
-                from rPiSettings import rPiSettings
-                s = rPiSettings()
+                from saiSettings import saiSettings
+                s = saiSettings()
                 off_s = int(s.get_setting("Time", "TZ_OFFSET", 0) or 0)
             except Exception:
                 off_s = 0
@@ -865,11 +865,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     @router.get("/edit-system", response_class=HTMLResponse)
     async def edit_pi_settings_page(request: Request):
-        from rPiSettings import rPiSettings
-        from rPiUtils import html_escape
-        from rPiHtml import APP_NAME_LONG, APP_VERSION
+        from saiSettings import saiSettings
+        from saiUtils import html_escape
+        from saiHtml import APP_NAME_LONG, APP_VERSION
 
-        settings = rPiSettings(apply_live=False)
+        settings = saiSettings(apply_live=False)
         templates = request.app.state.templates
 
         # Prepare values for the template (let Jinja handle escaping)
@@ -968,7 +968,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return _compress_b64_bytes(raw)
         except Exception as ex:
             if DEBUG:
-                printDM(f"itaot: could not include file {path}: {ex}", location="rPiWebRoutes:itaot")
+                printDM(f"itaot: could not include file {path}: {ex}", location="saiWebRoutes:itaot")
             return None
 
     def _sensor_metrics_from_display_block(display_block) -> list[str]:
@@ -1108,7 +1108,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # Sensor descriptors
             sensor_ids = settings.get_all_sensor_ids() or []
             if DEBUG:
-                printDM(f"/itaot sensor_ids → {sensor_ids}", location="rPiWebRoutes:itaot")
+                printDM(f"/itaot sensor_ids → {sensor_ids}", location="saiWebRoutes:itaot")
 
             sensor_mgr = SensorSettingsManager("sensor_settings")
             sensors_payload: list[dict] = []
@@ -1137,7 +1137,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 except Exception as ex:
                     sensor_settings_doc = {}
                     if DEBUG:
-                        printDM(f"/itaot: failed loading settings for {sensor_id}: {ex}", location="rPiWebRoutes:itaot")
+                        printDM(f"/itaot: failed loading settings for {sensor_id}: {ex}", location="saiWebRoutes:itaot")
 
                 display_block = sensor_settings_doc.get("Display", {}) if isinstance(sensor_settings_doc, dict) else {}
                 metrics_list = _sensor_metrics_from_display_block(display_block)
@@ -1159,7 +1159,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         "metrics": metrics_list,
                     })
                     if DEBUG:
-                        printDM(f"/itaot: {sensor_id} not active; advertising from TOML", location="rPiWebRoutes:itaot")
+                        printDM(f"/itaot: {sensor_id} not active; advertising from TOML", location="saiWebRoutes:itaot")
                 else:
                     sensors_payload.append({
                         "SENSOR_ID": sensor_obj.sensor_id,
@@ -1196,7 +1196,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         channel_names = []
                         switch_location = "Unknown"
                         if DEBUG:
-                            printDM(f"/itaot: switch '{switch_id}' load failed: {ex}", location="rPiWebRoutes:itaot")
+                            printDM(f"/itaot: switch '{switch_id}' load failed: {ex}", location="saiWebRoutes:itaot")
 
                     switches_payload.append({
                         "SWITCH_ID": switch_id,
@@ -1207,12 +1207,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             except Exception as ex:
                 if DEBUG:
-                    printDM(f"/itaot: switch settings probe failed: {ex}", location="rPiWebRoutes:itaot")
+                    printDM(f"/itaot: switch settings probe failed: {ex}", location="saiWebRoutes:itaot")
 
             # Compose files[] with compressed TOMLs
             files_payload: list[dict] = []
 
-            # Prefer the live system settings path via rPiSettings
+            # Prefer the live system settings path via saiSettings
             try:
                 active_settings_path = settings.get_active_settings_path()
             except Exception:
@@ -1261,7 +1261,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         })
             except Exception as ex:
                 if DEBUG:
-                    printDM(f"/itaot: switch files compose failed: {ex}", location="rPiWebRoutes:itaot")
+                    printDM(f"/itaot: switch files compose failed: {ex}", location="saiWebRoutes:itaot")
 
             # Build multi-sensor payload
             multi_payload = {
@@ -1354,7 +1354,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         Debug helper to inspect Advanced automation enabled state for a switch/label.
         """
         try:
-            from rPiAutomationManager import AutomationManager
+            from saiAutomationManager import AutomationManager
             sid = (switch_id or "").strip()
             lbl = (label or "").strip()
             switch_key = f"{sid}::{lbl}" if sid and lbl else ""
@@ -1393,7 +1393,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         except WebSocketDisconnect:
             pass
         except Exception as e:
-            printDM(f"[ws_onboard_progress] {e}", location="rPiWebRoutes")
+            printDM(f"[ws_onboard_progress] {e}", location="saiWebRoutes")
         finally:
             try: _get_ws_set(job_id).discard(websocket)
             except Exception: pass
@@ -1416,7 +1416,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         Starts the Pico2 W (or switch) onboarding flow and returns a job_id.
         Frontend then connects to /ws/onboard/{job_id} to receive step updates.
         """
-        import rPiAddDevice
+        import saiAddDevice
         form = await request.form()
         # Pull what your System Setup dialog already posts.
         # These names are examples; keep them aligned with your current form fields:
@@ -1427,7 +1427,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         payload_json = form.get("payload_json")  # optional richer JSON blob
 
         job_id = uuid4().hex
-        printDM(f"[onboard-start] job_id={job_id} sensor_type={sensor_type} location={location}", location="rPiWebRoutes")
+        printDM(f"[onboard-start] job_id={job_id} sensor_type={sensor_type} location={location}", location="saiWebRoutes")
 
         async def run_flow():
             # Step 1: AP connect
@@ -1436,14 +1436,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             try:
                 ok1 = await asyncio.get_event_loop().run_in_executor(
                     None,
-                    lambda: rPiAddDevice.connect_to_sensor_ap(
-                        rPiAddDevice.PICOW_AP_SSID,
-                        rPiAddDevice.PICOW_AP_PASSWORD,
+                    lambda: saiAddDevice.connect_to_sensor_ap(
+                        saiAddDevice.PICOW_AP_SSID,
+                        saiAddDevice.PICOW_AP_PASSWORD,
                         attempts=3
                     )
                 )
             except Exception as e:
-                printDM(f"[onboard] connect_to_sensor_ap failed: {e}", location="rPiWebRoutes")
+                printDM(f"[onboard] connect_to_sensor_ap failed: {e}", location="saiWebRoutes")
             await _emit(job_id, 1, bool(ok1), label1)
 
             sensor_id_for_step = "Unknown"
@@ -1454,12 +1454,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             if ok1:
                 try:
                     ok2, maybe_sensor_id = await asyncio.get_event_loop().run_in_executor(
-                        None, rPiAddDevice.perform_picow_configure_and_reboot
+                        None, saiAddDevice.perform_picow_configure_and_reboot
                     )
                     if maybe_sensor_id:
                         sensor_id_for_step = maybe_sensor_id
                 except Exception as e:
-                    printDM(f"[onboard] perform_picow_configure_and_reboot failed: {e}", location="rPiWebRoutes")
+                    printDM(f"[onboard] perform_picow_configure_and_reboot failed: {e}", location="saiWebRoutes")
             await _emit(job_id, 2, bool(ok2), f"{sensor_id_for_step} {label2}")
 
             # Step 3: reconnect Pi to its local SSID (and update CLIENTS if step 2 succeeded)
@@ -1467,25 +1467,25 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             conn_ssid = "Unknown"
             label3 = f"Reconnecting to {conn_ssid}"
             try:
-                ok3, conn_ssid = await asyncio.get_event_loop().run_in_executor(None, rPiAddDevice.reconnect_to_pi)
+                ok3, conn_ssid = await asyncio.get_event_loop().run_in_executor(None, saiAddDevice.reconnect_to_pi)
                 label3 = f"Reconnecting to {conn_ssid}"
             except Exception as e:
-                printDM(f"[onboard] reconnect_to_pi failed: {e}", location="rPiWebRoutes")
+                printDM(f"[onboard] reconnect_to_pi failed: {e}", location="saiWebRoutes")
             await _emit(job_id, 3, bool(ok3), label3)
 
             if ok2 and sensor_id_for_step:
                 try:
-                    rPiAddDevice.update_hub_clients(rPiAddDevice.HUB_SETTINGS_PATH, sensor_id_for_step)
+                    saiAddDevice.update_hub_clients(saiAddDevice.HUB_SETTINGS_PATH, sensor_id_for_step)
                 except Exception as e:
-                    printDM(f"[onboard] update_hub_clients failed: {e}", location="rPiWebRoutes")
+                    printDM(f"[onboard] update_hub_clients failed: {e}", location="saiWebRoutes")
                 # Nudge ingest discovery immediately (no restart required)
                 try:
                     # match the form you persist in CLIENTS (you showed ".local")
                     host_for_ingest = mdns_hostname(sensor_id_for_step)
                     mqtt_ingest.add_client(host_for_ingest)
-                    printDM(f"[onboard] nudged discovery for {host_for_ingest}", location="rPiWebRoutes")
+                    printDM(f"[onboard] nudged discovery for {host_for_ingest}", location="saiWebRoutes")
                 except Exception as e:
-                    printDM(f"[onboard] add_client nudge failed: {e}", location="rPiWebRoutes")
+                    printDM(f"[onboard] add_client nudge failed: {e}", location="saiWebRoutes")
 
 
             await _broadcast(job_id, {"done": True})
@@ -1578,7 +1578,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # Resolve system_root
         if not system_root:
             try:
-                app_settings = rPiSettings(apply_live=False)
+                app_settings = saiSettings(apply_live=False)
                 system_root = getattr(app_settings, "system_dir", None) or getattr(app_settings, "settings_root", None)
             except Exception:
                 system_root = None
@@ -1619,7 +1619,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
                 # 2b) Try to match any known sensor_id in sensor settings
                 try:
-                    from rPiSensorSettingsManager import SensorSettingsManager
+                    from saiSensorSettingsManager import SensorSettingsManager
                     sm = SensorSettingsManager("sensor_settings")
                     for sid in (sm.list_ids() or []):
                         sid = str(sid)
@@ -1731,7 +1731,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     @router.get("/device-locations", tags=[LOCATIONS_ROUTE_TAG])
     async def list_device_locations(request: Request) -> JSONResponse:
         try:
-            app_settings = rPiSettings(apply_live=False)
+            app_settings = saiSettings(apply_live=False)
             # Resolve directories safely
             system_dir = getattr(app_settings, "base_dir", None) or getattr(app_settings, "settings_root", None) or "."
             system_dir = str(system_dir)
@@ -1748,9 +1748,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             # Log the resolved paths
             if DEBUG:
-                printDM(f"system_dir={system_dir}", location="rPiWebRoutes.list_device_locations")
-                printDM(f"sensor_dir={sensor_dir}", location="rPiWebRoutes.list_device_locations")
-                printDM(f"switch_dir={switch_dir}", location="rPiWebRoutes.list_device_locations")
+                printDM(f"system_dir={system_dir}", location="saiWebRoutes.list_device_locations")
+                printDM(f"sensor_dir={sensor_dir}", location="saiWebRoutes.list_device_locations")
+                printDM(f"switch_dir={switch_dir}", location="saiWebRoutes.list_device_locations")
 
 
             # Instantiate managers, tolerating different ctor signatures
@@ -1773,9 +1773,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     loc = (doc.get("Sensor", {}) or {}).get("LOCATION", "Unknown") or "Unknown"
                     sensor_items.append({"id": sensor_id, "type": "sensor", "location": loc})
                     if DEBUG:
-                        printDM(f"sensor: {sensor_id}, sw_loc: {loc}", location="rPiWebRoutes.list_device_locations")
+                        printDM(f"sensor: {sensor_id}, sw_loc: {loc}", location="saiWebRoutes.list_device_locations")
             except Exception as e:
-                printDM(f"sensor_mgr error: {e}", location="rPiWebRoutes.list_device_locations")
+                printDM(f"sensor_mgr error: {e}", location="saiWebRoutes.list_device_locations")
 
             switch_items = []
             try:
@@ -1786,19 +1786,19 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     sw_loc = (doc.get("Switch", {}) or {}).get("SWITCH_LOCATION", "") or "Unknown"
                     switch_items.append({"id": switch_id, "type": "switch", "location": sw_loc})
                     if DEBUG:
-                        printDM(f"switch: {switch_id}, sw_loc: {sw_loc}", location="rPiWebRoutes.list_device_locations")
+                        printDM(f"switch: {switch_id}, sw_loc: {sw_loc}", location="saiWebRoutes.list_device_locations")
             except Exception as e:
-                printDM(f"switch_mgr error: {e}", location="rPiWebRoutes.list_device_locations")
+                printDM(f"switch_mgr error: {e}", location="saiWebRoutes.list_device_locations")
 
             items = sensor_items + switch_items
 
             if DEBUG:
-                printDM(f"sensors={len(sensor_items)} switches={len(switch_items)} total={len(items)}", location="rPiWebRoutes.DeviceLocations")
+                printDM(f"sensors={len(sensor_items)} switches={len(switch_items)} total={len(items)}", location="saiWebRoutes.DeviceLocations")
 
             return JSONResponse(items)
 
         except Exception as e:
-            printDM(f"Failed to list device locations: {e}", location="rPiWebRoutes.list_device_locations")
+            printDM(f"Failed to list device locations: {e}", location="saiWebRoutes.list_device_locations")
             # Return an empty list (200) rather than 500 so the modal stays open with a visible message
             # If you prefer to signal error, keep 500 — but then ensure the client does NOT auto-close the modal.
             return JSONResponse({"error": "failed"}, status_code=500)
@@ -1822,7 +1822,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             SystemSettingsMgr = globals().get("SystemSettingsManager", None)
             system_mgr = SystemSettingsMgr("system_settings") if SystemSettingsMgr else None
             try:
-                app_settings = rPiSettings(apply_live=False)
+                app_settings = saiSettings(apply_live=False)
                 system_root = getattr(app_settings, "system_dir", None) or getattr(app_settings, "settings_root", None)
             except Exception:
                 system_root = "system_settings"
@@ -1832,7 +1832,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             if DEBUG:
                 printDM(f"[save_device_locations] system hostname index: {sys_host_index}", location=MODULE)
                 
-            # shared handles established at startup by rPiSensorius
+            # shared handles established at startup by Sensorius
             global switch_controllers
 
             def _find_switch_ctrl_by_id(switch_id: str):
@@ -1857,7 +1857,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             def _get_sensor_map():
                 sm = getattr(app.state, "sensor_map", None)
                 if sm is None:
-                    import rPiWebRoutes as routes
+                    import saiWebRoutes as routes
                     sm = getattr(routes, "sensor_map", None)
                 return sm
             sensor_map = _get_sensor_map()
@@ -2038,7 +2038,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         Aggregate IDs from MQTT discovery so the remove list reflects in-memory state.
         """
         try:
-            from rPiMQTTIngest import get_current_ingest as _get_ing
+            from saiMQTTIngest import get_current_ingest as _get_ing
             ing = _get_ing()
         except Exception:
             ing = None
@@ -2185,7 +2185,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     def _collect_sensor_metrics(device_id: str, data_logger, mqtt_ingest=None) -> list[str]:
         metrics: list[str] = []
         try:
-            from rPiSensorSettingsManager import SensorSettingsManager
+            from saiSensorSettingsManager import SensorSettingsManager
             mgr = SensorSettingsManager("sensor_settings")
             metrics = mgr.get_display_metrics(device_id) or []
         except Exception:
@@ -2219,7 +2219,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if not mqtt_ingest:
             return stats
         try:
-            from rPiHomeAssistantMqtt import slugify, HomeAssistantTopicMap
+            from saiHomeAssistantMqtt import slugify, HomeAssistantTopicMap
         except Exception:
             return stats
 
@@ -2465,9 +2465,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     def _get_db_path()->str:
         try:
-            from rPiDataLogger import rPiDataLogger  # type: ignore
-            if hasattr(rPiDataLogger,"DB_PATH"): return getattr(rPiDataLogger,"DB_PATH")
-            if hasattr(rPiDataLogger,"get_db_path"): return rPiDataLogger.get_db_path()  # type: ignore
+            from saiDataLogger import saiDataLogger  # type: ignore
+            if hasattr(saiDataLogger,"DB_PATH"): return getattr(saiDataLogger,"DB_PATH")
+            if hasattr(saiDataLogger,"get_db_path"): return saiDataLogger.get_db_path()  # type: ignore
         except Exception:
             pass
         if Path("sensorius_data.db").exists(): return "sensorius_data.db"
@@ -2511,7 +2511,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return stats
 
     def build_sensor_locations_map() -> dict[str, str]:
-        from rPiSensorSettingsManager import SensorSettingsManager
+        from saiSensorSettingsManager import SensorSettingsManager
         mgr = SensorSettingsManager("sensor_settings")
         locations: dict[str, str] = {}
         for sid in mgr.list_ids():
@@ -2556,7 +2556,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         results = {}
         try:
-            from rPiMQTTIngest import get_current_ingest as _get_ing
+            from saiMQTTIngest import get_current_ingest as _get_ing
             mqtt_ingest = _get_ing()
         except Exception:
             mqtt_ingest = None
@@ -2604,7 +2604,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     async def submit_pi_setup(request: Request):
         from fastapi.responses import RedirectResponse
         form = await request.form()
-        settings = rPiSettings()
+        settings = saiSettings()
 
         #settings.replace_setting("Network", "SSID", form.get("ssid", ""))
         #settings.replace_setting("Network", "PASSWORD", form.get("password", ""))
@@ -2626,7 +2626,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     @router.post("/submit-homeassistant-settings")
     async def submit_homeassistant_settings(request: Request):
-        settings = rPiSettings()
+        settings = saiSettings()
         try:
             data = await request.json()
         except Exception:
@@ -2668,11 +2668,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 return False
             return bool(re.match(r"^[A-Za-z0-9._-]+$", s))
 
-        # 1) local sensors (from app.state or module var set by rPiSensoria)
+        # 1) local sensors (from app.state or module var set by Sensorius)
         def _get_local_sensor_ids() -> list[str]:
             sm = getattr(app.state, "sensor_map", None)
             if sm is None:
-                import rPiWebRoutes as routes
+                import saiWebRoutes as routes
                 sm = getattr(routes, "sensor_map", None)
             ids = []
             if isinstance(sm, dict):
@@ -2745,7 +2745,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         try:
             smap = getattr(app.state, "sensor_map", None)
             if smap is None:
-                import rPiWebRoutes as routes
+                import saiWebRoutes as routes
                 smap = getattr(routes, "sensor_map", None)
             controller = None
             if isinstance(smap, dict):
@@ -2800,9 +2800,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     #     """)
 
     #     """
-    #     import rPiAddDevice
-    #     preview = rPiAddDevice.begin_onboarding_preview()
-    #     from rPiHtml import render_setup_modal
+    #     import saiAddDevice
+    #     preview = saiAddDevice.begin_onboarding_preview()
+    #     from saiHtml import render_setup_modal
     #     lines.append(render_setup_modal(preview))
     #     """
     #     lines.append("</body></html>")
@@ -2827,7 +2827,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         or we can't derive a hostname.
         """
         try:
-            from rPiSensorSettingsManager import SensorSettingsManager
+            from saiSensorSettingsManager import SensorSettingsManager
         except Exception as exc:
             if DEBUG:
                 printDM(f"resolve_nodus_base_url import failed: {exc}", location=MODULE)
@@ -2910,8 +2910,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         sensor_id: str = Query(...),
         embed: int = Query(0),
     ):
-        from rPiSensorSettingsManager import SensorSettingsManager
-        from rPiUtils import normalize_sensor_id, printDM, html_escape
+        from saiSensorSettingsManager import SensorSettingsManager
+        from saiUtils import normalize_sensor_id, printDM, html_escape
         import sqlite3
         import json
 
@@ -2934,7 +2934,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             except Exception as e:
                 printDM(
                     f"[{MODULE}] Metric query failed for {db_sensor_id}: {e}",
-                    location="rPiWebRoutes",
+                    location="saiWebRoutes",
                 )
                 return []
 
@@ -3130,7 +3130,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     resp = await client.post(target_url, json=payload)
                     if resp.status_code != 200:
                         printDM(f"[{MODULE}] Nodus update returned {resp.status_code}: {resp.text[:200]}",
-                                location="rPiWebRoutes")
+                                location="saiWebRoutes")
                     else:
                         try:
                             host = resolve_hostname(sensor_id_norm, live_doc)
@@ -3139,10 +3139,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         except Exception:
                             pass
                         printDM(f"[{MODULE}] Pushed payload {payload} to {device_file} to Nodus @ {target_url}",
-                                location="rPiWebRoutes")
+                                location="saiWebRoutes")
             except Exception as e:
                 printDM(f"[{MODULE}] Failed to push {device_file} to Nodus ({target_url}): {e}",
-                        location="rPiWebRoutes")
+                        location="saiWebRoutes")
 
         # ---------- validate form ----------
         sensor_id_in_form = form.get("sensor_id")
@@ -3223,9 +3223,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         shutil.rmtree(old_dir)
                     else:
                         shutil.move(str(old_dir), str(new_dir))
-                printDM(f"[{MODULE}] Renamed settings directory: {old_id} → {new_id}", location="rPiWebRoutes")
+                printDM(f"[{MODULE}] Renamed settings directory: {old_id} → {new_id}", location="saiWebRoutes")
             except Exception as e:
-                printDM(f"[{MODULE}] Failed to rename {old_id}→{new_id}: {e}", location="rPiWebRoutes")
+                printDM(f"[{MODULE}] Failed to rename {old_id}→{new_id}: {e}", location="saiWebRoutes")
 
         # ---------- If Pico2 W-backed, push only the relevant blocks ----------
         live_dir = new_dir if new_id != old_id else old_dir
@@ -3242,14 +3242,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     @router.post("/calibrate")
     async def calibrate_sensor(sensor_id: str = Query(...)):
-        from rPiUtils import normalize_sensor_id, printDM
-        from rPiSensorSettingsManager import SensorSettingsManager
+        from saiUtils import normalize_sensor_id, printDM
+        from saiSensorSettingsManager import SensorSettingsManager
         import asyncio, functools, socket, httpx  # asyncio/functools/socket for IPv4 resolve
 
         def _get_sensor_map():
             sm = getattr(app.state, "sensor_map", None)
             if sm is None:
-                import rPiWebRoutes as routes
+                import saiWebRoutes as routes
                 sm = getattr(routes, "sensor_map", None)
             return sm
 
@@ -3301,7 +3301,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 _ = asyncio.create_task(controller.sensor.calibrate_plant_sensor())
                 return JSONResponse({"status": "started", "source": "local"})
             except Exception as e:
-                printDM(f"[calibrate_sensor] local exception: {e}", location="rPiWebRoutes")
+                printDM(f"[calibrate_sensor] local exception: {e}", location="saiWebRoutes")
                 return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
         # ---------- 2) Remote Nodus (Pico2 W) proxy ----------
@@ -3356,7 +3356,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                             resp = await client.post(url, json={"sensor_id": sensor_id})
                         if resp.status_code == 200:
                             # Treat any 200 as a “started” signal for the UI
-                            printDM(f"[calibrate_sensor] proxied OK -> {url}", location="rPiWebRoutes")
+                            printDM(f"[calibrate_sensor] proxied OK -> {url}", location="saiWebRoutes")
                             return JSONResponse({"status": "started", "source": "remote", "url": url})
                         last_err = f"{resp.status_code} {resp.text}"
                     except Exception as e:
@@ -3369,15 +3369,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 )
 
         except Exception as e:
-            printDM(f"[calibrate_sensor] proxy lookup exception: {e}", location="rPiWebRoutes")
+            printDM(f"[calibrate_sensor] proxy lookup exception: {e}", location="saiWebRoutes")
 
         # ---------- 3) Unknown ----------
         return JSONResponse({"status": "error", "message": f"Unknown or unsupported sensor_id: {sensor_id}"}, status_code=404)
 
     @router.get("/calibration-status")
     async def get_calibration_status(sensor_id: str = Query(...)):
-        from rPiUtils import normalize_sensor_id, printDM
-        from rPiSensorSettingsManager import SensorSettingsManager
+        from saiUtils import normalize_sensor_id, printDM
+        from saiSensorSettingsManager import SensorSettingsManager
         import httpx
 
         try:
@@ -3424,7 +3424,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             # ───────────────── Pi-attached sensors ─────────────────
             if dev_type == "pi":
-                from rPiWebRoutes import sensor_map
+                from saiWebRoutes import sensor_map
                 ctrl = sensor_map.get(sid_norm)
                 if ctrl and hasattr(ctrl, "sensor"):
                     state = getattr(ctrl.sensor, "is_calibrated", "Not Calibrated")
@@ -3531,7 +3531,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 status_code=502,
             )
         except Exception as e:
-            printDM(f"[/calibration-status] error: {e}", location="rPiWebRoutes")
+            printDM(f"[/calibration-status] error: {e}", location="saiWebRoutes")
             return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
     @router.post("/sensor-event")
@@ -3567,8 +3567,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             }
         }
         """
-        from rPiUtils import normalize_sensor_id, printDM
-        from rPiSensorSettingsManager import SensorSettingsManager
+        from saiUtils import normalize_sensor_id, printDM
+        from saiSensorSettingsManager import SensorSettingsManager
         from collections import OrderedDict
         import time
 
@@ -3577,7 +3577,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         printDM(
             f"[sensor-event] received event='{evt_name}' for sensor_id='{payload.get('sensor_id', '')}'",
-            location="rPiWebRoutes",
+            location="saiWebRoutes",
         )
 
         # ── normalize sensor_id ──────────────────────────────────────────────────
@@ -3629,11 +3629,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     "updated_at": updated_ts,
                 }
             except Exception as e:
-                printDM(f"[sensor-event] progress cache update failed: {e}", location="rPiWebRoutes")
+                printDM(f"[sensor-event] progress cache update failed: {e}", location="saiWebRoutes")
 
             # Live controller nudge so the UI can show "Calibrating" without a reload
             try:
-                from rPiWebRoutes import sensor_map
+                from saiWebRoutes import sensor_map
                 ctrl = sensor_map.get(sensor_id) if isinstance(sensor_map, dict) else None
                 if ctrl and hasattr(ctrl, "sensor") and hasattr(ctrl.sensor, "is_calibrated"):
                     try:
@@ -3641,7 +3641,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     except Exception:
                         pass
             except Exception as e:
-                printDM(f"[sensor-event] progress live controller update skipped: {e}", location="rPiWebRoutes")
+                printDM(f"[sensor-event] progress live controller update skipped: {e}", location="saiWebRoutes")
 
             return JSONResponse(
                 {
@@ -3682,7 +3682,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "updated_at": updated_ts,
             }
         except Exception as e:
-            printDM(f"[sensor-event] result cache update failed: {e}", location="rPiWebRoutes")
+            printDM(f"[sensor-event] result cache update failed: {e}", location="saiWebRoutes")
 
         updated: dict[str, object] = OrderedDict()
 
@@ -3713,12 +3713,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # We do *not* write STATUS, LAST_EVENT, UPDATED_AT, SAMPLE_*, RESULT, ERROR, etc.
 
         except Exception as e:
-            printDM(f"[sensor-event] settings write failed: {e}", location="rPiWebRoutes")
+            printDM(f"[sensor-event] settings write failed: {e}", location="saiWebRoutes")
             return JSONResponse({"status": "error", "message": f"settings write failed: {e}"}, status_code=500)
 
         # ── live controller nudge so UI updates instantly (best-effort) ───────────
         try:
-            from rPiWebRoutes import sensor_map
+            from saiWebRoutes import sensor_map
             ctrl = sensor_map.get(sensor_id) if isinstance(sensor_map, dict) else None
             if ctrl and hasattr(ctrl, "sensor"):
                 if temp_offset is not None and hasattr(ctrl.sensor, "thp280_plant_temp_cal"):
@@ -3731,7 +3731,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     except Exception:
                         pass
         except Exception as e:
-            printDM(f"[sensor-event] live controller update skipped: {e}", location="rPiWebRoutes")
+            printDM(f"[sensor-event] live controller update skipped: {e}", location="saiWebRoutes")
 
         return JSONResponse(
             {
@@ -3777,9 +3777,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
           - soil_ec_offset       -> Calibration.Device.SOIL_EC_CAL_VAL
         """
         from collections import OrderedDict
-        from rPiSensorSettingsManager import SensorSettingsManager
-        from rPiUtils import printDM
-        from rPiCalibration import notify_sensor_runtime_of_calibration
+        from saiSensorSettingsManager import SensorSettingsManager
+        from saiUtils import printDM
+        from saiCalibration import notify_sensor_runtime_of_calibration
 
         try:
             payload = await request.json()
@@ -3963,7 +3963,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         """
         Serve the Device & System Calibration modal as a Jinja template fragment.
         """
-        from rPiCalibration import CalibrationManager
+        from saiCalibration import CalibrationManager
 
         templates = request.app.state.templates
 
@@ -4096,9 +4096,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         - sigma (RMS error) for Temperature & RH
         """
         import time
-        from rPiCalibration import CalibrationManager
-        from rPiSensorSettingsManager import SensorSettingsManager
-        from rPiDataLogger import rPiDataLogger
+        from saiCalibration import CalibrationManager
+        from saiSensorSettingsManager import SensorSettingsManager
+        from saiDataLogger import saiDataLogger
 
         # Parse/normalize inputs
         try:
@@ -4120,7 +4120,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # Build helpers
         sensor_mgr = SensorSettingsManager("sensor_settings")
-        data_logger = rPiDataLogger()  # if you already have a global, reuse that instead
+        data_logger = saiDataLogger()  # if you already have a global, reuse that instead
         cal_mgr = CalibrationManager(data_logger, sensor_mgr)
 
         # Compute offsets + sigmas (no disk writes)
@@ -4259,7 +4259,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         }
         """
         import asyncio
-        from rPiCalibration import CalibrationManager, SystemCalResult
+        from saiCalibration import CalibrationManager, SystemCalResult
 
         try:
             payload = await request.json()
@@ -4463,7 +4463,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "is_remote": false       # optional hint
         }
         """
-        from rPiCalibration import apply_calibration_updates_local, notify_sensor_runtime_of_calibration
+        from saiCalibration import apply_calibration_updates_local, notify_sensor_runtime_of_calibration
         
         payload = await request.json()
         sensor_id = (payload.get("sensor_id") or "").strip()
@@ -4490,8 +4490,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # 3) if this sensor is a Nodus device, forward update to its /update-calibration-values
         try:
-            from rPiSettings import rPiSettings
-            sys_settings = rPiSettings()
+            from saiSettings import saiSettings
+            sys_settings = saiSettings()
             # Use SensorSettingsManager or a 'device_map' to resolve host/URL for this sensor_id
             # Example: device_map[sensor_id] -> "http://nodus-1234.local:8000"
             base_url = resolve_nodus_base_url(sensor_id)
@@ -4576,7 +4576,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     
     def _switch_key(switch_id: str, label: str) -> str:
         """
-        Canonical switch key builder: use rPiDataLogger.build_switch_key if present,
+        Canonical switch key builder: use saiDataLogger.build_switch_key if present,
         otherwise fall back to '<switch_id>::<label>'.
         """
         sid = (switch_id or "").strip()
@@ -4597,7 +4597,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         switch_id: str = Query(...),
         embed: int = Query(0),
     ):
-        from rPiSwitchSettingsManager import SwitchSettingsManager
+        from saiSwitchSettingsManager import SwitchSettingsManager
 
         manager = SwitchSettingsManager("switch_settings")
         settings_dict = manager.load(switch_id) or {}
@@ -4612,7 +4612,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             )
             return HTMLResponse(html, status_code=404)
 
-        # ---- helper: extract enabled channel indices (same semantics as rPiHtml._extract_channel_indices) ----
+        # ---- helper: extract enabled channel indices (same semantics as saiHtml._extract_channel_indices) ----
         sw = (settings_dict or {}).get("Switch", {}) or {}
 
         def _truthy(val) -> bool:
@@ -4692,8 +4692,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     @router.post("/submit-switch-settings")
     async def submit_switch_settings(request: Request):
-        from rPiSwitchSettingsManager import SwitchSettingsManager
-        from rPiAutomationManager import AutomationManager
+        from saiSwitchSettingsManager import SwitchSettingsManager
+        from saiAutomationManager import AutomationManager
 
         form = await request.form()
 
@@ -4806,7 +4806,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 printDM(f"[{MODULE}] Failed to rename {old_id}→{new_id}: {e}", location=MODULE)
 
         # -----------------------------
-        # Persist Basic triggers to automations.toml via rPiAutomationManager
+        # Persist Basic triggers to automations.toml via saiAutomationManager
         # -----------------------------
         target_switch_id = new_id
         final_switch_map = (merged_doc.get("Switch") or {})
@@ -4893,7 +4893,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     @router.get("/switch-chooser", response_class=HTMLResponse)
     async def switch_chooser(request: Request):
-        from rPiSwitchSettingsManager import SwitchSettingsManager
+        from saiSwitchSettingsManager import SwitchSettingsManager
         import html
         from urllib.parse import quote
 
@@ -4917,7 +4917,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     @router.get("/switch-info", response_class=JSONResponse)
     async def api_switch_info(switch_id: str = Query(...)):
-        from rPiSwitchSettingsManager import SwitchSettingsManager
+        from saiSwitchSettingsManager import SwitchSettingsManager
         try:
             mgr = SwitchSettingsManager("switch_settings")
             dat = mgr.load(switch_id)
@@ -4961,12 +4961,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             return {"switch_id": switch_id, "channels": channels, "labels": labels}
         except Exception as exc:
-            printDM(f"/switch-info error: {exc}", location="rPiWebRoutes")
+            printDM(f"/switch-info error: {exc}", location="saiWebRoutes")
             return JSONResponse({"error": str(exc)}, status_code=500)
 
     @router.get("/advanced/automations", response_class=JSONResponse)
     async def api_list_advanced_automations(switch_id: str = Query(...)):
-        from rPiAutomationManager import AutomationManager
+        from saiAutomationManager import AutomationManager
         try:
             mgr = AutomationManager("switch_settings")
             data = mgr.load(switch_id)
@@ -4987,7 +4987,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 items.append({"rule_id": rule_id, "enabled": enabled, "script_json": script_json})
             return {"switch_id": switch_id, "items": items}
         except Exception as exc:
-            printDM(f"/advanced/automations error: {exc}", location="rPiWebRoutes")
+            printDM(f"/advanced/automations error: {exc}", location="saiWebRoutes")
             return JSONResponse({"error": str(exc)}, status_code=500)
 
     @router.post("/advanced/automations/enable", response_class=JSONResponse)
@@ -4997,7 +4997,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         rule_id: str = Form(...),
         enabled: str = Form("true"),  # accept str, coerce below
     ):
-        from rPiAutomationManager import AutomationManager
+        from saiAutomationManager import AutomationManager
         try:
             truthy = str(enabled).strip().lower() in {"1", "true", "on", "yes"}
             mgr = AutomationManager("switch_settings")
@@ -5111,7 +5111,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         })
             return {"ok": bool(ok)}
         except Exception as exc:
-            printDM(f"/advanced/automations/enable error: {exc}", location="rPiWebRoutes")
+            printDM(f"/advanced/automations/enable error: {exc}", location="saiWebRoutes")
             return JSONResponse({"error": str(exc)}, status_code=500)
 
     @router.post("/advanced/automations/delete", response_class=JSONResponse)
@@ -5120,7 +5120,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         switch_id: str = Form(...),
         rule_id: str = Form(...),
     ):
-        from rPiAutomationManager import AutomationManager
+        from saiAutomationManager import AutomationManager
         try:
             mgr = AutomationManager("switch_settings")
             data = mgr.load(switch_id) or {}
@@ -5154,7 +5154,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     })
             return {"ok": bool(ok)}
         except Exception as exc:
-            printDM(f"/advanced/automations/delete error: {exc}", location="rPiWebRoutes")
+            printDM(f"/advanced/automations/delete error: {exc}", location="saiWebRoutes")
             return JSONResponse({"error": str(exc)}, status_code=500)
 
     @router.get("/switch-advanced", response_class=JSONResponse)
@@ -5163,11 +5163,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         Returns the current Advanced script JSON (normalized) for SWITCH_<channel>_Advanced,
         or {} if not present.
         """
-        from rPiSwitchSettingsManager import SwitchSettingsManager
+        from saiSwitchSettingsManager import SwitchSettingsManager
         try:
-            from rPiAutomationManager import AutomationManager, load_triggers
+            from saiAutomationManager import AutomationManager, load_triggers
         except Exception:
-            from rPiAutomationManager import load_triggers
+            from saiAutomationManager import load_triggers
             AutomationManager = None  # type: ignore
 
         def _coerce_int(x, default=1):
@@ -5228,13 +5228,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
           - script_json     (required) JSON string built in the Advanced modal
           - enabled         (optional; default: true)
         """
-        from rPiSwitchSettingsManager import SwitchSettingsManager
+        from saiSwitchSettingsManager import SwitchSettingsManager
         try:
             # Prefer class API
-            from rPiAutomationManager import AutomationManager, load_triggers, save_triggers
+            from saiAutomationManager import AutomationManager, load_triggers, save_triggers
         except Exception:
             # Fallback module functions
-            from rPiAutomationManager import load_automations as load_triggers, save_automations as save_triggers
+            from saiAutomationManager import load_automations as load_triggers, save_automations as save_triggers
             AutomationManager = None  # type: ignore
 
         def norm_switch_id(raw: str) -> str:
@@ -5546,7 +5546,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             try:
                 app = request.app
                 if hasattr(app.state, "switch_broadcast"):
-                    from rPiAutomationManager import AutomationManager
+                    from saiAutomationManager import AutomationManager
                     mgr = AutomationManager("switch_settings")
                     try:
                         data = mgr.load(switch_id) or {}
@@ -5794,7 +5794,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             try:
                 switch_key = None
                 try:
-                    # Canonical DB identity: uses rPiDataLogger.build_switch_key under the hood
+                    # Canonical DB identity: uses saiDataLogger.build_switch_key under the hood
                     switch_key = ctrl._switch_key(label)
                 except Exception:
                     # Fallback for older controllers: best-effort label-based key
@@ -5809,13 +5809,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         if DEBUG:
                             printDM(
                                 f"[toggle_switch] DB says {switch_key}={last!r} → new_state={new_state}",
-                                location="rPiWebRoutes",
+                                location="saiWebRoutes",
                             )
                         return new_state
             except Exception as e:
                 printDM(
                     f"[toggle_switch] DB lookup failed for {switch_id}::{label}: {e}",
-                    location="rPiWebRoutes",
+                    location="saiWebRoutes",
                 )
 
             # 2) Fallback: flip the controller’s live state
@@ -6018,8 +6018,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         switch_key: str | None = Query(None),
         switch_id: str | None = Query(None),
     ):
-        from rPiSwitchSettingsManager import SwitchSettingsManager
-        from rPiAutomationManager import AutomationManager
+        from saiSwitchSettingsManager import SwitchSettingsManager
+        from saiAutomationManager import AutomationManager
 
         try:
             data = await request.json()
@@ -6245,7 +6245,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             await fastStats.remove(ws)
 
 
-    from rPiStats import create_stats_router
+    from saiStats import create_stats_router
     app.include_router(create_stats_router(settings, gc_mgr))
     app.include_router(router)
     return router

@@ -15,12 +15,12 @@ import time
 import random
 import json
 import paho.mqtt.client as mqtt
-from rPiUtils import printDM, debug_enabled
+from saiUtils import printDM, debug_enabled
 
-MODULE = "rPiMQTTClient"
+MODULE = "saiMQTTClient"
 DEBUG = debug_enabled(MODULE)
 
-class rPiMQTTClient:
+class saiMQTTClient:
     def __init__(self, sensor, settings, supervisor=None):
         self.sensor = sensor
         self.settings = settings
@@ -186,7 +186,7 @@ class rPiMQTTClient:
         Publish a switch state update for a local Pi switch using the new
         SWITCH_#_ID-based schema.
 
-        Topics (ID-based, to match rPiMQTTIngest):
+        Topics (ID-based, to match saiMQTTIngest):
           - state: "<base_topic>/switch/<switch_id>/<channel_id>/state"   payload: "ON"|"OFF"
           - event: "<base_topic>/switch/<switch_id>/<channel_id>/event"   payload: "ON"|"OFF"
 
@@ -211,12 +211,12 @@ class rPiMQTTClient:
             state_str = "ON" if is_on else "OFF"
             base = f"{self.base_topic}/switch/{switch_id}/{channel_id}"
 
-            # State topic used by rPiMQTTIngest.handle_switch_state_slug
+            # State topic used by saiMQTTIngest.handle_switch_state_slug
             state_topic = f"{base}/state"
             info_state = self.client.publish(state_topic, state_str, qos=qos, retain=self.ha_state_retain)
             rc_state = getattr(info_state, "rc", 0) if info_state is not None else 0
 
-            # Optional event topic used by rPiMQTTIngest.handle_switch_event_slug
+            # Optional event topic used by saiMQTTIngest.handle_switch_event_slug
             if include_event:
                 event_topic = f"{base}/event"
                 info_ev = self.client.publish(event_topic, state_str, qos=qos, retain=False)

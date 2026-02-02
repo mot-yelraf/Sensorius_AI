@@ -1,10 +1,10 @@
 # sensor_modules/base.py - base sensor class
 import time
 from collections.abc import Iterable as _Iterable
-from rPiUtils import printDM, debug_enabled, get_timestamp
+from saiUtils import printDM, debug_enabled, get_timestamp
 
 MODULE = "BaseSensor"
-DEBUG = debug_enabled("rPiSensorFactory")
+DEBUG = debug_enabled("saiSensorFactory")
 
 
 class BaseSensor:

@@ -2,7 +2,7 @@
 
 Provides fast load/save/update of switch_settings/<switch_id>/switch.toml and
 is the source of truth for the switch factory + controller pipeline:
-settings -> rPiSwitchFactory -> rPiSwitch.
+settings -> saiSwitchFactory -> saiSwitch.
 """
 
 from __future__ import annotations
@@ -14,9 +14,9 @@ import copy
 import json
 from pathlib import Path
 from collections import OrderedDict
-from rPiUtils import printDM, debug_enabled
+from saiUtils import printDM, debug_enabled
 
-MODULE = "rPiSwitchSettingsManager"
+MODULE = "saiSwitchSettingsManager"
 DEBUG = debug_enabled(MODULE)
 
 class SwitchSettingsManager:

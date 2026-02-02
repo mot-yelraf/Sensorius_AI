@@ -30,7 +30,7 @@ jobs:
 
     - name: Run tests with coverage
       run: |
-        pytest --cov=rPiStats tests/
+        pytest --cov=saiStats tests/
 
     - name: Upload coverage report
       uses: actions/upload-artifact@v3

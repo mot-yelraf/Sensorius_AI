@@ -1,9 +1,9 @@
 # sensor_modules/sensor_co2.py
-from rPiUtils import printDM, debug_enabled
+from saiUtils import printDM, debug_enabled
 from sensor_modules.base import BaseSensor, find_sensor_bus
 
 MODULE = "SCD30Sensor"
-DEBUG = debug_enabled("rPiSensorFactory")
+DEBUG = debug_enabled("saiSensorFactory")
 
 
 class SCD30Sensor(BaseSensor):

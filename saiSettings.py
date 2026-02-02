@@ -11,12 +11,12 @@ import hashlib
 from pathlib import Path
 from collections import OrderedDict
 from datetime import datetime
-from rPiUtils import debug_enabled, printDM, get_pi_network_info, get_time_settings
+from saiUtils import debug_enabled, printDM, get_pi_network_info, get_time_settings
 
-MODULE = "rPiSettings"
+MODULE = "saiSettings"
 DEBUG = debug_enabled(MODULE)
 
-class rPiSettings:
+class saiSettings:
     # ---- class-level cache (path -> settings / mtime) ----
     _cache_by_path: dict[str, OrderedDict] = {}
     _mtime_by_path: dict[str, float | None] = {}

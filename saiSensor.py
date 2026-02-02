@@ -1,20 +1,20 @@
 """Sensor controller loop that wraps factory-built sensor backends.
 
 Flow:
-1) rPiSensorSettingsManager loads TOML settings per sensor.
-2) rPiSensorFactory creates the concrete sensor backend.
-3) rPiSensor runs the async read loop, logs readings, and exposes current state
+1) saiSensorSettingsManager loads TOML settings per sensor.
+2) saiSensorFactory creates the concrete sensor backend.
+3) saiSensor runs the async read loop, logs readings, and exposes current state
    to the rest of the system.
 """
 
 import asyncio
-from rPiUtils import printDM, debug_enabled, get_timestamp
-from rPiSensorFactory import create_sensor
-from rPiDataLogger import rPiDataLogger
+from saiUtils import printDM, debug_enabled, get_timestamp
+from saiSensorFactory import create_sensor
+from saiDataLogger import saiDataLogger
 import time
 import random
 
-MODULE = "rPiSensor"
+MODULE = "saiSensor"
 DEBUG = debug_enabled(MODULE)
 
 # Registry of live SensorController instances by sensor_id
@@ -54,7 +54,7 @@ class SensorController:
         self.present = self.sensor.present
         self.meas_interval = self.sensor.meas_interval
         self.publish_interval = self.sensor.publish_interval
-        self.data_logger = data_logger or rPiDataLogger()
+        self.data_logger = data_logger or saiDataLogger()
 
         # --- register controller for live calibration reload ---        
         register_sensor_controller(self)
@@ -108,7 +108,7 @@ class SensorController:
         Drop-in backward-compatible rebuild of the sensor object.
         This guarantees any calibration read at construction is refreshed.
         """
-        from rPiSensorFactory import create_sensor
+        from saiSensorFactory import create_sensor
         try:
             self.settings.invalidate_this_cache()
         except Exception:

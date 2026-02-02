@@ -3,9 +3,9 @@
 import gc
 import random
 import asyncio
-from rPiUtils import printDM, debug_enabled
+from saiUtils import printDM, debug_enabled
 
-MODULE = "rPiGarbageCollection"
+MODULE = "saiGarbageCollection"
 DEBUG = debug_enabled(MODULE)
 
 class GCManager:

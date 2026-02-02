@@ -1,9 +1,9 @@
 # sensor_modules/sensor_vpd.py
-from rPiUtils import printDM, debug_enabled
+from saiUtils import printDM, debug_enabled
 from sensor_modules.base import BaseSensor, find_sensor_bus
 
 MODULE = "VPDSensor"
-DEBUG = debug_enabled("rPiSensorFactory")
+DEBUG = debug_enabled("saiSensorFactory")
 
 class VPDSensor(BaseSensor):
     def __init__(self, settings, supervisor, i2c_0=None):

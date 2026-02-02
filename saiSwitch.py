@@ -1,9 +1,9 @@
 """Switch controller for GPIO and MQTT-backed relay devices.
 
 Flow:
-1) rPiSwitchSettingsManager loads TOML settings per switch.
-2) rPiSwitchFactory creates the concrete relay/MQTT backend.
-3) rPiSwitch manages state, applies min on/off timing, logs events, and
+1) saiSwitchSettingsManager loads TOML settings per switch.
+2) saiSwitchFactory creates the concrete relay/MQTT backend.
+3) saiSwitch manages state, applies min on/off timing, logs events, and
    publishes MQTT state/event updates for the rest of the system.
 """
 
@@ -13,17 +13,17 @@ import random
 import asyncio
 import board
 from pathlib import Path
-from rPiUtils import printDM, debug_enabled, get_timestamp
-from rPiSwitchFactory import create_switch
-from rPiMQTTClient import get_mqtt_client
-from rPiDataLogger import rPiDataLogger
+from saiUtils import printDM, debug_enabled, get_timestamp
+from saiSwitchFactory import create_switch
+from saiMQTTClient import get_mqtt_client
+from saiDataLogger import saiDataLogger
 try:
     # canonical helper that knows how to combine switch_id + label + channel_id
-    from rPiDataLogger import build_switch_key as _build_switch_key
+    from saiDataLogger import build_switch_key as _build_switch_key
 except Exception:
     _build_switch_key = None
 
-MODULE = "rPiSwitch"
+MODULE = "saiSwitch"
 DEBUG = debug_enabled(MODULE)
 
 class SwitchController:
@@ -32,7 +32,7 @@ class SwitchController:
         self.sensor = sensor
         self.settings = switch_settings or {}
         self.is_present = False
-        self.data_logger = rPiDataLogger()
+        self.data_logger = saiDataLogger()
 
         # State & policy
         self.last_state = {}
@@ -62,7 +62,7 @@ class SwitchController:
         try:
             sw_type = str(sw.get("TYPE", "pi")).strip().lower()
             if sw_type not in ("picow", "pico2w"):
-                from rPiSwitchFactory import ensure_switch_settings_for_host
+                from saiSwitchFactory import ensure_switch_settings_for_host
                 refreshed = ensure_switch_settings_for_host(self.switch_id, self.location)
                 if isinstance(self.settings, dict):
                     self.settings = refreshed or self.settings
@@ -77,7 +77,7 @@ class SwitchController:
         # ---- create a single multi-channel switch instance ----
         self.switch = create_switch(settings=self.settings, mqtt_client=self.mqtt)
         if isinstance(getattr(self, "switch", None), str):
-            printDM(f"[{self.switch_id}] BUG: self.switch is a str = {self.switch!r}", location="rPiSwitch")
+            printDM(f"[{self.switch_id}] BUG: self.switch is a str = {self.switch!r}", location="saiSwitch")
 
         self.script_rules = {}
         self.is_present = bool(getattr(self.switch, "is_present", False))
@@ -188,7 +188,7 @@ class SwitchController:
           "<switch_id>::<channel_id>" when SWITCH_n_ID is available,
           falling back to "<switch_id>::<Label>" if needed.
 
-        Uses rPiDataLogger.build_switch_key so the format matches MQTT ingest.
+        Uses saiDataLogger.build_switch_key so the format matches MQTT ingest.
         """
         sid = getattr(self, "switch_id", "") or "unknown"
         chan_id = None
@@ -256,12 +256,12 @@ class SwitchController:
     def _log(self, name, on: bool):
         # Persist as a SWITCH EVENT (not a generic reading) so /switch-status-update
         # can fetch the latest “On”/“Off” and recent event list.
-        from rPiDataLogger import rPiDataLogger
-        from rPiUtils import get_timestamp
-        logger = rPiDataLogger()
+        from saiDataLogger import saiDataLogger
+        from saiUtils import get_timestamp
+        logger = saiDataLogger()
         switch_key = self._switch_key(name)
         sensor_lineage = f"Switch_{self.switch_id}" if getattr(self, "switch_id", None) else None
-        # Use your dedicated API (present in rPiDataLogger) for switch events:
+        # Use your dedicated API (present in saiDataLogger) for switch events:
         logger.log_switch_event(
             switch_key=switch_key,
             is_on=bool(on),
@@ -271,7 +271,7 @@ class SwitchController:
         )
         try:
             # late import, then get the live FastAPI app via routes
-            import rPiWebRoutes as routes
+            import saiWebRoutes as routes
             bcast = getattr(routes, "app", None)
             # when register_routes ran we stashed the coroutine on app.state
             switch_broadcast = getattr(getattr(bcast, "state", object()), "switch_broadcast", None)
@@ -328,7 +328,7 @@ class SwitchController:
 
         # 2) Fallback to MQTT ingest (remote Nodus) if available
         try:
-            from rPiMQTTIngest import get_current_ingest  # small helper you’ll add below
+            from saiMQTTIngest import get_current_ingest  # small helper you’ll add below
             ing = get_current_ingest()
             if ing:
                 return bool(ing.set_switch(self.switch_id, name, on))
@@ -375,7 +375,7 @@ class SwitchController:
                     type("X", (object,), {}),
                 ).__name__
                 if backend_name != "MQTTSwitch":
-                    # slug is for human label; rPiMQTTIngest will map slug → label → ID-based switch_key
+                    # slug is for human label; saiMQTTIngest will map slug → label → ID-based switch_key
                     slug = name.strip().lower().replace(" ", "_")
                     base = f"switch/{self.switch_id}/{slug}"
                     payload = "ON" if on else "OFF"
@@ -402,7 +402,7 @@ class SwitchController:
         Returns None if path cannot be resolved.
         """
         try:
-            from rPiSwitchSettingsManager import SwitchSettingsManager
+            from saiSwitchSettingsManager import SwitchSettingsManager
             mgr = SwitchSettingsManager("switch_settings")
             switch_toml_path = Path(mgr.get_path(self.switch_id))
             return switch_toml_path.parent / "automations.toml"
@@ -411,14 +411,14 @@ class SwitchController:
 
     def _load_triggers_dict(self) -> dict:
         """
-        Uses rPiAutomationManager.load_triggers(manager, switch_id) if available.
+        Uses saiAutomationManager.load_triggers(manager, switch_id) if available.
         Falls back to loading automations.toml directly via tomllib.
         Returns dict with 'Basic' and 'Advanced' keys.
         """
         # Try helper first
         try:
-            from rPiSwitchSettingsManager import SwitchSettingsManager
-            from rPiAutomationManager import load_triggers
+            from saiSwitchSettingsManager import SwitchSettingsManager
+            from saiAutomationManager import load_triggers
             mgr = SwitchSettingsManager("switch_settings")
             data = load_triggers(mgr, self.switch_id) or {}
             return {"Basic": data.get("Basic") or {}, "Advanced": data.get("Advanced") or {}}
@@ -686,7 +686,7 @@ class SwitchController:
                 if not state_map:
                     return
 
-                from rPiSwitchSettingsManager import SwitchSettingsManager
+                from saiSwitchSettingsManager import SwitchSettingsManager
                 mgr = SwitchSettingsManager("switch_settings")
                 for label, st in state_map.items():
                     # Compute desired override value

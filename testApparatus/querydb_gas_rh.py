@@ -2,8 +2,8 @@ import sqlite3
 import csv
 
 # --- Configurable Variables ---
-db_path = r"/home/twfarley/rPiSensoria/sensor_data.db"
-output_csv_path = r"/home/twfarley/rPiSensoria/gas_rh_dump.csv"
+db_path = r"/home/twfarley/saiSensorius/sensor_data.db"
+output_csv_path = r"/home/twfarley/saiSensorius/gas_rh_dump.csv"
 sensor_id = "AQI_airco"  # Change to match your target sensor ID
 
 # --- Connect and Query ---

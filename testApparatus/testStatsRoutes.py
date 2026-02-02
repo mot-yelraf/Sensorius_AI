@@ -1,8 +1,8 @@
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
-from rPiWebRoutes import register_routes
-from rPiStats import rPiStats
+from saiWebRoutes import register_routes
+from saiStats import saiStats
 from unittest.mock import MagicMock
 
 @pytest.fixture

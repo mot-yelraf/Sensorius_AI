@@ -3,9 +3,9 @@
 import subprocess
 import socket
 import asyncio
-from rPiUtils import printDM
+from saiUtils import printDM
 
-MODULE = "rPiNet"
+MODULE = "saiNet"
 
 class rPiNetManager:
     def __init__(self, iface="wlan0"):

@@ -7,12 +7,12 @@ import time
 import logging
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
-from rPiSensor import get_sensor_controller
-from rPiDataLogger import rPiDataLogger
-from rPiSensorSettingsManager import SensorSettingsManager
-from rPiUtils import printDM, debug_enabled
+from saiSensor import get_sensor_controller
+from saiDataLogger import saiDataLogger
+from saiSensorSettingsManager import SensorSettingsManager
+from saiUtils import printDM, debug_enabled
 
-MODULE = "rPiCalibration"
+MODULE = "saiCalibration"
 DEBUG = debug_enabled(MODULE)
 
 MIN_SPAN_SECONDS = 24 * 3600
@@ -79,7 +79,7 @@ def notify_sensor_runtime_of_calibration(supervisor, sensor_id: str) -> None:
     a fresh settings snapshot.
 
     'supervisor' is kept for back-compat but not used here; we resolve the
-    controller via rPiSensor's registry.
+    controller via saiSensor's registry.
     """
     # 1) Find the controller via the registry, not via TaskSupervisor
     controller = get_sensor_controller(sensor_id)
@@ -153,7 +153,7 @@ def notify_sensor_runtime_of_calibration(supervisor, sensor_id: str) -> None:
         )
             
 class CalibrationManager:
-    def __init__(self, data_logger: rPiDataLogger, sensor_mgr: SensorSettingsManager):
+    def __init__(self, data_logger: saiDataLogger, sensor_mgr: SensorSettingsManager):
         self.data_logger = data_logger
         self.sensor_mgr = sensor_mgr
         self._last_results: Dict[str, SystemCalResult] = {}

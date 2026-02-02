@@ -1,8 +1,8 @@
 import os
 import sqlite3
 import pytest
-from rPiStats import rPiStats
-from rPiDataLogger import rPiDataLogger
+from saiStats import saiStats
+from saiDataLogger import saiDataLogger
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
@@ -52,7 +52,7 @@ def setup_test_db():
         os.remove(TEST_DB)
 
 def test_get_24hr_stats(setup_test_db):
-    stats = rPiStats(db_path=TEST_DB)
+    stats = saiStats(db_path=TEST_DB)
     results = stats.get_24hr_stats("sensor_001")
 
     assert "temp" in results
@@ -72,7 +72,7 @@ def test_get_24hr_stats(setup_test_db):
     assert round(results["vpd"]["avg"], 2) >= 1.2
 
 def test_log_and_query_logger(setup_test_db):
-    logger = rPiDataLogger(db_path=TEST_DB)
+    logger = saiDataLogger(db_path=TEST_DB)
     timestamp = datetime.utcnow().isoformat()
     sample = {"temp": 26.4, "rh": 47.2, "vpd": 1.0}
 

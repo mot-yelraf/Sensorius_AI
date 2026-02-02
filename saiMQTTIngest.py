@@ -21,10 +21,10 @@ import paho.mqtt.client as mqtt
 from collections import defaultdict, OrderedDict
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from rPiUtils import printDM, debug_enabled, get_timestamp, normalize_hostname_base, mdns_hostname
-from rPiDataLogger import rPiDataLogger, build_switch_key
+from saiUtils import printDM, debug_enabled, get_timestamp, normalize_hostname_base, mdns_hostname
+from saiDataLogger import saiDataLogger, build_switch_key
 
-MODULE = "rPiMQTTIngest"
+MODULE = "saiMQTTIngest"
 DEBUG = debug_enabled(MODULE)
 
 # module helpers
@@ -43,8 +43,8 @@ def _iso_from_payload_ts(raw_ts) -> str | None:
         if isinstance(raw_ts, (int, float)):
             # Prefer your app TZ if available; else "America/Denver"
             try:
-                from rPiSettings import rPiSettings
-                _settings = rPiSettings(apply_live=False)
+                from saiSettings import saiSettings
+                _settings = saiSettings(apply_live=False)
                 tzname = (_settings.get_setting("Time", "TZ")
                           or _settings.get_setting("Time", "tz")
                           or "America/Denver")
@@ -98,7 +98,7 @@ def set_current_ingest(inst):
 def get_current_ingest():
     return _current_ingest
     
-class rPiMQTTIngest:
+class saiMQTTIngest:
     def __init__(self, broker="localhost", client_id="rpi_ingest", mqtt_clients=None, supervisor=None, settings=None, data_logger=None):
         self._started = False
         self.supervisor = supervisor
@@ -125,7 +125,7 @@ class rPiMQTTIngest:
             self.mirror_nodus = bool(self.settings.get_setting("HomeAssistant", "MIRROR_NODUS", default_mirror))
         except Exception:
             self.mirror_nodus = bool(self.ha_broker and self.ha_broker != self.broker)
-        self.data_logger = data_logger or rPiDataLogger()
+        self.data_logger = data_logger or saiDataLogger()
         self.latest_meta = {}  # sensor_id-based dict with fault/battery/memory
 
         self.device_type = {}         # Maps TYPE
@@ -215,7 +215,7 @@ class rPiMQTTIngest:
         self._loop = None  # set in start()
         
         try:
-            from rPiHomeAssistantMqtt import HomeAssistantTopicMap
+            from saiHomeAssistantMqtt import HomeAssistantTopicMap
             node_id = socket.gethostname()  # stable per-Sensorius node
             self.topic_map = HomeAssistantTopicMap(
                 node_id=node_id,
@@ -527,7 +527,7 @@ class rPiMQTTIngest:
                         pass   
                 """
                 try:
-                    import rPiWebRoutes as routes
+                    import saiWebRoutes as routes
                     switch_broadcast = getattr(getattr(routes, "app", object()), "state", object()).switch_broadcast
                     if switch_broadcast:
                         import asyncio
@@ -616,8 +616,8 @@ class rPiMQTTIngest:
         - tz_name: short name (e.g., MDT)
         """
         try:
-            from rPiSettings import rPiSettings
-            settings = rPiSettings(apply_live=False)
+            from saiSettings import saiSettings
+            settings = saiSettings(apply_live=False)
             tz_name = (settings.get_setting("Time", "TZ", "") or "").strip() or "America/Denver"
             tz_short = (settings.get_setting("Time", "TZ_NAME", "") or "").strip()
             tz_offset = settings.get_setting("Time", "TZ_OFFSET", None)
@@ -1540,9 +1540,9 @@ class rPiMQTTIngest:
         """
         from pathlib import Path
         try:
-            from rPiSensorSettingsManager import SensorSettingsManager
-            from rPiSwitchSettingsManager import SwitchSettingsManager
-            from rPiSettings import rPiSettings
+            from saiSensorSettingsManager import SensorSettingsManager
+            from saiSwitchSettingsManager import SwitchSettingsManager
+            from saiSettings import saiSettings
         except Exception as exc:
             if DEBUG:
                 printDM(f"[itaot-settings] import error: {exc}", location=MODULE)
@@ -1630,10 +1630,10 @@ class rPiMQTTIngest:
         # ---- system_settings/<HOSTNAME>/settings.toml ----
         system_id = _strip_local(str((info or {}).get("HOSTNAME") or hostname or ""))
         if system_id:
-            sys_path = Path(rPiSettings.DEFAULT_BASE_DIR) / system_id / rPiSettings.STANDARD_FILENAME
+            sys_path = Path(saiSettings.DEFAULT_BASE_DIR) / system_id / saiSettings.STANDARD_FILENAME
             if not sys_path.exists():
-                nodus_tpl = Path(rPiSettings.DEFAULT_BASE_DIR) / "factory_nodus" / f"{rPiSettings.STANDARD_FILENAME}.def"
-                fallback_tpl = Path(rPiSettings.DEFAULT_BASE_DIR) / "factory" / rPiSettings.STANDARD_FILENAME
+                nodus_tpl = Path(saiSettings.DEFAULT_BASE_DIR) / "factory_nodus" / f"{saiSettings.STANDARD_FILENAME}.def"
+                fallback_tpl = Path(saiSettings.DEFAULT_BASE_DIR) / "factory" / saiSettings.STANDARD_FILENAME
                 tpl_path = nodus_tpl if nodus_tpl.exists() else (fallback_tpl if fallback_tpl.exists() else None)
 
                 settings_doc = _parse_simple_toml(tpl_path) if tpl_path else OrderedDict()
@@ -2197,7 +2197,7 @@ class rPiMQTTIngest:
                 self._known_switch_ids.add(switch_id)
                 # Push live updates to the UI (label-based key for listbox match)
                 try:
-                    import rPiWebRoutes as routes
+                    import saiWebRoutes as routes
                     switch_broadcast = getattr(getattr(routes, "app", object()), "state", object()).switch_broadcast
                     if switch_broadcast:
                         asyncio.create_task(switch_broadcast({

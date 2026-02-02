@@ -4,7 +4,7 @@ set -euo pipefail
 # -------- user-tunable versions (top of file) --------
 PY_VERSION="${PY_VERSION:-3.11.9}"         # change to 3.13.5 to match Trixie system Python
 VENV_NAME="${VENV_NAME:-sensorius}"
-PROJECT_DIR="${PROJECT_DIR:-$HOME/rPiSensorius}"
+PROJECT_DIR="${PROJECT_DIR:-$HOME/saiSensorius}"
 
 # Where pyenv will install Pythons
 PYENV_ROOT="${HOME}/.pyenv"
@@ -146,7 +146,7 @@ Wants=network-online.target
 After=network.target
 
 [Service]
-ExecStart=${pyexec} ${workdir}/rPiSensorius.py
+ExecStart=${pyexec} ${workdir}/Sensorius.py
 WorkingDirectory=${workdir}
 User=${username}
 Group=${username}

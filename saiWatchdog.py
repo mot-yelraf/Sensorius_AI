@@ -12,9 +12,9 @@ import random
 import signal
 import traceback
 
-from rPiUtils import printDM, debug_enabled
+from saiUtils import printDM, debug_enabled
 
-MODULE = "rPiWatchdog"
+MODULE = "saiWatchdog"
 DEBUG = debug_enabled(MODULE)
 
 # ---- user-tunable constants (top) ----

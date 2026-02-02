@@ -14,10 +14,10 @@ from fastapi.responses import PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.gzip import GZipMiddleware
-from rPiUtils import printDM, debug_enabled
+from saiUtils import printDM, debug_enabled
 import inspect
 
-MODULE = "rPiWebServer"
+MODULE = "saiWebServer"
 DEBUG = debug_enabled(MODULE)
 
 class WebServerController:
@@ -58,7 +58,7 @@ class WebServerController:
     async def _prewarm(self):
         """Warm DB pages & compute a first set of values/stats to avoid cold-start latency."""
         try:
-            from rPiWebRoutes import data_logger as routes_logger, statter as routes_statter
+            from saiWebRoutes import data_logger as routes_logger, statter as routes_statter
 
             available = routes_logger.get_available_sensors() or []
             sids = self.settings.get_all_sensor_ids() or available
@@ -78,7 +78,7 @@ class WebServerController:
 
 
     async def initialize_server(self):
-        from rPiWebRoutes import register_routes
+        from saiWebRoutes import register_routes
 
         await register_routes(self.app, self.settings, self.net_mgr, self.gc_mgr, self.mqtt_ingest)
         # Make ingest accessible to routes that use request.app.state.mqtt_ingest.
@@ -116,8 +116,8 @@ async def launch_webview(url: str = "http://127.0.0.1:8000", retries: int = 10, 
     from urllib.parse import urljoin, urlencode, quote
     try:
         # Local imports to avoid boot-time cycles
-        from rPiSwitchSettingsManager import SwitchSettingsManager
-        from rPiUtils import printDM
+        from saiSwitchSettingsManager import SwitchSettingsManager
+        from saiUtils import printDM
     except Exception:
         # tolerate early import issues; we'll just open base url
         SwitchSettingsManager = None
@@ -126,7 +126,7 @@ async def launch_webview(url: str = "http://127.0.0.1:8000", retries: int = 10, 
     os.environ["DISPLAY"] = ":0"
 
     if DEBUG:
-        printDM("Launching webview...", location="rPiWebServer")
+        printDM("Launching webview...", location="saiWebServer")
 
     await asyncio.sleep(2)  # small grace, prewarm also runs
 
@@ -141,15 +141,15 @@ async def launch_webview(url: str = "http://127.0.0.1:8000", retries: int = 10, 
                 r = await client.get(health_url, timeout=3.0)
                 if r.status_code == 200:
                     if DEBUG:
-                        printDM(f"Web server ready after {attempt+1} attempts", location="rPiWebServer")
+                        printDM(f"Web server ready after {attempt+1} attempts", location="saiWebServer")
                     server_ready = True
                     break
         except Exception as e:
-            printDM(f"[Attempt {attempt+1}/{retries}] Web view not ready: {e}", location="rPiWebServer")
+            printDM(f"[Attempt {attempt+1}/{retries}] Web view not ready: {e}", location="saiWebServer")
         await asyncio.sleep(delay + attempt * 0.25)
 
     if not server_ready:
-        printDM(f"Web view @ {base_url} not ready after {retries} attempts — skipping GUI", location="rPiWebServer")
+        printDM(f"Web view @ {base_url} not ready after {retries} attempts — skipping GUI", location="saiWebServer")
         return None
 
     # --- Compute initial route (prefer Advanced modal for first available switch) ---
@@ -164,9 +164,9 @@ async def launch_webview(url: str = "http://127.0.0.1:8000", retries: int = 10, 
             resizable=True, frameless=False, confirm_close=True
         )
         if DEBUG:
-            printDM(f"Web view created at {initial_url}", location="rPiWebServer")
+            printDM(f"Web view created at {initial_url}", location="saiWebServer")
         return window
     except Exception as e:
-        printDM(f"Webview failed to start: {e}", location="rPiWebServer")
-        printDM(traceback.format_exc(), location="rPiWebServer")
+        printDM(f"Webview failed to start: {e}", location="saiWebServer")
+        printDM(traceback.format_exc(), location="saiWebServer")
         return None

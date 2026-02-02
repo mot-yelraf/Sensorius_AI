@@ -1,13 +1,13 @@
-# rPiSensoria
+# Sensorius
 
 **Environmental Sensing + Automation Hub**
-rPiSensoria is a modular, Python-based Raspberry Pi system for managing environmental sensors and controlling relays via MQTT. It features a real-time web dashboard, automated onboarding for new devices, and robust data logging and visualization.
+Sensorius is a modular, Python-based Raspberry Pi system for managing environmental sensors and controlling relays via MQTT. It features a real-time web dashboard, automated onboarding for new devices, and robust data logging and visualization.
 
 ---
 
 ## 📌 1. Program Description
 
-rPiSensoria supports:
+Sensorius supports:
 
 * Onboarding of Wi-Fi connected sensors and switches using the Pico W
 * MQTT-based communication between sensors/switches and the Pi hub
@@ -21,7 +21,7 @@ rPiSensoria supports:
 
 ```
                      +------------------------+
-                     |    rPiSensoria Hub     |
+                     |     Sensorius Hub      |
                      |  (FastAPI + MQTT + DB) |
                      +------------------------+
                          |            |
@@ -59,12 +59,12 @@ rPiSensoria supports:
 
 | Module                            | Purpose                                       |
 | --------------------------------- |--------------------------------------------- |
-| `rPiMQTTClient.py`                | Publishes onboard sensor data to MQTT         |
-| `rPiMQTTIngest.py`                | Subscribes to sensor topics, stores in DB     |
-| `rPiWebRoutes.py`                 | FastAPI routes for dashboard, graph, setupUI |
-| `rPiSwitchFactory.py`             | Detects relays, wraps GPIO output control     |
-| `rPiTaskSupervisor.py`            | Supervises and restarts async tasks           |
-| `rPiWatchdog.py`                  | Monitors heartbeats and exits on timeout      |
+| `saiMQTTClient.py`                | Publishes onboard sensor data to MQTT         |
+| `saiMQTTIngest.py`                | Subscribes to sensor topics, stores in DB     |
+| `saiWebRoutes.py`                 | FastAPI routes for dashboard, graph, setupUI |
+| `saiSwitchFactory.py`             | Detects relays, wraps GPIO output control     |
+| `saiTaskSupervisor.py`            | Supervises and restarts async tasks           |
+| `saiWatchdog.py`                  | Monitors heartbeats and exits on timeout      |
 | `connect_and_configure_sensor.py` | Automates onboarding for PicoW sensors        |
 | `connect_and_configure_switch.py` | Onboards switch-only PicoW devices            |
 | `settings_switch.toml`            | Sample configuration for onboarded switch     |
@@ -97,7 +97,7 @@ This script:
 
 * Installs system and Python dependencies
 * Enables I2C and sets regional Wi-Fi settings
-* Installs and enables a systemd service (`rPiSensoria.service`)
+* Installs and enables a systemd service (`sensorius.service`)
 * Configures the hostname and timezone
 
 ---
@@ -107,14 +107,14 @@ This script:
 ### Manual Start
 
 ```bash
-python3 rPiSensoria.py
+python3 Sensorius.py
 ```
 
 ### Enable and Start as Service
 
 ```bash
-sudo systemctl enable rPiSensoria.service
-sudo systemctl start rPiSensoria.service
+sudo systemctl enable sensorius.service
+sudo systemctl start sensorius.service
 ```
 
 ---

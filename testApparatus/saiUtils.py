@@ -11,11 +11,11 @@ logging.basicConfig(
 )
 
 # Optional: adjust specific module log levels
-logger = logging.getLogger("rPiUtils")
+logger = logging.getLogger("saiUtils")
 logger.setLevel(logging.DEBUG)  # or INFO
 
 # Define which modules have debug enabled
-DEBUG_MODULES = set()  # e.g., {"ALL"} or {"rPiSensor", "rPiMQTTClient"}
+DEBUG_MODULES = set()  # e.g., {"ALL"} or {"saiSensor", "saiMQTTClient"}
 
 def debug_enabled(module_name: str) -> bool:
     return "ALL" in DEBUG_MODULES or module_name in DEBUG_MODULES

@@ -1,4 +1,4 @@
-# rPiSwitchTriggerManager.py
+# saiSwitchTriggerManager.py
 # Manages switch trigger rules persisted at: switch_settings/<hostname>/triggers.toml
 # Python 3.11+ only (uses tomllib for robust reading)
 from __future__ import annotations
@@ -34,7 +34,7 @@ try:
 except Exception as e:  # pragma: no cover
     raise RuntimeError("Python 3.11+ required: tomllib is missing") from e
 
-logger = logging.getLogger("rPiSwitchTriggerManager")
+logger = logging.getLogger("saiSwitchTriggerManager")
 
 
 class SwitchTriggerManager:
@@ -401,7 +401,7 @@ def _emit_kv_inline(d: Dict[str, Any]) -> str:
             parts.append(f"{_toml_key(k)}={_toml_string(str(v))}")
     return ", ".join(parts)
 
-# rPiSwitchTriggerManager.py (add to bottom)
+# saiSwitchTriggerManager.py (add to bottom)
 
 def enable_trigger(manager, switch_id: str, section: str, key: str, enable: bool = True) -> bool:
     """

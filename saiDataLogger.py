@@ -8,10 +8,10 @@ import sqlite3
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from rPiUtils import printDM, debug_enabled
+from saiUtils import printDM, debug_enabled
 import threading
 
-MODULE = "rPiDataLogger"
+MODULE = "saiDataLogger"
 DEBUG = debug_enabled(MODULE)
 
 LOCAL_TIMEZONE = ZoneInfo("America/Denver")
@@ -50,7 +50,7 @@ def build_switch_key(switch_id: str, channel_or_label: str, channel_id: str | No
 
     return f"{switch_id_safe}{SW_KEY_DELIM}{chan}"
 
-class rPiDataLogger:
+class saiDataLogger:
     def __init__(self, db_path="sensorius_data.db"):
         self.db_path = db_path
         self._init_db()
@@ -63,8 +63,8 @@ class rPiDataLogger:
         self._on_readings_written: list = []
         self._on_switch_event_written: list = []
         
-        from rPiSettings import rPiSettings
-        _settings = rPiSettings(apply_live=False)
+        from saiSettings import saiSettings
+        _settings = saiSettings(apply_live=False)
         TZ = (_settings.get_setting("Time", "TZ")
               or _settings.get_setting("Time", "tz")
               or "America/Denver")
@@ -486,7 +486,7 @@ class rPiDataLogger:
                 row = cur.fetchone()
                 return row[0] if row and row[0] else None
         except Exception as e:
-            printDM(f"Error fetching latest timestamp for {sensor_id}: {e}", location="rPiDataLogger")
+            printDM(f"Error fetching latest timestamp for {sensor_id}: {e}", location="saiDataLogger")
             return None
 
     def register_sensor(self, dev_id: str):

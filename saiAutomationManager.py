@@ -39,9 +39,9 @@ try:
 except Exception as e:  # pragma: no cover
     raise RuntimeError("Python 3.11+ required: tomllib is missing") from e
 
-from rPiUtils import debug_enabled, printDM
+from saiUtils import debug_enabled, printDM
 
-MODULE = "rPiAutomationManager"
+MODULE = "saiAutomationManager"
 DEBUG = debug_enabled(MODULE)
 
 class AutomationManager:
@@ -552,7 +552,7 @@ def save_automations(manager: AutomationManager, switch_id: str, data: dict) -> 
     manager.save(switch_id, data)
 
 
-# --- Back-compat aliases used by rPiWebRoutes.submit_advanced_trigger ---
+# --- Back-compat aliases used by saiWebRoutes.submit_advanced_trigger ---
 def load_triggers(manager: AutomationManager, switch_id: str) -> dict:
     """Deprecated alias → load_automations."""
     return load_automations(manager, switch_id)

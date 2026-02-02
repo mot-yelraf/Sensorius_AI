@@ -3,7 +3,7 @@
 import asyncio
 import json
 import requests
-from rPiUtils import get_time_settings
+from saiUtils import get_time_settings
 from connect_and_configure_sensor import (
     original_pi_info,
     PICOW_AP_SSID,

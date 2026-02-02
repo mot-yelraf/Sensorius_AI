@@ -1,10 +1,10 @@
 """HTML rendering helpers and shared UI constants."""
 import re
-from rPiUtils import printDM, debug_enabled, html_escape, normalize_hostname_base, mdns_hostname
+from saiUtils import printDM, debug_enabled, html_escape, normalize_hostname_base, mdns_hostname
 from collections import defaultdict
 from pathlib import Path
 
-MODULE = "rPiHtml"
+MODULE = "saiHtml"
 DEBUG = debug_enabled(MODULE)
 
 APP_TITLE = "Sensorius"
@@ -47,10 +47,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     import re
     from types import SimpleNamespace
     from collections import defaultdict
-    from rPiUtils import get_timestamp
-    import rPiAddDevice
-    from rPiSensorSettingsManager import SensorSettingsManager
-    from rPiHtml import render_graph_modal
+    from saiUtils import get_timestamp
+    import saiAddDevice
+    from saiSensorSettingsManager import SensorSettingsManager
+    from saiHtml import render_graph_modal
     if isinstance(switch_controllers, dict):
         switch_controllers = {
             (k if isinstance(k, str) else str(k)).lower(): v
@@ -76,7 +76,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         return v
 
     # ---------- build a unified switches_by_loc once ----------
-    from rPiSwitchSettingsManager import SwitchSettingsManager
+    from saiSwitchSettingsManager import SwitchSettingsManager
 
     sw_mgr = None
     try:
@@ -279,8 +279,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     # --- Resolve display_style: "Gauge" or "Graph6hr" or "Graph24hr" from system settings if not provided ---
     if not display_style:
         try:
-            from rPiSettings import rPiSettings
-            sys_settings = rPiSettings()
+            from saiSettings import saiSettings
+            sys_settings = saiSettings()
             display_style = sys_settings.get_displayStyle()  # "Gauge" or "Graph6hr" or "Graph24hr"
         except Exception:
             display_style = "Gauge"
@@ -372,7 +372,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         Returns either a dict {sensor_id: obj} or an iterable of objs (each with .sensor_id).
         """
         try:
-            import rPiWebRoutes as routes
+            import saiWebRoutes as routes
             return getattr(routes, "sensor_map", None)
         except Exception:
             return None
@@ -625,7 +625,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         matched_switches = switches_by_loc.get(_norm_loc(location), [])
 
         if DEBUG and matched_switches:
-            printDM(f"[render_dashboard] {sid} @ '{location}' matched {len(matched_switches)} switch controller(s)", location="rPiHtml")
+            printDM(f"[render_dashboard] {sid} @ '{location}' matched {len(matched_switches)} switch controller(s)", location="saiHtml")
 
         # ── render-time dedupe: ensure each switch_id renders at most once per location ──
         _rendered_swids_here: set[str] = set()
@@ -637,7 +637,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
 
             if sw_id_key in _rendered_swids_here:
                 if DEBUG:
-                    printDM(f"[render_dashboard] skip duplicate render of switch '{sw_id}' in location '{location}'", location="rPiHtml")
+                    printDM(f"[render_dashboard] skip duplicate render of switch '{sw_id}' in location '{location}'", location="saiHtml")
                 continue
             _rendered_swids_here.add(sw_id_key)
 
@@ -758,7 +758,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 safe_key   = _safe(f"{getattr(switch_ctrl,'switch_id','')}_{label_norm}_automation")
 
                 try:
-                    from rPiAutomationManager import AutomationManager
+                    from saiAutomationManager import AutomationManager
                     am  = AutomationManager()
                     sid = getattr(switch_ctrl, "switch_id", "") or ""
                     switch_key_full = f"{sid}::{label_norm}" if sid else f"::{label_norm}"
@@ -2539,8 +2539,8 @@ def core_helpers_html() -> str:
 def render_graph_modal(switch_installed=None):
     # Read tz offset/name from system settings for client display/normalization
     try:
-        from rPiSettings import rPiSettings
-        _sys = rPiSettings()
+        from saiSettings import saiSettings
+        _sys = saiSettings()
         tz_offset = int(_sys.get_setting("Time", "TZ_OFFSET", 0) or 0)  # seconds (e.g., -21600)
         tz_name   = str(_sys.get_setting("Time", "TZ_NAME", "") or "")
     except Exception:
@@ -2648,7 +2648,7 @@ def render_graph_modal(switch_installed=None):
     switch_map: dict[str, list[str]] = {}
     if switch_installed:
         try:
-            from rPiSwitchSettingsManager import SwitchSettingsManager
+            from saiSwitchSettingsManager import SwitchSettingsManager
 
             sw_mgr = SwitchSettingsManager("switch_settings")
             sw_ids = sw_mgr.list_switches() or []

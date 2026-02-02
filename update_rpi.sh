@@ -17,7 +17,7 @@ echo "Upgrading pip..."
 pip install --upgrade pip
 
 echo "Installing Python packages from requirements.txt..."
-REQ_FILE="$HOME/rPiSensorius/setup_reqs.txt"
+REQ_FILE="$HOME/saiSensorius/setup_reqs.txt"
 if [[ -f "$REQ_FILE" ]]; then
   pip install -r "$REQ_FILE"
 else

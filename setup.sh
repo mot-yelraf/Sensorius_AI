@@ -32,7 +32,7 @@ echo "Upgrading pip..."
 pip install --upgrade pip
 
 echo "Installing Python packages from requirements.txt..."
-REQ_FILE="$HOME/rPiSensorius/setup_reqs.txt"
+REQ_FILE="$HOME/saiSensorius/setup_reqs.txt"
 if [[ -f "$REQ_FILE" ]]; then
   pip install -r "$REQ_FILE"
 else
@@ -88,7 +88,7 @@ echo ""
 read -p "Would you like to install and enable sensorius.service? [y/N]: " setup_service
 if [[ "$setup_service" =~ ^[Yy]$ ]]; then
   username=$(whoami)
-  workdir="/home/$username/rPiSensorius"
+  workdir="/home/$username/saiSensorius"
   pyexec="/home/$username/py311/bin/python"
 
   echo "Creating systemd service file..."
@@ -99,7 +99,7 @@ Wants=network-online.target
 After=network.target
 
 [Service]
-ExecStart=$pyexec $workdir/rPiSensorius.py
+ExecStart=$pyexec $workdir/Sensorius.py
 WorkingDirectory=$workdir
 User=$username
 Group=$username

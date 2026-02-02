@@ -1,18 +1,18 @@
 """Switch factory for creating concrete relay/MQTT backends from settings.
 
 Flow:
-1) rPiSwitchSettingsManager loads per-switch TOML into a SettingsWrapper.
-2) rPiSwitchFactory reads the settings and instantiates the correct backend.
-3) rPiSwitch wraps the created backend in a controller that tracks state,
+1) saiSwitchSettingsManager loads per-switch TOML into a SettingsWrapper.
+2) saiSwitchFactory reads the settings and instantiates the correct backend.
+3) saiSwitch wraps the created backend in a controller that tracks state,
    publishes MQTT events, and enforces safety rules.
 """
 
 import board
 import digitalio
-from rPiUtils import printDM, debug_enabled
-from rPiSwitchSettingsManager import SwitchSettingsManager
+from saiUtils import printDM, debug_enabled
+from saiSwitchSettingsManager import SwitchSettingsManager
 
-MODULE = "rPiSwitchFactory"
+MODULE = "saiSwitchFactory"
 DEBUG = debug_enabled(MODULE)
 
 SINGLE_DETECT_PIN = getattr(board, "D23", None)     # SINGLE IOT (active-high)
@@ -444,7 +444,7 @@ class MQTTSwitch:
         return [c["name"] for c in self.channels]
 
     def get_state(self, name: str) -> bool:
-        # If you wire state sync via rPiMQTTIngest, return the latest cached value here.
+        # If you wire state sync via saiMQTTIngest, return the latest cached value here.
         return False
 
     def set_state(self, name: str, on: bool) -> bool:

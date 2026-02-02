@@ -1,8 +1,8 @@
 # relay_test_loop.py
 
 import asyncio
-from rPiSwitchFactory import ThreeRelaySwitch
-from rPiUtils import printDM
+from saiSwitchFactory import ThreeRelaySwitch
+from saiUtils import printDM
 
 # --- Configuration ---
 REPEAT_DELAY_SEC = 1.0  # time each relay stays on before switching

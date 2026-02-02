@@ -1,4 +1,4 @@
-## Copilot Instructions (rPiSensorius)
+## Copilot Instructions (Sensorius)
 
 ### Project context
 - This project runs on a Raspberry Pi (Linux, systemd).
@@ -12,11 +12,11 @@
 
 ### Python standards
 - Avoid heavy dependencies unless necessary.
-- Prefer existing utilities in `rPiUtils.py`, `rPiDataLogger.py`, and `rPiMQTTIngest.py`.
+- Prefer existing utilities in `saiUtils.py`, `saiDataLogger.py`, and `saiMQTTIngest.py`.
 - Keep logging lightweight; use `printDM` and existing debug flags.
 
 ### MQTT & DB conventions
-- Switch events should be written via `rPiDataLogger.log_switch_event`.
+- Switch events should be written via `saiDataLogger.log_switch_event`.
 - Use canonical switch keys: `<switch_id>::<channel_id>` when available.
 - Preserve legacy topics/payloads unless the user explicitly opts in to breaking changes.
 

@@ -1,10 +1,10 @@
 # sensor_modules/sensor_aqi.py
 import math
-from rPiUtils import printDM, debug_enabled
+from saiUtils import printDM, debug_enabled
 from sensor_modules.base import BaseSensor, find_sensor_bus
 
 MODULE = "AQISensor"
-DEBUG = debug_enabled("rPiSensorFactory")
+DEBUG = debug_enabled("saiSensorFactory")
 
 
 class AQISensor(BaseSensor):

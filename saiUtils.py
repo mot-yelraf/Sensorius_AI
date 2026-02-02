@@ -35,24 +35,24 @@ if DEBUGLOG:
         root_logger.addHandler(file_handler)
 
 # Optional: adjust specific module log levels
-logger = logging.getLogger("rPiUtils")
+logger = logging.getLogger("saiUtils")
 logger.setLevel(logging.DEBUG)  # or INFO
 
 # Define which modules have debug enabled
-DEBUG_MODULES = set()  # e.g., {"ALL"} or {"rPiSensor", "rPiWebRoutes", "rPiHtml"}
-DEBUG_MODULES = {"rPiSensorius", "rPiSensor", "rPiMQTTIngest", "rPiHtml", "rPiSwitch", "rPiWebRoutes"}
+DEBUG_MODULES = set()  # e.g., {"ALL"} or {"saiSensor", "saiWebRoutes", "saiHtml"}
+DEBUG_MODULES = {"Sensorius", "saiSensor", "saiMQTTIngest", "saiHtml", "saiSwitch", "saiWebRoutes"}
 
 async def supervised_task(name, coro_func, supervisor):
     try:
         await coro_func()
     except asyncio.CancelledError:
-        printDM(f"[{name}] Task was cancelled", location="rPiSupervisor")
+        printDM(f"[{name}] Task was cancelled", location="saiSupervisor")
         raise  # important: re-raise to allow proper shutdown
     except Exception as e:
-        printDM(f"[{name}] Task crashed: {e}", location="rPiSupervisor")
+        printDM(f"[{name}] Task crashed: {e}", location="saiSupervisor")
     finally:
         if supervisor:
-            printDM(f"[{name}] Marking watchdog as fed with error", location="rPiSupervisor")
+            printDM(f"[{name}] Marking watchdog as fed with error", location="saiSupervisor")
             supervisor.feedthedogs(name, error=True)
 
 def debug_enabled(module_name: str) -> bool:
@@ -106,13 +106,13 @@ def mdns_hostname(name: str | None) -> str:
 def get_timestamp(include_microseconds: bool = True) -> str:
     """
     Return an ISO8601 local timestamp with timezone offset.
-    Defaults to microsecond precision to match rPiDataLogger defaults.
+    Defaults to microsecond precision to match saiDataLogger defaults.
     """
     # Prefer the app setting (same source the logger uses)
     tzname = None
     try:
-        from rPiSettings import rPiSettings
-        _settings = rPiSettings(apply_live=False)
+        from saiSettings import saiSettings
+        _settings = saiSettings(apply_live=False)
         tzname = (_settings.get_setting("Time", "TZ")
                   or _settings.get_setting("Time", "tz"))
     except Exception:

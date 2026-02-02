@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timedelta
 
 # ===== User-configurable =====
-DB_PATH: str = r"/home/twfarley/rPiSensoria/sensor_data.db"
+DB_PATH: str = r"/home/twfarley/saiSensorius/sensor_data.db"
 RECENT_ROWS_PER_SENSOR: int = 5
 HOURS_FOR_STATS: int = 24
 SHOW_SWITCH_TRANSITIONS_SINCE_HOURS: int = 24

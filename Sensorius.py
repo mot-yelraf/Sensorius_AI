@@ -10,22 +10,22 @@ hub on Raspberry Pi hardware.
 import asyncio
 from threading import Thread
 import socket
-from rPiUtils import printDM, debug_enabled
-from rPiSensor import SensorController
-from rPiMQTTClient import rPiMQTTClient, set_mqtt_client
-from rPiTaskSupervisor import TaskSupervisor
-from rPiGarbageCollection import GCManager
-from rPiWebServer import WebServerController, launch_webview
-from rPiWatchdog import WatchdogMonitor
-from rPiMQTTIngest import rPiMQTTIngest
-from rPiSettings import rPiSettings
-from rPiSensorSettingsManager import SensorSettingsManager
-from rPiUtils import SettingsWrapper
-from rPiSensorFactory import find_sensors
-from rPiSwitchFactory import detect_relay_board
+from saiUtils import printDM, debug_enabled
+from saiSensor import SensorController
+from saiMQTTClient import saiMQTTClient, set_mqtt_client
+from saiTaskSupervisor import TaskSupervisor
+from saiGarbageCollection import GCManager
+from saiWebServer import WebServerController, launch_webview
+from saiWatchdog import WatchdogMonitor
+from saiMQTTIngest import saiMQTTIngest
+from saiSettings import saiSettings
+from saiSensorSettingsManager import SensorSettingsManager
+from saiUtils import SettingsWrapper
+from saiSensorFactory import find_sensors
+from saiSwitchFactory import detect_relay_board
 import webview
 
-MODULE = "rPiSensorius"
+MODULE = "Sensorius"
 DEBUG = debug_enabled(MODULE)
 
 # helpers for determining all (directly and/or remote mqtt clients) devices
@@ -133,12 +133,12 @@ async def build_switch_controllers(sensors, supervisor):
     if not detect_relay_board():
         return switch_controllers
 
-    from rPiSwitchSettingsManager import SwitchSettingsManager
-    from rPiSwitch import SwitchController
+    from saiSwitchSettingsManager import SwitchSettingsManager
+    from saiSwitch import SwitchController
 
     # create switch.toml if needed
     switch_mgr = SwitchSettingsManager(base_dir="switch_settings")
-    device_id = rPiSettings().device_id  # this class already resolves hostname
+    device_id = saiSettings().device_id  # this class already resolves hostname
     switch_mgr.ensure_host_switch(device_id, template_id="factory", switch_loc="Unknown")
 
     switch_ids = switch_mgr.list_switches()
@@ -229,16 +229,16 @@ def seed_switch_state_history_once(data_logger, switch_controllers):
                 printDM(
                     f"[seed_switch_state_history_once] seeded {db_key} "
                     f"(label={sid}::{label}) = {state_text}",
-                    location="rPiSensorius",
+                    location="Sensorius",
                 )
 
     except Exception as e:
-        printDM(f"[seed_switch_state_history_once] failed: {e}", location="rPiSensorius")
+        printDM(f"[seed_switch_state_history_once] failed: {e}", location="Sensorius")
         
 async def configure_mqtt_clients(sensors, settings, supervisor):
     clients = []
     for sensor in sensors:
-        client = rPiMQTTClient(sensor, settings)
+        client = saiMQTTClient(sensor, settings)
         client.supervisor = supervisor
         set_mqtt_client(sensor.sensor_id, client)
         clients.append(client)
@@ -275,7 +275,7 @@ async def main():
         names.add(f"{socket.gethostname().lower()}.local")
         try:
             # optional: if you have a net manager exposing hostname
-            from rPiNet import rPiNetManager
+            from saiNet import rPiNetManager
             hn = rPiNetManager().hostname
             if hn:
                 names.add(hn.lower())
@@ -286,13 +286,13 @@ async def main():
 
     supervisor = TaskSupervisor()
     gc_mgr = GCManager(interval_sec=31, supervisor=supervisor)
-    settings = rPiSettings()
+    settings = saiSettings()
 
-    from rPiNet import rPiNetManager
+    from saiNet import rPiNetManager
     net_mgr = rPiNetManager()
 
-    from rPiDataLogger import rPiDataLogger
-    data_logger = rPiDataLogger()
+    from saiDataLogger import saiDataLogger
+    data_logger = saiDataLogger()
 
     # Build local sensors only if we actually have any
     sensor_ids = await ensure_local_sensor_ids(settings)
@@ -321,7 +321,7 @@ async def main():
     try:
         hub_hostname = settings.get_setting("Network", "HOSTNAME", "") or ""
         if not hub_hostname:
-            from rPiNet import rPiNetManager
+            from saiNet import rPiNetManager
             hub_hostname = rPiNetManager().hostname or ""
         hub_hostname = hub_hostname.strip().lower()
     except Exception:
@@ -362,17 +362,17 @@ async def main():
     except Exception:
         pass
 
-    import rPiWebRoutes
+    import saiWebRoutes
     
 
     # make them available to the routes module
-    rPiWebRoutes.sensor_map = sensor_map
-    rPiWebRoutes.switch_controllers = switch_controllers
-    rPiWebRoutes.data_logger = data_logger
+    saiWebRoutes.sensor_map = sensor_map
+    saiWebRoutes.switch_controllers = switch_controllers
+    saiWebRoutes.data_logger = data_logger
 
     # (optional but nice) also put them on the FastAPI app for future-proof access
     try:
-        from rPiWebRoutes import app  # if your app lives there
+        from saiWebRoutes import app  # if your app lives there
         app.state.sensor_map = sensor_map
         app.state.switch_controllers = switch_controllers
     except Exception:
@@ -384,7 +384,7 @@ async def main():
     if sensor_map:
         mqtt_clients = await configure_mqtt_clients(sensor_map, settings, supervisor)
 
-        from rPiUtils import supervised_task
+        from saiUtils import supervised_task
         for client in mqtt_clients:
             await ensure_mqtt_ready(client)
             await asyncio.sleep(3)
@@ -415,7 +415,7 @@ async def main():
             printDM("No local sensors → no local MQTT publishers configured.", location=f"{MODULE}:main")
 
     # --- MQTT Ingest (always allowed; discovers/subscribes to remote devices) ---
-    mqtt_ingest_clients = rPiMQTTIngest(
+    mqtt_ingest_clients = saiMQTTIngest(
         broker,
         mqtt_clients=settings.get_all_clients(),  # hostnames for discovery; ok if empty
         supervisor=supervisor,
@@ -424,7 +424,7 @@ async def main():
     )
     # Make it globally discoverable for switch fallbacks / web routes / etc.
     try:
-        from rPiMQTTIngest import set_current_ingest
+        from saiMQTTIngest import set_current_ingest
         set_current_ingest(mqtt_ingest_clients)
     except Exception:
         pass
@@ -436,7 +436,7 @@ async def main():
         ha_enabled = bool(settings.get_setting("HomeAssistant", "ENABLED", False))
 
         if ha_enabled and broker:
-            from rPiHomeAssistantMqtt import rPiHomeAssistantBridge, HomeAssistantTopicMap
+            from saiHomeAssistantMqtt import rPiHomeAssistantBridge, HomeAssistantTopicMap
 
             topic_map = HomeAssistantTopicMap(
                 node_id=(settings.get_setting("Network", "HOSTNAME") or socket.gethostname() or "sensorius").strip().lower(),
@@ -470,7 +470,7 @@ async def main():
     supervisor.add(WatchdogMonitor, supervisor, name="Watchdog Monitor")
     supervisor.add(gc_mgr.run, name="GC Manager")
     
-    from rPiUtils import loop_lag_monitor
+    from saiUtils import loop_lag_monitor
     asyncio.create_task(loop_lag_monitor())
 
     # --- Local sensor data collection (optional) ---

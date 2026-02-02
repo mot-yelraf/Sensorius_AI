@@ -1,15 +1,15 @@
 """Sensor factory for creating concrete sensor backends from settings.
 
 Flow:
-1) rPiSensorSettingsManager loads per-sensor TOML into a SettingsWrapper.
-2) rPiSensorFactory reads the settings and instantiates the correct sensor class.
-3) rPiSensor wraps the created sensor in a controller that runs the read loop
+1) saiSensorSettingsManager loads per-sensor TOML into a SettingsWrapper.
+2) saiSensorFactory reads the settings and instantiates the correct sensor class.
+3) saiSensor wraps the created sensor in a controller that runs the read loop
    and logs values to the shared data logger.
 """
 
 import importlib
 import time
-from rPiUtils import printDM, debug_enabled
+from saiUtils import printDM, debug_enabled
 from dataclasses import dataclass
 from typing import Optional
 try:
@@ -18,7 +18,7 @@ try:
 except Exception:
     ExtI2C = None
 
-MODULE = "rPiSensorFactory"
+MODULE = "saiSensorFactory"
 DEBUG = debug_enabled(MODULE)
 
 # Map device key -> (module path, class name) for create_sensor
@@ -37,7 +37,7 @@ SENSOR_MODULES = {
 def create_sensor(settings, supervisor):
     """
     Construct sensor instance purely from [Sensor].DEVICE.
-    detection happens before this call, in rPiSensorius.ensure_local_sensor_ids.
+    detection happens before this call, in Sensorius.ensure_local_sensor_ids.
     """
     device = (settings.get_setting("Sensor", "DEVICE", "") or "").strip().lower()
 
@@ -139,7 +139,7 @@ def find_sensors(known_used: Optional[dict[str, set[int]]] = None) -> list[Devic
         if _probe_soil_rs485():
             found.append(DeviceDescriptor("soil", None, ()))
     except Exception as e:
-        printDM(f"RS485 probe skipped/failed: {e}", location="rPiSensorFactory")
+        printDM(f"RS485 probe skipped/failed: {e}", location="saiSensorFactory")
 
     if DEBUG:
         printDM(f"found: {found}", location=f"{MODULE}.find_sensors")
@@ -164,7 +164,7 @@ def _scan_pi_i2c_busses():
         finally:
             i2c1.unlock()
     except Exception as e:
-        printDM(f"i2c-1 scan failed: {e}", location="rPiSensorFactory")
+        printDM(f"i2c-1 scan failed: {e}", location="saiSensorFactory")
     finally:
         try:
             if i2c1: i2c1.deinit()
@@ -182,7 +182,7 @@ def _scan_pi_i2c_busses():
             finally:
                 i2c0.unlock()
         except Exception as e:
-            printDM(f"i2c-0 scan failed: {e}", location="rPiSensorFactory")
+            printDM(f"i2c-0 scan failed: {e}", location="saiSensorFactory")
         finally:
             try:
                 i2c0.deinit()
@@ -190,7 +190,7 @@ def _scan_pi_i2c_busses():
                 pass
 
     _last_scan = {"i2c-1": addrs1, "i2c-0": addrs0}
-    printDM(f"I2C scan summary: i2c-1={sorted(addrs1)} i2c-0={sorted(addrs0)}", location="rPiSensorFactory")
+    printDM(f"I2C scan summary: i2c-1={sorted(addrs1)} i2c-0={sorted(addrs0)}", location="saiSensorFactory")
     return _last_scan
 
 def _read_chip_id(bus_name: str, addr: int) -> Optional[int]:

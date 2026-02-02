@@ -1,4 +1,4 @@
-"""rPiHomeAssistantMqtt.py
+"""saiHomeAssistantMqtt.py
     HomeAssistantTopMap and rPiHomeAssistantBridge classes for integrating Sensorius AI 
     with the Home Assistant (HA) dot io (open source project).
 
@@ -12,11 +12,11 @@ import asyncio
 import time
 from datetime import datetime, timezone
 from typing import Any
-from rPiUtils import printDM, debug_enabled
+from saiUtils import printDM, debug_enabled
 import re
 from dataclasses import dataclass
 
-MODULE = "rPiHomeAssistantMqtt"
+MODULE = "saiHomeAssistantMqtt"
 DEBUG = debug_enabled(MODULE)
 
 # module helpers
@@ -113,7 +113,7 @@ class rPiHomeAssistantBridge:
         if not self.enabled:
             return
         from collections import defaultdict
-        from rPiSensorSettingsManager import SensorSettingsManager
+        from saiSensorSettingsManager import SensorSettingsManager
 
         if DEBUG:
             printDM("Publishing HA discovery from DataLogger", location=MODULE)
@@ -327,7 +327,7 @@ class rPiHomeAssistantBridge:
 
     def _filter_metrics_for_sensor(self, sensor_id: str, values: dict) -> dict:
         try:
-            from rPiSensorSettingsManager import SensorSettingsManager
+            from saiSensorSettingsManager import SensorSettingsManager
             sensor_mgr = SensorSettingsManager("sensor_settings")
             display_metrics = sensor_mgr.get_display_metrics(sensor_id) or []
         except Exception:
@@ -340,7 +340,7 @@ class rPiHomeAssistantBridge:
         if not self.enabled or not metrics:
             return
         try:
-            from rPiSensorSettingsManager import SensorSettingsManager
+            from saiSensorSettingsManager import SensorSettingsManager
             sensor_mgr = SensorSettingsManager("sensor_settings")
             sensor_name = sensor_mgr.get_setting(sensor_id, "Sensor.SENSOR_ID", sensor_id) or sensor_id
             location = sensor_mgr.get_setting(sensor_id, "Sensor.LOCATION", None)

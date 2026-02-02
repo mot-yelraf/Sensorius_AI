@@ -2,7 +2,7 @@
 
 Provides fast load/save/update of sensor_settings/<sensor_id>/sensor.toml and
 is the source of truth for the sensor factory + controller pipeline:
-settings -> rPiSensorFactory -> rPiSensor.
+settings -> saiSensorFactory -> saiSensor.
 """
 from __future__ import annotations
 
@@ -17,9 +17,9 @@ try:
 except Exception:
     tomllib = None
 
-from rPiUtils import debug_enabled, printDM
+from saiUtils import debug_enabled, printDM
 
-MODULE = "rPiSensorSettingsManager"
+MODULE = "saiSensorSettingsManager"
 DEBUG = debug_enabled(MODULE)
 
 

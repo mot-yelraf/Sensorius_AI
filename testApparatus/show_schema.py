@@ -1,7 +1,7 @@
 import sqlite3
 from collections import defaultdict
 
-db_path = r"/home/twfarley/rPiSensoriusHA/sensorius_data.db"
+db_path = r"/home/twfarley/saiSensoriusHA/sensorius_data.db"
 
 def table_exists(conn, table_name: str) -> bool:
     cur = conn.cursor()
@@ -153,7 +153,7 @@ with sqlite3.connect(db_path) as conn:
 import logging
 
 # ——— user-defined (top) ———
-database_path: str = r"/home/twfarley/rPiSensoriusHA/sensorius_data.db"  # override if needed
+database_path: str = r"/home/twfarley/saiSensoriusHA/sensorius_data.db"  # override if needed
 show_per_metric: bool = True   # set False to skip per-metric ranges
 per_metric_limit: int = 50     # safety cap for metrics per sensor
 per_switch_limit: int = 200    # safety cap for switch keys
