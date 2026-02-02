@@ -138,12 +138,84 @@ class AutomationManager:
         except Exception:
             return {"found": False, "enabled": False, "rule_id": None}
 
+    def get_advanced_state_for_switch_key(self, hostname: str, switch_key: str) -> dict:
+        """
+        Aggregate Advanced rule state for a switch_key across *all* matching rules.
+        """
+        key = (switch_key or "").strip()
+        if not key:
+            return {
+                "found": False,
+                "rule_count": 0,
+                "enabled_count": 0,
+                "enabled_any": False,
+                "enabled_all": False,
+                "rule_ids": [],
+            }
+
+        try:
+            data = self.load(hostname) or {}
+            adv = (data.get(SECTION_ADV) or {})
+            import json as _json
+
+            rule_ids: list[str] = []
+            enabled_count = 0
+
+            for rule_id, rule in adv.items():
+                if not isinstance(rule, dict):
+                    continue
+
+                script_json = rule.get("script_json", "")
+                try:
+                    script = _json.loads(str(script_json))
+                except Exception:
+                    continue
+
+                actions = script.get("actions") or []
+                found_here = False
+                for act in actions:
+                    try:
+                        sk = (act.get("switch_key") or "").strip()
+                    except AttributeError:
+                        continue
+                    if sk == key:
+                        found_here = True
+                        break
+
+                if not found_here:
+                    continue
+
+                rule_ids.append(str(rule_id))
+                if bool(rule.get("enabled", False)):
+                    enabled_count += 1
+
+            rule_count = len(rule_ids)
+            found = rule_count > 0
+            return {
+                "found": found,
+                "rule_count": rule_count,
+                "enabled_count": enabled_count,
+                "enabled_any": enabled_count > 0,
+                "enabled_all": found and enabled_count == rule_count,
+                "rule_ids": rule_ids,
+            }
+        except Exception:
+            return {
+                "found": False,
+                "rule_count": 0,
+                "enabled_count": 0,
+                "enabled_any": False,
+                "enabled_all": False,
+                "rule_ids": [],
+            }
+
     def get_advanced_enabled_for_switch_key(self, hostname: str, switch_key: str) -> bool:
         """
-        Convenience: return the 'enabled' flag for the Advanced rule associated with switch_key.
+        Convenience: aggregate enabled state for switch_key.
+        True when any matching Advanced rule is enabled.
         """
-        info = self.get_advanced_rule_for_switch_key(hostname, switch_key)
-        return bool(info.get("enabled", False)) if info and info.get("found") else False
+        state = self.get_advanced_state_for_switch_key(hostname, switch_key)
+        return bool(state.get("enabled_any", False))
 
     def set_advanced_enabled_for_switch_key(self, hostname: str, switch_key: str, enabled: bool) -> bool:
         """

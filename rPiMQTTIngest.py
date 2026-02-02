@@ -1909,9 +1909,26 @@ class rPiMQTTIngest:
                 label_norm = _norm_label(channel_label)
                 channel_id = self.nodus_label_to_channel.get((str(switch_id), label_norm))
 
+            # Fallback: derive channel_id from DB switch_ids mapping
+            if not channel_id:
+                try:
+                    target_sid = str(switch_id or "").strip().lower()
+                    target_label = str(channel_label or "").strip().lower()
+                    for row in (self.data_logger.get_switch_identities() or []):
+                        rsid = str(row.get("switch_id", "")).strip().lower()
+                        rlab = str(row.get("label", "")).strip().lower()
+                        if rsid == target_sid and rlab == target_label:
+                            sk = str(row.get("switch_key", "")).strip()
+                            if "::" in sk:
+                                channel_id = sk.split("::", 1)[1].strip()
+                                break
+                except Exception:
+                    channel_id = None
+
             if channel_id:
                 topic = (self.nodus_switch_command_topics.get((switch_id, channel_id))
-                         or self.nodus_channel_command_topics.get(channel_id))
+                         or self.nodus_channel_command_topics.get(channel_id)
+                         or f"nodus/{channel_id}/set")
             else:
                 topic = None
 

@@ -640,6 +640,77 @@ class SwitchController:
         Fast “do we have anything to evaluate?” check with mtime caching.
         True if we have in-memory script rules OR enabled automations.toml rules.
         """
+        def _sync_overrides_from_triggers(triggers: dict) -> None:
+            """
+            Keep per-channel override flags aligned with Advanced rule enabled state.
+            If any Advanced rule targeting a label is enabled -> override False.
+            If rules exist for label and all are disabled -> override True.
+            """
+            try:
+                adv = triggers.get("Advanced") or {}
+                if not isinstance(adv, dict):
+                    return
+
+                # Build map: label -> {"found": bool, "enabled_any": bool}
+                state_map: dict[str, dict] = {}
+                import json as _json
+
+                for _rid, rule in adv.items():
+                    if not isinstance(rule, dict):
+                        continue
+                    enabled = bool(rule.get("enabled", False))
+                    script_json = rule.get("script_json", "")
+                    try:
+                        script = _json.loads(str(script_json))
+                    except Exception:
+                        continue
+                    actions = script.get("actions") or []
+                    for act in actions:
+                        try:
+                            sk = (act.get("switch_key") or "").strip()
+                        except AttributeError:
+                            continue
+                        if not sk or "::" not in sk:
+                            continue
+                        sid_part, lbl_part = sk.split("::", 1)
+                        if (sid_part or "").strip().lower() != str(self.switch_id).strip().lower():
+                            continue
+                        label = (lbl_part or "").strip()
+                        if not label:
+                            continue
+                        slot = state_map.setdefault(label, {"found": False, "enabled_any": False})
+                        slot["found"] = True
+                        if enabled:
+                            slot["enabled_any"] = True
+
+                if not state_map:
+                    return
+
+                from rPiSwitchSettingsManager import SwitchSettingsManager
+                mgr = SwitchSettingsManager("switch_settings")
+                for label, st in state_map.items():
+                    # Compute desired override value
+                    desired_override = False if st.get("enabled_any") else True
+                    # Only apply if we have a matching channel index
+                    idx = None
+                    try:
+                        idx = self.get_channel_index(label)
+                    except Exception:
+                        idx = None
+                    if not idx:
+                        ordered = list(self.get_switch_names() or [])
+                        lbl_lower = (label or "").strip().lower()
+                        idx = next((i + 1 for i, nm in enumerate(ordered) if (nm or "").strip().lower() == lbl_lower), None)
+                    if not idx:
+                        continue
+
+                    current_override = bool(self.override_script.get(label, False))
+                    if current_override != desired_override:
+                        mgr.update_setting(self.switch_id, f"SWITCH_{idx}_OVERRIDE_SCRIPT", desired_override)
+                        self.override_script[label] = desired_override
+            except Exception:
+                pass
+
         # in-memory JSON scripts counted as rules
         if getattr(self, "script_rules", None):
             if any(self.script_rules.values()):
@@ -663,6 +734,7 @@ class SwitchController:
                 triggers = self._load_triggers_dict()
                 enabled  = self._has_enabled_rules_from_triggers(triggers)
                 self._rules_cache.update({"mtime": mtime, "enabled": enabled})
+                _sync_overrides_from_triggers(triggers)
                 if DEBUG:
                     printDM(f"[rules] automations.toml mtime changed; enabled={enabled}", location=MODULE)
                     printDM(f"{self.switch_id}: [rules] path={triggers_path} mtime changed; enabled={enabled}", location=MODULE)

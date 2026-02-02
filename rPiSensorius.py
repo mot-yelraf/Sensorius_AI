@@ -492,6 +492,9 @@ async def main():
 
     # Web server can run with zero local sensors; it will still show MQTT-discovered devices via ingest
     web_server = WebServerController(settings, net_mgr, supervisor, gc_mgr, mqtt_ingest_clients)
+    # make ingest available to request.app.state for /retry-discovery
+    web_server.app.state.mqtt_ingest = mqtt_ingest_clients
+    
     await web_server.initialize_server()
     await web_server.run_async()
 

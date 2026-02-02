@@ -7,11 +7,32 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 # Setup basic logger configuration
+LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
+DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
+    format=LOG_FORMAT,
+    datefmt=DATE_FORMAT
 )
+
+# Toggle file logging. Set True to write sensorius.log.
+DEBUGLOG = True
+LOG_FILE = "sensorius.log"
+
+if DEBUGLOG:
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    for handler in root_logger.handlers:
+        handler.setLevel(logging.INFO)
+    if not any(
+        isinstance(handler, logging.FileHandler)
+        and getattr(handler, "baseFilename", "").endswith(LOG_FILE)
+        for handler in root_logger.handlers
+    ):
+        file_handler = logging.FileHandler(LOG_FILE)
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT))
+        root_logger.addHandler(file_handler)
 
 # Optional: adjust specific module log levels
 logger = logging.getLogger("rPiUtils")
@@ -162,7 +183,7 @@ def get_time_settings():
 
 
 # tools/loop_lag_monitor.py
-async def loop_lag_monitor(name="loop_lag", period=0.5, warn_over=0.25):
+async def loop_lag_monitor(name="loop_lag", period=0.5, warn_over=1.25):
     last = time.perf_counter()
     while True:
         await asyncio.sleep(period)

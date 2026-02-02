@@ -94,11 +94,31 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     def _resolve_channel_id_from_label(switch_id: str, label: str) -> str | None:
         try:
             if not mqtt_ingest:
-                return None
+                raise Exception("mqtt_ingest missing")
             norm_label = (label or "").strip().lower()
-            return (mqtt_ingest.nodus_label_to_channel or {}).get((str(switch_id), norm_label))
+            hit = (mqtt_ingest.nodus_label_to_channel or {}).get((str(switch_id), norm_label))
+            if hit:
+                return hit
+        except Exception:
+            pass
+
+        # Fallback: use DB switch_ids table (label -> channel_id derived from switch_key)
+        try:
+            if not data_logger:
+                return None
+            target_sid = (switch_id or "").strip().lower()
+            target_label = (label or "").strip().lower()
+            for row in (data_logger.get_switch_identities() or []):
+                sid = str(row.get("switch_id", "")).strip().lower()
+                lab = str(row.get("label", "")).strip().lower()
+                if sid == target_sid and lab == target_label:
+                    sk = str(row.get("switch_key", "")).strip()
+                    if "::" in sk:
+                        return sk.split("::", 1)[1].strip()
         except Exception:
             return None
+
+        return None
 
     @router.get("/", response_class=HTMLResponse)
     async def current_data_page(request: Request, sensor_id: str = Query(None), json_only: bool = Query(False)):
@@ -1295,6 +1315,68 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     async def how_are_you_doing():
         _status = "ok"
         return {"STATUS": _status}
+
+    @router.get("/debug/switch-controllers", response_class=JSONResponse)
+    async def debug_switch_controllers():
+        """
+        Return the currently registered switch controllers (debug only).
+        """
+        try:
+            out = []
+            sc = globals().get("switch_controllers")
+            if isinstance(sc, dict):
+                for k, ctrl in sc.items():
+                    out.append({
+                        "key": k,
+                        "switch_id": getattr(ctrl, "switch_id", None),
+                        "location": getattr(ctrl, "location", None),
+                        "labels": list(getattr(ctrl, "get_switch_names", lambda: [])() or []),
+                        "is_present": bool(getattr(ctrl, "is_present", False)),
+                    })
+            elif sc:
+                out.append({
+                    "key": None,
+                    "switch_id": getattr(sc, "switch_id", None),
+                    "location": getattr(sc, "location", None),
+                    "labels": list(getattr(sc, "get_switch_names", lambda: [])() or []),
+                    "is_present": bool(getattr(sc, "is_present", False)),
+                })
+            return {"count": len(out), "items": out}
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    @router.get("/debug/automation-state", response_class=JSONResponse)
+    async def debug_automation_state(
+        switch_id: str = Query(...),
+        label: str = Query(...),
+    ):
+        """
+        Debug helper to inspect Advanced automation enabled state for a switch/label.
+        """
+        try:
+            from rPiAutomationManager import AutomationManager
+            sid = (switch_id or "").strip()
+            lbl = (label or "").strip()
+            switch_key = f"{sid}::{lbl}" if sid and lbl else ""
+            mgr = AutomationManager("switch_settings")
+            path = mgr._path_for_hostname(sid) if sid else None
+            data = mgr.load(sid) if sid else {}
+            adv = (data.get("Advanced") or {}) if isinstance(data, dict) else {}
+
+            state = mgr.get_advanced_state_for_switch_key(sid, switch_key) if switch_key else {}
+
+            return {
+                "switch_id": sid,
+                "label": lbl,
+                "switch_key": switch_key,
+                "path": str(path) if path else None,
+                "path_exists": bool(path and path.exists()),
+                "mtime": path.stat().st_mtime if path and path.exists() else None,
+                "advanced_rules": adv,
+                "computed_state": state,
+            }
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
 
     # ws client subscribes with job_id
     @router.websocket("/ws/onboard/{job_id}")
@@ -4910,6 +4992,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     @router.post("/advanced/automations/enable", response_class=JSONResponse)
     async def api_enable_advanced_automation(
+        request: Request,
         switch_id: str = Form(...),
         rule_id: str = Form(...),
         enabled: str = Form("true"),  # accept str, coerce below
@@ -4919,6 +5002,113 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             truthy = str(enabled).strip().lower() in {"1", "true", "on", "yes"}
             mgr = AutomationManager("switch_settings")
             ok = mgr.set_rule_enabled(switch_id, section="Advanced", rule_id=rule_id, enabled=truthy)
+            if ok:
+                data = mgr.load(switch_id) or {}
+                adv = (data.get("Advanced") or {})
+                payload = adv.get(rule_id) if isinstance(adv, dict) else None
+                switch_keys: set[str] = set()
+                if isinstance(payload, dict):
+                    script_json = payload.get("script_json", "")
+                    try:
+                        script = json.loads(str(script_json))
+                        for action in (script.get("actions") or []):
+                            if not isinstance(action, dict):
+                                continue
+                            switch_key = (action.get("switch_key") or "").strip()
+                            if switch_key:
+                                switch_keys.add(switch_key)
+                    except Exception:
+                        pass
+
+                # Sync per-channel override flags based on aggregate enabled state
+                try:
+                    switch_mgr = SwitchSettingsManager("switch_settings")
+                    for switch_key in switch_keys:
+                        state = mgr.get_advanced_state_for_switch_key(switch_id, switch_key)
+                        eff_enabled = bool(state.get("enabled_any", False))
+                        label = switch_key.split("::", 1)[1] if "::" in switch_key else switch_key
+                        sid = switch_key.split("::", 1)[0] if "::" in switch_key else switch_id
+                        label_lower = (label or "").strip().lower()
+                        # Resolve channel index for SWITCH_n_OVERRIDE_SCRIPT
+                        channel_index = None
+                        try:
+                            ordered = switch_mgr.get_switch_channel_names(sid)
+                            channel_index = next(
+                                (i + 1 for i, nm in enumerate(ordered) if (nm or "").strip().lower() == label_lower),
+                                None,
+                            )
+                        except Exception:
+                            channel_index = None
+                        if sid and not channel_index:
+                            try:
+                                doc = switch_mgr.load(sid) or {}
+                                sw_map = doc.get("Switch") or {}
+                                for k, v in sw_map.items():
+                                    if not str(k).startswith("SWITCH_"):
+                                        continue
+                                    parts = str(k).split("_")
+                                    if len(parts) != 2 or not parts[1].isdigit():
+                                        continue
+                                    if str(v).strip().lower() == label_lower:
+                                        channel_index = int(parts[1])
+                                        break
+                            except Exception:
+                                channel_index = None
+                        if sid and not channel_index:
+                            try:
+                                channel_id = None
+                                for row in (data_logger.get_switch_identities() or []):
+                                    if str(row.get("switch_id", "")).strip().lower() != str(sid).strip().lower():
+                                        continue
+                                    if str(row.get("label", "")).strip().lower() != label_lower:
+                                        continue
+                                    sk = str(row.get("switch_key", "")).strip()
+                                    if "::" in sk:
+                                        channel_id = sk.split("::", 1)[1].strip()
+                                        break
+                                if channel_id:
+                                    doc = switch_mgr.load(sid) or {}
+                                    sw_map = doc.get("Switch") or {}
+                                    for k, v in sw_map.items():
+                                        if not str(k).startswith("SWITCH_") or not str(k).endswith("_ID"):
+                                            continue
+                                        parts = str(k).split("_")
+                                        if len(parts) != 3 or not parts[1].isdigit():
+                                            continue
+                                        if str(v).strip() == channel_id:
+                                            channel_index = int(parts[1])
+                                            break
+                            except Exception:
+                                channel_index = None
+                        if sid and channel_index:
+                            override_val = (not eff_enabled)
+                            switch_mgr.update_setting(sid, f"SWITCH_{channel_index}_OVERRIDE_SCRIPT", override_val)
+                            try:
+                                sc = globals().get("switch_controllers")
+                                if isinstance(sc, dict):
+                                    for ctrl in sc.values():
+                                        if getattr(ctrl, "switch_id", None) == sid:
+                                            if isinstance(getattr(ctrl, "override_script", None), dict):
+                                                ctrl.override_script[label] = override_val
+                                elif sc and getattr(sc, "switch_id", None) == sid:
+                                    if isinstance(getattr(sc, "override_script", None), dict):
+                                        sc.override_script[label] = override_val
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
+                if hasattr(request.app.state, "switch_broadcast"):
+                    for switch_key in switch_keys:
+                        state = mgr.get_advanced_state_for_switch_key(switch_id, switch_key)
+                        label = switch_key.split("::", 1)[1] if "::" in switch_key else switch_key
+                        sid = switch_key.split("::", 1)[0] if "::" in switch_key else switch_id
+                        await request.app.state.switch_broadcast({
+                            "type": "automation_toggle",
+                            "switch_id": sid,
+                            "label": label,
+                            "enabled": bool(state.get("enabled_any", False)),
+                        })
             return {"ok": bool(ok)}
         except Exception as exc:
             printDM(f"/advanced/automations/enable error: {exc}", location="rPiWebRoutes")
@@ -4926,13 +5116,42 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     @router.post("/advanced/automations/delete", response_class=JSONResponse)
     async def api_delete_advanced_automation(
+        request: Request,
         switch_id: str = Form(...),
         rule_id: str = Form(...),
     ):
         from rPiAutomationManager import AutomationManager
         try:
             mgr = AutomationManager("switch_settings")
+            data = mgr.load(switch_id) or {}
+            adv = (data.get("Advanced") or {})
+            payload = adv.get(rule_id) if isinstance(adv, dict) else None
+            switch_keys: set[str] = set()
+            if isinstance(payload, dict):
+                script_json = payload.get("script_json", "")
+                try:
+                    script = json.loads(str(script_json))
+                    for action in (script.get("actions") or []):
+                        if not isinstance(action, dict):
+                            continue
+                        switch_key = (action.get("switch_key") or "").strip()
+                        if switch_key:
+                            switch_keys.add(switch_key)
+                except Exception:
+                    pass
+
             ok = mgr.delete_rule(switch_id, section="Advanced", rule_id=rule_id)
+            if ok and hasattr(request.app.state, "switch_broadcast"):
+                for switch_key in switch_keys:
+                    state = mgr.get_advanced_state_for_switch_key(switch_id, switch_key)
+                    label = switch_key.split("::", 1)[1] if "::" in switch_key else switch_key
+                    sid = switch_key.split("::", 1)[0] if "::" in switch_key else switch_id
+                    await request.app.state.switch_broadcast({
+                        "type": "automation_toggle",
+                        "switch_id": sid,
+                        "label": label,
+                        "enabled": bool(state.get("enabled_any", False)),
+                    })
             return {"ok": bool(ok)}
         except Exception as exc:
             printDM(f"/advanced/automations/delete error: {exc}", location="rPiWebRoutes")
@@ -5250,6 +5469,118 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 save_triggers(settings_mgr, switch_id, data)
 
             printDM(f"[{MODULE}] Saved Advanced trigger {rule_id} -> {final_rule_id} for {switch_id}", location=MODULE)
+            # Invalidate rules cache for the matching switch controller so it reloads immediately.
+            try:
+                sc = globals().get("switch_controllers")
+                if isinstance(sc, dict):
+                    for ctrl in sc.values():
+                        if getattr(ctrl, "switch_id", None) == switch_id:
+                            if hasattr(ctrl, "_rules_cache") and isinstance(ctrl._rules_cache, dict):
+                                ctrl._rules_cache["mtime"] = None
+                elif sc and getattr(sc, "switch_id", None) == switch_id:
+                    if hasattr(sc, "_rules_cache") and isinstance(sc._rules_cache, dict):
+                        sc._rules_cache["mtime"] = None
+            except Exception:
+                pass
+
+            # If enabled, ensure override_script is cleared for targeted channels.
+            try:
+                if enabled:
+                    switch_mgr = SwitchSettingsManager("switch_settings")
+                    payload = None
+                    try:
+                        data = load_triggers(settings_mgr, switch_id) or {}
+                        adv = (data.get("Advanced") or {})
+                        payload = adv.get(final_rule_id) if isinstance(adv, dict) else None
+                    except Exception:
+                        payload = None
+
+                    switch_keys: set[str] = set()
+                    if isinstance(payload, dict):
+                        script_json = payload.get("script_json", "")
+                        try:
+                            script = json.loads(str(script_json))
+                            for action in (script.get("actions") or []):
+                                if not isinstance(action, dict):
+                                    continue
+                                switch_key = (action.get("switch_key") or "").strip()
+                                if switch_key:
+                                    switch_keys.add(switch_key)
+                        except Exception:
+                            pass
+
+                    for switch_key in switch_keys:
+                        label = switch_key.split("::", 1)[1] if "::" in switch_key else switch_key
+                        sid = switch_key.split("::", 1)[0] if "::" in switch_key else switch_id
+                        label_lower = (label or "").strip().lower()
+                        channel_index = None
+                        try:
+                            ordered = switch_mgr.get_switch_channel_names(sid)
+                            channel_index = next(
+                                (i + 1 for i, nm in enumerate(ordered) if (nm or "").strip().lower() == label_lower),
+                                None,
+                            )
+                        except Exception:
+                            channel_index = None
+                        if sid and not channel_index:
+                            try:
+                                doc = switch_mgr.load(sid) or {}
+                                sw_map = doc.get("Switch") or {}
+                                for k, v in sw_map.items():
+                                    if not str(k).startswith("SWITCH_"):
+                                        continue
+                                    parts = str(k).split("_")
+                                    if len(parts) != 2 or not parts[1].isdigit():
+                                        continue
+                                    if str(v).strip().lower() == label_lower:
+                                        channel_index = int(parts[1])
+                                        break
+                            except Exception:
+                                channel_index = None
+                        if sid and channel_index:
+                            switch_mgr.update_setting(sid, f"SWITCH_{channel_index}_OVERRIDE_SCRIPT", False)
+            except Exception:
+                pass
+
+            # Broadcast updated automation state so UI button reflects enabled/disabled without refresh.
+            try:
+                app = request.app
+                if hasattr(app.state, "switch_broadcast"):
+                    from rPiAutomationManager import AutomationManager
+                    mgr = AutomationManager("switch_settings")
+                    try:
+                        data = mgr.load(switch_id) or {}
+                        adv = (data.get("Advanced") or {}) if isinstance(data, dict) else {}
+                        payload = adv.get(final_rule_id) if isinstance(adv, dict) else None
+                    except Exception:
+                        payload = None
+
+                    switch_keys: set[str] = set()
+                    if isinstance(payload, dict):
+                        script_json = payload.get("script_json", "")
+                        try:
+                            script = json.loads(str(script_json))
+                            for action in (script.get("actions") or []):
+                                if not isinstance(action, dict):
+                                    continue
+                                switch_key = (action.get("switch_key") or "").strip()
+                                if switch_key:
+                                    switch_keys.add(switch_key)
+                        except Exception:
+                            pass
+
+                    for switch_key in switch_keys:
+                        state = mgr.get_advanced_state_for_switch_key(switch_id, switch_key)
+                        label = switch_key.split("::", 1)[1] if "::" in switch_key else switch_key
+                        sid = switch_key.split("::", 1)[0] if "::" in switch_key else switch_id
+                        await app.state.switch_broadcast({
+                            "type": "automation_toggle",
+                            "switch_id": sid,
+                            "label": label,
+                            "enabled": bool(state.get("enabled_any", False)),
+                        })
+            except Exception:
+                pass
         except Exception as e:
             printDM(f"[{MODULE}] ⚠️ Failed to save Advanced trigger {rule_id} for {switch_id}: {e}", location=MODULE)
             return HTMLResponse("<h3>Failed saving Advanced trigger.</h3><a href='/'>Return</a>", status_code=500)
@@ -5311,9 +5642,63 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         events = _format_events(db_key, sensor_lineage, limit=5)
                         states[ui_key] = {"state": latest_bool, "time": events}
 
-            # --- B) Remote Pico2 W / Nodus switches via MQTT cache ---
-            # mqtt_ingest._switch_state_cache: { switch_id: { channel_label: "on"/"off" } }
+            # --- B) Remote Pico2 W / Nodus switches ---
+            # Prefer DB identities (authoritative mapping), then fall back to MQTT cache.
             cache = getattr(mqtt_ingest, "_switch_state_cache", {}) or {}
+
+            # Resolve a canonical DB key for a (switch_id, label) pair, using switch_ids table if present.
+            def _db_key_for_label(sid: str, label: str) -> str:
+                try:
+                    if data_logger:
+                        target_sid = (sid or "").strip().lower()
+                        target_label = (label or "").strip().lower()
+                        for row in (data_logger.get_switch_identities() or []):
+                            rsid = str(row.get("switch_id", "")).strip().lower()
+                            rlab = str(row.get("label", "")).strip().lower()
+                            if rsid == target_sid and rlab == target_label:
+                                sk = str(row.get("switch_key", "")).strip()
+                                if sk:
+                                    return sk
+                except Exception:
+                    pass
+                # fallback to existing resolver (may use mqtt_ingest map)
+                try:
+                    return _switch_key(sid, label)
+                except Exception:
+                    return f"{sid}::{label}"
+
+            # 1) Seed states from DB identities (authoritative mapping)
+            seen_ui_keys: set[str] = set()
+            try:
+                for row in (data_logger.get_switch_identities() or []):
+                    sid = str(row.get("switch_id", "")).strip()
+                    label = str(row.get("label", "")).strip()
+                    db_key = str(row.get("switch_key", "")).strip()
+                    if not (sid and label and db_key):
+                        continue
+
+                    ui_key = f"{sid}::{label}"
+                    latest = data_logger.get_latest_switch_state(db_key)
+                    # If DB has nothing yet, fall back to cache (label or channel_id)
+                    if latest is None:
+                        human_state = ""
+                        try:
+                            human_state = (cache.get(sid, {}) or {}).get(label, "")
+                            if not human_state and "::" in db_key:
+                                ch_id = db_key.split("::", 1)[1]
+                                human_state = (cache.get(sid, {}) or {}).get(ch_id, "")
+                        except Exception:
+                            human_state = ""
+                        latest_bool = (str(human_state).lower() == "on")
+                    else:
+                        latest_bool = (latest == "On")
+
+                    events = _format_events(db_key, None, limit=5)
+                    states[ui_key] = {"state": latest_bool, "time": events}
+                    seen_ui_keys.add(ui_key)
+            except Exception:
+                pass
+
             for remote_switch_id, ch_map in cache.items():
                 if not isinstance(ch_map, dict):
                     continue
@@ -5321,13 +5706,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 for channel_label, human_state in ch_map.items():
                     # UI key is still label-based
                     ui_key = f"{remote_switch_id}::{channel_label}"
+                    if ui_key in seen_ui_keys:
+                        continue
 
-                    # DB key is ID-based when available
-                    db_key = _switch_key(remote_switch_id, channel_label)
+                    # DB key: prefer switch_ids mapping for label → channel_id
+                    db_key = _db_key_for_label(remote_switch_id, channel_label)
 
-                    latest = data_logger.get_latest_switch_state(db_key, sensor_id=sensor_lineage)
+                    # For remote MQTT switches, prefer the latest DB row regardless of sensor_id.
+                    # UI-originated rows often have empty sensor_id, which would otherwise be ignored.
+                    latest = data_logger.get_latest_switch_state(db_key)
                     latest_bool = (latest == "On") if latest is not None else (str(human_state).lower() == "on")
-                    events = _format_events(db_key, sensor_lineage, limit=5)
+                    events = _format_events(db_key, None, limit=5)
                     states[ui_key] = {"state": latest_bool, "time": events}
 
             return JSONResponse(states)
@@ -5603,6 +5992,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         switch_key=db_key,
                         is_on=bool(new_state),
                         source="ui",
+                        sensor_id=f"Switch_{sid}",
                     )
             except Exception as e:
                 printDM(f"[toggle_switch] failed to log sw_event for {matched_label}: {e}", location=MODULE)
@@ -5694,6 +6084,49 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if sid:
                     ordered = switch_mgr.get_switch_channel_names(sid)  # ['Fan','Light',...]
                     channel_index = next((i + 1 for i, nm in enumerate(ordered) if (nm or '').strip().lower() == label_lower), None)
+                # Fallback: parse switch.toml directly if needed
+                if sid and not channel_index:
+                    try:
+                        doc = switch_mgr.load(sid) or {}
+                        sw_map = doc.get("Switch") or {}
+                        for k, v in sw_map.items():
+                            if not str(k).startswith("SWITCH_"):
+                                continue
+                            parts = str(k).split("_")
+                            if len(parts) != 2 or not parts[1].isdigit():
+                                continue
+                            if str(v).strip().lower() == label_lower:
+                                channel_index = int(parts[1])
+                                break
+                    except Exception:
+                        channel_index = None
+                # Fallback: map label -> channel_id from switch_ids, then match SWITCH_n_ID
+                if sid and not channel_index:
+                    try:
+                        channel_id = None
+                        for row in (data_logger.get_switch_identities() or []):
+                            if str(row.get("switch_id", "")).strip().lower() != sid.lower():
+                                continue
+                            if str(row.get("label", "")).strip().lower() != label_lower:
+                                continue
+                            sk = str(row.get("switch_key", "")).strip()
+                            if "::" in sk:
+                                channel_id = sk.split("::", 1)[1].strip()
+                                break
+                        if channel_id:
+                            doc = switch_mgr.load(sid) or {}
+                            sw_map = doc.get("Switch") or {}
+                            for k, v in sw_map.items():
+                                if not str(k).startswith("SWITCH_") or not str(k).endswith("_ID"):
+                                    continue
+                                parts = str(k).split("_")
+                                if len(parts) != 3 or not parts[1].isdigit():
+                                    continue
+                                if str(v).strip() == channel_id:
+                                    channel_index = int(parts[1])
+                                    break
+                    except Exception:
+                        channel_index = None
             except Exception as e:
                 printDM(f"[override_switch] failed resolving channel index: {e}", location=MODULE)
                 channel_index = None
@@ -5714,8 +6147,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     # No matching Advanced rule for this switch_key -> report to client
                     return JSONResponse({"error": "automation_rule_not_found"}, status_code=404)
 
+                agg_state = am.get_advanced_state_for_switch_key(sid, switch_key_full)
+                effective_rule_enabled = bool(agg_state.get("enabled_any", False))
+
                 # 2) Update switch.toml override to the inverse of rule.enabled
-                override_value = (not desired_rule_enabled)
+                override_value = (not effective_rule_enabled)
                 if sid and channel_index:
                     switch_mgr.update_setting(sid, f"SWITCH_{channel_index}_OVERRIDE_SCRIPT", override_value)
 
@@ -5737,9 +6173,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if hasattr(app.state, "switch_broadcast"):
                     await app.state.switch_broadcast({
                         "type": "automation_toggle",
-                        "switch_id": switch_id_q,
+                        "switch_id": sid,
                         "label": matched_label,
-                        "enabled": bool(desired_rule_enabled),
+                        "enabled": bool(effective_rule_enabled),
                     })
             except Exception as e:
                 printDM(f"[override_switch] broadcast failed: {e}", location=MODULE)
@@ -5747,8 +6183,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # Return both states so UI can reflect the RULE state
             return {
                 "status": "ok",
-                "enabled": desired_rule_enabled,
-                "override": (not desired_rule_enabled),
+                "enabled": effective_rule_enabled,
+                "override": (not effective_rule_enabled),
             }
 
         except Exception as e:

@@ -621,7 +621,7 @@ window.initAdvancedAutomationModal = async function (modalEl) {
       loadSelectedIntoForm(modalRoot);
     };
     if (btnAdd)  btnAdd.onclick  = () => addCondition(modalRoot, { type:"sensor" });
-    if (btnSave) btnSave.onclick = () => saveCurrent(modalRoot).then(()=>alert("Saved.")).catch(e=>alert(e.message));
+    if (btnSave) btnSave.onclick = () => saveCurrent(modalRoot).catch(e=>alert(e.message));
     if (btnDel)  btnDel.onclick  = () => deleteSelected(modalRoot);
     if (btnOk)   btnOk.onclick   = () => {
       const bd = (modalRoot.closest?.(".modal-backdrop") || scope.closest?.(".modal-backdrop") || scope);
@@ -643,6 +643,5 @@ window.initAdvancedAutomationModal = async function (modalEl) {
     return false; // never throw to caller
   }
 };
-
 
 

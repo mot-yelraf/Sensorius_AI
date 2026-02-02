@@ -774,7 +774,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 yield (
                     f'<button '
                     f'  id="{safe_key}_btn" '
-                    f'  class="button {"green" if enabled else "black"}" '
+                    f'  class="button automation-enabled-btn {"green" if enabled else "black"}" '
+                    f'  data-switch-id="{getattr(switch_ctrl, "switch_id", "")}" '
+                    f'  data-label="{label_norm}" '
                     f'  title="Enable/Disable automation for {label_norm}" '
                     f'  onclick="toggleAutomation(this, {json.dumps(getattr(switch_ctrl, "switch_id", ""))!s}, {json.dumps(label_norm)!s}); return false;">'
                     f'{"Enabled" if enabled else "Disabled"}'
@@ -2016,10 +2018,15 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "          const swId  = msg.switch_id || '';"
     yield "          const label = msg.label || '';"
     yield "          const q = label"
-    yield "            ? `[data-switch-id=\"${swId}\"][data-label=\"${label}\"]`"
-    yield "            : `[data-switch-id=\"${swId}\"]`;"
-    yield "          const chk = document.querySelector(`${q} input[type=\"checkbox\"].auto-enabled`);"
-    yield "          if (chk) { chk.checked = !!msg.enabled; }"
+    yield "            ? `.automation-enabled-btn[data-switch-id=\"${swId}\"][data-label=\"${label}\"]`"
+    yield "            : `.automation-enabled-btn[data-switch-id=\"${swId}\"]`;"
+    yield "          const btn = document.querySelector(q);"
+    yield "          if (btn) {"
+    yield "            const ruleEnabled = !!msg.enabled;"
+    yield "            btn.textContent = ruleEnabled ? 'Enabled' : 'Disabled';"
+    yield "            btn.classList.toggle('green', ruleEnabled);"
+    yield "            btn.classList.toggle('black', !ruleEnabled);"
+    yield "          }"
     yield "        }"
     yield "      } catch(e){ console.warn('Bad WS payload', e); }"
     yield "    };"

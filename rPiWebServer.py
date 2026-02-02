@@ -81,6 +81,8 @@ class WebServerController:
         from rPiWebRoutes import register_routes
 
         await register_routes(self.app, self.settings, self.net_mgr, self.gc_mgr, self.mqtt_ingest)
+        # Make ingest accessible to routes that use request.app.state.mqtt_ingest.
+        self.app.state.mqtt_ingest = self.mqtt_ingest
         app = self.app
         @app.get("/favicon.ico")
         async def favicon_root():
