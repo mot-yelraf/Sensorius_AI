@@ -16,7 +16,7 @@ logging.basicConfig(
 )
 
 # Toggle file logging. Set True to write sensorius.log.
-DEBUGLOG = True
+DEBUGLOG = False
 LOG_FILE = "sensorius.log"
 
 if DEBUGLOG:
