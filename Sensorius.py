@@ -23,7 +23,6 @@ from saiSensorSettingsManager import SensorSettingsManager
 from saiUtils import SettingsWrapper
 from saiSensorFactory import find_sensors
 from saiSwitchFactory import detect_relay_board
-import webview
 
 MODULE = "Sensorius"
 DEBUG = debug_enabled(MODULE)
@@ -513,20 +512,43 @@ def run_main_thread():
 
 if __name__ == "__main__":
     import os
+    import sys
 
     try:
         # Start backend system in a daemon thread
         main_thread = Thread(target=run_main_thread, daemon=True)
         main_thread.start()
 
-        if os.environ.get("DISPLAY"):
+        platform = sys.platform
+        is_macos = platform == "darwin"
+        is_linux = platform.startswith("linux")
+
+        gui_env = os.environ.get("SENSORIUS_GUI")
+        gui_env_normalized = gui_env.strip().lower() if gui_env else ""
+        gui_env_force_on = gui_env_normalized in {"1", "true", "yes", "on"}
+        gui_env_force_off = gui_env_normalized in {"0", "false", "no", "off"}
+
+        # On macOS, DISPLAY is not typically set; allow GUI by default.
+        # On Linux, require DISPLAY to avoid headless/TTY environments.
+        want_gui = is_macos or os.environ.get("DISPLAY")
+        if gui_env_force_on:
+            want_gui = True
+        elif gui_env_force_off:
+            want_gui = False
+
+        if want_gui:
             try:
                 window = asyncio.run(launch_webview(url="http://127.0.0.1:8000/", retries=10, delay=7.0))
                 if window:
                     try:
-                        webview.start(gui='gtk')  # try GTK; if it raises, we fall back to headless
+                        import webview
+                        gui_backend = "cocoa" if is_macos else ("gtk" if is_linux else None)
+                        if gui_backend:
+                            webview.start(gui=gui_backend)
+                        else:
+                            webview.start()
                     except Exception as e:
-                        printDM(f"webview.start(gtk) failed: {e} — continuing headless", location=f"{MODULE}:__main__")
+                        printDM(f"webview.start failed: {e} — continuing headless", location=f"{MODULE}:__main__")
                 else:
                     printDM("No webview window created — continuing headless", location=f"{MODULE}:__main__")
             except Exception as e:

@@ -112,7 +112,13 @@ class WebServerController:
         return getattr(self.server, "started", False)
 
 async def launch_webview(url: str = "http://127.0.0.1:8000", retries: int = 10, delay: float = 1.0):
-    import os, traceback, webview, httpx, asyncio
+    import os, sys, traceback, httpx, asyncio
+    try:
+        import webview
+    except Exception as e:
+        from saiUtils import printDM
+        printDM(f"pywebview not available: {e} — continuing headless", location="saiWebServer")
+        return None
     from urllib.parse import urljoin, urlencode, quote
     try:
         # Local imports to avoid boot-time cycles
@@ -122,8 +128,9 @@ async def launch_webview(url: str = "http://127.0.0.1:8000", retries: int = 10, 
         # tolerate early import issues; we'll just open base url
         SwitchSettingsManager = None
 
-    os.environ["GDK_BACKEND"] = "x11"
-    os.environ["DISPLAY"] = ":0"
+    if sys.platform.startswith("linux"):
+        os.environ["GDK_BACKEND"] = "x11"
+        os.environ["DISPLAY"] = ":0"
 
     if DEBUG:
         printDM("Launching webview...", location="saiWebServer")

@@ -84,7 +84,7 @@ Sensorius supports:
 
 ---
 
-## 🔢 6. setup.sh Instructions
+## 🔢 6. setup.sh Instructions (Raspberry Pi)
 
 Run `setup.sh` to prepare the Pi environment:
 
@@ -102,7 +102,64 @@ This script:
 
 ---
 
-## 🚀 7. Application Startup
+## 🍏 7. macOS Setup (Hub + MQTT Only)
+
+macOS runs Sensorius as an MQTT hub and web UI only. Directly connected sensors and GPIO are not supported on macOS.
+
+Use one of the macOS setup scripts:
+
+```bash
+chmod +x setup_mac.sh
+./setup_mac.sh
+```
+
+Or with `uv`:
+
+```bash
+chmod +x setup_mac_uv.sh
+./setup_mac_uv.sh
+```
+
+Notes:
+
+* These scripts install Python 3.13.5 and create a local `.venv`.
+* Mosquitto is installed and configured with anonymous access on port 1883.
+* GUI is optional. Set `SENSORIUS_GUI=0` to force headless mode.
+* If `pywebview` is not installed, Sensorius will continue headless.
+* Access the UI in a browser at `http://127.0.0.1:8000` (or `http://<host-ip>:8000` from another device).
+
+---
+
+## 🪟 8. Windows 11 Setup (Hub + MQTT Only)
+
+Windows runs Sensorius as an MQTT hub and web UI only. Directly connected sensors and GPIO are not supported on Windows.
+
+Use one of the Windows setup scripts (run in an elevated PowerShell):
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\setup_win11.ps1
+```
+
+Or with `uv`:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\setup_win11_uv.ps1
+```
+
+Notes:
+
+* These scripts use `winget` and require running PowerShell as Administrator.
+* Python 3.13.5 is installed via `pyenv-win` (pip script) or `uv` (uv script).
+* Mosquitto is installed and configured with anonymous access on port 1883.
+* GUI is optional. Set `SENSORIUS_GUI=0` to force headless mode.
+* If `pywebview` is not installed, Sensorius will continue headless.
+* Access the UI in a browser at `http://127.0.0.1:8000` (or `http://<host-ip>:8000` from another device).
+
+---
+
+## 🚀 9. Application Startup
 
 ### Manual Start
 
