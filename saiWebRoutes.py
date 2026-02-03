@@ -663,11 +663,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             since_iso = start_dt.replace(microsecond=0).isoformat()
             until_iso = end_dt.replace(microsecond=0).isoformat()
             span_seconds = int((end_dt - start_dt).total_seconds())
-            return since_iso, until_iso, span_seconds
+            return since_iso, until_iso, span_seconds, start_dt, end_dt
 
         # ----- time range (ALL in local offset, matching DB storage) -----
         try:
-            since_iso, until_iso, span_seconds = _compute_window(range, start, end)
+            since_iso, until_iso, span_seconds, since_dt, until_dt = _compute_window(range, start, end)
         except Exception as e:
             return JSONResponse({"error": f"Invalid time range: {e}"}, status_code=400)
 
@@ -693,7 +693,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             raise HTTPException(status_code=400, detail="No sensor/metric selections provided")
 
         # ----- helpers (use LOCAL OFFSET ISO window for SQL string compare) -----
-        def fetch_xy(cur, sid: str, metric_name: str):
+        def fetch_xy(cur, sid: str, metric_name: str, window_since_iso: str, window_until_iso: str):
             try:
                 #printDM(f"[{MODULE}] Query {sid}.{metric_name} {since_iso} → {until_iso} (DB local-offset ISO)", location=MODULE)
                 cur.execute(
@@ -706,7 +706,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     AND timestamp <= ?
                     ORDER BY timestamp ASC
                     """,
-                    (sid, metric_name, since_iso, until_iso)
+                    (sid, metric_name, window_since_iso, window_until_iso)
                 )
                 rows = cur.fetchall()
                 ts = [r[0] for r in rows]
@@ -718,15 +718,79 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # ----- data series -----
         series: dict[str, dict] = {}
+        rolling_24h: dict[str, dict] = {}
         display_names: dict[str, str] = {}
+        lookback_seconds = 24 * 3600
+        data_since_dt = since_dt - timedelta(seconds=lookback_seconds)
+        data_since_iso = data_since_dt.replace(microsecond=0).isoformat()
         with sqlite3.connect(db_path) as conn:
             cur = conn.cursor()
             for sid, metric_name in pairs:
-                ts, vs = fetch_xy(cur, sid, metric_name)
+                ts, vs = fetch_xy(cur, sid, metric_name, data_since_iso, until_iso)
                 key = f"{sid}::{metric_name}"
-                if ts and vs:
-                    series[key] = {"ts": ts, "vals": vs}
-                    display_names[key] = key
+                if not ts or not vs:
+                    continue
+
+                # --- compute rolling 24h average for visible window ---
+                try:
+                    from collections import deque
+
+                    def _parse_dt(ts_text: str) -> datetime | None:
+                        try:
+                            return datetime.fromisoformat(ts_text)
+                        except Exception:
+                            return None
+
+                    q: deque[tuple[datetime, float]] = deque()
+                    running_sum = 0.0
+                    running_count = 0
+                    out_ts: list[str] = []
+                    out_vals: list[float | None] = []
+                    vis_ts: list[str] = []
+                    vis_vals: list = []
+
+                    for idx, ts_text in enumerate(ts):
+                        dt = _parse_dt(ts_text)
+                        if dt is None:
+                            continue
+
+                        raw_val = vs[idx]
+                        try:
+                            fval = float(raw_val)
+                            is_num = True
+                        except Exception:
+                            fval = 0.0
+                            is_num = False
+
+                        if is_num:
+                            q.append((dt, fval))
+                            running_sum += fval
+                            running_count += 1
+
+                        cutoff = dt - timedelta(seconds=lookback_seconds)
+                        while q and q[0][0] < cutoff:
+                            _, old_val = q.popleft()
+                            running_sum -= old_val
+                            running_count -= 1
+
+                        if dt < since_dt or dt > until_dt:
+                            continue
+
+                        vis_ts.append(ts_text)
+                        vis_vals.append(raw_val)
+                        avg_val = (running_sum / running_count) if running_count > 0 else None
+                        out_ts.append(ts_text)
+                        out_vals.append(avg_val)
+
+                    if vis_ts:
+                        series[key] = {"ts": vis_ts, "vals": vis_vals}
+                        rolling_24h[key] = {"ts": out_ts, "vals": out_vals}
+                        display_names[key] = key
+                except Exception as e:
+                    printDM(f"[{MODULE}] rolling-avg error for {key}: {e}", location=MODULE)
+                    if ts and vs:
+                        series[key] = {"ts": ts, "vals": vs}
+                        display_names[key] = key
 
         if not series:
             first = pairs[0]
@@ -734,6 +798,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         response = {
             "series": series,
+            "rolling_24h": rolling_24h,
             "display_names": display_names,
             "axis_titles": {
                 "y1": list(series.keys())[0] if series else "Left",

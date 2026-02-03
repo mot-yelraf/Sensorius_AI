@@ -1,7 +1,9 @@
 ## Copilot Instructions (Sensorius)
 
 ### Project context
-- This project runs on a Raspberry Pi (Linux, systemd).
+- This project is cross-platform (Raspberry Pi, macOS, Windows, Linux).
+- It was originally designed for Raspberry Pi; only the Pi supports directly connected sensors/relay hardware.
+- All platforms support Nodus (MQTT) sensors and switches.
 - Prefer changes that are safe for low-power / low-RAM devices.
 - Use absolute paths when referring to on-device files.
 
@@ -19,6 +21,14 @@
 - Switch events should be written via `saiDataLogger.log_switch_event`.
 - Use canonical switch keys: `<switch_id>::<channel_id>` when available.
 - Preserve legacy topics/payloads unless the user explicitly opts in to breaking changes.
+
+### Home Assistant integration (workflow)
+- Sensorius publishes MQTT discovery/config via the Home Assistant bridge.
+- Typical flow: configure broker + HA settings → start MQTT ingest → HA bridge advertises entities → HA controls/observes via MQTT topics.
+- Prefer non-breaking changes to discovery payloads and entity IDs; preserve existing topics unless explicitly asked to change them.
+
+### Collaboration intent
+- Act as a high-functioning lab partner: propose meaningful improvements, surface risks, and offer practical next steps.
 
 ### Safety
 - Don’t run destructive commands without explicit user request.

@@ -1391,6 +1391,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const seriesObj = chosen[1] || {};"
     yield "    const labels = seriesObj.ts || [];"
     yield "    const values = seriesObj.vals || [];"
+    yield "    const rollingAll = (jsonData && jsonData.rolling_24h) || {};"
+    yield "    const rollingObj = (rollingAll && rollingAll[chosen[0]]) || {};"
+    yield "    const rollingTs = rollingObj.ts || [];"
+    yield "    const rollingVals = rollingObj.vals || [];"
     yield ""
     yield "    if (!values.length) {"
     yield "      return;"
@@ -1430,6 +1434,37 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      chartOptions.scales.y.max = 5.0;"
     yield "    }"
     yield ""
+    yield "    function _alignRolling(labels, rollingTs, rollingVals){"
+    yield "      if (!labels.length || !rollingTs.length || !rollingVals.length) return [];"
+    yield "      if (labels.length === rollingVals.length) return rollingVals;"
+    yield "      const map = new Map();"
+    yield "      for (let i = 0; i < rollingTs.length; i++){"
+    yield "        map.set(rollingTs[i], rollingVals[i]);"
+    yield "      }"
+    yield "      return labels.map(ts => map.has(ts) ? map.get(ts) : null);"
+    yield "    }"
+    yield ""
+    yield "    const alignedRolling = _alignRolling(labels, rollingTs, rollingVals);"
+    yield "    const hasRolling = alignedRolling.length === labels.length && alignedRolling.some(v => v !== null && v !== undefined);"
+    yield ""
+    yield "    const datasets = [{"
+    yield "      data: values,"
+    yield "      borderColor: '#00bfff',"
+    yield "      backgroundColor: 'rgba(255,255,255,1)',"
+    yield "      pointRadius: 0,"
+    yield "      tension: 0.3"
+    yield "    }];"
+    yield ""
+    yield "    if (hasRolling) {"
+    yield "      datasets.push({"
+    yield "        data: alignedRolling,"
+    yield "        borderColor: 'purple',"
+    yield "        borderDash: [6, 3],"
+    yield "        pointRadius: 0,"
+    yield "        tension: 0.3"
+    yield "      });"
+    yield "    }"
+    yield ""
     yield "    let chart = chartMap.get(canvas);"
     yield "    if (!chart) {"
     yield "      const ctx = canvas.getContext('2d');"
@@ -1437,26 +1472,14 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "        type: 'line',"
     yield "        data: {"
     yield "          labels: labels,"
-    yield "          datasets: [{"
-    yield "            data: values,"
-    yield "            borderColor: '#00bfff',"
-    yield "            backgroundColor: 'rgba(255,255,255,1)',"
-    yield "            pointRadius: 0,"
-    yield "            tension: 0.3"
-    yield "          }]"
+    yield "          datasets: datasets"
     yield "        },"
     yield "        options: chartOptions"
     yield "      });"
     yield "      chartMap.set(canvas, chart);"
     yield "    } else {"
     yield "      chart.data.labels = labels;"
-    yield "      if (chart.data.datasets && chart.data.datasets.length > 0) {"
-    yield "        chart.data.datasets[0].data = values;"
-    yield "      } else {"
-    yield "        chart.data.datasets = [{"
-    yield "          data: values"
-    yield "        }];"
-    yield "      }"
+    yield "      chart.data.datasets = datasets;"
     yield "      chart.update();"
     yield "    }"
     yield ""
@@ -2958,8 +2981,10 @@ def render_graph_modal(switch_installed=None):
 
       const datasets = [];
       const series = (data && data.series) || {};
+      const rollingAll = (data && data.rolling_24h) || {};
       const keys = Object.keys(series || {});
       let leftAssigned = false;
+      const baseColors = ['#1f77b4', '#2ca02c', '#7f3fbf'];
 
       keys.forEach(function(k, idx){
         const entry = series[k] || {};
@@ -2976,14 +3001,40 @@ def render_graph_modal(switch_installed=None):
         const yAxisID = leftAssigned ? 'y2' : 'y1';
         if (!leftAssigned) leftAssigned = true;
 
+        const baseColor = baseColors[idx % baseColors.length];
         datasets.push({
           label: (data.display_names && data.display_names[k]) || k,
           data: points,
-          borderColor: (idx === 0 ? 'blue' : (idx === 1 ? 'green' : 'purple')),
+          borderColor: baseColor,
           yAxisID: yAxisID,
           tension: 0.2,
           pointRadius: 0
         });
+
+        const roll = (rollingAll && rollingAll[k]) || {};
+        const rollTs = roll.ts || [];
+        const rollVals = roll.vals || [];
+        if (rollTs.length && rollVals.length){
+          const rollPoints = [];
+          for (let i = 0; i < rollTs.length; i++){
+            const x = toLocalMs(rollTs[i]);
+            const y = Number(rollVals[i]);
+            if (Number.isFinite(x) && Number.isFinite(y)){
+              rollPoints.push({ x: x, y: y });
+            }
+          }
+          if (rollPoints.length){
+            datasets.push({
+              label: ((data.display_names && data.display_names[k]) || k) + " (24h avg)",
+              data: rollPoints,
+              borderColor: 'purple',
+              borderDash: [6, 3],
+              yAxisID: yAxisID,
+              tension: 0.2,
+              pointRadius: 0
+            });
+          }
+        }
       });
 
       function isVPDLabel(s){
