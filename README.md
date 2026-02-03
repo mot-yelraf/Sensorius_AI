@@ -1,15 +1,15 @@
 # Sensorius
 
 **Environmental Sensing + Automation Hub**
-Sensorius is a modular, Python-based Raspberry Pi system for managing environmental sensors and controlling relays via MQTT. It features a real-time web dashboard, automated onboarding for new devices, and robust data logging and visualization.
+Sensorius is a modular, Python-based Raspberry Pi system for managing environmental sensors and controlling relays via MQTT. It features a real-time web dashboard, automated onboarding for new devices, and robust data logging and visualization. Sensorius can be set up on Raspberry Pi (with directly connected sensors), macOS, Windows 10/11, and Linux using Nodus sensors and switches.
 
 ---
 
-## 📌 1. Program Description
+## 1. Program Description
 
 Sensorius supports:
 
-* Onboarding of Wi-Fi connected sensors and switches using the Pico W
+* Onboarding of Wi-Fi connected sensors and switches using the Pico 2 W (required for Nodus)
 * MQTT-based communication between sensors/switches and the Pi hub
 * Data logging into a local SQLite database
 * A FastAPI web UI for dashboards, graphs, and device configuration
@@ -17,7 +17,7 @@ Sensorius supports:
 
 ---
 
-## 🏗️ 2. Program Architecture
+## 2. Program Architecture
 
 ```
                      +------------------------+
@@ -27,25 +27,25 @@ Sensorius supports:
                          |            |
                 +--------+            +--------+
                 |                              |
-         +--------------+              +---------------+
-         | PicoW Sensor |              | PicoW Switch   |
-         |  (e.g. CO2)  |              |  IoT Relay     |
-         +--------------+              +---------------+
+         +----------------+            +----------------+
+         | Nodus Sensor   |            | Nodus Switch   |
+         |  (e.g. CO2)    |            |  IoT Relay     |
+         +----------------+            +----------------+
                 |                              |
-            MQTT pub                        MQTT pub (future)
+            MQTT pub                        MQTT pub 
 ```
 
 ---
 
-## ♻️ 3. Program Flow
+## 3. Program Flow
 
-### Sensor Onboarding (Pico W)
+### Sensor Onboarding (Pico 2 W)
 
-1. PicoW boots into AP mode: `Sensor_Setup`
+1. Pico 2 W boots into AP mode: `Sensor_Setup`
 2. Pi connects via `connect_and_configure_sensor.py`
 3. Fetches `/itaot` to get hostname and topic
 4. Pushes Wi-Fi + sensor config as JSON
-5. PicoW reboots and publishes data to Pi MQTT broker
+5. Pico 2 W reboots and publishes data to Pi MQTT broker
 
 ### Switch Onboarding
 
@@ -65,13 +65,13 @@ Sensorius supports:
 | `saiSwitchFactory.py`             | Detects relays, wraps GPIO output control     |
 | `saiTaskSupervisor.py`            | Supervises and restarts async tasks           |
 | `saiWatchdog.py`                  | Monitors heartbeats and exits on timeout      |
-| `connect_and_configure_sensor.py` | Automates onboarding for PicoW sensors        |
-| `connect_and_configure_switch.py` | Onboards switch-only PicoW devices            |
+| `connect_and_configure_sensor.py` | Automates onboarding for Pico 2 W sensors     |
+| `connect_and_configure_switch.py` | Onboards switch-only Pico 2 W devices         |
 | `settings_switch.toml`            | Sample configuration for onboarded switch     |
 
 ---
 
-## 📊 5. GPIO Pin Assignments
+## 5. GPIO Pin Assignments
 
 | Purpose             | GPIO Pin | Physical Pin | Notes                                |
 | ------------------- | -------- | ------------ | ------------------------------------ |
@@ -84,7 +84,7 @@ Sensorius supports:
 
 ---
 
-## 🔢 6. setup.sh Instructions (Raspberry Pi)
+## 6. setup.sh Instructions (Raspberry Pi)
 
 Run `setup.sh` to prepare the Pi environment:
 
@@ -102,7 +102,7 @@ This script:
 
 ---
 
-## 🍏 7. macOS Setup (Hub + MQTT Only)
+## 7. macOS Setup (Hub + MQTT Only)
 
 macOS runs Sensorius as an MQTT hub and web UI only. Directly connected sensors and GPIO are not supported on macOS.
 
@@ -130,7 +130,7 @@ Notes:
 
 ---
 
-## 🪟 8. Windows 11 Setup (Hub + MQTT Only)
+## 8. Windows 11 Setup (Hub + MQTT Only)
 
 Windows runs Sensorius as an MQTT hub and web UI only. Directly connected sensors and GPIO are not supported on Windows.
 
@@ -159,7 +159,7 @@ Notes:
 
 ---
 
-## 🚀 9. Application Startup
+## 9. Application Startup
 
 ### Manual Start
 
@@ -176,13 +176,13 @@ sudo systemctl start sensorius.service
 
 ---
 
-## 🌡️ 8. Supported Sensors & Metrics
+## 8. Supported Sensors & Metrics
 
 Each sensor defines its own `self.measurements` list, which determines the exact metrics written to the database. Each metric is timestamped and stored in `sensor_data.db`.
 
 ---
 
-### ✅ AQISensor (based on **BME680**)
+### AQISensor (based on **BME680**)
 
 * **I2C Bus**: I2C\_1 (GPIO2/SDA, GPIO3/SCL)
 * **Metrics Stored**:
@@ -197,7 +197,7 @@ Each sensor defines its own `self.measurements` list, which determines the exact
 
 ---
 
-### ✅ CO2Sensor (based on **SCD30**)
+### CO2Sensor (based on **SCD30** or **SCD4x**)
 
 * **I2C Bus**: I2C\_1 (GPIO2/SDA, GPIO3/SCL)
 * **Metrics Stored**:
@@ -211,7 +211,7 @@ Each sensor defines its own `self.measurements` list, which determines the exact
 
 ---
 
-### ✅ VPDSensor (based on **BME280**)
+### VPDSensor (based on **BME280**)
 
 * **I2C Bus**: I2C\_1 (GPIO2/SDA, GPIO3/SCL)
 * **Metrics Stored**:
@@ -225,7 +225,7 @@ Each sensor defines its own `self.measurements` list, which determines the exact
 
 ---
 
-### ✅ VPDPlantSensor (dual **BME280** on I2C\_1 and I2C\_0)
+### VPDPlantSensor (dual **BME280** on I2C\_1 and I2C\_0)
 
 * **I2C Buses**:
 
@@ -256,7 +256,7 @@ Each sensor defines its own `self.measurements` list, which determines the exact
 
 ---
 
-## 📜 9. Attribution
+## 9. Attribution
 
 * **System Architecture**: TW Farley
-* **Implementation and Coding**: TW Farley and ChatGPT
+* **Implementation and Coding**: TW Farley and ChatGPT/Codex
