@@ -718,9 +718,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # ----- data series -----
         series: dict[str, dict] = {}
-        rolling_24h: dict[str, dict] = {}
+        rolling_6h: dict[str, dict] = {}
         display_names: dict[str, str] = {}
-        lookback_seconds = 24 * 3600
+        lookback_seconds = 6 * 3600
         data_since_dt = since_dt - timedelta(seconds=lookback_seconds)
         data_since_iso = data_since_dt.replace(microsecond=0).isoformat()
         with sqlite3.connect(db_path) as conn:
@@ -784,7 +784,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
                     if vis_ts:
                         series[key] = {"ts": vis_ts, "vals": vis_vals}
-                        rolling_24h[key] = {"ts": out_ts, "vals": out_vals}
+                        rolling_6h[key] = {"ts": out_ts, "vals": out_vals}
                         display_names[key] = key
                 except Exception as e:
                     printDM(f"[{MODULE}] rolling-avg error for {key}: {e}", location=MODULE)
@@ -798,7 +798,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         response = {
             "series": series,
-            "rolling_24h": rolling_24h,
+            "rolling_6h": rolling_6h,
             "display_names": display_names,
             "axis_titles": {
                 "y1": list(series.keys())[0] if series else "Left",

@@ -1391,7 +1391,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const seriesObj = chosen[1] || {};"
     yield "    const labels = seriesObj.ts || [];"
     yield "    const values = seriesObj.vals || [];"
-    yield "    const rollingAll = (jsonData && jsonData.rolling_24h) || {};"
+    yield "    const rollingAll = (jsonData && jsonData.rolling_6h) || {};"
     yield "    const rollingObj = (rollingAll && rollingAll[chosen[0]]) || {};"
     yield "    const rollingTs = rollingObj.ts || [];"
     yield "    const rollingVals = rollingObj.vals || [];"
@@ -2981,7 +2981,7 @@ def render_graph_modal(switch_installed=None):
 
       const datasets = [];
       const series = (data && data.series) || {};
-      const rollingAll = (data && data.rolling_24h) || {};
+      const rollingAll = (data && data.rolling_6h) || {};
       const keys = Object.keys(series || {});
       let leftAssigned = false;
       const baseColors = ['#1f77b4', '#2ca02c', '#7f3fbf'];
@@ -3025,7 +3025,7 @@ def render_graph_modal(switch_installed=None):
           }
           if (rollPoints.length){
             datasets.push({
-              label: ((data.display_names && data.display_names[k]) || k) + " (24h avg)",
+              label: ((data.display_names && data.display_names[k]) || k) + " (6h avg)",
               data: rollPoints,
               borderColor: 'purple',
               borderDash: [6, 3],
