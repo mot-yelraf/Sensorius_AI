@@ -1405,6 +1405,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ""
     yield "    const chartOptions = {"
     yield "      responsive: false,"
+    yield "      animation: false,"
     yield "      plugins: {"
     yield "        legend: { display: false },"
     yield "        tooltip: { enabled: true },"
