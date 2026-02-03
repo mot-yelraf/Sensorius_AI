@@ -30,6 +30,7 @@ function Ensure-Winget {
     }
 
     Write-Host 'winget not found. It is required to install dependencies.'
+    Write-Host 'On Windows 10/11, winget is provided by the Microsoft Store "App Installer" package.'
     $answer = Read-Host 'Install winget now? [y/N]'
     if ($answer -notmatch '^[Yy]$') {
         Write-Host 'winget install declined. Aborting.'
@@ -42,15 +43,36 @@ function Ensure-Winget {
     exit 1
 }
 
-function Ensure-Uv {
-    if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-        Write-Host 'Installing uv via winget...'
-        winget install --id Astral.uv -e --accept-package-agreements --accept-source-agreements
+function Ensure-PyenvWin {
+    if (-not (Get-Command pyenv -ErrorAction SilentlyContinue)) {
+        Write-Host 'Installing pyenv-win via winget...'
+        winget install --id pyenv-win.pyenv-win -e --accept-package-agreements --accept-source-agreements
+    }
+
+    $pyenvRoot = Join-Path $HOME '.pyenv\pyenv-win'
+    $binPath = Join-Path $pyenvRoot 'bin'
+    $shimsPath = Join-Path $pyenvRoot 'shims'
+
+    if (-not ($env:Path -like "*$binPath*")) {
+        $env:Path = "$binPath;$shimsPath;$env:Path"
+    }
+
+    if (-not (Get-Command pyenv -ErrorAction SilentlyContinue)) {
+        Write-Host 'pyenv not available in this session. Please open a new PowerShell and re-run.'
+        Cleanup
+        exit 1
     }
 }
 
 function Install-Python {
-    uv python install $PY_VERSION
+    $installed = pyenv versions --bare | Where-Object { $_ -eq $PY_VERSION }
+    if (-not $installed) {
+        Write-Host "pyenv: installing Python $PY_VERSION (this may take a while)…"
+        pyenv install $PY_VERSION
+    }
+
+    Set-Location $ProjectDir
+    pyenv local $PY_VERSION
 }
 
 function Install-Requirements {
@@ -60,19 +82,22 @@ function Install-Requirements {
         exit 1
     }
 
-    uv venv $VenvPath --python $PY_VERSION
+    python -m venv $VenvPath
     $CreatedVenv = $true
 
-    $venvPython = Join-Path $VenvPath 'Scripts\python.exe'
+    $activate = Join-Path $VenvPath 'Scripts\Activate.ps1'
+    . $activate
+
+    python -m pip install --upgrade pip
 
     if ($InstallPywebview -eq '0') {
         Write-Host 'INSTALL_PYWEBVIEW=0 set — installing without pywebview.'
         $tmpReqs = New-TemporaryFile
         Get-Content $ReqFile | Where-Object { $_ -notmatch '^pywebview==' } | Set-Content $tmpReqs
-        uv pip install -r $tmpReqs --python $venvPython
+        python -m pip install -r $tmpReqs
         Remove-Item $tmpReqs
     } else {
-        uv pip install -r $ReqFile --python $venvPython
+        python -m pip install -r $ReqFile
     }
 }
 
@@ -115,7 +140,7 @@ allow_anonymous true
 try {
     Ensure-Admin
     Ensure-Winget
-    Ensure-Uv
+    Ensure-PyenvWin
     Install-Python
     Install-Requirements
     Ensure-WebView2Runtime

@@ -939,6 +939,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # Prepare values for the template (let Jinja handle escaping)
         hostname   = settings.get_setting("Network", "HOSTNAME", "") or ""
+        httpport   = settings.get_setting("Network", "HTTPPORT", 8000) or 8000
         broker     = settings.get_setting("SensorNetwork", "BROKER", "") or ""
         tz         = (
             settings.get_setting("Time", "TZ", "")
@@ -957,8 +958,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         ha_enabled = bool(settings.get_setting("HomeAssistant", "ENABLED", False))
         ha_username = settings.get_setting("HomeAssistant", "HA_USERNAME", "") or ""
         ha_password = settings.get_setting("HomeAssistant", "HA_PASSWORD", "") or ""
-        ha_broker = settings.get_setting("HomeAssistant", "BROKER", "") or ""
-        ha_port = settings.get_setting("HomeAssistant", "PORT", 1883) or 1883
+        ha_broker = (
+            settings.get_setting("HomeAssistant", "HA_BROKER", "")
+            or settings.get_setting("HomeAssistant", "BROKER", "")
+            or ""
+        )
+        ha_port = (
+            settings.get_setting("HomeAssistant", "HA_MQTTPORT", 1883)
+            or settings.get_setting("HomeAssistant", "PORT", 1883)
+            or 1883
+        )
 
         clients = settings.get_all_clients() or []
         client_list = "\n".join(clients)
@@ -968,6 +977,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             app_name_long=APP_NAME_LONG,
             app_version=APP_VERSION,
             hostname=hostname,
+            httpport=httpport,
             broker=broker,
             tz=tz,
             tz_offset=tz_offset,
@@ -2676,9 +2686,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         #settings.replace_setting("Network", "HOSTNAME", form.get("hostname", ""))
 
         settings.replace_setting("SensorNetwork", "BROKER", form.get("broker", ""))
-        client_lines = form.get("clients", "").splitlines()
-        client_list = [c.strip() for c in client_lines if c.strip()]
-        settings.replace_setting("SensorNetwork", "CLIENTS", client_list)
 
         settings.replace_setting("Time", "TZ", form.get("tz", ""))
         settings.replace_setting("Time", "TZ_OFFSET", int(form.get("tzOffset", 0)))
@@ -2709,8 +2716,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             port = 1883
 
         settings.replace_setting("HomeAssistant", "ENABLED", enabled)
-        settings.replace_setting("HomeAssistant", "BROKER", broker)
-        settings.replace_setting("HomeAssistant", "PORT", port)
+        settings.replace_setting("HomeAssistant", "HA_BROKER", broker)
+        settings.replace_setting("HomeAssistant", "HA_MQTTPORT", port)
         settings.replace_setting("HomeAssistant", "HA_USERNAME", username)
         settings.replace_setting("HomeAssistant", "HA_PASSWORD", password)
 

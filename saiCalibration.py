@@ -5,6 +5,8 @@ settings and coordinating calibration tasks used by the web UI and runtime.
 """
 import time
 import logging
+import statistics
+from bisect import bisect_left
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
 from saiSensor import get_sensor_controller
@@ -158,44 +160,6 @@ class CalibrationManager:
         self.sensor_mgr = sensor_mgr
         self._last_results: Dict[str, SystemCalResult] = {}
 
-    def _nearest_timestamp(
-        self,
-        target_ts: float,
-        candidates: List[float],
-        max_delta: float,
-    ) -> Optional[float]:
-        """
-        Return the candidate timestamp closest to target_ts within ±max_delta seconds.
-        If no candidate is within that window, return None.
-        """
-        if not candidates:
-            return None
-
-        best_ts: Optional[float] = None
-        best_delta = max_delta
-        for ts in candidates:
-            delta = abs(ts - target_ts)
-            if delta <= best_delta:
-                best_delta = delta
-                best_ts = ts
-
-        return best_ts
-
-    def _value_at_time(
-        self,
-        target_ts: float,
-        ts_list: List[float],
-        values: List[float],
-    ) -> Optional[float]:
-        """
-        Given a timestamp and parallel lists of timestamps/values, return the value
-        for an exact timestamp match. Used after _nearest_timestamp picks a ts.
-        """
-        for ts, val in zip(ts_list, values):
-            if ts == target_ts:
-                return val
-        return None
-
     def _mean_and_rms(self, diffs: List[float]) -> Tuple[float, float]:
         """
         Compute (mean, RMS) of a list of differences.
@@ -208,6 +172,63 @@ class CalibrationManager:
         sq = [(d - mean) ** 2 for d in diffs]
         rms = (sum(sq) / n) ** 0.5
         return mean, rms
+
+    def _interpolate_at(
+        self,
+        target_ts: float,
+        ts_list: List[float],
+        values: List[float],
+        max_delta: float,
+    ) -> Optional[float]:
+        """
+        Linear interpolation for target_ts using sorted ts_list/values.
+        Returns None if the nearest sample is farther than max_delta.
+        """
+        if not ts_list:
+            return None
+
+        idx = bisect_left(ts_list, target_ts)
+        if idx <= 0:
+            return values[0] if abs(ts_list[0] - target_ts) <= max_delta else None
+        if idx >= len(ts_list):
+            return values[-1] if abs(ts_list[-1] - target_ts) <= max_delta else None
+
+        t0 = ts_list[idx - 1]
+        t1 = ts_list[idx]
+        v0 = values[idx - 1]
+        v1 = values[idx]
+
+        nearest_delta = min(abs(target_ts - t0), abs(t1 - target_ts))
+        if nearest_delta > max_delta:
+            return None
+
+        if t1 == t0:
+            return v0
+
+        frac = (target_ts - t0) / (t1 - t0)
+        return v0 + (v1 - v0) * frac
+
+    def _filter_outliers_mad(self, values: List[float]) -> List[float]:
+        """
+        Remove outliers using a MAD-based modified z-score.
+        Falls back to original values if filtering becomes too aggressive.
+        """
+        if len(values) < 10:
+            return values
+
+        median = statistics.median(values)
+        abs_dev = [abs(v - median) for v in values]
+        mad = statistics.median(abs_dev)
+        if mad == 0:
+            return values
+
+        filtered: List[float] = []
+        for v in values:
+            z = 0.6745 * (v - median) / mad
+            if abs(z) <= 3.5:
+                filtered.append(v)
+
+        return filtered if len(filtered) >= MIN_PAIRS else values
 
     def get_calibratable_sensors(self) -> List[str]:
         sensor_ids = self.data_logger.get_available_sensors()
@@ -286,36 +307,40 @@ class CalibrationManager:
         if not sT_ts or not sRH_ts:
             raise RuntimeError("Insufficient data")
 
-        # naive nearest-neighbor; can be optimized later
+        # align via interpolation (per-metric); reject outliers before offsets
         temp_diffs: List[float] = []
         rh_diffs: List[float] = []
 
+        ref_RH_ts = [ts for ts, _ in ref_RH]
+        ref_RH_vals = [v for _, v in ref_RH]
+
         for t_ref, temp_ref in ref_T:
-            t_sensor = self._nearest_timestamp(t_ref, sT_ts, MAX_ALIGNMENT_DELTA)
-            if t_sensor is None:
+            temp_sensor = self._interpolate_at(t_ref, sT_ts, sT_vals, MAX_ALIGNMENT_DELTA)
+            if temp_sensor is None:
                 continue
-
-            temp_sensor = self._value_at_time(t_sensor, sT_ts, sT_vals)
-            rh_ref = self._value_at_time(t_ref, [ts for ts, _ in ref_RH], [v for _, v in ref_RH])
-            rh_sensor = self._value_at_time(t_sensor, sRH_ts, sRH_vals)
-            if temp_sensor is None or rh_ref is None or rh_sensor is None:
-                continue
-
             temp_diffs.append(temp_ref - temp_sensor)
+
+        for t_ref, rh_ref in zip(ref_RH_ts, ref_RH_vals):
+            rh_sensor = self._interpolate_at(t_ref, sRH_ts, sRH_vals, MAX_ALIGNMENT_DELTA)
+            if rh_sensor is None:
+                continue
             rh_diffs.append(rh_ref - rh_sensor)
 
-        if len(temp_diffs) < MIN_PAIRS or len(rh_diffs) < MIN_PAIRS:
+        temp_used = self._filter_outliers_mad(temp_diffs)
+        rh_used = self._filter_outliers_mad(rh_diffs)
+
+        if len(temp_used) < MIN_PAIRS or len(rh_used) < MIN_PAIRS:
             raise RuntimeError("Too few matched pairs")
 
-        temp_offset, temp_rms = self._mean_and_rms(temp_diffs)
-        rh_offset, rh_rms = self._mean_and_rms(rh_diffs)
+        temp_offset, temp_rms = self._mean_and_rms(temp_used)
+        rh_offset, rh_rms = self._mean_and_rms(rh_used)
 
         return SystemCalResult(
             temp_offset=temp_offset,
             rh_offset=rh_offset,
             temp_rms=temp_rms,
             rh_rms=rh_rms,
-            n_pairs=len(temp_diffs),
+            n_pairs=len(temp_used),
             ref_sensor_id=reference_id,
             start_ts=start_ts,
             end_ts=end_ts,

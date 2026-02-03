@@ -658,125 +658,14 @@ def fetch_switch_toml(endpoints: dict) -> Optional[tuple[str, str]]:
 def _toml_escape(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"')
 
-def _toml_join_list(str_list: List[str]) -> str:
-    inner = ", ".join(f"\"{_toml_escape(s)}\"" for s in str_list)
-    return f"[{inner}]"
-
 def _atomic_write_text(path: Path, text: str) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, path)
 
 def update_hub_clients(settings_path: str, new_sensor_id: str) -> bool:
-    from saiUtils import mdns_hostname, normalize_hostname_base
-
-    def _ensure_local_suffix(name: str) -> str:
-        return mdns_hostname(name)
-
-    def _normalize_clients(names: List[str]) -> List[str]:
-        seen = {}
-        for n in names:
-            base = normalize_hostname_base(n)
-            if not base:
-                continue
-            seen.setdefault(base, _ensure_local_suffix(base))
-        return list(seen.values())
-
-    settings_file = Path(settings_path)
-    settings_dir = settings_file.parent
-    settings_dir.mkdir(parents=True, exist_ok=True)
-
-    broker_desired = mdns_hostname(PI_HOSTNAME)
-    new_client_norm = _ensure_local_suffix(new_sensor_id)
-
-    if not settings_file.exists():
-        minimal = (
-            "[Network]\n"
-            f'HOSTNAME = "{PI_HOSTNAME}"\n\n'
-            "[SensorNetwork]\n"
-            f'BROKER = "{broker_desired}"\n'
-            f'CLIENTS = ["{_toml_escape(new_client_norm)}"]\n\n'
-            "[Time]\n"
-            'TZ = "America/Denver"\nTZ_OFFSET = -21600\nTZ_NAME = "MDT"\n'
-        )
-        _atomic_write_text(settings_file, minimal)
-        if DEBUG:
-            printDM(f"Created hub settings and added CLIENTS → {settings_file}", location=f"{MODULE}.update_hub_clients")
-        return True
-
-    try:
-        raw = settings_file.read_text(encoding="utf-8")
-    except Exception as e:
-        printDM(f"Failed to read hub settings: {e}", location=f"{MODULE}.update_hub_clients")
-        return False
-
-    used_crlf = "\r\n" in raw
-    text = raw.replace("\r\n", "\n")
-
-    try:
-        data = tomllib.loads(text)
-    except Exception as e:
-        printDM(f"Failed to parse hub settings TOML: {e}", location=f"{MODULE}.update_hub_clients")
-        return False
-
-    sn = data.get("SensorNetwork", {})
-    clients_existing: List[str] = list(sn.get("CLIENTS", []))
-
-    clients_norm = _normalize_clients(clients_existing)
-    if new_client_norm not in clients_norm:
-        clients_norm.append(new_client_norm)
-
-    m = re.search(r"(?ms)^\[SensorNetwork\]\s*(.*?)(?=^\[|\Z)", text)
-    if not m:
-        block = (
-            "\n[SensorNetwork]\n"
-            f'BROKER = "{_toml_escape(broker_desired)}"\n'
-            f"CLIENTS = {_toml_join_list(clients_norm)}\n"
-        )
-        new_text = text.rstrip("\n") + "\n" + block
-    else:
-        block_txt = m.group(0)
-        if re.search(r"(?m)^\s*BROKER\s*=", block_txt):
-            block_txt = re.sub(
-                r'(?m)^\s*BROKER\s*=\s*".*?"\s*$',
-                f'BROKER = "{_toml_escape(broker_desired)}"',
-                block_txt
-            )
-        else:
-            if not block_txt.endswith("\n"):
-                block_txt += "\n"
-            block_txt += f'BROKER = "{_toml_escape(broker_desired)}"\n'
-
-        if re.search(r"(?m)^\s*CLIENTS\s*=\s*\[", block_txt):
-            block_txt = re.sub(
-                r"(?ms)^\s*CLIENTS\s*=\s*\[.*?\]",
-                f"CLIENTS = {_toml_join_list(clients_norm)}",
-                block_txt,
-            )
-        else:
-            if not block_txt.endswith("\n"):
-                block_txt += "\n"
-            block_txt += f"CLIENTS = {_toml_join_list(clients_norm)}\n"
-
-        start, end = m.span()
-        new_text = text[:start] + block_txt + text[end:]
-
-    if used_crlf:
-        new_text = new_text.replace("\n", "\r\n")
-
-    if new_text == raw:
-        if DEBUG:
-            printDM("SensorNetwork unchanged; no write needed.", location=f"{MODULE}.update_hub_clients")
-        return True
-
-    try:
-        _atomic_write_text(settings_file, new_text)
-        if DEBUG:
-            printDM(f"Updated SensorNetwork → {settings_file}", location=f"{MODULE}.update_hub_clients")
-        return True
-    except Exception as e:
-        printDM(f"Failed to write hub settings: {e}", location=f"{MODULE}.update_hub_clients")
-        return False
+    # CLIENTS is deprecated; discovery is automatic.
+    return True
 
 # ---------- update payload build ----------
 def build_picow_settings_updates(

@@ -107,13 +107,23 @@ class saiMQTTIngest:
         self.client_id = client_id
         self.port = 1883
         try:
-            self.ha_broker = (self.settings.get_setting("HomeAssistant", "BROKER", "") or "").strip() if self.settings else ""
+            ha_broker = (
+                self.settings.get_setting("HomeAssistant", "HA_BROKER", "")
+                or self.settings.get_setting("HomeAssistant", "BROKER", "")
+                or ""
+            )
+            self.ha_broker = str(ha_broker).strip() if self.settings else ""
         except Exception:
             self.ha_broker = ""
         if not self.ha_broker:
             self.ha_broker = self.broker
         try:
-            self.ha_port = int(self.settings.get_setting("HomeAssistant", "PORT", 1883) or 1883) if self.settings else 1883
+            ha_port = (
+                self.settings.get_setting("HomeAssistant", "HA_MQTTPORT", 1883)
+                or self.settings.get_setting("HomeAssistant", "PORT", 1883)
+                or 1883
+            )
+            self.ha_port = int(ha_port) if self.settings else 1883
         except Exception:
             self.ha_port = 1883
         try:

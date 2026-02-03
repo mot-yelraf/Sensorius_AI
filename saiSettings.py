@@ -455,16 +455,12 @@ class saiSettings:
         return list(val) if isinstance(val, (list, tuple)) else []
 
     def add_client(self, hostname):
-        clients = self.get_all_clients()
-        if hostname not in clients:
-            clients.append(hostname)
-            self.replace_setting("SensorNetwork", "CLIENTS", clients)
+        # CLIENTS is deprecated; discovery is automatic.
+        pass
 
     def remove_client(self, hostname):
-        clients = self.get_all_clients()
-        if hostname in clients:
-            clients.remove(hostname)
-            self.replace_setting("SensorNetwork", "CLIENTS", clients)
+        # CLIENTS is deprecated; discovery is automatic.
+        pass
 
     def get_all_sensor_ids(self):
         value = self.settings.get("SensorNetwork", {}).get("PISENSOR", [])
