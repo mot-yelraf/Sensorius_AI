@@ -1,7 +1,9 @@
 # Sensorius
 
 **Environmental Sensing + Automation Hub**
-Sensorius is a modular, Python-based system for managing environmental sensors and controlling relays via MQTT. It features a real-time web dashboard, automated onboarding for new devices, and robust data logging and visualization. Sensorius can be set up on Raspberry Pi (with directly connected sensors & Nodus devices) or setup on macOS, Windows 10/11, and Linux using Nodus sensors and switches.
+Sensorius Automatio Instrumentorum (Sensorius AI or Sensorius) is a modular, Python-based system for managing environmental sensors and controlling relays via MQTT. It features a real-time web dashboard, automated onboarding for new devices, and robust data logging and visualization. Sensorius can be set up on Raspberry Pi (with directly connected sensors & Nodus devices) or setup on macOS, Windows 10/11, and Linux using Nodus sensors and switches. 
+
+Sensorius & Nodus (see my cPyNodus project) were developed to automate greenhouse operations, but there are other applications requiring straight forward sense and control features, using Sensorius' switch automations; and Sensorius' unique system-wide sensor calibration, e.g. 'System Calibration' can assist in the task of calibrating the systems temperature and humidity sensors.
 
 ---
 
