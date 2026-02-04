@@ -1,7 +1,7 @@
 # Sensorius
 
 **Environmental Sensing + Automation Hub**
-Sensorius is a modular, Python-based Raspberry Pi system for managing environmental sensors and controlling relays via MQTT. It features a real-time web dashboard, automated onboarding for new devices, and robust data logging and visualization. Sensorius can be set up on Raspberry Pi (with directly connected sensors), macOS, Windows 10/11, and Linux using Nodus sensors and switches.
+Sensorius is a modular, Python-based system for managing environmental sensors and controlling relays via MQTT. It features a real-time web dashboard, automated onboarding for new devices, and robust data logging and visualization. Sensorius can be set up on Raspberry Pi (with directly connected sensors & Nodus devices) or setup on macOS, Windows 10/11, and Linux using Nodus sensors and switches.
 
 ---
 
@@ -17,22 +17,24 @@ Sensorius supports:
 
 ---
 
-## 2. Program Architecture
+## 2. System Architecture
 
 ```
-                     +------------------------+
-                     |     Sensorius Hub      |
-                     |  (FastAPI + MQTT + DB) |
-                     +------------------------+
+                     +------------------------+        +------------------+
+                     |      Sensorius Hub     |<------>| Home Assistant   |
+                     |  (FastAPI + MQTT + DB) |        |     (HA)         |
+                     +------------------------+        +------------------+
+                         ^            ^          
                          |            |
-                +--------+            +--------+
+                 +-------+            +-------+
+                 |                            |
+                 v                            v
+         +---------------+            +----------------+
+         | Nodus Sensor  |            | Nodus Switch   |
+         |  (e.g. CO2)   |            |  IoT Relay     |
+         +---------------+            +----------------+
                 |                              |
-         +----------------+            +----------------+
-         | Nodus Sensor   |            | Nodus Switch   |
-         |  (e.g. CO2)    |            |  IoT Relay     |
-         +----------------+            +----------------+
-                |                              |
-            MQTT pub                        MQTT pub 
+        MQTT pub/sub                      MQTT pub/sub 
 ```
 
 ---

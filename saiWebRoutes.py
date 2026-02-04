@@ -718,9 +718,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # ----- data series -----
         series: dict[str, dict] = {}
-        rolling_6h: dict[str, dict] = {}
+        rolling_ema: dict[str, dict] = {}
         display_names: dict[str, str] = {}
-        lookback_seconds = 6 * 3600
+        ema_half_life_seconds = 60 * 60  # 60 minutes
+        lookback_seconds = 3 * 3600  # warm-up window for EMA
         data_since_dt = since_dt - timedelta(seconds=lookback_seconds)
         data_since_iso = data_since_dt.replace(microsecond=0).isoformat()
         with sqlite3.connect(db_path) as conn:
@@ -731,9 +732,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if not ts or not vs:
                     continue
 
-                # --- compute rolling 24h average for visible window ---
+                # --- compute EMA for visible window (half-life in seconds) ---
                 try:
-                    from collections import deque
+                    from math import exp, log
 
                     def _parse_dt(ts_text: str) -> datetime | None:
                         try:
@@ -741,13 +742,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         except Exception:
                             return None
 
-                    q: deque[tuple[datetime, float]] = deque()
-                    running_sum = 0.0
-                    running_count = 0
                     out_ts: list[str] = []
                     out_vals: list[float | None] = []
                     vis_ts: list[str] = []
                     vis_vals: list = []
+                    prev_ema: float | None = None
+                    prev_dt: datetime | None = None
+                    ln2 = log(2.0)
 
                     for idx, ts_text in enumerate(ts):
                         dt = _parse_dt(ts_text)
@@ -763,28 +764,30 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                             is_num = False
 
                         if is_num:
-                            q.append((dt, fval))
-                            running_sum += fval
-                            running_count += 1
-
-                        cutoff = dt - timedelta(seconds=lookback_seconds)
-                        while q and q[0][0] < cutoff:
-                            _, old_val = q.popleft()
-                            running_sum -= old_val
-                            running_count -= 1
+                            if prev_ema is None or prev_dt is None:
+                                ema = fval
+                            else:
+                                dt_sec = max(0.0, (dt - prev_dt).total_seconds())
+                                if dt_sec <= 0.0:
+                                    ema = prev_ema
+                                else:
+                                    alpha = 1.0 - exp(-ln2 * dt_sec / ema_half_life_seconds)
+                                    ema = (alpha * fval) + ((1.0 - alpha) * prev_ema)
+                            prev_ema = ema
+                            prev_dt = dt
+                        else:
+                            ema = None
 
                         if dt < since_dt or dt > until_dt:
                             continue
-
                         vis_ts.append(ts_text)
                         vis_vals.append(raw_val)
-                        avg_val = (running_sum / running_count) if running_count > 0 else None
                         out_ts.append(ts_text)
-                        out_vals.append(avg_val)
+                        out_vals.append(ema)
 
                     if vis_ts:
                         series[key] = {"ts": vis_ts, "vals": vis_vals}
-                        rolling_6h[key] = {"ts": out_ts, "vals": out_vals}
+                        rolling_ema[key] = {"ts": out_ts, "vals": out_vals}
                         display_names[key] = key
                 except Exception as e:
                     printDM(f"[{MODULE}] rolling-avg error for {key}: {e}", location=MODULE)
@@ -798,7 +801,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         response = {
             "series": series,
-            "rolling_6h": rolling_6h,
+            "rolling_ema": rolling_ema,
             "display_names": display_names,
             "axis_titles": {
                 "y1": list(series.keys())[0] if series else "Left",
