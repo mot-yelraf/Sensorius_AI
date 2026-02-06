@@ -20,12 +20,20 @@ def get_gauge_config():
         "Temperature": {"unit": "°C", "min": -20, "max": 60, "ticks": [-20, 0, 10, 20, 30, 40, 60], "zones": [{"strokeStyle": "#00f", "min": -20, "max": 0}, {"strokeStyle": "#3399ff", "min": 0, "max": 10}, {"strokeStyle": "#66cc66", "min": 10, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 40}, {"strokeStyle": "#f00", "min": 40, "max": 60}]},
         "Rel-Humidity": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#bf9000", "min": 0, "max": 20}, {"strokeStyle": "#ffcc00", "min": 20, "max": 30}, {"strokeStyle": "#add8e6", "min": 30, "max": 70}, {"strokeStyle": "#66b2ff", "min": 70, "max": 80}, {"strokeStyle": "#0033cc", "min": 80, "max": 100}]},
         "Humidity": {"unit": "g/m³", "min": 0, "max": 130, "ticks": [0, 26, 52, 78, 104, 130], "zones": [{"strokeStyle": "#bf9000", "min": 0, "max": 26}, {"strokeStyle": "#ffcc00", "min": 26, "max": 52}, {"strokeStyle": "#add8e6", "min": 52, "max": 78}, {"strokeStyle": "#66b2ff", "min": 78, "max": 104}, {"strokeStyle": "#0033cc", "min": 104, "max": 130}]},
+        "Dew-Point": {"unit": "°C", "min": -20, "max": 60, "ticks": [-20, 0, 10, 20, 30, 40, 60], "zones": [{"strokeStyle": "#00f", "min": -20, "max": 0}, {"strokeStyle": "#3399ff", "min": 0, "max": 10}, {"strokeStyle": "#66cc66", "min": 10, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 40}, {"strokeStyle": "#f00", "min": 40, "max": 60}]},
+        "Dew-Point_F": {"unit": "°F", "min": 0, "max": 140, "ticks": [0, 32, 50, 70, 90, 110, 140], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 32}, {"strokeStyle": "#3399ff", "min": 32, "max": 50}, {"strokeStyle": "#66cc66", "min": 50, "max": 86}, {"strokeStyle": "#ffcc00", "min": 86, "max": 104}, {"strokeStyle": "#f00", "min": 104, "max": 140}]},
+        "Dewpoint Depression": {"unit": "°C", "min": 0, "max": 30, "ticks": [0, 5, 10, 15, 20, 25, 30], "zones": [{"strokeStyle": "#0033cc", "min": 0, "max": 2}, {"strokeStyle": "#66cc66", "min": 2, "max": 8}, {"strokeStyle": "#ffcc00", "min": 8, "max": 15}, {"strokeStyle": "#f00", "min": 15, "max": 30}]},
+        "DewVPD Risk": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#66cc66", "min": 0, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 60}, {"strokeStyle": "#bf9000", "min": 60, "max": 100}]},
         "Ambient VPD": {"unit": "kPa", "min": 0.0, "max": 5.0, "ticks": [0, 0.4, 0.8, 1.2, 1.6, 2, 3, 4, 5], "zones": [{"strokeStyle": "#0033cc", "min": 0.0, "max": 0.4}, {"strokeStyle": "#66cc66", "min": 0.4, "max": 0.8}, {"strokeStyle": "#03a603", "min": 0.8, "max": 1.2}, {"strokeStyle": "#3e803e", "min": 1.2, "max": 1.6}, {"strokeStyle": "#bf9000", "min": 1.6, "max": 5.0}]},
         "Baro-Pressure": {"unit": "hPa", "min": 700, "max": 1100, "ticks": [700, 750, 800, 850, 900, 950, 1000, 1050, 1100], "zones": [{"strokeStyle": "#add8e6", "min": 700, "max": 1100}]},
         "Temperature_F": {"unit": "°F", "min": 0, "max": 140, "ticks": [0, 32, 50, 70, 90, 110, 140], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 32}, {"strokeStyle": "#3399ff", "min": 32, "max": 50}, {"strokeStyle": "#66cc66", "min": 50, "max": 86}, {"strokeStyle": "#ffcc00", "min": 86, "max": 104}, {"strokeStyle": "#f00", "min": 104, "max": 140}]},
         "Plant Temperature": {"unit": "°C", "min": -20, "max": 60, "ticks": [-20, 0, 10, 20, 30, 40, 60], "zones": [{"strokeStyle": "#00f", "min": -20, "max": 0}, {"strokeStyle": "#3399ff", "min": 0, "max": 10}, {"strokeStyle": "#66cc66", "min": 10, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 40}, {"strokeStyle": "#f00", "min": 40, "max": 60}]},
         "Plant Rel-Humidity": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#bf9000", "min": 0, "max": 20}, {"strokeStyle": "#ffcc00", "min": 20, "max": 30}, {"strokeStyle": "#add8e6", "min": 30, "max": 70}, {"strokeStyle": "#66b2ff", "min": 70, "max": 80}, {"strokeStyle": "#0033cc", "min": 80, "max": 100}]},
         "Plant Humidity": {"unit": "g/m³", "min": 0, "max": 130, "ticks": [0, 26, 52, 78, 104, 130], "zones": [{"strokeStyle": "#bf9000", "min": 0, "max": 26}, {"strokeStyle": "#ffcc00", "min": 26, "max": 52}, {"strokeStyle": "#add8e6", "min": 52, "max": 78}, {"strokeStyle": "#66b2ff", "min": 78, "max": 104}, {"strokeStyle": "#0033cc", "min": 104, "max": 130}]},
+        "Plant Dew-Point": {"unit": "°C", "min": -20, "max": 60, "ticks": [-20, 0, 10, 20, 30, 40, 60], "zones": [{"strokeStyle": "#00f", "min": -20, "max": 0}, {"strokeStyle": "#3399ff", "min": 0, "max": 10}, {"strokeStyle": "#66cc66", "min": 10, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 40}, {"strokeStyle": "#f00", "min": 40, "max": 60}]},
+        "Plant Dew-Point_F": {"unit": "°F", "min": 0, "max": 140, "ticks": [0, 32, 50, 70, 90, 110, 140], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 32}, {"strokeStyle": "#3399ff", "min": 32, "max": 50}, {"strokeStyle": "#66cc66", "min": 50, "max": 86}, {"strokeStyle": "#ffcc00", "min": 86, "max": 104}, {"strokeStyle": "#f00", "min": 104, "max": 140}]},
+        "Plant Dewpoint Depression": {"unit": "°C", "min": 0, "max": 30, "ticks": [0, 5, 10, 15, 20, 25, 30], "zones": [{"strokeStyle": "#0033cc", "min": 0, "max": 2}, {"strokeStyle": "#66cc66", "min": 2, "max": 8}, {"strokeStyle": "#ffcc00", "min": 8, "max": 15}, {"strokeStyle": "#f00", "min": 15, "max": 30}]},
+        "Plant DewVPD Risk": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#66cc66", "min": 0, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 60}, {"strokeStyle": "#bf9000", "min": 60, "max": 100}]},
         "Plant VPD": {"unit": "kPa", "min": 0.0, "max": 5.0, "ticks": [0, 0.4, 0.8, 1.2, 1.6, 2, 3, 4, 5], "zones": [{"strokeStyle": "#0033cc", "min": 0.0, "max": 0.4}, {"strokeStyle": "#66cc66", "min": 0.4, "max": 0.8}, {"strokeStyle": "#03a603", "min": 0.8, "max": 1.2}, {"strokeStyle": "#3e803e", "min": 1.2, "max": 1.6}, {"strokeStyle": "#bf9000", "min": 1.6, "max": 5.0}]},
         "Plant Baro-Pressure": {"unit": "hPa", "min": 700, "max": 1100, "ticks": [700, 750, 800, 850, 900, 950, 1000, 1050, 1100], "zones": [{"strokeStyle": "#add8e6", "min": 700, "max": 1100}]},
         "Plant Temperature_F": {"unit": "°F", "min": 0, "max": 140, "ticks": [0, 32, 50, 70, 90, 110, 140], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 32}, {"strokeStyle": "#3399ff", "min": 32, "max": 50}, {"strokeStyle": "#66cc66", "min": 50, "max": 86}, {"strokeStyle": "#ffcc00", "min": 86, "max": 104}, {"strokeStyle": "#f00", "min": 104, "max": 140}]},
@@ -156,12 +164,16 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
 
     # 2) Add remote Pico2 W switches discovered via MQTT
     # helper to guess a location for a switch if it's not stored
+    def _is_unknown_loc(val: str | None) -> bool:
+        v = (val or "").strip().lower()
+        return v in ("", "unknown", "n/a", "na", "none", "-")
+
     def _infer_switch_location(sw_id: str) -> str:
         # try settings first
         if sw_mgr:
             try:
                 loc = sw_mgr.get_setting(sw_id, "Switch.SWITCH_LOCATION", "")
-                if isinstance(loc, str) and loc.strip():
+                if isinstance(loc, str) and loc.strip() and not _is_unknown_loc(loc):
                     return loc.strip()
             except Exception:
                 pass
@@ -172,7 +184,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 try:
                     if meta.get("switch_id") == sw_id:
                         loc = (getattr(mqtt_ingest, "device_location", {}) or {}).get(topic)
-                        if isinstance(loc, str) and loc.strip():
+                        if isinstance(loc, str) and loc.strip() and not _is_unknown_loc(loc):
                             return loc.strip()
                 except Exception:
                     continue
@@ -1312,6 +1324,30 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  }"
     yield "};"
     yield "if (window.Chart) { try { window.Chart.register(vpdBackgroundMicro); } catch(e){} }"
+    yield ""
+    yield "const dewVpdRiskBackgroundMicro = {"
+    yield "  id: 'dewVpdRiskBackgroundMicro',"
+    yield "  beforeDraw(chart){"
+    yield "    const { ctx, chartArea, scales, options } = chart;"
+    yield "    if (!options?.plugins?.dewVpdRiskMicro) return;"
+    yield "    const y = scales?.y || Object.values(scales).find(s => s.type==='linear');"
+    yield "    if (!y) return;"
+    yield "    const zones = ["
+    yield "      { color: '#66cc66', min: 0, max: 30 },"
+    yield "      { color: '#ffcc00', min: 30, max: 60 },"
+    yield "      { color: '#bf9000', min: 60, max: 100 },"
+    yield "    ];"
+    yield "    ctx.save();"
+    yield "    zones.forEach(z => {"
+    yield "      const yTop = y.getPixelForValue(z.max);"
+    yield "      const yBot = y.getPixelForValue(z.min);"
+    yield "      ctx.fillStyle = z.color;"
+    yield "      ctx.fillRect(chartArea.left, yTop, chartArea.right - chartArea.left, yBot - yTop);"
+    yield "    });"
+    yield "    ctx.restore();"
+    yield "  }"
+    yield "};"
+    yield "if (window.Chart) { try { window.Chart.register(dewVpdRiskBackgroundMicro); } catch(e){} }"
   
     yield "async function showMicrographForContainer(container) {"
     yield "  if (!container) return;"
@@ -1401,7 +1437,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    }"
     yield ""
     yield "    const metricName = container.dataset.metric || metric;"
-    yield "    const isVPD = /vpd/i.test(metricName);"
+    yield "    const metricNorm = String(metricName || '').toLowerCase().replace(/[_-]+/g, ' ');"
+    yield "    const isDewVpdRisk = metricNorm.includes('dewvpd risk');"
+    yield "    const isVPD = /vpd/i.test(metricName) && !isDewVpdRisk;"
     yield ""
     yield "    const chartOptions = {"
     yield "      responsive: false,"
@@ -1409,7 +1447,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      plugins: {"
     yield "        legend: { display: false },"
     yield "        tooltip: { enabled: true },"
-    yield "        vpdMicro: !!isVPD"
+    yield "        vpdMicro: !!isVPD,"
+    yield "        dewVpdRiskMicro: !!isDewVpdRisk"
     yield "      },"
     yield "      scales: {"
     yield "        x: {"
@@ -1430,7 +1469,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      }"
     yield "    };"
     yield ""
-    yield "    if (isVPD) {"
+    yield "    if (isDewVpdRisk) {"
+    yield "      chartOptions.scales.y.min = 0;"
+    yield "      chartOptions.scales.y.max = 100;"
+    yield "      chartOptions.scales.y.ticks.precision = 0;"
+    yield "    } else if (isVPD) {"
     yield "      chartOptions.scales.y.min = 0;"
     yield "      chartOptions.scales.y.max = 5.0;"
     yield "    }"
@@ -1452,6 +1495,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      data: values,"
     yield "      borderColor: '#00bfff',"
     yield "      backgroundColor: 'rgba(255,255,255,1)',"
+    yield "      order: 1,"
     yield "      pointRadius: 0,"
     yield "      tension: 0.3"
     yield "    }];"
@@ -1461,6 +1505,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "        data: alignedRolling,"
     yield "        borderColor: 'purple',"
     yield "        borderDash: [6, 3],"
+    yield "        order: 2,"
     yield "        pointRadius: 0,"
     yield "        tension: 0.3"
     yield "      });"
@@ -3008,6 +3053,7 @@ def render_graph_modal(switch_installed=None):
           data: points,
           borderColor: baseColor,
           yAxisID: yAxisID,
+          order: 1,
           tension: 0.2,
           pointRadius: 0
         });
@@ -3031,6 +3077,7 @@ def render_graph_modal(switch_installed=None):
               borderColor: 'purple',
               borderDash: [6, 3],
               yAxisID: yAxisID,
+              order: 2,
               tension: 0.2,
               pointRadius: 0
             });

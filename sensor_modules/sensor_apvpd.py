@@ -146,6 +146,30 @@ class VPDPlantSensor(BaseSensor):
                     1,
                 ),
                 (
+                    "Dew-Point",
+                    "°C",
+                    lambda: self._get_calibrated_ambient_dewpoint_c(),
+                    2,
+                ),
+                (
+                    "Dew-Point_F",
+                    "°F",
+                    lambda: self._get_calibrated_ambient_dewpoint_f(),
+                    1,
+                ),
+                (
+                    "Dewpoint Depression",
+                    "°C",
+                    lambda: self._get_calibrated_ambient_dewpoint_depression(),
+                    2,
+                ),
+                (
+                    "DewVPD Risk",
+                    "%",
+                    lambda: self._get_calibrated_ambient_dewvpd_risk(),
+                    1,
+                ),
+                (
                     "Ambient VPD",
                     "kPa",
                     lambda: self._get_calibrated_ambient_vpd(),
@@ -164,55 +188,55 @@ class VPDPlantSensor(BaseSensor):
                 (
                     "Plant Temperature",
                     "°C",
-                    lambda: self.thp280_plant.temperature
-                    + self.thp280_plant_temp_cal,
+                    lambda: self._get_calibrated_plant_temp_c(),
                     2,
                 ),
                 (
                     "Plant Temperature_F",
                     "°F",
-                    lambda: (
-                        (
-                            self.thp280_plant.temperature
-                            + self.thp280_plant_temp_cal
-                        )
-                        * 9
-                        / 5
-                    )
-                    + 32,
+                    lambda: self._get_calibrated_plant_temp_f(),
                     1,
                 ),
                 (
                     "Plant Rel-Humidity",
                     "%",
-                    lambda: self._clamp_if_number(
-                        self.thp280_plant.relative_humidity
-                        + self.thp280_plant_rh_cal,
-                        0.0,
-                        100.0,
-                    ),
+                    lambda: self._get_calibrated_plant_rh(),
                     2,
                 ),
                 (
                     "Plant Humidity",
                     "g/m³",
-                    lambda: self.calculate_absolute_humidity(
-                        self.thp280_plant.temperature,
-                        self.thp280_plant.relative_humidity,
-                    ),
+                    lambda: self._get_calibrated_plant_abs_humidity(),
+                    1,
+                ),
+                (
+                    "Plant Dew-Point",
+                    "°C",
+                    lambda: self._get_calibrated_plant_dewpoint_c(),
+                    2,
+                ),
+                (
+                    "Plant Dew-Point_F",
+                    "°F",
+                    lambda: self._get_calibrated_plant_dewpoint_f(),
+                    1,
+                ),
+                (
+                    "Plant Dewpoint Depression",
+                    "°C",
+                    lambda: self._get_calibrated_plant_dewpoint_depression(),
+                    2,
+                ),
+                (
+                    "Plant DewVPD Risk",
+                    "%",
+                    lambda: self._get_calibrated_plant_dewvpd_risk(),
                     1,
                 ),
                 (
                     "Plant VPD",
                     "kPa",
-                    lambda: self._clamp_if_number(
-                        self.calculate_vpd(
-                            self.thp280_plant.temperature,
-                            self.thp280_plant.relative_humidity,
-                        ),
-                        0.0,
-                        5.0,
-                    ),
+                    lambda: self._get_calibrated_plant_vpd(),
                     3,
                 ),
                 (
@@ -418,6 +442,111 @@ class VPDPlantSensor(BaseSensor):
         vpd_clamped = self._clamp_if_number(vpd, 0.0, 5.0)
         self.current_values["Ambient VPD"] = vpd_clamped
         return vpd_clamped
+
+    def _get_calibrated_ambient_dewpoint_c(self) -> float:
+        temp_c = self._get_calibrated_ambient_temp_c()
+        rh = self._get_calibrated_ambient_rh()
+        dewpoint_c = self.calculate_dewpoint(temp_c, rh)
+        self.current_values["Dew-Point"] = dewpoint_c
+        return dewpoint_c
+
+    def _get_calibrated_ambient_dewpoint_f(self) -> float:
+        dewpoint_c = self._get_calibrated_ambient_dewpoint_c()
+        dewpoint_f = (dewpoint_c * 9.0 / 5.0) + 32.0
+        self.current_values["Dew-Point_F"] = dewpoint_f
+        return dewpoint_f
+
+    def _get_calibrated_ambient_dewpoint_depression(self) -> float:
+        temp_c = self._get_calibrated_ambient_temp_c()
+        rh = self._get_calibrated_ambient_rh()
+        depression = self.calculate_dewpoint_depression(temp_c, rh)
+        depression = self._clamp_if_number(depression, 0.0, 30.0)
+        self.current_values["Dewpoint Depression"] = depression
+        return depression
+
+    def _get_calibrated_ambient_dewvpd_risk(self) -> float:
+        temp_c = self._get_calibrated_ambient_temp_c()
+        rh = self._get_calibrated_ambient_rh()
+        vpd = self._get_calibrated_ambient_vpd()
+        risk = self.calculate_dewvpd_risk(temp_c, rh, vpd=vpd)
+        risk = self._clamp_if_number(risk, 0.0, 100.0)
+        self.current_values["DewVPD Risk"] = risk
+        return risk
+
+    # ------------------------------------------------------------------
+    # Plant calibrated helpers
+    # ------------------------------------------------------------------
+    def _get_raw_plant_temp_c(self) -> float:
+        return self.thp280_plant.temperature
+
+    def _get_raw_plant_rh(self) -> float:
+        return self._clamp_if_number(self.thp280_plant.relative_humidity, 0.0, 100.0)
+
+    def _get_calibrated_plant_temp_c(self) -> float:
+        raw_temp = self._get_raw_plant_temp_c()
+        temp_c = raw_temp + self.thp280_plant_temp_cal
+        self.latest_raw["Plant Temperature"] = raw_temp
+        self.current_values["Plant Temperature"] = temp_c
+        return temp_c
+
+    def _get_calibrated_plant_temp_f(self) -> float:
+        temp_c = self._get_calibrated_plant_temp_c()
+        temp_f = (temp_c * 9.0 / 5.0) + 32.0
+        self.current_values["Plant Temperature_F"] = temp_f
+        return temp_f
+
+    def _get_calibrated_plant_rh(self) -> float:
+        raw_rh = self._get_raw_plant_rh()
+        rh = raw_rh + self.thp280_plant_rh_cal
+        rh = self._clamp_if_number(rh, 0.0, 100.0)
+        self.latest_raw["Plant Rel-Humidity"] = raw_rh
+        self.current_values["Plant Rel-Humidity"] = rh
+        return rh
+
+    def _get_calibrated_plant_abs_humidity(self) -> float:
+        temp_c = self._get_calibrated_plant_temp_c()
+        rh = self._get_calibrated_plant_rh()
+        abs_h = self.calculate_absolute_humidity(temp_c, rh)
+        self.current_values["Plant Humidity"] = abs_h
+        return abs_h
+
+    def _get_calibrated_plant_vpd(self) -> float:
+        temp_c = self._get_calibrated_plant_temp_c()
+        rh = self._get_calibrated_plant_rh()
+        vpd = self.calculate_vpd(temp_c, rh)
+        vpd_clamped = self._clamp_if_number(vpd, 0.0, 5.0)
+        self.current_values["Plant VPD"] = vpd_clamped
+        return vpd_clamped
+
+    def _get_calibrated_plant_dewpoint_c(self) -> float:
+        temp_c = self._get_calibrated_plant_temp_c()
+        rh = self._get_calibrated_plant_rh()
+        dewpoint_c = self.calculate_dewpoint(temp_c, rh)
+        self.current_values["Plant Dew-Point"] = dewpoint_c
+        return dewpoint_c
+
+    def _get_calibrated_plant_dewpoint_f(self) -> float:
+        dewpoint_c = self._get_calibrated_plant_dewpoint_c()
+        dewpoint_f = (dewpoint_c * 9.0 / 5.0) + 32.0
+        self.current_values["Plant Dew-Point_F"] = dewpoint_f
+        return dewpoint_f
+
+    def _get_calibrated_plant_dewpoint_depression(self) -> float:
+        temp_c = self._get_calibrated_plant_temp_c()
+        rh = self._get_calibrated_plant_rh()
+        depression = self.calculate_dewpoint_depression(temp_c, rh)
+        depression = self._clamp_if_number(depression, 0.0, 30.0)
+        self.current_values["Plant Dewpoint Depression"] = depression
+        return depression
+
+    def _get_calibrated_plant_dewvpd_risk(self) -> float:
+        temp_c = self._get_calibrated_plant_temp_c()
+        rh = self._get_calibrated_plant_rh()
+        vpd = self._get_calibrated_plant_vpd()
+        risk = self.calculate_dewvpd_risk(temp_c, rh, vpd=vpd)
+        risk = self._clamp_if_number(risk, 0.0, 100.0)
+        self.current_values["Plant DewVPD Risk"] = risk
+        return risk
 
     # ------------------------------------------------------------------
     # Common helpers

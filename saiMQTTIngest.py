@@ -34,6 +34,16 @@ def _slugify(text: str) -> str:
 def _norm_label(label: str | None) -> str:
     return (label or "").strip().lower()
 
+def _looks_like_channel_id(token: str | None) -> bool:
+    """
+    Nodus per-channel IDs are commonly shaped like 'S1-<serial>', 'S2-<serial>', etc.
+    These are not hostnames and must not be treated as discovery targets.
+    """
+    s = (token or "").strip()
+    if not s:
+        return False
+    return bool(re.fullmatch(r"S\d+-[A-Za-z0-9_-]+", s, flags=re.IGNORECASE))
+
 def _iso_from_payload_ts(raw_ts) -> str | None:
     """
     Accepts epoch seconds (float/int) or ISO8601 string; returns ISO8601 with TZ.
@@ -449,6 +459,10 @@ class saiMQTTIngest:
                 id_index = 1 if is_nodus_root else 2
                 if len(parts) > id_index + 1 and parts[id_index + 1] == "availability":
                     nodus_id = parts[id_index]
+                    if _looks_like_channel_id(nodus_id):
+                        if DEBUG:
+                            printDM(f"[availability] ignoring channel id as host candidate: {nodus_id}", location=MODULE)
+                        return
                     status = self._parse_availability_payload(payload_text, data)
                     if status:
                         base = self._host_from_sid_base(nodus_id)
@@ -1086,6 +1100,10 @@ class saiMQTTIngest:
         if not hostname:
             return
         normalized = self._normalize_host_key(hostname) or hostname.strip()
+        if _looks_like_channel_id(normalized):
+            if DEBUG:
+                printDM(f"[add_client] skip channel id: {normalized}", location=MODULE)
+            return
         # add to the tracked set
         self.mqtt_clients.add(normalized)
         # mark pending and clear any previous OFFLINE cooldown
@@ -1248,6 +1266,47 @@ class saiMQTTIngest:
 
         is_pi_multi = isinstance(info.get("sensors"), list)
         base = self._normalize_host_key(hostname) or hostname
+        
+        def _is_unknown_loc(val: str | None) -> bool:
+            v = (val or "").strip().lower()
+            return v in ("", "unknown", "n/a", "na", "none", "-")
+
+        def _resolve_switch_location(sw_blob: dict | None = None) -> str:
+            """
+            Prefer explicit switch location; if unknown, inherit from paired sensor location.
+            For single-sensor /itaot payloads this falls back to top-level LOCATION.
+            """
+            sw_blob = sw_blob or {}
+            try:
+                loc = str(sw_blob.get("SWITCH_LOCATION", "") or "").strip()
+            except Exception:
+                loc = ""
+            if loc and not _is_unknown_loc(loc):
+                return loc
+
+            # Try serial pairing against sensors discovered from this same /itaot payload.
+            sw_serial = str(
+                sw_blob.get("SWITCH_SERIAL_NUM")
+                or sw_blob.get("SERIAL_NUM")
+                or info.get("SWITCH_SERIAL_NUM")
+                or ""
+            ).strip().lower()
+            if sw_serial:
+                try:
+                    for srow in (discovered_sensors or []):
+                        s_serial = str(srow.get("serial") or "").strip().lower()
+                        s_loc = str(srow.get("location") or "").strip()
+                        if s_serial and s_serial == sw_serial and s_loc and not _is_unknown_loc(s_loc):
+                            return s_loc
+                except Exception:
+                    pass
+
+            # Single-sensor payloads usually carry LOCATION at the top level.
+            top_loc = str(info.get("LOCATION") or "").strip()
+            if top_loc and not _is_unknown_loc(top_loc):
+                return top_loc
+
+            return "Unknown"
 
         def _norm_ipv4(addr: str | None) -> str | None:
             raw = (addr or "").strip()
@@ -1336,7 +1395,7 @@ class saiMQTTIngest:
             for sw in switches_block:
                 try:
                     _switch_id       = sw.get("SWITCH_ID")
-                    _switch_location = sw.get("SWITCH_LOCATION", "Unknown") or "Unknown"
+                    _switch_location = _resolve_switch_location(sw)
 
                     event_topics  = sw.get("mqtt_switch_topics") or {}
                     state_topics  = sw.get("mqtt_switch_state_topics") or {}
@@ -1420,7 +1479,7 @@ class saiMQTTIngest:
         # ---------- Legacy flat switch fields (back-compat) ----------
         try:
             _switch_id_flat         = info.get("SWITCH_ID")
-            _switch_location_flat   = info.get("SWITCH_LOCATION", "Unknown") or "Unknown"
+            _switch_location_flat   = _resolve_switch_location(info)
             _switch_event_map_flat  = info.get("mqtt_switch_topics") or {}
             _switch_state_map_flat  = info.get("mqtt_switch_state_topics") or {}
             _switch_cmd_map_flat    = info.get("mqtt_switch_command_topics") or {}
@@ -2529,34 +2588,34 @@ class saiMQTTIngest:
                             location=MODULE,
                         )
 
-                    # Invalidate cache ONLY if the failing IP was the cached one
+                    # If a cached IP failed, invalidate cache; then still try .local fallback once.
                     if is_ip and host_was_cached:
                         self._host_ip_cache.pop(base, None)
 
-                        # One-shot fallback to hostname (.local)
-                        t1 = time.monotonic()
+                    # One-shot fallback to hostname (.local), even when the primary target was not an IP.
+                    t1 = time.monotonic()
+                    try:
+                        r2 = await client.get(
+                            f"http://{fallback_host}:{PORT}/hayd",
+                            timeout=HAYD_TIMEOUT_S,
+                            headers=REQUEST_HEADERS,
+                        )
+                        took2 = time.monotonic() - t1
+                        if DEBUG:
+                            printDM(f"→ {fallback_host}/hayd | {r2} took {took2:.2f}s (fallback)", location=MODULE)
+
+                        if r2.status_code != 200:
+                            return False
+
                         try:
-                            r2 = await client.get(
-                                f"http://{fallback_host}:{PORT}/hayd",
-                                timeout=HAYD_TIMEOUT_S,
-                                headers=REQUEST_HEADERS,
-                            )
-                            took2 = time.monotonic() - t1
-                            if DEBUG:
-                                printDM(f"→ {fallback_host}/hayd | {r2} took {took2:.2f}s (fallback)", location=MODULE)
-
-                            if r2.status_code != 200:
-                                return False
-
-                            try:
-                                data2 = r2.json()
-                            except Exception:
-                                return False
-
-                            status2 = str((data2 or {}).get("STATUS", "")).strip().lower()
-                            return status2 in {"ok", "online", "ready"}
+                            data2 = r2.json()
                         except Exception:
                             return False
+
+                        status2 = str((data2 or {}).get("STATUS", "")).strip().lower()
+                        return status2 in {"ok", "online", "ready"}
+                    except Exception:
+                        return False
 
                     return False
 
@@ -2667,6 +2726,12 @@ class saiMQTTIngest:
                     if ok:
                         return True
 
+                    # 1b) Explicit .local hostname fallback before any IP checks.
+                    if mdns_host and mdns_host != primary_host:
+                        ok_local, _err_local = await _fetch_itaot(mdns_host, retries=2)
+                        if ok_local:
+                            return True
+
                     # 2) Resolve mDNS IP and verify it matches /itaot ipv4addr cache
                     mdns_ip = await _ipv4_first_maybe_async(mdns_host, PORT)
                     itaot_ipv4 = None
@@ -2716,6 +2781,10 @@ class saiMQTTIngest:
                         for hostname in list(self.mqtt_clients):
                             now_mono = time.monotonic()
                             try:
+                                if _looks_like_channel_id(hostname):
+                                    # Defensive cleanup: old runtimes may have channel ids in mqtt_clients.
+                                    self.mqtt_clients.discard(hostname)
+                                    continue
                                 self.supervisor.feedthedogs("MQTT Discovery Loop")
                                 await asyncio.sleep(0)
                                 base = self._normalize_host_key(hostname)

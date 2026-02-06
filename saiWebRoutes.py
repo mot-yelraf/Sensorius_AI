@@ -160,6 +160,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         _add(base)
 
                 return sorted(order_preserve)
+            
+            def _normalize_switch_ids(values: list[str]) -> list[str]:
+                out = []
+                seen_switch = set()
+                for raw in values or []:
+                    sid = _strip_local_suffix(raw)
+                    if not _is_switch_id(sid):
+                        continue
+                    if sid not in seen_switch:
+                        seen_switch.add(sid)
+                        out.append(sid)
+                return sorted(out)
 
             # --- make sensor_map accessible anywhere in this handler
             from collections.abc import Iterable
@@ -236,6 +248,38 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # Filter to sensors with recent data only.
             available = [sid for sid in available if _is_recent_sensor(sid)]
 
+            # Build a switch inventory for debug visibility (local + discovered + DB identities).
+            available_switches = []
+            try:
+                switch_ids_local = []
+                try:
+                    from saiSwitchSettingsManager import SwitchSettingsManager
+                    switch_mgr = SwitchSettingsManager("switch_settings")
+                    switch_ids_local = switch_mgr.list_switches() or []
+                except Exception:
+                    switch_ids_local = []
+
+                switch_ids_discovered = []
+                try:
+                    switch_ids_discovered = mqtt_ingest.get_known_switch_devices() or []
+                except Exception:
+                    switch_ids_discovered = []
+
+                switch_ids_db = []
+                try:
+                    for row in (data_logger.get_switch_identities() or []):
+                        sid = str(row.get("switch_id", "")).strip()
+                        if sid:
+                            switch_ids_db.append(sid)
+                except Exception:
+                    switch_ids_db = []
+
+                available_switches = _normalize_switch_ids(
+                    list(switch_ids_local) + list(switch_ids_discovered) + list(switch_ids_db)
+                )
+            except Exception:
+                available_switches = []
+
             # ---- Build a fresh location map for all 'available' sensors ----
             sensor_locations_map = { sid: resolve_location_for_sid(sid) for sid in available }
 
@@ -251,6 +295,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             if DEBUG:
                 printDM(f"local_ids: {local_ids}", location=f"{MODULE}:cdp")
                 printDM(f"available sensors: {available}", location=f"{MODULE}:cdp")
+                printDM(f"available switches: {available_switches}", location=f"{MODULE}:cdp")
 
         except Exception as e:
             printDM(f"Exception in current_data_page route definition: {e}", location=f"{MODULE}:cdp")

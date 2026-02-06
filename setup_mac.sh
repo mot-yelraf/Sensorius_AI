@@ -6,13 +6,86 @@ PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 VENV_PATH="${VENV_PATH:-${PROJECT_DIR}/.venv}"
 REQ_FILE="${REQ_FILE:-${PROJECT_DIR}/setup_reqs_mac.txt}"
 INSTALL_PYWEBVIEW="${INSTALL_PYWEBVIEW:-1}"
+HEARTBEAT_SECONDS="${HEARTBEAT_SECONDS:-60}"
+START_TS="$(date +%s)"
 
 CREATED_VENV=0
+MIN_MACOS_MAJOR=13
+MIN_MACOS_MINOR=0
 
 cleanup() {
   if [[ "${CREATED_VENV}" -eq 1 && -d "${VENV_PATH}" ]]; then
     echo "Cleaning up virtual environment at ${VENV_PATH}..."
     rm -rf "${VENV_PATH}"
+  fi
+}
+
+run_with_heartbeat() {
+  local label="$1"
+  shift
+
+  echo "==> ${label}"
+  (
+    while true; do
+      sleep "${HEARTBEAT_SECONDS}"
+      printf "… still working on: %s\r\n" "${label}"
+    done
+  ) &
+  local hb_pid=$!
+
+  set +e
+  "$@"
+  local rc=$?
+  set -e
+
+  if [[ -n "${hb_pid}" ]]; then
+    kill "${hb_pid}" >/dev/null 2>&1 || true
+    wait "${hb_pid}" 2>/dev/null || true
+  fi
+
+  if [[ ${rc} -ne 0 ]]; then
+    echo "ERROR: step failed: ${label} (exit ${rc})"
+    exit "${rc}"
+  fi
+
+  echo "==> Done: ${label}"
+}
+
+version_ge() {
+  # Compare dotted version strings: version_ge 13.1 13.0
+  local a="$1" b="$2"
+  [[ "$(printf '%s\n%s\n' "$b" "$a" | sort -V | head -n1)" == "$b" ]]
+}
+
+check_macos_compat() {
+  if ! command -v sw_vers >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local mac_ver mac_major mac_minor
+  mac_ver="$(sw_vers -productVersion)"
+  mac_major="${mac_ver%%.*}"
+  mac_minor="${mac_ver#*.}"
+  mac_minor="${mac_minor%%.*}"
+
+  local min_ver="${MIN_MACOS_MAJOR}.${MIN_MACOS_MINOR}"
+  if ! version_ge "${mac_ver}" "${min_ver}"; then
+    echo "ERROR: macOS ${mac_ver} detected. This installer supports macOS ${min_ver}+ on Intel."
+    echo "Homebrew and uv are not supported on macOS 12 and may fail during builds."
+    echo ""
+    echo "If you want to attempt anyway, re-run with:"
+    echo "  ALLOW_UNSUPPORTED_MACOS=1 ./setup_mac.sh"
+    cleanup
+    exit 1
+  fi
+
+  if [[ "${mac_major}" -lt 13 ]]; then
+    if ! command -v realpath >/dev/null 2>&1; then
+      echo "ERROR: macOS ${mac_ver} requires 'realpath' for uv."
+      echo "Install coreutils (brew install coreutils) or use a supported macOS version."
+      cleanup
+      exit 1
+    fi
   fi
 }
 
@@ -64,8 +137,9 @@ ensure_xcode_clt() {
 }
 
 install_python_with_pyenv() {
-  brew update
-  brew install pyenv openssl@3 readline sqlite3 xz zlib tcl-tk pkg-config
+  run_with_heartbeat "Homebrew update" brew update
+  run_with_heartbeat "Homebrew install build deps (pyenv, openssl, sqlite, etc.)" \
+    brew install pyenv openssl@3 readline sqlite3 xz zlib tcl-tk pkg-config
 
   export PYENV_ROOT="${HOME}/.pyenv"
   export PATH="${PYENV_ROOT}/bin:${PATH}"
@@ -84,8 +158,7 @@ install_python_with_pyenv() {
   export PYTHON_CONFIGURE_OPTS="--enable-shared"
 
   if ! pyenv versions --bare | grep -qx "${PY_VERSION}"; then
-    echo "pyenv: installing Python ${PY_VERSION} (this may take a while)…"
-    pyenv install "${PY_VERSION}"
+    run_with_heartbeat "pyenv install Python ${PY_VERSION}" pyenv install "${PY_VERSION}"
   fi
 
   pyenv shell "${PY_VERSION}"
@@ -103,21 +176,22 @@ install_requirements() {
   # shellcheck disable=SC1091
   source "${VENV_PATH}/bin/activate"
 
-  python -m pip install --upgrade pip
+  run_with_heartbeat "pip upgrade" python -m pip install --upgrade pip
 
   if [[ "${INSTALL_PYWEBVIEW}" == "0" ]]; then
     echo "INSTALL_PYWEBVIEW=0 set — installing without pywebview."
     tmp_reqs="$(mktemp)"
     grep -v '^pywebview==' "${REQ_FILE}" > "${tmp_reqs}"
-    python -m pip install -r "${tmp_reqs}"
+    run_with_heartbeat "pip install requirements (without pywebview)" \
+      python -m pip install -r "${tmp_reqs}"
     rm -f "${tmp_reqs}"
   else
-    python -m pip install -r "${REQ_FILE}"
+    run_with_heartbeat "pip install requirements" python -m pip install -r "${REQ_FILE}"
   fi
 }
 
 install_mosquitto() {
-  brew install mosquitto
+  run_with_heartbeat "Homebrew install mosquitto" brew install mosquitto
 
   MOSQ_ETC="$(brew --prefix)/etc/mosquitto"
   MOSQ_CONF="${MOSQ_ETC}/mosquitto.conf"
@@ -140,6 +214,10 @@ EOF
 }
 
 main() {
+  echo "Note: This setup can take a long time (often 1+ hour) depending on Homebrew/Python builds."
+  if [[ "${ALLOW_UNSUPPORTED_MACOS:-0}" != "1" ]]; then
+    check_macos_compat
+  fi
   ensure_brew
   ensure_xcode_clt
   install_python_with_pyenv
@@ -151,6 +229,9 @@ main() {
   echo "Activate your environment: source ${VENV_PATH}/bin/activate"
   echo "Start Sensorius: python ${PROJECT_DIR}/Sensorius.py"
   echo "Web UI: open http://127.0.0.1:8000 (or http://<host-ip>:8000 from another device)"
+  end_ts="$(date +%s)"
+  elapsed="$((end_ts - START_TS))"
+  echo "Sensorius setup took ${elapsed} seconds."
 }
 
 main "$@"

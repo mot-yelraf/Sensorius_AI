@@ -292,10 +292,10 @@ class SensorSettingsManager:
         untouched and its path is returned.
 
         Also ensures [Display].METRIC_1..METRIC_6 defaults based on device type:
-          apvpd -> ["Ambient VPD","Temperature","Rel-Humidity", "Plant VPD","Plant Temperature","Plant Rel-Humidity"]
-          aqi   -> ["Air Quality", "Gas","Temperature","Rel-Humidity","Ambient VPD","Baro-Pressure"]
-          avpd  -> ["Ambient VPD","Temperature","Rel-Humidity","Baro-Pressure","",""]
-          co2   -> ["CO2","Temperature","Rel-Humidity","Ambient VPD","",""]
+          apvpd -> ["Ambient VPD","Temperature","Rel-Humidity", "Plant VPD","DewVPD Risk",""]
+          aqi   -> ["Air Quality","Temperature","Rel-Humidity","Ambient VPD","DewVPD Risk","Baro-Pressure"]
+          avpd  -> ["Ambient VPD","Temperature","Rel-Humidity","DewVPD Risk","Baro-Pressure",""]
+          co2   -> ["CO2","Temperature","Rel-Humidity","Ambient VPD","DewVPD Risk",""]
           veml  -> ["Light Intensity","Lux",","","",""]
           soil  -> ["Soil-Moisture","Soil-Temp","Soil-pH","Soil-EC","",""]
         """
@@ -326,10 +326,10 @@ class SensorSettingsManager:
 
         # --- Correct mapping ---
         metric_defaults_by_device: dict[str, list[str]] = {
-            "apvpd": ["Ambient VPD", "Temperature", "Rel-Humidity", "Plant VPD", "Plant Temperature", "Plant Rel-Humidity"],
-            "aqi":   ["Air Quality", "Gas", "Temperature", "Rel-Humidity", "Ambient VPD", "Baro-Pressure"],
-            "avpd":  ["Ambient VPD", "Temperature", "Rel-Humidity", "Baro-Pressure", "", ""],
-            "co2":   ["CO2", "Temperature", "Rel-Humidity", "Ambient VPD", "", ""],
+            "apvpd": ["Ambient VPD", "Temperature", "Rel-Humidity", "Plant VPD", "DewVPD Risk", ""],
+            "aqi":   ["Air Quality", "Temperature", "Rel-Humidity", "Ambient VPD", "DewVPD Risk", "Baro-Pressure"],
+            "avpd":  ["Ambient VPD", "Temperature", "Rel-Humidity", "DewVPD Risk", "Baro-Pressure", ""],
+            "co2":   ["CO2", "Temperature", "Rel-Humidity", "Ambient VPD", "DewVPD Risk", ""],
             "veml":  [ "PPFD", "DLI", "Light Intensity", "Lux", "", ""],
             "soil":  ["Soil-Moisture", "Soil-Temp", "Soil-pH", "Soil-EC", "", ""],
         }

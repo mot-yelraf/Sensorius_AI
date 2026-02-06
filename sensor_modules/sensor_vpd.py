@@ -33,6 +33,10 @@ class VPDSensor(BaseSensor):
                 ("Temperature_F",    "°F",  lambda: self._get_calibrated_temp_f(), 1),
                 ("Rel-Humidity",     "%",   lambda: self._get_calibrated_rh(), 2),
                 ("Humidity",         "g/m³", lambda: self._get_calibrated_abs_humidity(), 1),
+                ("Dew-Point",        "°C",  lambda: self._get_calibrated_dewpoint_c(), 2),
+                ("Dew-Point_F",      "°F",  lambda: self._get_calibrated_dewpoint_f(), 1),
+                ("Dewpoint Depression", "°C", lambda: self._get_calibrated_dewpoint_depression(), 2),
+                ("DewVPD Risk",      "%",   lambda: self._get_calibrated_dewvpd_risk(), 1),
                 (
                     "Ambient VPD",
                     "kPa",
@@ -213,3 +217,37 @@ class VPDSensor(BaseSensor):
         vpd_clamped = self._clamp_if_number(vpd, 0.0, 5.0)
         self.current_values["Ambient VPD"] = vpd_clamped
         return vpd_clamped
+
+    def _get_calibrated_dewpoint_c(self) -> float:
+        temp_c = self._get_calibrated_temp_c()
+        rh = self._get_calibrated_rh()
+        dewpoint_c = self.calculate_dewpoint(temp_c, rh)
+        self.current_values["Dew-Point"] = dewpoint_c
+        return dewpoint_c
+
+    def _get_calibrated_dewpoint_f(self) -> float:
+        dewpoint_c = self._get_calibrated_dewpoint_c()
+        dewpoint_f = (dewpoint_c * 9.0 / 5.0) + 32.0
+        self.current_values["Dew-Point_F"] = dewpoint_f
+        return dewpoint_f
+
+    def _get_calibrated_dewpoint_depression(self) -> float:
+        temp_c = self._get_calibrated_temp_c()
+        rh = self._get_calibrated_rh()
+        depression = self.calculate_dewpoint_depression(temp_c, rh)
+        depression = self._clamp_if_number(depression, 0.0, 30.0)
+        self.current_values["Dewpoint Depression"] = depression
+        return depression
+
+    def _get_calibrated_dewvpd_risk(self) -> float:
+        """
+        Combined risk score (0-100%) from VPD and dewpoint depression.
+        VPD carries more weight than dewpoint spread.
+        """
+        temp_c = self._get_calibrated_temp_c()
+        rh = self._get_calibrated_rh()
+        vpd = self._get_calibrated_vpd()
+        risk = self.calculate_dewvpd_risk(temp_c, rh, vpd=vpd)
+        risk = self._clamp_if_number(risk, 0.0, 100.0)
+        self.current_values["DewVPD Risk"] = risk
+        return risk
