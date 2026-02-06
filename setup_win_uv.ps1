@@ -5,6 +5,7 @@ $ProjectDir = if ($env:PROJECT_DIR) { $env:PROJECT_DIR } else { Split-Path -Pare
 $VenvPath = if ($env:VENV_PATH) { $env:VENV_PATH } else { Join-Path $ProjectDir '.venv' }
 $ReqFile = if ($env:REQ_FILE) { $env:REQ_FILE } else { Join-Path $ProjectDir 'setup_reqs_win.txt' }
 $InstallPywebview = if ($env:INSTALL_PYWEBVIEW) { $env:INSTALL_PYWEBVIEW } else { '1' }
+$PipOnlyBinary = if ($env:PIP_ONLY_BINARY) { $env:PIP_ONLY_BINARY } else { '1' }
 
 $CreatedVenv = $false
 
@@ -43,10 +44,27 @@ function Ensure-Winget {
     exit 1
 }
 
+function Install-WingetPackage {
+    param(
+        [Parameter(Mandatory = $true)][string]$PackageId
+    )
+
+    & winget install --id $PackageId -e --accept-package-agreements --accept-source-agreements
+    if ($LASTEXITCODE -eq 0) {
+        return
+    }
+
+    Write-Host "winget install for $PackageId returned code $LASTEXITCODE; trying upgrade..."
+    & winget upgrade --id $PackageId -e --accept-package-agreements --accept-source-agreements
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Continuing after winget non-zero code for $PackageId ($LASTEXITCODE)."
+    }
+}
+
 function Ensure-Uv {
     if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
         Write-Host 'Installing uv via winget...'
-        winget install --id Astral.uv -e --accept-package-agreements --accept-source-agreements
+        Install-WingetPackage -PackageId 'Astral.uv'
     }
 }
 
@@ -70,10 +88,20 @@ function Install-Requirements {
         Write-Host 'INSTALL_PYWEBVIEW=0 set — installing without pywebview.'
         $tmpReqs = New-TemporaryFile
         Get-Content $ReqFile | Where-Object { $_ -notmatch '^pywebview==' } | Set-Content $tmpReqs
-        uv pip install -r $tmpReqs --python $venvPython
+        if ($PipOnlyBinary -eq '1') {
+            Write-Host 'PIP_ONLY_BINARY=1 set — requiring wheel/binary packages only.'
+            uv pip install --only-binary=:all: -r $tmpReqs --python $venvPython
+        } else {
+            uv pip install -r $tmpReqs --python $venvPython
+        }
         Remove-Item $tmpReqs
     } else {
-        uv pip install -r $ReqFile --python $venvPython
+        if ($PipOnlyBinary -eq '1') {
+            Write-Host 'PIP_ONLY_BINARY=1 set — requiring wheel/binary packages only.'
+            uv pip install --only-binary=:all: -r $ReqFile --python $venvPython
+        } else {
+            uv pip install -r $ReqFile --python $venvPython
+        }
     }
 }
 
@@ -83,11 +111,11 @@ function Ensure-WebView2Runtime {
     }
 
     Write-Host 'Ensuring Microsoft Edge WebView2 Runtime is installed...'
-    winget install --id Microsoft.EdgeWebView2Runtime -e --accept-package-agreements --accept-source-agreements || $true
+    Install-WingetPackage -PackageId 'Microsoft.EdgeWebView2Runtime'
 }
 
 function Install-Mosquitto {
-    winget install --id Eclipse.Mosquitto -e --accept-package-agreements --accept-source-agreements
+    Install-WingetPackage -PackageId 'Eclipse.Mosquitto'
 
     $mosqRoot = Join-Path $env:ProgramFiles 'mosquitto'
     $mosqConf = Join-Path $mosqRoot 'mosquitto.conf'

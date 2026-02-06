@@ -6,6 +6,7 @@ PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 VENV_PATH="${VENV_PATH:-${PROJECT_DIR}/.venv}"
 REQ_FILE="${REQ_FILE:-${PROJECT_DIR}/setup_reqs_mac.txt}"
 INSTALL_PYWEBVIEW="${INSTALL_PYWEBVIEW:-1}"
+PIP_ONLY_BINARY="${PIP_ONLY_BINARY:-1}"
 HEARTBEAT_SECONDS="${HEARTBEAT_SECONDS:-60}"
 START_TS="$(date +%s)"
 
@@ -138,6 +139,7 @@ ensure_xcode_clt() {
 
 ensure_frameworks_writable() {
   local brew_prefix
+  local py_formula="python@${PY_VERSION%.*}"
   brew_prefix="$(brew --prefix)"
   if [[ "${brew_prefix}" != "/usr/local" ]]; then
     return 0
@@ -151,7 +153,7 @@ ensure_frameworks_writable() {
 
   if [[ ! -w "/usr/local/Frameworks" ]]; then
     echo "ERROR: /usr/local/Frameworks is not writable."
-    echo "Homebrew needs this to link python@${PY_VERSION}."
+    echo "Homebrew needs this to link ${py_formula}."
     echo ""
     echo "Fix with:"
     echo "  sudo mkdir -p /usr/local/Frameworks"
@@ -177,16 +179,30 @@ install_requirements() {
 
   uv venv "${VENV_PATH}" --python "${PY_VERSION}"
   CREATED_VENV=1
+  local venv_python="${VENV_PATH}/bin/python"
 
   if [[ "${INSTALL_PYWEBVIEW}" == "0" ]]; then
     echo "INSTALL_PYWEBVIEW=0 set — installing without pywebview."
     tmp_reqs="$(mktemp)"
     grep -v '^pywebview==' "${REQ_FILE}" > "${tmp_reqs}"
-    run_with_heartbeat "uv pip install requirements (without pywebview)" \
-      uv pip install -r "${tmp_reqs}"
+    if [[ "${PIP_ONLY_BINARY}" == "1" ]]; then
+      echo "PIP_ONLY_BINARY=1 set — requiring wheel/binary packages only."
+      run_with_heartbeat "uv pip install requirements (without pywebview, binary-only)" \
+        uv pip install --only-binary=:all: -r "${tmp_reqs}" --python "${venv_python}"
+    else
+      run_with_heartbeat "uv pip install requirements (without pywebview)" \
+        uv pip install -r "${tmp_reqs}" --python "${venv_python}"
+    fi
     rm -f "${tmp_reqs}"
   else
-    run_with_heartbeat "uv pip install requirements" uv pip install -r "${REQ_FILE}"
+    if [[ "${PIP_ONLY_BINARY}" == "1" ]]; then
+      echo "PIP_ONLY_BINARY=1 set — requiring wheel/binary packages only."
+      run_with_heartbeat "uv pip install requirements (binary-only)" \
+        uv pip install --only-binary=:all: -r "${REQ_FILE}" --python "${venv_python}"
+    else
+      run_with_heartbeat "uv pip install requirements" \
+        uv pip install -r "${REQ_FILE}" --python "${venv_python}"
+    fi
   fi
 }
 
@@ -214,13 +230,15 @@ EOF
 }
 
 main() {
-  echo "Note: This setup can take a long time (often 1+ hour) depending on Homebrew/Python builds."
+  echo "Note: This setup may take a while depending on Homebrew and package downloads."
   if [[ "${ALLOW_UNSUPPORTED_MACOS:-0}" != "1" ]]; then
     check_macos_compat
   fi
   ensure_brew
-  ensure_xcode_clt
-  ensure_frameworks_writable
+  if [[ "${PIP_ONLY_BINARY}" != "1" ]]; then
+    ensure_xcode_clt
+    ensure_frameworks_writable
+  fi
   install_uv_and_python
   install_requirements
   install_mosquitto

@@ -164,7 +164,28 @@ Notes:
 
 ---
 
-## 9. Application Startup
+## 9. Linux Setup (Debian/Ubuntu, Hub + MQTT Only)
+
+Linux non-Pi hosts run Sensorius as an MQTT hub and web UI only. Directly connected sensors and GPIO are not supported in this setup path.
+
+Use the Linux setup script:
+
+```bash
+chmod +x setup_linux.sh
+./setup_linux.sh
+```
+
+Notes:
+
+* Uses `apt` to install precompiled system packages (`python3`, `mosquitto`, etc.).
+* Installs Python dependencies from `setup_reqs_linux.txt`.
+* Defaults to wheel-only Python installs (`PIP_ONLY_BINARY=1`) to avoid source builds.
+* Set `INSTALL_PYWEBVIEW=0` to skip pywebview and force headless mode.
+* Access the UI in a browser at `http://127.0.0.1:8000` (or `http://<host-ip>:8000` from another device).
+
+---
+
+## 10. Application Startup
 
 ### Manual Start
 
@@ -181,7 +202,7 @@ sudo systemctl start sensorius.service
 
 ---
 
-## 8. Supported Sensors & Metrics
+## 11. Supported Sensors & Metrics
 
 Each sensor defines its own `self.measurements` list, which determines the exact metrics written to the database. Each metric is timestamped and stored in `sensor_data.db`.
 
@@ -198,6 +219,10 @@ Each sensor defines its own `self.measurements` list, which determines the exact
   * `Humidity` — g/m³ (absolute)
   * `Air Quality` — AQI (derived from gas resistance)
   * `Ambient VPD` — kPa
+  * `Dew-Point` — °C
+  * `Dew-Point_F` — °F
+  * `Dewpoint Depression` — °C
+  * `DewVPD Risk` — %
   * `Baro-Pressure` — hPa
 
 ---
@@ -213,6 +238,10 @@ Each sensor defines its own `self.measurements` list, which determines the exact
   * `Rel-Humidity` — % (relative)
   * `Humidity` — g/m³ (absolute)
   * `Ambient VPD` — kPa
+  * `Dew-Point` — °C
+  * `Dew-Point_F` — °F
+  * `Dewpoint Depression` — °C
+  * `DewVPD Risk` — %
 
 ---
 
@@ -226,6 +255,10 @@ Each sensor defines its own `self.measurements` list, which determines the exact
   * `Rel-Humidity` — % (relative)
   * `Humidity` — g/m³ (absolute)
   * `Ambient VPD` — kPa
+  * `Dew-Point` — °C
+  * `Dew-Point_F` — °F
+  * `Dewpoint Depression` — °C
+  * `DewVPD Risk` — %
   * `Bar-Pressure` — hPa
 
 ---
@@ -244,6 +277,10 @@ Each sensor defines its own `self.measurements` list, which determines the exact
   * `Rel-Humidity` — %
   * `Humidity` — g/m³
   * `Ambient VPD` — kPa
+  * `Dew-Point` — °C
+  * `Dew-Point_F` — °F
+  * `Dewpoint Depression` — °C
+  * `DewVPD Risk` — %
   * `Baro-Pressure` — hPa
 
   **Plant probe additions (I2C\_0):**
@@ -253,6 +290,10 @@ Each sensor defines its own `self.measurements` list, which determines the exact
   * `Rel-Humidity Plant` — %
   * `Humidity Plant` — g/m³
   * `Plant VPD` — kPa
+  * `Plant Dew-Point` — °C
+  * `Plant Dew-Point_F` — °F
+  * `Plant Dewpoint Depression` — °C
+  * `Plant DewVPD Risk` — %
   * `Baro-Pressure Plant` — hPa
 
 ---
@@ -261,7 +302,36 @@ Each sensor defines its own `self.measurements` list, which determines the exact
 
 ---
 
-## 9. Attribution
+## 11. Supported Switches
+
+Sensorius supports:
+
+* Directly connected switches (up to 3 relays)
+* Nodus devices with switches enabled
+Relay-capable configurations include:
+
+* Single relay (individual relay control)
+* 1-relay hat configuration
+* 2-relay hat configuration
+* 3-relay hat configuration
+
+Switch channels are exposed in the UI and can be controlled manually, by automation rules, or by MQTT-connected workflows.
+
+---
+
+## 12. Switch Automations
+
+Switch automations support:
+
+* Rule-level enable/disable (Basic and Advanced rules)
+* Sensor + metric threshold conditions (for example: `Temperature_F > 82`)
+* Threshold hysteresis and minimum interval timing to reduce relay chatter
+* Time-of-day windows (`start` / `end`) and day-based scheduling (`days` in Advanced rules)
+* Timer-based schedules (`duration_min`, `freq_hours`) for periodic ON windows
+
+---
+
+## 13. Attribution
 
 * **System Architecture**: TW Farley
 * **Implementation and Coding**: TW Farley and ChatGPT/Codex

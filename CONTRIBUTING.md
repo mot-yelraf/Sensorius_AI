@@ -47,7 +47,12 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\setup_win.ps1
 ```
 
-Linux (non-Pi): follow the Raspberry Pi steps, but skip GPIO/I2C hardware.
+Linux (Debian/Ubuntu, non-Pi):
+
+```bash
+chmod +x setup_linux.sh
+./setup_linux.sh
+```
 
 ## Repo layout (high-level)
 
@@ -110,4 +115,3 @@ Suggested checks (manual):
 - Keep PRs small and focused
 - Include a short summary and testing notes
 - Update docs if behavior or configuration changes
-

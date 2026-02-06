@@ -2,14 +2,18 @@
 set -euo pipefail
 
 PY_VERSION="${PY_VERSION:-3.13.5}"
+PY_MM="${PY_VERSION%.*}"
+BREW_PY_FORMULA="${BREW_PY_FORMULA:-python@${PY_MM}}"
 PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 VENV_PATH="${VENV_PATH:-${PROJECT_DIR}/.venv}"
 REQ_FILE="${REQ_FILE:-${PROJECT_DIR}/setup_reqs_mac.txt}"
 INSTALL_PYWEBVIEW="${INSTALL_PYWEBVIEW:-1}"
+PIP_ONLY_BINARY="${PIP_ONLY_BINARY:-1}"
 HEARTBEAT_SECONDS="${HEARTBEAT_SECONDS:-60}"
 START_TS="$(date +%s)"
 
 CREATED_VENV=0
+PYTHON_BIN=""
 MIN_MACOS_MAJOR=13
 MIN_MACOS_MINOR=0
 
@@ -136,32 +140,24 @@ ensure_xcode_clt() {
   exit 1
 }
 
-install_python_with_pyenv() {
+install_python_with_brew() {
   run_with_heartbeat "Homebrew update" brew update
-  run_with_heartbeat "Homebrew install build deps (pyenv, openssl, sqlite, etc.)" \
-    brew install pyenv openssl@3 readline sqlite3 xz zlib tcl-tk pkg-config
+  run_with_heartbeat "Homebrew install ${BREW_PY_FORMULA}" brew install "${BREW_PY_FORMULA}"
 
-  export PYENV_ROOT="${HOME}/.pyenv"
-  export PATH="${PYENV_ROOT}/bin:${PATH}"
-  eval "$(pyenv init - bash)"
-
-  OPENSSL_PREFIX="$(brew --prefix openssl@3)"
-  READLINE_PREFIX="$(brew --prefix readline)"
-  SQLITE_PREFIX="$(brew --prefix sqlite3)"
-  XZ_PREFIX="$(brew --prefix xz)"
-  ZLIB_PREFIX="$(brew --prefix zlib)"
-  TCLTK_PREFIX="$(brew --prefix tcl-tk)"
-
-  export LDFLAGS="-L${OPENSSL_PREFIX}/lib -L${READLINE_PREFIX}/lib -L${SQLITE_PREFIX}/lib -L${XZ_PREFIX}/lib -L${ZLIB_PREFIX}/lib -L${TCLTK_PREFIX}/lib"
-  export CPPFLAGS="-I${OPENSSL_PREFIX}/include -I${READLINE_PREFIX}/include -I${SQLITE_PREFIX}/include -I${XZ_PREFIX}/include -I${ZLIB_PREFIX}/include -I${TCLTK_PREFIX}/include"
-  export PKG_CONFIG_PATH="${OPENSSL_PREFIX}/lib/pkgconfig:${READLINE_PREFIX}/lib/pkgconfig:${SQLITE_PREFIX}/lib/pkgconfig:${XZ_PREFIX}/lib/pkgconfig:${ZLIB_PREFIX}/lib/pkgconfig:${TCLTK_PREFIX}/lib/pkgconfig"
-  export PYTHON_CONFIGURE_OPTS="--enable-shared"
-
-  if ! pyenv versions --bare | grep -qx "${PY_VERSION}"; then
-    run_with_heartbeat "pyenv install Python ${PY_VERSION}" pyenv install "${PY_VERSION}"
+  PYTHON_BIN="$(brew --prefix)/opt/${BREW_PY_FORMULA}/bin/python${PY_MM}"
+  if [[ ! -x "${PYTHON_BIN}" ]]; then
+    if command -v "python${PY_MM}" >/dev/null 2>&1; then
+      PYTHON_BIN="$(command -v "python${PY_MM}")"
+    elif command -v python3 >/dev/null 2>&1; then
+      PYTHON_BIN="$(command -v python3)"
+    else
+      echo "ERROR: Could not find a usable Python binary after installing ${BREW_PY_FORMULA}."
+      cleanup
+      exit 1
+    fi
   fi
 
-  pyenv shell "${PY_VERSION}"
+  run_with_heartbeat "Verify Python runtime (${PYTHON_BIN})" "${PYTHON_BIN}" --version
 }
 
 install_requirements() {
@@ -171,7 +167,13 @@ install_requirements() {
     exit 1
   fi
 
-  python -m venv "${VENV_PATH}"
+  if [[ -z "${PYTHON_BIN}" ]]; then
+    echo "ERROR: Python runtime not initialized."
+    cleanup
+    exit 1
+  fi
+
+  "${PYTHON_BIN}" -m venv "${VENV_PATH}"
   CREATED_VENV=1
   # shellcheck disable=SC1091
   source "${VENV_PATH}/bin/activate"
@@ -182,11 +184,23 @@ install_requirements() {
     echo "INSTALL_PYWEBVIEW=0 set — installing without pywebview."
     tmp_reqs="$(mktemp)"
     grep -v '^pywebview==' "${REQ_FILE}" > "${tmp_reqs}"
-    run_with_heartbeat "pip install requirements (without pywebview)" \
-      python -m pip install -r "${tmp_reqs}"
+    if [[ "${PIP_ONLY_BINARY}" == "1" ]]; then
+      echo "PIP_ONLY_BINARY=1 set — requiring wheel/binary packages only."
+      run_with_heartbeat "pip install requirements (without pywebview, binary-only)" \
+        python -m pip install --only-binary=:all: -r "${tmp_reqs}"
+    else
+      run_with_heartbeat "pip install requirements (without pywebview)" \
+        python -m pip install -r "${tmp_reqs}"
+    fi
     rm -f "${tmp_reqs}"
   else
-    run_with_heartbeat "pip install requirements" python -m pip install -r "${REQ_FILE}"
+    if [[ "${PIP_ONLY_BINARY}" == "1" ]]; then
+      echo "PIP_ONLY_BINARY=1 set — requiring wheel/binary packages only."
+      run_with_heartbeat "pip install requirements (binary-only)" \
+        python -m pip install --only-binary=:all: -r "${REQ_FILE}"
+    else
+      run_with_heartbeat "pip install requirements" python -m pip install -r "${REQ_FILE}"
+    fi
   fi
 }
 
@@ -214,13 +228,15 @@ EOF
 }
 
 main() {
-  echo "Note: This setup can take a long time (often 1+ hour) depending on Homebrew/Python builds."
+  echo "Note: This setup may take a while depending on Homebrew and package downloads."
   if [[ "${ALLOW_UNSUPPORTED_MACOS:-0}" != "1" ]]; then
     check_macos_compat
   fi
   ensure_brew
-  ensure_xcode_clt
-  install_python_with_pyenv
+  if [[ "${PIP_ONLY_BINARY}" != "1" ]]; then
+    ensure_xcode_clt
+  fi
+  install_python_with_brew
   install_requirements
   install_mosquitto
 

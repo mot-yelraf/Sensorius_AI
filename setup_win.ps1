@@ -1,10 +1,13 @@
 $ErrorActionPreference = 'Stop'
 
 $PY_VERSION = if ($env:PY_VERSION) { $env:PY_VERSION } else { '3.13.5' }
+$PY_MM = if ($PY_VERSION -match '^(\d+\.\d+)') { $Matches[1] } else { '3.13' }
+$PY_WINGET_ID = if ($env:PY_WINGET_ID) { $env:PY_WINGET_ID } else { 'Python.Python.3.13' }
 $ProjectDir = if ($env:PROJECT_DIR) { $env:PROJECT_DIR } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $VenvPath = if ($env:VENV_PATH) { $env:VENV_PATH } else { Join-Path $ProjectDir '.venv' }
 $ReqFile = if ($env:REQ_FILE) { $env:REQ_FILE } else { Join-Path $ProjectDir 'setup_reqs_win.txt' }
 $InstallPywebview = if ($env:INSTALL_PYWEBVIEW) { $env:INSTALL_PYWEBVIEW } else { '1' }
+$PipOnlyBinary = if ($env:PIP_ONLY_BINARY) { $env:PIP_ONLY_BINARY } else { '1' }
 
 $CreatedVenv = $false
 
@@ -43,36 +46,49 @@ function Ensure-Winget {
     exit 1
 }
 
-function Ensure-PyenvWin {
-    if (-not (Get-Command pyenv -ErrorAction SilentlyContinue)) {
-        Write-Host 'Installing pyenv-win via winget...'
-        winget install --id pyenv-win.pyenv-win -e --accept-package-agreements --accept-source-agreements
+function Install-WingetPackage {
+    param(
+        [Parameter(Mandatory = $true)][string]$PackageId,
+        [switch]$Silent
+    )
+
+    $installArgs = @(
+        'install', '--id', $PackageId, '-e',
+        '--accept-package-agreements', '--accept-source-agreements'
+    )
+    if ($Silent) {
+        $installArgs += '--silent'
     }
 
-    $pyenvRoot = Join-Path $HOME '.pyenv\pyenv-win'
-    $binPath = Join-Path $pyenvRoot 'bin'
-    $shimsPath = Join-Path $pyenvRoot 'shims'
-
-    if (-not ($env:Path -like "*$binPath*")) {
-        $env:Path = "$binPath;$shimsPath;$env:Path"
+    & winget @installArgs
+    if ($LASTEXITCODE -eq 0) {
+        return
     }
 
-    if (-not (Get-Command pyenv -ErrorAction SilentlyContinue)) {
-        Write-Host 'pyenv not available in this session. Please open a new PowerShell and re-run.'
-        Cleanup
-        exit 1
+    Write-Host "winget install for $PackageId returned code $LASTEXITCODE; trying upgrade..."
+    & winget upgrade --id $PackageId -e --accept-package-agreements --accept-source-agreements
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Continuing after winget non-zero code for $PackageId ($LASTEXITCODE)."
     }
 }
 
 function Install-Python {
-    $installed = pyenv versions --bare | Where-Object { $_ -eq $PY_VERSION }
-    if (-not $installed) {
-        Write-Host "pyenv: installing Python $PY_VERSION (this may take a while)…"
-        pyenv install $PY_VERSION
+    Write-Host "Ensuring Python $PY_MM is installed via winget package ($PY_WINGET_ID)..."
+    Install-WingetPackage -PackageId $PY_WINGET_ID -Silent
+
+    if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
+        Write-Host 'Python launcher (py.exe) not found after install. Open a new elevated PowerShell and re-run.'
+        Cleanup
+        exit 1
     }
 
-    Set-Location $ProjectDir
-    pyenv local $PY_VERSION
+    try {
+        & py "-$PY_MM" -c "import sys; print(sys.version)"
+    } catch {
+        Write-Host "Python $PY_MM is not available via py launcher. Ensure '$PY_WINGET_ID' installed successfully."
+        Cleanup
+        exit 1
+    }
 }
 
 function Install-Requirements {
@@ -82,22 +98,33 @@ function Install-Requirements {
         exit 1
     }
 
-    python -m venv $VenvPath
+    & py "-$PY_MM" -m venv $VenvPath
     $CreatedVenv = $true
 
     $activate = Join-Path $VenvPath 'Scripts\Activate.ps1'
     . $activate
 
-    python -m pip install --upgrade pip
+    $venvPython = Join-Path $VenvPath 'Scripts\python.exe'
+    & $venvPython -m pip install --upgrade pip
 
     if ($InstallPywebview -eq '0') {
         Write-Host 'INSTALL_PYWEBVIEW=0 set — installing without pywebview.'
         $tmpReqs = New-TemporaryFile
         Get-Content $ReqFile | Where-Object { $_ -notmatch '^pywebview==' } | Set-Content $tmpReqs
-        python -m pip install -r $tmpReqs
+        if ($PipOnlyBinary -eq '1') {
+            Write-Host 'PIP_ONLY_BINARY=1 set — requiring wheel/binary packages only.'
+            & $venvPython -m pip install --only-binary=:all: -r $tmpReqs
+        } else {
+            & $venvPython -m pip install -r $tmpReqs
+        }
         Remove-Item $tmpReqs
     } else {
-        python -m pip install -r $ReqFile
+        if ($PipOnlyBinary -eq '1') {
+            Write-Host 'PIP_ONLY_BINARY=1 set — requiring wheel/binary packages only.'
+            & $venvPython -m pip install --only-binary=:all: -r $ReqFile
+        } else {
+            & $venvPython -m pip install -r $ReqFile
+        }
     }
 }
 
@@ -107,11 +134,11 @@ function Ensure-WebView2Runtime {
     }
 
     Write-Host 'Ensuring Microsoft Edge WebView2 Runtime is installed...'
-    winget install --id Microsoft.EdgeWebView2Runtime -e --accept-package-agreements --accept-source-agreements || $true
+    Install-WingetPackage -PackageId 'Microsoft.EdgeWebView2Runtime'
 }
 
 function Install-Mosquitto {
-    winget install --id Eclipse.Mosquitto -e --accept-package-agreements --accept-source-agreements
+    Install-WingetPackage -PackageId 'Eclipse.Mosquitto'
 
     $mosqRoot = Join-Path $env:ProgramFiles 'mosquitto'
     $mosqConf = Join-Path $mosqRoot 'mosquitto.conf'
@@ -140,7 +167,6 @@ allow_anonymous true
 try {
     Ensure-Admin
     Ensure-Winget
-    Ensure-PyenvWin
     Install-Python
     Install-Requirements
     Ensure-WebView2Runtime
