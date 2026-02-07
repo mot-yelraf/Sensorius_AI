@@ -8,7 +8,8 @@ Enhanced VEML7700 ambient light sensor with:
 - DLI (mol/m²/day) computed since local midnight with O(1) memory
 """
 import time
-from cPyUtils import printDM, debug_enabled, get_timestamp
+from saiUtils import printDM, debug_enabled, get_timestamp
+from sensor_modules.base import BaseSensor
 
 MODULE = "VEML7700Sensor"
 DEBUG = debug_enabled("saiSensorFactory")

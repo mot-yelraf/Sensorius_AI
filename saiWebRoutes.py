@@ -355,13 +355,23 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 except Exception:
                     metrics = []
             if not metrics:
+                # If display metrics are blank, prefer per-sensor stored metrics
+                # rather than rendering every gauge_config metric.
+                try:
+                    stored_metrics = data_logger.get_available_metrics(sid) or []
+                except Exception:
+                    stored_metrics = []
+                if stored_metrics:
+                    ordered = [k for k in gauge_config.keys() if k in stored_metrics]
+                    extras = [k for k in stored_metrics if k not in gauge_config]
+                    metrics = ordered + extras
+
+            if not metrics:
                 vals = all_values.get(sid) or {}
                 if vals:
                     ordered = [k for k in gauge_config.keys() if k in vals]
                     extras = [k for k in vals.keys() if k not in gauge_config]
                     metrics = ordered + extras
-                else:
-                    metrics = list(gauge_config.keys())
             expected_gauge_map[sid] = metrics
 
         # Use the location map we already built
