@@ -92,7 +92,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     except Exception:
         pass
 
-    # ✅ Initialize buckets
+    # Initialize buckets
     switches_by_loc: dict[str, list] = defaultdict(list)
 
     # ---- Preload on-disk locations (id → location) to avoid stale in-memory values
@@ -562,6 +562,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         yield "</div>"
         yield f"<div class='sensor-row' id='row_{sid}'>"
 
+        # build out the gauges for this sensor based on its configured display metrics; if none, show all available gauges
         for metric in sensor_metrics:
             if metric not in gauge_config:
                 continue
@@ -1138,7 +1139,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  checkAndRetryIfNoGauges();"
     yield "});"
 
-    # ---- async functions ----
+    # ---- more helper functions ----
     yield "function formatIsoForStats(ts) {"
     yield "  if (!ts || typeof ts !== 'string') return '--';"
     # Remove fractional seconds like .123456 just before Z, an offset, or end

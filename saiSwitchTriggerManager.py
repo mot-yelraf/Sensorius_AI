@@ -10,7 +10,6 @@ TMP_SUFFIX: str = ".tmp"
 
 # Preferred top-level sections (kept stable for readability)
 SECTION_META: str = "Meta"
-SECTION_BASIC: str = "Basic"     # { <rule_id>: { enabled, condition, action } }
 SECTION_ADV: str = "Advanced"    # { <rule_id>: { enabled, script_json } }
 SECTION_SCRIPTS: str = "Scripts" # { <script_name>: true/false }
 
@@ -47,20 +46,6 @@ class SwitchTriggerManager:
       version = 1
       notes = "Switch trigger configuration. Edit carefully."
 
-      [Basic]
-      # Each key is a rule_id; value is an inline table with 'enabled', 'condition', 'action'
-      # Condition fields (single-condition rule):
-      #   sensor_id, metric, op, threshold, hysteresis, min_interval_sec
-      # Action fields:
-      #   (preferred) switch_key="switch_id::Label", set=true|false
-      #   (alt) switch_id="...", label="...", set=...
-      #   (alt) hostname="...", label="...", set=...
-      # Example:
-      #   CoolWhenHot = { enabled=true,
-      #     condition = { sensor_id="avpd-i2c-0-sensoria-hub-0", metric="Temperature_F", op=">", threshold=82.0, hysteresis=1.0, min_interval_sec=120 },
-      #     action    = { switch_key="switch-dijn0w::Fan", set=true }
-      #   }
-
       [Advanced]
       # Each key is a rule_id; value is an inline table with 'enabled', 'script_json' (stringified JSON)
       # The JSON can encode multi-condition logic, schedules, etc.
@@ -95,7 +80,6 @@ class SwitchTriggerManager:
             logger.debug("[triggers] No file yet for %s; returning defaults", hostname)
             return {
                 SECTION_META: dict(DEFAULT_META),
-                SECTION_BASIC: {},
                 SECTION_ADV: {},
                 SECTION_SCRIPTS: {},
             }
@@ -107,14 +91,12 @@ class SwitchTriggerManager:
             logger.warning("[triggers] Failed to read %s: %r; returning defaults", triggers_path, e)
             return {
                 SECTION_META: dict(DEFAULT_META),
-                SECTION_BASIC: {},
                 SECTION_ADV: {},
                 SECTION_SCRIPTS: {},
             }
 
         # Normalize missing sections
         data.setdefault(SECTION_META, dict(DEFAULT_META))
-        data.setdefault(SECTION_BASIC, {})
         data.setdefault(SECTION_ADV, {})
         data.setdefault(SECTION_SCRIPTS, {})
         return data
@@ -131,7 +113,6 @@ class SwitchTriggerManager:
         meta = dict(DEFAULT_META)
         meta.update(data.get(SECTION_META, {}) or {})
 
-        basic: Dict[str, Any] = data.get(SECTION_BASIC, {}) or {}
         adv: Dict[str, Any] = data.get(SECTION_ADV, {}) or {}
         scripts: Dict[str, Any] = data.get(SECTION_SCRIPTS, {}) or {}
 
@@ -141,53 +122,6 @@ class SwitchTriggerManager:
             buf.write(f"version = {int(meta.get('version', 1))}\n")
             notes = str(meta.get("notes", "Switch trigger configuration. Edit carefully."))
             buf.write(f"{_toml_key('notes')} = {_toml_string(notes)}\n\n")
-
-        def _emit_basic(buf: io.StringIO) -> None:
-            if not basic:
-                return
-            buf.write("[Basic]\n")
-            for rule_id in sorted(basic.keys()):
-                rule = basic.get(rule_id) or {}
-                enabled = bool(rule.get("enabled", False))
-                condition = rule.get("condition", {}) or {}
-                action = rule.get("action", {}) or {}
-
-                # Emit inline tables for compactness
-                buf.write(f"{_toml_key(rule_id)} = {{ ")
-                buf.write(f"enabled={_toml_bool(enabled)}, ")
-
-                # condition =
-                buf.write("condition = { ")
-                buf.write(_emit_kv_inline({
-                    "sensor_id": condition.get("sensor_id", ""),
-                    "metric": condition.get("metric", ""),
-                    "op": condition.get("op", ">"),
-                    "threshold": condition.get("threshold", 0),
-                    "hysteresis": condition.get("hysteresis", 0),
-                    "min_interval_sec": condition.get("min_interval_sec", 0),
-                }))
-                buf.write(" }, ")
-
-                # action =
-                # Prefer switch_key if present; else write the provided fields
-                act_map = {}
-                if "switch_key" in action:
-                    act_map["switch_key"] = action.get("switch_key", "")
-                else:
-                    # keep whatever the caller provided (switch_id/label or hostname/label)
-                    if "switch_id" in action:
-                        act_map["switch_id"] = action.get("switch_id", "")
-                    if "hostname" in action:
-                        act_map["hostname"] = action.get("hostname", "")
-                    act_map["label"] = action.get("label", "")
-                act_map["set"] = bool(action.get("set", False))
-
-                buf.write("action = { ")
-                buf.write(_emit_kv_inline(act_map))
-                buf.write(" } ")
-
-                buf.write("}\n")
-            buf.write("\n")
 
         def _emit_advanced(buf: io.StringIO) -> None:
             if not adv:
@@ -222,7 +156,6 @@ class SwitchTriggerManager:
 
         buf = io.StringIO()
         _emit_meta(buf)
-        _emit_basic(buf)
         _emit_advanced(buf)
         _emit_scripts(buf)
 
@@ -240,37 +173,9 @@ class SwitchTriggerManager:
                 pass
 
     # ---------- CRUD helpers ----------
-    def upsert_basic_rule(
-        self,
-        hostname: str,
-        rule_id: str,
-        *,
-        enabled: bool,
-        condition: Dict[str, Any],
-        action: Dict[str, Any],
-    ) -> None:
-        """
-        Create or update a Basic rule (single-condition).
-        Required fields inside 'condition': sensor_id, metric, op, threshold
-        Optional: hysteresis, min_interval_sec
-        Action prefers 'switch_key' (e.g., "switch-abc123::Fan") else accepts switch_id/label or hostname/label.
-        """
-        data = self.load(hostname)
-        basic = data.get(SECTION_BASIC, {}) or {}
-        basic[rule_id] = {
-            "enabled": bool(enabled),
-            "condition": {
-                "sensor_id": str(condition.get("sensor_id", "")),
-                "metric": str(condition.get("metric", "")),
-                "op": str(condition.get("op", ">")),
-                "threshold": condition.get("threshold", 0),
-                "hysteresis": condition.get("hysteresis", 0),
-                "min_interval_sec": condition.get("min_interval_sec", 0),
-            },
-            "action": self._normalize_action(action),
-        }
-        data[SECTION_BASIC] = basic
-        self.save(hostname, data)
+    def upsert_basic_rule(self, *args, **kwargs) -> None:
+        """Basic rules are no longer supported."""
+        raise NotImplementedError("Basic automations are no longer supported; use Advanced rules.")
 
     def upsert_advanced_rule(
         self,
@@ -304,11 +209,11 @@ class SwitchTriggerManager:
 
     def delete_rule(self, hostname: str, section: str, rule_id: str) -> bool:
         """
-        Delete a rule by id from 'Basic' or 'Advanced'.
+        Delete a rule by id from 'Advanced'.
         Returns True if removed.
         """
         section = section.strip().title()
-        if section not in (SECTION_BASIC, SECTION_ADV):
+        if section not in (SECTION_ADV,):
             logger.debug("[triggers] delete_rule: invalid section %s", section)
             return False
         data = self.load(hostname)
@@ -322,10 +227,10 @@ class SwitchTriggerManager:
 
     def set_rule_enabled(self, hostname: str, section: str, rule_id: str, enabled: bool) -> bool:
         """
-        Enable/disable a specific rule under Basic or Advanced.
+        Enable/disable a specific rule under Advanced.
         """
         section = section.strip().title()
-        if section not in (SECTION_BASIC, SECTION_ADV):
+        if section not in (SECTION_ADV,):
             return False
         data = self.load(hostname)
         rules = data.get(section, {}) or {}

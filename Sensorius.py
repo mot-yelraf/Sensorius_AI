@@ -10,7 +10,7 @@ hub on Raspberry Pi hardware.
 import asyncio
 from threading import Thread
 import socket
-from saiUtils import printDM, debug_enabled
+from saiUtils import printDM, debug_enabled, configure_logging
 from saiSensor import SensorController
 from saiMQTTClient import saiMQTTClient, set_mqtt_client
 from saiTaskSupervisor import TaskSupervisor
@@ -515,6 +515,8 @@ if __name__ == "__main__":
     import sys
 
     try:
+        configure_logging()
+
         # Start backend system in a daemon thread
         main_thread = Thread(target=run_main_thread, daemon=True)
         main_thread.start()

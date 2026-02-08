@@ -4901,12 +4901,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             if trigger_key in form:
                 sw_block[trigger_key] = (form.get(trigger_key, "") or "").strip()
 
-            # If you also POST hidden BASIC JSONs, pick them up here for automations.toml later:
-            basic_json_key = f"BASIC_{i}_JSON"
-            if basic_json_key in form:
-                # You can parse and persist into automations.toml with your AutomationsManager
-                pass
-
         merged_doc = deep_merge_ordered(OrderedDict(existing_doc), OrderedDict({"Switch": sw_block}))
 
         # ---------- Persist FULL merged doc (NEW BLOCK) ----------
@@ -4944,56 +4938,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 printDM(f"[{MODULE}] Renamed switch settings directory: {old_id} → {new_id}", location=MODULE)
             except Exception as e:
                 printDM(f"[{MODULE}] Failed to rename {old_id}→{new_id}: {e}", location=MODULE)
-
-        # -----------------------------
-        # Persist Basic triggers to automations.toml via saiAutomationManager
-        # -----------------------------
-        target_switch_id = new_id
-        final_switch_map = (merged_doc.get("Switch") or {})
-        trig_mgr = AutomationManager(base_dir="switch_settings")
-
-        basic_keys = [name for name in form.keys() if name.startswith("BASIC_") and name.endswith("_JSON")]
-        for name in basic_keys:
-            try:
-                idx = int(name.split("_")[1])
-            except Exception:
-                continue
-            raw = (form.get(name) or "").strip()
-            if not raw:
-                continue
-            try:
-                payload = json.loads(raw)
-            except Exception as e:
-                printDM(f"[{MODULE}] Invalid BASIC payload for channel {idx}: {e}", location=MODULE)
-                continue
-
-            condition = {
-                "sensor_id": payload.get("sensor_id", ""),
-                "metric": payload.get("metric", ""),
-                "op": payload.get("op", ">"),
-                "threshold": payload.get("threshold", 0),
-                "hysteresis": payload.get("hysteresis", 0),
-                "min_interval_sec": payload.get("min_interval_sec", 0),
-            }
-            rule_name = (payload.get("name") or "").strip()
-            enabled_flag = bool(payload.get("enabled", True))
-
-            ch_label = (final_switch_map.get(f"SWITCH_{idx}", "") or f"SWITCH_{idx}").strip()
-            action = {"switch_key": f"{target_switch_id}::{ch_label}", "set": True}
-
-            rule_id = f"SWITCH_{idx}_Basic"
-            try:
-                trig_mgr.upsert_basic_rule(
-                    hostname=target_switch_id,
-                    rule_id=rule_id,
-                    enabled=enabled_flag,
-                    condition=condition,
-                    action=action,
-                    name=rule_name,
-                )
-                printDM(f"[{MODULE}] Saved Basic trigger {rule_id} for {target_switch_id}", location=MODULE)
-            except Exception as e:
-                printDM(f"[{MODULE}] Failed to save Basic trigger {rule_id}: {e}", location=MODULE)
 
         return RedirectResponse(url="/", status_code=303)
 

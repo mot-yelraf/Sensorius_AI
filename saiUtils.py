@@ -1,46 +1,111 @@
-"""Shared utility helpers for logging, time, and formatting."""
+"""Core shared utilities for Sensorius runtime behavior.
+
+This module centralizes:
+- logging setup and debug-module controls
+- timestamp/timezone helpers
+- light async watchdog helpers
+- network identity helpers (hostname/mDNS)
+- small compatibility wrappers used across services
+"""
 import os
 import time
+import socket
+import shutil
 import logging
 import asyncio
-from datetime import datetime
+import subprocess
+from datetime import datetime, timedelta
+from logging.handlers import RotatingFileHandler
 from zoneinfo import ZoneInfo
 
-# Setup basic logger configuration
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-logging.basicConfig(
-    level=logging.INFO,
-    format=LOG_FORMAT,
-    datefmt=DATE_FORMAT
-)
+DEFAULT_LOG_FILE = "sensorius.log"
+DEFAULT_DEBUG_MODULES = {
+    "Sensorius",
+    "saiSensor",
+    "saiMQTTIngest",
+    "saiHtml",
+    "saiSwitch",
+    "saiWebRoutes",
+}
 
-# Toggle file logging. Set True to write sensorius.log.
-DEBUGLOG = False
-LOG_FILE = "sensorius.log"
-
-if DEBUGLOG:
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)
-    for handler in root_logger.handlers:
-        handler.setLevel(logging.INFO)
-    if not any(
-        isinstance(handler, logging.FileHandler)
-        and getattr(handler, "baseFilename", "").endswith(LOG_FILE)
-        for handler in root_logger.handlers
-    ):
-        file_handler = logging.FileHandler(LOG_FILE)
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT))
-        root_logger.addHandler(file_handler)
-
-# Optional: adjust specific module log levels
 logger = logging.getLogger("saiUtils")
-logger.setLevel(logging.DEBUG)  # or INFO
+logger.addHandler(logging.NullHandler())
+logger.setLevel(logging.NOTSET)
 
-# Define which modules have debug enabled
-DEBUG_MODULES = set()  # e.g., {"ALL"} or {"saiSensor", "saiWebRoutes", "saiHtml"}
-DEBUG_MODULES = {"Sensorius", "saiSensor", "saiMQTTIngest", "saiHtml", "saiSwitch", "saiWebRoutes"}
+
+def _parse_bool(raw: str | None, default: bool = False) -> bool:
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _load_debug_modules() -> set[str]:
+    """
+    Load debug-enabled modules from environment.
+
+    ENV:
+      - SENSORIUS_DEBUG_MODULES="ALL" or comma-delimited names
+    """
+    raw = os.environ.get("SENSORIUS_DEBUG_MODULES")
+    if raw is None or raw.strip() == "":
+        return set(DEFAULT_DEBUG_MODULES)
+    modules = {part.strip() for part in raw.split(",") if part.strip()}
+    return modules or set(DEFAULT_DEBUG_MODULES)
+
+
+DEBUG_MODULES = _load_debug_modules()
+
+
+def configure_logging(
+    *,
+    level: str | None = None,
+    enable_file: bool | None = None,
+    log_file: str | None = None,
+    force: bool = False,
+) -> logging.Logger:
+    """
+    Configure process-wide logging explicitly from the app entrypoint.
+
+    ENV overrides:
+      - SENSORIUS_LOG_LEVEL (default: INFO)
+      - SENSORIUS_FILE_LOG  (true/false, default: false)
+      - SENSORIUS_LOG_FILE  (default: sensorius.log)
+    """
+    effective_level = (level or os.environ.get("SENSORIUS_LOG_LEVEL", "INFO")).upper()
+    file_logging = _parse_bool(
+        os.environ.get("SENSORIUS_FILE_LOG"),
+        default=False if enable_file is None else bool(enable_file),
+    )
+    if enable_file is not None:
+        file_logging = bool(enable_file)
+    target_file = log_file or os.environ.get("SENSORIUS_LOG_FILE", DEFAULT_LOG_FILE)
+
+    root_logger = logging.getLogger()
+    if root_logger.handlers and not force:
+        root_logger.setLevel(getattr(logging, effective_level, logging.INFO))
+    else:
+        logging.basicConfig(
+            level=getattr(logging, effective_level, logging.INFO),
+            format=LOG_FORMAT,
+            datefmt=DATE_FORMAT,
+            force=force,
+        )
+
+    if file_logging:
+        have_file_handler = any(
+            isinstance(h, logging.FileHandler)
+            and getattr(h, "baseFilename", "").endswith(target_file)
+            for h in root_logger.handlers
+        )
+        if not have_file_handler:
+            fh = RotatingFileHandler(target_file, maxBytes=5_000_000, backupCount=3)
+            fh.setLevel(logging.DEBUG)
+            fh.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT))
+            root_logger.addHandler(fh)
+
+    return logging.getLogger("saiUtils")
 
 async def supervised_task(name, coro_func, supervisor):
     try:
@@ -58,9 +123,11 @@ async def supervised_task(name, coro_func, supervisor):
 def debug_enabled(module_name: str) -> bool:
     return "ALL" in DEBUG_MODULES or module_name in DEBUG_MODULES
 
-def printDM(msg, location=""):
-    log_info = f"[{location}] {msg}" if location else f"{get_timestamp()} {msg}"
-    logger.debug(log_info)
+
+def printDM(msg, location="", level: str = "debug"):
+    log_info = f"[{location}] {msg}" if location else f"{msg}"
+    log_method = getattr(logger, str(level).lower(), logger.debug)
+    log_method(log_info)
 
 def html_escape(text):
     # Be tolerant: accept int/float/None/etc.
@@ -139,7 +206,7 @@ def get_timestamp(include_microseconds: bool = True) -> str:
 def get_time_settings():
     """
     Try to determine the system TZ.
-    If we can’t, return None values so callers can keep defaults.
+    If we cannot, return None values so callers can keep defaults.
     Returns keys in UPPERCASE to match your factory TOML.
     """
     timezone_id = None
@@ -192,11 +259,6 @@ async def loop_lag_monitor(name="loop_lag", period=0.5, warn_over=1.25):
         last = now
         if drift > warn_over:
             printDM(f"[{name}] drift={drift:.3f}s (period={period:.2f}s)", location="loop_lag_monitor")
-
-import subprocess
-import socket
-import shutil
-import time
 
 def get_pi_network_info(interface: str = "wlan0", force_refresh: bool = False) -> dict:
     """

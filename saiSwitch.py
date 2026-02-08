@@ -413,7 +413,7 @@ class SwitchController:
         """
         Uses saiAutomationManager.load_triggers(manager, switch_id) if available.
         Falls back to loading automations.toml directly via tomllib.
-        Returns dict with 'Basic' and 'Advanced' keys.
+        Returns dict with 'Advanced' key.
         """
         # Try helper first
         try:
@@ -421,7 +421,7 @@ class SwitchController:
             from saiAutomationManager import load_triggers
             mgr = SwitchSettingsManager("switch_settings")
             data = load_triggers(mgr, self.switch_id) or {}
-            return {"Basic": data.get("Basic") or {}, "Advanced": data.get("Advanced") or {}}
+            return {"Advanced": data.get("Advanced") or {}}
         except Exception:
             pass
 
@@ -430,12 +430,12 @@ class SwitchController:
             import tomllib
             path = self._get_triggers_path()
             if not path or not path.exists():
-                return {"Basic": {}, "Advanced": {}}
+                return {"Advanced": {}}
             with path.open("rb") as f:
                 data = tomllib.load(f) or {}
-            return {"Basic": data.get("Basic") or {}, "Advanced": data.get("Advanced") or {}}
+            return {"Advanced": data.get("Advanced") or {}}
         except Exception:
-            return {"Basic": {}, "Advanced": {}}
+            return {"Advanced": {}}
 
     def _compare_with_hysteresis(self, op: str, actual: float, threshold: float, hyst: float, current_state: bool) -> bool:
         """
@@ -486,131 +486,9 @@ class SwitchController:
                 printDM(f"[vals] {self.switch_id}:{sensor_id} DB error: {e}", location=MODULE)
         return {}
 
-    def _evaluate_and_apply_basic(self, current_values_map: dict):
-        """
-        Load automations.toml and evaluate [Basic] rules.
-        Applies action.set to the channel indicated by action.switch_key if it belongs to this controller.
-        """
-        try:
-            triggers = self._load_triggers_dict()
-            basic = triggers.get("Basic") or {}
-            if DEBUG:
-                printDM(f"[basic] {self.switch_id}: evaluating {len(basic)} rule(s)", location=MODULE)
-
-        except Exception as e:
-            if DEBUG:
-                printDM(f"[basic] load error: {e}", location=MODULE)
-            return
-
-        # iterate named rules in [Basic]
-        for _name, rule in basic.items():
-            try:
-                if not isinstance(rule, dict):
-                    continue
-
-                # enabled flag (string/boolean tolerant)
-                enabled = rule.get("enabled", True)
-                if isinstance(enabled, str):
-                    if enabled.strip().lower() in ("0", "false", "no", "off"):
-                        continue
-                elif not bool(enabled):
-                    continue
-
-                cond = rule.get("condition") or {}
-                act  = rule.get("action") or {}
-
-                # extract condition
-                sensor_id = str(cond.get("sensor_id", "")).strip()
-                metric    = str(cond.get("metric", "")).strip()
-                op        = str(cond.get("op", ">")).strip()
-                try:
-                    threshold = float(cond.get("threshold"))
-                except Exception:
-                    continue
-                try:
-                    hyst = float(cond.get("hysteresis", 0) or 0)
-                except Exception:
-                    hyst = 0.0
-                try:
-                    min_interval = float(cond.get("min_interval_sec", 0) or 0)
-                except Exception:
-                    min_interval = 0.0
-
-                if not sensor_id or not metric:
-                    continue
-
-                # action parsing
-                switch_key = str(act.get("switch_key", "")).strip()
-                want_set   = bool(act.get("set", True))
-
-                # switch_key is "<switch_id>::<Label>"
-                if "::" not in switch_key:
-                    if DEBUG:
-                        printDM(f"[basic] bad switch_key {switch_key!r}", location=MODULE)
-                    continue
-                target_switch_id, target_label = switch_key.split("::", 1)
-                target_switch_id = target_switch_id.strip()
-                target_label     = target_label.strip()
-
-                # Only act if this rule targets *this* controller
-                if target_switch_id != getattr(self, "switch_id", None):
-                    continue
-
-                # collect the actual current value for the referenced sensor/metric
-                vals = self._get_values_for_sensor(sensor_id, current_values_map)
-                if metric not in vals:
-                    # attempt a lenient match (dash/underscore/space agnostic, case-insensitive)
-                    if metric not in vals:
-                        key_norm = metric.lower().replace("-", "").replace("_", "").replace(" ", "")
-                        alt = None
-                        for k, v in vals.items():
-                            if k and k.lower().replace("-", "").replace("_", "").replace(" ", "") == key_norm:
-                                alt = k; actual = v; break
-                        if alt is None:
-                            if DEBUG:
-                                printDM(f"[basic] {self.switch_id}: metric '{metric}' not in vals keys={list(vals.keys())[:8]}", location=MODULE)
-                            continue
-                else:
-                    actual = vals[metric]
-
-                try:
-                    actual_f = float(actual)
-                except Exception:
-                    continue
-
-                # current channel state + hysteresis decision
-                curr_state = bool(self.get_state(target_label))
-                desired    = self._compare_with_hysteresis(op, actual_f, threshold, hyst, curr_state)
-
-                # If no change needed → skip
-                if desired == curr_state:
-                    continue
-
-                now = time.monotonic()
-                last = float(self.last_set_time.get(target_label, 0.0) or 0.0)
-
-                # Enforce both global min_on/min_off and rule-level min_interval_sec
-                elapsed = now - last
-                if desired and elapsed < max(self.min_off_time, min_interval):
-                    continue
-                if not desired and elapsed < max(self.min_on_time, min_interval):
-                    continue
-
-                # Apply and persist/log
-                if self.override_script.get(target_label, False):
-                    if DEBUG:
-                        printDM(f"[basic] '{target_label}' skipped due to override", location=MODULE)
-                    continue
-
-                # Apply using the unified setter (handles min_on/off, logs, MQTT)
-                changed = self.set_state(target_label, desired)
-                
-            except Exception as e:
-                printDM(f"[basic] rule error: {e}", location=MODULE)
-
     def _has_enabled_rules_from_triggers(self, triggers: dict) -> bool:
         """
-        A conservative check: any item in [Basic]/[Advanced] is 'enabled'
+        A conservative check: any item in [Advanced] is 'enabled'
         unless it has an explicit enabled=false (bool or stringy false).
         """
         def _truthy_enabled(v) -> bool:
@@ -624,7 +502,7 @@ class SwitchController:
                 return flag.strip().lower() not in ("0", "false", "no", "off")
             return bool(flag)
 
-        for section in ("Basic", "Advanced"):
+        for section in ("Advanced",):
             entries = triggers.get(section) or {}
             for _k, val in entries.items():
                 try:
@@ -1224,7 +1102,6 @@ class SwitchController:
 
                     # Evaluate rules (per-switch overrides are handled inside)
                     self.evaluate_and_apply_scripts(current_values_map)
-                    self._evaluate_and_apply_basic(current_values_map)
                     self._evaluate_and_apply_advanced(current_values_map)
 
             except Exception as e:

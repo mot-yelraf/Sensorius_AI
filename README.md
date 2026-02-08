@@ -187,6 +187,34 @@ sudo systemctl enable sensorius.service
 sudo systemctl start sensorius.service
 ```
 
+### Logging and Debug Environment Variables
+
+Set these in your shell (or service environment) before starting Sensorius:
+
+```bash
+# Log level: DEBUG, INFO, WARNING, ERROR
+export SENSORIUS_LOG_LEVEL=INFO
+
+# Optional rotating file logging
+export SENSORIUS_FILE_LOG=true
+export SENSORIUS_LOG_FILE=sensorius.log
+
+# Debug output filter:
+# - comma-separated module names
+# - or ALL
+export SENSORIUS_DEBUG_MODULES=Sensorius,saiWebRoutes,saiMQTTIngest
+# export SENSORIUS_DEBUG_MODULES=ALL
+```
+
+Equivalent `.env` values:
+
+```env
+SENSORIUS_LOG_LEVEL=INFO
+SENSORIUS_FILE_LOG=true
+SENSORIUS_LOG_FILE=sensorius.log
+SENSORIUS_DEBUG_MODULES=Sensorius,saiWebRoutes,saiMQTTIngest
+```
+
 ---
 
 ## 10. GPIO Pin Assignments

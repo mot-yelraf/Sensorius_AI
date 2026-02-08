@@ -1,11 +1,16 @@
 """Switch automation rule manager and TOML schema helper.
 
 Loads, validates, and persists switch automation rules stored per host at
-`switch_settings/<hostname>/automations.toml`. Supports Basic rules (single
-condition + action), Advanced rules (JSON scripts), and global Script toggles.
+`switch_settings/<hostname>/automations.toml`.
 
-This module provides a small API for reading/writing rules, normalizing schema,
-and querying rule state by switch key for runtime use in the automation engine.
+Current runtime contract is Advanced-only automation rules plus optional global
+Script toggles:
+- ``[Advanced]``: named rules containing ``enabled`` + ``script_json``
+- ``[Scripts]``: coarse global boolean flags
+
+This module provides a small API for reading/writing Advanced rules,
+normalizing schema, and querying rule state by switch key for runtime use in
+the automation engine.
 """
 from __future__ import annotations
 
@@ -16,7 +21,6 @@ TMP_SUFFIX: str = ".tmp"
 
 # Preferred top-level sections (kept stable for readability)
 SECTION_META: str = "Meta"
-SECTION_BASIC: str = "Basic"     # { <rule_id>: { enabled, condition, action } }
 SECTION_ADV: str = "Advanced"    # { <rule_id>: { enabled, script_json } }
 SECTION_SCRIPTS: str = "Scripts" # { <script_name>: true/false }
 
@@ -30,10 +34,10 @@ DEFAULT_META: dict = {
 import os
 import io
 import json
-import time
-import logging
+import re
+import threading
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Callable, TypeVar
 try:
     import tomllib  # Python 3.11+
 except Exception as e:  # pragma: no cover
@@ -43,6 +47,8 @@ from saiUtils import debug_enabled, printDM
 
 MODULE = "saiAutomationManager"
 DEBUG = debug_enabled(MODULE)
+_HOSTNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+T = TypeVar("T")
 
 class AutomationManager:
     """
@@ -53,20 +59,6 @@ class AutomationManager:
       [Meta]
       version = 1
       notes = "Switch automations configuration. Edit carefully."
-
-      [Basic]
-      # Each key is a rule_id; value is an inline table with 'enabled', 'condition', 'action'
-      # Condition fields (single-condition rule):
-      #   sensor_id, metric, op, threshold, hysteresis, min_interval_sec
-      # Action fields:
-      #   (preferred) switch_key="switch_id::Label", set=true|false
-      #   (alt) switch_id="...", label="...", set=...
-      #   (alt) hostname="...", label="...", set=...
-      # Example:
-      #   CoolWhenHot = { enabled=true,
-      #     condition = { sensor_id="avpd-i2c-0-sensoria-hub-0", metric="Temperature_F", op=">", threshold=82.0, hysteresis=1.0, min_interval_sec=120 },
-      #     action    = { switch_key="switch-dijn0w::Fan", set=true }
-      #   }
 
       [Advanced]
       # Each key is a rule_id; value is an inline table with 'enabled', 'script_json' (stringified JSON)
@@ -81,15 +73,31 @@ class AutomationManager:
 
     def __init__(self, base_dir: str = TRIGGERS_BASE_DIR) -> None:
         self.base_dir = Path(base_dir)
+        self._lock = threading.RLock()
 
     # ---------- path helpers ----------
+    def _validate_hostname(self, hostname: str) -> str:
+        """Allow only safe switch-id/hostname path segments."""
+        host = str(hostname or "").strip()
+        if not _HOSTNAME_RE.fullmatch(host):
+            raise ValueError(f"Invalid hostname/switch_id path segment: {hostname!r}")
+        return host
+
     def _dir_for_hostname(self, hostname: str) -> Path:
-        return self.base_dir / hostname
+        return self.base_dir / self._validate_hostname(hostname)
 
     def _path_for_hostname(self, hostname: str) -> Path:
         parent = self._dir_for_hostname(hostname)
         parent.mkdir(parents=True, exist_ok=True)
         return parent / TRIGGERS_FILENAME
+
+    def _atomic_update(self, hostname: str, mutator: Callable[[Dict[str, Any]], T]) -> T:
+        """Serialize load->mutate->save for one manager instance."""
+        with self._lock:
+            data = self.load(hostname)
+            result = mutator(data)
+            self.save(hostname, data)
+            return result
 
     # ---------- public API ----------
     def get_advanced_rule_for_switch_key(self, hostname: str, switch_key: str) -> dict:
@@ -136,6 +144,11 @@ class AutomationManager:
 
             return {"found": False, "enabled": False, "rule_id": None}
         except Exception:
+            if DEBUG:
+                printDM(
+                    f"[get_advanced_rule_for_switch_key] unexpected error for host={hostname}",
+                    location=f"{MODULE}.get_advanced_rule_for_switch_key",
+                )
             return {"found": False, "enabled": False, "rule_id": None}
 
     def get_advanced_state_for_switch_key(self, hostname: str, switch_key: str) -> dict:
@@ -200,6 +213,11 @@ class AutomationManager:
                 "rule_ids": rule_ids,
             }
         except Exception:
+            if DEBUG:
+                printDM(
+                    f"[get_advanced_state_for_switch_key] unexpected error for host={hostname}",
+                    location=f"{MODULE}.get_advanced_state_for_switch_key",
+                )
             return {
                 "found": False,
                 "rule_count": 0,
@@ -227,56 +245,54 @@ class AutomationManager:
         if not key:
             return False
 
-        data = self.load(hostname)
-        adv = data.get(SECTION_ADV, {}) or {}
-        import json as _json
+        def _mutate(data: Dict[str, Any]) -> bool:
+            adv = data.get(SECTION_ADV, {}) or {}
+            import json as _json
 
-        changed = False
-
-        for rule_id, rule in adv.items():
-            if not isinstance(rule, dict):
-                continue
-
-            script_json = rule.get("script_json", "")
-            try:
-                script = _json.loads(str(script_json))
-            except Exception:
-                script = None
-
-            actions = (script or {}).get("actions") or []
-            found_here = False
-            for act in actions:
-                try:
-                    sk = (act.get("switch_key") or "").strip()
-                except AttributeError:
+            changed = False
+            for rule_id, rule in adv.items():
+                if not isinstance(rule, dict):
                     continue
-                if sk == key:
-                    found_here = True
-                    break
 
-            if not found_here:
-                continue
+                script_json = rule.get("script_json", "")
+                try:
+                    script = _json.loads(str(script_json))
+                except Exception:
+                    script = None
 
-            # Outer enabled flag
-            rule["enabled"] = bool(enabled)
+                actions = (script or {}).get("actions") or []
+                found_here = False
+                for act in actions:
+                    try:
+                        sk = (act.get("switch_key") or "").strip()
+                    except AttributeError:
+                        continue
+                    if sk == key:
+                        found_here = True
+                        break
 
-            # Inner script.enabled for consistency
-            if isinstance(script, dict):
-                script["enabled"] = bool(enabled)
-                rule["script_json"] = _json.dumps(
-                    script,
-                    separators=(",", ":"),
-                    ensure_ascii=False,
-                )
+                if not found_here:
+                    continue
 
-            adv[rule_id] = rule
-            changed = True
+                # Outer enabled flag
+                rule["enabled"] = bool(enabled)
 
-        if changed:
+                # Inner script.enabled for consistency
+                if isinstance(script, dict):
+                    script["enabled"] = bool(enabled)
+                    rule["script_json"] = _json.dumps(
+                        script,
+                        separators=(",", ":"),
+                        ensure_ascii=False,
+                    )
+
+                adv[rule_id] = rule
+                changed = True
+
             data[SECTION_ADV] = adv
-            self.save(hostname, data)
+            return changed
 
-        return changed
+        return self._atomic_update(hostname, _mutate)
     
     def load(self, hostname: str) -> Dict[str, Any]:
         """
@@ -289,7 +305,6 @@ class AutomationManager:
                 printDM(f"[No file yet for {hostname}; returning defaults", location=f"{MODULE}.load")
             return {
                 SECTION_META: dict(DEFAULT_META),
-                SECTION_BASIC: {},
                 SECTION_ADV: {},
                 SECTION_SCRIPTS: {},
             }
@@ -302,14 +317,12 @@ class AutomationManager:
                 printDM(f"[Failed to read {triggers_path}: {e}", location=f"{MODULE}.load")
             return {
                 SECTION_META: dict(DEFAULT_META),
-                SECTION_BASIC: {},
                 SECTION_ADV: {},
                 SECTION_SCRIPTS: {},
             }
 
         # Normalize missing sections
         data.setdefault(SECTION_META, dict(DEFAULT_META))
-        data.setdefault(SECTION_BASIC, {})
         data.setdefault(SECTION_ADV, {})
         data.setdefault(SECTION_SCRIPTS, {})
         return data
@@ -319,73 +332,74 @@ class AutomationManager:
         Atomically write out in a stable, human-readable TOML.
         We do not require a TOML writer; we emit carefully.
         """
-        triggers_path = self._path_for_hostname(hostname)
-        tmp_path = triggers_path.with_suffix(triggers_path.suffix + TMP_SUFFIX)
+        with self._lock:
+            triggers_path = self._path_for_hostname(hostname)
+            tmp_path = triggers_path.with_suffix(triggers_path.suffix + TMP_SUFFIX)
 
-        # Normalize sections and sort keys for stable diffs
-        meta = dict(DEFAULT_META)
-        meta.update(data.get(SECTION_META, {}) or {})
+            # Normalize sections and sort keys for stable diffs
+            meta = dict(DEFAULT_META)
+            meta.update(data.get(SECTION_META, {}) or {})
 
-        adv: Dict[str, Any] = data.get(SECTION_ADV, {}) or {}
-        scripts: Dict[str, Any] = data.get(SECTION_SCRIPTS, {}) or {}
+            adv: Dict[str, Any] = data.get(SECTION_ADV, {}) or {}
+            scripts: Dict[str, Any] = data.get(SECTION_SCRIPTS, {}) or {}
 
-        def _emit_meta(buf: io.StringIO) -> None:
-            buf.write("[Meta]\n")
-            # Keep order for readability
-            buf.write(f"version = {int(meta.get('version', 1))}\n")
-            notes = str(meta.get("notes", "Switch trigger configuration. Edit carefully."))
-            buf.write(f"{_toml_key('notes')} = {_toml_string(notes)}\n\n")
+            def _emit_meta(buf: io.StringIO) -> None:
+                buf.write("[Meta]\n")
+                # Keep order for readability
+                buf.write(f"version = {int(meta.get('version', 1))}\n")
+                notes = str(meta.get("notes", "Switch trigger configuration. Edit carefully."))
+                buf.write(f"{_toml_key('notes')} = {_toml_string(notes)}\n\n")
 
-        def _emit_advanced(buf: io.StringIO) -> None:
-            if not adv:
-                return
-            buf.write("[Advanced]\n")
-            for rule_id in sorted(adv.keys()):
-                rule = adv.get(rule_id) or {}
-                enabled = bool(rule.get("enabled", False))
-                script_json = rule.get("script_json", "")
-                # Ensure script_json is a single-line compact JSON string
-                if isinstance(script_json, (dict, list)):
-                    script_json = json.dumps(script_json, separators=(",", ":"), ensure_ascii=False)
-                else:
-                    # normalize whitespace if it is a string
-                    try:
-                        parsed = json.loads(str(script_json))
-                        script_json = json.dumps(parsed, separators=(",", ":"), ensure_ascii=False)
-                    except Exception:
-                        script_json = str(script_json)
-                buf.write(
-                    f"{_toml_key(rule_id)} = {{ enabled={_toml_bool(enabled)}, script_json={_toml_string(script_json)} }}\n"
-                )
-            buf.write("\n")
+            def _emit_advanced(buf: io.StringIO) -> None:
+                if not adv:
+                    return
+                buf.write("[Advanced]\n")
+                for rule_id in sorted(adv.keys()):
+                    rule = adv.get(rule_id) or {}
+                    enabled = bool(rule.get("enabled", False))
+                    script_json = rule.get("script_json", "")
+                    # Ensure script_json is a single-line compact JSON string
+                    if isinstance(script_json, (dict, list)):
+                        script_json = json.dumps(script_json, separators=(",", ":"), ensure_ascii=False)
+                    else:
+                        # normalize whitespace if it is a string
+                        try:
+                            parsed = json.loads(str(script_json))
+                            script_json = json.dumps(parsed, separators=(",", ":"), ensure_ascii=False)
+                        except Exception:
+                            script_json = str(script_json)
+                    buf.write(
+                        f"{_toml_key(rule_id)} = {{ enabled={_toml_bool(enabled)}, script_json={_toml_string(script_json)} }}\n"
+                    )
+                buf.write("\n")
 
-        def _emit_scripts(buf: io.StringIO) -> None:
-            if not scripts:
-                return
-            buf.write("[Scripts]\n")
-            for name in sorted(scripts.keys()):
-                buf.write(f"{_toml_key(name)} = {_toml_bool(bool(scripts[name]))}\n")
-            buf.write("\n")
+            def _emit_scripts(buf: io.StringIO) -> None:
+                if not scripts:
+                    return
+                buf.write("[Scripts]\n")
+                for name in sorted(scripts.keys()):
+                    buf.write(f"{_toml_key(name)} = {_toml_bool(bool(scripts[name]))}\n")
+                buf.write("\n")
 
-        buf = io.StringIO()
-        _emit_meta(buf)
-        _emit_advanced(buf)
-        _emit_scripts(buf)
+            buf = io.StringIO()
+            _emit_meta(buf)
+            _emit_advanced(buf)
+            _emit_scripts(buf)
 
-        text = buf.getvalue()
-        try:
-            with tmp_path.open("w", encoding="utf-8", newline="\n") as f:
-                f.write(text)
-            os.replace(tmp_path, triggers_path)
-            if DEBUG:
-                printDM(f"[Saved {triggers_path}", location=f"{MODULE}.save")
-
-        finally:
+            text = buf.getvalue()
             try:
-                if tmp_path.exists():
-                    tmp_path.unlink(missing_ok=True)
-            except Exception:
-                pass
+                with tmp_path.open("w", encoding="utf-8", newline="\n") as f:
+                    f.write(text)
+                os.replace(tmp_path, triggers_path)
+                if DEBUG:
+                    printDM(f"[Saved {triggers_path}", location=f"{MODULE}.save")
+
+            finally:
+                try:
+                    if tmp_path.exists():
+                        tmp_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
     # ---------- CRUD helpers ----------
     def upsert_advanced_rule(
@@ -400,71 +414,83 @@ class AutomationManager:
         Create or update an Advanced rule with a JSON script payload.
         'script' may be a dict/list (will be JSON-dumped) or a JSON string.
         """
-        data = self.load(hostname)
-        adv = data.get(SECTION_ADV, {}) or {}
+        def _mutate(data: Dict[str, Any]) -> None:
+            adv = data.get(SECTION_ADV, {}) or {}
 
-        if isinstance(script, (dict, list)):
-            script_json = json.dumps(script, separators=(",", ":"), ensure_ascii=False)
-        else:
-            # Validate or pass-through
-            s = str(script)
-            try:
-                parsed = json.loads(s)
-                script_json = json.dumps(parsed, separators=(",", ":"), ensure_ascii=False)
-            except Exception:
-                script_json = s  # store verbatim; runtime should validate before executing
+            if isinstance(script, (dict, list)):
+                script_json = json.dumps(script, separators=(",", ":"), ensure_ascii=False)
+            else:
+                # Validate or pass-through
+                s = str(script)
+                try:
+                    parsed = json.loads(s)
+                    script_json = json.dumps(parsed, separators=(",", ":"), ensure_ascii=False)
+                except Exception:
+                    script_json = s  # store verbatim; runtime should validate before executing
 
-        adv[rule_id] = {"enabled": bool(enabled), "script_json": script_json}
-        data[SECTION_ADV] = adv
-        self.save(hostname, data)
+            adv[rule_id] = {"enabled": bool(enabled), "script_json": script_json}
+            data[SECTION_ADV] = adv
+
+        self._atomic_update(hostname, _mutate)
 
     def delete_rule(self, hostname: str, section: str, rule_id: str) -> bool:
         """
-        Delete a rule by id from 'Basic' or 'Advanced'.
+        Delete a rule by id from 'Advanced'.
         Returns True if removed.
         """
         section = section.strip().title()
-        if section not in (SECTION_BASIC, SECTION_ADV):
+        if section not in (SECTION_ADV,):
             if DEBUG:
                 printDM(f"[delete_rule: invalid section  {section}", location=f"{MODULE}.save")
             return False
-        data = self.load(hostname)
-        rules = data.get(section, {}) or {}
-        if rule_id in rules:
-            del rules[rule_id]
-            data[section] = rules
-            self.save(hostname, data)
-            return True
-        return False
+        def _mutate(data: Dict[str, Any]) -> bool:
+            rules = data.get(section, {}) or {}
+            if rule_id in rules:
+                del rules[rule_id]
+                data[section] = rules
+                return True
+            return False
+
+        return self._atomic_update(hostname, _mutate)
 
     def set_rule_enabled(self, hostname: str, section: str, rule_id: str, enabled: bool) -> bool:
         """
-        Enable/disable a specific rule under Basic or Advanced.
+        Enable/disable a specific rule under Advanced.
         """
         section = section.strip().title()
-        if section not in (SECTION_BASIC, SECTION_ADV):
+        if section not in (SECTION_ADV,):
             return False
-        data = self.load(hostname)
-        rules = data.get(section, {}) or {}
-        rule = rules.get(rule_id)
-        if not rule:
-            return False
-        rule["enabled"] = bool(enabled)
-        rules[rule_id] = rule
-        data[section] = rules
-        self.save(hostname, data)
-        return True
+        def _mutate(data: Dict[str, Any]) -> bool:
+            rules = data.get(section, {}) or {}
+            rule = rules.get(rule_id)
+            if not rule:
+                return False
+            rule["enabled"] = bool(enabled)
+            # Keep inner payload in sync when possible.
+            try:
+                script = json.loads(str(rule.get("script_json", "")))
+                if isinstance(script, dict):
+                    script["enabled"] = bool(enabled)
+                    rule["script_json"] = json.dumps(script, separators=(",", ":"), ensure_ascii=False)
+            except Exception:
+                pass
+            rules[rule_id] = rule
+            data[section] = rules
+            return True
+
+        return self._atomic_update(hostname, _mutate)
 
     def set_script_enabled(self, hostname: str, script_name: str, enabled: bool) -> None:
         """
         Toggle a coarse global script flag under [Scripts].
         Useful for UI checkboxes that gate groups of rules.
         """
-        data = self.load(hostname)
-        scripts = data.get(SECTION_SCRIPTS, {}) or {}
-        scripts[script_name] = bool(enabled)
-        data[SECTION_SCRIPTS] = scripts
-        self.save(hostname, data)
+        def _mutate(data: Dict[str, Any]) -> None:
+            scripts = data.get(SECTION_SCRIPTS, {}) or {}
+            scripts[script_name] = bool(enabled)
+            data[SECTION_SCRIPTS] = scripts
+
+        self._atomic_update(hostname, _mutate)
 
 # ---------- tiny TOML emit helper  ----------
 def _toml_key(key: str) -> str:
@@ -500,10 +526,12 @@ def enable_trigger(manager, switch_id: str, section: str, key: str, enable: bool
         return False
 
     rule = section_dict[key]
-    if isinstance(rule, dict):
+    if section == SECTION_SCRIPTS:
+        section_dict[key] = bool(enable)
+    elif isinstance(rule, dict):
         rule["enabled"] = bool(enable)
     else:
-        # For legacy non-dict entries (unlikely for Advanced, but safe)
+        # For legacy non-dict Advanced entries (safe fallback)
         section_dict[key] = {"script": rule, "enabled": bool(enable)}
 
     triggers[section] = section_dict
