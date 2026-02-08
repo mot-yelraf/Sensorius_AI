@@ -42,14 +42,22 @@ async function enableAutomation(ruleId, enabled) {
   fd.append("switch_id", currentSwitchId);
   fd.append("rule_id", ruleId);
   fd.append("enabled", enabled ? "true" : "false");
-  await fetch("/advanced/automations/enable", { method: "POST", body: fd });
+  const resp = await fetch("/advanced/automations/enable", { method: "POST", body: fd });
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => "");
+    throw new Error(`Enable failed (${resp.status}) ${txt}`.trim());
+  }
 }
 
 async function deleteAutomation(ruleId) {
   const fd = new FormData();
   fd.append("switch_id", currentSwitchId);
   fd.append("rule_id", ruleId);
-  await fetch("/advanced/automations/delete", { method: "POST", body: fd });
+  const resp = await fetch("/advanced/automations/delete", { method: "POST", body: fd });
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => "");
+    throw new Error(`Delete failed (${resp.status}) ${txt}`.trim());
+  }
 }
 
 // Returns the inner modal (#automationManagerModal) reliably from any descendant/backdrop
@@ -643,5 +651,4 @@ window.initAdvancedAutomationModal = async function (modalEl) {
     return false; // never throw to caller
   }
 };
-
 

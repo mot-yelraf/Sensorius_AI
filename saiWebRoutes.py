@@ -5118,7 +5118,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         mgr = SwitchSettingsManager("switch_settings")
         ids = mgr.list_switches() or []
         items = "\n".join(
-            f'<li><a href="/advanced-trigger?switch_id={quote(sid)}">{html.escape(sid)}</a></li>'
+            f'<li><a href="/edit-switch?switch_id={quote(sid)}">{html.escape(sid)}</a></li>'
             for sid in ids
         ) or "<li>No switches found. Add a device first.</li>"
         html_doc = f"""
@@ -6245,7 +6245,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     @router.post("/switch/override")
     async def override_switch(
         request: Request,
-        switch_name: str = Query(...),
+        switch_name: str | None = Query(None),
         switch_key: str | None = Query(None),
         switch_id: str | None = Query(None),
     ):
@@ -6435,7 +6435,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return HTMLResponse(
             "<html><body><h3>Confirm Clear</h3>"
             "<p>This will permanently delete all stored sensor data.</p>"
-            "<p>Send POST /clear-data with confirm=true and auth headers to proceed.</p>"
+            "<form method='post' action='/clear-data'>"
+            "<input type='hidden' name='confirm' value='true'>"
+            "<button type='submit'>Yes, clear data</button>"
+            "</form>"
             "<a href='/'>Cancel</a>"
             "</body></html>"
         )
