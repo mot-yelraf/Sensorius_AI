@@ -66,6 +66,10 @@ class DeviceDescriptor:
 # Simple scan cache to avoid repeated i2c scans in one boot phase
 _last_scan = None  # dict like: {"i2c-1": set([...]), "i2c-0": set([...])}
 
+# I2C lock behavior for one-shot startup probing.
+I2C_LOCK_TIMEOUT_SEC = 1.0
+I2C_LOCK_POLL_SEC = 0.01
+
 def find_sensors(known_used: Optional[dict[str, set[int]]] = None) -> list[DeviceDescriptor]:
     """
     Find devices from the current scan, honoring already-used addresses.
@@ -77,7 +81,7 @@ def find_sensors(known_used: Optional[dict[str, set[int]]] = None) -> list[Devic
         used["i2c-1"] |= set(known_used.get("i2c-1", set()))
         used["i2c-0"] |= set(known_used.get("i2c-0", set()))
 
-    BME280_ADDRS = {0x76, 0x77}
+    BME280_ADDRS = (0x76, 0x77)
     SCD30_ADDR = 0x61
     VEML7700_ADDR = 0x10
 
@@ -86,20 +90,35 @@ def find_sensors(known_used: Optional[dict[str, set[int]]] = None) -> list[Devic
 
     found: list[DeviceDescriptor] = []
 
-    # 1) apvpd: dual BME280 (two-bus @0x76) OR same-bus 0x76+0x77
-    # two-bus @0x76
-    if free("i2c-1", 0x76) and free("i2c-0", 0x76):
-        used["i2c-1"].add(0x76); used["i2c-0"].add(0x76)
-        found.append(DeviceDescriptor("apvpd", "i2c-1", (0x76,)))  # primary tagged as i2c-1 (informational)
+    # 1) apvpd: dual BME280
+    # two-bus mode: one BME280 per bus, each can be 0x76 or 0x77
+    def bme280_free_addrs(bus):
+        out = []
+        for a in BME280_ADDRS:
+            if free(bus, a) and _read_chip_id(bus, a) == 0x60:
+                out.append(a)
+        return out
+
+    bme_1 = bme280_free_addrs("i2c-1")
+    bme_0 = bme280_free_addrs("i2c-0")
+
+    if bme_1 and bme_0:
+        chosen_1 = bme_1[0]
+        chosen_0 = bme_0[0]
+        used["i2c-1"].add(chosen_1)
+        used["i2c-0"].add(chosen_0)
+        # For two-bus mode, addrs are informational; runtime wiring resolves bus use.
+        found.append(DeviceDescriptor("apvpd", "i2c-1", (chosen_1, chosen_0)))
     else:
-        # same-bus dual 0x76+0x77 (prefer i2c-1)
+        # same-bus dual mode: require both 0x76 and 0x77 to be BME280 on one bus
         for bus in ("i2c-1", "i2c-0"):
-            if all(free(bus, a) for a in BME280_ADDRS):
-                used[bus] |= BME280_ADDRS
+            if all(free(bus, a) and _read_chip_id(bus, a) == 0x60 for a in BME280_ADDRS):
+                used[bus].update(BME280_ADDRS)
                 found.append(DeviceDescriptor("apvpd", bus, (0x76, 0x77)))
                 break
 
     # 2) aqi: BME680 is identified by chip-id 0x61 at 0x76/0x77
+    found_aqi = False
     for bus in ("i2c-1", "i2c-0"):
         for a in (0x76, 0x77):
             if free(bus, a):
@@ -107,8 +126,11 @@ def find_sensors(known_used: Optional[dict[str, set[int]]] = None) -> list[Devic
                 if cid == 0x61:
                     used[bus].add(a)
                     found.append(DeviceDescriptor("aqi", bus, (a,)))
-                    # only one AQI for now; remove this break if you support multiple
+                    found_aqi = True
                     break
+        if found_aqi:
+            # only one AQI for now; remove this break if you support multiple
+            break
 
     # 3) avpd: any remaining single BME280 (0x76 or 0x77)
     for bus in ("i2c-1", "i2c-0"):
@@ -116,7 +138,7 @@ def find_sensors(known_used: Optional[dict[str, set[int]]] = None) -> list[Devic
             if free(bus, a):
                 # if it's a 680, skip, already handled above
                 cid = _read_chip_id(bus, a)
-                if cid in (None, 0x60):   # unknown or 0x60=BME280
+                if cid == 0x60:
                     used[bus].add(a)
                     found.append(DeviceDescriptor("avpd", bus, (a,)))
 
@@ -157,8 +179,8 @@ def _scan_pi_i2c_busses():
     i2c1 = None
     try:
         i2c1 = busio.I2C(board.SCL, board.SDA)
-        while not i2c1.try_lock():
-            pass
+        if not _try_lock_with_timeout(i2c1, "i2c-1 scan"):
+            raise TimeoutError("lock timeout")
         try:
             addrs1 = set(i2c1.scan() or [])
         finally:
@@ -175,8 +197,8 @@ def _scan_pi_i2c_busses():
     if ExtI2C:
         try:
             i2c0 = ExtI2C(0)
-            while not i2c0.try_lock():
-                pass
+            if not _try_lock_with_timeout(i2c0, "i2c-0 scan"):
+                raise TimeoutError("lock timeout")
             try:
                 addrs0 = set(i2c0.scan() or [])
             finally:
@@ -195,6 +217,8 @@ def _scan_pi_i2c_busses():
 
 def _read_chip_id(bus_name: str, addr: int) -> Optional[int]:
     """Return BME chip-id (0x60=BME280, 0x61=BME680) or None."""
+    i2c = None
+    locked = False
     try:
         if bus_name == "i2c-1":
             import board, busio
@@ -202,6 +226,9 @@ def _read_chip_id(bus_name: str, addr: int) -> Optional[int]:
         else:
             if not ExtI2C: return None
             i2c = ExtI2C(0)
+        if not _try_lock_with_timeout(i2c, f"chip-id read {bus_name}@0x{addr:02x}"):
+            return None
+        locked = True
         w = bytes([0xD0]); r = bytearray(1)
         i2c.writeto_then_readfrom(addr, w, r)
         return r[0]
@@ -209,9 +236,23 @@ def _read_chip_id(bus_name: str, addr: int) -> Optional[int]:
         return None
     finally:
         try:
+            if i2c and locked:
+                i2c.unlock()
+        except Exception:
+            pass
+        try:
             i2c.deinit()
         except Exception:
             pass
+
+def _try_lock_with_timeout(i2c, what: str) -> bool:
+    deadline = time.monotonic() + I2C_LOCK_TIMEOUT_SEC
+    while time.monotonic() < deadline:
+        if i2c.try_lock():
+            return True
+        time.sleep(I2C_LOCK_POLL_SEC)
+    printDM(f"{what}: failed to acquire I2C lock within {I2C_LOCK_TIMEOUT_SEC:.2f}s", location=MODULE)
+    return False
 
 def _probe_soil_rs485() -> bool:
     """

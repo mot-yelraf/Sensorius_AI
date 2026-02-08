@@ -1,9 +1,10 @@
 """saiHomeAssistantMqtt.py
-    HomeAssistantTopMap and rPiHomeAssistantBridge classes for integrating Sensorius AI 
-    with the Home Assistant (HA) dot io (open source project).
+    HomeAssistantTopicMap and rPiHomeAssistantBridge for integrating Sensorius
+    with Home Assistant over MQTT discovery, state, availability, and commands.
 
-    Sensorius's mqtt client sends each individual sensor/switch metrics data as a single topic per sensor to the mqtt broker.
-    HA requires the each sensor metric be 'discovered' using a single topic per metric; thus the HA bridge.
+    Sensorius publishes aggregated sensor metrics per sensor topic. Home Assistant
+    requires per-entity discovery metadata, so this bridge publishes discovery
+    payloads and state topics that HA can map into entities.
 """
     
 from __future__ import annotations
@@ -13,7 +14,6 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 from saiUtils import printDM, debug_enabled
-import re
 from dataclasses import dataclass
 
 MODULE = "saiHomeAssistantMqtt"
@@ -99,6 +99,14 @@ class rPiHomeAssistantBridge:
                 # if collisions ever occur, last one wins; you can log/debug later
                 index[channel_id] = (ctrl, label, switch_id)
         return index
+
+    def _refresh_channel_index(self, *, reason: str | None = None) -> None:
+        self._channel_index = self._build_channel_index()
+        if DEBUG:
+            msg = "HA channel index refreshed"
+            if reason:
+                msg += f" ({reason})"
+            printDM(msg, location=MODULE)
     
     # ---------------------------------------------------------------------
     # Discovery publishing
@@ -214,8 +222,9 @@ class rPiHomeAssistantBridge:
             # availability online (retained)
             avail_topic = self.topic_map.switch_availability_topic(switch_id)
             self.mqtt_clients.publish_text(avail_topic, "online", qos=self.qos, retain=True)
-            # publish retained initial switch states so HA doesn't remain 'unknown'
-            await self.publish_initial_switch_states()
+
+        # publish retained initial switch states once so HA entities don't remain unknown
+        await self.publish_initial_switch_states()
 
         if DEBUG:
             printDM("HA discovery publish complete", location=MODULE)
@@ -416,6 +425,9 @@ class rPiHomeAssistantBridge:
                 # ---- Option B: Live controller fallback ----
                 if is_on is None:
                     item = self._channel_index.get(channel_id)
+                    if not item:
+                        self._refresh_channel_index(reason="initial switch state fallback lookup")
+                        item = self._channel_index.get(channel_id)
                     if item:
                         ctrl, label, _resolved_switch_id = item
                         # if your controller exposes a state getter, use it.
@@ -487,7 +499,10 @@ class rPiHomeAssistantBridge:
             printDM(f"HA switch command parse error: {e}", location=MODULE)
 
     async def _handle_switch_command_async(self, switch_id: str, channel_id: str, desired_on: bool) -> None:
-        item = self._channel_index.get((channel_id or "").strip())
+        normalized_channel_id = (channel_id or "").strip()
+        # Labels can be renamed at runtime, so refresh before resolving command routing.
+        self._refresh_channel_index(reason=f"command resolve switch_id={switch_id} channel_id={normalized_channel_id}")
+        item = self._channel_index.get(normalized_channel_id)
         if not item:
             printDM(f"Unknown HA channel_id={channel_id} for switch_id={switch_id}", location=MODULE)
             return

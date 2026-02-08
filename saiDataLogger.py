@@ -1,15 +1,29 @@
-"""SQLite-backed logger for sensor readings and switch events.
+"""Persistence and query layer for Sensorius telemetry and switch activity.
 
-Maintains a WAL database, in-memory snapshots, and query helpers for charts,
-latest values, and switch history used throughout the app.
+This module provides a SQLite (WAL) backed data logger that records:
+1. Sensor readings in ``readings`` (timestamped metric values by sensor ID).
+2. Switch identity metadata in ``switch_ids``.
+3. Switch state transitions in ``sw_events``.
+
+It also exposes read/query helpers used by runtime services and the web UI:
+- time-series retrieval for calibration and graphing
+- latest-value and latest-timestamp lookups
+- sensor/metric discovery
+- switch event/state history queries
+
+Operational characteristics:
+- Uses a dedicated writer connection plus a re-entrant lock for serialized writes.
+- Keeps lightweight in-memory snapshots of latest sensor values.
+- Applies defensive parsing and error handling to avoid crashing caller paths.
+- Includes one-time legacy migration logic for historical switch rows.
 """
 
 import sqlite3
-import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from saiUtils import printDM, debug_enabled
 import threading
+from typing import Optional, Tuple
 
 MODULE = "saiDataLogger"
 DEBUG = debug_enabled(MODULE)
@@ -20,8 +34,55 @@ LOCAL_TIMEZONE = ZoneInfo("America/Denver")
 SW_EVENT_PREFIX = "switch_event::"
 SW_STATE_PREFIX = "switch_state::"
 
-# ---- pubilic API -----------------------
+# ---- public API -----------------------
 SW_KEY_DELIM = "::"
+
+
+def _timestamp_to_epoch(ts_value, default_tz: ZoneInfo) -> Optional[float]:
+    """
+    Convert a timestamp value to POSIX epoch seconds.
+
+    Supports:
+    - int/float epoch values
+    - ISO-8601 strings (with or without timezone)
+    - numeric strings
+    Returns None when conversion is not possible.
+    """
+    if ts_value is None:
+        return None
+    try:
+        if isinstance(ts_value, (int, float)):
+            return float(ts_value)
+        text = str(ts_value).strip()
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            pass
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=default_tz)
+        return dt.timestamp()
+    except Exception:
+        return None
+
+
+def _normalize_timestamp_input(ts_value, default_tz: ZoneInfo) -> Tuple[str, float]:
+    """
+    Normalize user/runtime timestamp input into (iso_with_tz, epoch_seconds).
+    Falls back to current local time if input is invalid.
+    """
+    now_dt = datetime.now(default_tz)
+    now_iso = now_dt.isoformat()
+    now_epoch = now_dt.timestamp()
+
+    epoch = _timestamp_to_epoch(ts_value, default_tz)
+    if epoch is None:
+        return now_iso, now_epoch
+
+    dt = datetime.fromtimestamp(epoch, default_tz)
+    return dt.isoformat(), epoch
 
 def build_switch_key(switch_id: str, channel_or_label: str, channel_id: str | None = None) -> str:
     """
@@ -70,6 +131,30 @@ class saiDataLogger:
               or "America/Denver")
         self.local_tz = ZoneInfo(TZ)
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
+
+    def close(self) -> None:
+        """Close long-lived writer connection used by this logger instance."""
+        with self._writer_lock:
+            conn = getattr(self, "_writer_conn", None)
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                self._writer_conn = None
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
     # Enable Write-Ahead-Logging, add PRAGMA and indexes, plus new switch tables
     def _init_db(self):
         try:
@@ -89,6 +174,7 @@ class saiDataLogger:
                     CREATE TABLE IF NOT EXISTS readings (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp TEXT NOT NULL,            -- ISO8601
+                        ts_epoch REAL,                      -- epoch seconds (UTC comparable)
                         sensor_id TEXT NOT NULL,
                         metric TEXT NOT NULL,
                         value REAL
@@ -131,6 +217,7 @@ class saiDataLogger:
                     CREATE TABLE IF NOT EXISTS sw_events (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp  TEXT NOT NULL,         -- ISO8601
+                        ts_epoch   REAL,                  -- epoch seconds (UTC comparable)
                         switch_key TEXT NOT NULL,         -- "<switch_id>::<label>"
                         state      INTEGER NOT NULL,      -- 0 = Off, 1 = On
                         source     TEXT,                  -- 'manual','ui','mqtt','rule', etc.
@@ -150,6 +237,30 @@ class saiDataLogger:
                     ON sw_events(switch_key COLLATE NOCASE, timestamp DESC)
                 """)
 
+                # ---- additive column migrations for existing DBs ----
+                cur.execute("PRAGMA table_info(readings)")
+                reading_cols = {row[1] for row in cur.fetchall()}
+                if "ts_epoch" not in reading_cols:
+                    cur.execute("ALTER TABLE readings ADD COLUMN ts_epoch REAL")
+                cur.execute("PRAGMA table_info(sw_events)")
+                swe_cols = {row[1] for row in cur.fetchall()}
+                if "ts_epoch" not in swe_cols:
+                    cur.execute("ALTER TABLE sw_events ADD COLUMN ts_epoch REAL")
+
+                # Create ts_epoch indexes only after additive migrations above.
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_readings_sid_metric_tse
+                    ON readings(sensor_id COLLATE NOCASE, metric COLLATE NOCASE, ts_epoch)
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_swe_key_tse
+                    ON sw_events(switch_key COLLATE NOCASE, ts_epoch DESC)
+                """)
+
+                # Backfill missing ts_epoch values incrementally.
+                cur.execute("UPDATE readings SET ts_epoch = strftime('%s', timestamp) WHERE ts_epoch IS NULL")
+                cur.execute("UPDATE sw_events SET ts_epoch = strftime('%s', timestamp) WHERE ts_epoch IS NULL")
+
                 conn.commit()
 
                 # ---- idempotent migration of legacy rows -------
@@ -158,6 +269,7 @@ class saiDataLogger:
 
         except Exception as e:
             printDM(f"_init_db error: {e}", location=__name__)
+            raise
 
     def _maybe_migrate_legacy_switch_rows(self, cur: sqlite3.Cursor) -> None:
         """
@@ -207,9 +319,9 @@ class saiDataLogger:
                 except Exception:
                     state = 1 if str(value).lower() in ("1","true","on") else 0
                 cur.execute("""
-                    INSERT INTO sw_events(timestamp, switch_key, state, source, sensor_id)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (ts, switch_key, state, "legacy_metric", sid))
+                    INSERT INTO sw_events(timestamp, ts_epoch, switch_key, state, source, sensor_id)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (ts, _timestamp_to_epoch(ts, LOCAL_TIMEZONE), switch_key, state, "legacy_metric", sid))
                 migrated += 1
 
             # (2) Plain label metrics (Fan/Light/Pump/…):
@@ -239,9 +351,9 @@ class saiDataLogger:
                     except Exception:
                         state = 1 if str(value).lower() in ("1","true","on") else 0
                     cur.execute("""
-                        INSERT INTO sw_events(timestamp, switch_key, state, source, sensor_id)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (ts, key, state, "legacy_label", sid))
+                        INSERT INTO sw_events(timestamp, ts_epoch, switch_key, state, source, sensor_id)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (ts, _timestamp_to_epoch(ts, LOCAL_TIMEZONE), key, state, "legacy_label", sid))
                     migrated += 1
 
             cur.execute("INSERT OR IGNORE INTO _migration_markers(name) VALUES('sw_events_v1')")
@@ -265,10 +377,18 @@ class saiDataLogger:
         return conn
 
     def _ensure_writer(self):
-        try:
-            self._writer_conn.execute("SELECT 1")
-        except Exception:
-            self._writer_conn = self._open_conn(check_same_thread=False)
+        with self._writer_lock:
+            try:
+                if self._writer_conn is None:
+                    raise RuntimeError("writer connection missing")
+                self._writer_conn.execute("SELECT 1")
+            except Exception:
+                try:
+                    if self._writer_conn is not None:
+                        self._writer_conn.close()
+                except Exception:
+                    pass
+                self._writer_conn = self._open_conn(check_same_thread=False)
             
     def get_time_series(self, sensor_id: str, metric: str,
                         start_ts: float, end_ts: float):
@@ -298,22 +418,24 @@ class saiDataLogger:
                 cur = conn.cursor()
                 cur.execute(
                     """
-                    SELECT timestamp, value
+                    SELECT timestamp, value, ts_epoch
                     FROM readings
                     WHERE LOWER(sensor_id) = LOWER(?)
                       AND metric = ?
-                      AND timestamp >= ?
-                      AND timestamp <= ?
-                    ORDER BY timestamp ASC
+                      AND (
+                            (ts_epoch IS NOT NULL AND ts_epoch >= ? AND ts_epoch <= ?)
+                         OR (ts_epoch IS NULL AND timestamp >= ? AND timestamp <= ?)
+                      )
+                    ORDER BY COALESCE(ts_epoch, 0.0) ASC, timestamp ASC
                     """,
-                    (sensor_id, metric, start_iso, end_iso),
+                    (sensor_id, metric, float(start_ts), float(end_ts), start_iso, end_iso),
                 )
                 rows = cur.fetchall()
 
             ts_list = []
             val_list = []
 
-            for ts_text, value in rows:
+            for ts_text, value, ts_epoch in rows:
                 if not ts_text:
                     # No timestamp → ignore row
                     continue
@@ -338,9 +460,13 @@ class saiDataLogger:
                         )
                     continue
 
+                parsed_epoch = None
                 try:
-                    dt = datetime.fromisoformat(ts_text)
-                    ts_epoch = dt.timestamp()
+                    if ts_epoch is not None:
+                        parsed_epoch = float(ts_epoch)
+                    else:
+                        dt = datetime.fromisoformat(ts_text)
+                        parsed_epoch = dt.timestamp()
                 except Exception:
                     # If parsing fails for some legacy format, skip safely.
                     if DEBUG:
@@ -350,7 +476,7 @@ class saiDataLogger:
                         )
                     continue
 
-                ts_list.append(ts_epoch)
+                ts_list.append(parsed_epoch)
                 val_list.append(val)
 
             return ts_list, val_list
@@ -367,27 +493,15 @@ class saiDataLogger:
     def log_readings(self, timestamp, sensor_id, values: dict):
         """Fast writer using a dedicated WAL connection + in-RAM snapshot."""
         self._ensure_writer()
-        if not timestamp:
-            now = datetime.now(getattr(self, "local_tz", LOCAL_TIMEZONE))
-            timestamp = now.isoformat()
-        else:
-            # Defensive: normalize epoch-like timestamps into ISO8601 with local TZ
-            try:
-                if isinstance(timestamp, (int, float)):
-                    dt = datetime.fromtimestamp(
-                        float(timestamp),
-                        tz=getattr(self, "local_tz", LOCAL_TIMEZONE),
-                    )
-                    timestamp = dt.isoformat()
-            except Exception:
-                now = datetime.now(getattr(self, "local_tz", LOCAL_TIMEZONE))
-                timestamp = now.isoformat()
+        timestamp, ts_epoch = _normalize_timestamp_input(
+            timestamp, getattr(self, "local_tz", LOCAL_TIMEZONE)
+        )
 
         try:
-            rows = [(timestamp, sensor_id, metric, value) for metric, value in values.items()]
+            rows = [(timestamp, ts_epoch, sensor_id, metric, value) for metric, value in values.items()]
             with self._writer_lock:
                 self._writer_conn.executemany(
-                    "INSERT INTO readings (timestamp, sensor_id, metric, value) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO readings (timestamp, ts_epoch, sensor_id, metric, value) VALUES (?, ?, ?, ?, ?)",
                     rows
                 )
                 self._writer_conn.commit()
@@ -402,8 +516,11 @@ class saiDataLogger:
                 for fn in listeners:
                     try:
                         fn(sensor_id, timestamp, dict(values))
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        printDM(
+                            f"[log_readings] listener error for {sensor_id}: {exc}",
+                            location=MODULE,
+                        )
 
             if DEBUG:
                 printDM(f"Logged {len(values)} values for {sensor_id}", location=MODULE)
@@ -429,7 +546,7 @@ class saiDataLogger:
                 cur = conn.cursor()
                 cur.execute(
                     "SELECT timestamp FROM readings WHERE LOWER(sensor_id)=LOWER(?) "
-                    "ORDER BY timestamp DESC LIMIT 1",
+                    "ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC LIMIT 1",
                     (sensor_id,)
                 )
                 row = cur.fetchone()
@@ -480,7 +597,7 @@ class saiDataLogger:
                 cur = conn.cursor()
                 cur.execute(
                     "SELECT timestamp FROM readings WHERE LOWER(sensor_id)=LOWER(?) "
-                    "ORDER BY timestamp DESC LIMIT 1",
+                    "ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC LIMIT 1",
                     (sensor_id,)
                 )
                 row = cur.fetchone()
@@ -563,19 +680,19 @@ class saiDataLogger:
         - sensor_id: optional lineage/host (kept for joins/filters)
         """
         self._ensure_writer()
-        if not timestamp:
-            now = datetime.now(getattr(self, "local_tz", LOCAL_TIMEZONE))
-            timestamp = now.isoformat()
+        timestamp, ts_epoch = _normalize_timestamp_input(
+            timestamp, getattr(self, "local_tz", LOCAL_TIMEZONE)
+        )
         numeric = 1 if is_on else 0
 
         try:
             with self._writer_lock:
                 self._writer_conn.execute(
                     """
-                    INSERT INTO sw_events(timestamp, switch_key, state, source, sensor_id)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO sw_events(timestamp, ts_epoch, switch_key, state, source, sensor_id)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (timestamp, switch_key, numeric, source, sensor_id)
+                    (timestamp, ts_epoch, switch_key, numeric, source, sensor_id)
                 )
                 self._writer_conn.commit()
 
@@ -585,8 +702,11 @@ class saiDataLogger:
                 for fn in listeners:
                     try:
                         fn(switch_key, bool(is_on), timestamp, source, sensor_id)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        printDM(
+                            f"[log_switch_event] listener error for {switch_key}: {exc}",
+                            location=MODULE,
+                        )
 
             if DEBUG:
                 # sensor_id can carry channel_code like "oqs3lr-GP28" if you pass it in
@@ -611,7 +731,7 @@ class saiDataLogger:
                         SELECT timestamp, state
                         FROM sw_events
                         WHERE switch_key = ? COLLATE NOCASE AND LOWER(sensor_id)=LOWER(?)
-                        ORDER BY timestamp DESC
+                        ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC
                         LIMIT ?
                         """,
                         (switch_key, sensor_id, limit)
@@ -622,7 +742,7 @@ class saiDataLogger:
                         SELECT timestamp, state
                         FROM sw_events
                         WHERE switch_key=? COLLATE NOCASE
-                        ORDER BY timestamp DESC
+                        ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC
                         LIMIT ?
                         """,
                         (switch_key, limit)
@@ -660,7 +780,7 @@ class saiDataLogger:
                         """
                         SELECT state FROM sw_events
                         WHERE switch_key = ? COLLATE NOCASE AND LOWER(sensor_id)=LOWER(?)
-                        ORDER BY timestamp DESC
+                        ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC
                         LIMIT 1
                         """,
                         (switch_key, sensor_id)
@@ -670,7 +790,7 @@ class saiDataLogger:
                         """
                         SELECT state FROM sw_events
                         WHERE switch_key=? COLLATE NOCASE 
-                        ORDER BY timestamp DESC
+                        ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC
                         LIMIT 1
                         """,
                         (switch_key,)

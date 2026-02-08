@@ -1,4 +1,19 @@
-"""Network helpers for hostname, IP discovery, and interface info."""
+"""Network connectivity and Wi-Fi mode helpers for Sensorius host nodes.
+
+This module wraps common network-management actions used during startup and
+onboarding flows:
+- scan available Wi-Fi SSIDs
+- detect active Wi-Fi association
+- test practical network/DNS reachability
+- connect to a configured infrastructure network
+- fall back to local Access Point mode when needed
+
+Implementation notes:
+- Uses Linux tools such as `nmcli`, `ip`, and `rfkill`.
+- Designed for single-interface management (default: `wlan0`).
+- Returns simple success/failure values and logs operational context via
+  `printDM` for diagnostics.
+"""
 
 import subprocess
 import socket
@@ -33,21 +48,40 @@ class rPiNetManager:
                 if line.startswith("yes:"):
                     self.current_ssid = line.split(":")[1]
                     return True
-        except Exception:
-            pass
+        except Exception as e:
+            printDM(f"is_connected() check failed: {e}", location=MODULE)
         return False
 
-    async def test_dns_connectivity(self, host="8.8.8.8"):
+    async def test_dns_connectivity(self, host="example.com", timeout=2.0):
+        """
+        Verify connectivity via DNS resolution (not ICMP ping).
+        Falls back to a quick TCP:53 probe to detect networks where DNS
+        lookup is blocked/misconfigured but routing is otherwise up.
+        """
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "ping", "-c", "1", "-W", "2", host,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL
+            loop = asyncio.get_running_loop()
+            await asyncio.wait_for(
+                loop.getaddrinfo(host, 53, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM),
+                timeout=timeout,
             )
-            await proc.communicate()
-            return proc.returncode == 0
-        except Exception:
-            return False
+            return True
+        except Exception as dns_err:
+            try:
+                conn = await asyncio.wait_for(asyncio.open_connection("1.1.1.1", 53), timeout=timeout)
+                reader, writer = conn
+                writer.close()
+                await writer.wait_closed()
+                printDM(
+                    f"DNS resolution failed for '{host}' ({dns_err}); network path still reachable via TCP/53.",
+                    location=MODULE,
+                )
+                return True
+            except Exception as net_err:
+                printDM(
+                    f"DNS connectivity test failed for '{host}': dns={dns_err}; tcp53={net_err}",
+                    location=MODULE,
+                )
+                return False
 
     def connect_to_network(self, ssid, password, timeout=10):
         try:

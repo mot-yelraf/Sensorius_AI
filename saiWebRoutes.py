@@ -85,6 +85,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     # On startup
     fastStats = FastStats(data_logger, statter, hz=1.0)
     asyncio.create_task(fastStats.start())
+    if not getattr(app.state, "_faststats_shutdown_registered", False):
+        app.add_event_handler("shutdown", fastStats.stop)
+        app.state._faststats_shutdown_registered = True
 
     def _is_recent_sensor(sid: str, window: timedelta = timedelta(minutes=10)) -> bool:
         ts = data_logger.get_latest_timestamp(sid)
@@ -168,12 +171,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
                 return sorted(order_preserve)
             
-            def _normalize_switch_ids(values: list[str]) -> list[str]:
+            def _normalize_switch_ids(values: list[str], allowed_extra: set[str] | None = None) -> list[str]:
                 out = []
                 seen_switch = set()
+                allowed_extra_l = {str(x).strip().lower() for x in (allowed_extra or set()) if str(x).strip()}
                 for raw in values or []:
                     sid = _strip_local_suffix(raw)
-                    if not _is_switch_id(sid):
+                    if not _is_switch_id(sid) and sid.lower() not in allowed_extra_l:
                         continue
                     if sid not in seen_switch:
                         seen_switch.add(sid)
@@ -201,6 +205,23 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                             ids.append(sid)
                     return ids
                 return []
+
+            def _get_local_switch_ids() -> list[str]:
+                sc = getattr(app.state, "switch_controllers", None)
+                if sc is None:
+                    import saiWebRoutes as routes
+                    sc = getattr(routes, "switch_controllers", None)
+                out = []
+                if isinstance(sc, dict):
+                    for ctrl in sc.values():
+                        sid = str(getattr(ctrl, "switch_id", "") or "").strip()
+                        if sid:
+                            out.append(sid)
+                elif sc:
+                    sid = str(getattr(sc, "switch_id", "") or "").strip()
+                    if sid:
+                        out.append(sid)
+                return out
 
             # --- define before first use
             def resolve_location_for_sid(sid: str) -> str:
@@ -265,6 +286,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     switch_ids_local = switch_mgr.list_switches() or []
                 except Exception:
                     switch_ids_local = []
+                switch_ids_live = _get_local_switch_ids()
 
                 switch_ids_discovered = []
                 try:
@@ -282,7 +304,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     switch_ids_db = []
 
                 available_switches = _normalize_switch_ids(
-                    list(switch_ids_local) + list(switch_ids_discovered) + list(switch_ids_db)
+                    list(switch_ids_local) + list(switch_ids_live) + list(switch_ids_discovered) + list(switch_ids_db),
+                    allowed_extra=set(switch_ids_live),
                 )
             except Exception:
                 available_switches = []
@@ -999,7 +1022,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     @router.get("/edit-system", response_class=HTMLResponse)
     async def edit_pi_settings_page(request: Request):
         from saiSettings import saiSettings
-        from saiUtils import html_escape
         from saiHtml import APP_NAME_LONG, APP_VERSION
 
         settings = saiSettings(apply_live=False)
@@ -1060,28 +1082,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             ha_port=ha_port,
         )
 
-        html_parts: list[str] = []
-        html_parts.append("<!DOCTYPE html>")
-        html_parts.append("<html><head><title>System Settings</title>")
-        # make sure app.css is included so shared styles (including .modal, .button, etc.) are available
-        html_parts.append("<link rel='stylesheet' href='/ui_static/css/app.css'>")
-        html_parts.append("</head><body>")
-
-        # 1) System settings modal via template
-        html_parts.append(system_modal_html)
-
         # 2) Onboarding progress modal + JS (so Add Device works)
         system_onboard_progress_modal_html = templates.get_template("modals/system_onboard_progress.html").render()
-        html_parts.append(system_onboard_progress_modal_html)
-
 
         # 3) Device Locations modal + JS via template
         system_device_locations_modal_html = templates.get_template("modals/system_device_locations.html").render()
-        html_parts.append(system_device_locations_modal_html)
 
         # 4) Remove Device modal + JS via template
         system_remove_modal_html = templates.get_template("modals/system_remove_device.html").render()
-        html_parts.append(system_remove_modal_html)
 
         # 5) Home Assistant integration modal + JS via template
         system_ha_modal_html = templates.get_template("modals/system_ha_integration.html").render(
@@ -1091,10 +1099,26 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             ha_broker=ha_broker,
             ha_port=ha_port,
         )
-        html_parts.append(system_ha_modal_html)
 
+        fragment_parts: list[str] = []
+        fragment_parts.append("<link rel='stylesheet' href='/ui_static/css/app.css'>")
+        fragment_parts.append(system_modal_html)
+        fragment_parts.append(system_onboard_progress_modal_html)
+        fragment_parts.append(system_device_locations_modal_html)
+        fragment_parts.append(system_remove_modal_html)
+        fragment_parts.append(system_ha_modal_html)
+        fragment_html = "\n".join(fragment_parts)
+
+        embed = str(request.query_params.get("embed", "")).strip().lower() in {"1", "true", "yes"}
+        if embed:
+            return HTMLResponse(content=fragment_html)
+
+        html_parts: list[str] = []
+        html_parts.append("<!DOCTYPE html>")
+        html_parts.append("<html><head><title>System Settings</title>")
+        html_parts.append("</head><body>")
+        html_parts.append(fragment_html)
         html_parts.append("</body></html>")
-
         return HTMLResponse(content="\n".join(html_parts))
 
     # /itaot helpers

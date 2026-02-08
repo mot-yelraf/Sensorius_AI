@@ -366,7 +366,10 @@ class SwitchController:
             self._log(name, on)
             self.last_set_time[name] = now
 
-        # Only publish this telemetry for local backend; MQTTSwitch already sent a command
+        # Only publish this telemetry for local backend; MQTTSwitch already sent a command.
+        # Prefer ID-based topics using SWITCH_n_ID, with a slug fallback for legacy consumers.
+        if not self.mqtt:
+            self.mqtt = get_mqtt_client(self.switch_id)
         if self.mqtt and self.mqtt.is_connected():
             try:
                 backend_name = getattr(
@@ -375,19 +378,30 @@ class SwitchController:
                     type("X", (object,), {}),
                 ).__name__
                 if backend_name != "MQTTSwitch":
-                    # slug is for human label; saiMQTTIngest will map slug → label → ID-based switch_key
-                    slug = name.strip().lower().replace(" ", "_")
-                    base = f"switch/{self.switch_id}/{slug}"
                     payload = "ON" if on else "OFF"
+                    channel_id = (self.channel_id_for_label or {}).get(name)
 
-                    # /state → cached state only
-                    self.mqtt.publish(f"{base}/state", payload)
-                    # /event → persisted switch event in DB
-                    self.mqtt.publish(f"{base}/event", payload)
+                    published = False
+                    if channel_id and hasattr(self.mqtt, "publish_switch_state"):
+                        published = bool(
+                            self.mqtt.publish_switch_state(
+                                self.switch_id,
+                                channel_id,
+                                bool(on),
+                                include_event=True,
+                            )
+                        )
+
+                    if not published:
+                        slug = name.strip().lower().replace(" ", "_")
+                        base = f"switch/{self.switch_id}/{slug}"
+                        self.mqtt.publish(f"{base}/state", payload)
+                        self.mqtt.publish(f"{base}/event", payload)
 
                     if DEBUG:
                         printDM(
-                            f"MQTT publish: {base}/state & /event = {payload}",
+                            f"MQTT publish {self.switch_id}/{name}: "
+                            f"{'ID-based' if published else 'legacy-slug'} = {payload}",
                             location=MODULE,
                         )
             except Exception as e:

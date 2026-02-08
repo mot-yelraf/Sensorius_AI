@@ -92,7 +92,7 @@
 
       <div style="margin-top:1rem; display:flex; justify-content:space-between;">
         <!-- Keep Home & Clear DB behavior as-is -->
-        <button type="button" class="button black" onclick="window.location.href='/'">Home</button>
+        <button type="button" class="button black" id="btn-home">Home</button>
         <button type="button" class="button yellow" id="btn-homeassistant">Home Assistant</button>
         <button type="button" class="button yellow" onclick="return startLocationsFromSetup(this.form)">Edit Locations</button>
         <button type="submit" class="button blue">Save</button>
@@ -124,5 +124,41 @@ function closeSetupModal(){
 window.addEventListener('load', function() {
   var el = document.getElementById('setupPiModal');
   if (el) el.style.display = 'block';
+});
+
+function goHomeFromSettings() {
+  var btn = document.getElementById('btn-home');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Returning...';
+  }
+
+  // Fast path when opened from dashboard as an embedded modal.
+  if (window.location.pathname === '/' && typeof window.closeSystemSettingsModal === 'function') {
+    window.closeSystemSettingsModal();
+    return;
+  }
+
+  // If this page was opened from dashboard, prefer browser back for faster UX.
+  try {
+    var ref = document.referrer ? new URL(document.referrer) : null;
+    var sameOrigin = !!(ref && ref.origin === window.location.origin);
+    var fromDashboard = sameOrigin && ref.pathname === '/';
+    if (fromDashboard && window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+  } catch (_err) {
+    // Fall through to direct navigation.
+  }
+
+  // Fallback for direct visits/bookmarks.
+  window.location.replace('/');
+}
+
+document.addEventListener('click', function(ev) {
+  if (ev.target && ev.target.id === 'btn-home') {
+    goHomeFromSettings();
+  }
 });
 </script>

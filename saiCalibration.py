@@ -3,8 +3,6 @@
 Provides device and system calibration workflows, applying offsets to sensor
 settings and coordinating calibration tasks used by the web UI and runtime.
 """
-import time
-import logging
 import statistics
 from bisect import bisect_left
 from dataclasses import dataclass
@@ -20,6 +18,10 @@ DEBUG = debug_enabled(MODULE)
 MIN_SPAN_SECONDS = 24 * 3600
 MAX_ALIGNMENT_DELTA = 60.0  # seconds for pairing T/RH
 MIN_PAIRS = 50
+METRIC_PAIR_CANDIDATES: Tuple[Tuple[str, str], ...] = (
+    ("Temperature", "Rel-Humidity"),
+    ("Plant Temperature", "Plant Rel-Humidity"),
+)
 
 @dataclass
 class SystemCalResult:
@@ -69,7 +71,15 @@ def apply_calibration_updates_local(sensor_id: str, offsets: list[dict] | dict) 
             for k, v in block.items():
                 _set_path(f"{table_name}.{k}", v)
 
-    mgr.save(sensor_id, doc)
+    try:
+        mgr.save(sensor_id, doc)
+    except Exception as exc:
+        printDM(
+            f"apply_calibration_updates_local: failed to save calibration for {sensor_id}: {exc}",
+            location=MODULE,
+        )
+        return False
+
     if DEBUG:
         printDM(f"Calibration updated for {sensor_id}", location=MODULE)
     return True
@@ -230,14 +240,16 @@ class CalibrationManager:
 
         return filtered if len(filtered) >= MIN_PAIRS else values
 
+    def _metric_pairs_for_sensor(self, sensor_id: str) -> List[Tuple[str, str]]:
+        """Return supported temperature/humidity metric pairs for the sensor."""
+        metrics = set(self.data_logger.get_available_metrics(sensor_id) or [])
+        return [pair for pair in METRIC_PAIR_CANDIDATES if pair[0] in metrics and pair[1] in metrics]
+
     def get_calibratable_sensors(self) -> List[str]:
         sensor_ids = self.data_logger.get_available_sensors()
         result: List[str] = []
         for sensor_id in sensor_ids:
-            metrics = self.data_logger.get_available_metrics(sensor_id) or []
-            has_temp = any(m in ("Temperature", "Plant Temperature") for m in metrics)
-            has_rh = any(m in ("Rel-Humidity", "Plant Rel-Humidity") for m in metrics)
-            if has_temp and has_rh:
+            if self._metric_pairs_for_sensor(sensor_id):
                 result.append(sensor_id)
         return result
 
@@ -257,31 +269,51 @@ class CalibrationManager:
         if reference_id not in calibratable:
             raise ValueError(f"Reference sensor {reference_id} is not calibratable")
 
-        # get reference series
-        ref_T_ts, ref_T_vals = self.data_logger.get_time_series(
-            reference_id, "Temperature", start_ts, end_ts
-        )
-        ref_RH_ts, ref_RH_vals = self.data_logger.get_time_series(
-            reference_id, "Rel-Humidity", start_ts, end_ts
-        )
-
-        if not ref_T_ts or not ref_RH_ts:
-            raise RuntimeError("Reference sensor has insufficient data")
-
-        ref_T = list(zip(ref_T_ts, ref_T_vals))
-        ref_RH = list(zip(ref_RH_ts, ref_RH_vals))
+        ref_pairs = self._metric_pairs_for_sensor(reference_id)
+        if not ref_pairs:
+            raise RuntimeError("Reference sensor has no supported metric pair")
 
         results: Dict[str, SystemCalResult] = {}
+        ref_series_cache: Dict[Tuple[str, str], Tuple[List[Tuple[float, float]], List[Tuple[float, float]]]] = {}
         for sensor_id in calibratable:
             if sensor_id == reference_id:
                 continue
+
+            sensor_pairs = self._metric_pairs_for_sensor(sensor_id)
+            shared_pairs = [pair for pair in METRIC_PAIR_CANDIDATES if pair in ref_pairs and pair in sensor_pairs]
+            if not shared_pairs:
+                printDM(
+                    f"Calibration skipped for {sensor_id}: no shared temp/RH metric pair with reference {reference_id}",
+                    location=MODULE,
+                )
+                continue
+            pair = shared_pairs[0]
+
+            if pair not in ref_series_cache:
+                ref_T_ts, ref_T_vals = self.data_logger.get_time_series(
+                    reference_id, pair[0], start_ts, end_ts
+                )
+                ref_RH_ts, ref_RH_vals = self.data_logger.get_time_series(
+                    reference_id, pair[1], start_ts, end_ts
+                )
+                if not ref_T_ts or not ref_RH_ts:
+                    printDM(
+                        f"Calibration skipped for pair {pair}: reference {reference_id} has insufficient data",
+                        location=MODULE,
+                    )
+                    continue
+                ref_series_cache[pair] = (list(zip(ref_T_ts, ref_T_vals)), list(zip(ref_RH_ts, ref_RH_vals)))
+
+            ref_T, ref_RH = ref_series_cache[pair]
             try:
                 result = self._compute_for_sensor(
-                    sensor_id, reference_id, ref_T, ref_RH, start_ts, end_ts
+                    sensor_id, reference_id, ref_T, ref_RH, start_ts, end_ts, pair
                 )
             except Exception as exc:
-                if DEBUG:
-                    printDM(f"Calibration failed for {exc}", location=MODULE)
+                printDM(
+                    f"Calibration failed for {sensor_id} (ref={reference_id}, pair={pair}): {exc}",
+                    location=MODULE,
+                )
                 continue
             self._last_results[sensor_id] = result
             results[sensor_id] = result
@@ -296,12 +328,14 @@ class CalibrationManager:
         ref_RH: List[Tuple[float, float]],
         start_ts: float,
         end_ts: float,
+        metric_pair: Tuple[str, str],
     ) -> SystemCalResult:
+        temp_metric, rh_metric = metric_pair
         sT_ts, sT_vals = self.data_logger.get_time_series(
-            sensor_id, "Temperature", start_ts, end_ts
+            sensor_id, temp_metric, start_ts, end_ts
         )
         sRH_ts, sRH_vals = self.data_logger.get_time_series(
-            sensor_id, "Rel-Humidity", start_ts, end_ts
+            sensor_id, rh_metric, start_ts, end_ts
         )
 
         if not sT_ts or not sRH_ts:
@@ -311,16 +345,13 @@ class CalibrationManager:
         temp_diffs: List[float] = []
         rh_diffs: List[float] = []
 
-        ref_RH_ts = [ts for ts, _ in ref_RH]
-        ref_RH_vals = [v for _, v in ref_RH]
-
         for t_ref, temp_ref in ref_T:
             temp_sensor = self._interpolate_at(t_ref, sT_ts, sT_vals, MAX_ALIGNMENT_DELTA)
             if temp_sensor is None:
                 continue
             temp_diffs.append(temp_ref - temp_sensor)
 
-        for t_ref, rh_ref in zip(ref_RH_ts, ref_RH_vals):
+        for t_ref, rh_ref in ref_RH:
             rh_sensor = self._interpolate_at(t_ref, sRH_ts, sRH_vals, MAX_ALIGNMENT_DELTA)
             if rh_sensor is None:
                 continue
@@ -354,7 +385,7 @@ class CalibrationManager:
         doc = self.sensor_mgr.load(sensor_id) or {}
         cal = doc.setdefault("Calibration", {})
         cal["CALIBRATED"] = True
-        cal["CALIB_STATUS "] = "Calibrated"
+        cal["CALIB_STATUS"] = "Calibrated"
 
         system = cal.setdefault("System", {})
         system["TEMP_OFFSET"] = round(result.temp_offset, 3)

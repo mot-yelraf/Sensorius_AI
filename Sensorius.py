@@ -12,7 +12,7 @@ from threading import Thread
 import socket
 from saiUtils import printDM, debug_enabled, configure_logging
 from saiSensor import SensorController
-from saiMQTTClient import saiMQTTClient, set_mqtt_client
+from saiMQTTClient import saiMQTTClient, set_mqtt_client, get_all_mqtt_clients
 from saiTaskSupervisor import TaskSupervisor
 from saiGarbageCollection import GCManager
 from saiWebServer import WebServerController, launch_webview
@@ -509,6 +509,12 @@ def run_main_thread():
         loop.run_until_complete(supervisor.run_forever())
     except Exception as e:
         printDM(f"Fatal error in run_main_thread: {e}", location=f"{MODULE}:rmt")
+    finally:
+        for client in get_all_mqtt_clients():
+            try:
+                client.close()
+            except Exception as close_e:
+                printDM(f"MQTT client close failed: {close_e}", location=f"{MODULE}:rmt")
 
 if __name__ == "__main__":
     import os

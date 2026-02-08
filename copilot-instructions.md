@@ -16,6 +16,7 @@
 - Avoid heavy dependencies unless necessary.
 - Prefer existing utilities in `saiUtils.py`, `saiDataLogger.py`, and `saiMQTTIngest.py`.
 - Keep logging lightweight; use `printDM` and existing debug flags.
+- In Python-rendered JS/HTML (for example `yield "..."` blocks in `saiHtml.py`), do **not** emit JavaScript `//` comments anywhere inside emitted strings (including trailing inline forms like `"}; //end"`). Use Python comments (`# ...`) outside emitted strings instead, because inline `//` in these builders has historically caused front-end rendering regressions (including missing gauges).
 
 ### MQTT & DB conventions
 - Switch events should be written via `saiDataLogger.log_switch_event`.

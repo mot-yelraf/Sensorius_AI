@@ -13,6 +13,7 @@ import socket
 import shutil
 import logging
 import asyncio
+import inspect
 import subprocess
 from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
@@ -72,6 +73,7 @@ def configure_logging(
       - SENSORIUS_LOG_LEVEL (default: INFO)
       - SENSORIUS_FILE_LOG  (true/false, default: false)
       - SENSORIUS_LOG_FILE  (default: sensorius.log)
+      - SENSORIUS_HTTP_DEBUG (true/false, default: false)
     """
     effective_level = (level or os.environ.get("SENSORIUS_LOG_LEVEL", "INFO")).upper()
     file_logging = _parse_bool(
@@ -81,6 +83,7 @@ def configure_logging(
     if enable_file is not None:
         file_logging = bool(enable_file)
     target_file = log_file or os.environ.get("SENSORIUS_LOG_FILE", DEFAULT_LOG_FILE)
+    http_debug = _parse_bool(os.environ.get("SENSORIUS_HTTP_DEBUG"), default=False)
 
     root_logger = logging.getLogger()
     if root_logger.handlers and not force:
@@ -105,6 +108,20 @@ def configure_logging(
             fh.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT))
             root_logger.addHandler(fh)
 
+    # Keep library transport internals quiet by default; set
+    # SENSORIUS_HTTP_DEBUG=true when low-level trace is needed.
+    if not http_debug:
+        for noisy_logger in (
+            "asyncio",
+            "httpx",
+            "httpcore",
+            "httpcore.connection",
+            "httpcore.http11",
+            "hpack",
+            "urllib3",
+        ):
+            logging.getLogger(noisy_logger).setLevel(logging.WARNING)
+
     return logging.getLogger("saiUtils")
 
 async def supervised_task(name, coro_func, supervisor):
@@ -125,6 +142,16 @@ def debug_enabled(module_name: str) -> bool:
 
 
 def printDM(msg, location="", level: str = "debug"):
+    if not location:
+        try:
+            # Auto-attach origin for callsites that omit location.
+            frame = inspect.currentframe()
+            caller = frame.f_back if frame else None
+            module_name = (caller.f_globals.get("__name__", "") if caller else "") or "unknown"
+            function_name = (caller.f_code.co_name if caller else "") or "unknown"
+            location = f"{module_name}:{function_name}"
+        except Exception:
+            location = ""
     log_info = f"[{location}] {msg}" if location else f"{msg}"
     log_method = getattr(logger, str(level).lower(), logger.debug)
     log_method(log_info)

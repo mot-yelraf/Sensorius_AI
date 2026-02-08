@@ -14,9 +14,7 @@ import re
 import socket
 import time
 import threading
-import random
 import httpx
-import requests
 import paho.mqtt.client as mqtt
 from collections import defaultdict, OrderedDict
 from datetime import datetime
@@ -269,6 +267,39 @@ class saiMQTTIngest:
         except Exception:
             return
 
+    def _feed_watchdog(self, name: str = "MQTT Discovery Loop") -> None:
+        """Best-effort watchdog feed; safe if supervisor is missing."""
+        try:
+            sup = getattr(self, "supervisor", None)
+            if sup and hasattr(sup, "feedthedogs"):
+                sup.feedthedogs(name)
+        except Exception:
+            return
+
+    def _schedule_coro(self, coro) -> bool:
+        """
+        Schedule a coroutine on the ingest event loop from any thread.
+        Returns True if scheduling succeeded.
+        """
+        loop = getattr(self, "_loop", None)
+        if not loop:
+            try:
+                coro.close()
+            except Exception:
+                pass
+            return False
+        try:
+            if loop.is_running():
+                loop.call_soon_threadsafe(asyncio.create_task, coro)
+                return True
+        except Exception:
+            pass
+        try:
+            coro.close()
+        except Exception:
+            pass
+        return False
+
     def _mirror_to_ha(self, topic: str, payload: str, *, qos: int = 0, retain: bool = False) -> None:
         """
         Mirror Nodus topics to the HA broker unchanged.
@@ -398,6 +429,14 @@ class saiMQTTIngest:
         except Exception:
             qos = 0
             retain = False
+
+        # Mirror Nodus traffic to HA broker from ingest-side connection only.
+        try:
+            if client is self.client:
+                self._mirror_to_ha(topic, payload_text, qos=qos, retain=retain)
+        except Exception as e:
+            if DEBUG:
+                printDM(f"[on_message] mirror skipped: {e}", location=MODULE)
 
         # --- Nodus time request (boot sync) ---
         try:
@@ -2162,6 +2201,11 @@ class saiMQTTIngest:
             switch_id  = parts[1]
             channel_id = parts[2]  # canonical SWITCH_N_ID
             is_on = str(payload).strip().upper() == "ON"
+            label = None
+            try:
+                label = getattr(self.data_logger, "get_switch_label", lambda _a, _b: None)(switch_id, channel_id)
+            except Exception:
+                label = None
 
             cache = self._switch_state_cache.setdefault(switch_id, {})
             cache[channel_id] = "on" if is_on else "off"
@@ -2269,7 +2313,7 @@ class saiMQTTIngest:
                     import saiWebRoutes as routes
                     switch_broadcast = getattr(getattr(routes, "app", object()), "state", object()).switch_broadcast
                     if switch_broadcast:
-                        asyncio.create_task(switch_broadcast({
+                        self._schedule_coro(switch_broadcast({
                             "type": "switch_event",
                             "key": f"{switch_id}::{label or channel_id}",
                             "state": bool(is_on),
@@ -2630,7 +2674,7 @@ class saiMQTTIngest:
                     return False
 
                 finally:
-                    self.supervisor.feedthedogs("MQTT Discovery Loop")
+                    self._feed_watchdog("MQTT Discovery Loop")
 
 
         async def _probe_itaot(client: httpx.AsyncClient, hostname: str) -> bool:
@@ -2667,14 +2711,16 @@ class saiMQTTIngest:
                     otherwise a short string for debug context.
                     """
                     url = f"http://{target_host}:{PORT}/itaot"
-                    for attempt in range(max(1, int(retries))):
+                    max_tries = max(1, int(retries))
+                    last_err = "NoValidPayload"
+                    for attempt in range(max_tries):
                         t0 = time.monotonic()
                         try:
                             resp = await client.get(url, timeout=ITAOT_TIMEOUT_S, headers=REQUEST_HEADERS)
                             took = time.monotonic() - t0
                             if DEBUG:
                                 printDM(
-                                    f"→ {target_host}/itaot took {took:.2f}s (try {attempt+1}/{MAX_ITAOT_RETRIES})",
+                                    f"→ {target_host}/itaot took {took:.2f}s (try {attempt+1}/{max_tries})",
                                     location=MODULE,
                                 )
 
@@ -2708,6 +2754,7 @@ class saiMQTTIngest:
                             if looks_valid or ok_from_parser:
                                 return True, ""
 
+                            last_err = "NoValidPayload"
                             await asyncio.sleep(0)
 
                         except (httpx.TimeoutException, httpx.RequestError) as e:
@@ -2717,18 +2764,20 @@ class saiMQTTIngest:
                                     f"[mqtt_discovery_loop] /itaot failed for {target_host}: {type(e).__name__}: {e} took {took:.2f}s",
                                     location=MODULE,
                                 )
+                            last_err = type(e).__name__
                             await asyncio.sleep(0)
-                            return False, type(e).__name__
+                            continue
                         except Exception as e:
                             if DEBUG:
                                 printDM(
                                     f"[mqtt_discovery_loop] /itaot unexpected for {target_host}: {type(e).__name__}: {e}",
                                     location=MODULE,
                                 )
+                            last_err = type(e).__name__
                             await asyncio.sleep(0)
                             return False, type(e).__name__
 
-                    return False, "NoValidPayload"
+                    return False, last_err
 
                 try:
                     # 1) Hostname first (2-3 attempts)
@@ -2772,7 +2821,7 @@ class saiMQTTIngest:
                     return False
 
                 finally:
-                    self.supervisor.feedthedogs("MQTT Discovery Loop")
+                    self._feed_watchdog("MQTT Discovery Loop")
 
 
         # ───────────── main loop ─────────────
@@ -2790,12 +2839,13 @@ class saiMQTTIngest:
                     else:
                         for hostname in list(self.mqtt_clients):
                             now_mono = time.monotonic()
+                            base = self._normalize_host_key(hostname) or str(hostname)
                             try:
                                 if _looks_like_channel_id(hostname):
                                     # Defensive cleanup: old runtimes may have channel ids in mqtt_clients.
                                     self.mqtt_clients.discard(hostname)
                                     continue
-                                self.supervisor.feedthedogs("MQTT Discovery Loop")
+                                self._feed_watchdog("MQTT Discovery Loop")
                                 await asyncio.sleep(0)
                                 base = self._normalize_host_key(hostname)
 
@@ -2886,7 +2936,7 @@ class saiMQTTIngest:
                                                 printDM(f"[{base}] /hayd failed → OFFLINE (retries={n})", location=MODULE)
 
                             except Exception as host_loop_err:
-                                self.supervisor.feedthedogs("MQTT Discovery Loop")
+                                self._feed_watchdog("MQTT Discovery Loop")
                                 printDM(
                                     f"[mqtt_discovery_loop] Unexpected error while probing {base}: {host_loop_err}",
                                     location=MODULE,
@@ -2896,7 +2946,7 @@ class saiMQTTIngest:
                     end_at = time.monotonic() + (TICK_INTERVAL_S + random.uniform(-0.5, 0.5))
                     while time.monotonic() < end_at:
                         await asyncio.sleep(0.5)
-                        self.supervisor.feedthedogs("MQTT Discovery Loop")
+                        self._feed_watchdog("MQTT Discovery Loop")
                     await asyncio.sleep(0)
 
         except Exception as outer_e:

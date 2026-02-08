@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import threading
 import copy
+import json
 from pathlib import Path
 from collections import OrderedDict
 
@@ -47,6 +48,7 @@ class SensorSettingsManager:
     
     _default_base_dir = r"sensor_settings"
     STANDARD_FILENAME = "sensor.toml"
+    _TEMPLATE_DIR_NAMES = {"factory", "template", "templates"}
 
     def __init__(self, base_dir_name: str = _default_base_dir):
         # r-string style and resolved absolute path
@@ -108,10 +110,14 @@ class SensorSettingsManager:
                 continue
             if child.name.startswith("."):
                 continue
+            if child.name.lower() in self._TEMPLATE_DIR_NAMES:
+                continue
             if (child / self.STANDARD_FILENAME).exists():
                 ids.add(child.name)
         # Legacy: top-level *.toml
         for toml_path in self.base_dir.glob("*.toml"):
+            if toml_path.stem.lower() in self._TEMPLATE_DIR_NAMES:
+                continue
             ids.add(toml_path.stem)
         return sorted(ids)
 
@@ -384,7 +390,13 @@ class SensorSettingsManager:
 
     # ---------- path helpers ----------
     def _dir_for(self, sensor_id: str) -> Path:
-        safe = sensor_id.strip()  
+        safe = sensor_id.strip()
+        if not safe:
+            raise ValueError("sensor_id cannot be empty")
+        if "/" in safe or "\\" in safe:
+            raise ValueError(f"Illegal sensor_id: {sensor_id!r}")
+        if safe in (".", ".."):
+            raise ValueError(f"Illegal sensor_id: {sensor_id!r}")
         return self.base_dir / safe
 
     def _new_path_for(self, sensor_id: str) -> Path:
@@ -393,7 +405,14 @@ class SensorSettingsManager:
 
     def _legacy_path_for(self, sensor_id: str) -> Path:
         # Backward-compat: sensor_settings/<sensor_id>.toml
-        return self.base_dir / f"{sensor_id}.toml"
+        safe = sensor_id.strip()
+        if not safe:
+            raise ValueError("sensor_id cannot be empty")
+        if "/" in safe or "\\" in safe:
+            raise ValueError(f"Illegal sensor_id: {sensor_id!r}")
+        if safe in (".", ".."):
+            raise ValueError(f"Illegal sensor_id: {sensor_id!r}")
+        return self.base_dir / f"{safe}.toml"
 
     def _resolve_read_path(self, sensor_id: str) -> Path | None:
         p_new = self._new_path_for(sensor_id)
@@ -420,8 +439,13 @@ class SensorSettingsManager:
     def _load_cached_file(self, abs_path: Path, force: bool = False) -> OrderedDict:
         path_key = str(abs_path)
         with self._lock:
-            file_exists = abs_path.exists()
-            new_mtime = abs_path.stat().st_mtime if file_exists else None
+            try:
+                stat_result = abs_path.stat()
+                file_exists = True
+                new_mtime = stat_result.st_mtime
+            except FileNotFoundError:
+                file_exists = False
+                new_mtime = None
             cached = self._cache_by_path.get(path_key)
             cached_mtime = self._mtime_by_path.get(path_key)
 
@@ -466,13 +490,14 @@ class SensorSettingsManager:
           - Scalars: strings, ints, floats, booleans
           - Lists: numbers/strings
         """
-        try:
-            if tomllib:
+        if tomllib:
+            try:
                 with abs_path.open("rb") as f:
                     data = tomllib.load(f)  # raises on malformed TOML
                 return self._to_ordered(data)
-        except Exception as exc:
-            printDM(f"tomllib parse error for {abs_path}: {exc}; falling back", location=MODULE)
+            except Exception as exc:
+                # In production, malformed TOML should fail fast rather than being "best-effort" parsed.
+                raise ValueError(f"Invalid TOML in {abs_path}: {exc}") from exc
 
         # Fallback: simple tolerant parser (order-preserving)
         result = OrderedDict()
@@ -568,14 +593,14 @@ class SensorSettingsManager:
                 encoded = []
                 for item in value:
                     if isinstance(item, str):
-                        encoded.append(f'"{item}"')
+                        encoded.append(json.dumps(item))
                     elif isinstance(item, bool):
                         encoded.append("true" if item else "false")
                     else:
                         encoded.append(f"{item}")
                 lines.append(f"{key} = [{', '.join(encoded)}]")
             elif isinstance(value, str):
-                lines.append(f'{key} = "{value}"')
+                lines.append(f"{key} = {json.dumps(value)}")
             elif isinstance(value, bool):
                 lines.append(f"{key} = {'true' if value else 'false'}")
             else:

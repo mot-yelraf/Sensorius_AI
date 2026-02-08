@@ -12,7 +12,6 @@ from saiUtils import printDM, debug_enabled, get_timestamp
 from saiSensorFactory import create_sensor
 from saiDataLogger import saiDataLogger
 import time
-import random
 
 MODULE = "saiSensor"
 DEBUG = debug_enabled(MODULE)
@@ -36,6 +35,24 @@ def register_sensor_controller(controller: "SensorController") -> None:
         printDM(f"register_sensor_controller failed: {exc}", location=MODULE)
 
 
+def unregister_sensor_controller(sensor_id: str, controller: "SensorController | None" = None) -> None:
+    """
+    Remove a SensorController from the registry.
+    If controller is provided, only remove if it is the registered instance.
+    """
+    try:
+        current = _SENSOR_CONTROLLERS.get(sensor_id)
+        if current is None:
+            return
+        if controller is not None and current is not controller:
+            return
+        _SENSOR_CONTROLLERS.pop(sensor_id, None)
+        if DEBUG:
+            printDM(f"Unregistered SensorController for {sensor_id}", location=MODULE)
+    except Exception as exc:
+        printDM(f"unregister_sensor_controller failed: {exc}", location=MODULE)
+
+
 def get_sensor_controller(sensor_id: str) -> "SensorController | None":
     return _SENSOR_CONTROLLERS.get(sensor_id)
 
@@ -47,17 +64,48 @@ class SensorController:
         self.supervisor = supervisor
         self.gc_mgr = gc_mgr
 
-        self.device = self.sensor.device
-        self.serial_num = self.sensor.serial_num
-        self.sensor_id = self.sensor.sensor_id
-        self.location = self.sensor.location
-        self.present = self.sensor.present
-        self.meas_interval = self.sensor.meas_interval
-        self.publish_interval = self.sensor.publish_interval
+        self.device = ""
+        self.serial_num = ""
+        self.sensor_id = ""
+        self.location = ""
+        self.present = False
+        self.meas_interval = 1.0
+        self.publish_interval = 1.0
         self.data_logger = data_logger or saiDataLogger()
+        self._last_read_error_log = 0.0
+        self._read_error_log_interval_s = 30.0
+
+        self._sync_from_sensor()
 
         # --- register controller for live calibration reload ---        
         register_sensor_controller(self)
+
+    def _safe_interval(self, value, default: float, name: str) -> float:
+        try:
+            numeric = float(value)
+            if numeric <= 0.0:
+                raise ValueError(f"{name} must be > 0")
+            return numeric
+        except Exception:
+            printDM(
+                f"{self.sensor_id or 'unknown'} invalid {name}={value!r}; using {default}",
+                location=MODULE,
+            )
+            return default
+
+    def _sync_from_sensor(self) -> None:
+        sensor = self.sensor
+        self.device = getattr(sensor, "device", self.device)
+        self.serial_num = getattr(sensor, "serial_num", self.serial_num)
+        self.sensor_id = getattr(sensor, "sensor_id", self.sensor_id)
+        self.location = getattr(sensor, "location", self.location)
+        self.present = bool(getattr(sensor, "present", self.present))
+        self.meas_interval = self._safe_interval(
+            getattr(sensor, "meas_interval", self.meas_interval), 5.0, "meas_interval"
+        )
+        self.publish_interval = self._safe_interval(
+            getattr(sensor, "publish_interval", self.publish_interval), 60.0, "publish_interval"
+        )
 
     # Series of read-only properties
     @property
@@ -109,6 +157,7 @@ class SensorController:
         This guarantees any calibration read at construction is refreshed.
         """
         from saiSensorFactory import create_sensor
+        old_sensor_id = self.sensor_id
         try:
             self.settings.invalidate_this_cache()
         except Exception:
@@ -119,6 +168,21 @@ class SensorController:
             pass
 
         self.sensor = create_sensor(self.settings, self.supervisor)
+        self._sync_from_sensor()
+        if old_sensor_id and old_sensor_id != self.sensor_id:
+            unregister_sensor_controller(old_sensor_id, self)
+        register_sensor_controller(self)
+
+    def shutdown(self) -> None:
+        """Best-effort cleanup for registry/lifecycle management."""
+        if self.sensor_id:
+            unregister_sensor_controller(self.sensor_id, self)
+
+    def __del__(self):
+        try:
+            self.shutdown()
+        except Exception:
+            pass
 
     async def data_collection(self):
         if DEBUG:
@@ -169,8 +233,7 @@ class SensorController:
             loop_start = time.monotonic()
             meas_end = 0.0
             try:
-
-                values, units, ts = self.sensor.read_sensor_data()
+                values, units, ts = await asyncio.to_thread(self.sensor.read_sensor_data)
 
                 # keeping your current pattern (data_logger per-iteration) for drop-in safety
                 self.data_logger.log_readings(ts, self.sensor_id, values)
@@ -184,10 +247,16 @@ class SensorController:
 
             except Exception as e:
                 self.sensor.meas_status = "pending"
-                printDM(f"Data collection error: {e}", location=f"{__name__}.{self.__class__.__name__}.data_collection")
+                now = time.monotonic()
+                if now - self._last_read_error_log >= self._read_error_log_interval_s:
+                    printDM(f"Data collection error: {e}", location=f"{__name__}.{self.__class__.__name__}.data_collection")
+                    self._last_read_error_log = now
 
             self.supervisor.feedthedogs(f"{self.sensor_id} Data Collection")
 
+            self.meas_interval = self._safe_interval(
+                getattr(self.sensor, "meas_interval", self.meas_interval), self.meas_interval, "meas_interval"
+            )
             await asyncio.sleep(self.meas_interval)
             loop_end = time.monotonic()
 

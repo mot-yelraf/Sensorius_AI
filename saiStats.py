@@ -1,14 +1,19 @@
-"""Stats API endpoints and helpers for sensor history and charts."""
-from fastapi import Request, Form, Query
-from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
-from fastapi.routing import APIRouter
-from collections import OrderedDict
-from datetime import datetime, timedelta
+"""24-hour stats service and API routes for sensor telemetry.
+
+This module provides:
+- a DB-backed stats engine that computes min/avg/max per metric
+- epoch-based time-window filtering (last 24 hours) for timezone-safe correctness
+- a batched all-sensor aggregation path used by live websocket broadcasters
+- a FastAPI `/stats` route that executes DB work off the event loop
+"""
+import asyncio
+from datetime import datetime, timedelta, timezone
 import sqlite3
-import json
-import os
-from saiUtils import printDM, debug_enabled, get_timestamp
-from saiSettings import saiSettings
+
+from fastapi import Query
+from fastapi.responses import JSONResponse
+from fastapi.routing import APIRouter
+from saiUtils import printDM, debug_enabled
 
 MODULE = "saiStats"
 DEBUG = debug_enabled(MODULE)
@@ -17,53 +22,121 @@ class saiStats:
     def __init__(self, db_path="sensorius_data.db"):
         self.db_path = db_path
 
+    def _since_epoch_24h(self) -> float:
+        return (datetime.now(timezone.utc) - timedelta(days=1)).timestamp()
+
     def get_24hr_stats(self, sensor_id):
         results = {}
-        now = datetime.utcnow()
-        since = (now - timedelta(days=1)).isoformat()
+        since_epoch = self._since_epoch_24h()
 
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-
-            # Get distinct metrics from this sensor in last 24h
-            cursor.execute("""
-                SELECT DISTINCT metric FROM readings
-                WHERE sensor_id = ? AND timestamp >= ? COLLATE NOCASE
-            """, (sensor_id, since))
-            metrics = [row[0] for row in cursor.fetchall()]
-
-            for metric in metrics:
-                # Min value + timestamp
-                cursor.execute("""
-                    SELECT value, timestamp FROM readings
-                    WHERE sensor_id = ? AND metric = ? AND timestamp >= ? COLLATE NOCASE
-                    ORDER BY value ASC LIMIT 1
-                """, (sensor_id, metric, since))
-                row = cursor.fetchone()
-                min_val, min_ts = row if row else (None, None)
-
-                # Max value + timestamp
-                cursor.execute("""
-                    SELECT value, timestamp FROM readings
-                    WHERE sensor_id = ? AND metric = ? AND timestamp >= ? COLLATE NOCASE
-                    ORDER BY value DESC LIMIT 1
-                """, (sensor_id, metric, since))
-                row = cursor.fetchone()
-                max_val, max_ts = row if row else (None, None)
-
-                # Average value
-                cursor.execute("""
-                    SELECT AVG(value) FROM readings
-                    WHERE sensor_id = ? AND metric = ? AND timestamp >= ? COLLATE NOCASE
-                """, (sensor_id, metric, since))
-                avg_val = cursor.fetchone()[0]
-
+            cursor.execute(
+                """
+                WITH filtered AS (
+                    SELECT metric, value, timestamp, COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) AS ts
+                    FROM readings
+                    WHERE LOWER(sensor_id) = LOWER(?)
+                      AND value IS NOT NULL
+                      AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) >= ?
+                ),
+                ranked AS (
+                    SELECT
+                        metric,
+                        value,
+                        timestamp,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY metric
+                            ORDER BY value ASC, ts ASC, timestamp ASC
+                        ) AS rn_min,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY metric
+                            ORDER BY value DESC, ts DESC, timestamp DESC
+                        ) AS rn_max,
+                        AVG(value) OVER (PARTITION BY metric) AS avg_value
+                    FROM filtered
+                )
+                SELECT
+                    metric,
+                    MAX(CASE WHEN rn_min = 1 THEN value END) AS min_val,
+                    MAX(CASE WHEN rn_min = 1 THEN timestamp END) AS min_ts,
+                    MAX(avg_value) AS avg_val,
+                    MAX(CASE WHEN rn_max = 1 THEN value END) AS max_val,
+                    MAX(CASE WHEN rn_max = 1 THEN timestamp END) AS max_ts
+                FROM ranked
+                GROUP BY metric
+                """,
+                (sensor_id, since_epoch),
+            )
+            for metric, min_val, min_ts, avg_val, max_val, max_ts in cursor.fetchall():
                 results[metric] = {
                     "min": min_val,
                     "min_ts": min_ts,
                     "avg": avg_val,
                     "max": max_val,
-                    "max_ts": max_ts
+                    "max_ts": max_ts,
+                }
+
+        return results
+
+    def get_all_stats_fast(self):
+        """Return 24h stats for all sensors in one DB pass for websocket broadcasting."""
+        results = {}
+        since_epoch = self._since_epoch_24h()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                WITH filtered AS (
+                    SELECT
+                        sensor_id,
+                        metric,
+                        value,
+                        timestamp,
+                        COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) AS ts
+                    FROM readings
+                    WHERE value IS NOT NULL
+                      AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) >= ?
+                ),
+                ranked AS (
+                    SELECT
+                        sensor_id,
+                        metric,
+                        value,
+                        timestamp,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY sensor_id, metric
+                            ORDER BY value ASC, ts ASC, timestamp ASC
+                        ) AS rn_min,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY sensor_id, metric
+                            ORDER BY value DESC, ts DESC, timestamp DESC
+                        ) AS rn_max,
+                        AVG(value) OVER (PARTITION BY sensor_id, metric) AS avg_value
+                    FROM filtered
+                )
+                SELECT
+                    sensor_id,
+                    metric,
+                    MAX(CASE WHEN rn_min = 1 THEN value END) AS min_val,
+                    MAX(CASE WHEN rn_min = 1 THEN timestamp END) AS min_ts,
+                    MAX(avg_value) AS avg_val,
+                    MAX(CASE WHEN rn_max = 1 THEN value END) AS max_val,
+                    MAX(CASE WHEN rn_max = 1 THEN timestamp END) AS max_ts
+                FROM ranked
+                GROUP BY sensor_id, metric
+                """,
+                (since_epoch,),
+            )
+            for sensor_id, metric, min_val, min_ts, avg_val, max_val, max_ts in cursor.fetchall():
+                sensor_stats = results.setdefault(sensor_id, {})
+                sensor_stats[metric] = {
+                    "min": min_val,
+                    "min_ts": min_ts,
+                    "avg": avg_val,
+                    "max": max_val,
+                    "max_ts": max_ts,
                 }
 
         return results
@@ -88,7 +161,11 @@ def create_stats_router(settings, gc_mgr):
             else:
                 return JSONResponse({"error": "No sensors available"}, status_code=404)
 
-        stats = statter.get_24hr_stats(sensor_id)
+        try:
+            stats = await asyncio.to_thread(statter.get_24hr_stats, sensor_id)
+        except Exception as exc:
+            printDM(f"/stats failed for sensor_id={sensor_id}: {exc}", location=MODULE)
+            return JSONResponse({"error": "Unable to fetch stats"}, status_code=500)
         return JSONResponse(stats)
 
     return router

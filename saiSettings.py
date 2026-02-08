@@ -1,8 +1,20 @@
-"""System settings manager with RAM caching and foldered layout support."""
+"""Settings manager for Sensorius system configuration.
+
+This module provides a thin TOML-like settings layer with:
+- Device-scoped storage in ``system_settings/<device_id>/settings.toml``.
+- Legacy single-file fallback compatibility.
+- Process-local read caching keyed by absolute path + mtime.
+- Atomic write-through persistence and startup backup creation.
+
+Notes:
+- Serialization is intentionally simple and optimized for the project's
+  current settings schema.
+- Runtime validation of user-entered values is handled separately.
+"""
 
 from __future__ import annotations
 
-import os, time
+import os
 import json
 import threading
 import copy
@@ -10,7 +22,6 @@ import shutil
 import hashlib
 from pathlib import Path
 from collections import OrderedDict
-from datetime import datetime
 from saiUtils import debug_enabled, printDM, get_pi_network_info, get_time_settings
 
 MODULE = "saiSettings"
@@ -21,7 +32,7 @@ class saiSettings:
     _cache_by_path: dict[str, OrderedDict] = {}
     _mtime_by_path: dict[str, float | None] = {}
     _lock = threading.RLock()
-    _startup_backup_done = False
+    _startup_backup_done_by_path: set[str] = set()
 
     # ---- foldered-layout constants ----
     DEFAULT_BASE_DIR = r"system_settings"
@@ -254,9 +265,9 @@ class saiSettings:
     # NEW: perform a one-time backup of the original file
     def _ensure_startup_backup(self):
         with self.__class__._lock:
-            if self.__class__._startup_backup_done:
-                return
             src = self._abs_path
+            if src in self.__class__._startup_backup_done_by_path:
+                return
             if os.path.exists(src):
                 bak = src + ".bak"
                 try:
@@ -266,7 +277,7 @@ class saiSettings:
                             printDM(f"Startup backup created: {bak}", location=MODULE)
                 except Exception as e:
                     printDM(f"Startup backup failed: {e}", location=MODULE)
-            self.__class__._startup_backup_done = True
+            self.__class__._startup_backup_done_by_path.add(src)
 
     def _seed_from_factory_if_missing(self):
         """
@@ -292,68 +303,78 @@ class saiSettings:
     def _hash_text(self, s: str) -> str:
         return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
+    def _toml_escape_string(self, value: str) -> str:
+        """Return a basic TOML-safe double-quoted string body."""
+        return (
+            value
+            .replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+        )
+
     # ---- write-through save keeps RAM cache in sync ----
     def save_settings(self, settings: OrderedDict | None = None):
-        if not self._dirty and settings is None:
-            return
-        settings_to_save = settings or self.settings
-
-        # render to text first so we can compare with what’s on disk
-        lines = []
-        for section, pairs in settings_to_save.items():
-            lines.append(f"[{section}]\n")
-            for key, value in pairs.items():
-                if isinstance(value, list):
-                    value = json.dumps(value)
-                elif isinstance(value, str):
-                    value = f'"{value}"'
-                elif isinstance(value, bool):  # NEW
-                    value = "true" if value else "false"
-                else:
-                    # ints/floats and other JSON-like scalars
-                    # (if you ever store dicts here, consider json.dumps)
-                    pass
-
-                lines.append(f"{key} = {value}\n")
-            lines.append("\n")
-        new_text = "".join(lines)
-
-        # compute write target (NEW layout preferred)
-        write_path = self._resolve_write_path()
-        # Read current on-disk (if exists) to skip no-op write
-        old_text = ""
-        if os.path.exists(write_path):
-            try:
-                with open(write_path, "r", encoding="utf-8") as f:
-                    old_text = f.read()
-            except Exception:
-                old_text = ""
-
-        if self._hash_text(new_text) == self._hash_text(old_text):
-            if DEBUG:
-                printDM("save_settings skipped (no changes)", location=MODULE)
-            self._dirty = False
-            # ensure our active path is the write path now
-            self._abs_path = write_path
-            return
-
-        # ensure parent exists for new layout
-        Path(write_path).parent.mkdir(parents=True, exist_ok=True)
-
-        # write to disk (atomic replace via temp)
-        tmp_path = write_path + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            f.write(new_text)
-        os.replace(tmp_path, write_path)
-
-        # switch active path to NEW layout (if we just migrated)
-        self._abs_path = write_path
-        self._dirty = False
-        if DEBUG:
-            printDM(f"Settings saved → {write_path}", location=MODULE)
-
-        # update class cache + mtime + our instance copy
         with self._lock:
+            if not self._dirty and settings is None:
+                return
+            settings_to_save = settings or self.settings
+
+            # render to text first so we can compare with what’s on disk
+            lines = []
+            for section, pairs in settings_to_save.items():
+                lines.append(f"[{section}]\n")
+                for key, value in pairs.items():
+                    if isinstance(value, list):
+                        value = json.dumps(value)
+                    elif isinstance(value, str):
+                        value = f'"{self._toml_escape_string(value)}"'
+                    elif isinstance(value, bool):
+                        value = "true" if value else "false"
+                    else:
+                        # ints/floats and other JSON-like scalars
+                        # (if you ever store dicts here, consider json.dumps)
+                        pass
+
+                    lines.append(f"{key} = {value}\n")
+                lines.append("\n")
+            new_text = "".join(lines)
+
+            # compute write target (NEW layout preferred)
+            write_path = self._resolve_write_path()
+            # Read current on-disk (if exists) to skip no-op write
+            old_text = ""
+            if os.path.exists(write_path):
+                try:
+                    with open(write_path, "r", encoding="utf-8") as f:
+                        old_text = f.read()
+                except Exception:
+                    old_text = ""
+
+            if self._hash_text(new_text) == self._hash_text(old_text):
+                if DEBUG:
+                    printDM("save_settings skipped (no changes)", location=MODULE)
+                self._dirty = False
+                # ensure our active path is the write path now
+                self._abs_path = write_path
+                return
+
+            # ensure parent exists for new layout
+            Path(write_path).parent.mkdir(parents=True, exist_ok=True)
+
+            # write to disk (atomic replace via temp)
+            tmp_path = write_path + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write(new_text)
+            os.replace(tmp_path, write_path)
+
+            # switch active path to NEW layout (if we just migrated)
+            self._abs_path = write_path
+            self._dirty = False
+            if DEBUG:
+                printDM(f"Settings saved → {write_path}", location=MODULE)
+
             # clear any legacy/new entries to prevent dual-cache
             for p in self._candidate_paths():
                 self.__class__._cache_by_path.pop(p, None)
@@ -393,38 +414,37 @@ class saiSettings:
         # Update network and time from live Pi info
         net_info = get_pi_network_info()
         time_info = get_time_settings() or {}
+        updates: list[tuple[str, str, object]] = []
 
         if net_info.get("hostname"):
-            self.replace_setting("Network", "HOSTNAME", net_info["hostname"])
+            updates.append(("Network", "HOSTNAME", net_info["hostname"]))
 
         # Accept either case from get_time_settings()
         tz        = time_info.get("TZ",        time_info.get("tz"))
         tz_offset = time_info.get("TZ_OFFSET", time_info.get("tzOffset"))
         tz_name   = time_info.get("TZ_NAME",   time_info.get("tzName"))
 
-        # Current values from the (possibly factory-seeded) file
-        cur_tz        = self.get_setting("Time", "TZ",        None)
-        cur_tz_offset = self.get_setting("Time", "TZ_OFFSET", None)
-        cur_tz_name   = self.get_setting("Time", "TZ_NAME",   None)
-
         # Only overwrite if we actually detected a TZ (i.e., not None/empty)
         if tz:
-            self.replace_setting("Time", "TZ", tz)
+            updates.append(("Time", "TZ", tz))
             if tz_offset is not None:
                 # Keep your current convention: seconds (factory uses -21600)
-                self.replace_setting("Time", "TZ_OFFSET", int(tz_offset))
+                updates.append(("Time", "TZ_OFFSET", int(tz_offset)))
             if tz_name:
-                self.replace_setting("Time", "TZ_NAME", tz_name)
+                updates.append(("Time", "TZ_NAME", tz_name))
         else:
             # No detection → keep whatever was there (factory defaults)
             # Do nothing.
             pass
 
         # Default broker if missing
-        host = self.get_setting("Network", "HOSTNAME", "")
         broker = self.get_setting("SensorNetwork", "BROKER", "")
         if not broker:
-            self.replace_setting("SensorNetwork", "BROKER", f"localhost")
+            updates.append(("SensorNetwork", "BROKER", "localhost"))
+
+        if updates:
+            self.set_many_in_memory(updates)
+            self.save_settings()
 
     def replace_setting(self, section, key, value):
         if section not in self.settings:

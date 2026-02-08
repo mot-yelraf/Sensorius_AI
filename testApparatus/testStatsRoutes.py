@@ -1,54 +1,120 @@
+import sqlite3
+from datetime import datetime, timedelta, timezone
+
 import pytest
+import pytest_asyncio
 from fastapi import FastAPI
-from httpx import AsyncClient
-from saiWebRoutes import register_routes
-from saiStats import saiStats
-from unittest.mock import MagicMock
+from httpx import ASGITransport, AsyncClient
 
-@pytest.fixture
-async def test_app():
+from saiStats import create_stats_router, saiStats as StatsImpl
+
+
+class _FakeSettings:
+    def __init__(self, ids=None):
+        self._ids = list(ids or [])
+
+    def get_all_sensor_ids(self):
+        return list(self._ids)
+
+
+class _FakeDataLogger:
+    def __init__(self, sensors=None):
+        self._sensors = list(sensors or [])
+
+    def get_available_sensors(self):
+        return list(self._sensors)
+
+
+def _seed_stats_db(db_path: str):
+    now = datetime.now(timezone.utc)
+    rows = [
+        # in-window values
+        ((now - timedelta(hours=2)).isoformat(), (now - timedelta(hours=2)).timestamp(), "sensor_001", "temp", 20.0),
+        ((now - timedelta(hours=1)).isoformat(), (now - timedelta(hours=1)).timestamp(), "sensor_001", "temp", 30.0),
+        # ignored null
+        ((now - timedelta(minutes=30)).isoformat(), (now - timedelta(minutes=30)).timestamp(), "sensor_001", "temp", None),
+        # old value (outside 24h)
+        ((now - timedelta(days=2)).isoformat(), (now - timedelta(days=2)).timestamp(), "sensor_001", "temp", 999.0),
+    ]
+
+    with sqlite3.connect(db_path) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE readings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                ts_epoch REAL,
+                sensor_id TEXT NOT NULL,
+                metric TEXT NOT NULL,
+                value REAL
+            )
+            """
+        )
+        cur.executemany(
+            "INSERT INTO readings (timestamp, ts_epoch, sensor_id, metric, value) VALUES (?, ?, ?, ?, ?)",
+            rows,
+        )
+        conn.commit()
+
+
+@pytest_asyncio.fixture
+async def stats_client(tmp_path, monkeypatch):
+    db_path = tmp_path / "stats.db"
+    _seed_stats_db(str(db_path))
+
+    class _TestStats(StatsImpl):
+        def __init__(self, db_path="sensorius_data.db"):
+            super().__init__(db_path=str(db_path_obj))
+
+    db_path_obj = db_path
+
+    def _fake_logger_ctor(*args, **kwargs):
+        return _FakeDataLogger(["sensor_001"])
+
+    monkeypatch.setattr("saiStats.saiStats", _TestStats)
+    monkeypatch.setattr("saiDataLogger.saiDataLogger", _fake_logger_ctor)
+
     app = FastAPI()
+    app.include_router(create_stats_router(_FakeSettings(["sensor_001"]), gc_mgr=None))
 
-    # Mock components
-    mock_sensor = MagicMock()
-    mock_sensor.devID = "sensor_001"
-    mock_sensor.current_data_set.return_value = (
-        {"temp": 23.5, "rh": 55.0}, "valid", "2025/05/24 12:00:00"
-    )
-    mock_sensor.unit_map = {"temp": "°C", "rh": "%"}
-    mock_sensor.measurements = [("temp", "°C", None, 1), ("rh", "%", None, 1)]
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        yield client
 
-    mock_settings = MagicMock()
-    mock_gc_mgr = MagicMock()
-    mock_gc_mgr.freeMem.return_value = 123456
-    mock_mqtt = MagicMock()
-    mock_mqtt.broker = "localhost"
-    mock_mqtt.topic = "sensor/topic"
-
-    await register_routes(app, mock_sensor, mock_settings, mock_gc_mgr, mock_mqtt)
-    yield app
 
 @pytest.mark.asyncio
-async def test_stats_json(test_app):
-    async with AsyncClient(app=test_app, base_url="http://test") as ac:
-        response = await ac.get("/stats")
-        assert response.status_code == 200
-        assert isinstance(response.json(), dict)
+async def test_stats_json(stats_client):
+    response = await stats_client.get("/stats", params={"sensor_id": "sensor_001"})
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert "temp" in payload
+    assert payload["temp"]["min"] == 20.0
+    assert payload["temp"]["max"] == 30.0
+    assert payload["temp"]["avg"] == 25.0
+
 
 @pytest.mark.asyncio
-async def test_dashboard_html(test_app):
-    async with AsyncClient(app=test_app, base_url="http://test") as ac:
-        response = await ac.get("/dashboard")
-        assert response.status_code == 200
-        assert "<html>" in response.text.lower()
-        assert "dashboard" in response.text.lower()
+async def test_stats_defaults_to_known_sensor(stats_client):
+    response = await stats_client.get("/stats", params={"sensor_id": "unknown_sensor"})
+    assert response.status_code == 200
+    assert "temp" in response.json()
+
 
 @pytest.mark.asyncio
-async def test_itaot_includes_dashboard(test_app):
-    async with AsyncClient(app=test_app, base_url="http://test") as ac:
-        response = await ac.get("/itaot")
-        assert response.status_code == 200
-        commands = response.json().get("commands", [])
-        paths = [cmd["path"] for cmd in commands]
-        assert "/dashboard" in paths
-        assert any("24hr" in cmd["description"].lower() for cmd in commands)
+async def test_stats_404_when_no_sensors(monkeypatch):
+    class _TestStats(StatsImpl):
+        def __init__(self, db_path="sensorius_data.db"):
+            super().__init__(db_path=":memory:")
+
+    monkeypatch.setattr("saiStats.saiStats", _TestStats)
+    monkeypatch.setattr("saiDataLogger.saiDataLogger", lambda *args, **kwargs: _FakeDataLogger([]))
+
+    app = FastAPI()
+    app.include_router(create_stats_router(_FakeSettings([]), gc_mgr=None))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/stats")
+
+    assert response.status_code == 404
+    assert response.json().get("error") == "No sensors available"

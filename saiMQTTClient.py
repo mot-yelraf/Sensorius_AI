@@ -68,6 +68,34 @@ class saiMQTTClient:
             return
         printDM(f"MQTT disconnected with code {rc}", location=MODULE)
 
+    def is_connected(self) -> bool:
+        try:
+            return bool(self.client and self.client.is_connected())
+        except Exception:
+            return False
+
+    def publish(self, topic, payload, qos=0, retain=False):
+        if not self.client:
+            return None
+        return self.client.publish(topic, payload, qos=qos, retain=retain)
+
+    def close(self) -> None:
+        """
+        Best-effort shutdown for the background paho loop thread/socket.
+        Safe to call multiple times.
+        """
+        try:
+            if self.client:
+                try:
+                    self.client.disconnect()
+                finally:
+                    self.client.loop_stop()
+            self._loop_started = False
+            if DEBUG:
+                printDM("MQTT client closed", location=MODULE)
+        except Exception as e:
+            printDM(f"MQTT close() failed: {e}", location=MODULE)
+
     def _ensure_loop_started(self) -> None:
         """
         Start the background paho loop exactly once.
@@ -213,7 +241,7 @@ class saiMQTTClient:
 
             # State topic used by saiMQTTIngest.handle_switch_state_slug
             state_topic = f"{base}/state"
-            info_state = self.client.publish(state_topic, state_str, qos=qos, retain=self.ha_state_retain)
+            info_state = self.client.publish(state_topic, state_str, qos=qos, retain=retain)
             rc_state = getattr(info_state, "rc", 0) if info_state is not None else 0
 
             # Optional event topic used by saiMQTTIngest.handle_switch_event_slug
@@ -300,14 +328,27 @@ class saiMQTTClient:
             await asyncio.sleep(0)
             
 _global_mqtt_clients = {}
+_global_primary_mqtt_client = None
 
 def get_mqtt_client(sensor_id):
     global _global_mqtt_clients
-    return _global_mqtt_clients.get(sensor_id)
+    global _global_primary_mqtt_client
+    return _global_mqtt_clients.get(sensor_id) or _global_primary_mqtt_client
 
 def set_mqtt_client(sensor_id, client):
     global _global_mqtt_clients
+    global _global_primary_mqtt_client
     _global_mqtt_clients[sensor_id] = client
+    if _global_primary_mqtt_client is None:
+        _global_primary_mqtt_client = client
     
 def get_all_mqtt_clients():
-    return list(_global_mqtt_clients.values())
+    seen = set()
+    unique = []
+    for c in _global_mqtt_clients.values():
+        ident = id(c)
+        if ident in seen:
+            continue
+        seen.add(ident)
+        unique.append(c)
+    return unique
