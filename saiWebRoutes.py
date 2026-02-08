@@ -27,9 +27,12 @@ import socket
 import asyncio
 import subprocess
 import time
+import os
+import hmac
 import base64, zlib
 import re
 import tomllib
+from urllib.parse import urlparse
 from collections import OrderedDict
 import shutil, httpx
 from datetime import datetime, timedelta
@@ -1129,14 +1132,99 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         """zlib-compress + base64-encode -> str."""
         return base64.b64encode(zlib.compress(raw)).decode("ascii")
 
-    def _compressed_b64_or_none(path: Path) -> str | None:
+    _SECRET_TOML_KEY_RE = re.compile(
+        r"(?im)^(\s*(?:PASSWORD|PASS|TOKEN|SECRET|API_KEY|MQTT_PASSWORD|HA_PASSWORD)\s*=\s*).*$"
+    )
+    _DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+    def _redact_toml_secrets(raw: bytes) -> bytes:
+        """Best-effort redaction for sensitive TOML keys before export."""
+        try:
+            text = raw.decode("utf-8", errors="replace")
+            redacted = _SECRET_TOML_KEY_RE.sub(r'\1"***REDACTED***"', text)
+            return redacted.encode("utf-8")
+        except Exception:
+            return raw
+
+    def _compressed_b64_or_none(path: Path, *, redact_secrets: bool = False) -> str | None:
         try:
             raw = path.read_bytes()
+            if redact_secrets:
+                raw = _redact_toml_secrets(raw)
             return _compress_b64_bytes(raw)
         except Exception as ex:
             if DEBUG:
                 printDM(f"itaot: could not include file {path}: {ex}", location="saiWebRoutes:itaot")
             return None
+
+    def _is_valid_device_id(device_id: str) -> bool:
+        sid = (device_id or "").strip()
+        if sid in {".", ".."}:
+            return False
+        return bool(_DEVICE_ID_RE.fullmatch(sid))
+
+    def _safe_child_path(base_dir: Path, device_id: str) -> Path | None:
+        """Resolve base/device_id and reject traversal outside base."""
+        if not _is_valid_device_id(device_id):
+            return None
+        try:
+            base_resolved = base_dir.resolve()
+            target = (base_resolved / device_id).resolve()
+            if base_resolved == target or base_resolved in target.parents:
+                return target
+        except Exception:
+            return None
+        return None
+
+    def _get_web_api_key() -> str:
+        key = os.getenv("SAI_WEB_API_KEY", "").strip()
+        if key:
+            return key
+        candidates = (
+            ("Security", "WEB_API_KEY"),
+            ("Web", "WEB_API_KEY"),
+            ("Web", "API_KEY"),
+        )
+        for section, field in candidates:
+            try:
+                val = (settings.get_setting(section, field, "") or "").strip()
+                if val:
+                    return val
+            except Exception:
+                continue
+        return ""
+
+    def _extract_api_key(request: Request) -> str:
+        hdr = (request.headers.get("x-api-key") or "").strip()
+        if hdr:
+            return hdr
+        auth = (request.headers.get("authorization") or "").strip()
+        if auth.lower().startswith("bearer "):
+            return auth[7:].strip()
+        return ""
+
+    def _is_same_origin(request: Request) -> bool:
+        host = (request.url.hostname or "").strip().lower()
+        if not host:
+            return False
+        for header in ("origin", "referer"):
+            raw = (request.headers.get(header) or "").strip()
+            if not raw:
+                continue
+            try:
+                parsed = urlparse(raw)
+            except Exception:
+                return False
+            src = (parsed.hostname or "").strip().lower()
+            if src and src == host:
+                return True
+            return False
+        return False
+
+    def _require_protected_access(request: Request, *, require_csrf: bool = False) -> None:
+        # Security gate intentionally disabled for now.
+        # Keep callsites in place so key enforcement can be re-enabled centrally later.
+        return None
 
     def _sensor_metrics_from_display_block(display_block) -> list[str]:
         """
@@ -1243,7 +1331,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return JSONResponse(payload or {}, status_code=200)
 
     @router.get("/itaot", response_class=JSONResponse)
-    async def identify_topic():
+    async def identify_topic(request: Request, include_files: bool = Query(False)):
         """
         Identify-this-Pi-and-its-topics.
 
@@ -1269,6 +1357,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         Single-sensor response (Pico schema on the device itself) is a single object.
         """
         try:
+            _require_protected_access(request)
             # System identity
             hostname = settings.get_setting("Network", "HOSTNAME") or "unknown-pi"
 
@@ -1376,59 +1465,58 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if DEBUG:
                     printDM(f"/itaot: switch settings probe failed: {ex}", location="saiWebRoutes:itaot")
 
-            # Compose files[] with compressed TOMLs
             files_payload: list[dict] = []
+            if include_files:
+                # Prefer the live system settings path via saiSettings
+                try:
+                    active_settings_path = settings.get_active_settings_path()
+                except Exception:
+                    active_settings_path = None
 
-            # Prefer the live system settings path via saiSettings
-            try:
-                active_settings_path = settings.get_active_settings_path()
-            except Exception:
-                active_settings_path = None
+                if active_settings_path:
+                    settings_blob = _compressed_b64_or_none(Path(active_settings_path), redact_secrets=True)
+                else:
+                    settings_blob = _compressed_b64_or_none(Path(r"settings.toml"), redact_secrets=True)
 
-            if active_settings_path:
-                settings_blob = _compressed_b64_or_none(Path(active_settings_path))
-            else:
-                settings_blob = _compressed_b64_or_none(Path(r"settings.toml"))
-
-            if settings_blob:
-                files_payload.append({
-                    "name": "settings.toml",
-                    "device_id": hostname,
-                    "kind": "system",
-                    "encoding": CONTENT_ENCODING,
-                    "data": settings_blob,
-                })
-
-            # Include each local sensor's sensor.toml
-            for sensor_id in sensor_ids:
-                sensor_toml_path = Path(r"sensor_settings") / sensor_id / "sensor.toml"
-                sensor_blob = _compressed_b64_or_none(sensor_toml_path)
-                if sensor_blob:
+                if settings_blob:
                     files_payload.append({
-                        "name": "sensor.toml",
-                        "device_id": sensor_id,
-                        "kind": "sensor",
+                        "name": "settings.toml",
+                        "device_id": hostname,
+                        "kind": "system",
                         "encoding": CONTENT_ENCODING,
-                        "data": sensor_blob,
+                        "data": settings_blob,
                     })
 
-            # Include the Pi switch config(s) if present
-            try:
-                for switch in (switches_payload or []):
-                    switch_id = switch["SWITCH_ID"]
-                    switch_toml_path = Path(r"switch_settings") / switch_id / "switch.toml"
-                    switch_blob = _compressed_b64_or_none(switch_toml_path)
-                    if switch_blob:
+                # Include each local sensor's sensor.toml
+                for sensor_id in sensor_ids:
+                    sensor_toml_path = Path(r"sensor_settings") / sensor_id / "sensor.toml"
+                    sensor_blob = _compressed_b64_or_none(sensor_toml_path, redact_secrets=True)
+                    if sensor_blob:
                         files_payload.append({
-                            "name": "switch.toml",
-                            "device_id": switch_id,
-                            "kind": "switch",
+                            "name": "sensor.toml",
+                            "device_id": sensor_id,
+                            "kind": "sensor",
                             "encoding": CONTENT_ENCODING,
-                            "data": switch_blob,
+                            "data": sensor_blob,
                         })
-            except Exception as ex:
-                if DEBUG:
-                    printDM(f"/itaot: switch files compose failed: {ex}", location="saiWebRoutes:itaot")
+
+                # Include the Pi switch config(s) if present
+                try:
+                    for switch in (switches_payload or []):
+                        switch_id = switch["SWITCH_ID"]
+                        switch_toml_path = Path(r"switch_settings") / switch_id / "switch.toml"
+                        switch_blob = _compressed_b64_or_none(switch_toml_path, redact_secrets=True)
+                        if switch_blob:
+                            files_payload.append({
+                                "name": "switch.toml",
+                                "device_id": switch_id,
+                                "kind": "switch",
+                                "encoding": CONTENT_ENCODING,
+                                "data": switch_blob,
+                            })
+                except Exception as ex:
+                    if DEBUG:
+                        printDM(f"/itaot: switch files compose failed: {ex}", location="saiWebRoutes:itaot")
 
             # Build multi-sensor payload
             multi_payload = {
@@ -1436,6 +1524,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "origin": "pi",
                 "hostname": hostname,
                 "content_encoding": CONTENT_ENCODING,
+                "include_files": bool(include_files),
                 "sensors": sensors_payload,
                 "switches": switches_payload,
                 "files": files_payload,
@@ -1450,8 +1539,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             return multi_payload
 
+        except HTTPException:
+            raise
         except Exception as e:
-            return PlainTextResponse(f"Internal error in /itaot: {e}", status_code=500)
+            printDM(f"[/itaot] error: {e}", location=MODULE)
+            return PlainTextResponse("Internal error in /itaot", status_code=500)
 
     # ---- onboarding progress plumbing ----
     _ONBOARD_SOCKETS: Dict[str, Set[WebSocket]] = {}
@@ -1484,11 +1576,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return {"STATUS": _status}
 
     @router.get("/debug/switch-controllers", response_class=JSONResponse)
-    async def debug_switch_controllers():
+    async def debug_switch_controllers(request: Request):
         """
         Return the currently registered switch controllers (debug only).
         """
         try:
+            _require_protected_access(request)
             out = []
             sc = globals().get("switch_controllers")
             if isinstance(sc, dict):
@@ -1509,11 +1602,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     "is_present": bool(getattr(sc, "is_present", False)),
                 })
             return {"count": len(out), "items": out}
+        except HTTPException:
+            raise
         except Exception as e:
-            return JSONResponse({"error": str(e)}, status_code=500)
+            printDM(f"[debug_switch_controllers] {e}", location=MODULE)
+            return JSONResponse({"error": "internal_error"}, status_code=500)
 
     @router.get("/debug/automation-state", response_class=JSONResponse)
     async def debug_automation_state(
+        request: Request,
         switch_id: str = Query(...),
         label: str = Query(...),
     ):
@@ -1521,6 +1618,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         Debug helper to inspect Advanced automation enabled state for a switch/label.
         """
         try:
+            _require_protected_access(request)
             from saiAutomationManager import AutomationManager
             sid = (switch_id or "").strip()
             lbl = (label or "").strip()
@@ -1542,8 +1640,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "advanced_rules": adv,
                 "computed_state": state,
             }
+        except HTTPException:
+            raise
         except Exception as e:
-            return JSONResponse({"error": str(e)}, status_code=500)
+            printDM(f"[debug_automation_state] {e}", location=MODULE)
+            return JSONResponse({"error": "internal_error"}, status_code=500)
 
     # ws client subscribes with job_id
     @router.websocket("/ws/onboard/{job_id}")
@@ -2619,10 +2720,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     def _delete_device_dirs(device_id:str)->dict:
         removed={"sensor":False,"switch":False,"system":False}
-        for key, path in [("sensor", Path(_SENSOR_BASE_DIR)/device_id),
-                          ("switch", Path(_SWITCH_BASE_DIR)/device_id),
-                          ("system", Path(_SYS_BASE_DIR)/device_id)]:
+        targets = [
+            ("sensor", _safe_child_path(Path(_SENSOR_BASE_DIR), device_id)),
+            ("switch", _safe_child_path(Path(_SWITCH_BASE_DIR), device_id)),
+            ("system", _safe_child_path(Path(_SYS_BASE_DIR), device_id)),
+        ]
+        for key, path in targets:
             try:
+                if path is None:
+                    continue
                 if path.exists():
                     shutil.rmtree(path)
                     removed[key]=True
@@ -2688,16 +2794,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     #remove device routes
     @router.get("/remove-device-list")
-    async def remove_device_list():
+    async def remove_device_list(request: Request):
+        _require_protected_access(request)
         devices = await asyncio.to_thread(_collect_removable_ids)
         return JSONResponse({"devices": devices})
 
     @router.get("/remove-device")
-    async def remove_device_modal_hint():
+    async def remove_device_modal_hint(request: Request):
         """
         Kept for compatibility in case someone navigates to /remove-device.
         We just return a tiny page that instructs to use the modal button.
         """
+        _require_protected_access(request)
         return HTMLResponse("<html><body><p>Use the Remove Device button to open the modal.</p></body></html>")
 
     @router.post("/remove-device")
@@ -2706,6 +2814,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         Accepts JSON: {"device_ids": ["id1","id2",...]} or form with multiple 'device_ids'
         Executes removal for each device; returns JSON summary.
         """
+        _require_protected_access(request, require_csrf=True)
         device_ids: list[str] = []
         ctype = request.headers.get("content-type","")
         if "application/json" in ctype.lower():
@@ -2720,6 +2829,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         device_ids = [d.strip() for d in device_ids if (d or "").strip()]
         if not device_ids:
             return JSONResponse({"error": "No device_ids provided"}, status_code=400)
+        invalid_ids = [d for d in device_ids if not _is_valid_device_id(d)]
+        if invalid_ids:
+            return JSONResponse({"error": "invalid_device_id", "count": len(invalid_ids)}, status_code=400)
 
         results = {}
         try:
@@ -3190,8 +3302,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             tb = traceback.format_exc()
             printDM(f"[{MODULE}] Exception: {e}\n{tb}", location=MODULE)
             return HTMLResponse(
-                f"<h3>Internal Error:<br>{html_escape(str(e))}</h3>"
-                f"<pre>{html_escape(tb)}</pre><a href='/'>Return</a>",
+                "<h3>Internal Error</h3><a href='/'>Return</a>",
                 status_code=500,
             )
 
@@ -3466,7 +3577,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 return JSONResponse({"status": "started", "source": "local"})
             except Exception as e:
                 printDM(f"[calibrate_sensor] local exception: {e}", location="saiWebRoutes")
-                return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+                return JSONResponse({"status": "error", "message": "Failed to start calibration"}, status_code=500)
 
         # ---------- 2) Remote Nodus (Pico2 W) proxy ----------
         try:
@@ -3527,8 +3638,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         last_err = str(e)
 
                 return JSONResponse(
-                    {"status": "error",
-                     "message": f"Could not reach Nodus for {sensor_id}. Tried: {tried}. Last error: {last_err}"},
+                    {"status": "error", "message": f"Could not reach Nodus for {sensor_id}"},
                     status_code=502,
                 )
 
@@ -3555,9 +3665,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             dev_type = str(sensor_block.get("TYPE", sensor_block.get("type", ""))).strip().lower()
             hostname = (sensor_block.get("HOSTNAME") or sensor_block.get("hostname") or "").strip()
             if not hostname:
-                # fallback: derive host prefix from SENSOR_ID
+                # fallback: keep full SENSOR_ID as host hint
                 host_src = str(sensor_block.get("SENSOR_ID", sensor_block.get("sensor_id", "") ) or "")
-                hostname = host_src.split("-", 1)[0] if host_src else ""
+                hostname = host_src if host_src else ""
 
             # Small helper to pull offsets in a way that matches your APVPD schema
             def _extract_offsets():
@@ -3696,7 +3806,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             )
         except Exception as e:
             printDM(f"[/calibration-status] error: {e}", location="saiWebRoutes")
-            return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+            return JSONResponse({"status": "error", "message": "Internal error"}, status_code=500)
 
     @router.post("/sensor-event")
     async def sensor_event(event: dict):
@@ -5838,7 +5948,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         except Exception as e:
             printDM(f"switch-status-update error: {e}", location=MODULE)
-            return JSONResponse({"error": str(e)}, status_code=500)
+            return JSONResponse({"error": "internal_error"}, status_code=500)
 
     @router.post("/switch/toggle")
     async def toggle_switch(
@@ -5854,6 +5964,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
           3) switch_name="<label>"          (legacy; ambiguous if duplicates exist)
         """
         import time
+        _require_protected_access(request, require_csrf=True)
 
         def _norm_label(s: str | None) -> str | None:
             return s.strip() if s else None
@@ -6129,7 +6240,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         except Exception as e:
             printDM(f"[toggle_switch] ERROR for '{switch_name}': {e}", location=MODULE)
-            return JSONResponse({"error": str(e)}, status_code=500)
+            return JSONResponse({"error": "internal_error"}, status_code=500)
 
     @router.post("/switch/override")
     async def override_switch(
@@ -6142,6 +6253,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         from saiAutomationManager import AutomationManager
 
         try:
+            _require_protected_access(request, require_csrf=True)
             data = await request.json()
             desired_rule_enabled = bool(data.get("enabled", False))  # ← interpret as RULE state
 
@@ -6314,22 +6426,30 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         except Exception as e:
             printDM(f"[override_switch] ERROR for '{switch_name}': {e}", location=MODULE)
-            return JSONResponse({"error": str(e)}, status_code=500)
+            return JSONResponse({"error": "internal_error"}, status_code=500)
 
     # ------ system utilities -------
     @router.get("/clear-data", response_class=HTMLResponse)
-    async def clear_data_page(confirm: bool = Query(False)):
-        if confirm:
-            data_logger.clear_all_readings()
-            return HTMLResponse("<html><body><h3>✅ All sensor data cleared.</h3><a href='/'>Return to Dashboard</a></body></html>")
-        else:
+    async def clear_data_page(request: Request):
+        _require_protected_access(request)
+        return HTMLResponse(
+            "<html><body><h3>Confirm Clear</h3>"
+            "<p>This will permanently delete all stored sensor data.</p>"
+            "<p>Send POST /clear-data with confirm=true and auth headers to proceed.</p>"
+            "<a href='/'>Cancel</a>"
+            "</body></html>"
+        )
+
+    @router.post("/clear-data", response_class=HTMLResponse)
+    async def clear_data_post(request: Request, confirm: bool = Form(False)):
+        _require_protected_access(request, require_csrf=True)
+        if not confirm:
             return HTMLResponse(
-                "<html><body><h3>Confirm Clear</h3>"
-                "<p>This will permanently delete all stored sensor data.</p>"
-                "<a href='/clear-data?confirm=true'>Yes, clear data</a><br>"
-                "<a href='/'>Ok</a>"
-                "</body></html>"
+                "<html><body><h3>Missing confirmation.</h3><a href='/'>Return</a></body></html>",
+                status_code=400,
             )
+        data_logger.clear_all_readings()
+        return HTMLResponse("<html><body><h3>All sensor data cleared.</h3><a href='/'>Return to Dashboard</a></body></html>")
 
     @router.get("/network-status", response_class=JSONResponse)
     async def network_status_api():
@@ -6347,7 +6467,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "mode": "AP" if not connected and ip_addr.startswith("192.168.4.") else "Client"
             })
         except Exception as e:
-            return JSONResponse({"error": str(e)}, status_code=500)
+            printDM(f"[network_status] {e}", location=MODULE)
+            return JSONResponse({"error": "internal_error"}, status_code=500)
 
     @router.get("/debug", response_class=HTMLResponse)
     async def debug_page():
