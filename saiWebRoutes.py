@@ -26,6 +26,7 @@ import json
 import socket
 import asyncio
 import subprocess
+import time
 import base64, zlib
 import re
 import tomllib
@@ -72,6 +73,11 @@ statter = saiStats()
 #     },
 #   }
 _calibration_progress_cache: dict[str, dict[str, object]] = {}
+_switch_status_cache_payload: dict[str, dict] | None = None
+_switch_status_cache_until: float = 0.0
+_SWITCH_STATUS_CACHE_TTL_SEC: float = 1.5
+_cdp_debug_last_log: float = 0.0
+_CDP_DEBUG_MIN_INTERVAL_SEC: float = 5.0
 
 async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     router = APIRouter()
@@ -122,6 +128,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     @router.get("/", response_class=HTMLResponse)
     async def current_data_page(request: Request, sensor_id: str = Query(None), json_only: bool = Query(False)):
+        global _cdp_debug_last_log
         try:
             seen = set()
             available = []
@@ -293,9 +300,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 ]
 
             if DEBUG:
-                printDM(f"local_ids: {local_ids}", location=f"{MODULE}:cdp")
-                printDM(f"available sensors: {available}", location=f"{MODULE}:cdp")
-                printDM(f"available switches: {available_switches}", location=f"{MODULE}:cdp")
+                now_mono = time.monotonic()
+                if (now_mono - _cdp_debug_last_log) >= _CDP_DEBUG_MIN_INTERVAL_SEC:
+                    _cdp_debug_last_log = now_mono
+                    printDM(f"local_ids: {local_ids}", location=f"{MODULE}:cdp")
+                    printDM(f"available sensors: {available}", location=f"{MODULE}:cdp")
+                    printDM(f"available switches: {available_switches}", location=f"{MODULE}:cdp")
 
         except Exception as e:
             printDM(f"Exception in current_data_page route definition: {e}", location=f"{MODULE}:cdp")
@@ -378,7 +388,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         sensor_locations = { sid: sensor_locations_map.get(sid, "Unknown") for sid in all_values }
 
         if DEBUG:
-            printDM(f"sensor_locations: {sensor_locations}", location=f"{MODULE}:cdp")
+            now_mono = time.monotonic()
+            if (now_mono - _cdp_debug_last_log) >= _CDP_DEBUG_MIN_INTERVAL_SEC:
+                _cdp_debug_last_log = now_mono
+                printDM(f"sensor_locations: {sensor_locations}", location=f"{MODULE}:cdp")
 
         try:
             from saiDataLogger import build_switch_key as _build_switch_key
@@ -539,8 +552,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             return states
 
-        switch_status = _collect_switch_status()
-
         # ---- measurement status helpers (local vs MQTT) ----
         def _active_sensor_for(sid: str):
             sm = _get_sensor_map()
@@ -620,7 +631,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "timestamp": get_timestamp(),
                 "locations": sensor_locations,
                 "expected_gauge_map": expected_gauge_map,
-                "switch_status": switch_status, 
                 "statuses": statuses, 
             })
 
@@ -5733,6 +5743,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
           }
         """
 
+        global _switch_status_cache_payload, _switch_status_cache_until
+        now = time.monotonic()
+        if _switch_status_cache_payload is not None and now < _switch_status_cache_until:
+            return JSONResponse(_switch_status_cache_payload)
+
         states: dict[str, dict] = {}
 
         def _format_events(switch_key: str, sensor_id: str | None, limit: int = 5) -> list[str]:
@@ -5849,6 +5864,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     events = _format_events(db_key, None, limit=5)
                     states[ui_key] = {"state": latest_bool, "time": events}
 
+            _switch_status_cache_payload = states
+            _switch_status_cache_until = time.monotonic() + _SWITCH_STATUS_CACHE_TTL_SEC
             return JSONResponse(states)
 
         except Exception as e:
@@ -5861,7 +5878,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         switch_name: str = Query(...),        # legacy: label-only still supported
         switch_key: str | None = Query(None), # new: "switch_id::label"
         switch_id: str | None = Query(None),  # new: switch_id sent separately
-    ):
+        ):
         """
         Toggle a switch identified by either:
           1) switch_key="switch_id::label"  (preferred)
@@ -6135,6 +6152,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             except Exception:
                 pass
 
+            # Invalidate short-lived switch status cache after a state change.
+            global _switch_status_cache_payload, _switch_status_cache_until
+            _switch_status_cache_payload = None
+            _switch_status_cache_until = 0.0
+
             return {"state": bool(new_state), "time": ts}
 
         except Exception as e:
@@ -6292,6 +6314,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         override_map[matched_label] = override_value
                 except Exception:
                     pass
+
+                # Invalidate short-lived switch status cache after a state-affecting update.
+                global _switch_status_cache_payload, _switch_status_cache_until
+                _switch_status_cache_payload = None
+                _switch_status_cache_until = 0.0
 
             except Exception as e:
                 printDM(f"[override_switch] persist failed for '{matched_label}': {e}", location=MODULE)

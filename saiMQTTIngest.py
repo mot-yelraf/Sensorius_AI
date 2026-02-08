@@ -2471,6 +2471,15 @@ class saiMQTTIngest:
         MAX_ITAOT_RETRIES = 1                 # single try keeps bursts down
         OFFLINE_RETRIES = 5
         MQTT_GRACE_S   = 120.0                # if /hayd fails but we saw recent MQTT, keep ONLINE
+        # Global spacing between /itaot onboarding parses across hosts.
+        # Keeps startup/add-device bursts from starving the event loop.
+        try:
+            cfg_spacing = self.settings.get_setting("SensorNetwork", "DISCOVERY_ONBOARD_SPACING_SEC", 12.0) if self.settings else 12.0
+            ITAOT_HOST_SPACING_S = float(cfg_spacing or 12.0)
+        except Exception:
+            ITAOT_HOST_SPACING_S = 12.0
+        if ITAOT_HOST_SPACING_S < 0.0:
+            ITAOT_HOST_SPACING_S = 0.0
         # ───────────── Internal defaults / guards ─────────────
         REQUEST_HEADERS = {
             "Accept": "application/json",
@@ -2499,6 +2508,7 @@ class saiMQTTIngest:
             self._disc_sem = asyncio.Semaphore(1)
 
         itaot_due_at: dict[str, float] = {}
+        next_itaot_slot_at: float = 0.0
         # ───────────── host helpers ─────────────
         async def _ipv4_first_maybe_async(host_in: str, port_num: int) -> str | None:
             try:
@@ -2836,8 +2846,13 @@ class saiMQTTIngest:
                                     # ---- THE MISSING PIECE ----
                                     # If an /itaot is scheduled and the time is due, run it once.
                                     due = itaot_due_at.get(base)
-                                    if due and time.monotonic() >= due:
+                                    now_probe = time.monotonic()
+                                    if due and now_probe >= due:
+                                        # Enforce global /itaot spacing so hosts are onboarded in sequence.
+                                        if now_probe < next_itaot_slot_at:
+                                            continue
                                         itaot_due_at.pop(base, None)
+                                        next_itaot_slot_at = now_probe + ITAOT_HOST_SPACING_S
                                         if await _probe_itaot(client, hostname):
                                             onboarding_done[base] = True
                                             self._mark_host_status(base, "online")
