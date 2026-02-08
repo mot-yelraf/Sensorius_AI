@@ -60,7 +60,7 @@ Sensorius supports:
 
 ---
 
-## 🤖 4. Module Descriptions
+## 4. Module Descriptions
 
 | Module                            | Purpose                                       |
 | --------------------------------- |--------------------------------------------- |
@@ -76,20 +76,7 @@ Sensorius supports:
 
 ---
 
-## 5. GPIO Pin Assignments
-
-| Purpose             | GPIO Pin | Physical Pin | Notes                                |
-| ------------------- | -------- | ------------ | ------------------------------------ |
-| Relay 1             | GPIO20   | Pin 38       | Configurable via TOML                |
-| Detect Pin          | GPIO5    | Pin 29       | GND relay board is connected |
-| I2C\_1 SDA (Sensor) | GPIO2    | Pin 3        | Default I2C bus                      |
-| I2C\_1 SCL (Sensor) | GPIO3    | Pin 5        |                                      |
-| I2C\_0 SDA1 (Plant) | GPIO0    | Pin 27       | Dedicated for VPDPlant sensor        |
-| I2C\_0 SCL1 (Plant) | GPIO1    | Pin 28       |                                      |
-
----
-
-## 6. setup.sh Instructions (Raspberry Pi)
+## 5. setup.sh Instructions (Raspberry Pi)
 
 Run `setup.sh` to prepare the Pi environment:
 
@@ -107,7 +94,7 @@ This script:
 
 ---
 
-## 7. macOS Setup (Hub + MQTT Only)
+## 6. macOS Setup (Hub + MQTT Only)
 
 macOS runs Sensorius as an MQTT hub and web UI only. Directly connected sensors and GPIO are not supported on macOS.
 
@@ -135,7 +122,7 @@ Notes:
 
 ---
 
-## 8. Windows 11 Setup (Hub + MQTT Only)
+## 7. Windows 11 Setup (Hub + MQTT Only)
 
 Windows runs Sensorius as an MQTT hub and web UI only. Directly connected sensors and GPIO are not supported on Windows.
 
@@ -164,7 +151,7 @@ Notes:
 
 ---
 
-## 9. Linux Setup (Debian/Ubuntu, Hub + MQTT Only)
+## 8. Linux Setup (Debian/Ubuntu, Hub + MQTT Only)
 
 Linux non-Pi hosts run Sensorius as an MQTT hub and web UI only. Directly connected sensors and GPIO are not supported in this setup path.
 
@@ -185,7 +172,7 @@ Notes:
 
 ---
 
-## 10. Application Startup
+## 9. Application Startup
 
 ### Manual Start
 
@@ -199,6 +186,32 @@ python3 Sensorius.py
 sudo systemctl enable sensorius.service
 sudo systemctl start sensorius.service
 ```
+
+---
+
+## 10. GPIO Pin Assignments
+
+### Supported Relay Configurations (from `switch_settings/factory/`)
+
+| Configuration         | Enable GPIO (Physical) | Switch   | GPIO (Physical) |
+| --------------------- | ---------------------- | -------- | --------------- |
+| `switch_1_relay.toml` | GPIO23 (Pin 16)        | Switch 1 | GPIO26 (Pin 37) |
+|                       |                        |          |                 |
+| `switch_2_relay.toml` | GPIO27 (Pin 13)        | Switch 1 | GPIO26 (Pin 37) |
+| `switch_2_relay.toml` |                        | Switch 2 | GPIO20 (Pin 38) |
+|                       |                        |          |                 |
+| `switch_3_relay.toml` | GPIO5 (Pin 29)         | Switch 1 | GPIO26 (Pin 37) |
+| `switch_3_relay.toml` |                        | Switch 2 | GPIO20 (Pin 38) |
+| `switch_3_relay.toml` |                        | Switch 3 | GPIO21 (Pin 40) |
+
+### Sensor I2C Pins
+
+| Purpose             | GPIO Pin | Physical Pin | Notes                                |
+| ------------------- | -------- | ------------ | ------------------------------------ |
+| I2C\_1 SDA (Sensor) | GPIO2    | Pin 3        | Default I2C bus                      |
+| I2C\_1 SCL (Sensor) | GPIO3    | Pin 5        |                                      |
+| I2C\_0 SDA1 (Plant) | GPIO0    | Pin 27       | Dedicated for VPDPlant sensor        |
+| I2C\_0 SCL1 (Plant) | GPIO1    | Pin 28       |                                      | 
 
 ---
 
@@ -302,7 +315,7 @@ Each sensor defines its own `self.measurements` list, which determines the exact
 
 ---
 
-## 11. Supported Switches
+## 12. Supported Switches
 
 Sensorius supports:
 
@@ -319,7 +332,7 @@ Switch channels are exposed in the UI and can be controlled manually, by automat
 
 ---
 
-## 12. Switch Automations
+## 13. Switch Automations
 
 Switch automations support:
 
@@ -331,7 +344,7 @@ Switch automations support:
 
 ---
 
-## 13. Attribution
+## 14. Attribution
 
 * **System Architecture**: TW Farley
 * **Implementation and Coding**: TW Farley and ChatGPT/Codex
