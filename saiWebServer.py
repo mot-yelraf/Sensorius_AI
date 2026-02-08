@@ -7,6 +7,7 @@ Responsibilities:
 - provide a single async entrypoint to run the web server in the supervisor
 """
 import asyncio
+import os
 import uvicorn
 from pathlib import Path
 from fastapi import FastAPI
@@ -29,6 +30,11 @@ class WebServerController:
         self.mqtt_ingest = mqtt_ingest
         self.app = FastAPI()
         self.session_active = False
+        self.host = str(os.environ.get("SENSORIUS_HTTP_HOST") or self.settings.get_setting("Network", "HTTPHOST", "0.0.0.0"))
+        try:
+            self.port = int(os.environ.get("SENSORIUS_HTTP_PORT") or self.settings.get_setting("Network", "HTTPPORT", 8000))
+        except Exception:
+            self.port = 8000
 
         # ultra-light health route for readiness checks
         self.app.add_api_route("/healthz", lambda: PlainTextResponse("ok"), methods=["GET"])
@@ -41,9 +47,9 @@ class WebServerController:
         ui_templates_dir = (base_dir / "ui_templates").resolve()
 
         if not ui_static_dir.exists():
-            printDM(f"[{MODULE}] ui_static not found at {ui_static_dir}", location=MODULE)
+            raise FileNotFoundError(f"[{MODULE}] Required ui_static directory not found at {ui_static_dir}")
         if not ui_templates_dir.exists():
-            printDM(f"[{MODULE}] ui_templates not found at {ui_templates_dir}", location=MODULE)
+            raise FileNotFoundError(f"[{MODULE}] Required ui_templates directory not found at {ui_templates_dir}")
 
         # Static + templates
         self.app.mount("/ui_static", StaticFiles(directory=str(ui_static_dir)), name="ui_static")
@@ -91,17 +97,20 @@ class WebServerController:
         if DEBUG:
             printDM("FastAPI routes registered", location=MODULE)
 
-    def run(self, host="0.0.0.0", port=8000):
+    def run(self, host=None, port=None):
+        host = host or self.host
+        port = int(port if port is not None else self.port)
         if DEBUG:
             printDM(f"Starting FastAPI on {host}:{port}", location=MODULE)
         uvicorn.run(self.app, host=host, port=port)
         
-    async def run_async(self):
-        import socket
+    async def run_async(self, host=None, port=None):
         import uvicorn
+        host = host or self.host
+        port = int(port if port is not None else self.port)
         if DEBUG:
-            printDM(f"Starting uvicorn", location=MODULE)
-        self.config = uvicorn.Config(self.app, host="0.0.0.0", port=8000, log_level="info", access_log=False )
+            printDM(f"Starting uvicorn on {host}:{port}", location=MODULE)
+        self.config = uvicorn.Config(self.app, host=host, port=port, log_level="info", access_log=False)
         self.server = uvicorn.Server(self.config)
         
         # wait for actual server readiness
@@ -109,7 +118,8 @@ class WebServerController:
         await self.server.serve()
 
     def is_ready(self):
-        return getattr(self.server, "started", False)
+        server = getattr(self, "server", None)
+        return bool(getattr(server, "started", False))
 
 async def launch_webview(url: str = "http://127.0.0.1:8000", retries: int = 10, delay: float = 1.0):
     import os, sys, traceback, httpx, asyncio
@@ -119,18 +129,13 @@ async def launch_webview(url: str = "http://127.0.0.1:8000", retries: int = 10, 
         from saiUtils import printDM
         printDM(f"pywebview not available: {e} — continuing headless", location="saiWebServer")
         return None
-    from urllib.parse import urljoin, urlencode, quote
-    try:
-        # Local imports to avoid boot-time cycles
-        from saiSwitchSettingsManager import SwitchSettingsManager
-        from saiUtils import printDM
-    except Exception:
-        # tolerate early import issues; we'll just open base url
-        SwitchSettingsManager = None
+    from saiUtils import printDM
 
     if sys.platform.startswith("linux"):
-        os.environ["GDK_BACKEND"] = "x11"
-        os.environ["DISPLAY"] = ":0"
+        # Keep caller-provided values; only provide conservative defaults.
+        os.environ.setdefault("GDK_BACKEND", "x11")
+        if "DISPLAY" not in os.environ and "WAYLAND_DISPLAY" not in os.environ:
+            os.environ["DISPLAY"] = ":0"
 
     if DEBUG:
         printDM("Launching webview...", location="saiWebServer")

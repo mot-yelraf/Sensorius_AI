@@ -7,6 +7,7 @@ Flow:
    publishes MQTT events, and enforces safety rules.
 """
 
+import json
 import board
 import digitalio
 from saiUtils import printDM, debug_enabled
@@ -42,6 +43,7 @@ def detect_switch_variant() -> dict:
         "en_bcm": 23|27|5|12,       # the enable BCM we will use/store
         "active": "high"|"low",     # relay polarity
         "channels": 1|2|3
+        "detected": bool            # True when a probe pin positively matched
       }
     Priority order:
       - Waveshare (WS_DETECT_PIN=D12) → 3-relay, active-low
@@ -52,18 +54,18 @@ def detect_switch_variant() -> dict:
     """
     # 3-relay “families” with explicit detect pads:
     if _probe_grounded(WS_DETECT_PIN):
-        return {"template": "switch_3_relay", "en_bcm": 12, "active": "low",  "channels": 3}
+        return {"template": "switch_3_relay", "en_bcm": 12, "active": "low",  "channels": 3, "detected": True}
     if _probe_grounded(ES_DETECT_PIN):
-        return {"template": "switch_3_relay", "en_bcm": 5,  "active": "high", "channels": 3}
+        return {"template": "switch_3_relay", "en_bcm": 5,  "active": "high", "channels": 3, "detected": True}
 
     # Heuristics for 2- and 1-relay shields: treat their EN pin as a detect pad
     if _probe_grounded(DUAL_DETECT_PIN):
-        return {"template": "switch_2_relay", "en_bcm": 27, "active": "high", "channels": 2}
+        return {"template": "switch_2_relay", "en_bcm": 27, "active": "high", "channels": 2, "detected": True}
     if _probe_grounded(SINGLE_DETECT_PIN):
-        return {"template": "switch_1_relay", "en_bcm": 23, "active": "high", "channels": 1}
+        return {"template": "switch_1_relay", "en_bcm": 23, "active": "high", "channels": 1, "detected": True}
 
     # Fallback → 3-relay, active-high
-    return {"template": "switch_3_relay", "en_bcm": 5, "active": "high", "channels": 3}
+    return {"template": "switch_3_relay", "en_bcm": 5, "active": "high", "channels": 3, "detected": False}
 
 def _template_name_for_en_bcm(en_bcm: int) -> str:
     """Map known EN pins to your template names (default to 3-relay)."""
@@ -171,6 +173,7 @@ def ensure_switch_settings_for_host(host_switch_id: str, switch_loc: str | None 
     want_template = detected["template"]
     want_en = detected["en_bcm"]
     want_active = detected["active"]
+    has_confident_detection = bool(detected.get("detected", False))
 
     if not path.exists():
         # First time: create from the detected template
@@ -188,7 +191,11 @@ def ensure_switch_settings_for_host(host_switch_id: str, switch_loc: str | None 
     has_any_channels = any(k.startswith("SWITCH_") and k.endswith("_PIN") for k in sw.keys())
 
     # If channels layout is missing/empty OR EN/polarity disagree → retarget
-    need_retarget = (not has_any_channels) or (cur_en != want_en) or (cur_active != want_active)
+    # Retarget only when we have a positive probe match; otherwise keep existing
+    # channel/polarity settings to avoid accidental churn from uncertain fallback.
+    need_retarget = (not has_any_channels) or (
+        has_confident_detection and ((cur_en != want_en) or (cur_active != want_active))
+    )
     if need_retarget:
         mgr.retarget_to_template(host_switch_id, want_template)
         mgr.update_setting(host_switch_id, "SWITCH_ACTIVE", want_active)
@@ -419,13 +426,20 @@ class MQTTSwitch:
         self.location   = sw.get("SWITCH_LOCATION", "Unknown")
         self.is_present = True  # logical presence
 
-        # channel labels (0–2 supported by your spec)
+        # channel labels + stable IDs from settings
         self.channels = []
-        for n in (1, 2):
-            label = sw.get(f"SWITCH_{n}", f"Relay {n}")
-            # If PIN omitted, the Pico2 W may still use its own defaults (22/5, 17/10).
-            # Presence of a label is enough to expose the channel in UI.
-            self.channels.append({"n": n, "name": str(label)})
+        self.channel_id_for_label = {}
+        for n in range(1, 9):
+            label = str(sw.get(f"SWITCH_{n}", "") or "").strip()
+            if not label:
+                continue
+            channel_id = str(sw.get(f"SWITCH_{n}_ID", "") or "").strip()
+            self.channels.append({"n": n, "name": label, "channel_id": channel_id})
+            if channel_id:
+                self.channel_id_for_label[label] = channel_id
+        if not self.channels:
+            for n in (1, 2):
+                self.channels.append({"n": n, "name": f"Relay {n}", "channel_id": ""})
 
         self.switch_topics = {}
         try:
@@ -439,6 +453,7 @@ class MQTTSwitch:
 
         # mqtt client (optional if you only render labels)
         self.mqtt = mqtt_client
+        self._switch_block = sw
 
     def get_switch_names(self):
         return [c["name"] for c in self.channels]
@@ -455,11 +470,37 @@ class MQTTSwitch:
         if not self.mqtt:
             printDM(f"[{self.switch_id}] no MQTT client bound; skipping publish", location=MODULE)
             return False
-        # Example topic; adapt to your convention
-        topic = f"switch/{self.switch_id}/set/{ch['n']}"
-        payload = "ON" if on else "OFF"
+        channel_id = str(ch.get("channel_id", "") or "").strip()
+        topic = None
+        payload = None
+        command_map = self._switch_block.get("mqtt_switch_command_topics") or {}
+
+        if channel_id and isinstance(command_map, dict):
+            topic = str(command_map.get(channel_id, "") or "").strip() or None
+        if not topic and isinstance(command_map, dict):
+            topic = (
+                str(command_map.get(name, "") or "").strip()
+                or str(command_map.get(f"SWITCH_{int(ch['n'])}", "") or "").strip()
+                or None
+            )
+
+        if channel_id and not topic:
+            topic = f"nodus/{channel_id}/set"
+            payload = "ON" if on else "OFF"
+        if not topic:
+            slug = name.strip().lower().replace(" ", "_")
+            topic = f"switch/{self.switch_id}/{slug}/set"
+            payload = json.dumps({"set": "on" if on else "off"})
+        elif payload is None:
+            payload = "ON" if on else "OFF"
+
         try:
-            self.mqtt.publish(topic, payload)
+            info = self.mqtt.publish(topic, payload)
+            rc = getattr(info, "rc", 0) if info is not None else 0
+            ok = (rc == 0)
+            if not ok:
+                printDM(f"[{self.switch_id}] MQTT publish rc={rc} topic={topic}", location=MODULE)
+                return False
             if DEBUG:
                 printDM(f"[{self.switch_id}] MQTT publish {topic}={payload}", location=MODULE)
             return True

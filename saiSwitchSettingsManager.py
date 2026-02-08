@@ -310,8 +310,12 @@ class SwitchSettingsManager:
                 printDM(f"[SwitchMgr] Host switch already present: {host_path}", location=MODULE)
             return host_id
 
-        # 3) load template (factory) or create minimal default
-        tmpl = self.load(template_id)
+        # 3) load template from factory dir by name first, then legacy id.
+        # Special-case "factory" to a concrete default template so startup
+        # does not silently fall back to hardcoded defaults.
+        tmpl = self.load_factory_template(template_id) or self.load(template_id)
+        if (not tmpl or "Switch" not in tmpl) and str(template_id).strip().lower() == "factory":
+            tmpl = self.load_factory_template("switch_3_relay")
         if not tmpl or "Switch" not in tmpl or not isinstance(tmpl["Switch"], dict):
             if DEBUG:
                 printDM(f"[SwitchMgr] Template '{template_id}' missing or invalid; creating minimal default", location=MODULE)
@@ -474,10 +478,18 @@ class SwitchSettingsManager:
 
     # --------------- internals ---------------
     def _dir_for(self, switch_id: str) -> Path:
-        safe = switch_id.strip()
+        safe = (switch_id or "").strip()
+        if not safe or safe in {".", ".."}:
+            raise ValueError(f"Illegal switch_id: {switch_id!r}")
         if "/" in safe or "\\" in safe:
             raise ValueError(f"Illegal switch_id: {switch_id!r}")
-        return self.base_dir / safe
+        target = (self.base_dir / safe).resolve()
+        base = self.base_dir.resolve()
+        try:
+            target.relative_to(base)
+        except ValueError:
+            raise ValueError(f"Illegal switch_id path traversal: {switch_id!r}") from None
+        return target
 
     def _new_path_for(self, switch_id: str) -> Path:
         # Preferred new layout: switch_settings/<switch_id>/switch.toml
@@ -587,7 +599,7 @@ class SwitchSettingsManager:
                         settings[section] = OrderedDict()
                         continue
 
-                    if "=" in line and section == "Switch":
+                    if "=" in line and section:
                         key, value = map(str.strip, line.split("=", 1))
                         # booleans
                         val_lower = value.lower()
@@ -609,25 +621,30 @@ class SwitchSettingsManager:
 
     def _emit_toml_to_disk(self, abs_path: Path, data: dict | OrderedDict) -> None:
         """
-        Minimal TOML emitter supporting:
-          [Switch]
-          key = value    (strings escaped via json.dumps)
+        Minimal TOML emitter supporting scalar key/value pairs by section.
         Atomic write via temp file + os.replace
         """
+        if not isinstance(data, dict):
+            raise ValueError("Settings payload must be a dict-like object")
+
         switch_section = data.get("Switch", {})
         if not isinstance(switch_section, dict):
             raise ValueError("Missing [Switch] section")
 
         lines: list[str] = []
-        lines.append("[Switch]\n")
-        for key, value in switch_section.items():
-            if isinstance(value, str):
-                encoded = json.dumps(value)           # safe quoting/escaping
-            elif isinstance(value, bool):
-                encoded = "true" if value else "false"
-            else:
-                encoded = f"{value}"
-            lines.append(f"{key} = {encoded}\n")
+        for section_name, section_values in data.items():
+            if not isinstance(section_values, dict):
+                continue
+            lines.append(f"[{section_name}]\n")
+            for key, value in section_values.items():
+                if isinstance(value, str):
+                    encoded = json.dumps(value)           # safe quoting/escaping
+                elif isinstance(value, bool):
+                    encoded = "true" if value else "false"
+                else:
+                    encoded = f"{value}"
+                lines.append(f"{key} = {encoded}\n")
+            lines.append("\n")
 
         text_out = "".join(lines)
         tmp_path = abs_path.with_suffix(".toml.tmp")

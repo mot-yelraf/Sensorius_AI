@@ -40,6 +40,7 @@ class SwitchController:
         self.last_set_time = {}
         self.min_on_time = 5
         self.min_off_time = 5
+        self._advanced_delay_due = {}
 
         # Settings accessor that works with either wrapper or dict
         try:
@@ -48,7 +49,7 @@ class SwitchController:
             def get(section, key, default=None):
                 return (self.settings or {}).get(section, {}).get(key, default)
 
-        sw = (self.settings or {}).get("Switch", {}) or {}
+        sw = self._switch_block()
 
         self.device     = get("Switch", "DEVICE",     sw.get("DEVICE", "switch"))
         self.serial_num = get("Switch", "SERIAL_NUM", sw.get("SERIAL_NUM", "unknown"))
@@ -66,6 +67,9 @@ class SwitchController:
                 refreshed = ensure_switch_settings_for_host(self.switch_id, self.location)
                 if isinstance(self.settings, dict):
                     self.settings = refreshed or self.settings
+                elif hasattr(self.settings, "settings") and isinstance(getattr(self.settings, "settings"), dict):
+                    self.settings.settings = refreshed or self.settings.settings
+                sw = self._switch_block()
         except Exception as e:
             if DEBUG:
                 printDM(f"ensure_switch_settings_for_host error: {e}", location=MODULE)
@@ -175,6 +179,14 @@ class SwitchController:
     def reload_settings(self, new_settings):
         self.settings = new_settings
         self.script_rules = self._parse_trigger_scripts()
+
+    def _switch_block(self) -> dict:
+        try:
+            if hasattr(self.settings, "get"):
+                return self.settings.get("Switch", {}) or {}
+        except Exception:
+            pass
+        return (self.settings or {}).get("Switch", {}) or {}
 
     def get_switch_names(self) -> list[str]:
         try:
@@ -320,6 +332,15 @@ class SwitchController:
                 return n
         return None
 
+    def label_for_channel_id(self, channel_id: str) -> str:
+        chan = (channel_id or "").strip().lower()
+        if not chan:
+            return ""
+        for label, cid in (self.channel_id_for_label or {}).items():
+            if str(cid or "").strip().lower() == chan:
+                return label
+        return ""
+
     def _set_switch_state(self, name: str, on: bool) -> bool:
         # 1) Try device backend first
         if hasattr(self, "switch") and hasattr(self.switch, "set_state"):
@@ -370,7 +391,7 @@ class SwitchController:
         # Prefer ID-based topics using SWITCH_n_ID, with a slug fallback for legacy consumers.
         if not self.mqtt:
             self.mqtt = get_mqtt_client(self.switch_id)
-        if self.mqtt and self.mqtt.is_connected():
+        if ok and self.mqtt and self.mqtt.is_connected():
             try:
                 backend_name = getattr(
                     getattr(self, "switch", None),
@@ -550,7 +571,11 @@ class SwitchController:
                 for _rid, rule in adv.items():
                     if not isinstance(rule, dict):
                         continue
-                    enabled = bool(rule.get("enabled", False))
+                    enabled_raw = rule.get("enabled", False)
+                    if isinstance(enabled_raw, str):
+                        enabled = enabled_raw.strip().lower() not in ("0", "false", "no", "off")
+                    else:
+                        enabled = bool(enabled_raw)
                     script_json = rule.get("script_json", "")
                     try:
                         script = _json.loads(str(script_json))
@@ -564,10 +589,14 @@ class SwitchController:
                             continue
                         if not sk or "::" not in sk:
                             continue
-                        sid_part, lbl_part = sk.split("::", 1)
+                        sid_part, suffix_part = sk.split("::", 1)
                         if (sid_part or "").strip().lower() != str(self.switch_id).strip().lower():
                             continue
-                        label = (lbl_part or "").strip()
+                        label = str(act.get("switch", "") or "").strip()
+                        if not label:
+                            label = self.label_for_channel_id((suffix_part or "").strip())
+                        if not label:
+                            label = (suffix_part or "").strip()
                         if not label:
                             continue
                         slot = state_map.setdefault(label, {"found": False, "enabled_any": False})
@@ -957,9 +986,18 @@ class SwitchController:
                         continue
 
                     delay_s = int(act.get("delay_s", 0) or 0)
+                    delay_key = (str(_rule_id), str(target_label), str(skey), bool(desired))
                     if delay_s > 0:
-                        # Keep this small; monitor cadence already paces changes.
-                        time.sleep(min(delay_s, 2))
+                        now_mono = time.monotonic()
+                        due_at = self._advanced_delay_due.get(delay_key)
+                        if due_at is None:
+                            self._advanced_delay_due[delay_key] = now_mono + min(delay_s, 300)
+                            continue
+                        if now_mono < due_at:
+                            continue
+                        self._advanced_delay_due.pop(delay_key, None)
+                    else:
+                        self._advanced_delay_due.pop(delay_key, None)
 
                     if DEBUG:
                         printDM(
@@ -995,9 +1033,9 @@ class SwitchController:
             if not result and elapsed < self.min_on_time:
                 continue
 
-            self._set_switch_state(name, result)
-            self.last_state[name] = result
-            self.last_set_time[name] = now
+            if self._set_switch_state(name, result):
+                self.last_state[name] = result
+                self.last_set_time[name] = now
 
     def _evaluate_script(self, rule, sensor_data, current_state: bool):
         """
