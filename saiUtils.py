@@ -15,9 +15,15 @@ import logging
 import asyncio
 import inspect
 import subprocess
+from pathlib import Path
 from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from zoneinfo import ZoneInfo
+
+try:
+    from dotenv import load_dotenv
+except Exception:  # pragma: no cover - optional dependency guard
+    load_dotenv = None
 
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -34,6 +40,25 @@ DEFAULT_DEBUG_MODULES = {
 logger = logging.getLogger("saiUtils")
 logger.addHandler(logging.NullHandler())
 logger.setLevel(logging.NOTSET)
+
+
+def _load_startup_dotenv() -> None:
+    """
+    Load a project-root .env (if present) before any env-driven config is read.
+    """
+    if load_dotenv is None:
+        return
+
+    base_dir = Path(__file__).resolve().parent
+    dotenv_path = base_dir / ".env"
+    if dotenv_path.exists():
+        load_dotenv(dotenv_path=dotenv_path, override=False)
+    else:
+        # Fall back to default dotenv discovery behavior.
+        load_dotenv(override=False)
+
+
+_load_startup_dotenv()
 
 
 def _parse_bool(raw: str | None, default: bool = False) -> bool:
