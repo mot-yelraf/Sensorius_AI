@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import json
+import tomllib
 import threading
 import copy
 import shutil
@@ -493,3 +494,30 @@ class saiSettings:
 
     def get_displayStyle(self):
         return self.get_setting("Display", "display_style", "Gauge")
+
+    @classmethod
+    def get_factory_nodus_ap_credentials(
+        cls,
+        *,
+        base_dir: str | None = None,
+    ) -> tuple[str, str]:
+        """
+        Read AP credentials from:
+        system_settings/factory_nodus/settings.toml.def
+        """
+        root = Path(base_dir or cls.DEFAULT_BASE_DIR).expanduser()
+        settings_dir = root / "factory_nodus"
+        path = settings_dir / f"{cls.STANDARD_FILENAME}.def"
+        if not path.exists():
+            return "", ""
+        try:
+            with open(path, "rb") as f:
+                data = tomllib.load(f)
+            network = data.get("Network", {}) if isinstance(data, dict) else {}
+            ssid = str(network.get("SSID", "") or "")
+            password = str(network.get("PASSWORD", "") or "")
+            return ssid, password
+        except Exception as e:
+            if DEBUG:
+                printDM(f"Failed reading factory Nodus AP credentials from {path}: {e}", location=MODULE)
+            return "", ""

@@ -12,8 +12,8 @@ keep hub-side settings in sync with remote sensors/switches.
 from __future__ import annotations
 
 # ---------- user-defined constants ----------
-PICOW_AP_SSID      = "Sensor_Setup"
-PICOW_AP_PASSWORD  = "llihecaep442"
+PICOW_AP_SSID      = ""
+PICOW_AP_PASSWORD  = ""
 PICOW_IFNAME       = "wlan0"
 PICOW_ADDR         = "192.168.4.1"
 HTTPPORT           = 8000
@@ -58,6 +58,7 @@ try:
     from saiSettings import saiSettings
     _SYS_BASE_DIR     = getattr(saiSettings, "DEFAULT_BASE_DIR", r"system_settings")
     _SYS_STD_FILENAME = getattr(saiSettings, "STANDARD_FILENAME", "settings.toml")
+    PICOW_AP_SSID, PICOW_AP_PASSWORD = saiSettings.get_factory_nodus_ap_credentials(base_dir=_SYS_BASE_DIR)
 except Exception:
     _SYS_BASE_DIR     = r"system_settings"
     _SYS_STD_FILENAME = "settings.toml"
