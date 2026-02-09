@@ -3,6 +3,10 @@ import re
 from saiUtils import printDM, debug_enabled, html_escape, normalize_hostname_base, mdns_hostname
 from collections import defaultdict
 from pathlib import Path
+try:
+    from __init__ import __version__ as APP_VERSION
+except Exception:
+    APP_VERSION = "v0.0.0"
 
 MODULE = "saiHtml"
 DEBUG = debug_enabled(MODULE)
@@ -10,7 +14,6 @@ DEBUG = debug_enabled(MODULE)
 APP_TITLE = "Sensorius"
 APP_NAME_SHORT = f"{APP_TITLE} AI"
 APP_NAME_LONG = f"{APP_TITLE} Automatio Instrumentorum"
-APP_VERSION = "v0.7"
 
 def get_gauge_config():
     gauge_config = {

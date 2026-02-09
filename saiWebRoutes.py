@@ -57,6 +57,10 @@ from saiFastStats import FastStats
 from saiSensorSettingsManager import SensorSettingsManager
 from saiSwitchSettingsManager import SwitchSettingsManager
 from saiAddDevice import HUB_SETTINGS_PATH, _SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR
+try:
+    from __init__ import __version__ as SAI_APP_VERSION
+except Exception:
+    SAI_APP_VERSION = "v0.0.0"
 
 MODULE = "saiWebRoutes"
 DEBUG = debug_enabled(MODULE)
@@ -1521,6 +1525,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # Build multi-sensor payload
             multi_payload = {
                 "version": ITAOT_VERSION,
+                "app_version": SAI_APP_VERSION,
                 "origin": "pi",
                 "hostname": hostname,
                 "content_encoding": CONTENT_ENCODING,
@@ -1533,6 +1538,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # Single vs multi-sensor response (preserve Pico back-compat)
             if len(sensors_payload) == 1 and not switches_payload:
                 one = dict(sensors_payload[0])
+                one["app_version"] = SAI_APP_VERSION
                 one["content_encoding"] = CONTENT_ENCODING
                 one["files"] = files_payload
                 return one
