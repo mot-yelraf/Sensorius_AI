@@ -95,12 +95,12 @@ def configure_logging(
     Configure process-wide logging explicitly from the app entrypoint.
 
     ENV overrides:
-      - SENSORIUS_LOG_LEVEL (default: INFO)
+      - SENSORIUS_LOG_LEVEL (default: DEBUG)
       - SENSORIUS_FILE_LOG  (true/false, default: false)
       - SENSORIUS_LOG_FILE  (default: sensorius.log)
       - SENSORIUS_HTTP_DEBUG (true/false, default: false)
     """
-    effective_level = (level or os.environ.get("SENSORIUS_LOG_LEVEL", "INFO")).upper()
+    effective_level = (level or os.environ.get("SENSORIUS_LOG_LEVEL", "DEBUG")).upper()
     file_logging = _parse_bool(
         os.environ.get("SENSORIUS_FILE_LOG"),
         default=False if enable_file is None else bool(enable_file),
@@ -120,6 +120,17 @@ def configure_logging(
             datefmt=DATE_FORMAT,
             force=force,
         )
+
+    # Always keep terminal logging active for direct Sensorius.py runs.
+    have_stream_handler = any(
+        isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
+        for h in root_logger.handlers
+    )
+    if not have_stream_handler:
+        sh = logging.StreamHandler()
+        sh.setLevel(getattr(logging, effective_level, logging.INFO))
+        sh.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT))
+        root_logger.addHandler(sh)
 
     if file_logging:
         have_file_handler = any(

@@ -200,7 +200,7 @@ Create or edit `.env` in the project root:
 # -----------------------------
 
 # Log verbosity: DEBUG, INFO, WARNING, ERROR
-SENSORIUS_LOG_LEVEL=INFO
+SENSORIUS_LOG_LEVEL=DEBUG
 
 # Enable rotating file logging (true/false)
 SENSORIUS_FILE_LOG=false
