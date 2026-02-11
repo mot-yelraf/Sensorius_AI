@@ -1,4 +1,5 @@
 """HTML rendering helpers and shared UI constants."""
+import os
 import re
 from saiUtils import printDM, debug_enabled, html_escape, normalize_hostname_base, mdns_hostname
 from collections import defaultdict
@@ -2698,6 +2699,10 @@ def render_graph_modal(switch_installed=None):
         tz_offset, tz_name = 0, ""
 
     import json as _json
+    try:
+        max_days = max(1, int(os.getenv("SENSORIUS_DB_RETENTION_DAYS", "90")))
+    except Exception:
+        max_days = 90
 
     # ---------- CSS ----------
     yield """
@@ -2770,22 +2775,27 @@ def render_graph_modal(switch_installed=None):
     # Time ranges
     yield "    <label>Time Range:</label><br>"
     yield "    <div style='display:flex; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.5rem;'>"
-    for label, val in [
+    range_options = [
         ("1Hr", "1h"),
         ("3Hr", "3h"),
         ("6Hr", "6h"),
         ("12Hr", "12h"),
         ("24Hr", "24h"),
-        ("3Day", "3d"),
-        ("7Day", "7d"),
-        ("30Day", "30d"),
-    ]:
+    ]
+    if max_days >= 3:
+        range_options.append(("3Day", "3d"))
+    if max_days >= 7:
+        range_options.append(("7Day", "7d"))
+    if max_days > 1 and max_days not in (3, 7):
+        range_options.append((f"{max_days}Day", f"{max_days}d"))
+    for label, val in range_options:
         checked_attr = " checked" if val == "24h" else ""
         yield (
             f"      <label><input type='radio' name='range' value='{val}'"
             f"{checked_attr} onchange='toggleCustomTime(false)'>{label}</label>"
         )
     yield "    </div>"
+    yield f"    <div style='font-size:0.85rem; opacity:0.8; margin-bottom:0.5rem;'>Max range: {max_days} days</div>"
 
     yield "    <div style='display:flex; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.5rem;'>"
     yield "      <label><input type='radio' name='range' value='custom' onchange='toggleCustomTime(true)'>Custom</label>"

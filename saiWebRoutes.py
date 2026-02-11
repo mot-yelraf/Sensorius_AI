@@ -727,6 +727,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # --- Compute window in *local* offset and return ISO strings with offset ---
         def _compute_window(range_str: str, start_iso: str | None, end_iso: str | None):
             tz = _local_tz()
+            try:
+                max_days = max(1, int(os.getenv("SENSORIUS_DB_RETENTION_DAYS", "90")))
+            except Exception:
+                max_days = 90
+
             # helper for browser datetime-local or any ISO:
             def _coerce_iso_with_offset(iso_in: str) -> datetime:
                 # browsers send 'YYYY-MM-DDTHH:mm' (naive local) → attach tz
@@ -743,14 +748,29 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             if (range_str or "").lower() == "custom" and start_iso and end_iso:
                 start_dt = _coerce_iso_with_offset(start_iso)
                 end_dt   = _coerce_iso_with_offset(end_iso)
+                span_seconds = int((end_dt - start_dt).total_seconds())
+                max_span_seconds = max_days * 86400
+                if span_seconds > max_span_seconds:
+                    raise ValueError(f"Selected range exceeds max of {max_days} days")
             else:
                 now_local = datetime.now(tz)
                 # map ranges → seconds
                 ranges = {
                     "1h": 3600, "3h": 3*3600, "6h": 6*3600, "12h": 12*3600, "24h": 24*3600,
-                    "3d": 3*86400, "7d": 7*86400, "30d": 30*86400
+                    "3d": 3*86400, "7d": 7*86400
                 }
-                span = int(ranges.get((range_str or "24h").lower(), 24*3600))
+                range_norm = (range_str or "24h").lower()
+                if range_norm in ranges:
+                    span = int(ranges[range_norm])
+                else:
+                    m_day = re.fullmatch(r"(\d+)d", range_norm)
+                    m_hour = re.fullmatch(r"(\d+)h", range_norm)
+                    if m_day:
+                        span = min(int(m_day.group(1)), max_days) * 86400
+                    elif m_hour:
+                        span = min(int(m_hour.group(1)), max_days * 24) * 3600
+                    else:
+                        span = 24 * 3600
                 end_dt = now_local
                 start_dt = now_local - timedelta(seconds=span)
 

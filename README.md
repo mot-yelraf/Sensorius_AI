@@ -238,6 +238,10 @@ SENSORIUS_GC_JITTER_SEC=0.7
 SENSORIUS_GC_MIN_SLEEP_SEC=1.0
 SENSORIUS_GC_FULL_EVERY_N=10
 
+# Database retention (days)
+# 0 disables pruning; default is 90 days.
+SENSORIUS_DB_RETENTION_DAYS=90
+
 # Optional API key for protected web endpoints
 SAI_WEB_API_KEY=
 

@@ -23,6 +23,8 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from saiUtils import printDM, debug_enabled
 import threading
+import os
+import time
 from typing import Optional, Tuple
 
 MODULE = "saiDataLogger"
@@ -117,6 +119,9 @@ class saiDataLogger:
         self._init_db()
         self._writer_conn = self._open_conn(check_same_thread=False)
         self._writer_lock = threading.RLock()   # serialize writers across sensors
+        self._db_retention_days = self._env_int("SENSORIUS_DB_RETENTION_DAYS", 90, minimum=0)
+        self._db_retention_prune_interval_sec = 300.0
+        self._next_retention_prune_mono = 0.0
 
         self.sensor_values = {}       # sensor_id → latest values
         self.sensor_stats = {}        # sensor_id → 24h stats
@@ -389,6 +394,64 @@ class saiDataLogger:
                 except Exception:
                     pass
                 self._writer_conn = self._open_conn(check_same_thread=False)
+
+    @staticmethod
+    def _env_int(name: str, default: int, minimum: int = 0) -> int:
+        raw = os.getenv(name)
+        try:
+            value = int(raw) if raw is not None else int(default)
+        except Exception:
+            value = int(default)
+        return max(minimum, value)
+
+    def _maybe_prune_old_rows_locked(self) -> None:
+        """
+        Throttled retention cleanup for readings + switch events.
+
+        Retention window is controlled via SENSORIUS_DB_RETENTION_DAYS.
+        - 0 disables pruning.
+        - default is 90 days.
+        """
+        if self._db_retention_days <= 0:
+            return
+        now_mono = time.monotonic()
+        if now_mono < self._next_retention_prune_mono:
+            return
+
+        cutoff_epoch = time.time() - (float(self._db_retention_days) * 86400.0)
+        try:
+            cur = self._writer_conn.cursor()
+            cur.execute(
+                """
+                DELETE FROM readings
+                WHERE COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) < ?
+                """,
+                (cutoff_epoch,),
+            )
+            readings_deleted = int(cur.rowcount or 0)
+            cur.execute(
+                """
+                DELETE FROM sw_events
+                WHERE COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) < ?
+                """,
+                (cutoff_epoch,),
+            )
+            sw_events_deleted = int(cur.rowcount or 0)
+            if readings_deleted or sw_events_deleted:
+                self._writer_conn.commit()
+                if DEBUG:
+                    printDM(
+                        (
+                            f"[retention] pruned readings={readings_deleted}, "
+                            f"sw_events={sw_events_deleted}, days={self._db_retention_days}"
+                        ),
+                        location=MODULE,
+                    )
+            self._next_retention_prune_mono = now_mono + self._db_retention_prune_interval_sec
+        except Exception as e:
+            # Keep writes alive even if retention cleanup fails.
+            self._next_retention_prune_mono = now_mono + self._db_retention_prune_interval_sec
+            printDM(f"[retention] prune error: {e}", location=MODULE)
             
     def get_time_series(self, sensor_id: str, metric: str,
                         start_ts: float, end_ts: float):
@@ -505,6 +568,7 @@ class saiDataLogger:
                     rows
                 )
                 self._writer_conn.commit()
+                self._maybe_prune_old_rows_locked()
 
             snap = self.sensor_values.get(sensor_id) or {}
             snap.update(values)
@@ -695,6 +759,7 @@ class saiDataLogger:
                     (timestamp, ts_epoch, switch_key, numeric, source, sensor_id)
                 )
                 self._writer_conn.commit()
+                self._maybe_prune_old_rows_locked()
 
             # Notify post-write listeners (non-blocking; do not break writer path)
             listeners = list(getattr(self, "_on_switch_event_written", []) or [])
