@@ -12,8 +12,8 @@ Sensorius & Nodus (see my cPyNodus project) were developed to automate greenhous
 
 Sensorius supports:
 
-* Onboarding of Wi-Fi connected sensors and switches using the Pico 2 W (required for Nodus)
-* MQTT-based communication between sensors/switches and the Pi hub
+* Onboarding of Nodus Wi-Fi connected sensors and switches using the Pico 2 W (required for Nodus)
+* MQTT-based communication between sensors/switches and the Sensorius hub
 * Data logging into a local SQLite database
 * A FastAPI web UI for dashboards, graphs, and device configuration
 * Relay control with scriptable triggers and overrides
