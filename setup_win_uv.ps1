@@ -51,14 +51,16 @@ function Install-WingetPackage {
 
     & winget install --id $PackageId -e --accept-package-agreements --accept-source-agreements
     if ($LASTEXITCODE -eq 0) {
-        return
+        return $true
     }
 
     Write-Host "winget install for $PackageId returned code $LASTEXITCODE; trying upgrade..."
     & winget upgrade --id $PackageId -e --accept-package-agreements --accept-source-agreements
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Continuing after winget non-zero code for $PackageId ($LASTEXITCODE)."
+        return $false
     }
+    return $true
 }
 
 function Ensure-Uv {
@@ -105,6 +107,11 @@ function Install-Requirements {
     }
 }
 
+function Test-RuntimeImports {
+    $venvPython = Join-Path $VenvPath 'Scripts\python.exe'
+    & $venvPython -c "import fastapi; import requests; import paho.mqtt.client as mqtt; from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency check passed')"
+}
+
 function Ensure-WebView2Runtime {
     if ($InstallPywebview -eq '0') {
         return
@@ -115,11 +122,18 @@ function Ensure-WebView2Runtime {
 }
 
 function Install-Mosquitto {
-    Install-WingetPackage -PackageId 'Eclipse.Mosquitto'
+    $installed = Install-WingetPackage -PackageId 'Eclipse.Mosquitto'
 
     $mosqRoot = Join-Path $env:ProgramFiles 'mosquitto'
     $mosqConf = Join-Path $mosqRoot 'mosquitto.conf'
     $mosqConfDir = Join-Path $mosqRoot 'conf.d'
+    $mosqService = Get-Service -Name 'mosquitto' -ErrorAction SilentlyContinue
+
+    if (-not $installed -and -not (Test-Path $mosqRoot) -and -not $mosqService) {
+        Write-Host 'Mosquitto package/service not found; skipping broker service setup.'
+        Write-Host 'Install Mosquitto manually if you need a local MQTT broker.'
+        return
+    }
 
     if (-not (Test-Path $mosqConfDir)) {
         New-Item -ItemType Directory -Path $mosqConfDir | Out-Null
@@ -137,8 +151,30 @@ listener 1883
 allow_anonymous true
 "@ | Set-Content (Join-Path $mosqConfDir 'anon.conf')
 
+    if (-not $mosqService) {
+        Write-Host "Mosquitto service 'mosquitto' was not found; skipping service start."
+        return
+    }
+
     Stop-Service mosquitto -ErrorAction SilentlyContinue
     Start-Service mosquitto
+}
+
+function Configure-BootStartup {
+    $answer = Read-Host 'Start Sensorius automatically at system boot? [y/N]'
+    if ($answer -notmatch '^[Yy]$') {
+        return
+    }
+
+    $taskName = 'SensoriusStartup'
+    $venvPython = Join-Path $VenvPath 'Scripts\python.exe'
+    $scriptPath = Join-Path $ProjectDir 'Sensorius.py'
+
+    $action = New-ScheduledTaskAction -Execute $venvPython -Argument "`"$scriptPath`"" -WorkingDirectory $ProjectDir
+    $trigger = New-ScheduledTaskTrigger -AtStartup
+
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -User 'SYSTEM' -RunLevel Highest -Force | Out-Null
+    Write-Host "Configured startup task '$taskName'."
 }
 
 try {
@@ -147,8 +183,10 @@ try {
     Ensure-Uv
     Install-Python
     Install-Requirements
+    Test-RuntimeImports
     Ensure-WebView2Runtime
     Install-Mosquitto
+    Configure-BootStartup
 
     Write-Host ''
     Write-Host 'Setup complete.'

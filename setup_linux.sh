@@ -132,6 +132,11 @@ install_requirements() {
   fi
 }
 
+verify_runtime_imports() {
+  run_with_heartbeat "Verify Python runtime imports" \
+    "${VENV_PATH}/bin/python" -c "import fastapi; import requests; import paho.mqtt.client as mqtt; from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency check passed')"
+}
+
 install_mosquitto_config() {
   local conf_tmp
   conf_tmp="$(mktemp)"
@@ -155,6 +160,41 @@ EOF
   fi
 }
 
+configure_boot_start() {
+  read -r -p "Start Sensorius automatically at system boot? [y/N]: " setup_boot
+  if [[ ! "${setup_boot}" =~ ^[Yy]$ ]]; then
+    return
+  fi
+
+  local service_path="/etc/systemd/system/sensorius.service"
+  local run_user
+  run_user="$(whoami)"
+
+  echo "Installing systemd service at ${service_path}..."
+  sudo tee "${service_path}" >/dev/null <<EOF
+[Unit]
+Description=Sensorius Python Startup Service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=${PROJECT_DIR}
+ExecStart=${VENV_PATH}/bin/python ${PROJECT_DIR}/Sensorius.py
+User=${run_user}
+Group=${run_user}
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  run_with_heartbeat "Enable sensorius.service" sudo systemctl enable sensorius.service
+  run_with_heartbeat "Restart sensorius.service" sudo systemctl restart sensorius.service
+}
+
 main() {
   echo "Linux MQTT-only setup (no directly connected GPIO/I2C sensors)."
   echo "Using precompiled system packages and binary Python wheels when possible."
@@ -162,7 +202,9 @@ main() {
   ensure_apt
   install_system_packages
   install_requirements
+  verify_runtime_imports
   install_mosquitto_config
+  configure_boot_start
 
   echo ""
   echo "Setup complete."

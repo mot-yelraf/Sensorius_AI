@@ -92,6 +92,9 @@ else
   exit 1
 fi
 
+echo "Verifying Python runtime imports..."
+python -c "import fastapi; import requests; import paho.mqtt.client as mqtt; from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency check passed')"
+
 # -------- Mosquitto config (unchanged) --------
 echo "Creating Mosquitto anonymous config at /etc/mosquitto/conf.d/anon.conf..."
 sudo bash -c 'echo -e "listener 1883\nallow_anonymous true" > /etc/mosquitto/conf.d/anon.conf'
@@ -133,7 +136,7 @@ fi
 
 # -------- Optional systemd service (updated to use pyenv venv) --------
 echo ""
-read -p "Would you like to install and enable sensorius.service? [y/N]: " setup_service
+read -p "Start Sensorius automatically at system boot (install sensorius.service)? [y/N]: " setup_service
 if [[ "$setup_service" =~ ^[Yy]$ ]]; then
   workdir="${PROJECT_DIR}"
   pyexec="${VENV_PATH}/bin/python"

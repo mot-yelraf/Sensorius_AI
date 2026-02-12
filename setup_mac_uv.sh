@@ -206,6 +206,11 @@ install_requirements() {
   fi
 }
 
+verify_runtime_imports() {
+  run_with_heartbeat "Verify Python runtime imports" \
+    "${VENV_PATH}/bin/python" -c "import fastapi; import requests; import paho.mqtt.client as mqtt; from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency check passed')"
+}
+
 install_mosquitto() {
   run_with_heartbeat "Homebrew install mosquitto" brew install mosquitto
 
@@ -229,6 +234,49 @@ EOF
   brew services restart mosquitto || brew services start mosquitto
 }
 
+configure_boot_start() {
+  read -r -p "Start Sensorius automatically at system boot? [y/N]: " setup_boot
+  if [[ ! "${setup_boot}" =~ ^[Yy]$ ]]; then
+    return
+  fi
+
+  local plist_path="/Library/LaunchDaemons/com.sensorius.sensorius.plist"
+  echo "Installing launchd plist at ${plist_path}..."
+
+  sudo tee "${plist_path}" >/dev/null <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.sensorius.sensorius</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${VENV_PATH}/bin/python</string>
+    <string>${PROJECT_DIR}/Sensorius.py</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>${PROJECT_DIR}</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/sensorius.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/sensorius.err.log</string>
+</dict>
+</plist>
+EOF
+
+  sudo chown root:wheel "${plist_path}"
+  sudo chmod 644 "${plist_path}"
+  sudo launchctl bootout system/com.sensorius.sensorius >/dev/null 2>&1 || true
+  sudo launchctl bootstrap system "${plist_path}"
+  sudo launchctl enable system/com.sensorius.sensorius
+  sudo launchctl kickstart -k system/com.sensorius.sensorius
+}
+
 main() {
   echo "Note: This setup may take a while depending on Homebrew and package downloads."
   if [[ "${ALLOW_UNSUPPORTED_MACOS:-0}" != "1" ]]; then
@@ -241,7 +289,9 @@ main() {
   fi
   install_uv_and_python
   install_requirements
+  verify_runtime_imports
   install_mosquitto
+  configure_boot_start
 
   echo ""
   echo "Setup complete."

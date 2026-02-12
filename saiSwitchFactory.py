@@ -8,23 +8,30 @@ Flow:
 """
 
 import json
-import board
-import digitalio
 from saiUtils import printDM, debug_enabled
 from saiSwitchSettingsManager import SwitchSettingsManager
 
 MODULE = "saiSwitchFactory"
 DEBUG = debug_enabled(MODULE)
 
-SINGLE_DETECT_PIN = getattr(board, "D23", None)     # SINGLE IOT (active-high)
-DUAL_DETECT_PIN = getattr(board, "D27", None)     # DUAL Switch (active-high)
-ES_DETECT_PIN = getattr(board, "D5", None)     # Electronics-Salon (active-high)
-WS_DETECT_PIN = getattr(board, "D12", None)  # Waveshare (active-low)
+try:
+    import board
+    import digitalio
+    GPIO_RUNTIME_AVAILABLE = True
+except Exception:
+    board = None
+    digitalio = None
+    GPIO_RUNTIME_AVAILABLE = False
+
+SINGLE_DETECT_PIN = getattr(board, "D23", None) if board else None     # SINGLE IOT (active-high)
+DUAL_DETECT_PIN = getattr(board, "D27", None) if board else None       # DUAL Switch (active-high)
+ES_DETECT_PIN = getattr(board, "D5", None) if board else None          # Electronics-Salon (active-high)
+WS_DETECT_PIN = getattr(board, "D12", None) if board else None         # Waveshare (active-low)
 
 def _probe_grounded(pin_obj) -> bool:
     """Return True if the pin reads as grounded when pulled-up; safe no-op if N/A."""
     try:
-        if pin_obj is None:
+        if (not GPIO_RUNTIME_AVAILABLE) or pin_obj is None:
             return False
         dio = digitalio.DigitalInOut(pin_obj)
         dio.direction = digitalio.Direction.INPUT
@@ -88,6 +95,11 @@ class OneRelaySwitch:
         
         self.switches = []
         self.states = {}
+
+        if not GPIO_RUNTIME_AVAILABLE:
+            if DEBUG:
+                printDM("GPIO runtime unavailable; OneRelaySwitch disabled on this host.", location=MODULE)
+            return
     
         detect_pin = self.detect_relay_board()
         if detect_pin is None:
@@ -135,6 +147,8 @@ def _bool_active(level: str) -> bool:
 
 def _board_pin_from_bcm(bcm: int):
     # Map BCM integer → board.D<BCM>, raise if unavailable
+    if not GPIO_RUNTIME_AVAILABLE:
+        raise RuntimeError("GPIO runtime unavailable (missing board/digitalio)")
     name = f"D{int(bcm)}"
     if not hasattr(board, name):
         raise ValueError(f"No board pin for BCM {bcm}")
@@ -219,6 +233,13 @@ class LocalGPIOSwitch:
         self.location   = sw.get("SWITCH_LOCATION", "unknown")
         self.active_state = _bool_active(sw.get("SWITCH_ACTIVE", "high"))
         self._persist_detection = bool(_persist_detection)
+        self.is_present = False
+        self.channels = []
+
+        if not GPIO_RUNTIME_AVAILABLE:
+            if DEBUG:
+                printDM(f"[{self.switch_id}] GPIO runtime unavailable; skipping local relay init", location=MODULE)
+            return
 
         # Always probe hardware; only persist if detected differs from file
         # decide polarity/EN *before* touching channel pins

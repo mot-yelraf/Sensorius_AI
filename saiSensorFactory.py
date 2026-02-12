@@ -174,7 +174,15 @@ def _scan_pi_i2c_busses():
     if _last_scan is not None:
         return _last_scan
 
-    import board, busio
+    try:
+        import board, busio
+    except Exception as e:
+        # Non-Pi hosts (or MQTT-only installs) intentionally run without Blinka.
+        if DEBUG:
+            printDM(f"I2C scan skipped: {e}", location="saiSensorFactory")
+        _last_scan = {"i2c-1": set(), "i2c-0": set()}
+        return _last_scan
+
     addrs1 = set()
     i2c1 = None
     try:
@@ -259,7 +267,10 @@ def _probe_soil_rs485() -> bool:
     Minimal Modbus-RTU 'ping' for soil sensor.
     Pi pins: TX=GPIO14, RX=GPIO15, DE=GPIO18. 9600 baud, addr=1.
     """
-    import busio, board, digitalio
+    try:
+        import busio, board, digitalio
+    except Exception:
+        return False
 
     # GPIO → Blinka pins
     uart_tx = board.D14   # GPIO14 (TXD)

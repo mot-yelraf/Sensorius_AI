@@ -47,6 +47,7 @@ fonttools==4.58.1
 
 # Utilities and monitoring
 psutil==7.0.0
+requests==2.32.5
 pyserial==3.5
 pyusb==1.3.1
 pywebview==5.4
@@ -63,6 +64,7 @@ anyio==4.9.0
 sniffio==1.3.1
 h11==0.16.0
 httpcore==1.0.9
+tzdata==2025.2
 
 # Optional testing/dev tools
 pytest==8.4.0
