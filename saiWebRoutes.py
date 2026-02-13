@@ -1074,7 +1074,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         display_style = settings.get_setting("Display", "display_style", "") or "Gauge"
         ha_enabled = bool(settings.get_setting("HomeAssistant", "ENABLED", False))
         ha_username = settings.get_setting("HomeAssistant", "HA_USERNAME", "") or ""
-        ha_password = settings.get_setting("HomeAssistant", "HA_PASSWORD", "") or ""
+        ha_password_raw = settings.get_setting("HomeAssistant", "HA_PASSWORD", "") or ""
+        ha_password = saiSettings.deobfuscate_secret(ha_password_raw)
         ha_broker = (
             settings.get_setting("HomeAssistant", "HA_BROKER", "")
             or settings.get_setting("HomeAssistant", "BROKER", "")
@@ -2949,7 +2950,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         settings.replace_setting("HomeAssistant", "HA_BROKER", broker)
         settings.replace_setting("HomeAssistant", "HA_MQTTPORT", port)
         settings.replace_setting("HomeAssistant", "HA_USERNAME", username)
-        settings.replace_setting("HomeAssistant", "HA_PASSWORD", password)
+        settings.replace_setting("HomeAssistant", "HA_PASSWORD", saiSettings.obfuscate_secret(password))
 
         return JSONResponse({"status": "ok"})
 

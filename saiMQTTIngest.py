@@ -258,7 +258,8 @@ class saiMQTTIngest:
             pwd = str(self.settings.get_setting(section, "PASSWORD", "") or "").strip()
             if not user and section == "HomeAssistant":
                 user = str(self.settings.get_setting(section, "HA_USERNAME", "") or "").strip()
-                pwd = str(self.settings.get_setting(section, "HA_PASSWORD", "") or "").strip()
+                pwd_raw = str(self.settings.get_setting(section, "HA_PASSWORD", "") or "").strip()
+                pwd = str(self.settings.deobfuscate_secret(pwd_raw) or "").strip()
             if not user and fallback_section:
                 user = str(self.settings.get_setting(fallback_section, "USERNAME", "") or "").strip()
                 pwd = str(self.settings.get_setting(fallback_section, "PASSWORD", "") or "").strip()

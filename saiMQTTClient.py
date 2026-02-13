@@ -51,7 +51,8 @@ class saiMQTTClient:
         mqtt_password = str(self.settings.get_setting("MQTT", "PASSWORD", "") or "").strip()
         if not mqtt_username:
             mqtt_username = str(self.settings.get_setting("HomeAssistant", "HA_USERNAME", "") or "").strip()
-            mqtt_password = str(self.settings.get_setting("HomeAssistant", "HA_PASSWORD", "") or "").strip()
+            mqtt_password_raw = str(self.settings.get_setting("HomeAssistant", "HA_PASSWORD", "") or "").strip()
+            mqtt_password = str(self.settings.deobfuscate_secret(mqtt_password_raw) or "").strip()
 
         if mqtt_username:
             self.client.username_pw_set(mqtt_username, mqtt_password)

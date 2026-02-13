@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import json
+import base64
 import tomllib
 import threading
 import copy
@@ -38,6 +39,10 @@ class saiSettings:
     # ---- foldered-layout constants ----
     DEFAULT_BASE_DIR = r"system_settings"
     STANDARD_FILENAME = "settings.toml"
+    _SECRET_PREFIX_V1 = "obf:v1:"
+    _SECRET_V1_MARKER = b"\x00"
+    _SECRET_LITERAL_ESCAPE = "plain:"
+    _SECRET_KEY_V1 = b"sai-ha-v1"
 
     def __init__(
         self,
@@ -304,6 +309,53 @@ class saiSettings:
     def _hash_text(self, s: str) -> str:
         return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
+    @classmethod
+    def obfuscate_secret(cls, plain: str) -> str:
+        """
+        Reversible lightweight obfuscation for UI-stored secrets.
+        This is not encryption; it only avoids raw plaintext-at-rest.
+        """
+        text = str(plain or "")
+        if not text:
+            return ""
+        # Prefix a marker byte so decode can distinguish managed payloads
+        # from arbitrary strings that resemble our wire prefix.
+        raw = cls._SECRET_V1_MARKER + text.encode("utf-8")
+        key = cls._SECRET_KEY_V1
+        xored = bytes(b ^ key[i % len(key)] for i, b in enumerate(raw))
+        token = base64.urlsafe_b64encode(xored).decode("ascii")
+        return f"{cls._SECRET_PREFIX_V1}{token}"
+
+    @classmethod
+    def deobfuscate_secret(cls, stored: str) -> str:
+        """
+        Decode supported obfuscated secrets. Plaintext is returned unchanged.
+        """
+        text = str(stored or "")
+        if not text:
+            return ""
+        if not text.startswith(cls._SECRET_PREFIX_V1):
+            return text
+        payload = text[len(cls._SECRET_PREFIX_V1):]
+        if not payload:
+            return ""
+
+        try:
+            raw = base64.urlsafe_b64decode(payload.encode("ascii"))
+            key = cls._SECRET_KEY_V1
+            plain = bytes(b ^ key[i % len(key)] for i, b in enumerate(raw))
+            if plain.startswith(cls._SECRET_V1_MARKER):
+                return plain[len(cls._SECRET_V1_MARKER):].decode("utf-8")
+
+            # Backward compatibility with early v1 values and escaped literals.
+            text = plain.decode("utf-8")
+            if text.startswith(cls._SECRET_LITERAL_ESCAPE):
+                return text[len(cls._SECRET_LITERAL_ESCAPE):]
+            return text
+        except Exception:
+            # Keep compatibility if a malformed value somehow exists.
+            return text
+
     def _toml_escape_string(self, value: str) -> str:
         """Return a basic TOML-safe double-quoted string body."""
         return (
@@ -514,8 +566,9 @@ class saiSettings:
             with open(path, "rb") as f:
                 data = tomllib.load(f)
             network = data.get("Network", {}) if isinstance(data, dict) else {}
-            ssid = str(network.get("SSID", "") or "")
-            password = str(network.get("PASSWORD", "") or "")
+            # Prefer explicit AP credentials; fall back to legacy SSID/PASSWORD keys.
+            ssid = str(network.get("AP_SSID", "") or network.get("SSID", "") or "")
+            password = str(network.get("AP_PASSWORD", "") or network.get("PASSWORD", "") or "")
             return ssid, password
         except Exception as e:
             if DEBUG:

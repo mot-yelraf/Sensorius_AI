@@ -6,6 +6,9 @@ Sensorius Automatio Instrumentorum (Sensorius AI or Sensorius) is a modular, Pyt
 
 Sensorius & Nodus (see my cPyNodus project) were developed to automate greenhouse operations, but there are other applications requiring straight forward sense and control features, using Sensorius' switch automations; and Sensorius' unique system-wide sensor calibration, e.g. 'System Calibration' can assist in the task of calibrating the systems temperature and humidity sensors.
 
+> **Setup Script Note**
+> Most setup scripts in this repository have not been fully verified across all target OS/version combinations. Use them at your own risk, review them before running, and prefer a test machine first.
+
 ---
 
 ## 1. Program Description
@@ -46,15 +49,15 @@ Sensorius supports:
 
 ### Sensor Onboarding (Pico 2 W)
 
-1. Pico 2 W boots into AP mode: `Sensor_Setup`
-2. Sensorius connects via `connect_and_configure_sensor.py`
+1. Pico 2 W boots into AP mode: `Nodus_Setup`
+2. Sensorius runs hub onboarding via `saiAddDevice.py`
 3. Fetches `/itaot` to get hostname and topic
 4. Pushes Wi-Fi + sensor config as JSON
 5. Pico 2 W reboots and publishes data to Pi MQTT broker
 
 ### Switch Onboarding
 
-1. Identical AP onboarding via `connect_and_configure_switch.py`
+1. Identical AP onboarding flow via `saiAddDevice.py`
 2. Config file includes GPIO pin, location, and label info
 3. Switch logic and relays initialized on the Pi
 
@@ -70,9 +73,8 @@ Sensorius supports:
 | `saiSwitchFactory.py`             | Detects relays, wraps GPIO output control     |
 | `saiTaskSupervisor.py`            | Supervises and restarts async tasks           |
 | `saiWatchdog.py`                  | Monitors heartbeats and exits on timeout      |
-| `connect_and_configure_sensor.py` | Automates onboarding for Pico 2 W sensors     |
-| `connect_and_configure_switch.py` | Onboards switch-only Pico 2 W devices         |
-| `settings_switch.toml`            | Sample configuration for onboarded switch     |
+| `saiAddDevice.py`                 | AP onboarding + Nodus settings sync workflow  |
+| `system_settings/factory/settings.toml` | Base system defaults template         |
 
 ---
 
@@ -122,7 +124,7 @@ Notes:
 
 ---
 
-## 7. Windows 11 Setup (Hub + MQTT Only)
+## 7. Windows Setup (Hub + MQTT Only)
 
 Windows runs Sensorius as an MQTT hub and web UI only. Directly connected sensors and GPIO are not supported on Windows.
 
@@ -130,14 +132,14 @@ Use one of the Windows setup scripts (run in an elevated PowerShell):
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\setup_win11.ps1
+.\setup_win.ps1
 ```
 
 Or with `uv`:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\setup_win11_uv.ps1
+.\setup_win_uv.ps1
 ```
 
 Notes:
@@ -261,7 +263,19 @@ export SENSORIUS_GUI=0
 
 ---
 
-## 10. GPIO Pin Assignments
+## 10. Uninstall Scripts
+
+Optional uninstall helpers are included for local cleanup:
+
+* Linux: `./uninstall_linux.sh`
+* macOS: `./uninstall_mac.sh`
+* Windows (PowerShell): `.\uninstall_win.ps1`
+
+These scripts are interactive and attempt to remove the local venv and optional service/broker setup.
+
+---
+
+## 11. GPIO Pin Assignments
 
 ### Supported Relay Configurations (from `switch_settings/factory/`)
 
@@ -287,7 +301,7 @@ export SENSORIUS_GUI=0
 
 ---
 
-## 11. Supported Sensors & Metrics
+## 12. Supported Sensors & Metrics
 
 Each sensor defines its own `self.measurements` list, which determines the exact metrics written to the database. Each metric is timestamped and stored in `sensor_data.db`.
 
@@ -387,7 +401,7 @@ Each sensor defines its own `self.measurements` list, which determines the exact
 
 ---
 
-## 12. Supported Switches
+## 13. Supported Switches
 
 Sensorius supports:
 
@@ -404,7 +418,7 @@ Switch channels are exposed in the UI and can be controlled manually, by automat
 
 ---
 
-## 13. Switch Automations
+## 14. Switch Automations
 
 Switch automations support:
 
@@ -416,7 +430,7 @@ Switch automations support:
 
 ---
 
-## 14. Attribution
+## 15. Attribution
 
 * **System Architecture**: TW Farley
 * **Implementation and Coding**: TW Farley and ChatGPT/Codex
