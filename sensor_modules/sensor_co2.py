@@ -2,7 +2,7 @@
 from saiUtils import printDM, debug_enabled
 from sensor_modules.base import BaseSensor, find_sensor_bus
 
-MODULE = "SCD30Sensor"
+MODULE = "CO2Sensor"
 DEBUG = debug_enabled("saiSensorFactory")
 
 
@@ -11,7 +11,14 @@ class SCD30Sensor(BaseSensor):
         super().__init__(settings, supervisor)
         import board  # noqa: F401  (kept for future pin overrides)
         import busio  # noqa: F401
-        import adafruit_scd30
+        try:
+            import adafruit_scd30
+        except Exception:
+            adafruit_scd30 = None
+        try:
+            import adafruit_scd4x
+        except Exception:
+            adafruit_scd4x = None
 
         # ---- calibration offsets (°C, %RH, ppm) ----
         # Effective offsets = Device + Manual + System
@@ -20,17 +27,53 @@ class SCD30Sensor(BaseSensor):
         self.co2_offset_ppm: float = 0.0
         self._load_calibration_offsets(settings)
         # --------------------------------------------
+        self._co2_model = "SCD30"
+        self._co2_addr = 0x61
 
         try:
-            # SCD30 default address is 0x61
-            self.i2c = self._find_sensor_bus(address=0x61)
+            # SCD30 default address 0x61, SCD4x default address 0x62.
+            # Prefer explicit configured address if present, else probe SCD4x first.
+            addr_pref = settings.get_setting("Sensor", "I2C_ADDR", None)
+            try:
+                addr_pref = int(addr_pref, 0) if isinstance(addr_pref, str) else int(addr_pref)
+            except Exception:
+                addr_pref = None
+
+            candidates = [0x62, 0x61]
+            if addr_pref in (0x61, 0x62):
+                candidates = [addr_pref] + [a for a in candidates if a != addr_pref]
+
+            self.i2c = None
+            selected_addr = None
+            for addr in candidates:
+                bus = self._find_sensor_bus(address=addr)
+                if bus:
+                    self.i2c = bus
+                    selected_addr = addr
+                    break
             if not self.i2c:
-                raise RuntimeError("SCD30 not found on any available I2C bus")
+                raise RuntimeError("SCD30/SCD4x not found on any available I2C bus")
 
-            self.scd30 = adafruit_scd30.SCD30(self.i2c)
-
-            # Altitude in meters (your site-specific value)
-            self.scd30.altitude = 1786
+            self._co2_addr = selected_addr or 0x61
+            if self._co2_addr == 0x62:
+                if adafruit_scd4x is None:
+                    raise RuntimeError("SCD4x detected at 0x62 but adafruit_scd4x is unavailable")
+                self.scd30 = adafruit_scd4x.SCD4X(self.i2c)
+                self._co2_model = "SCD4x"
+                try:
+                    self.scd30.start_periodic_measurement()
+                except Exception:
+                    pass
+            else:
+                if adafruit_scd30 is None:
+                    raise RuntimeError("SCD30 detected at 0x61 but adafruit_scd30 is unavailable")
+                self.scd30 = adafruit_scd30.SCD30(self.i2c)
+                self._co2_model = "SCD30"
+                # Altitude in meters (your site-specific value)
+                try:
+                    self.scd30.altitude = 1786
+                except Exception as exc:
+                    printDM(f"Could not set SCD30 altitude: {exc}", location=MODULE)
 
             self.present = True
 
@@ -149,7 +192,7 @@ class SCD30Sensor(BaseSensor):
 
         if DEBUG:
             printDM(
-                f"SCD30 calibration loaded: "
+                f"CO2({getattr(self, '_co2_model', 'SCD30')},0x{getattr(self, '_co2_addr', 0x61):02X}) calibration loaded: "
                 f"temp_offset_c={self.temp_offset_c:.3f}, "
                 f"rh_offset_pct={self.rh_offset_pct:.3f}, "
                 f"co2_offset_ppm={self.co2_offset_ppm:.3f}, "
@@ -173,7 +216,7 @@ class SCD30Sensor(BaseSensor):
             if DEBUG:
                 printDM(
                     (
-                        "SCD30 calibration reloaded: "
+                        f"CO2({getattr(self, '_co2_model', 'SCD30')},0x{getattr(self, '_co2_addr', 0x61):02X}) calibration reloaded: "
                         f"temp_offset_c={self.temp_offset_c:.3f}, "
                         f"rh_offset_pct={self.rh_offset_pct:.3f}, "
                         f"co2_offset_ppm={self.co2_offset_ppm:.3f}, "
@@ -187,14 +230,30 @@ class SCD30Sensor(BaseSensor):
     # ------------------------------------------------------------------
     # Calibrated metric helpers
     # ------------------------------------------------------------------
+    def _data_ready(self) -> bool:
+        try:
+            if hasattr(self.scd30, "data_ready"):
+                return bool(self.scd30.data_ready)
+            if hasattr(self.scd30, "data_available"):
+                return bool(self.scd30.data_available)
+        except Exception:
+            return False
+        return True
+
     def _get_raw_temp_c(self) -> float:
+        if not self._data_ready():
+            return None
         return self.scd30.temperature
 
     def _get_raw_rh(self) -> float:
+        if not self._data_ready():
+            return None
         # clamp raw RH to sane range before offset
         return self._clamp_if_number(self.scd30.relative_humidity, 0.0, 100.0)
 
     def _get_raw_co2(self) -> float:
+        if not self._data_ready():
+            return None
         # SCD30.CO2 is ppm; we'll apply offset and clamp later
         return self.scd30.CO2
 

@@ -82,7 +82,7 @@ def find_sensors(known_used: Optional[dict[str, set[int]]] = None) -> list[Devic
         used["i2c-0"] |= set(known_used.get("i2c-0", set()))
 
     BME280_ADDRS = (0x76, 0x77)
-    SCD30_ADDR = 0x61
+    CO2_ADDRS = (0x62, 0x61)
     VEML7700_ADDR = 0x10
 
     # free address helpers
@@ -142,11 +142,12 @@ def find_sensors(known_used: Optional[dict[str, set[int]]] = None) -> list[Devic
                     used[bus].add(a)
                     found.append(DeviceDescriptor("avpd", bus, (a,)))
 
-    # 4) co2: SCD30 at 0x61 (does not collide with BME addrs)
+    # 4) co2: SCD4x at 0x62 or SCD30 at 0x61 (does not collide with BME addrs)
     for bus in ("i2c-1", "i2c-0"):
-        if free(bus, SCD30_ADDR):
-            used[bus].add(SCD30_ADDR)
-            found.append(DeviceDescriptor("co2", bus, (SCD30_ADDR,)))
+        chosen = next((a for a in CO2_ADDRS if free(bus, a)), None)
+        if chosen is not None:
+            used[bus].add(chosen)
+            found.append(DeviceDescriptor("co2", bus, (chosen,)))
             # support multiple if you want; otherwise break
         
     # 5) veml: VEML7700 at 0x10 
