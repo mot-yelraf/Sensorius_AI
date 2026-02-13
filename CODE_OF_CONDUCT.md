@@ -30,15 +30,16 @@ Community leaders are responsible for clarifying and enforcing our standards of 
 
 ## Scope
 
-This Code of Conduct applies within all community spaces and also applies when an individual is officially representing the community in public spaces.
+This Code of Conduct applies within all community spaces and also applies when an individual is officially representing the community in public spaces. We expect participants to act in good faith and assume positive intent where possible.
 
 ## Enforcement
+For this project, the primary community leader and maintainer is Tom W. Farley. All enforcement decisions are at the discretion of the maintainer.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement at:
 
 - mot.yelraf@gmail.com
 
-All complaints will be reviewed and investigated promptly and fairly.
+All complaints will be reviewed and investigated promptly and fairly. Reports will be handled confidentially to the extent possible.
 
 ## Enforcement guidelines
 

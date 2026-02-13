@@ -7,6 +7,7 @@ Sensorius is a Raspberry Pi-based sensor and automation hub with a full web UI, 
 Sensorius combines data collection, discovery, configuration, visualization, and automation in one app:
 
 - Auto-detects locally attached sensors.
+- Used for Nodus device bootstrapping via `System Settings > Add Device`
 - Discovers Nodus sensors and switches via MQTT and `/itaot` metadata.
 - Stores readings and switch events in the built-in database.
 - Provides a live dashboard for all devices and locations.

@@ -1,117 +1,145 @@
 # Contributing to Sensorius (saiSensorius)
 
-Thanks for your interest in Sensorius. This repo is the hub/runtime for
-Sensorius Automatio Instrumentorum (Sensorius AI). It runs on Raspberry Pi
-with local sensors and GPIO, and can also run on macOS/Windows/Linux as a
-MQTT hub + web UI for Nodus devices.
+Thank you for your interest in improving Sensorius.
 
-## Ways to help
+Sensorius is the hub/runtime component of Sensorius Automatio Instrumentorum (Sensorius AI). It is a Python-based system that combines:
 
-- Improve docs, onboarding, or troubleshooting notes
-- Fix bugs or edge cases in MQTT ingest, UI, or automation logic
-- Add sensor drivers or switch backends
-- Expand tests in `testApparatus/`
+- FastAPI web application
+- MQTT ingest and device discovery
+- SQLite-based data logging
+- Direct sensor and relay support (Raspberry Pi)
+- Cross-platform runtime (Raspberry Pi, macOS, Windows, Linux)
 
-## Development setup
+This project is educational and approachable, but stability and architectural consistency are primary goals.
 
-Pick the environment you want to develop on.
+## Workflow
 
-### Raspberry Pi (full hardware support)
+1. Fork the repository.
+2. Create a feature branch from `trunk`.
+3. Make focused, well-documented changes.
+4. Submit a pull request against `trunk`.
 
-1. Run the setup script:
+Direct pushes to `trunk` are not accepted.
 
-```bash
-chmod +x setup.sh
-sudo ./setup.sh
-```
+Keep pull requests small and focused on a single logical change.
 
-2. Start the app:
+## Areas Where Contributions Are Welcome
 
-```bash
-python3 Sensorius.py
-```
+- Documentation improvements
+- UI clarity and usability enhancements
+- Bug fixes in MQTT ingest or onboarding flows
+- Additional directly-connected sensor drivers
+- Additional switch/relay backends
+- Test improvements under `testApparatus/`
+- Performance or stability improvements
 
-### macOS / Windows / Linux (hub + MQTT only)
+## Dependency Policy
 
-macOS:
+Sensorius intentionally avoids unnecessary dependencies.
 
-```bash
-chmod +x setup_mac.sh
-./setup_mac.sh
-```
+When contributing:
 
-Windows PowerShell (run elevated):
+- Prefer the Python standard library where practical.
+- Avoid introducing new third-party dependencies unless clearly justified.
+- Do not upgrade major dependencies (FastAPI, Pydantic, Uvicorn, etc.) without discussion.
+- If adding a dependency, explain why it is required.
 
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\setup_win.ps1
-```
+Dependency upgrades can impact stability across platforms and must be considered carefully.
 
-Linux (Debian/Ubuntu, non-Pi):
+## Architecture and Async Discipline
 
-```bash
-chmod +x setup_linux.sh
-./setup_linux.sh
-```
+Sensorius includes:
 
-## Repo layout (high-level)
+- FastAPI async routes
+- Background tasks
+- MQTT ingest loop
+- Database persistence
+- Sensor/switch abstraction layers
 
-- `Sensorius.py` entrypoint
-- `saiWebRoutes.py` FastAPI routes and UI endpoints
-- `saiMQTTIngest.py` MQTT discovery/ingest
-- `saiSensorFactory.py` sensor detection/creation
-- `saiSwitchFactory.py` switch/relay backend creation
-- `sensor_modules/` sensor drivers
-- `sensor_settings/`, `switch_settings/`, `system_settings/` runtime config
+When contributing:
 
-## Adding a new (directly connected) sensor
+- Avoid blocking operations inside async request handlers.
+- Avoid long-running synchronous DB operations in request paths.
+- Preserve existing background task structure.
+- Discuss major concurrency or architectural refactors before submitting a PR.
 
-1. Create a driver in `sensor_modules/` (see `sensor_template.py`).
-2. Register it in `saiSensorFactory.py`.
-3. Add or update default config under `sensor_settings/factory/`
-   or `sensor_settings/factory_nodus/` if needed.
-4. If it introduces new metrics, document them in `README.md`.
+Large structural rewrites should be proposed via an issue before implementation.
 
-## Adding a new (directly connected) switch backend
+## Database Changes
 
-1. Add or extend a backend in `saiSwitchFactory.py`.
-2. Ensure settings are read through `saiSwitchSettingsManager.py`.
-3. Add default config under `switch_settings/factory/`
-   or `switch_settings/factory_nodus/` if needed.
-4. Document MQTT topics and expected behavior in `README.md`.
+Sensorius stores runtime data in `sensorius_data.db`.
 
-## Configuration hygiene
+If modifying database schema or storage logic:
 
-Runtime settings for real devices are stored under:
+- Preserve backward compatibility where possible.
+- Provide migration logic if required.
+- Confirm historical data queries still function.
+- Document schema changes in `README.md` or docs.
+
+Unannounced schema changes can break deployed hubs.
+
+## Configuration Hygiene
+
+Runtime configuration is stored under:
 
 - `sensor_settings/`
 - `switch_settings/`
 - `system_settings/`
 
-Do not commit personal device settings or secrets. Use the `factory/` or
-`factory_nodus/` folders for defaults and sample configs.
+Do not commit:
 
-## Code style
+- Personal Wi-Fi credentials
+- MQTT credentials
+- Device-specific configuration files
+- Private IP addresses
 
-- Prefer clear, explicit names over clever abstractions.
-- Keep modules focused and avoid deep import chains.
+Use the `factory/` or `factory_nodus/` folders for defaults and sample configs.
+
+## Code Style
+
+- Prefer clear, explicit naming over clever abstractions.
+- Keep modules cohesive and readable.
+- Avoid deep or circular import chains.
 - Use `printDM()` from `saiUtils.py` for structured logging.
-- Add short docstrings for public classes and functions.
+- Add concise docstrings to public classes and functions.
+- Keep FastAPI route handlers thin and readable.
 
-## Testing
+Clarity and maintainability take precedence over stylistic cleverness.
 
-There is no single test runner yet. Useful scripts live in `testApparatus/`.
-When changing behavior, add a small script there or extend an existing one.
+## Testing Expectations
 
-Suggested checks (manual):
+There is currently no single automated test runner. Useful scripts live under `testApparatus/`.
 
-- Start the app and open the UI at `http://127.0.0.1:8000`
-- Verify MQTT ingest populates `sensorius_data.db`
-- Confirm discovery + onboarding for at least one sensor/switch
-- If you touched web routes, exercise the affected endpoints
+When submitting changes, describe:
 
-## Pull requests
+- Environment used (Raspberry Pi, macOS, Windows, Linux)
+- Python version
+- Broker type (mosquitto, HA broker, etc.)
+- Whether web UI loads successfully
+- Whether MQTT ingest functions correctly
+- Whether onboarding still works (if touched)
+- Whether database persistence remains stable (if touched)
 
-- Keep PRs small and focused
-- Include a short summary and testing notes
-- Update docs if behavior or configuration changes
+If adding automated tests, place them under `testApparatus/` or propose a pytest-based structure.
+
+## Pull Request Guidelines
+
+Pull requests should:
+
+- Be small and focused
+- Include a clear summary of what changed and why
+- Include testing notes
+- Update documentation if behavior changes
+- Avoid unrelated formatting-only churn
+
+PRs may be declined if they introduce architectural instability, unnecessary complexity, or undocumented behavior changes.
+
+## Project Maturity
+
+Sensorius is a pre-1.0 project under active development.
+
+APIs, configuration formats, and internal structure may evolve.
+
+Backward compatibility is considered but not guaranteed.
+
+Stability and clarity take precedence over rapid feature expansion.
