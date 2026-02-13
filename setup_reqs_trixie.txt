@@ -9,6 +9,9 @@ adafruit-circuitpython-typing>=1.12.1
 # Specific drivers (keep pins if your hardware is sensitive; otherwise allow minor bumps)
 adafruit-circuitpython-bme280>=2.6.28
 adafruit-circuitpython-bme680>=3.7.13
+adafruit-circuitpython-scd30>=2.2.15
+adafruit-circuitpython-scd4x>=1.13.5
+adafruit-circuitpython-veml7700>=1.5.14
 adafruit-circuitpython-pm25>=2.1.20
 adafruit-circuitpython-seesaw>=1.16.6
 adafruit-extended-bus==1.0.2

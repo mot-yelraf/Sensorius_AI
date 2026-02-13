@@ -26,7 +26,7 @@ SENSOR_MODULES = {
     "dummy": ("sensor_modules.sensor_template",  "SensorTemplate"),
     "test":  ("sensor_modules.sensor_template",  "SensorTemplate"),
     "aqi":   ("sensor_modules.sensor_aqi",    "AQISensor"),
-    "co2":   ("sensor_modules.sensor_co2",    "SCD30Sensor"),
+    "co2":   ("sensor_modules.sensor_co2",    "CO2Sensor"),
     "vpd":   ("sensor_modules.sensor_vpd",    "VPDSensor"),
     "avpd":  ("sensor_modules.sensor_vpd",    "VPDSensor"),
     "apvpd": ("sensor_modules.sensor_apvpd",  "VPDPlantSensor"),

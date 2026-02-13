@@ -49,7 +49,8 @@ function Ensure-Winget {
 function Install-WingetPackage {
     param(
         [Parameter(Mandatory = $true)][string]$PackageId,
-        [switch]$Silent
+        [switch]$Silent,
+        [switch]$ScopeMachine
     )
 
     $installArgs = @(
@@ -58,6 +59,9 @@ function Install-WingetPackage {
     )
     if ($Silent) {
         $installArgs += '--silent'
+    }
+    if ($ScopeMachine) {
+        $installArgs += @('--scope', 'machine')
     }
 
     & winget @installArgs
@@ -74,9 +78,59 @@ function Install-WingetPackage {
     return $true
 }
 
+function Get-MosquittoService {
+    $svc = Get-Service -Name 'mosquitto' -ErrorAction SilentlyContinue
+    if ($svc) {
+        return $svc
+    }
+
+    try {
+        $candidates = Get-CimInstance Win32_Service | Where-Object {
+            $_.Name -match 'mosquitto' -or $_.DisplayName -match 'mosquitto' -or $_.PathName -match 'mosquitto'
+        }
+        if ($candidates) {
+            return Get-Service -Name $candidates[0].Name -ErrorAction SilentlyContinue
+        }
+    } catch {}
+    return $null
+}
+
+function Resolve-MosquittoRoot {
+    param([Parameter(Mandatory = $false)]$ServiceObj)
+
+    if ($ServiceObj) {
+        try {
+            $wmi = Get-CimInstance Win32_Service -Filter "Name='$($ServiceObj.Name)'"
+            if ($wmi -and $wmi.PathName) {
+                $p = $wmi.PathName.Trim()
+                if ($p.StartsWith('"')) {
+                    $exe = ($p -split '"')[1]
+                } else {
+                    $exe = ($p -split '\s+')[0]
+                }
+                if ($exe -and (Test-Path $exe)) {
+                    return Split-Path -Parent $exe
+                }
+            }
+        } catch {}
+    }
+
+    $fallbacks = @(
+        (Join-Path $env:ProgramFiles 'mosquitto'),
+        (Join-Path ${env:ProgramFiles(x86)} 'mosquitto'),
+        (Join-Path $env:LocalAppData 'Programs\mosquitto')
+    )
+    foreach ($path in $fallbacks) {
+        if ($path -and (Test-Path $path)) {
+            return $path
+        }
+    }
+    return $null
+}
+
 function Install-Python {
     Write-Host "Ensuring Python $PY_MM is installed via winget package ($PY_WINGET_ID)..."
-    Install-WingetPackage -PackageId $PY_WINGET_ID -Silent
+    Install-WingetPackage -PackageId $PY_WINGET_ID -Silent -ScopeMachine
 
     if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
         Write-Host 'Python launcher (py.exe) not found after install. Open a new elevated PowerShell and re-run.'
@@ -145,28 +199,33 @@ function Ensure-WebView2Runtime {
 }
 
 function Install-Mosquitto {
-    $installed = Install-WingetPackage -PackageId 'Eclipse.Mosquitto'
+    Write-Host 'Ensuring Mosquitto is installed via winget (machine scope)...'
+    $installed = Install-WingetPackage -PackageId 'Eclipse.Mosquitto' -ScopeMachine
+    if (-not $installed) {
+        throw 'Mosquitto winget install/upgrade did not report success.'
+    }
 
-    $mosqRoot = Join-Path $env:ProgramFiles 'mosquitto'
+    $mosqService = Get-MosquittoService
+    $mosqRoot = Resolve-MosquittoRoot -ServiceObj $mosqService
+
+    if (-not $mosqRoot) {
+        throw 'Mosquitto appears installed, but install path could not be resolved.'
+    }
+
     $mosqConf = Join-Path $mosqRoot 'mosquitto.conf'
     $mosqConfDir = Join-Path $mosqRoot 'conf.d'
-    $mosqService = Get-Service -Name 'mosquitto' -ErrorAction SilentlyContinue
-
-    if (-not $installed -and -not (Test-Path $mosqRoot) -and -not $mosqService) {
-        Write-Host 'Mosquitto package/service not found; skipping broker service setup.'
-        Write-Host 'Install Mosquitto manually if you need a local MQTT broker.'
-        return
-    }
 
     if (-not (Test-Path $mosqConfDir)) {
         New-Item -ItemType Directory -Path $mosqConfDir | Out-Null
     }
 
-    if (Test-Path $mosqConf) {
-        $confText = Get-Content $mosqConf -Raw
-        if ($confText -notmatch '^include_dir .*conf\.d' -and $confText -notmatch '^include_dir .*conf.d') {
-            Add-Content $mosqConf "`ninclude_dir $mosqConfDir"
-        }
+    if (-not (Test-Path $mosqConf)) {
+        throw "Mosquitto config file not found at $mosqConf"
+    }
+
+    $confText = Get-Content $mosqConf -Raw
+    if ($confText -notmatch '^include_dir .*conf\.d' -and $confText -notmatch '^include_dir .*conf.d') {
+        Add-Content $mosqConf "`ninclude_dir $mosqConfDir"
     }
 
     @"
@@ -174,13 +233,23 @@ listener 1883
 allow_anonymous true
 "@ | Set-Content (Join-Path $mosqConfDir 'anon.conf')
 
+    $mosqService = Get-MosquittoService
     if (-not $mosqService) {
-        Write-Host "Mosquitto service 'mosquitto' was not found; skipping service start."
-        return
+        throw "Mosquitto service was not found after installation. Root path: $mosqRoot"
     }
 
-    Stop-Service mosquitto -ErrorAction SilentlyContinue
-    Start-Service mosquitto
+    try {
+        Set-Service -Name $mosqService.Name -StartupType Automatic -ErrorAction SilentlyContinue
+    } catch {}
+
+    Stop-Service -Name $mosqService.Name -ErrorAction SilentlyContinue
+    Start-Service -Name $mosqService.Name -ErrorAction Stop
+    $mosqService = Get-Service -Name $mosqService.Name
+    if ($mosqService.Status -ne 'Running') {
+        throw "Mosquitto service '$($mosqService.Name)' failed to start."
+    }
+
+    Write-Host "Mosquitto installed and running as service '$($mosqService.Name)'."
 }
 
 function Configure-BootStartup {

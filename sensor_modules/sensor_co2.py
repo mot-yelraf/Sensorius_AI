@@ -6,7 +6,7 @@ MODULE = "CO2Sensor"
 DEBUG = debug_enabled("saiSensorFactory")
 
 
-class SCD30Sensor(BaseSensor):
+class CO2Sensor(BaseSensor):
     def __init__(self, settings, supervisor, i2c_0=None):
         super().__init__(settings, supervisor)
         import board  # noqa: F401  (kept for future pin overrides)
@@ -338,3 +338,7 @@ class SCD30Sensor(BaseSensor):
     def supports_calibration(self):
         # Now that CO2 + T/RH offsets are wired, this can be true
         return True
+
+
+# Backward compatibility for older factory mappings/imports.
+SCD30Sensor = CO2Sensor

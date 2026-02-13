@@ -78,21 +78,46 @@ Sensorius supports:
 
 ---
 
-## 5. setup.sh Instructions (Raspberry Pi)
+## 5. Raspberry Pi Setup (Direct Sensor + Hub)
 
-Run `setup.sh` to prepare the Pi environment:
+### Raspberry Pi OS Bookworm
+
+Use one of these scripts:
 
 ```bash
 chmod +x setup.sh
 sudo ./setup.sh
 ```
 
-This script:
+Or with `uv`:
+
+```bash
+chmod +x setup_uv.sh
+sudo ./setup_uv.sh
+```
+
+Bookworm scripts:
 
 * Installs system and Python dependencies
 * Enables I2C and sets regional Wi-Fi settings
 * Installs and enables a systemd service (`sensorius.service`)
 * Configures the hostname and timezone
+
+### Raspberry Pi OS Trixie
+
+Use one of these scripts:
+
+```bash
+chmod +x setup_trixie.sh
+sudo ./setup_trixie.sh
+```
+
+Or with `uv`:
+
+```bash
+chmod +x setup_trixie_uv.sh
+sudo ./setup_trixie_uv.sh
+```
 
 ---
 
