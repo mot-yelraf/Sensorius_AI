@@ -412,7 +412,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     ordered = [k for k in gauge_config.keys() if k in vals]
                     extras = [k for k in vals.keys() if k not in gauge_config]
                     metrics = ordered + extras
-            expected_gauge_map[sid] = metrics
+            # Keep dashboard payloads bounded and stable when discovery metadata is absent.
+            deduped: list[str] = []
+            seen = set()
+            for metric in (metrics or []):
+                m = str(metric).strip()
+                if not m or m in seen:
+                    continue
+                seen.add(m)
+                deduped.append(m)
+                if len(deduped) >= 6:
+                    break
+            expected_gauge_map[sid] = deduped
 
         # Use the location map we already built
         sensor_locations = { sid: sensor_locations_map.get(sid, "Unknown") for sid in all_values }
@@ -1151,7 +1162,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     # /itaot helpers
     CONTENT_ENCODING = "base64+zlib"
-    ITAOT_VERSION = "0.2"
 
     def _compress_b64_bytes(raw: bytes) -> str:
         """zlib-compress + base64-encode -> str."""
@@ -1374,7 +1384,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         Multi-sensor response (preferred):
         {
-          "version": "0.3",
           "origin": "pi",
           "hostname": "<pi-hostname>",
           "content_encoding": "base64+zlib",
@@ -1557,7 +1566,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             # Build multi-sensor payload
             multi_payload = {
-                "version": ITAOT_VERSION,
                 "app_version": SAI_APP_VERSION,
                 "origin": "pi",
                 "hostname": hostname,

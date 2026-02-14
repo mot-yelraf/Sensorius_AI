@@ -26,6 +26,9 @@ deploy_project_files() {
       --exclude '*.pyo' \
       --exclude 'sensor_data.db' \
       --exclude '*.log' \
+      --exclude '*.md' \
+      --exclude 'docs/' \
+      --exclude 'testApparatus/' \
       --exclude 'deploy_scripts/' \
       "${SOURCE_REPO_DIR}/" "${PROJECT_DIR}/"
   else
@@ -34,6 +37,8 @@ deploy_project_files() {
     cp -a "${SOURCE_REPO_DIR}/." "${PROJECT_DIR}/"
     rm -rf "${PROJECT_DIR}/.git" "${PROJECT_DIR}/deploy_scripts"
     rm -f "${PROJECT_DIR}/.env"
+    rm -rf "${PROJECT_DIR}/docs" "${PROJECT_DIR}/testApparatus"
+    find "${PROJECT_DIR}" -type f -name '*.md' -delete
   fi
 
   echo "Application files deployed to ${PROJECT_DIR}"

@@ -137,9 +137,13 @@ configure_boot_start() {
     return
   fi
 
-  local username
-  username="$(whoami)"
+  local username user_group
+  username="${SUDO_USER:-$(whoami)}"
+  user_group="$(id -gn "${username}" 2>/dev/null || printf '%s' "${username}")"
   local pyexec="${VENV_PATH}/bin/python"
+
+  echo "Ensuring project ownership for ${username}:${user_group}..."
+  sudo chown -R "${username}:${user_group}" "${PROJECT_DIR}"
 
   echo "Creating systemd service file..."
   sudo bash -c "cat > /etc/systemd/system/sensorius.service <<EOF
@@ -152,7 +156,7 @@ After=network.target
 ExecStart=${pyexec} ${PROJECT_DIR}/Sensorius.py
 WorkingDirectory=${PROJECT_DIR}
 User=${username}
-Group=${username}
+Group=${user_group}
 Restart=always
 RestartSec=3
 Environment=WEBKIT_DISABLE_COMPOSITING_MODE=1

@@ -9,7 +9,7 @@ Usage:
 Options:
   --apply            Perform deploy (default is dry-run)
   --dry-run          Force dry-run mode
-  --hosts FILE       Inventory file (default: deploy_scripts/sai_hosts.txt)
+  --hosts FILE       Inventory file (default: deploy_scripts/sai_hosts.txt, fallback: deploy_scripts/sai_hosts.def)
   --source DIR       Source directory to sync (default: repo root)
   --rsync-bin PATH   rsync binary path (default: /opt/homebrew/bin/rsync, fallback: rsync)
   -h, --help         Show this help text
@@ -28,6 +28,9 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 DRY_RUN=1
 HOSTS_FILE="${REPO_ROOT}/deploy_scripts/sai_hosts.txt"
+if [[ ! -f "${HOSTS_FILE}" ]]; then
+  HOSTS_FILE="${REPO_ROOT}/deploy_scripts/sai_hosts.def"
+fi
 SOURCE_DIR="${REPO_ROOT}"
 
 if [[ -x "/opt/homebrew/bin/rsync" ]]; then
@@ -77,6 +80,7 @@ done
 EXCLUDES=(
   ".git/"
   ".venv/"
+  ".env"
   "__pycache__/"
   "*.pyc"
   "*.pyo"
@@ -84,7 +88,15 @@ EXCLUDES=(
   ".mypy_cache/"
   ".ruff_cache/"
   ".DS_Store"
+  "deploy_scripts/"
+  "docs/"
+  "testApparatus/"
+  "*.md"
   "sensor_data.db"
+  "sensorius_data.db*"
+  "system_settings/"
+  "sensor_settings/"
+  "switch_settings/"
   "*.log"
 )
 

@@ -1,0 +1,10 @@
+# host_alias|target_path|post_deploy_command
+# - host_alias: SSH host from ~/.ssh/config (or raw hostname)
+# - target_path: remote project directory
+# - post_deploy_command: optional command run via ssh after a non-dry deploy
+#
+# Examples:
+# pi-lab-a|/home/sensorius/Sensorius|sudo systemctl restart sensorius
+# greenhouse-b|/opt/sensorius|sudo systemctl restart sensorius
+# localhost|/Users/your-user/Sensorius|sudo launchctl kickstart -k system/com.sensorius.sensorius
+

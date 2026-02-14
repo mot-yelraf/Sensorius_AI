@@ -34,10 +34,8 @@ run_with_heartbeat() {
   ) &
   local hb_pid=$!
 
-  set +e
-  "$@"
-  local rc=$?
-  set -e
+  local rc=0
+  "$@" || rc=$?
 
   if [[ -n "${hb_pid}" ]]; then
     kill "${hb_pid}" >/dev/null 2>&1 || true
@@ -46,7 +44,7 @@ run_with_heartbeat() {
 
   if [[ ${rc} -ne 0 ]]; then
     echo "ERROR: step failed: ${label} (exit ${rc})"
-    exit "${rc}"
+    return "${rc}"
   fi
 
   echo "==> Done: ${label}"
@@ -180,29 +178,30 @@ install_requirements() {
   uv venv "${VENV_PATH}" --python "${PY_VERSION}"
   CREATED_VENV=1
   local venv_python="${VENV_PATH}/bin/python"
+  local req_to_install="${REQ_FILE}"
 
   if [[ "${INSTALL_PYWEBVIEW}" == "0" ]]; then
     echo "INSTALL_PYWEBVIEW=0 set — installing without pywebview."
     tmp_reqs="$(mktemp)"
     grep -v '^pywebview==' "${REQ_FILE}" > "${tmp_reqs}"
-    if [[ "${PIP_ONLY_BINARY}" == "1" ]]; then
-      echo "PIP_ONLY_BINARY=1 set — requiring wheel/binary packages only."
-      run_with_heartbeat "uv pip install requirements (without pywebview, binary-only)" \
-        uv pip install --only-binary=:all: -r "${tmp_reqs}" --python "${venv_python}"
-    else
-      run_with_heartbeat "uv pip install requirements (without pywebview)" \
-        uv pip install -r "${tmp_reqs}" --python "${venv_python}"
+    req_to_install="${tmp_reqs}"
+  fi
+
+  if [[ "${PIP_ONLY_BINARY}" == "1" ]]; then
+    echo "PIP_ONLY_BINARY=1 set — requiring wheel/binary packages only."
+    if ! run_with_heartbeat "uv pip install requirements (binary-only)" \
+      uv pip install --only-binary=:all: -r "${req_to_install}" --python "${venv_python}"; then
+      echo "Binary-only install failed; retrying with source builds enabled."
+      run_with_heartbeat "uv pip install requirements (fallback)" \
+        uv pip install -r "${req_to_install}" --python "${venv_python}"
     fi
-    rm -f "${tmp_reqs}"
   else
-    if [[ "${PIP_ONLY_BINARY}" == "1" ]]; then
-      echo "PIP_ONLY_BINARY=1 set — requiring wheel/binary packages only."
-      run_with_heartbeat "uv pip install requirements (binary-only)" \
-        uv pip install --only-binary=:all: -r "${REQ_FILE}" --python "${venv_python}"
-    else
-      run_with_heartbeat "uv pip install requirements" \
-        uv pip install -r "${REQ_FILE}" --python "${venv_python}"
-    fi
+    run_with_heartbeat "uv pip install requirements" \
+      uv pip install -r "${req_to_install}" --python "${venv_python}"
+  fi
+
+  if [[ -n "${tmp_reqs:-}" ]]; then
+    rm -f "${tmp_reqs}"
   fi
 }
 
@@ -214,16 +213,29 @@ verify_runtime_imports() {
 install_mosquitto() {
   run_with_heartbeat "Homebrew install mosquitto" brew install mosquitto
 
-  MOSQ_ETC="$(brew --prefix)/etc/mosquitto"
+  local brew_prefix
+  brew_prefix="$(brew --prefix)"
+  MOSQ_ETC="${brew_prefix}/etc/mosquitto"
   MOSQ_CONF="${MOSQ_ETC}/mosquitto.conf"
   MOSQ_CONF_D="${MOSQ_ETC}/conf.d"
+  local mosq_var_run="${brew_prefix}/var/run/mosquitto"
+  local mosq_var_lib="${brew_prefix}/var/lib/mosquitto"
+  local mosq_var_log="${brew_prefix}/var/log"
 
+  mkdir -p "${mosq_var_run}" "${mosq_var_lib}" "${mosq_var_log}"
+  touch "${mosq_var_log}/mosquitto.log"
   mkdir -p "${MOSQ_CONF_D}"
 
-  if [[ -f "${MOSQ_CONF}" ]]; then
-    if ! grep -q "^include_dir .*conf.d" "${MOSQ_CONF}"; then
-      echo "include_dir ${MOSQ_CONF_D}" >> "${MOSQ_CONF}"
-    fi
+  if [[ ! -f "${MOSQ_CONF}" ]]; then
+    cat > "${MOSQ_CONF}" <<EOF
+pid_file ${mosq_var_run}/mosquitto.pid
+persistence true
+persistence_location ${mosq_var_lib}/
+log_dest file ${mosq_var_log}/mosquitto.log
+include_dir ${MOSQ_CONF_D}
+EOF
+  elif ! grep -q "^include_dir .*conf.d" "${MOSQ_CONF}"; then
+    echo "include_dir ${MOSQ_CONF_D}" >> "${MOSQ_CONF}"
   fi
 
   cat > "${MOSQ_CONF_D}/anon.conf" <<'EOF'
@@ -240,8 +252,11 @@ configure_boot_start() {
     return
   fi
 
+  local service_user service_group
+  service_user="$(id -un)"
+  service_group="$(id -gn)"
   local plist_path="/Library/LaunchDaemons/com.sensorius.sensorius.plist"
-  echo "Installing launchd plist at ${plist_path}..."
+  echo "Installing launchd plist at ${plist_path} (UserName=${service_user})..."
 
   sudo tee "${plist_path}" >/dev/null <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -250,6 +265,10 @@ configure_boot_start() {
 <dict>
   <key>Label</key>
   <string>com.sensorius.sensorius</string>
+  <key>UserName</key>
+  <string>${service_user}</string>
+  <key>GroupName</key>
+  <string>${service_group}</string>
   <key>ProgramArguments</key>
   <array>
     <string>${VENV_PATH}/bin/python</string>
@@ -269,6 +288,8 @@ configure_boot_start() {
 </plist>
 EOF
 
+  # Ensure runtime files remain writable by the non-root service user.
+  sudo chown -R "${service_user}:${service_group}" "${PROJECT_DIR}"
   sudo chown root:wheel "${plist_path}"
   sudo chmod 644 "${plist_path}"
   sudo launchctl bootout system/com.sensorius.sensorius >/dev/null 2>&1 || true

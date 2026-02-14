@@ -212,16 +212,29 @@ verify_runtime_imports() {
 install_mosquitto() {
   run_with_heartbeat "Homebrew install mosquitto" brew install mosquitto
 
-  MOSQ_ETC="$(brew --prefix)/etc/mosquitto"
+  local brew_prefix
+  brew_prefix="$(brew --prefix)"
+  MOSQ_ETC="${brew_prefix}/etc/mosquitto"
   MOSQ_CONF="${MOSQ_ETC}/mosquitto.conf"
   MOSQ_CONF_D="${MOSQ_ETC}/conf.d"
+  local mosq_var_run="${brew_prefix}/var/run/mosquitto"
+  local mosq_var_lib="${brew_prefix}/var/lib/mosquitto"
+  local mosq_var_log="${brew_prefix}/var/log"
 
+  mkdir -p "${mosq_var_run}" "${mosq_var_lib}" "${mosq_var_log}"
+  touch "${mosq_var_log}/mosquitto.log"
   mkdir -p "${MOSQ_CONF_D}"
 
-  if [[ -f "${MOSQ_CONF}" ]]; then
-    if ! grep -q "^include_dir .*conf.d" "${MOSQ_CONF}"; then
-      echo "include_dir ${MOSQ_CONF_D}" >> "${MOSQ_CONF}"
-    fi
+  if [[ ! -f "${MOSQ_CONF}" ]]; then
+    cat > "${MOSQ_CONF}" <<EOF
+pid_file ${mosq_var_run}/mosquitto.pid
+persistence true
+persistence_location ${mosq_var_lib}/
+log_dest file ${mosq_var_log}/mosquitto.log
+include_dir ${MOSQ_CONF_D}
+EOF
+  elif ! grep -q "^include_dir .*conf.d" "${MOSQ_CONF}"; then
+    echo "include_dir ${MOSQ_CONF_D}" >> "${MOSQ_CONF}"
   fi
 
   cat > "${MOSQ_CONF_D}/anon.conf" <<'EOF'
@@ -238,8 +251,11 @@ configure_boot_start() {
     return
   fi
 
+  local service_user service_group
+  service_user="$(id -un)"
+  service_group="$(id -gn)"
   local plist_path="/Library/LaunchDaemons/com.sensorius.sensorius.plist"
-  echo "Installing launchd plist at ${plist_path}..."
+  echo "Installing launchd plist at ${plist_path} (UserName=${service_user})..."
 
   sudo tee "${plist_path}" >/dev/null <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -248,6 +264,10 @@ configure_boot_start() {
 <dict>
   <key>Label</key>
   <string>com.sensorius.sensorius</string>
+  <key>UserName</key>
+  <string>${service_user}</string>
+  <key>GroupName</key>
+  <string>${service_group}</string>
   <key>ProgramArguments</key>
   <array>
     <string>${VENV_PATH}/bin/python</string>
@@ -267,6 +287,8 @@ configure_boot_start() {
 </plist>
 EOF
 
+  # Ensure runtime files remain writable by the non-root service user.
+  sudo chown -R "${service_user}:${service_group}" "${PROJECT_DIR}"
   sudo chown root:wheel "${plist_path}"
   sudo chmod 644 "${plist_path}"
   sudo launchctl bootout system/com.sensorius.sensorius >/dev/null 2>&1 || true

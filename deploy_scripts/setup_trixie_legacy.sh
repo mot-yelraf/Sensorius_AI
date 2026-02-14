@@ -74,7 +74,8 @@ python -V
 echo "Virtual environment activated."
 
 # -------- user / groups (unchanged) --------
-username=$(whoami)
+username="${SUDO_USER:-$(whoami)}"
+user_group="$(id -gn "${username}" 2>/dev/null || printf '%s' "${username}")"
 sudo usermod -aG i2c,gpio,dialout "${username}"
 echo "Added ${username} to groups: i2c,gpio,dialout (log out/in to take effect)"
 
@@ -141,6 +142,9 @@ if [[ "$setup_service" =~ ^[Yy]$ ]]; then
   workdir="${PROJECT_DIR}"
   pyexec="${VENV_PATH}/bin/python"
 
+  echo "Ensuring project ownership for ${username}:${user_group}..."
+  sudo chown -R "${username}:${user_group}" "${workdir}"
+
   echo "Creating systemd service file..."
   sudo bash -c "cat > /etc/systemd/system/sensorius.service <<EOF
 [Unit]
@@ -152,7 +156,7 @@ After=network.target
 ExecStart=${pyexec} ${workdir}/Sensorius.py
 WorkingDirectory=${workdir}
 User=${username}
-Group=${username}
+Group=${user_group}
 Restart=always
 RestartSec=3
 Environment=WEBKIT_DISABLE_COMPOSITING_MODE=1

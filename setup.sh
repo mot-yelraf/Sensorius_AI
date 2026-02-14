@@ -11,7 +11,8 @@ choose_manager() {
   fi
 
   read -r -p "Use Python manager 'uv' or 'pip'? [uv/pip] (default: uv): " ans
-  ans="${ans,,}"
+  # macOS ships Bash 3.2, which does not support ${var,,} lowercase expansion.
+  ans="$(printf '%s' "${ans}" | tr '[:upper:]' '[:lower:]')"
   if [[ -z "${ans}" ]]; then
     ans="uv"
   fi

@@ -12,3 +12,4 @@ __pycache__/
 *.pyc
 *.log
 .env
+sai_hosts.txt

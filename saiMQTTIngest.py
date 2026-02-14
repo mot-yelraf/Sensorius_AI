@@ -524,12 +524,14 @@ class saiMQTTIngest:
                             elif status == "offline":
                                 self._mark_host_status(base, "offline")
                     return
-            if (is_nodus_root or is_nodus_prefixed) and isinstance(data, dict) and isinstance(data.get("values"), dict):
+            if (is_nodus_root or is_nodus_prefixed):
                 # Accept nodus/<id>/data or <base>/nodus/<id>/data (also /state or legacy no-suffix)
                 if len(parts) > id_index + 1 and parts[id_index + 1] not in ("data", "state"):
                     return
                 sensor_id = parts[id_index]
-                values = data["values"]
+                values = self._parse_nodus_values_payload(payload_text, data)
+                if not isinstance(values, dict) or not values:
+                    return
 
                 # Always use local "now" for stored timestamps; ignore device payload ts.
                 self.data_logger.log_readings(None, sensor_id, values)
@@ -781,6 +783,45 @@ class saiMQTTIngest:
         if s in {"offline", "down", "dead", "0", "false"}:
             return "offline"
         return None
+
+    def _parse_nodus_values_payload(self, payload_text: str, data: dict | None) -> dict | None:
+        """
+        Extract metric values from Nodus data payloads.
+
+        Preferred payload shape:
+          {"values": {"Temperature": 21.0, ...}}
+
+        Back-compat text shape (best effort):
+          "Temperature=21.0, Rel-Humidity=39.1, ..."
+        """
+        if isinstance(data, dict) and isinstance(data.get("values"), dict):
+            return data["values"]
+
+        raw = str(payload_text or "").strip()
+        if not raw:
+            return None
+        if raw.startswith("{") and raw.endswith("}"):
+            return None
+
+        out: dict[str, float | str] = {}
+        for part in raw.split(","):
+            chunk = part.strip()
+            if not chunk or "=" not in chunk:
+                continue
+            key, value = chunk.split("=", 1)
+            key = key.strip()
+            val = value.strip()
+            if not key or not val:
+                continue
+            if key.lower().startswith("values[") and "=" in val:
+                key, val = val.split("=", 1)
+                key = key.strip()
+                val = val.strip()
+            try:
+                out[key] = float(val)
+            except Exception:
+                out[key] = val
+        return out or None
 
     def _get_nodus_availability(self, host_like: str | None) -> str | None:
         base = self._normalize_host_key(host_like)
@@ -2697,13 +2738,26 @@ class saiMQTTIngest:
                     except Exception:
                         return False
 
-                # Primary target is always the provided hostname (no IP preference)
+                # Prefer mDNS hostname first for bare Nodus ids like "apvpd-xxxxxx".
+                # On many LANs the bare hostname is not resolvable, but "<host>.local" is.
                 try:
-                    primary_host = hostname or base
+                    requested_host = (hostname or base or "").strip()
                 except Exception:
-                    primary_host = hostname
+                    requested_host = str(hostname or "").strip()
+                if not requested_host:
+                    requested_host = base
 
-                # mDNS host (used for resolution only, not as a URL target)
+                if _is_ip(requested_host):
+                    primary_host = requested_host
+                    secondary_host = ""
+                elif requested_host.endswith(".local"):
+                    primary_host = requested_host
+                    secondary_host = requested_host[:-6].strip()
+                else:
+                    primary_host = f"{requested_host}.local"
+                    secondary_host = requested_host
+
+                # mDNS host (used for resolution and as secondary URL candidate)
                 mdns_host = primary_host if str(primary_host).endswith(".local") else f"{primary_host}.local"
 
                 async def _fetch_itaot(target_host: str, retries: int) -> tuple[bool, str]:
@@ -2781,14 +2835,18 @@ class saiMQTTIngest:
                     return False, last_err
 
                 try:
-                    # 1) Hostname first (2-3 attempts)
+                    # 1) Preferred hostname first (mDNS for bare ids)
                     ok, _err = await _fetch_itaot(primary_host, retries=3)
                     if ok:
                         return True
 
-                    # 1b) Explicit .local hostname fallback before any IP checks.
-                    if mdns_host and mdns_host != primary_host:
-                        ok_local, _err_local = await _fetch_itaot(mdns_host, retries=2)
+                    # 1b) Secondary hostname fallback before any IP checks.
+                    # For primary ".local", secondary is bare host. For primary bare host, secondary may be ".local".
+                    for host_alt in (secondary_host, mdns_host):
+                        host_alt = (host_alt or "").strip()
+                        if not host_alt or host_alt == primary_host:
+                            continue
+                        ok_local, _err_local = await _fetch_itaot(host_alt, retries=2)
                         if ok_local:
                             return True
 

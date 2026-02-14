@@ -59,7 +59,9 @@ def get_gauge_config():
 def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, display_style=None):
 
     import json
+    import os
     import re
+    import sys
     from types import SimpleNamespace
     from collections import defaultdict
     from saiUtils import get_timestamp
@@ -76,6 +78,17 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     ) if isinstance(switch_controllers, dict) else (
         switch_controllers.is_present if switch_controllers else False
     )
+
+    # Date "no data" warning is useful on Pi hardware, but noisy on non-Pi hosts
+    # where local sensor loops are intentionally absent.
+    pi_model_path = "/proc/device-tree/model"
+    is_pi_platform = False
+    try:
+        if sys.platform.startswith("linux") and os.path.exists(pi_model_path):
+            model = open(pi_model_path, "r", encoding="utf-8", errors="ignore").read().lower()
+            is_pi_platform = "raspberry pi" in model
+    except Exception:
+        is_pi_platform = False
     
     def _safe(s: str) -> str:
         return re.sub(r"[^A-Za-z0-9_-]", "_", s)
@@ -838,6 +851,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield f"const currentValues = {json.dumps(all_values)};"
     yield f"const sensorStats = {json.dumps(all_stats)};"
     yield f"const expectedGaugeMap = {json.dumps(expected_gauge_map)};"
+    yield f"const isPiPlatform = {str(is_pi_platform).lower()};"
     yield "const lastTimestamps = {};"
     yield f"const displayStyle = {json.dumps(display_style_js)};"
     yield "window.displayStyle = displayStyle;"
@@ -1272,11 +1286,13 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ""
     yield "  const ts = document.getElementById('update_time');"
     yield "  if (ts) {"
-    yield "    const flashClass = dataChanged ? 'flash-green' : 'flash-red';"
     yield "    ts.classList.remove('flash-green', 'flash-red');"
-    yield "    void ts.offsetWidth;"
-    yield "    ts.classList.add(flashClass);"
-    yield "    setTimeout(() => ts.classList.remove(flashClass), 1000);"
+    yield "    const flashClass = dataChanged ? 'flash-green' : (isPiPlatform ? 'flash-red' : '');"
+    yield "    if (flashClass) {"
+    yield "      void ts.offsetWidth;"
+    yield "      ts.classList.add(flashClass);"
+    yield "      setTimeout(() => ts.classList.remove(flashClass), 1000);"
+    yield "    }"
     yield "  }"
     yield "  if (dataChanged && typeof window.refreshAllMicrographs === 'function') {"
     yield "    window.refreshAllMicrographs(true);"

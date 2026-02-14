@@ -14,6 +14,7 @@ MODULE = "saiTaskSupervisor"
 DEBUG = debug_enabled(MODULE)
 CRASH_RESTART_DELAY_SEC = 5.0
 RETURN_RESTART_DELAY_SEC = 1.0
+FEED_LOG_MIN_INTERVAL_SEC = 10.0
 
 class TaskSupervisor:
     def __init__(self):
@@ -29,6 +30,7 @@ class TaskSupervisor:
         self.pause_event.set()
         self.time_to_feedthedogs = {}
         self.failed_tasks = {}
+        self._last_feed_log = {}
 
     def add(self, coro_func, *args, name="Unnamed", **kwargs):
         if self._started:
@@ -111,10 +113,14 @@ class TaskSupervisor:
             else:
                 self.failed_tasks.pop(task_name, None)
             if DEBUG:
-                msg = f"feedthedogs received for {task_name}"
-                if error:
-                    msg += " (ERROR)"
-                printDM(f"[TaskSupervisor] {msg}", location="TaskSupervisor")
+                # Heartbeats are frequent; throttle debug noise per task.
+                last = self._last_feed_log.get(task_name, 0.0)
+                if error or (now - last) >= FEED_LOG_MIN_INTERVAL_SEC:
+                    self._last_feed_log[task_name] = now
+                    msg = f"feedthedogs received for {task_name}"
+                    if error:
+                        msg += " (ERROR)"
+                    printDM(f"[TaskSupervisor] {msg}", location="TaskSupervisor")
         elif DEBUG:
             printDM(f"Failed to feed the dogs — {task_name} not found", location=f"{__name__}.feedthedogs")
 

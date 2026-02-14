@@ -167,8 +167,13 @@ configure_boot_start() {
   fi
 
   local service_path="/etc/systemd/system/sensorius.service"
-  local run_user
-  run_user="$(whoami)"
+  local run_user run_group
+  run_user="${SUDO_USER:-$(whoami)}"
+  run_group="$(id -gn "${run_user}" 2>/dev/null || printf '%s' "${run_user}")"
+
+  # Ensure runtime files are writable by the non-root service account.
+  run_with_heartbeat "Set project ownership for ${run_user}" \
+    sudo chown -R "${run_user}:${run_group}" "${PROJECT_DIR}"
 
   echo "Installing systemd service at ${service_path}..."
   sudo tee "${service_path}" >/dev/null <<EOF
@@ -182,7 +187,7 @@ Type=simple
 WorkingDirectory=${PROJECT_DIR}
 ExecStart=${VENV_PATH}/bin/python ${PROJECT_DIR}/Sensorius.py
 User=${run_user}
-Group=${run_user}
+Group=${run_group}
 Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1

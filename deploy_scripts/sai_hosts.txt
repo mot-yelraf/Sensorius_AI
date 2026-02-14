@@ -6,4 +6,5 @@
 # Example:
 # sensoria-hub-0|/home/twfarley/saiSensorius|sudo systemctl restart sensorius
 
-sensoria-hub-0|/home/twfarley/saiSensorius|sudo systemctl restart sensorius
+localhost|/Users/twfarley/Sensorius|
+

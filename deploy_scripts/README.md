@@ -40,7 +40,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ## Deploy Sync Script
 
 - Script: `deploy_scripts/deploy_sai.sh`
-- Inventory: `deploy_scripts/sai_hosts.txt`
+- Inventory: `deploy_scripts/sai_hosts.txt` (local, untracked) or fallback `deploy_scripts/sai_hosts.def` (tracked template)
 
 Inventory format:
 

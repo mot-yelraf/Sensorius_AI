@@ -87,9 +87,13 @@ fi
 echo ""
 read -p "Would you like to install and enable sensorius.service? [y/N]: " setup_service
 if [[ "$setup_service" =~ ^[Yy]$ ]]; then
-  username=$(whoami)
+  username="${SUDO_USER:-$(whoami)}"
+  user_group="$(id -gn "${username}" 2>/dev/null || printf '%s' "${username}")"
   workdir="/home/$username/saiSensorius"
   pyexec="/home/$username/py311/bin/python"
+
+  echo "Ensuring project ownership for ${username}:${user_group}..."
+  sudo chown -R "${username}:${user_group}" "${workdir}"
 
   echo "Creating systemd service file..."
   sudo bash -c "cat > /etc/systemd/system/sensorius.service <<EOF
@@ -102,7 +106,7 @@ After=network.target
 ExecStart=$pyexec $workdir/Sensorius.py
 WorkingDirectory=$workdir
 User=$username
-Group=$username
+Group=$user_group
 Restart=always
 RestartSec=3
 Environment=WEBKIT_DISABLE_COMPOSITING_MODE=1
