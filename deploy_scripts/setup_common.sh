@@ -16,6 +16,7 @@ deploy_project_files() {
   if command -v rsync >/dev/null 2>&1; then
     rsync -a --delete \
       --exclude '.git/' \
+      --exclude '.env' \
       --exclude '.venv/' \
       --exclude '__pycache__/' \
       --exclude '.pytest_cache/' \
@@ -32,6 +33,7 @@ deploy_project_files() {
     rm -rf "${PROJECT_DIR:?}"/*
     cp -a "${SOURCE_REPO_DIR}/." "${PROJECT_DIR}/"
     rm -rf "${PROJECT_DIR}/.git" "${PROJECT_DIR}/deploy_scripts"
+    rm -f "${PROJECT_DIR}/.env"
   fi
 
   echo "Application files deployed to ${PROJECT_DIR}"

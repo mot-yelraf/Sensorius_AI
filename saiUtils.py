@@ -15,6 +15,7 @@ import logging
 import asyncio
 import inspect
 import subprocess
+import secrets
 from pathlib import Path
 from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
@@ -59,6 +60,113 @@ def _load_startup_dotenv() -> None:
 
 
 _load_startup_dotenv()
+
+
+def _strip_env_value(raw: str) -> str:
+    value = (raw or "").strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1]
+    return value.strip()
+
+
+def _generate_api_key() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def _ensure_startup_api_keys() -> None:
+    """
+    Ensure web/peer API keys exist in process env and project .env.
+
+    If either key is missing/blank at startup, generate it once and persist it.
+    """
+    keys = ("SAI_WEB_API_KEY", "SAI_PEER_API_KEY")
+    base_dir = Path(__file__).resolve().parent
+    dotenv_path = base_dir / ".env"
+    dotenv_example_path = base_dir / ".env.def"
+    running_from_repo = (base_dir / ".git").exists()
+    allow_repo_write = str(os.environ.get("SENSORIUS_ALLOW_REPO_ENV_WRITE", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+    file_lines: list[str] = []
+    key_line_index: dict[str, int] = {}
+    key_file_value: dict[str, str] = {}
+
+    if dotenv_path.exists():
+        try:
+            file_lines = dotenv_path.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            file_lines = []
+    elif dotenv_example_path.exists():
+        try:
+            file_lines = dotenv_example_path.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            file_lines = []
+        for idx, line in enumerate(file_lines):
+            if "=" not in line:
+                continue
+            left, right = line.split("=", 1)
+            key = left.strip()
+            if key in keys and key not in key_line_index:
+                key_line_index[key] = idx
+                key_file_value[key] = _strip_env_value(right)
+    if not key_line_index and file_lines:
+        for idx, line in enumerate(file_lines):
+            if "=" not in line:
+                continue
+            left, right = line.split("=", 1)
+            key = left.strip()
+            if key in keys and key not in key_line_index:
+                key_line_index[key] = idx
+                key_file_value[key] = _strip_env_value(right)
+
+    write_back: dict[str, str] = {}
+    for key in keys:
+        env_val = (os.environ.get(key) or "").strip()
+        file_val = key_file_value.get(key, "")
+
+        if env_val:
+            if not file_val:
+                write_back[key] = env_val
+            continue
+
+        if file_val:
+            os.environ[key] = file_val
+            continue
+
+        new_value = _generate_api_key()
+        os.environ[key] = new_value
+        write_back[key] = new_value
+
+    if not write_back:
+        return
+
+    if running_from_repo and not allow_repo_write:
+        # Keep source repository .env clean by default.
+        return
+
+    if not file_lines:
+        file_lines = ["# Auto-generated API keys"]
+
+    for key, value in write_back.items():
+        new_line = f"{key}={value}"
+        idx = key_line_index.get(key)
+        if idx is not None:
+            file_lines[idx] = new_line
+        else:
+            file_lines.append(new_line)
+
+    try:
+        dotenv_path.write_text("\n".join(file_lines).rstrip() + "\n", encoding="utf-8")
+    except Exception:
+        # Keep runtime env keys even if persistence fails.
+        pass
+
+
+_ensure_startup_api_keys()
 
 
 def _parse_bool(raw: str | None, default: bool = False) -> bool:

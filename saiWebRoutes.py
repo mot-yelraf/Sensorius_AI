@@ -1247,9 +1247,21 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return False
 
     def _require_protected_access(request: Request, *, require_csrf: bool = False) -> None:
-        # Security gate intentionally disabled for now.
-        # Keep callsites in place so key enforcement can be re-enabled centrally later.
-        return None
+        expected_key = _get_web_api_key()
+        if not expected_key:
+            # No key configured -> preserve current open-by-default behavior.
+            return None
+
+        supplied_key = _extract_api_key(request)
+        if supplied_key and hmac.compare_digest(supplied_key, expected_key):
+            return None
+
+        # For browser-driven same-origin form/XHR flows, allow CSRF-marked routes
+        # without requiring clients to inject API-key headers.
+        if require_csrf and _is_same_origin(request):
+            return None
+
+        raise HTTPException(status_code=401, detail="unauthorized")
 
     def _sensor_metrics_from_display_block(display_block) -> list[str]:
         """

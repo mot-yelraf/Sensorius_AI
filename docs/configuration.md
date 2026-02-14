@@ -7,7 +7,7 @@ This guide captures the runtime environment configuration material originally do
 Use a project `.env` file as the primary configuration method.
 This is the recommended approach for both manual runs and service deployments.
 
-Create or edit `.env` in the project root:
+Create `.env` from `.env.def` (or edit `.env`) in the project root:
 
 ```env
 # -----------------------------
@@ -59,6 +59,8 @@ SENSORIUS_DB_RETENTION_DAYS=90
 
 # Optional API key for protected web endpoints
 SAI_WEB_API_KEY=
+# Optional API key for Sensorius-to-Sensorius federation
+SAI_PEER_API_KEY=
 
 # Linux display/backend hints used by GUI launch/service setup
 DISPLAY=

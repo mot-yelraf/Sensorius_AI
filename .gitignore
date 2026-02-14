@@ -11,3 +11,4 @@ sensorius_data.*
 __pycache__/
 *.pyc
 *.log
+.env
