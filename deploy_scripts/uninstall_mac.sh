@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+PROJECT_DIR="${PROJECT_DIR:-${HOME}/Sensorius}"
 VENV_PATH="${VENV_PATH:-${PROJECT_DIR}/.venv}"
 PLIST_PATH="/Library/LaunchDaemons/com.sensorius.sensorius.plist"
 

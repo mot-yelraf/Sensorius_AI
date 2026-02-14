@@ -25,11 +25,16 @@ The goal is simple: get visibility, storage, and control with minimal manual set
 
 Choose one setup path:
 
-- Raspberry Pi Bookworm: `setup.sh` or `setup_uv.sh`
-- Raspberry Pi Trixie: `setup_trixie.sh` or `setup_trixie_uv.sh`
-- macOS: `setup_mac.sh` or `setup_mac_uv.sh`
-- Windows: `setup_win.ps1` or `setup_win_uv.ps1`
-- Linux (Debian/Ubuntu): `setup_linux.sh`
+All shell setup scripts deploy the runtime app to `~/Sensorius`.
+
+- Raspberry Pi, macOS, Linux: `./setup.sh` (auto-select) 
+
+Manual Setup
+- Raspberry Pi Bookworm: `deploy_scripts/setup_bookworm.sh` / `deploy_scripts/setup_bookwork_uv.sh`
+- Raspberry Pi Trixie: `deploy_scripts/setup_trixie.sh` or `deploy_scripts/setup_trixie_uv.sh`
+- macOS: `deploy_scripts/setup_mac.sh` or `deploy_scripts/setup_mac_uv.sh`
+- Linux (Debian/Ubuntu): `deploy_scripts/setup_linux.sh`
+- Windows: `deploy_scripts/setup_win.ps1` or `deploy_scripts/setup_win_uv.ps1`
 
 Then run:
 

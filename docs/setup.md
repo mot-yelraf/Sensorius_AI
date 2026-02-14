@@ -6,22 +6,26 @@ This guide captures the setup and startup material originally documented in `REA
 
 Most setup scripts in this repository have not been fully verified across all target OS/version combinations. Use them at your own risk, review them before running, and prefer a test machine first.
 
+All shell setup scripts in `deploy_scripts/` deploy the application files into `~/Sensorius` and configure services to run from that path.
+
 ## Raspberry Pi Setup (Direct Sensor + Hub)
 
 ### Raspberry Pi OS Bookworm
 
-Use one of these scripts:
+Use the root dispatcher (recommended):
 
 ```bash
 chmod +x setup.sh
 sudo ./setup.sh
 ```
 
-Or with `uv`:
+It asks whether to use `uv` or `pip`, detects Bookworm/Trixie/macOS/Linux, and dispatches to the matching script in `deploy_scripts/`.
+
+Or run Bookworm directly:
 
 ```bash
-chmod +x setup_uv.sh
-sudo ./setup_uv.sh
+chmod +x deploy_scripts/setup_bookwork_uv.sh
+sudo ./deploy_scripts/setup_bookwork_uv.sh
 ```
 
 Bookworm scripts:
@@ -36,15 +40,15 @@ Bookworm scripts:
 Use one of these scripts:
 
 ```bash
-chmod +x setup_trixie.sh
-sudo ./setup_trixie.sh
+chmod +x deploy_scripts/setup_trixie.sh
+sudo ./deploy_scripts/setup_trixie.sh
 ```
 
 Or with `uv`:
 
 ```bash
-chmod +x setup_trixie_uv.sh
-sudo ./setup_trixie_uv.sh
+chmod +x deploy_scripts/setup_trixie_uv.sh
+sudo ./deploy_scripts/setup_trixie_uv.sh
 ```
 
 ## macOS Setup (Hub + MQTT Only)
@@ -54,15 +58,15 @@ macOS runs Sensorius as an MQTT hub and web UI only. Directly connected sensors 
 Use one of the macOS setup scripts:
 
 ```bash
-chmod +x setup_mac.sh
-./setup_mac.sh
+chmod +x deploy_scripts/setup_mac.sh
+./deploy_scripts/setup_mac.sh
 ```
 
 Or with `uv`:
 
 ```bash
-chmod +x setup_mac_uv.sh
-./setup_mac_uv.sh
+chmod +x deploy_scripts/setup_mac_uv.sh
+./deploy_scripts/setup_mac_uv.sh
 ```
 
 Notes:
@@ -81,14 +85,14 @@ Use one of the Windows setup scripts (run in an elevated PowerShell):
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\setup_win.ps1
+.\deploy_scripts\setup_win.ps1
 ```
 
 Or with `uv`:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\setup_win_uv.ps1
+.\deploy_scripts\setup_win_uv.ps1
 ```
 
 Notes:
@@ -107,14 +111,14 @@ Linux non-Pi hosts run Sensorius as an MQTT hub and web UI only. Directly connec
 Use the Linux setup script:
 
 ```bash
-chmod +x setup_linux.sh
-./setup_linux.sh
+chmod +x deploy_scripts/setup_linux.sh
+./deploy_scripts/setup_linux.sh
 ```
 
 Notes:
 
 - Uses `apt` to install precompiled system packages (`python3`, `mosquitto`, etc.).
-- Installs Python dependencies from `setup_reqs_linux.txt`.
+- Installs Python dependencies from `deploy_scripts/setup_reqs_linux.txt`.
 - Defaults to wheel-only Python installs (`PIP_ONLY_BINARY=1`) to avoid source builds.
 - Set `INSTALL_PYWEBVIEW=0` to skip pywebview and force headless mode.
 - Access the UI in a browser at `http://127.0.0.1:8000` (or `http://<host-ip>:8000` from another device).
@@ -138,8 +142,8 @@ sudo systemctl start sensorius.service
 
 Optional uninstall helpers are included for local cleanup:
 
-- Linux: `./uninstall_linux.sh`
-- macOS: `./uninstall_mac.sh`
-- Windows (PowerShell): `.\uninstall_win.ps1`
+- Linux: `./deploy_scripts/uninstall_linux.sh`
+- macOS: `./deploy_scripts/uninstall_mac.sh`
+- Windows (PowerShell): `.\deploy_scripts\uninstall_win.ps1`
 
 These scripts are interactive and attempt to remove the local venv and optional service/broker setup.

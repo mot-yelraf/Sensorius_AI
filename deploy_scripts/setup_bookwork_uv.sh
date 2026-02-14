@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_DIR="${PROJECT_DIR:-$HOME/saiSensorius}"
-VENV_PATH="${VENV_PATH:-$HOME/.virtualenvs/sensorius}"
-REQ_FILE="${REQ_FILE:-${PROJECT_DIR}/setup_reqs.txt}"
+SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+SOURCE_REPO_DIR="${SOURCE_REPO_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+PROJECT_DIR="${PROJECT_DIR:-$HOME/Sensorius}"
+VENV_PATH="${VENV_PATH:-${PROJECT_DIR}/.venv}"
+REQ_FILE="${REQ_FILE:-${SCRIPT_DIR}/setup_reqs.txt}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 HEARTBEAT_SECONDS="${HEARTBEAT_SECONDS:-60}"
+
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/setup_common.sh"
 
 run_with_heartbeat() {
   local label="$1"
@@ -166,6 +171,7 @@ EOF"
 }
 
 main() {
+  deploy_project_files
   cd ~
   ensure_apt
   install_system_packages

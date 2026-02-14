@@ -8,7 +8,7 @@ PROJECT_DIR="${PROJECT_DIR:-$HOME/saiSensorius}"
 
 # Where pyenv will install Pythons
 PYENV_ROOT="${HOME}/.pyenv"
-VENV_PATH="${HOME}/.virtualenvs/${VENV_NAME}"   # we’ll create this with the selected pyenv Python
+VENV_PATH="${VENV_PATH:-${PROJECT_DIR}/.venv}"   # we’ll create this with the selected pyenv Python
 
 cd ~
 

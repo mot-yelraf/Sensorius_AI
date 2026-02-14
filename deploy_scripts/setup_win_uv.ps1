@@ -1,9 +1,11 @@
 $ErrorActionPreference = 'Stop'
 
 $PY_VERSION = if ($env:PY_VERSION) { $env:PY_VERSION } else { '3.13.5' }
-$ProjectDir = if ($env:PROJECT_DIR) { $env:PROJECT_DIR } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$SourceRepoDir = Split-Path -Parent $ScriptDir
+$ProjectDir = if ($env:PROJECT_DIR) { $env:PROJECT_DIR } else { Join-Path $HOME 'Sensorius' }
 $VenvPath = if ($env:VENV_PATH) { $env:VENV_PATH } else { Join-Path $ProjectDir '.venv' }
-$ReqFile = if ($env:REQ_FILE) { $env:REQ_FILE } else { Join-Path $ProjectDir 'setup_reqs_win.txt' }
+$ReqFile = if ($env:REQ_FILE) { $env:REQ_FILE } else { Join-Path $ScriptDir 'setup_reqs_win.txt' }
 $InstallPywebview = if ($env:INSTALL_PYWEBVIEW) { $env:INSTALL_PYWEBVIEW } else { '1' }
 $PipOnlyBinary = if ($env:PIP_ONLY_BINARY) { $env:PIP_ONLY_BINARY } else { '1' }
 
@@ -14,6 +16,31 @@ function Cleanup {
         Write-Host "Cleaning up virtual environment at $VenvPath..."
         Remove-Item -Recurse -Force $VenvPath
     }
+}
+
+function Deploy-ProjectFiles {
+    if ($SourceRepoDir -eq $ProjectDir) {
+        Write-Host "Source and target are the same ($ProjectDir); skipping file sync."
+        return
+    }
+
+    if (-not (Test-Path $ProjectDir)) {
+        New-Item -ItemType Directory -Path $ProjectDir | Out-Null
+    }
+
+    $args = @(
+        $SourceRepoDir, $ProjectDir, '/MIR', '/R:2', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS', '/NP',
+        '/XD', '.git', '.venv', '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache', 'deploy_scripts',
+        '/XF', '*.pyc', '*.pyo', 'sensor_data.db', '*.log'
+    )
+
+    & robocopy @args | Out-Null
+    $rc = $LASTEXITCODE
+    if ($rc -gt 7) {
+        throw "robocopy failed with exit code $rc"
+    }
+
+    Write-Host "Application files deployed to $ProjectDir"
 }
 
 function Ensure-Admin {
@@ -256,6 +283,7 @@ function Configure-BootStartup {
 
 try {
     Ensure-Admin
+    Deploy-ProjectFiles
     Ensure-Winget
     Ensure-Uv
     Install-Python

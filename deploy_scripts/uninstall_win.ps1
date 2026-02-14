@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 
-$ProjectDir = if ($env:PROJECT_DIR) { $env:PROJECT_DIR } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+$ProjectDir = if ($env:PROJECT_DIR) { $env:PROJECT_DIR } else { Join-Path $HOME 'Sensorius' }
 $VenvPath = if ($env:VENV_PATH) { $env:VENV_PATH } else { Join-Path $ProjectDir '.venv' }
 $TaskName = if ($env:SENSORIUS_TASK_NAME) { $env:SENSORIUS_TASK_NAME } else { 'SensoriusStartup' }
 
