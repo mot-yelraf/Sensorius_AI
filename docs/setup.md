@@ -73,6 +73,7 @@ Notes:
 
 - These scripts install Python 3.13.5 and create a local `.venv`.
 - Mosquitto is installed and configured with anonymous access on port 1883.
+- Add Device onboarding uses native macOS Wi-Fi tools (`networksetup`/`airport`); no `nmcli` install is required.
 - GUI is optional. Set `SENSORIUS_GUI=0` to force headless mode.
 - If `pywebview` is not installed, Sensorius will continue headless.
 - Access the UI in a browser at `http://127.0.0.1:8000` (or `http://<host-ip>:8000` from another device).
@@ -100,6 +101,7 @@ Notes:
 - These scripts use `winget` and require running PowerShell as Administrator.
 - Python 3.13.5 is installed via `pyenv-win` (pip script) or `uv` (uv script).
 - Mosquitto is installed and configured with anonymous access on port 1883.
+- Add Device onboarding uses native Windows Wi-Fi tooling (`netsh`); no `nmcli` equivalent install is required.
 - GUI is optional. Set `SENSORIUS_GUI=0` to force headless mode.
 - If `pywebview` is not installed, Sensorius will continue headless.
 - Access the UI in a browser at `http://127.0.0.1:8000` (or `http://<host-ip>:8000` from another device).

@@ -486,9 +486,93 @@ def get_pi_network_info(interface: str = "wlan0", force_refresh: bool = False) -
         if now < cache["ok_until"] and cache["data"]:
             return cache["data"]
 
+    def _mac_wifi_interface() -> str:
+        try:
+            out = subprocess.check_output(["networksetup", "-listallhardwareports"], text=True, timeout=2.0)
+            blocks = [blk.strip() for blk in out.split("\n\n") if blk.strip()]
+            for blk in blocks:
+                low = blk.lower()
+                if "hardware port: wi-fi" not in low and "hardware port: airport" not in low:
+                    continue
+                for ln in blk.splitlines():
+                    if ln.strip().startswith("Device:"):
+                        return ln.split(":", 1)[1].strip()
+        except Exception:
+            pass
+        return "en0"
+
+    def _mac_info() -> dict:
+        result = dict(soft)
+        try:
+            iface = _mac_wifi_interface()
+            out = subprocess.check_output(["networksetup", "-getairportnetwork", iface], text=True, timeout=2.0)
+            if ":" in out:
+                ssid = out.split(":", 1)[1].strip()
+                if ssid and "not associated" not in ssid.lower():
+                    result["ssid"] = ssid
+                    try:
+                        psk = subprocess.check_output(
+                            ["security", "find-generic-password", "-D", "AirPort network password", "-a", ssid, "-w"],
+                            text=True, timeout=3.0
+                        ).strip()
+                        result["password"] = psk or ""
+                    except Exception:
+                        result["password"] = ""
+        except Exception:
+            pass
+        return result
+
+    def _windows_info() -> dict:
+        result = dict(soft)
+        try:
+            out = subprocess.check_output(["netsh", "wlan", "show", "interfaces"], text=True, timeout=3.0)
+            state = ""
+            ssid = ""
+            for ln in out.splitlines():
+                if ":" not in ln:
+                    continue
+                key, val = ln.split(":", 1)
+                key = key.strip().lower()
+                val = val.strip()
+                if key == "state":
+                    state = val
+                elif key == "ssid" and not ln.lstrip().lower().startswith("bssid"):
+                    ssid = val
+            if "connected" in state.lower() and ssid:
+                result["ssid"] = ssid
+                try:
+                    prof = subprocess.check_output(
+                        ["netsh", "wlan", "show", "profile", f"name={ssid}", "key=clear"],
+                        text=True, timeout=4.0
+                    )
+                    for pl in prof.splitlines():
+                        low = pl.lower()
+                        if "key content" in low and ":" in pl:
+                            result["password"] = pl.split(":", 1)[1].strip()
+                            break
+                except Exception:
+                    result["password"] = ""
+        except Exception:
+            pass
+        return result
+
     try:
-        # Non-Raspberry-Pi hosts should not run Pi/NM probing logic.
-        if platform.system().lower() != "linux":
+        sys_name = platform.system().lower()
+        if sys_name == "darwin":
+            result = _mac_info()
+            cache["data"] = result
+            cache["ok_until"] = now + 120.0
+            cache["backoff"] = 0.0
+            cache["backoff_until"] = 0.0
+            return result
+        if sys_name == "windows":
+            result = _windows_info()
+            cache["data"] = result
+            cache["ok_until"] = now + 120.0
+            cache["backoff"] = 0.0
+            cache["backoff_until"] = 0.0
+            return result
+        if sys_name != "linux":
             cache["data"] = soft
             cache["ok_until"] = now + 300.0
             cache["backoff"] = 0.0

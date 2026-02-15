@@ -29,12 +29,15 @@ import asyncio
 import socket
 import base64
 import logging
+import platform
 import subprocess
+import tempfile
 import requests
 from pathlib import Path
 import tomllib
 from typing import Dict, Any, Optional, List, Tuple
 from zoneinfo import ZoneInfo
+from xml.sax.saxutils import escape as xml_escape
 
 from saiUtils import get_pi_network_info, get_time_settings, printDM, debug_enabled, mdns_hostname
 
@@ -110,6 +113,195 @@ def run_nmcli(cmd_list: list[str]) -> bool:
             printDM(f"nmcli command failed: {e}", location=f"{MODULE}.run_nmcli")
         return False
 
+def _current_platform() -> str:
+    return platform.system().lower()
+
+def _mac_wifi_interface() -> str:
+    try:
+        out = subprocess.check_output(["networksetup", "-listallhardwareports"], text=True, timeout=2.0)
+        blocks = [blk.strip() for blk in out.split("\n\n") if blk.strip()]
+        for blk in blocks:
+            if "hardware port: wi-fi" not in blk.lower() and "hardware port: airport" not in blk.lower():
+                continue
+            m = re.search(r"^\s*Device:\s*(\S+)\s*$", blk, flags=re.MULTILINE)
+            if m:
+                return m.group(1).strip()
+    except Exception:
+        pass
+    return "en0"
+
+def _windows_wifi_interface() -> str:
+    try:
+        out = subprocess.check_output(["netsh", "wlan", "show", "interfaces"], text=True, timeout=3.0)
+        m = re.search(r"^\s*Name\s*:\s*(.+)\s*$", out, flags=re.MULTILINE | re.IGNORECASE)
+        if m:
+            return m.group(1).strip()
+    except Exception:
+        pass
+    return "Wi-Fi"
+
+def _wifi_interface_name() -> str:
+    sys_name = _current_platform()
+    if sys_name == "darwin":
+        return _mac_wifi_interface()
+    if sys_name == "windows":
+        return _windows_wifi_interface()
+    return PICOW_IFNAME
+
+def _windows_profile_xml(ssid: str, password: str) -> str:
+    esc_ssid = xml_escape(ssid)
+    hex_ssid = ssid.encode("utf-8").hex().upper()
+    if password:
+        return f"""<?xml version="1.0"?>
+<WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
+    <name>{esc_ssid}</name>
+    <SSIDConfig>
+        <SSID>
+            <hex>{hex_ssid}</hex>
+            <name>{esc_ssid}</name>
+        </SSID>
+    </SSIDConfig>
+    <connectionType>ESS</connectionType>
+    <connectionMode>auto</connectionMode>
+    <MSM>
+        <security>
+            <authEncryption>
+                <authentication>WPA2PSK</authentication>
+                <encryption>AES</encryption>
+                <useOneX>false</useOneX>
+            </authEncryption>
+            <sharedKey>
+                <keyType>passPhrase</keyType>
+                <protected>false</protected>
+                <keyMaterial>{xml_escape(password)}</keyMaterial>
+            </sharedKey>
+        </security>
+    </MSM>
+</WLANProfile>"""
+    return f"""<?xml version="1.0"?>
+<WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
+    <name>{esc_ssid}</name>
+    <SSIDConfig>
+        <SSID>
+            <hex>{hex_ssid}</hex>
+            <name>{esc_ssid}</name>
+        </SSID>
+    </SSIDConfig>
+    <connectionType>ESS</connectionType>
+    <connectionMode>auto</connectionMode>
+    <MSM>
+        <security>
+            <authEncryption>
+                <authentication>open</authentication>
+                <encryption>none</encryption>
+                <useOneX>false</useOneX>
+            </authEncryption>
+        </security>
+    </MSM>
+</WLANProfile>"""
+
+def _windows_add_profile_and_connect(ssid: str, password: str, iface: str) -> bool:
+    xml_path = None
+    try:
+        xml_text = _windows_profile_xml(ssid, password or "")
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False, encoding="utf-8") as tf:
+            tf.write(xml_text)
+            xml_path = tf.name
+        subprocess.run(
+            ["netsh", "wlan", "add", "profile", f"filename={xml_path}", "user=current"],
+            check=True, timeout=5
+        )
+        subprocess.run(
+            ["netsh", "wlan", "connect", f"name={ssid}", f"interface={iface}"],
+            check=True, timeout=12
+        )
+        return True
+    except Exception as e:
+        if DEBUG:
+            printDM(f"Windows WLAN connect failed: {e}", location=f"{MODULE}._windows_add_profile_and_connect")
+        return False
+    finally:
+        if xml_path:
+            try:
+                os.remove(xml_path)
+            except Exception:
+                pass
+
+def _ssid_visible_linux(ssid: str, iface: str) -> bool:
+    try:
+        out = subprocess.check_output(
+            ["nmcli", "-t", "-f", "SSID", "dev", "wifi", "list", "ifname", iface],
+            text=True
+        )
+        return any(line.strip() == ssid for line in out.splitlines())
+    except Exception as e:
+        if DEBUG:
+            printDM(f"SSID scan failed: {e}", location=f"{MODULE}._ssid_visible_linux")
+        return False
+
+def _connect_wifi(ssid: str, password: str, iface: str) -> bool:
+    sys_name = _current_platform()
+    if sys_name == "windows":
+        return _windows_add_profile_and_connect(ssid, password, iface)
+    if sys_name == "darwin":
+        cmd = ["networksetup", "-setairportnetwork", iface, ssid]
+        if password:
+            cmd.append(password)
+        try:
+            subprocess.run(cmd, check=True, timeout=12)
+            return True
+        except Exception as e:
+            if DEBUG:
+                printDM(f"macOS Wi-Fi connect failed: {e}", location=f"{MODULE}._connect_wifi")
+            return False
+    try:
+        try:
+            subprocess.run(["nmcli", "dev", "disconnect", iface], check=True, timeout=4)
+        except subprocess.CalledProcessError:
+            pass
+        cmd = ["nmcli", "dev", "wifi", "connect", ssid, "ifname", iface]
+        if password:
+            cmd.extend(["password", password])
+        subprocess.run(cmd, check=True, timeout=12)
+        return True
+    except Exception as e:
+        if DEBUG:
+            printDM(f"Linux Wi-Fi connect failed: {e}", location=f"{MODULE}._connect_wifi")
+        return False
+
+def _get_current_ssid() -> str:
+    sys_name = _current_platform()
+    try:
+        if sys_name == "windows":
+            out = subprocess.check_output(["netsh", "wlan", "show", "interfaces"], text=True, timeout=3.0)
+            m_state = re.search(r"^\s*State\s*:\s*(.+)$", out, flags=re.MULTILINE | re.IGNORECASE)
+            if not m_state or "connected" not in m_state.group(1).strip().lower():
+                return ""
+            for ln in out.splitlines():
+                if not re.match(r"^\s*SSID\s*:", ln, flags=re.IGNORECASE):
+                    continue
+                if re.match(r"^\s*BSSID\s*:", ln, flags=re.IGNORECASE):
+                    continue
+                return ln.split(":", 1)[1].strip()
+            return ""
+        if sys_name == "darwin":
+            iface = _wifi_interface_name()
+            out = subprocess.check_output(["networksetup", "-getairportnetwork", iface], text=True, timeout=2.0)
+            if ":" in out:
+                return out.split(":", 1)[1].strip()
+            return ""
+        out = subprocess.check_output(
+            ["nmcli", "-t", "-f", "ACTIVE,SSID", "dev", "wifi"],
+            text=True, timeout=2.0
+        )
+        for ln in out.splitlines():
+            parts = ln.split(":")
+            if len(parts) >= 2 and parts[0] == "yes":
+                return parts[1].strip()
+    except Exception:
+        pass
+    return ""
+
 # ---------- Wi-Fi band detection (sync; use via asyncio.to_thread) ----------
 def _band_from_freq(freq_mhz: int | None) -> str:
     try:
@@ -147,9 +339,72 @@ def get_wifi_band_info(interface: str = PICOW_IFNAME) -> dict:
       "band": "2.4"|"5"|"6"|"unknown", "channel": int|None, "source": "iw"|"nmcli"|"none"
     }
     """
+    sys_name = _current_platform()
+    iface = interface or _wifi_interface_name()
+
+    if sys_name == "darwin":
+        try:
+            airport = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport"
+            out = subprocess.check_output([airport, "-I"], text=True, timeout=2.0)
+            ssid = ""
+            chan = None
+            for ln in out.splitlines():
+                if " SSID:" in ln:
+                    ssid = ln.split("SSID:", 1)[1].strip()
+                if " channel:" in ln:
+                    raw_chan = ln.split("channel:", 1)[1].split(",", 1)[0].strip()
+                    if raw_chan.isdigit():
+                        chan = int(raw_chan)
+            band = "unknown"
+            if chan is not None:
+                if 1 <= chan <= 14:
+                    band = "2.4"
+                elif chan >= 30:
+                    band = "5"
+            return {
+                "connected": bool(ssid),
+                "ssid": ssid,
+                "freq_mhz": None,
+                "band": band,
+                "channel": chan,
+                "source": "airport",
+            }
+        except Exception as e:
+            if DEBUG:
+                printDM(f"macOS airport band query failed: {e}", location=f"{MODULE}.get_wifi_band_info")
+
+    if sys_name == "windows":
+        try:
+            out = subprocess.check_output(["netsh", "wlan", "show", "interfaces"], text=True, timeout=3.0)
+            m_state = re.search(r"^\s*State\s*:\s*(.+)$", out, flags=re.MULTILINE | re.IGNORECASE)
+            connected = bool(m_state and "connected" in m_state.group(1).strip().lower())
+            ssid = ""
+            ch = None
+            for ln in out.splitlines():
+                if re.match(r"^\s*SSID\s*:", ln, flags=re.IGNORECASE) and not re.match(r"^\s*BSSID\s*:", ln, flags=re.IGNORECASE):
+                    ssid = ln.split(":", 1)[1].strip()
+                if re.match(r"^\s*Channel\s*:", ln, flags=re.IGNORECASE):
+                    raw = ln.split(":", 1)[1].strip()
+                    if raw.isdigit():
+                        ch = int(raw)
+            band = "unknown"
+            if ch is not None:
+                band = "2.4" if 1 <= ch <= 14 else "5"
+            return {
+                "connected": connected and bool(ssid),
+                "ssid": ssid,
+                "freq_mhz": None,
+                "band": band,
+                "channel": ch,
+                "source": "netsh",
+            }
+        except Exception as e:
+            if DEBUG:
+                printDM(f"Windows band query failed: {e}", location=f"{MODULE}.get_wifi_band_info")
+
     # 1) Try `iw` (best for the current link)
     try:
-        out = subprocess.check_output(["iw", "dev", interface, "link"], text=True, timeout=2.0)
+        out = subprocess.check_output(["iw", "dev", iface, "link"], text=True, timeout=2.0)
         if "Connected to" in out:
             ssid = ""
             freq = None
@@ -169,7 +424,7 @@ def get_wifi_band_info(interface: str = PICOW_IFNAME) -> dict:
             }
     except Exception as e:
         if DEBUG:
-            printDM(f"'iw dev {interface} link' failed: {e}", location=f"{MODULE}.get_wifi_band_info")
+            printDM(f"'iw dev {iface} link' failed: {e}", location=f"{MODULE}.get_wifi_band_info")
 
     # 2) Fallback to nmcli (use ONLY the active row)
     try:
@@ -181,7 +436,7 @@ def get_wifi_band_info(interface: str = PICOW_IFNAME) -> dict:
         con_name = ""
         for ln in dev_lines:
             parts = ln.split(":")
-            if len(parts) >= 4 and parts[0] == interface and parts[2] == "connected":
+            if len(parts) >= 4 and parts[0] == iface and parts[2] == "connected":
                 con_name = parts[3].strip()
                 break
 
@@ -238,9 +493,9 @@ def _require_24ghz_or_abort() -> tuple[bool, str]:
     """
     Returns (ok, message). ok=True iff connected on 2.4 GHz.
     """
-    info = get_wifi_band_info(PICOW_IFNAME)
+    info = get_wifi_band_info(_wifi_interface_name())
     if not info.get("connected"):
-        msg = "Wi-Fi not connected on the Pi"
+        msg = "Wi-Fi is not connected on the host"
         logger.error(f"[Add Device] {msg}")
         return False, msg
     if info.get("band") != "2.4":
@@ -259,51 +514,29 @@ def _require_24ghz_or_abort() -> tuple[bool, str]:
     
 # ---------- Wi-Fi helpers (sync; use via asyncio.to_thread) ----------
 def connect_to_ap(ssid: str, password: str, max_retries: int = 3) -> bool:
-    def ssid_visible() -> bool:
-        try:
-            out = subprocess.check_output(
-                ["nmcli", "-t", "-f", "SSID", "dev", "wifi", "list"],
-                text=True
-            )
-            return any(line.strip() == ssid for line in out.splitlines())
-        except Exception as e:
-            if DEBUG:
-                printDM(f"SSID scan failed: {e}", location=f"{MODULE}.connect_to_ap")
-            return False
+    sys_name = _current_platform()
+    iface = _wifi_interface_name()
 
     for attempt in range(1, max_retries + 1):
         if DEBUG:
-            printDM(f"Attempt {attempt} to connect to {ssid}...", location=f"{MODULE}.connect_to_ap")
-        for _ in range(5):
-            if ssid_visible():
-                break
-            if DEBUG:
-                printDM(f"Waiting for {ssid} SSID to appear...", location=f"{MODULE}.connect_to_ap")
-            time.sleep(1)
-        else:
-            if DEBUG:
-                printDM(f"SSID '{ssid}' not visible after scan attempts.", location=f"{MODULE}.connect_to_ap")
-            continue
+            printDM(f"Attempt {attempt} to connect to {ssid} on {iface}...", location=f"{MODULE}.connect_to_ap")
 
-        try:
-            subprocess.run(["nmcli", "dev", "disconnect", PICOW_IFNAME], check=True)
-        except subprocess.CalledProcessError:
-            pass
+        if sys_name == "linux":
+            for _ in range(5):
+                if _ssid_visible_linux(ssid, iface):
+                    break
+                if DEBUG:
+                    printDM(f"Waiting for {ssid} SSID to appear...", location=f"{MODULE}.connect_to_ap")
+                time.sleep(1)
+            else:
+                if DEBUG:
+                    printDM(f"SSID '{ssid}' not visible after scan attempts.", location=f"{MODULE}.connect_to_ap")
+                continue
 
-        try:
-            subprocess.run(
-                ["nmcli", "dev", "wifi", "connect", ssid, "password", password, "ifname", PICOW_IFNAME],
-                check=True, timeout=10
-            )
+        if _connect_wifi(ssid, password, iface):
             if DEBUG:
                 printDM("Connected to Pico2 W AP.", location=f"{MODULE}.connect_to_ap")
             return True
-        except subprocess.CalledProcessError as e:
-            if DEBUG:
-                printDM(f"nmcli connect failed: {e}", location=f"{MODULE}.connect_to_ap")
-        except subprocess.TimeoutExpired:
-            if DEBUG:
-                printDM("Connection attempt timed out.", location=f"{MODULE}.connect_to_ap")
         time.sleep(1)
 
     if DEBUG:
@@ -331,6 +564,37 @@ def resolve_pi_wifi_credentials() -> Tuple[str, str]:
     psk  = _strip_label(info.get("password", "") or "")
 
     if ssid and _is_placeholder_psk(psk):
+        sys_name = _current_platform()
+        if sys_name == "darwin":
+            try:
+                out = subprocess.check_output(
+                    ["security", "find-generic-password", "-D", "AirPort network password", "-a", ssid, "-w"],
+                    text=True, timeout=3
+                ).strip()
+                out = _strip_label(out)
+                if out and not _is_placeholder_psk(out):
+                    psk = out
+            except Exception as e:
+                if DEBUG:
+                    printDM(f"Could not read macOS Keychain Wi-Fi password: {e}", location=f"{MODULE}.resolve_pi_wifi_credentials")
+        elif sys_name == "windows":
+            try:
+                out = subprocess.check_output(
+                    ["netsh", "wlan", "show", "profile", f"name={ssid}", "key=clear"],
+                    text=True, timeout=4
+                )
+                for ln in out.splitlines():
+                    low = ln.lower()
+                    if "key content" in low:
+                        candidate = _strip_label(ln)
+                        if candidate and not _is_placeholder_psk(candidate):
+                            psk = candidate
+                            break
+            except Exception as e:
+                if DEBUG:
+                    printDM(f"Could not read Windows Wi-Fi profile key: {e}", location=f"{MODULE}.resolve_pi_wifi_credentials")
+
+    if ssid and _is_placeholder_psk(psk) and _current_platform() == "linux":
         try:
             out = subprocess.check_output(
                 ["nmcli", "-s", "-g", "802-11-wireless-security.psk", "con", "show", "id", ssid],
@@ -369,58 +633,46 @@ def resolve_pi_wifi_credentials() -> Tuple[str, str]:
 
 def reconnect_to_pi(max_attempts: int = 3, delay_sec: float = 3.0) -> tuple[bool, str]:
     current_info = get_pi_network_info()
-    ssid_saved   = current_info.get("ssid", "") or ""
+    ssid_saved   = (current_info.get("ssid", "") or "").strip()
     psk_saved    = current_info.get("password", "") or ""
+    iface        = _wifi_interface_name()
+    sys_name     = _current_platform()
+
+    if not ssid_saved:
+        ssid_saved = _get_current_ssid()
 
     if DEBUG:
         printDM(f"Reconnecting to Pi network: {ssid_saved}...", location=f"{MODULE}.reconnect_to_pi")
 
-    def ssid_visible() -> bool:
-        try:
-            out = subprocess.check_output(
-                ["nmcli", "-t", "-f", "SSID", "dev", "wifi", "list"],
-                text=True
-            )
-            return any(line.strip() == ssid_saved for line in out.splitlines())
-        except Exception as e:
-            if DEBUG:
-                printDM(f"SSID scan failed: {e}", location=f"{MODULE}.reconnect_to_pi")
-            return False
+    if not ssid_saved:
+        printDM("No saved SSID to reconnect to.", location=f"{MODULE}.reconnect_to_pi")
+        return False, ""
 
     for attempt in range(1, max_attempts + 1):
         if DEBUG:
             printDM(f"Attempt {attempt} to find {ssid_saved}...", location=f"{MODULE}.reconnect_to_pi")
-        for _ in range(5):
-            if ssid_visible():
-                break
-            if DEBUG:
-                printDM(f"Waiting for {ssid_saved} SSID to appear...", location=f"{MODULE}.reconnect_to_pi")
-            time.sleep(1)
-        else:
-            if DEBUG:
-                printDM(f"SSID {ssid_saved} not visible after scan attempts.", location=f"{MODULE}.reconnect_to_pi")
-            continue
 
-        try:
-            subprocess.run(["nmcli", "dev", "disconnect", PICOW_IFNAME], check=True)
-        except subprocess.CalledProcessError:
-            pass
-
-        if run_nmcli(["con", "up", "id", ssid_saved, "ifname", PICOW_IFNAME]):
-            if DEBUG:
-                printDM(f"Reconnected to {ssid_saved} network successfully.", location=f"{MODULE}.reconnect_to_pi")
-            return True, ssid_saved
-
-        if run_nmcli(["dev", "wifi", "connect", ssid_saved, "ifname", PICOW_IFNAME]):
-            if DEBUG:
-                printDM(f"Reconnected to {ssid_saved} network successfully.", location=f"{MODULE}.reconnect_to_pi")
-            return True, ssid_saved
-
-        if psk_saved and not _is_placeholder_psk(psk_saved):
-            if run_nmcli(["dev", "wifi", "connect", ssid_saved, "password", psk_saved, "ifname", PICOW_IFNAME]):
+        if sys_name == "linux":
+            for _ in range(5):
+                if _ssid_visible_linux(ssid_saved, iface):
+                    break
                 if DEBUG:
-                    printDM(f"Reconnected to {ssid_saved} network successfully.", location=f"{MODULE}.reconnect_to_pi")
-                return True, ssid_saved
+                    printDM(f"Waiting for {ssid_saved} SSID to appear...", location=f"{MODULE}.reconnect_to_pi")
+                time.sleep(1)
+            else:
+                if DEBUG:
+                    printDM(f"SSID {ssid_saved} not visible after scan attempts.", location=f"{MODULE}.reconnect_to_pi")
+                continue
+
+        if _connect_wifi(ssid_saved, "", iface):
+            if DEBUG:
+                printDM(f"Reconnected to {ssid_saved} network successfully.", location=f"{MODULE}.reconnect_to_pi")
+            return True, ssid_saved
+
+        if psk_saved and not _is_placeholder_psk(psk_saved) and _connect_wifi(ssid_saved, psk_saved, iface):
+            if DEBUG:
+                printDM(f"Reconnected to {ssid_saved} network successfully.", location=f"{MODULE}.reconnect_to_pi")
+            return True, ssid_saved
 
         if DEBUG:
             printDM(f"Reconnect attempt {attempt} failed.", location=f"{MODULE}.reconnect_to_pi")
