@@ -63,9 +63,10 @@ async function deleteAutomation(ruleId) {
 // Returns the inner modal (#automationManagerModal) reliably from any descendant/backdrop
 function getModalRoot(fromEl) {
   return (
-    (fromEl && fromEl.closest && fromEl.closest("#automationManagerModal")) ||
-    (fromEl && fromEl.querySelector && fromEl.querySelector("#automationManagerModal")) ||
-    document.querySelector("#automationManagerModal")
+    (fromEl && fromEl.closest && fromEl.closest("#automationManagerModal, #switchSettingsModal")) ||
+    (fromEl && fromEl.querySelector && fromEl.querySelector("#automationManagerModal, #switchSettingsModal")) ||
+    document.querySelector("#automationManagerModal") ||
+    document.querySelector("#switchSettingsModal")
   );
 }
 
@@ -87,6 +88,17 @@ async function waitForSelector(root, selector, timeoutMs = 2000) {
 // ----- UI helpers (scoped to current modal) -----
 function q(root, sel){ return root ? root.querySelector(sel) : null; }
 
+function setAutomationView(modal, mode) {
+  const chooser = q(modal, "#automationChooser");
+  const editor = q(modal, "#automationEditorWrap");
+  if (!chooser || !editor) return;
+  const showChooser = mode === "chooser";
+  chooser.hidden = !showChooser;
+  editor.hidden = showChooser;
+  chooser.style.display = showChooser ? "flex" : "none";
+  editor.style.display = showChooser ? "none" : "block";
+}
+
 function renderList(rootLike) {
   const modal = getModalRoot(rootLike);
   if (!modal) { console.warn("[AdvancedAutomation] modal root missing in renderList"); return; }
@@ -94,9 +106,22 @@ function renderList(rootLike) {
   if (!list)  { console.warn("[AdvancedAutomation] #automationList not found"); return; }
 
   list.innerHTML = "";
+  if (!automations.length) {
+    const empty = create("div", "muted");
+    empty.style.padding = ".6rem .75rem";
+    empty.textContent = "No saved automations yet.";
+    list.appendChild(empty);
+    return;
+  }
+
   automations.forEach(a => {
     const item = create("div", "list-item" + (a.id === selectedId ? " active" : ""));
-    item.onclick = () => { selectedId = a.id; renderList(modal); loadSelectedIntoForm(modal); };
+    item.onclick = () => {
+      selectedId = a.id;
+      renderList(modal);
+      loadSelectedIntoForm(modal);
+      setAutomationView(modal, "editor");
+    };
     const name  = create("div", "item-name");  name.textContent  = a.name || "(unnamed)";
     const badge = create("div", "item-badge"); badge.textContent = a.enabled ? "Enabled" : "Disabled";
     item.append(name, badge);
@@ -521,9 +546,10 @@ async function loadSwitchInfoInto(rootLike) {
   }
 }
 
-async function loadAutomationsListInto(rootLike) {
+async function loadAutomationsListInto(rootLike, opts = {}) {
   const modal = getModalRoot(rootLike);
   if (!modal) { console.warn("[AdvancedAutomation] modal root missing in loadAutomationsListInto"); return; }
+  const prevSelectedId = selectedId;
 
   const items = await fetchAdvancedAutomations().catch(err => {
     console.warn("[AdvancedAutomation] fetchAdvancedAutomations failed:", err);
@@ -542,10 +568,36 @@ async function loadAutomationsListInto(rootLike) {
     };
   });
 
-  selectedId = automations[0]?.id ?? null;
+  if (opts.preserveSelection && prevSelectedId && automations.some(a => a.id === prevSelectedId)) {
+    selectedId = prevSelectedId;
+  } else {
+    selectedId = null;
+  }
+
   renderList(modal);
-  loadSelectedIntoForm(modal);
+
+  if (!automations.length) {
+    loadSelectedIntoForm(modal);
+    setAutomationView(modal, "editor");
+    return;
+  }
+
+  if (opts.openEditor && selectedId) {
+    loadSelectedIntoForm(modal);
+    setAutomationView(modal, "editor");
+    return;
+  }
+
+  setAutomationView(modal, "chooser");
 }
+
+window.refreshAdvancedAutomationModal = async function(rootLike) {
+  const modal = getModalRoot(rootLike);
+  if (!modal) return false;
+  await loadSwitchInfoInto(modal);
+  await loadAutomationsListInto(modal);
+  return true;
+};
 
 // ----- Public save/delete wired to backend -----
 async function saveCurrent(modal){
@@ -567,13 +619,14 @@ async function saveCurrent(modal){
     body: JSON.stringify(payload)
   });
   if (!res.ok) throw new Error("Save failed");
-  await loadAutomationsListInto(modal);
+  await loadAutomationsListInto(modal, { preserveSelection: true, openEditor: true });
   showPreview(modal, doc);
 }
 
 async function deleteSelected(modal){
   if (!selectedId) return;
   await deleteAutomation(selectedId);
+  selectedId = null;
   await loadAutomationsListInto(modal);
 }
 
@@ -616,30 +669,42 @@ window.initAdvancedAutomationModal = async function (modalEl) {
     // ---- wire buttons (use modalRoot; fall back to scope) ----
     const rootForQuery = modalRoot || scope;
     const btnNew  = rootForQuery.querySelector("#btnNewAutomation");
+    const btnNewFromList = rootForQuery.querySelector("#btnNewFromList");
     const btnAdd  = rootForQuery.querySelector("#btnAddCondition");
     const btnSave = rootForQuery.querySelector("#btnSetAutomation");
     const btnDel  = rootForQuery.querySelector("#btnRemove");
-    const btnOk   = rootForQuery.querySelector("#btnOk");
+    const btnSavedAutomations = rootForQuery.querySelector("#btnSavedAutomations");
 
-    if (btnNew) btnNew.onclick = () => {
+    const startNewAutomation = () => {
       selectedId = `auto-${(crypto.randomUUID?.() || Math.random().toString(36).slice(2))}`;
-      const defKey = rootForQuery.querySelector("#actionSwitch")?.options?.[0]?.value || "";
-      automations.push({ id:selectedId, name:"", enabled:false, conditions:[], actions:[{ switch_key:defKey, set:false, delay_s:0 }] });
       renderList(modalRoot);
       loadSelectedIntoForm(modalRoot);
+      setAutomationView(modalRoot, "editor");
     };
+
+    if (btnNew) btnNew.onclick = startNewAutomation;
+    if (btnNewFromList) btnNewFromList.onclick = startNewAutomation;
     if (btnAdd)  btnAdd.onclick  = () => addCondition(modalRoot, { type:"sensor" });
     if (btnSave) btnSave.onclick = () => saveCurrent(modalRoot).catch(e=>alert(e.message));
     if (btnDel)  btnDel.onclick  = () => deleteSelected(modalRoot);
-    if (btnOk)   btnOk.onclick   = () => {
-      const bd = (modalRoot.closest?.(".modal-backdrop") || scope.closest?.(".modal-backdrop") || scope);
-      if (bd && bd.parentNode) bd.parentNode.removeChild(bd);
-    };
+    if (btnSavedAutomations) btnSavedAutomations.onclick = () => setAutomationView(modalRoot, "chooser");
 
-    // ---- load data and hydrate (non-throwing) ----
-    try { await loadSensors(); } catch (e) { console.warn("[AdvancedAutomation] loadSensors failed:", e); }
+    // ---- load the critical UI path first (fast): switch info + saved automations ----
     await loadSwitchInfoInto(modalRoot);
     await loadAutomationsListInto(modalRoot);
+
+    // ---- load sensors in background so slow sensor endpoints don't block the list ----
+    Promise.resolve()
+      .then(() => loadSensors())
+      .then(() => {
+        // If editor is visible, refresh the form so sensor/metric selectors get populated.
+        const chooser = q(modalRoot, "#automationChooser");
+        const editorVisible = !!chooser && chooser.hidden;
+        if (editorVisible) {
+          loadSelectedIntoForm(modalRoot);
+        }
+      })
+      .catch(e => console.warn("[AdvancedAutomation] loadSensors failed:", e));
 
     // ---- finally show (parent sets display:none initially) ----
     const backdrop = modalRoot.closest?.(".modal-backdrop") || scope.closest?.(".modal-backdrop") || scope;
@@ -651,4 +716,3 @@ window.initAdvancedAutomationModal = async function (modalEl) {
     return false; // never throw to caller
   }
 };
-

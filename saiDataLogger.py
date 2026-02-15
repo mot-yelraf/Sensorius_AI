@@ -114,6 +114,9 @@ def build_switch_key(switch_id: str, channel_or_label: str, channel_id: str | No
     return f"{switch_id_safe}{SW_KEY_DELIM}{chan}"
 
 class saiDataLogger:
+    _init_lock = threading.Lock()
+    _schema_ready = False
+
     def __init__(self, db_path="sensorius_data.db"):
         self.db_path = db_path
         self._init_db()
@@ -162,119 +165,141 @@ class saiDataLogger:
 
     # Enable Write-Ahead-Logging, add PRAGMA and indexes, plus new switch tables
     def _init_db(self):
-        try:
-            with sqlite3.connect(self.db_path, timeout=3.0) as conn:
-                cur = conn.cursor()
+        # Multiple logger instances are created during startup; run schema init once per process.
+        with self.__class__._init_lock:
+            if self.__class__._schema_ready:
+                return
 
-                # ---- Pragmas (persist) ----
-                cur.execute("PRAGMA journal_mode=WAL;")
-                cur.execute("PRAGMA synchronous=NORMAL;")
-                cur.execute("PRAGMA temp_store=MEMORY;")
-                cur.execute("PRAGMA busy_timeout=3000;")
-                cur.execute("PRAGMA cache_size=-65536;")
-                cur.execute("PRAGMA wal_autocheckpoint=1000;")
+            # Tolerate transient lock contention from another process touching the DB at boot.
+            attempts = 6
+            for attempt in range(1, attempts + 1):
+                try:
+                    with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+                        cur = conn.cursor()
 
-                # ---- Sensor readings table (unchanged) -----------------------
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS readings (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        timestamp TEXT NOT NULL,            -- ISO8601
-                        ts_epoch REAL,                      -- epoch seconds (UTC comparable)
-                        sensor_id TEXT NOT NULL,
-                        metric TEXT NOT NULL,
-                        value REAL
-                    )
-                """)
-                cur.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_readings_sensor_id_nocase
-                    ON readings(sensor_id COLLATE NOCASE)
-                """)
-                cur.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_readings_sid_ts
-                    ON readings(sensor_id COLLATE NOCASE, timestamp DESC)
-                """)
-                cur.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_readings_sid_metric_ts
-                    ON readings(sensor_id COLLATE NOCASE, metric COLLATE NOCASE, timestamp)
-                """)
+                        # ---- Pragmas (persist) ----
+                        cur.execute("PRAGMA journal_mode=WAL;")
+                        cur.execute("PRAGMA synchronous=NORMAL;")
+                        cur.execute("PRAGMA temp_store=MEMORY;")
+                        cur.execute("PRAGMA busy_timeout=30000;")
+                        cur.execute("PRAGMA cache_size=-65536;")
+                        cur.execute("PRAGMA wal_autocheckpoint=1000;")
 
-                # ---- switch registry -----------------------------------
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS switch_ids (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        switch_key TEXT NOT NULL UNIQUE,  -- "<switch_id>::<channel_id>"
-                        switch_id  TEXT NOT NULL,
-                        label      TEXT NOT NULL,         -- user-visible name ("Fan","Light",...)
-                        location   TEXT
-                    )
-                """)
-                cur.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_switch_ids_switch_id
-                    ON switch_ids(switch_id COLLATE NOCASE)
-                """)
-                cur.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_switch_ids_label
-                    ON switch_ids(label COLLATE NOCASE)
-                """)
+                        # ---- Sensor readings table (unchanged) -----------------------
+                        cur.execute("""
+                            CREATE TABLE IF NOT EXISTS readings (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                timestamp TEXT NOT NULL,            -- ISO8601
+                                ts_epoch REAL,                      -- epoch seconds (UTC comparable)
+                                sensor_id TEXT NOT NULL,
+                                metric TEXT NOT NULL,
+                                value REAL
+                            )
+                        """)
+                        cur.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_readings_sensor_id_nocase
+                            ON readings(sensor_id COLLATE NOCASE)
+                        """)
+                        cur.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_readings_sid_ts
+                            ON readings(sensor_id COLLATE NOCASE, timestamp DESC)
+                        """)
+                        cur.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_readings_sid_metric_ts
+                            ON readings(sensor_id COLLATE NOCASE, metric COLLATE NOCASE, timestamp)
+                        """)
 
-                # ---- switch events -------------------------------------
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS sw_events (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        timestamp  TEXT NOT NULL,         -- ISO8601
-                        ts_epoch   REAL,                  -- epoch seconds (UTC comparable)
-                        switch_key TEXT NOT NULL,         -- "<switch_id>::<label>"
-                        state      INTEGER NOT NULL,      -- 0 = Off, 1 = On
-                        source     TEXT,                  -- 'manual','ui','mqtt','rule', etc.
-                        sensor_id  TEXT                   -- lineage/host if useful
-                    )
-                """)
-                cur.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_swe_switch_key_ts
-                    ON sw_events(switch_key, timestamp DESC)
-                """)
-                cur.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_swe_ts
-                    ON sw_events(timestamp DESC)
-                """)
-                cur.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_swe_key_nocase_ts
-                    ON sw_events(switch_key COLLATE NOCASE, timestamp DESC)
-                """)
+                        # ---- switch registry -----------------------------------
+                        cur.execute("""
+                            CREATE TABLE IF NOT EXISTS switch_ids (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                switch_key TEXT NOT NULL UNIQUE,  -- "<switch_id>::<channel_id>"
+                                switch_id  TEXT NOT NULL,
+                                label      TEXT NOT NULL,         -- user-visible name ("Fan","Light",...)
+                                location   TEXT
+                            )
+                        """)
+                        cur.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_switch_ids_switch_id
+                            ON switch_ids(switch_id COLLATE NOCASE)
+                        """)
+                        cur.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_switch_ids_label
+                            ON switch_ids(label COLLATE NOCASE)
+                        """)
 
-                # ---- additive column migrations for existing DBs ----
-                cur.execute("PRAGMA table_info(readings)")
-                reading_cols = {row[1] for row in cur.fetchall()}
-                if "ts_epoch" not in reading_cols:
-                    cur.execute("ALTER TABLE readings ADD COLUMN ts_epoch REAL")
-                cur.execute("PRAGMA table_info(sw_events)")
-                swe_cols = {row[1] for row in cur.fetchall()}
-                if "ts_epoch" not in swe_cols:
-                    cur.execute("ALTER TABLE sw_events ADD COLUMN ts_epoch REAL")
+                        # ---- switch events -------------------------------------
+                        cur.execute("""
+                            CREATE TABLE IF NOT EXISTS sw_events (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                timestamp  TEXT NOT NULL,         -- ISO8601
+                                ts_epoch   REAL,                  -- epoch seconds (UTC comparable)
+                                switch_key TEXT NOT NULL,         -- "<switch_id>::<label>"
+                                state      INTEGER NOT NULL,      -- 0 = Off, 1 = On
+                                source     TEXT,                  -- 'manual','ui','mqtt','rule', etc.
+                                sensor_id  TEXT                   -- lineage/host if useful
+                            )
+                        """)
+                        cur.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_swe_switch_key_ts
+                            ON sw_events(switch_key, timestamp DESC)
+                        """)
+                        cur.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_swe_ts
+                            ON sw_events(timestamp DESC)
+                        """)
+                        cur.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_swe_key_nocase_ts
+                            ON sw_events(switch_key COLLATE NOCASE, timestamp DESC)
+                        """)
 
-                # Create ts_epoch indexes only after additive migrations above.
-                cur.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_readings_sid_metric_tse
-                    ON readings(sensor_id COLLATE NOCASE, metric COLLATE NOCASE, ts_epoch)
-                """)
-                cur.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_swe_key_tse
-                    ON sw_events(switch_key COLLATE NOCASE, ts_epoch DESC)
-                """)
+                        # ---- additive column migrations for existing DBs ----
+                        cur.execute("PRAGMA table_info(readings)")
+                        reading_cols = {row[1] for row in cur.fetchall()}
+                        if "ts_epoch" not in reading_cols:
+                            cur.execute("ALTER TABLE readings ADD COLUMN ts_epoch REAL")
+                        cur.execute("PRAGMA table_info(sw_events)")
+                        swe_cols = {row[1] for row in cur.fetchall()}
+                        if "ts_epoch" not in swe_cols:
+                            cur.execute("ALTER TABLE sw_events ADD COLUMN ts_epoch REAL")
 
-                # Backfill missing ts_epoch values incrementally.
-                cur.execute("UPDATE readings SET ts_epoch = strftime('%s', timestamp) WHERE ts_epoch IS NULL")
-                cur.execute("UPDATE sw_events SET ts_epoch = strftime('%s', timestamp) WHERE ts_epoch IS NULL")
+                        # Create ts_epoch indexes only after additive migrations above.
+                        cur.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_readings_sid_metric_tse
+                            ON readings(sensor_id COLLATE NOCASE, metric COLLATE NOCASE, ts_epoch)
+                        """)
+                        cur.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_swe_key_tse
+                            ON sw_events(switch_key COLLATE NOCASE, ts_epoch DESC)
+                        """)
 
-                conn.commit()
+                        # Backfill missing ts_epoch values incrementally.
+                        cur.execute("UPDATE readings SET ts_epoch = strftime('%s', timestamp) WHERE ts_epoch IS NULL")
+                        cur.execute("UPDATE sw_events SET ts_epoch = strftime('%s', timestamp) WHERE ts_epoch IS NULL")
 
-                # ---- idempotent migration of legacy rows -------
-                self._maybe_migrate_legacy_switch_rows(cur)
-                conn.commit()
+                        conn.commit()
 
-        except Exception as e:
-            printDM(f"_init_db error: {e}", location=__name__)
-            raise
+                        # ---- idempotent migration of legacy rows -------
+                        self._maybe_migrate_legacy_switch_rows(cur)
+                        conn.commit()
+
+                    self.__class__._schema_ready = True
+                    return
+
+                except sqlite3.OperationalError as e:
+                    if "database is locked" in str(e).lower() and attempt < attempts:
+                        sleep_s = 0.5 * attempt
+                        printDM(
+                            f"_init_db locked (attempt {attempt}/{attempts}); retrying in {sleep_s:.1f}s",
+                            location=__name__,
+                        )
+                        time.sleep(sleep_s)
+                        continue
+                    printDM(f"_init_db error: {e}", location=__name__)
+                    raise
+                except Exception as e:
+                    printDM(f"_init_db error: {e}", location=__name__)
+                    raise
 
     def _maybe_migrate_legacy_switch_rows(self, cur: sqlite3.Cursor) -> None:
         """

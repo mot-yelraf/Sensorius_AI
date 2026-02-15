@@ -251,23 +251,24 @@ configure_boot_start() {
     return
   fi
 
-  local service_user service_group
+  local service_user service_group service_uid
   service_user="$(id -un)"
   service_group="$(id -gn)"
-  local plist_path="/Library/LaunchDaemons/com.sensorius.sensorius.plist"
-  echo "Installing launchd plist at ${plist_path} (UserName=${service_user})..."
+  service_uid="$(id -u)"
+  local plist_dir="${HOME}/Library/LaunchAgents"
+  local plist_path="${plist_dir}/com.sensorius.sensorius.plist"
+  local launchd_domain="gui/${service_uid}"
+  local launchd_label="${launchd_domain}/com.sensorius.sensorius"
+  mkdir -p "${plist_dir}"
+  echo "Installing user LaunchAgent at ${plist_path} (UserName=${service_user})..."
 
-  sudo tee "${plist_path}" >/dev/null <<EOF
+  cat > "${plist_path}" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key>
   <string>com.sensorius.sensorius</string>
-  <key>UserName</key>
-  <string>${service_user}</string>
-  <key>GroupName</key>
-  <string>${service_group}</string>
   <key>ProgramArguments</key>
   <array>
     <string>${VENV_PATH}/bin/python</string>
@@ -287,14 +288,13 @@ configure_boot_start() {
 </plist>
 EOF
 
-  # Ensure runtime files remain writable by the non-root service user.
-  sudo chown -R "${service_user}:${service_group}" "${PROJECT_DIR}"
-  sudo chown root:wheel "${plist_path}"
-  sudo chmod 644 "${plist_path}"
-  sudo launchctl bootout system/com.sensorius.sensorius >/dev/null 2>&1 || true
-  sudo launchctl bootstrap system "${plist_path}"
-  sudo launchctl enable system/com.sensorius.sensorius
-  sudo launchctl kickstart -k system/com.sensorius.sensorius
+  # Ensure runtime files remain writable by the service user.
+  chown -R "${service_user}:${service_group}" "${PROJECT_DIR}" 2>/dev/null || true
+  chmod 644 "${plist_path}"
+  launchctl bootout "${launchd_label}" >/dev/null 2>&1 || true
+  launchctl bootstrap "${launchd_domain}" "${plist_path}"
+  launchctl enable "${launchd_label}"
+  launchctl kickstart -k "${launchd_label}"
 }
 
 main() {

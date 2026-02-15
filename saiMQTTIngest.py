@@ -2769,6 +2769,9 @@ class saiMQTTIngest:
                     max_tries = max(1, int(retries))
                     last_err = "NoValidPayload"
                     for attempt in range(max_tries):
+                        # Feed before each network attempt so long retry chains don't trip watchdog.
+                        self._feed_watchdog("MQTT Discovery Loop")
+                        await asyncio.sleep(0)
                         t0 = time.monotonic()
                         try:
                             resp = await client.get(url, timeout=ITAOT_TIMEOUT_S, headers=REQUEST_HEADERS)
@@ -2807,6 +2810,7 @@ class saiMQTTIngest:
                                     printDM(f"[mqtt_discovery_loop] /itaot parse error: {e}", location=MODULE)
 
                             if looks_valid or ok_from_parser:
+                                self._feed_watchdog("MQTT Discovery Loop")
                                 return True, ""
 
                             last_err = "NoValidPayload"
@@ -2831,6 +2835,8 @@ class saiMQTTIngest:
                             last_err = type(e).__name__
                             await asyncio.sleep(0)
                             return False, type(e).__name__
+                        finally:
+                            self._feed_watchdog("MQTT Discovery Loop")
 
                     return False, last_err
 
@@ -2843,6 +2849,7 @@ class saiMQTTIngest:
                     # 1b) Secondary hostname fallback before any IP checks.
                     # For primary ".local", secondary is bare host. For primary bare host, secondary may be ".local".
                     for host_alt in (secondary_host, mdns_host):
+                        self._feed_watchdog("MQTT Discovery Loop")
                         host_alt = (host_alt or "").strip()
                         if not host_alt or host_alt == primary_host:
                             continue
@@ -2860,6 +2867,7 @@ class saiMQTTIngest:
 
                     mdns_ok_to_try = bool(mdns_ip and itaot_ipv4 and mdns_ip == itaot_ipv4)
                     if mdns_ok_to_try:
+                        self._feed_watchdog("MQTT Discovery Loop")
                         ok2, _err2 = await _fetch_itaot(mdns_ip, retries=2)
                         if ok2:
                             self._host_ip_cache[base] = mdns_ip
@@ -2872,6 +2880,7 @@ class saiMQTTIngest:
 
                     # 3) Final fallback: cached ipv4addr from /itaot
                     if itaot_ipv4:
+                        self._feed_watchdog("MQTT Discovery Loop")
                         ok3, _err3 = await _fetch_itaot(itaot_ipv4, retries=2)
                         if ok3:
                             self._host_ip_cache[base] = itaot_ipv4

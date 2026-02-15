@@ -11,6 +11,7 @@ import os
 import time
 import socket
 import shutil
+import platform
 import logging
 import asyncio
 import inspect
@@ -22,9 +23,10 @@ from logging.handlers import RotatingFileHandler
 from zoneinfo import ZoneInfo
 
 try:
-    from dotenv import load_dotenv
+    from dotenv import load_dotenv, dotenv_values
 except Exception:  # pragma: no cover - optional dependency guard
     load_dotenv = None
+    dotenv_values = None
 
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -41,18 +43,31 @@ DEFAULT_DEBUG_MODULES = {
 logger = logging.getLogger("saiUtils")
 logger.addHandler(logging.NullHandler())
 logger.setLevel(logging.NOTSET)
+_DOTENV_FILE_VALUES: dict[str, str] = {}
 
 
 def _load_startup_dotenv() -> None:
     """
     Load a project-root .env (if present) before any env-driven config is read.
     """
+    global _DOTENV_FILE_VALUES
+    _DOTENV_FILE_VALUES = {}
     if load_dotenv is None:
         return
 
     base_dir = Path(__file__).resolve().parent
     dotenv_path = base_dir / ".env"
     if dotenv_path.exists():
+        if dotenv_values is not None:
+            try:
+                parsed = dotenv_values(dotenv_path=dotenv_path)
+                _DOTENV_FILE_VALUES = {
+                    str(k): str(v)
+                    for k, v in (parsed or {}).items()
+                    if k and v is not None
+                }
+            except Exception:
+                _DOTENV_FILE_VALUES = {}
         load_dotenv(dotenv_path=dotenv_path, override=False)
     else:
         # Fall back to default dotenv discovery behavior.
@@ -175,6 +190,20 @@ def _parse_bool(raw: str | None, default: bool = False) -> bool:
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _get_env_setting(key: str, default=None, *, prefer_dotenv: bool = False):
+    """
+    Read env settings with optional .env-file precedence.
+    """
+    if prefer_dotenv:
+        file_val = _DOTENV_FILE_VALUES.get(key)
+        if file_val is not None and str(file_val).strip() != "":
+            return str(file_val)
+    raw = os.environ.get(key)
+    if raw is None or str(raw).strip() == "":
+        return default
+    return raw
+
+
 def _load_debug_modules() -> set[str]:
     """
     Load debug-enabled modules from environment.
@@ -182,7 +211,7 @@ def _load_debug_modules() -> set[str]:
     ENV:
       - SENSORIUS_DEBUG_MODULES="ALL" or comma-delimited names
     """
-    raw = os.environ.get("SENSORIUS_DEBUG_MODULES")
+    raw = _get_env_setting("SENSORIUS_DEBUG_MODULES", None, prefer_dotenv=True)
     if raw is None or raw.strip() == "":
         return set(DEFAULT_DEBUG_MODULES)
     modules = {part.strip() for part in raw.split(",") if part.strip()}
@@ -208,15 +237,15 @@ def configure_logging(
       - SENSORIUS_LOG_FILE  (default: sensorius.log)
       - SENSORIUS_HTTP_DEBUG (true/false, default: false)
     """
-    effective_level = (level or os.environ.get("SENSORIUS_LOG_LEVEL", "DEBUG")).upper()
+    effective_level = (level or _get_env_setting("SENSORIUS_LOG_LEVEL", "DEBUG", prefer_dotenv=True)).upper()
     file_logging = _parse_bool(
-        os.environ.get("SENSORIUS_FILE_LOG"),
+        _get_env_setting("SENSORIUS_FILE_LOG", None, prefer_dotenv=True),
         default=False if enable_file is None else bool(enable_file),
     )
     if enable_file is not None:
         file_logging = bool(enable_file)
-    target_file = log_file or os.environ.get("SENSORIUS_LOG_FILE", DEFAULT_LOG_FILE)
-    http_debug = _parse_bool(os.environ.get("SENSORIUS_HTTP_DEBUG"), default=False)
+    target_file = log_file or _get_env_setting("SENSORIUS_LOG_FILE", DEFAULT_LOG_FILE, prefer_dotenv=True)
+    http_debug = _parse_bool(_get_env_setting("SENSORIUS_HTTP_DEBUG", None, prefer_dotenv=True), default=False)
 
     root_logger = logging.getLogger()
     if root_logger.handlers and not force:
@@ -458,6 +487,40 @@ def get_pi_network_info(interface: str = "wlan0", force_refresh: bool = False) -
             return cache["data"]
 
     try:
+        # Non-Raspberry-Pi hosts should not run Pi/NM probing logic.
+        if platform.system().lower() != "linux":
+            cache["data"] = soft
+            cache["ok_until"] = now + 300.0
+            cache["backoff"] = 0.0
+            cache["backoff_until"] = 0.0
+            return soft
+        try:
+            model_text = ""
+            model_paths = (
+                "/proc/device-tree/model",
+                "/sys/firmware/devicetree/base/model",
+            )
+            for model_path in model_paths:
+                if os.path.exists(model_path):
+                    with open(model_path, "rb") as fh:
+                        model_text = fh.read().decode("utf-8", errors="ignore").strip("\x00 \n\t")
+                    if model_text:
+                        break
+            is_rpi = ("raspberry pi" in model_text.lower()) if model_text else False
+            if not is_rpi and os.path.exists("/proc/cpuinfo"):
+                with open("/proc/cpuinfo", "r", encoding="utf-8", errors="ignore") as fh:
+                    cpuinfo = fh.read()
+                if "raspberry pi" in cpuinfo.lower():
+                    is_rpi = True
+        except Exception:
+            is_rpi = False
+        if not is_rpi:
+            cache["data"] = soft
+            cache["ok_until"] = now + 300.0
+            cache["backoff"] = 0.0
+            cache["backoff_until"] = 0.0
+            return soft
+
         if not shutil.which("nmcli"):
             raise RuntimeError("nmcli not found")
 

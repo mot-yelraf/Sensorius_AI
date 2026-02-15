@@ -331,6 +331,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     # global assets for templates
     yield "<link rel='stylesheet' href='/ui_static/css/app.css'>"
     yield "<script type='module' src='/ui_static/js/advanced_automation.js'></script>"
+    yield "<script src='/ui_static/js/sensor_settings_modal.js'></script>"
     yield "</head><body>"
     yield (
       f"<div class='dashboard' "
@@ -1421,6 +1422,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const allSeries = jsonData.series || {};"
     yield "    const entries = Object.entries(allSeries);"
     yield "    if (!entries.length) {"
+    yield "      if (typeof window.showToast === 'function' && jsonData && jsonData.no_data) {"
+    yield "        window.showToast('No data in selected graph window', 'warn');"
+    yield "      }"
     yield "      return;"
     yield "    }"
     yield ""
@@ -1449,10 +1453,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const seriesObj = chosen[1] || {};"
     yield "    const labels = seriesObj.ts || [];"
     yield "    const values = seriesObj.vals || [];"
-    yield "    const rollingAll = (jsonData && jsonData.rolling_ema) || {};"
-    yield "    const rollingObj = (rollingAll && rollingAll[chosen[0]]) || {};"
-    yield "    const rollingTs = rollingObj.ts || [];"
-    yield "    const rollingVals = rollingObj.vals || [];"
+    yield "    const avgAll = (jsonData && (jsonData.simple_avg || jsonData.rolling_ema)) || {};"
+    yield "    const avgObj = (avgAll && avgAll[chosen[0]]) || {};"
+    yield "    const avgTs = avgObj.ts || [];"
+    yield "    const avgVals = avgObj.vals || [];"
     yield ""
     yield "    if (!values.length) {"
     yield "      return;"
@@ -1500,35 +1504,38 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      chartOptions.scales.y.max = 5.0;"
     yield "    }"
     yield ""
-    yield "    function _alignRolling(labels, rollingTs, rollingVals){"
-    yield "      if (!labels.length || !rollingTs.length || !rollingVals.length) return [];"
-    yield "      if (labels.length === rollingVals.length) return rollingVals;"
+    yield "    function _alignAvg(labels, avgTs, avgVals){"
+    yield "      if (!labels.length || !avgTs.length || !avgVals.length) return [];"
+    yield "      if (labels.length === avgVals.length) return avgVals;"
     yield "      const map = new Map();"
-    yield "      for (let i = 0; i < rollingTs.length; i++){"
-    yield "        map.set(rollingTs[i], rollingVals[i]);"
+    yield "      for (let i = 0; i < avgTs.length; i++){"
+    yield "        map.set(avgTs[i], avgVals[i]);"
     yield "      }"
     yield "      return labels.map(ts => map.has(ts) ? map.get(ts) : null);"
     yield "    }"
     yield ""
-    yield "    const alignedRolling = _alignRolling(labels, rollingTs, rollingVals);"
-    yield "    const hasRolling = alignedRolling.length === labels.length && alignedRolling.some(v => v !== null && v !== undefined);"
+    yield "    const alignedAvg = _alignAvg(labels, avgTs, avgVals);"
+    yield "    const hasAvg = alignedAvg.length === labels.length && alignedAvg.some(v => v !== null && v !== undefined);"
     yield ""
+    yield "    const sparseRadius = (labels.length <= 1) ? 2 : 0;"
     yield "    const datasets = [{"
     yield "      data: values,"
     yield "      borderColor: '#00bfff',"
     yield "      backgroundColor: 'rgba(255,255,255,1)',"
     yield "      order: 1,"
-    yield "      pointRadius: 0,"
+    yield "      pointRadius: sparseRadius,"
+    yield "      pointHoverRadius: Math.max(3, sparseRadius),"
     yield "      tension: 0.3"
     yield "    }];"
     yield ""
-    yield "    if (hasRolling) {"
+    yield "    if (hasAvg) {"
     yield "      datasets.push({"
-    yield "        data: alignedRolling,"
+    yield "        data: alignedAvg,"
     yield "        borderColor: 'purple',"
     yield "        borderDash: [6, 3],"
     yield "        order: 2,"
-    yield "        pointRadius: 0,"
+    yield "        pointRadius: sparseRadius,"
+    yield "        pointHoverRadius: Math.max(3, sparseRadius),"
     yield "        tension: 0.3"
     yield "      });"
     yield "    }"
@@ -1760,7 +1767,26 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    window.BackdropModal.close('sensorSettingsModal');"
     # mount the new one
     yield "    const modal = window.BackdropModal.openFromHtml(html, 'sensorSettingsModal');"
-    yield "    if (modal) modal.dataset.sensorId = id;"
+    yield "    if (modal) {"
+    yield "      modal.dataset.sensorId = id;"
+    yield "      const TAG_ID = 'system-calibration-js';"
+    yield "      let needLoadSystemCalJs = true;"
+    yield "      if (window.initSystemCalibrationModal) needLoadSystemCalJs = false;"
+    yield "      if (needLoadSystemCalJs) {"
+    yield "        const existing = document.getElementById(TAG_ID);"
+    yield "        if (existing && existing.parentNode) existing.parentNode.removeChild(existing);"
+    yield "        await new Promise((resolve, reject) => {"
+    yield "          const s = document.createElement('script');"
+    yield "          s.id = TAG_ID;"
+    yield "          s.src = '/ui_static/js/system_calibration.js?v=' + Date.now();"
+    yield "          s.onload = resolve;"
+    yield "          s.onerror = reject;"
+    yield "          document.head.appendChild(s);"
+    yield "        });"
+    yield "      }"
+    yield "      if (window.initSensorSettingsModal) window.initSensorSettingsModal(modal);"
+    yield "      if (window.initSystemCalibrationModal) await window.initSystemCalibrationModal(modal);"
+    yield "    }"
     yield "  } catch (e) {"
     yield "    console.error('Failed to load sensor modal', e);"
     yield "  }"
@@ -1929,6 +1955,56 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  };"
     yield "}"
 
+    # --- Switch Settings modal section switching + lazy automation init ---
+    yield "window.initSwitchSettingsModal = function(modalEl){"
+    yield "  const modal = modalEl || document.getElementById('switchSettingsModal');"
+    yield "  if (!modal) return;"
+    yield "  const btnSettings = modal.querySelector('#switchMenuSettings');"
+    yield "  const btnAutos = modal.querySelector('#switchMenuAutomations');"
+    yield "  const paneSettings = modal.querySelector('#switchSettingsPane');"
+    yield "  const paneAutos = modal.querySelector('#switchAutomationsPane');"
+    yield "  if (!btnSettings || !btnAutos || !paneSettings || !paneAutos) return;"
+    yield ""
+    yield "  function activate(which){"
+    yield "    const showSettings = (which === 'settings');"
+    yield "    paneSettings.hidden = !showSettings;"
+    yield "    paneAutos.hidden = showSettings;"
+    yield "    btnSettings.classList.toggle('active', showSettings);"
+    yield "    btnAutos.classList.toggle('active', !showSettings);"
+    yield "    btnSettings.setAttribute('aria-selected', showSettings ? 'true' : 'false');"
+    yield "    btnAutos.setAttribute('aria-selected', showSettings ? 'false' : 'true');"
+    yield "  }"
+    yield ""
+    yield "  btnSettings.onclick = function(){"
+    yield "    activate('settings');"
+    yield "  };"
+    yield ""
+    yield "  btnAutos.onclick = async function(){"
+    yield "    activate('automations');"
+    yield "    if (typeof window.initAdvancedAutomationModal !== 'function') {"
+    yield "      console.error('initAdvancedAutomationModal is not available');"
+    yield "      return;"
+    yield "    }"
+    yield "    if (modal.dataset.automationInit !== '1') {"
+    yield "      const ok = await window.initAdvancedAutomationModal(modal);"
+    yield "      if (ok) {"
+    yield "        modal.dataset.automationInit = '1';"
+    yield "        if (typeof window.refreshAdvancedAutomationModal === 'function') {"
+    yield "          setTimeout(function(){"
+    yield "            window.refreshAdvancedAutomationModal(modal).catch(function(){});"
+    yield "          }, 250);"
+    yield "        }"
+    yield "      }"
+    yield "      return;"
+    yield "    }"
+    yield "    if (typeof window.refreshAdvancedAutomationModal === 'function') {"
+    yield "      await window.refreshAdvancedAutomationModal(modal);"
+    yield "    }"
+    yield "  };"
+    yield ""
+    yield "  activate('settings');"
+    yield "};"
+
     # --- Switch Settings Modal opener (uses BackdropModal, preserves old semantics) ---
     yield "window.editSwitchSettings = async function(id) {"
     yield "  try {"
@@ -1952,7 +2028,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    window.BackdropModal.close('switchSettingsModal');"
     # --- mount the new one ---
     yield "    const modal = window.BackdropModal.openFromHtml(html, 'switchSettingsModal');"
-    yield "    if (modal) modal.dataset.switchId = id;"
+    yield "    if (modal) {"
+    yield "      modal.dataset.switchId = id;"
+    yield "      modal.dataset.automationInit = '0';"
+    yield "      if (typeof window.initSwitchSettingsModal === 'function') window.initSwitchSettingsModal(modal);"
+    yield "    }"
     yield "  } catch (e) {"
     yield "    console.error('Failed to load switch modal', e);"
     yield "  }"
@@ -2751,8 +2831,75 @@ def render_graph_modal(switch_installed=None):
     }
     #graphModal .modal-content {
       background:#F5FFFA; padding:1rem; border-radius:0.5rem;
-      max-width:560px; width:92%; max-height:90%; overflow-y:auto;
+      max-width:860px; width:96%; max-height:90%; overflow:hidden;
+      display:grid; grid-template-columns: 30% 70%; gap:1rem;
+      box-sizing:border-box;
     }
+    #graphModal .graph-left-pane,
+    #graphModal .graph-right-pane{
+      border:1px solid #d7e6df;
+      border-radius:10px;
+      background:#ffffff;
+      min-height:560px;
+      display:flex;
+      flex-direction:column;
+      overflow:hidden;
+    }
+    #graphModal .graph-left-pane{ background:#f7fcfa; }
+    #graphModal .graph-pane-title{
+      margin:0; padding:0.85rem 1rem; font-size:1rem; font-weight:700;
+      border-bottom:1px solid #e3eee8;
+    }
+    #graphSetupList{
+      flex:1;
+      overflow:auto;
+      padding:0.65rem;
+      display:flex;
+      flex-direction:column;
+      gap:0.45rem;
+    }
+    #graphSetupList .setup-item{
+      border:1px solid #d8e5df;
+      border-radius:8px;
+      padding:0.55rem 0.65rem;
+      background:#fff;
+      text-align:left;
+      cursor:pointer;
+      font-size:0.92rem;
+      line-height:1.25;
+    }
+    #graphSetupList .setup-item:hover{ background:#eef8f4; border-color:#b7d5c8; }
+    #graphSetupList .setup-item.active{ background:#e3f4ec; border-color:#86b9a0; font-weight:700; }
+    #graphSetupList .setup-empty{
+      font-size:0.9rem;
+      color:#5f7469;
+      padding:0.4rem;
+    }
+    #graphModal .graph-left-footer{
+      border-top:1px solid #e3eee8;
+      padding:0.65rem;
+      display:flex;
+      justify-content:center;
+    }
+    #graphModal .graph-left-footer .button{
+      margin:0;
+      width:100%;
+      max-width:180px;
+    }
+    #graphModal .graph-right-body{
+      flex:1;
+      overflow:auto;
+      padding:0.95rem 1rem 0.6rem 1rem;
+    }
+    #graphModal .graph-actions{
+      border-top:1px solid #e3eee8;
+      padding:0.75rem 1rem;
+      display:flex;
+      justify-content:space-between;
+      gap:0.6rem;
+      align-items:center;
+    }
+    #graphModal .graph-actions .button{ margin:0; }
     .spinner{
       width:16px;height:16px;border:2px solid #ccc;border-top:2px solid #333;border-radius:50%;
       animation:spin 1s linear infinite; display:inline-block;vertical-align:middle
@@ -2767,13 +2914,33 @@ def render_graph_modal(switch_installed=None):
     }
     .axis-grid h3{grid-column:1/3;margin:.25rem 0 .25rem 0}
     .axis-grid label{font-size:.9rem}
+    @media (max-width: 980px){
+      #graphModal .modal-content{
+        grid-template-columns: 1fr;
+        max-width: 96%;
+      }
+      #graphModal .graph-left-pane,
+      #graphModal .graph-right-pane{
+        min-height: auto;
+      }
+      #graphSetupList{ max-height:220px; }
+    }
     </style>
     """
 
     # ---------- Modal shell ----------
     yield "<div id='graphModal' class='modal'>"
     yield "  <div class='modal-content'>"
-    yield "    <h2 style='text-align:center;'>Graph Sensor Metrics</h2>"
+    yield "    <div class='graph-left-pane'>"
+    yield "      <h3 class='graph-pane-title'>Saved Graph Setups</h3>"
+    yield "      <div id='graphSetupList'></div>"
+    yield "      <div class='graph-left-footer'>"
+    yield "        <button id='graphSetupRemoveBtn' class='button red' onclick='removeGraphSetup()' disabled>Remove</button>"
+    yield "      </div>"
+    yield "    </div>"
+    yield "    <div class='graph-right-pane'>"
+    yield "      <h2 class='graph-pane-title' style='text-align:center;'>Graph Sensor Metrics</h2>"
+    yield "      <div class='graph-right-body'>"
 
     # Axis pickers
     yield "    <div class='axis-grid'>"
@@ -2861,17 +3028,19 @@ def render_graph_modal(switch_installed=None):
         yield "    </div>"
 
     # Footer bar
-    yield "    <div style='margin-top:1rem; display:flex; justify-content:space-between;'>"
+    yield "      </div>"
+    yield "    <div class='graph-actions'>"
     yield (
         "      <button class='button black' "
-        "onclick=\"document.getElementById('graphModal').style.display='none'\">Cancel</button>"
+        "onclick=\"document.getElementById('graphModal').style.display='none'\">Home</button>"
     )
+    yield "      <button id='graphSaveButton' class='button green' onclick='saveGraphSetup(event)'>Save</button>"
     yield "      <button id='graphButton' class='button blue' onclick='loadGraph(event)'>"
     yield "        <span class='spinner' style='display:none;margin-right:6px;'></span>"
     yield "        <span class='button-text'>Graph It</span>"
     yield "      </button>"
     yield "    </div>"
-
+    yield "    </div>"
     yield "  </div>"
     yield "</div>"
 
@@ -2917,9 +3086,28 @@ def render_graph_modal(switch_installed=None):
       return Number.isFinite(ms) ? ms : undefined;
     }
 
+    let GRAPH_SETUPS = [];
+    let GRAPH_LAST_USED = '';
+    let GRAPH_ACTIVE_SETUP = '';
+
     async function fetchJSON(url){
       const r = await fetch(url, {cache: 'no-store'});
       try { return await r.json(); } catch { return null; }
+    }
+
+    async function postJSON(url, payload){
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+      });
+      let data = null;
+      try { data = await r.json(); } catch {}
+      if(!r.ok){
+        const msg = (data && (data.error || data.detail)) ? String(data.error || data.detail) : ('HTTP ' + r.status);
+        throw new Error(msg);
+      }
+      return data || {};
     }
 
     async function populateSensors(selectIds){
@@ -2960,6 +3148,223 @@ def render_graph_modal(switch_installed=None):
       });
     }
 
+    function renderSwitchChannels(){
+      const swSel = document.getElementById('switch_select');
+      const chBox = document.getElementById('channel_checkboxes');
+      if(!swSel || !chBox) return;
+      chBox.innerHTML = '';
+      const sid = (swSel.value || '').trim();
+      if(!sid) return;
+      (SWITCH_MAP[sid] || []).forEach(label => {
+        const encoded = btoa(unescape(encodeURIComponent(sid + '::' + label))).replace(/=/g,'');
+        const id = 'ch_' + encoded;
+        const wrap = document.createElement('label');
+        wrap.innerHTML = "<input type='checkbox' id='" + id + "' data-label='" + label + "'> " + label;
+        chBox.appendChild(wrap);
+      });
+    }
+
+    function setRangeSelection(rangeVal){
+      const normalized = (rangeVal || '24h').trim().toLowerCase();
+      const target = document.querySelector("input[name='range'][value='" + normalized + "']");
+      const custom = normalized === 'custom';
+      if(target){
+        target.checked = true;
+      }else{
+        const fallback = document.querySelector("input[name='range'][value='24h']");
+        if (fallback) fallback.checked = true;
+      }
+      toggleCustomTime(custom);
+    }
+
+    function getCurrentGraphConfig(){
+      const rangeEl = document.querySelector("input[name='range']:checked");
+      const range = rangeEl ? String(rangeEl.value || '24h') : '24h';
+      const cfg = {
+        sensor1_select: (document.getElementById('sensor1_select')?.value || '').trim(),
+        sensor2_select: (document.getElementById('sensor2_select')?.value || '').trim(),
+        sensor3_select: (document.getElementById('sensor3_select')?.value || '').trim(),
+        metric1_select: (document.getElementById('metric1_select')?.value || '').trim(),
+        metric2_select: (document.getElementById('metric2_select')?.value || '').trim(),
+        metric3_select: (document.getElementById('metric3_select')?.value || '').trim(),
+        range: range,
+        start_time: (document.getElementById('start_time')?.value || '').trim(),
+        end_time: (document.getElementById('end_time')?.value || '').trim(),
+        switch_select: (document.getElementById('switch_select')?.value || '').trim(),
+        channels: []
+      };
+      const cbs = document.querySelectorAll('#channel_checkboxes input[type="checkbox"]');
+      (cbs || []).forEach(cb => {
+        if(cb.checked){
+          const label = (cb.getAttribute('data-label') || '').trim();
+          if(label) cfg.channels.push(label);
+        }
+      });
+      return cfg;
+    }
+
+    async function applyGraphConfig(cfg){
+      const c = (cfg && typeof cfg === 'object') ? cfg : {};
+      const s1 = document.getElementById('sensor1_select');
+      const s2 = document.getElementById('sensor2_select');
+      const s3 = document.getElementById('sensor3_select');
+      if(s1) s1.value = String(c.sensor1_select || '');
+      if(s2) s2.value = String(c.sensor2_select || '');
+      if(s3) s3.value = String(c.sensor3_select || '');
+
+      await populateMetricsFor('sensor1_select','metric1_select');
+      await populateMetricsFor('sensor2_select','metric2_select');
+      await populateMetricsFor('sensor3_select','metric3_select');
+
+      const m1 = document.getElementById('metric1_select');
+      const m2 = document.getElementById('metric2_select');
+      const m3 = document.getElementById('metric3_select');
+      if(m1) m1.value = String(c.metric1_select || '');
+      if(m2) m2.value = String(c.metric2_select || '');
+      if(m3) m3.value = String(c.metric3_select || '');
+
+      setRangeSelection(String(c.range || '24h'));
+      const startEl = document.getElementById('start_time');
+      const endEl = document.getElementById('end_time');
+      if(startEl) startEl.value = String(c.start_time || '');
+      if(endEl) endEl.value = String(c.end_time || '');
+
+      const swSel = document.getElementById('switch_select');
+      if(swSel){
+        swSel.value = String(c.switch_select || '');
+        renderSwitchChannels();
+        const selected = new Set(Array.isArray(c.channels) ? c.channels.map(v => String(v)) : []);
+        const cbs = document.querySelectorAll('#channel_checkboxes input[type="checkbox"]');
+        (cbs || []).forEach(cb => {
+          const label = String(cb.getAttribute('data-label') || '');
+          cb.checked = selected.has(label);
+        });
+      }
+    }
+
+    function markActiveSetup(name){
+      GRAPH_ACTIVE_SETUP = String(name || '');
+      const removeBtn = document.getElementById('graphSetupRemoveBtn');
+      if(removeBtn) removeBtn.disabled = !GRAPH_ACTIVE_SETUP;
+      const nodes = document.querySelectorAll('#graphSetupList .setup-item');
+      (nodes || []).forEach(n => {
+        if((n.getAttribute('data-name') || '') === GRAPH_ACTIVE_SETUP) n.classList.add('active');
+        else n.classList.remove('active');
+      });
+    }
+
+    function renderGraphSetupList(){
+      const list = document.getElementById('graphSetupList');
+      if(!list) return;
+      list.innerHTML = '';
+      if(!Array.isArray(GRAPH_SETUPS) || !GRAPH_SETUPS.length){
+        const empty = document.createElement('div');
+        empty.className = 'setup-empty';
+        empty.textContent = 'No saved graph setups.';
+        list.appendChild(empty);
+        markActiveSetup('');
+        return;
+      }
+      GRAPH_SETUPS.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'setup-item';
+        btn.setAttribute('data-name', String(item.name || ''));
+        btn.textContent = String(item.name || '');
+        btn.onclick = () => loadSavedGraphSetup(String(item.name || ''));
+        list.appendChild(btn);
+      });
+      markActiveSetup(GRAPH_ACTIVE_SETUP || GRAPH_LAST_USED || '');
+    }
+
+    async function refreshGraphSetupsFromServer(){
+      const payload = await fetchJSON('/graph-setups');
+      const items = (payload && Array.isArray(payload.items)) ? payload.items : [];
+      GRAPH_SETUPS = items.map(it => ({
+        name: String((it && it.name) || ''),
+        config: (it && typeof it.config === 'object') ? it.config : {}
+      })).filter(it => it.name);
+      GRAPH_LAST_USED = String((payload && payload.last_used) || '');
+      renderGraphSetupList();
+    }
+
+    async function loadSavedGraphSetup(name){
+      const setupName = String(name || '').trim();
+      if(!setupName) return;
+      const hit = (GRAPH_SETUPS || []).find(it => String(it.name || '') === setupName);
+      if(!hit) return;
+      await applyGraphConfig(hit.config || {});
+      markActiveSetup(setupName);
+      try{
+        await postJSON('/graph-setups/use', { name: setupName });
+      }catch(e){
+        console.warn('Failed to set last-used graph setup', e);
+      }
+    }
+
+    async function saveGraphSetup(event){
+      const btn = event && event.target ? event.target.closest('button') : document.getElementById('graphSaveButton');
+      if(btn) btn.disabled = true;
+      try{
+        const suggested = GRAPH_ACTIVE_SETUP || '';
+        const rawName = window.prompt('Save graph setup as:', suggested);
+        if(rawName === null) return;
+        const name = String(rawName || '').trim();
+        if(!name){
+          alert('Setup name is required.');
+          return;
+        }
+        const config = getCurrentGraphConfig();
+        const payload = await postJSON('/graph-setups/save', { name: name, config: config });
+        const items = (payload && Array.isArray(payload.items)) ? payload.items : [];
+        GRAPH_SETUPS = items.map(it => ({
+          name: String((it && it.name) || ''),
+          config: (it && typeof it.config === 'object') ? it.config : {}
+        })).filter(it => it.name);
+        GRAPH_LAST_USED = String((payload && payload.last_used) || name);
+        renderGraphSetupList();
+        markActiveSetup(name);
+        if(typeof window.showToast === 'function') window.showToast('Graph setup saved', 'ok');
+      }catch(e){
+        console.error('Save graph setup failed', e);
+        alert('Failed to save graph setup: ' + (e && e.message ? e.message : 'unknown error'));
+      }finally{
+        if(btn) btn.disabled = false;
+      }
+    }
+
+    async function removeGraphSetup(){
+      const name = String(GRAPH_ACTIVE_SETUP || '').trim();
+      if(!name) return;
+      if(!window.confirm("Remove saved graph setup '" + name + "'?")) return;
+      const btn = document.getElementById('graphSetupRemoveBtn');
+      if(btn) btn.disabled = true;
+      try{
+        const payload = await postJSON('/graph-setups/remove', { name: name });
+        const items = (payload && Array.isArray(payload.items)) ? payload.items : [];
+        GRAPH_SETUPS = items.map(it => ({
+          name: String((it && it.name) || ''),
+          config: (it && typeof it.config === 'object') ? it.config : {}
+        })).filter(it => it.name);
+        GRAPH_LAST_USED = String((payload && payload.last_used) || '');
+        renderGraphSetupList();
+        if(GRAPH_LAST_USED){
+          await loadSavedGraphSetup(GRAPH_LAST_USED);
+        } else {
+          markActiveSetup('');
+        }
+        if(typeof window.showToast === 'function') window.showToast('Graph setup removed', 'ok');
+      }catch(e){
+        console.error('Remove graph setup failed', e);
+        alert('Failed to remove graph setup: ' + (e && e.message ? e.message : 'unknown error'));
+      }finally{
+        if(btn) btn.disabled = !GRAPH_ACTIVE_SETUP;
+      }
+    }
+
+    window.saveGraphSetup = saveGraphSetup;
+    window.removeGraphSetup = removeGraphSetup;
+
     async function initGraphBuilder(){
       try{
         await populateSensors(['sensor1_select','sensor2_select','sensor3_select']);
@@ -2976,7 +3381,6 @@ def render_graph_modal(switch_installed=None):
         await populateMetricsFor('sensor3_select','metric3_select');
 
         const swSel = document.getElementById('switch_select');
-        const chBox = document.getElementById('channel_checkboxes');
         if(swSel){
           swSel.innerHTML = "<option value=''>-- Select Switch --</option>";
           Object.keys(SWITCH_MAP).forEach(sid => {
@@ -2985,19 +3389,13 @@ def render_graph_modal(switch_installed=None):
             o.textContent = sid;
             swSel.appendChild(o);
           });
-          swSel.onchange = () => {
-            if(!chBox) return;
-            chBox.innerHTML = '';
-            const sid = swSel.value;
-            if(!sid) return;
-            (SWITCH_MAP[sid] || []).forEach(label => {
-              const encoded = btoa(unescape(encodeURIComponent(sid + '::' + label))).replace(/=/g,'');
-              const id = 'ch_' + encoded;
-              const wrap = document.createElement('label');
-              wrap.innerHTML = "<input type='checkbox' id='" + id + "' data-label='" + label + "'> " + label;
-              chBox.appendChild(wrap);
-            });
-          };
+          swSel.onchange = () => renderSwitchChannels();
+        }
+        await refreshGraphSetupsFromServer();
+        if(GRAPH_LAST_USED){
+          await loadSavedGraphSetup(GRAPH_LAST_USED);
+        }else{
+          markActiveSetup('');
         }
       }catch(e){
         console.error('Graph builder init failed', e);
@@ -3063,6 +3461,13 @@ def render_graph_modal(switch_installed=None):
       fetch('/graph-data?' + params.toString())
         .then(r => r.json())
         .then(data => {
+          if (data && data.no_data) {
+            alert(data.detail || 'No data in selected graph window');
+            return;
+          }
+          if (GRAPH_ACTIVE_SETUP){
+            postJSON('/graph-setups/use', { name: GRAPH_ACTIVE_SETUP }).catch(() => {});
+          }
           document.getElementById('graphModal').style.display='none';
           renderGraphFullscreen_V2(data);
         })
@@ -3135,7 +3540,7 @@ def render_graph_modal(switch_installed=None):
 
       const datasets = [];
       const series = (data && data.series) || {};
-      const rollingAll = (data && data.rolling_ema) || {};
+      const avgAll = (data && (data.simple_avg || data.rolling_ema)) || {};
       const keys = Object.keys(series || {});
       let leftAssigned = false;
       const baseColors = ['#1f77b4', '#2ca02c', '#7f3fbf'];
@@ -3163,10 +3568,11 @@ def render_graph_modal(switch_installed=None):
           yAxisID: yAxisID,
           order: 1,
           tension: 0.2,
-          pointRadius: 0
+          pointRadius: (points.length <= 1 ? 3 : 0),
+          pointHoverRadius: (points.length <= 1 ? 4 : 3)
         });
 
-        const roll = (rollingAll && rollingAll[k]) || {};
+        const roll = (avgAll && avgAll[k]) || {};
         const rollTs = roll.ts || [];
         const rollVals = roll.vals || [];
         if (rollTs.length && rollVals.length){
@@ -3180,14 +3586,15 @@ def render_graph_modal(switch_installed=None):
           }
           if (rollPoints.length){
             datasets.push({
-              label: ((data.display_names && data.display_names[k]) || k) + " (EMA ~60m)",
+              label: ((data.display_names && data.display_names[k]) || k) + " (Average)",
               data: rollPoints,
               borderColor: 'purple',
               borderDash: [6, 3],
               yAxisID: yAxisID,
               order: 2,
               tension: 0.2,
-              pointRadius: 0
+              pointRadius: (rollPoints.length <= 1 ? 3 : 0),
+              pointHoverRadius: (rollPoints.length <= 1 ? 4 : 3)
             });
           }
         }
@@ -3358,11 +3765,11 @@ def render_graph_modal(switch_installed=None):
       }
     }
 
-    window.openGraphModal = function(){
+    window.openGraphModal = async function(){
       const gm = document.getElementById('graphModal');
       if (gm){
         gm.style.display = 'flex';
-        initGraphBuilder();
+        await initGraphBuilder();
       }
     };
     """

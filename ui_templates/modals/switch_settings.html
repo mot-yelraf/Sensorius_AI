@@ -17,107 +17,173 @@
         {{ switch_id }}
       </h3>
 
-      <form method="POST" action="/submit-switch-settings">
-        <input type="hidden" name="switch_id" value="{{ switch_id }}" />
+      <div class="split switch-dialog-split">
+        <aside class="panel switch-dialog-menu" aria-label="Switch dialog sections">
+          <button class="switch-menu-btn active" type="button" id="switchMenuSettings" aria-selected="true">
+            Switch Settings
+          </button>
+          <button class="switch-menu-btn" type="button" id="switchMenuAutomations" aria-selected="false">
+            Automations
+          </button>
+        </aside>
 
-        <table style="width:100%; border-collapse:collapse;">
-          <!-- DEVICE (readonly) -->
-          <tr>
-            <td><label for="device">DEVICE:</label></td>
-            <td>
-              <input
-                type="text"
-                id="device"
-                name="device"
-                readonly
-                style="background-color: lightgray;"
-                value="{{ settings.Switch.DEVICE if settings.Switch and settings.Switch.DEVICE is not none else 'switch' }}"
-              />
-            </td>
-          </tr>
+        <section class="panel switch-dialog-content">
+          <div id="switchSettingsPane" class="switch-pane">
+            <form method="POST" action="/submit-switch-settings">
+              <input type="hidden" name="switch_id" value="{{ switch_id }}" />
 
-          <!-- SWITCH_ID (readonly) -->
-          <tr>
-            <td><label for="switch_id_field">SWITCH_ID:</label></td>
-            <td>
-              <input
-                type="text"
-                id="switch_id_field"
-                name="switch_id_field"
-                readonly
-                style="background-color: lightgray;"
-                value="{{ settings.Switch.SWITCH_ID if settings.Switch and settings.Switch.SWITCH_ID is not none else switch_id }}"
-              />
-            </td>
-          </tr>
+              <div class="switch-form-grid">
+                <div class="field-stack">
+                  <label for="device">DEVICE</label>
+                  <input
+                    type="text"
+                    id="device"
+                    name="device"
+                    readonly
+                    style="background-color: lightgray;"
+                    value="{{ settings.Switch.DEVICE if settings.Switch and settings.Switch.DEVICE is not none else 'switch' }}"
+                  />
+                </div>
 
-          <!-- LOCATION -->
-          <tr>
-            <td><label for="location">LOCATION:</label></td>
-            <td>
-              <input
-                type="text"
-                id="location"
-                name="location"
-                required
-                value="{{ settings.Switch.SWITCH_LOCATION if settings.Switch and settings.Switch.SWITCH_LOCATION is not none else 'Unknown' }}"
-              />
-            </td>
-          </tr>
+                <div class="field-stack">
+                  <label for="switch_id_field">SWITCH_ID</label>
+                  <input
+                    type="text"
+                    id="switch_id_field"
+                    name="switch_id_field"
+                    readonly
+                    style="background-color: lightgray;"
+                    value="{{ settings.Switch.SWITCH_ID if settings.Switch and settings.Switch.SWITCH_ID is not none else switch_id }}"
+                  />
+                </div>
 
-          <!-- Channel Labels header -->
-          <tr>
-            <th colspan="2" style="text-align:left; padding-top:1rem;">
-              Channel Labels
-            </th>
-          </tr>
+                <div class="field-stack">
+                  <label for="location">LOCATION</label>
+                  <input
+                    type="text"
+                    id="location"
+                    name="location"
+                    required
+                    value="{{ settings.Switch.SWITCH_LOCATION if settings.Switch and settings.Switch.SWITCH_LOCATION is not none else 'Unknown' }}"
+                  />
+                </div>
 
-          <!-- Channel label rows -->
-          {% for ch in channels %}
-          <tr>
-            <td>
-              <label for="SWITCH_{{ ch.index }}">SWITCH_{{ ch.index }}:</label>
-            </td>
-            <td>
-              <input
-                type="text"
-                id="SWITCH_{{ ch.index }}"
-                name="SWITCH_{{ ch.index }}"
-                placeholder="CH{{ ch.index }} label"
-                value="{{ ch.label | default('') | e }}"
-              />
-            </td>
-          </tr>
-          {% endfor %}
-        </table>
+                <p class="section-title switch-section-title">Channel Labels</p>
 
-        <div class="modal-footer" style="margin-top:0.75rem;">
-          <div class="footer-buttons">
-            <!-- Home / close -->
-            <button
-              class="button black"
-              type="button"
-              onclick="window.closeSwitchSettingsModal && window.closeSwitchSettingsModal();"
-            >
-              Home
-            </button>
+                {% for ch in channels %}
+                <div class="field-stack">
+                  <label for="SWITCH_{{ ch.index }}">SWITCH_{{ ch.index }}</label>
+                  <input
+                    type="text"
+                    id="SWITCH_{{ ch.index }}"
+                    name="SWITCH_{{ ch.index }}"
+                    placeholder="CH{{ ch.index }} label"
+                    value="{{ ch.label | default('') | e }}"
+                  />
+                </div>
+                {% endfor %}
+              </div>
 
-            <!-- Advanced Automations -->
-            <button
-              class="button green"
-              type="button"
-              onclick="openAdvancedSwitchModal('{{ switch_id }}')"
-            >
-              Automations
-            </button>
+              <div class="modal-footer switch-form-footer">
+                <div class="footer-buttons">
+                  <button
+                    class="button black"
+                    type="button"
+                    onclick="window.closeSwitchSettingsModal && window.closeSwitchSettingsModal();"
+                  >
+                    Home
+                  </button>
 
-            <!-- Save -->
-            <button class="button blue" type="submit">
-              Save
-            </button>
+                  <button class="button blue" type="submit">
+                    Save
+                  </button>
+                </div>
+              </div>
+            </form>
           </div>
-        </div>
-      </form>
+
+          <div id="switchAutomationsPane" class="switch-pane" hidden>
+            <div id="automationChooser" class="automation-chooser">
+              <div class="list-header">
+                <span>Saved Automations</span>
+                <button class="button green" type="button" id="btnNewFromList">New</button>
+              </div>
+              <div class="list" id="automationList"></div>
+              <div class="modal-footer" style="margin-top:.25rem;">
+                <div class="footer-buttons">
+                  <button
+                    class="button black"
+                    type="button"
+                    onclick="window.closeSwitchSettingsModal && window.closeSwitchSettingsModal();"
+                  >
+                    Home
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div id="automationEditorWrap" hidden>
+              <form class="form" id="configForm" onsubmit="return false;">
+                <div class="row two">
+                  <div>
+                    <label for="autoName">Automation Name</label>
+                    <input type="text" id="autoName" placeholder="e.g., Cool when hot" />
+                  </div>
+                  <div class="inline" style="align-self:end; padding-bottom:.2rem;">
+                    <input type="checkbox" id="autoEnabled" />
+                    <label for="autoEnabled" style="margin:0">Enable</label>
+                  </div>
+                </div>
+
+                <div class="section">
+                  <p class="section-title">Condition(s)</p>
+                  <p class="muted">Tip: set <strong>Type</strong> to <strong>or</strong> to split logic groups (AND within a group, OR between groups).</p>
+
+                  <div class="inline" style="align-items:center; margin:.25rem 0 .5rem 0;">
+                    <button class="add" type="button" id="btnAddCondition">Add Condition</button>
+                  </div>
+
+                  <div id="conditionsContainer" aria-live="polite"></div>
+                </div>
+
+                <div class="section">
+                  <p class="section-title">Action</p>
+                  <div class="row three">
+                    <div>
+                      <label for="actionSwitch">Switch</label>
+                      <select id="actionSwitch"></select>
+                    </div>
+                    <div>
+                      <label for="actionSet">Set</label>
+                      <select id="actionSet">
+                        <option value="on">On</option>
+                        <option value="off">Off</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label for="actionDelay">Delay (s, 0–60)</label>
+                      <input id="actionDelay" type="number" min="0" max="60" step="1" value="0" />
+                    </div>
+                  </div>
+                </div>
+
+                <div class="row single">
+                  <button class="button green" type="button" id="btnSetAutomation">Save</button>
+                </div>
+                <div class="json-preview" id="jsonPreview" hidden></div>
+
+                <div class="modal-footer" style="margin-top:.25rem;">
+                  <div class="footer-buttons">
+                    <button class="button black" type="button" id="btnSavedAutomations">Saved Automations</button>
+                    <button class="button green" type="button" id="btnNewAutomation">New</button>
+                    <button class="button red" type="button" id="btnRemove">Remove</button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
   </div>
 </div>

@@ -1,158 +1,849 @@
 <!-- ui_templates/modals/system_settings.html -->
 
 <style>
-/* Keep your existing button styles here for now to avoid regressions.
-   If you've fully moved them into app.css, you can delete this. */
-.button {
+#setupPiModal .system-settings-shell {
+  width: min(1080px, 96vw);
+  max-height: 90vh;
+  overflow: auto;
+  background: #F5FFFA;
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .18);
+}
+#setupPiModal .system-settings-header {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--line, #d6dfd8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#setupPiModal .system-settings-title {
+  margin: 0;
+  font-size: 1.1rem;
+}
+#setupPiModal .system-settings-body {
+  padding: 1rem 1.25rem;
+}
+#setupPiModal .system-settings-split {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 240px 1fr;
+  min-height: 560px;
+}
+#setupPiModal .system-settings-menu {
+  background: #ecf5ee;
+  border: 1px solid #d6dfd8;
+  border-radius: 12px;
+  padding: .75rem;
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+#setupPiModal .system-menu-btn {
+  width: 100%;
+  text-align: left;
+  padding: .65rem .75rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: #fff;
+  color: #111;
+  font-weight: 600;
+  cursor: pointer;
+}
+#setupPiModal .system-menu-btn:hover { border-color: #d6dfd8; }
+#setupPiModal .system-menu-btn.active {
+  background: #dce9ff;
+  border-color: #afc8f7;
+}
+#setupPiModal .system-settings-content {
+  background: #fff;
+  border: 1px solid #d6dfd8;
+  border-radius: 12px;
+  padding: .9rem;
+  display: flex;
+  flex-direction: column;
+}
+#setupPiModal .settings-pane[hidden] { display: none !important; }
+#setupPiModal .settings-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+#setupPiModal .pane-title {
+  margin: .15rem 0 .75rem 0;
+  font-size: 1.05rem;
+}
+#setupPiModal .pane-footer {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  gap: .65rem;
+  padding-top: .75rem;
+  border-top: 1px solid #e6ece8;
+}
+#setupPiModal .field-grid-stack {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 340px));
+  gap: .75rem 1rem;
+  max-width: 760px;
+  margin-inline: auto;
+}
+#setupPiModal .field-grid-single {
+  display: grid;
+  grid-template-columns: minmax(220px, 340px);
+  gap: .75rem 1rem;
+  max-width: 340px;
+  margin-inline: auto;
+}
+#setupPiModal .field-stack {
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+}
+#setupPiModal .field-stack label {
+  font-weight: 600;
+}
+#setupPiModal .field-stack input,
+#setupPiModal .field-stack select {
+  width: 100%;
+  padding: .5rem .6rem;
+}
+#setupPiModal .subhead {
+  margin: 1rem 0 .5rem 0;
+  font-weight: 700;
+}
+#setupPiModal .inline-actions {
+  display: flex;
+  gap: .5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+#setupPiModal .locations-scroll,
+#setupPiModal .remove-scroll {
+  max-height: 360px;
+  overflow: auto;
+  padding: .25rem;
+  border: 1px solid #e8eeea;
+  border-radius: 8px;
+  background: #fafdfb;
+}
+#setupPiModal .location-item {
+  border: 1px solid #d6dfd8;
+  border-radius: 8px;
+  padding: .6rem;
+  margin: .5rem 0;
+  background: #f3faf5;
+}
+#setupPiModal .location-id {
+  font-size: 0.9rem;
+  margin-bottom: .35rem;
+  color: #222;
+}
+#setupPiModal .location-input {
+  width: 100%;
+  max-width: none;
+  padding: .45rem .55rem;
+}
+#setupPiModal .remove-item {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  padding: .45rem .4rem;
+  border-radius: 6px;
+}
+#setupPiModal .remove-item:hover { background: #f0f4ff; }
+#setupPiModal .status-text {
+  font-size: .9rem;
+  color: #444;
+  min-height: 1.25rem;
+}
+#setupPiModal .onboard-steps {
+  list-style: none;
+  padding: 0;
+  margin: .25rem 0;
+}
+#setupPiModal .step {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  background: #f7f7f7;
+}
+#setupPiModal .step .icon {
+  font-weight: 700;
+  margin-right: 6px;
+}
+#setupPiModal .step.pass { background: #eef9f0; }
+#setupPiModal .step.pass .icon { color: #2a8c4a; }
+#setupPiModal .step.fail { background: #fdeeee; }
+#setupPiModal .step.fail .icon { color: #b3212d; }
+#setupPiModal .detail {
+  font-size: .88rem;
+  color: #444;
+}
+
+/* legacy button classes used across current templates */
+#setupPiModal .button {
   display: inline-block;
-  padding: 10px 20px;
-  margin: 10px;
-  font-size: 16px;
+  padding: 10px 16px;
+  margin: 0;
+  font-size: 14px;
   font-weight: bold;
   border-radius: 6px;
   border: none;
   cursor: pointer;
-  transition: background 0.3s, transform 0.2s;
 }
-.button:hover {
-  transform: translateY(0px);
+#setupPiModal .green   { background-color: #28a745; color: white; }
+#setupPiModal .red     { background-color: #dc3545; color: white; }
+#setupPiModal .black   { background-color: #000; color: white; }
+#setupPiModal .yellow  { background-color: #ffc107; color: #212529; }
+#setupPiModal .blue    { background-color: #2259f2; color: white; }
+#setupPiModal .neutral { background-color: #f7f1c1; color: #212529; }
+
+@media (max-width: 900px) {
+  #setupPiModal .system-settings-split {
+    grid-template-columns: 1fr;
+    min-height: unset;
+  }
+  #setupPiModal .field-grid-stack {
+    grid-template-columns: 1fr;
+    max-width: 100%;
+  }
+  #setupPiModal .field-grid-single {
+    grid-template-columns: 1fr;
+    max-width: 100%;
+  }
 }
-.green   { background-color: #28a745; color: white; }
-.green:hover { background-color: #218838; }
-.red     { background-color: #dc3545; color: white; }
-.red:hover { background-color: #c82333; }
-.neutral { background-color: #f7f1c1; color: #212529; }
-.neutral:hover { background-color: #f7efb0; }
-.black   { background-color: #000; color: white; }
-.black:hover { background-color: #333; }
-.yellow  { background-color: #ffc107; color: #212529; }
-.yellow:hover { background-color: #e0a800; }
-.blue    { background-color: #2259f2; color: white; }
-.blue:hover { background-color: blue; }
 </style>
 
 <div id="setupPiModal"
-     class="modal"
-     style="display:block; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:999;">
-  <div class="modal-content"
-       style="background:#F5FFFA; margin:10% auto; padding:1rem; width:480px; border-radius:8px; position:relative;">
-    <h2 style="text-align:center;">
-      {{ app_name_long }} {{ app_version }}<br>System Settings
-    </h2>
-    <hr>
-    <form method="POST" action="/submit-pi-setup" onsubmit="return true;">
-      <table style="width:100%; border-collapse:collapse;">
-        <tr>
-          <td><label for="hostname">Hostname:</label></td>
-          <td>
-            <input type="text" id="hostname" name="hostname" value="{{ hostname }}" readonly>
-          </td>
-        </tr>
-        <tr>
-          <td><label for="httpport">HTTP Port:</label></td>
-          <td>
-            <input type="text" id="httpport" name="httpport" value="{{ httpport }}" readonly>
-          </td>
-        </tr>        
-        <tr>
-          <td><label for="broker">Sensorius Hub:</label></td>
-          <td>
-            <input type="text" id="broker" name="broker" value="{{ broker }}">
-          </td>
-        </tr>
-        <tr>
-          <td><label for="tz">Time Zone:</label></td>
-          <td>
-            <input type="text" id="tz" name="tz" value="{{ tz }}">
-          </td>
-        </tr>
-      </table>
-      <hr>
-      <table style="width:100%; border-collapse:collapse;">
-        <tr>
-          <td><label for="gauge_size">Gauge Size:</label></td>
-          <td>
-            <select name="gauge_size" id="gauge_size">
-              <option value="Small" {% if gauge_size == "Small" %}selected{% endif %}>Small</option>
-              <option value="Large" {% if gauge_size == "Large" %}selected{% endif %}>Large</option>
-            </select>
-          </td>
-          <td><label for="diaplay_style">Display Style:</label></td>
-          <td>
-            <select name="display_style" id="display_style">
-              <option value="Gauge" {% if display_style == "Gauge" %}selected{% endif %}>Gauge</option>
-              <option value="Graph6hr" {% if display_style == "Graph6hr" %}selected{% endif %}> 6Hr Graph</option>
-              <option value="Graph24hr" {% if display_style == "Graph24hr" %}selected{% endif %}>24Hr Graph</option>
-            </select>
-          </td>        
-        </tr>
-      </table>
+     class="modal-backdrop"
+     style="display:flex; z-index:9999;">
+  <div class="system-settings-shell" data-ha-enabled="{{ ha_enabled | default(false) }}"
+       data-ha-username="{{ ha_username | default('') }}"
+       data-ha-password="{{ ha_password | default('') }}"
+       data-ha-broker="{{ ha_broker | default('') }}"
+       data-ha-port="{{ ha_port | default(1883) }}">
+    <div class="system-settings-header">
+      <h2 class="system-settings-title">{{ app_name_long }} {{ app_version }} - System Settings</h2>
+    </div>
 
-      <hr>
+    <div class="system-settings-body">
+      <div class="system-settings-split">
+        <aside class="system-settings-menu" id="systemSettingsMenu" aria-label="System settings sections">
+          <button type="button" class="system-menu-btn active" data-target="pane-system">System Settings</button>
+          <button type="button" class="system-menu-btn" data-target="pane-ha">Home Assistant</button>
+          <button type="button" class="system-menu-btn" data-target="pane-locations">Edit Locations</button>
+          <button type="button" class="system-menu-btn" data-target="pane-add">Add Device</button>
+          <button type="button" class="system-menu-btn" data-target="pane-remove">Remove Device</button>
+          <button type="button" class="system-menu-btn" data-target="pane-advanced">Advanced</button>
+          <button type="button" class="system-menu-btn" data-target="pane-clear">Clear Database</button>
+        </aside>
 
-      <div style="margin-top:1rem; display:flex; justify-content:space-between;">
-        <!-- Keep Home & Clear DB behavior as-is -->
-        <button type="button" class="button black" id="btn-home">Home</button>
-        <button type="button" class="button yellow" id="btn-homeassistant">Home Assistant</button>
-        <button type="button" class="button yellow" onclick="return startLocationsFromSetup(this.form)">Edit Locations</button>
-        <button type="submit" class="button blue">Save</button>
+        <section class="system-settings-content">
+          <div class="settings-pane" id="pane-system">
+            <h3 class="pane-title">System Settings</h3>
+            <form method="POST" action="/submit-pi-setup" id="systemSettingsForm" style="display:flex;flex-direction:column;gap:.5rem;flex:1;min-height:0;">
+              <div class="field-grid-stack">
+                <div class="field-stack">
+                  <label for="hostname">Hostname</label>
+                  <input type="text" id="hostname" name="hostname" value="{{ hostname }}" readonly>
+                </div>
+                <div class="field-stack">
+                  <label for="httpport">HTTP Port</label>
+                  <input type="text" id="httpport" name="httpport" value="{{ httpport }}" readonly>
+                </div>
+                <div class="field-stack">
+                  <label for="broker">Sensorius Hub</label>
+                  <input type="text" id="broker" name="broker" value="{{ broker }}">
+                </div>
+                <div class="field-stack">
+                  <label for="tz">Time Zone</label>
+                  <input type="text" id="tz" name="tz" value="{{ tz }}">
+                </div>
+              </div>
+
+              <div class="subhead">Display</div>
+              <div class="field-grid-stack">
+                <div class="field-stack">
+                  <label for="gauge_size">Gauge Size</label>
+                  <select name="gauge_size" id="gauge_size">
+                    <option value="Small" {% if gauge_size == "Small" %}selected{% endif %}>Small</option>
+                    <option value="Large" {% if gauge_size == "Large" %}selected{% endif %}>Large</option>
+                  </select>
+                </div>
+                <div class="field-stack">
+                  <label for="display_style">Display Style</label>
+                  <select name="display_style" id="display_style">
+                    <option value="Gauge" {% if display_style == "Gauge" %}selected{% endif %}>Gauge</option>
+                    <option value="Graph6hr" {% if display_style == "Graph6hr" %}selected{% endif %}>6Hr Graph</option>
+                    <option value="Graph24hr" {% if display_style == "Graph24hr" %}selected{% endif %}>24Hr Graph</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="pane-footer">
+                <button type="button" class="button black" id="btn-home">Home</button>
+                <button type="submit" class="button blue">Save</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="settings-pane" id="pane-ha" hidden>
+            <h3 class="pane-title">Home Assistant</h3>
+            <div class="field-grid-single">
+              <div class="field-stack">
+                <label for="ha-enabled">Enabled</label>
+                <input type="checkbox" id="ha-enabled" style="width:auto;">
+              </div>
+              <div class="field-stack">
+                <label for="ha-broker">Broker</label>
+                <input type="text" id="ha-broker" placeholder="homeassistant.local">
+              </div>
+              <div class="field-stack">
+                <label for="ha-port">Port</label>
+                <input type="number" id="ha-port" min="1" max="65535" step="1">
+              </div>
+              <div class="field-stack">
+                <label for="ha-username">Username</label>
+                <input type="text" id="ha-username" autocomplete="username">
+              </div>
+              <div class="field-stack">
+                <label for="ha-password">Password</label>
+                <div class="inline-actions">
+                  <input type="password" id="ha-password" autocomplete="current-password" style="flex:1;">
+                  <button type="button" class="button black" id="ha-pass-toggle">Show</button>
+                </div>
+              </div>
+             </div>
+
+            <div class="status-text" id="ha-status"></div>
+
+            <div class="pane-footer">
+              <span></span>
+              <button type="button" class="button blue" id="btn-ha-save">Save</button>
+            </div>
+          </div>
+
+          <div class="settings-pane" id="pane-locations" hidden>
+            <h3 class="pane-title">Edit Locations</h3>
+            <div class="locations-scroll" id="locations-list">
+              <div style="opacity:.7; padding:8px;">Select this pane to load locations.</div>
+            </div>
+            <div class="status-text" id="locations-status"></div>
+            <div class="pane-footer">
+              <span></span>
+              <button type="button" class="button blue" id="btn-locations-save">Save</button>
+            </div>
+          </div>
+
+          <div class="settings-pane" id="pane-add" hidden>
+            <h3 class="pane-title">Add Device</h3>
+            <div class="status-text">Click <strong>Add</strong> to start onboarding a device.</div>
+            <ul class="onboard-steps">
+              <li id="step-1" class="step pending">
+                <span class="icon">•</span>
+                <span class="label">Adding Device, this can take up to 30 seconds</span>
+                <div class="detail" id="step-1-detail"></div>
+              </li>
+              <li id="step-2" class="step pending">
+                <span class="icon">•</span>
+                <span class="label">Sensor Setup connection established</span>
+                <div class="detail" id="step-2-detail"></div>
+              </li>
+              <li id="step-3" class="step pending">
+                <span class="icon">•</span>
+                <span class="label"><span id="step-3-sensor">...</span> configured and rebooting</span>
+                <div class="detail" id="step-3-detail"></div>
+              </li>
+              <li id="step-4" class="step pending">
+                <span class="icon">•</span>
+                <span class="label">Reconnecting to <span id="step-4-ssid">...</span></span>
+                <div class="detail" id="step-4-detail"></div>
+              </li>
+            </ul>
+            <div class="pane-footer">
+              <button type="button" class="button neutral" id="btn-onboard-reset">Reset</button>
+              <button type="button" class="button green" id="btn-onboard-add">Add</button>
+            </div>
+          </div>
+
+          <div class="settings-pane" id="pane-remove" hidden>
+            <h3 class="pane-title">Remove Device</h3>
+            <div id="remove-device-status" class="status-text"></div>
+            <div id="remove-device-list" class="remove-scroll">
+              <div class="detail">Select this pane to load removable devices.</div>
+            </div>
+            <label style="font-size:.9rem;color:#333; margin-top:.65rem;">
+              <input type="checkbox" id="remove-device-confirm">
+              I understand this deletes settings and data
+            </label>
+            <div class="pane-footer">
+              <span></span>
+              <button id="remove-device-run" disabled class="button red">Remove Selected</button>
+            </div>
+          </div>
+
+          <div class="settings-pane" id="pane-advanced" hidden>
+            <h3 class="pane-title">Advanced</h3>
+            <div class="status-text" style="min-height:unset;">
+              Advanced settings are reserved for upcoming configuration features.
+            </div>
+          </div>
+
+          <div class="settings-pane" id="pane-clear" hidden>
+            <h3 class="pane-title">Clear Database</h3>
+            <div style="line-height:1.45; max-width:700px;">
+              Clearing the database deletes stored sensor history.
+            </div>
+            <div class="status-text" id="cleardb-status"></div>
+            <div class="pane-footer">
+              <span></span>
+              <button type="button" class="button red" id="btn-clear-db">Clear Database</button>
+            </div>
+          </div>
+        </section>
       </div>
-
-      <div style="margin-top:1.5rem; margin-bottom:1rem; display:flex; justify-content:space-between;">
-        <!-- These still call your existing JS functions defined by the sub-modals -->
-        <button type="button" class="button red" onclick="window.location.href='/clear-data'">Clear DB</button>
-        <button type="button" class="button red" onclick="openRemoveDeviceModal()">Remove Device</button>
-        <button type="button" class="button green" onclick="return startOnboardFromSetup(this.form)">Add Device</button>
-      </div>
-    </form>
+    </div>
   </div>
 </div>
 
 <script>
-// These helpers are mostly used if you ever embed this modal differently.
-// For now they keep the same IDs you were using: setupPiModal.
-function openSetupModal(){
-  var el = document.getElementById('setupPiModal');
-  if (el) el.style.display = 'block';
-}
-function closeSetupModal(){
-  var el = document.getElementById('setupPiModal');
-  if (el) el.style.display = 'none';
-}
-// Your old code made it visible on window load; we now start at display:block,
-// but keeping this doesn't hurt if you later change initial visibility.
-window.addEventListener('load', function() {
-  var el = document.getElementById('setupPiModal');
-  if (el) el.style.display = 'block';
-});
+(function() {
+  const root = document.getElementById("setupPiModal");
+  if (!root || root.dataset.initialized === "1") return;
+  root.dataset.initialized = "1";
 
-function goHomeFromSettings() {
-  // Fast path when opened from dashboard as an embedded modal.
-  if (window.location.pathname === '/' && typeof window.closeSystemSettingsModal === 'function') {
-    window.closeSystemSettingsModal();
-    return;
+  const shell = root.querySelector(".system-settings-shell");
+  const formEl = document.getElementById("systemSettingsForm");
+  const menu = document.getElementById("systemSettingsMenu");
+  const panes = root.querySelectorAll(".settings-pane");
+
+  let locationsLoaded = false;
+  let onboardWs = null;
+
+  function openSetupModal() {
+    root.style.display = "flex";
   }
 
-  // If this page was opened from dashboard, prefer browser back for faster UX.
-  try {
-    var ref = document.referrer ? new URL(document.referrer) : null;
-    var sameOrigin = !!(ref && ref.origin === window.location.origin);
-    var fromDashboard = sameOrigin && ref.pathname === '/';
-    if (fromDashboard && window.history.length > 1) {
-      window.history.back();
+  function closeSetupModal() {
+    root.style.display = "none";
+    if (onboardWs) {
+      try { onboardWs.close(); } catch (_e) {}
+      onboardWs = null;
+    }
+  }
+
+  window.openSetupModal = openSetupModal;
+  window.closeSetupModal = closeSetupModal;
+
+  function goHomeFromSettings() {
+    if (window.location.pathname === "/" && typeof window.closeSystemSettingsModal === "function") {
+      window.closeSystemSettingsModal();
       return;
     }
-  } catch (_err) {
-    // Fall through to direct navigation.
+    try {
+      var ref = document.referrer ? new URL(document.referrer) : null;
+      var sameOrigin = !!(ref && ref.origin === window.location.origin);
+      var fromDashboard = sameOrigin && ref.pathname === "/";
+      if (fromDashboard && window.history.length > 1) {
+        window.history.back();
+        return;
+      }
+    } catch (_err) {}
+    window.location.replace("/");
   }
 
-  // Fallback for direct visits/bookmarks.
-  window.location.replace('/');
-}
+  function setActivePane(paneId) {
+    panes.forEach((pane) => {
+      pane.hidden = (pane.id !== paneId);
+    });
+    menu.querySelectorAll(".system-menu-btn").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.target === paneId);
+    });
 
-document.addEventListener('click', function(ev) {
-  if (ev.target && ev.target.id === 'btn-home') {
-    goHomeFromSettings();
+    if (paneId === "pane-ha") hydrateHAFromData();
+    if (paneId === "pane-locations" && !locationsLoaded) loadLocations();
+    if (paneId === "pane-remove") loadRemovableDevices();
   }
-});
+
+  function setStatus(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text || "";
+  }
+
+  function hydrateHAFromData() {
+    if (!shell) return;
+    const enabled = String(shell.dataset.haEnabled || "").toLowerCase() === "true";
+    const broker = shell.dataset.haBroker || "";
+    const port = shell.dataset.haPort || "1883";
+    const username = shell.dataset.haUsername || "";
+    const password = shell.dataset.haPassword || "";
+
+    const enabledEl = document.getElementById("ha-enabled");
+    const brokerEl = document.getElementById("ha-broker");
+    const portEl = document.getElementById("ha-port");
+    const userEl = document.getElementById("ha-username");
+    const passEl = document.getElementById("ha-password");
+    const toggleEl = document.getElementById("ha-pass-toggle");
+
+    if (enabledEl) enabledEl.checked = enabled;
+    if (brokerEl) brokerEl.value = broker;
+    if (portEl) portEl.value = port;
+    if (userEl) userEl.value = username;
+    if (passEl) {
+      passEl.value = password;
+      passEl.type = "password";
+    }
+    if (toggleEl) toggleEl.textContent = "Show";
+    setStatus("ha-status", "");
+  }
+
+  async function saveHASettings() {
+    try {
+      const enabled = !!document.getElementById("ha-enabled")?.checked;
+      const broker = (document.getElementById("ha-broker")?.value || "").trim();
+      const portRaw = (document.getElementById("ha-port")?.value || "1883").trim();
+      const username = (document.getElementById("ha-username")?.value || "").trim();
+      const password = (document.getElementById("ha-password")?.value || "").trim();
+      const port = Math.max(1, Math.min(65535, parseInt(portRaw, 10) || 1883));
+
+      setStatus("ha-status", "Saving...");
+
+      const resp = await fetch("/submit-homeassistant-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled, broker, port, username, password })
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => "");
+        throw new Error("HTTP " + resp.status + " " + text);
+      }
+
+      shell.dataset.haEnabled = String(enabled);
+      shell.dataset.haBroker = broker;
+      shell.dataset.haPort = String(port);
+      shell.dataset.haUsername = username;
+      shell.dataset.haPassword = password;
+      setStatus("ha-status", "Saved.");
+      if (window.showToast) window.showToast("Home Assistant settings saved", "ok");
+    } catch (e) {
+      console.error(e);
+      setStatus("ha-status", "Failed to save Home Assistant settings.");
+      if (window.showToast) window.showToast("Failed to save Home Assistant settings", "error");
+    }
+  }
+
+  async function loadLocations() {
+    const list = document.getElementById("locations-list");
+    if (!list) return;
+
+    setStatus("locations-status", "");
+    list.innerHTML = '<div style="opacity:.7; padding:8px;">Loading...</div>';
+
+    try {
+      const resp = await fetch("/device-locations");
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+
+      list.innerHTML = "";
+      (data || []).forEach((dev) => {
+        const wrap = document.createElement("div");
+        wrap.className = "location-item";
+
+        const idDiv = document.createElement("div");
+        idDiv.className = "location-id";
+        idDiv.textContent = `${(dev.type || "").toUpperCase()} - ${dev.id || ""}`;
+
+        const input = document.createElement("input");
+        input.className = "location-input";
+        input.value = dev.location || "";
+        input.placeholder = "Enter location";
+        input.dataset.deviceId = dev.id || "";
+        input.dataset.deviceType = (dev.type || "").toLowerCase();
+
+        wrap.appendChild(idDiv);
+        wrap.appendChild(input);
+        list.appendChild(wrap);
+      });
+
+      if (!(data || []).length) {
+        list.innerHTML = '<div style="opacity:.7; padding:8px;">No devices found.</div>';
+      }
+      locationsLoaded = true;
+    } catch (e) {
+      console.error(e);
+      list.innerHTML = '<div style="color:#b3212d; padding:8px;">Failed to load device locations.</div>';
+      locationsLoaded = false;
+    }
+  }
+
+  async function saveLocations() {
+    try {
+      const inputs = document.querySelectorAll("#locations-list .location-input");
+      const payload = [];
+      inputs.forEach((inp) => {
+        const id = (inp.dataset.deviceId || "").trim();
+        const type = (inp.dataset.deviceType || "").trim().toLowerCase();
+        const loc = (inp.value || "").trim();
+        if (id && type && loc) payload.push({ id, type, location: loc });
+      });
+
+      setStatus("locations-status", "Saving...");
+
+      const resp = await fetch("/device-locations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => "");
+        throw new Error("HTTP " + resp.status + " " + text);
+      }
+
+      setStatus("locations-status", "Saved.");
+      if (window.showToast) window.showToast("Locations saved", "ok");
+      setTimeout(() => window.location.reload(), 200);
+    } catch (e) {
+      console.error(e);
+      setStatus("locations-status", "Failed to save locations.");
+      if (window.showToast) window.showToast("Failed to save", "error");
+    }
+  }
+
+  function markOnboardStep(step, ok, label, detail) {
+    const li = document.getElementById(`step-${step}`);
+    if (!li) return;
+
+    li.classList.remove("pending", "pass", "fail");
+    li.classList.add(ok ? "pass" : "fail");
+
+    const ic = li.querySelector(".icon");
+    if (ic) ic.textContent = ok ? "\u2713" : "\u2715";
+
+    if (label && step !== 3 && step !== 4) {
+      const lab = li.querySelector(".label");
+      if (lab) lab.textContent = label;
+    }
+    if (detail) {
+      const det = document.getElementById(`step-${step}-detail`);
+      if (det) det.textContent = detail;
+    }
+
+    if (step === 3 && label) {
+      const seg = label.split(" configured")[0];
+      const tgt = document.getElementById("step-3-sensor");
+      if (tgt) tgt.textContent = seg || "...";
+    }
+    if (step === 4 && label) {
+      const m = label.match(/Reconnecting to\s+(.+)/);
+      if (m) {
+        const tgt = document.getElementById("step-4-ssid");
+        if (tgt) tgt.textContent = m[1];
+      }
+    }
+  }
+
+  function resetOnboardUI() {
+    for (let i = 1; i <= 4; i++) {
+      const li = document.getElementById(`step-${i}`);
+      if (li) {
+        li.classList.remove("pass", "fail");
+        li.classList.add("pending");
+        const ic = li.querySelector(".icon");
+        if (ic) ic.textContent = "\u2022";
+      }
+      const det = document.getElementById(`step-${i}-detail`);
+      if (det) det.textContent = "";
+    }
+  }
+
+  async function startOnboard() {
+    if (!formEl) return;
+    const addBtn = document.getElementById("btn-onboard-add");
+    if (addBtn) addBtn.disabled = true;
+
+    try {
+      resetOnboardUI();
+      const fd = new FormData(formEl);
+      const res = await fetch("/onboard-device", { method: "POST", body: fd });
+
+      if (!res.ok) {
+        markOnboardStep(1, false, "Failed to start onboarding", "HTTP " + res.status);
+        if (addBtn) addBtn.disabled = false;
+        return;
+      }
+
+      const js = await res.json();
+      const jobId = js.job_id;
+      const proto = (location.protocol === "https:") ? "wss" : "ws";
+
+      if (onboardWs) {
+        try { onboardWs.close(); } catch (_e) {}
+      }
+
+      onboardWs = new WebSocket(`${proto}://${location.host}/ws/onboard/${jobId}`);
+
+      onboardWs.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.hello) return;
+
+          let step = msg.step;
+          if (step === 1 || step === 2 || step === 3) step = step + 1;
+
+          if (typeof msg.step === "number") {
+            markOnboardStep(step, !!msg.ok, msg.label || "", msg.detail || "");
+          }
+          if (msg.done && addBtn) addBtn.disabled = false;
+        } catch (e) {
+          console.error(e);
+        }
+      };
+
+      onboardWs.onerror = () => {
+        if (addBtn) addBtn.disabled = false;
+      };
+      onboardWs.onclose = () => {
+        if (addBtn) addBtn.disabled = false;
+      };
+    } catch (e) {
+      console.error(e);
+      if (addBtn) addBtn.disabled = false;
+      markOnboardStep(1, false, "Failed to start onboarding", String(e));
+    }
+  }
+
+  function setRemoveStatus(msg) {
+    setStatus("remove-device-status", msg || "");
+  }
+
+  function toggleRemoveEnable() {
+    const anySel = [...document.querySelectorAll('#remove-device-list input[type="checkbox"]')]
+      .some((x) => x.checked);
+    const confirmed = !!document.getElementById("remove-device-confirm")?.checked;
+    const btn = document.getElementById("remove-device-run");
+    if (btn) btn.disabled = !(anySel && confirmed);
+  }
+
+  async function loadRemovableDevices() {
+    const listEl = document.getElementById("remove-device-list");
+    if (!listEl) return;
+
+    setRemoveStatus("");
+    listEl.innerHTML = '<div class="detail">Loading...</div>';
+
+    try {
+      const resp = await fetch("/remove-device-list");
+      const js = await resp.json();
+      const devs = (js && js.devices) || [];
+
+      if (!devs.length) {
+        listEl.innerHTML = '<div class="detail">No devices found to remove.</div>';
+      } else {
+        const frag = document.createDocumentFragment();
+        devs.forEach((d) => {
+          const row = document.createElement("div");
+          row.className = "remove-item";
+
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.value = d;
+          cb.name = "device_ids";
+          cb.onchange = toggleRemoveEnable;
+
+          const lbl = document.createElement("label");
+          lbl.textContent = d;
+          lbl.style.cursor = "pointer";
+
+          row.appendChild(cb);
+          row.appendChild(lbl);
+          frag.appendChild(row);
+        });
+        listEl.innerHTML = "";
+        listEl.appendChild(frag);
+      }
+    } catch (e) {
+      console.error(e);
+      listEl.innerHTML = '<div class="detail">Failed to load devices.</div>';
+    }
+    toggleRemoveEnable();
+  }
+
+  async function submitRemoveDevices() {
+    const checked = document.querySelectorAll('#remove-device-list input[type="checkbox"]:checked');
+    const ids = [...checked].map((x) => x.value);
+    if (!ids.length) return;
+
+    setRemoveStatus("Removing...");
+    const runBtn = document.getElementById("remove-device-run");
+    if (runBtn) runBtn.disabled = true;
+
+    try {
+      const resp = await fetch("/remove-device", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ device_ids: ids })
+      });
+      const js = await resp.json();
+      const ok = (js && js.summary) || "Done";
+      setRemoveStatus(ok);
+      await loadRemovableDevices();
+    } catch (e) {
+      console.error(e);
+      setRemoveStatus("Failed: " + e);
+    }
+  }
+
+  function clearDatabase() {
+    if (!window.confirm("Clear all stored sensor data? This cannot be undone.")) return;
+    window.location.href = "/clear-data";
+  }
+
+  menu.addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".system-menu-btn");
+    if (!btn) return;
+    setActivePane(btn.dataset.target);
+  });
+
+  document.addEventListener("click", function(ev) {
+    if (ev.target && ev.target.id === "btn-home") {
+      goHomeFromSettings();
+    }
+    if (ev.target && ev.target.id === "ha-pass-toggle") {
+      const input = document.getElementById("ha-password");
+      if (!input) return;
+      const show = input.type === "password";
+      input.type = show ? "text" : "password";
+      ev.target.textContent = show ? "Hide" : "Show";
+    }
+    if (ev.target && ev.target.id === "btn-ha-save") {
+      saveHASettings();
+    }
+    if (ev.target && ev.target.id === "btn-locations-save") {
+      saveLocations();
+    }
+    if (ev.target && ev.target.id === "btn-onboard-add") {
+      startOnboard();
+    }
+    if (ev.target && ev.target.id === "btn-onboard-reset") {
+      resetOnboardUI();
+    }
+    if (ev.target && ev.target.id === "remove-device-run") {
+      submitRemoveDevices();
+    }
+    if (ev.target && ev.target.id === "btn-clear-db") {
+      clearDatabase();
+    }
+  });
+
+  document.addEventListener("change", (ev) => {
+    if (ev?.target?.id === "remove-device-confirm") {
+      toggleRemoveEnable();
+    }
+  });
+})();
 </script>

@@ -136,6 +136,95 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         return None
 
+    _GRAPH_SETUPS_SECTION = "GraphModal"
+    _GRAPH_SETUPS_KEY = "SAVED_SETUPS_JSON"
+    _GRAPH_LAST_USED_KEY = "LAST_SETUP_NAME"
+
+    def _normalize_graph_setup_name(raw) -> str:
+        name = str(raw or "").strip()
+        name = re.sub(r"\s+", " ", name)
+        return name[:80]
+
+    def _normalize_graph_setup_config(raw) -> dict[str, object]:
+        cfg = raw if isinstance(raw, dict) else {}
+        out: dict[str, object] = {}
+        text_keys = (
+            "sensor1_select",
+            "sensor2_select",
+            "sensor3_select",
+            "metric1_select",
+            "metric2_select",
+            "metric3_select",
+            "range",
+            "start_time",
+            "end_time",
+            "switch_select",
+        )
+        for key in text_keys:
+            out[key] = str(cfg.get(key, "") or "").strip()
+        channels_raw = cfg.get("channels", [])
+        channels: list[str] = []
+        if isinstance(channels_raw, list):
+            for item in channels_raw:
+                text = str(item or "").strip()
+                if text:
+                    channels.append(text)
+        out["channels"] = channels
+        return out
+
+    def _load_graph_setups_state() -> tuple[dict[str, dict[str, object]], str]:
+        raw = settings.get_setting(
+            _GRAPH_SETUPS_SECTION,
+            _GRAPH_SETUPS_KEY,
+            "{}",
+            reload_if_changed=True,
+        )
+        last_used = str(
+            settings.get_setting(
+                _GRAPH_SETUPS_SECTION,
+                _GRAPH_LAST_USED_KEY,
+                "",
+                reload_if_changed=True,
+            )
+            or ""
+        ).strip()
+
+        data: dict[str, dict[str, object]] = {}
+        try:
+            parsed = json.loads(str(raw or "{}"))
+            if isinstance(parsed, dict):
+                for k, v in parsed.items():
+                    name = _normalize_graph_setup_name(k)
+                    if not name:
+                        continue
+                    data[name] = _normalize_graph_setup_config(v)
+        except Exception:
+            data = {}
+
+        if last_used and last_used not in data:
+            last_used = ""
+        return data, last_used
+
+    def _save_graph_setups_state(data: dict[str, dict[str, object]], last_used: str):
+        stable = OrderedDict()
+        for name in sorted(data.keys(), key=lambda x: x.lower()):
+            stable[name] = _normalize_graph_setup_config(data[name])
+        settings.set_in_memory(
+            _GRAPH_SETUPS_SECTION,
+            _GRAPH_SETUPS_KEY,
+            json.dumps(stable, separators=(",", ":")),
+        )
+        settings.set_in_memory(
+            _GRAPH_SETUPS_SECTION,
+            _GRAPH_LAST_USED_KEY,
+            (last_used or "").strip(),
+        )
+        settings.save_settings()
+
+    def _graph_setups_payload(data: dict[str, dict[str, object]], last_used: str) -> dict[str, object]:
+        items = [{"name": name, "config": cfg} for name, cfg in sorted(data.items(), key=lambda kv: kv[0].lower())]
+        return {"items": items, "last_used": (last_used or "")}
+
     @router.get("/", response_class=HTMLResponse)
     async def current_data_page(request: Request, sensor_id: str = Query(None), json_only: bool = Query(False)):
         global _cdp_debug_last_log
@@ -385,6 +474,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         displayStyle = fresh_settings.get_setting("Display", "display_style") or "Gauge"
 
         from saiSensorSettingsManager import SensorSettingsManager
+        from saiCalibration import CalibrationManager
         sensor_mgr = SensorSettingsManager()
         expected_gauge_map = {}
         for sid in all_values:
@@ -828,9 +918,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     FROM readings
                     WHERE sensor_id = ? COLLATE NOCASE
                     AND metric    = ? COLLATE NOCASE
-                    AND timestamp >= ?
-                    AND timestamp <= ?
-                    ORDER BY timestamp ASC
+                    AND julianday(timestamp) >= julianday(?)
+                    AND julianday(timestamp) <= julianday(?)
+                    ORDER BY julianday(timestamp) ASC
                     """,
                     (sid, metric_name, window_since_iso, window_until_iso)
                 )
@@ -844,90 +934,61 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # ----- data series -----
         series: dict[str, dict] = {}
-        rolling_ema: dict[str, dict] = {}
+        simple_avg: dict[str, dict] = {}
         display_names: dict[str, str] = {}
-        ema_half_life_seconds = 60 * 60  # 60 minutes
-        lookback_seconds = 3 * 3600  # warm-up window for EMA
-        data_since_dt = since_dt - timedelta(seconds=lookback_seconds)
-        data_since_iso = data_since_dt.replace(microsecond=0).isoformat()
         with sqlite3.connect(db_path) as conn:
             cur = conn.cursor()
             for sid, metric_name in pairs:
-                ts, vs = fetch_xy(cur, sid, metric_name, data_since_iso, until_iso)
+                ts, vs = fetch_xy(cur, sid, metric_name, since_iso, until_iso)
                 key = f"{sid}::{metric_name}"
                 if not ts or not vs:
                     continue
 
-                # --- compute EMA for visible window (half-life in seconds) ---
                 try:
-                    from math import exp, log
-
-                    def _parse_dt(ts_text: str) -> datetime | None:
-                        try:
-                            return datetime.fromisoformat(ts_text)
-                        except Exception:
-                            return None
-
-                    out_ts: list[str] = []
-                    out_vals: list[float | None] = []
-                    vis_ts: list[str] = []
-                    vis_vals: list = []
-                    prev_ema: float | None = None
-                    prev_dt: datetime | None = None
-                    ln2 = log(2.0)
-
-                    for idx, ts_text in enumerate(ts):
-                        dt = _parse_dt(ts_text)
-                        if dt is None:
-                            continue
-
-                        raw_val = vs[idx]
-                        try:
-                            fval = float(raw_val)
-                            is_num = True
-                        except Exception:
-                            fval = 0.0
-                            is_num = False
-
-                        if is_num:
-                            if prev_ema is None or prev_dt is None:
-                                ema = fval
-                            else:
-                                dt_sec = max(0.0, (dt - prev_dt).total_seconds())
-                                if dt_sec <= 0.0:
-                                    ema = prev_ema
-                                else:
-                                    alpha = 1.0 - exp(-ln2 * dt_sec / ema_half_life_seconds)
-                                    ema = (alpha * fval) + ((1.0 - alpha) * prev_ema)
-                            prev_ema = ema
-                            prev_dt = dt
-                        else:
-                            ema = None
-
-                        if dt < since_dt or dt > until_dt:
-                            continue
-                        vis_ts.append(ts_text)
-                        vis_vals.append(raw_val)
-                        out_ts.append(ts_text)
-                        out_vals.append(ema)
-
+                    vis_ts = list(ts)
+                    vis_vals = list(vs)
                     if vis_ts:
                         series[key] = {"ts": vis_ts, "vals": vis_vals}
-                        rolling_ema[key] = {"ts": out_ts, "vals": out_vals}
+                        numeric_vals: list[float] = []
+                        for raw in vis_vals:
+                            try:
+                                numeric_vals.append(float(raw))
+                            except Exception:
+                                continue
+                        if numeric_vals:
+                            avg_val = sum(numeric_vals) / float(len(numeric_vals))
+                            simple_avg[key] = {"ts": vis_ts, "vals": [avg_val] * len(vis_ts)}
                         display_names[key] = key
                 except Exception as e:
-                    printDM(f"[{MODULE}] rolling-avg error for {key}: {e}", location=MODULE)
+                    printDM(f"[{MODULE}] simple-avg error for {key}: {e}", location=MODULE)
                     if ts and vs:
                         series[key] = {"ts": ts, "vals": vs}
                         display_names[key] = key
 
         if not series:
             first = pairs[0]
-            raise HTTPException(status_code=404, detail=f"No data found for {first[0]}.{first[1]} in selected range")
+            return JSONResponse(
+                content={
+                    "series": {},
+                    "simple_avg": {},
+                    "rolling_ema": {},
+                    "display_names": {},
+                    "axis_titles": {"y1": "Left", "y2": ""},
+                    "window": {
+                        "since_iso": since_iso,
+                        "until_iso": until_iso,
+                        "span_seconds": span_seconds,
+                    },
+                    "no_data": True,
+                    "detail": f"No data found for {first[0]}.{first[1]} in selected range",
+                },
+                status_code=200,
+            )
 
         response = {
             "series": series,
-            "rolling_ema": rolling_ema,
+            "simple_avg": simple_avg,
+            "rolling_ema": simple_avg,
             "display_names": display_names,
             "axis_titles": {
                 "y1": list(series.keys())[0] if series else "Left",
@@ -974,9 +1035,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                               ON e.switch_key = i.switch_key
                             WHERE i.switch_id = ? COLLATE NOCASE
                               AND i.label     = ? COLLATE NOCASE
-                              AND e.timestamp >= ?
-                              AND e.timestamp <= ?
-                            ORDER BY e.timestamp ASC
+                              AND julianday(e.timestamp) >= julianday(?)
+                              AND julianday(e.timestamp) <= julianday(?)
+                            ORDER BY julianday(e.timestamp) ASC
                             """,
                             (sid, lab, since_iso, until_iso),
                         )
@@ -1008,9 +1069,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                             FROM readings
                             WHERE sensor_id = ?
                               AND metric = ? COLLATE NOCASE
-                              AND timestamp >= ?
-                              AND timestamp <= ?
-                            ORDER BY timestamp ASC
+                              AND julianday(timestamp) >= julianday(?)
+                              AND julianday(timestamp) <= julianday(?)
+                            ORDER BY julianday(timestamp) ASC
                             """,
                             (series_id, metric_name, since_iso, until_iso),
                         )
@@ -1056,6 +1117,81 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 response["switch_lines"] = switch_lines
 
         return JSONResponse(content=response)
+
+    @router.get("/graph-setups", response_class=JSONResponse)
+    async def api_graph_setups_list():
+        try:
+            data, last_used = _load_graph_setups_state()
+            return JSONResponse(_graph_setups_payload(data, last_used))
+        except Exception as exc:
+            printDM(f"/graph-setups error: {exc}", location=MODULE)
+            return JSONResponse({"error": "internal_error"}, status_code=500)
+
+    @router.post("/graph-setups/save", response_class=JSONResponse)
+    async def api_graph_setups_save(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid_json"}, status_code=400)
+
+        name = _normalize_graph_setup_name((body or {}).get("name"))
+        if not name:
+            return JSONResponse({"error": "name_required"}, status_code=400)
+
+        config = _normalize_graph_setup_config((body or {}).get("config", {}))
+        try:
+            data, _ = _load_graph_setups_state()
+            data[name] = config
+            _save_graph_setups_state(data, name)
+            return JSONResponse(_graph_setups_payload(data, name))
+        except Exception as exc:
+            printDM(f"/graph-setups/save error: {exc}", location=MODULE)
+            return JSONResponse({"error": "internal_error"}, status_code=500)
+
+    @router.post("/graph-setups/remove", response_class=JSONResponse)
+    async def api_graph_setups_remove(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid_json"}, status_code=400)
+
+        name = _normalize_graph_setup_name((body or {}).get("name"))
+        if not name:
+            return JSONResponse({"error": "name_required"}, status_code=400)
+
+        try:
+            data, last_used = _load_graph_setups_state()
+            if name not in data:
+                return JSONResponse({"error": "not_found"}, status_code=404)
+            data.pop(name, None)
+            if last_used == name:
+                last_used = ""
+            _save_graph_setups_state(data, last_used)
+            return JSONResponse(_graph_setups_payload(data, last_used))
+        except Exception as exc:
+            printDM(f"/graph-setups/remove error: {exc}", location=MODULE)
+            return JSONResponse({"error": "internal_error"}, status_code=500)
+
+    @router.post("/graph-setups/use", response_class=JSONResponse)
+    async def api_graph_setups_set_last_used(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid_json"}, status_code=400)
+
+        name = _normalize_graph_setup_name((body or {}).get("name"))
+        if not name:
+            return JSONResponse({"error": "name_required"}, status_code=400)
+
+        try:
+            data, _ = _load_graph_setups_state()
+            if name not in data:
+                return JSONResponse({"error": "not_found"}, status_code=404)
+            _save_graph_setups_state(data, name)
+            return JSONResponse(_graph_setups_payload(data, name))
+        except Exception as exc:
+            printDM(f"/graph-setups/use error: {exc}", location=MODULE)
+            return JSONResponse({"error": "internal_error"}, status_code=500)
 
     @router.get("/edit-system", response_class=HTMLResponse)
     async def edit_pi_settings_page(request: Request):
@@ -1121,31 +1257,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             ha_port=ha_port,
         )
 
-        # 2) Onboarding progress modal + JS (so Add Device works)
-        system_onboard_progress_modal_html = templates.get_template("modals/system_onboard_progress.html").render()
-
-        # 3) Device Locations modal + JS via template
-        system_device_locations_modal_html = templates.get_template("modals/system_device_locations.html").render()
-
-        # 4) Remove Device modal + JS via template
-        system_remove_modal_html = templates.get_template("modals/system_remove_device.html").render()
-
-        # 5) Home Assistant integration modal + JS via template
-        system_ha_modal_html = templates.get_template("modals/system_ha_integration.html").render(
-            ha_enabled=ha_enabled,
-            ha_username=ha_username,
-            ha_password=ha_password,
-            ha_broker=ha_broker,
-            ha_port=ha_port,
-        )
-
         fragment_parts: list[str] = []
         fragment_parts.append("<link rel='stylesheet' href='/ui_static/css/app.css'>")
         fragment_parts.append(system_modal_html)
-        fragment_parts.append(system_onboard_progress_modal_html)
-        fragment_parts.append(system_device_locations_modal_html)
-        fragment_parts.append(system_remove_modal_html)
-        fragment_parts.append(system_ha_modal_html)
         fragment_html = "\n".join(fragment_parts)
 
         embed = str(request.query_params.get("embed", "")).strip().lower() in {"1", "true", "yes"}
@@ -3234,6 +3348,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         embed: int = Query(0),
     ):
         from saiSensorSettingsManager import SensorSettingsManager
+        from saiCalibration import CalibrationManager
         from saiUtils import normalize_sensor_id, printDM, html_escape
         import sqlite3
         import json
@@ -3311,6 +3426,61 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 or "Unknown"
             )
 
+            # --- Calibration context (used by split-pane sensor modal) ---
+            calib_section = (settings_dict.get("Calibration") or {}) or {}
+            device_section = (calib_section.get("Device") or calib_section.get("device") or {}) or {}
+            raw_device = str(sensor_section.get("DEVICE", "") or "")
+            device_kind = raw_device.strip().lower()
+            device_label = raw_device or device_kind or "Unknown"
+            is_apvpd = (device_kind == "apvpd")
+
+            def _get_float(section: dict, key: str, default: float = 0.0) -> float:
+                try:
+                    return float(section.get(key, default) or default)
+                except Exception:
+                    return default
+
+            ambient_temp_offset = _get_float(calib_section, "APVPD_TEMP_CAL_VAL", 0.0)
+            ambient_rh_offset = _get_float(calib_section, "APVPD_RH_CAL_VAL", 0.0)
+
+            device_offsets: list[dict] = []
+
+            def _add_offset(
+                key_path: str,
+                label: str,
+                unit: str,
+                field_key: str,
+                default_val: float = 0.0,
+            ) -> None:
+                value = _get_float(device_section, field_key, default_val)
+                device_offsets.append(
+                    {
+                        "key": key_path,
+                        "label": label,
+                        "unit": unit,
+                        "value": value,
+                    }
+                )
+
+            if device_kind in ("co2",):
+                _add_offset("Calibration.Device.TEMP_OFFSET", "Temperature", "°C", "TEMP_OFFSET")
+                _add_offset("Calibration.Device.RH_OFFSET", "Rel-Humidity", "%", "RH_OFFSET")
+                _add_offset("Calibration.Device.CO2_OFFSET", "CO₂", "ppm", "CO2_OFFSET")
+            elif device_kind in ("aqi",):
+                _add_offset("Calibration.Device.TEMP_OFFSET", "Temperature", "°C", "TEMP_OFFSET")
+                _add_offset("Calibration.Device.RH_OFFSET", "Rel-Humidity", "%", "RH_OFFSET")
+                _add_offset("Calibration.Device.AQI_OFFSET", "AQI", "", "AQI_OFFSET")
+                _add_offset("Calibration.Device.GAS_OFFSET", "Gas resistance", "kΩ", "GAS_OFFSET")
+            elif device_kind in ("veml", "lux"):
+                _add_offset("Calibration.Device.LUX_OFFSET", "Light Intensity", "lux", "LUX_OFFSET")
+                _add_offset("Calibration.Device.PPFD_OFFSET", "PPFD", "µmol/m²/s", "PPFD_OFFSET")
+            elif device_kind in ("vpd", "avpd"):
+                _add_offset("Calibration.Device.TEMP_OFFSET", "Temperature", "°C", "TEMP_OFFSET")
+                _add_offset("Calibration.Device.RH_OFFSET", "Rel-Humidity", "%", "RH_OFFSET")
+
+            cal_mgr = CalibrationManager(data_logger, manager)
+            candidate_sensors = cal_mgr.get_calibratable_sensors() or []
+
             # Render template
             templates = request.app.state.templates
             template = templates.get_template("modals/sensor_settings.html")
@@ -3320,6 +3490,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 metric_options=metric_options,
                 current_metrics=current_metrics,
                 location=location,
+                device_kind=device_kind,
+                device_label=device_label,
+                is_apvpd=is_apvpd,
+                ambient_temp_offset=ambient_temp_offset,
+                ambient_rh_offset=ambient_rh_offset,
+                device_offsets=device_offsets,
+                candidate_sensors=candidate_sensors,
+                default_range_hours=24,
             )
 
             if embed:
@@ -3331,6 +3509,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             page.append("<!DOCTYPE html>")
             page.append("<html><head><title>Edit Sensor</title>")
             page.append("<link rel='stylesheet' href='/ui_static/css/app.css'>")
+            page.append("<script src='/ui_static/js/sensor_settings_modal.js'></script>")
+            page.append("<script src='/ui_static/js/system_calibration.js'></script>")
             page.append("</head><body>")
             page.append("<div id='modalHost'></div>")
             page.append(f"<script>var __MODAL_HTML__ = {json.dumps(modal_html)};</script>")
@@ -3338,6 +3518,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             page.append("  (function(){")
             page.append("    var host = document.getElementById('modalHost') || document.body;")
             page.append("    host.innerHTML = __MODAL_HTML__;")
+            page.append("    var modal = document.getElementById('sensorSettingsModal');")
+            page.append("    if (modal && window.initSensorSettingsModal) window.initSensorSettingsModal(modal);")
+            page.append("    if (modal && window.initSystemCalibrationModal) window.initSystemCalibrationModal(modal);")
             page.append("  })();")
             page.append("</script>")
             page.append("</body></html>")
@@ -5232,24 +5415,65 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     @router.get("/advanced/automations", response_class=JSONResponse)
     async def api_list_advanced_automations(switch_id: str = Query(...)):
         from saiAutomationManager import AutomationManager
+        from saiSwitchTriggerManager import SwitchTriggerManager
         try:
-            mgr = AutomationManager("switch_settings")
-            data = mgr.load(switch_id)
-            if not data:
-                return JSONResponse({"error": f"switch_id '{switch_id}' not found"}, status_code=404)
+            # Use the same resolved base path as switch settings to avoid cwd-relative drift.
+            switch_mgr = SwitchSettingsManager("switch_settings")
+            resolved_base = str(switch_mgr.base_dir)
 
-            adv = data.get("Advanced") or {}
+            data = {}
+            mgr = AutomationManager(resolved_base)
+            try:
+                data = mgr.load(switch_id) or {}
+            except Exception:
+                data = {}
+
+            # Compatibility fallback: legacy manager supports reading triggers.toml.
+            if not (data.get("Advanced") or data.get("advanced")):
+                try:
+                    legacy_mgr = SwitchTriggerManager(resolved_base)
+                    data = legacy_mgr.load(switch_id) or data
+                except Exception:
+                    pass
+
+            # Final fallback: read the exact sibling automations.toml next to switch.toml.
+            # This mirrors runtime loading paths for directly connected switches.
+            if not (data.get("Advanced") or data.get("advanced")):
+                try:
+                    sw_path = switch_mgr.get_path(switch_id)
+                    auto_path = sw_path.parent / "automations.toml"
+                    if auto_path.exists():
+                        with auto_path.open("rb") as f:
+                            raw = tomllib.load(f) or {}
+                        if isinstance(raw, dict):
+                            data = raw
+                except Exception:
+                    pass
+
+            adv = (
+                data.get("Advanced")
+                or data.get("advanced")
+                or data.get("Triggers")
+                or data.get("triggers")
+                or {}
+            )
             items = []
             # Sort by key for stable display
             for rule_id in sorted(adv.keys()):
                 payload = adv[rule_id]
                 if isinstance(payload, dict):
                     enabled = bool(payload.get("enabled", True))
-                    script_json = str(payload.get("script_json", "")) or ""
+                    script_json = (
+                        str(payload.get("script_json", ""))
+                        or str(payload.get("script", ""))
+                        or str(payload.get("json", ""))
+                        or ""
+                    )
                 else:
                     enabled = True
                     script_json = str(payload or "")
                 items.append({"rule_id": rule_id, "enabled": enabled, "script_json": script_json})
+
             return {"switch_id": switch_id, "items": items}
         except Exception as exc:
             printDM(f"/advanced/automations error: {exc}", location="saiWebRoutes")

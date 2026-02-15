@@ -180,9 +180,91 @@ canvas{
   grid-template-columns: 320px 1fr;
   min-height:520px;
 }
+.switch-dialog-split{
+  grid-template-columns: 220px 1fr;
+  min-height:560px;
+}
 .panel{
   background:var(--panel); border:1px solid var(--line); border-radius:12px;
   display:flex; flex-direction:column; overflow:hidden;
+}
+.switch-dialog-menu{
+  padding:.75rem;
+  gap:.5rem;
+}
+.switch-menu-btn{
+  width:100%;
+  text-align:left;
+  padding:.65rem .75rem;
+  border-radius:10px;
+  border:1px solid transparent;
+  background:#fff;
+  color:#111;
+  font-weight:600;
+  cursor:pointer;
+}
+.switch-menu-btn:hover{
+  border-color:var(--line);
+}
+.switch-menu-btn.active{
+  background:#eef2ff;
+  border-color:#c7d2fe;
+}
+.switch-dialog-content{
+  padding:.9rem;
+}
+.switch-pane[hidden]{
+  display:none !important;
+}
+.switch-pane{
+  display:flex;
+  flex-direction:column;
+  min-height:100%;
+}
+.switch-pane > form{
+  display:flex;
+  flex-direction:column;
+  flex:1;
+}
+.switch-form-grid{
+  display:grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap:.75rem 1rem;
+}
+.field-stack{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:.25rem;
+}
+.field-stack label{
+  font-weight:700;
+  text-align:center;
+}
+.field-stack input,
+.field-stack select{
+  text-align:center;
+  width:100%;
+  max-width:360px;
+}
+.switch-section-title{
+  grid-column: 1 / -1;
+  margin:.35rem 0 0 0;
+  text-align:center;
+}
+.switch-form-footer{
+  margin-top:auto !important;
+}
+.automation-chooser{
+  display:flex;
+  flex-direction:column;
+  min-height:100%;
+}
+.automation-chooser[hidden]{
+  display:none !important;
+}
+#automationEditorWrap[hidden]{
+  display:none !important;
 }
 
 /* Left: list of automations */
@@ -282,4 +364,15 @@ select.op-select{ max-width:80px; width:100%; }
   select.sensor-select{ max-width:420px; }
   select.metric-select{ max-width:280px; }
 }
-
+@media (max-width: 980px){
+  .switch-dialog-split{
+    grid-template-columns: 1fr;
+    min-height:auto;
+  }
+  .switch-dialog-menu{
+    flex-direction:row;
+  }
+  .switch-form-grid{
+    grid-template-columns: 1fr;
+  }
+}

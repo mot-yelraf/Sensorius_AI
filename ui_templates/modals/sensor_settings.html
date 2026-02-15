@@ -5,135 +5,319 @@
     class="modal"
     id="sensorSettingsModal"
     data-sensor-id="{{ sensor_id }}"
+    data-device-kind="{{ device_kind | default('') }}"
+    data-is-apvpd="{{ 'true' if is_apvpd else 'false' }}"
   >
     <div class="modal-header">
-      <h3 class="modal-title">Edit Sensor Settings</h3>
+      <h3 class="modal-title">Sensor Settings &amp; Calibration</h3>
     </div>
 
     <div class="modal-body">
-      <h3 style="text-align:center; margin-top:0.25rem; margin-bottom:0.75rem;">
-        {{ sensor_id }}
-      </h3>
+      <div class="split" style="grid-template-columns:260px 1fr; min-height:560px;">
+        <aside class="panel" style="background:#f7fcfa;">
+          <div class="list-header">
+            <span>{{ sensor_id }}</span>
+          </div>
+          <div class="list" id="sensorSettingsMenu" style="padding:0.6rem;">
+            <button type="button" class="list-item active" data-pane-target="sensor-settings-pane">
+              <span class="item-name">Sensor Settings</span>
+            </button>
+            <button type="button" class="list-item" data-pane-target="sensor-calibration-pane">
+              <span class="item-name">Sensor Calibration</span>
+            </button>
+            <button type="button" class="list-item" data-pane-target="system-calibration-pane">
+              <span class="item-name">System Calibration</span>
+            </button>
+          </div>
+        </aside>
 
-      <form method="POST" action="/submit-sensor-settings">
-        <input type="hidden" name="sensor_id" value="{{ sensor_id }}" />
+        <section class="panel">
+          <div class="sensor-pane-view" id="sensor-settings-pane" style="display:flex; flex:1; flex-direction:column; min-height:0;">
+            <div class="list-header">
+              <span>Sensor Settings</span>
+            </div>
+            <form method="POST" action="/submit-sensor-settings" class="form" id="sensorSettingsForm" style="padding-bottom:0; flex:1; min-height:0; overflow:auto;">
+              <input type="hidden" name="sensor_id" value="{{ sensor_id }}" />
 
-        <table style="width:100%; border-collapse:collapse;">
-          <!-- LOCATION (readonly, for now, as in original) -->
-          <tr>
-            <td><label for="location">LOCATION:</label></td>
-            <td>
-              <input
-                type="text"
-                id="location"
-                name="location"
-                readonly
-                value="{{ location or 'Unknown' }}"
-              />
-            </td>
-          </tr>
-        </table>
+              <div class="section">
+                <h4 class="section-title">Location</h4>
+                <input
+                  type="text"
+                  id="location"
+                  name="location"
+                  value="{{ location or 'Unknown' }}"
+                />
+              </div>
 
-        <h3 style="margin-top:1.5rem;">Select Metrics to Use</h3>
+              <div class="section">
+                <h4 class="section-title">Display Metrics</h4>
+                <p class="muted" style="margin-top:0;">Choose up to six metrics for this sensor card.</p>
 
-        <table style="width:100%; border-collapse:collapse;">
-          <tr>
-            {% for i in range(1, 4) %}
-            <td style="padding:0.5rem; text-align:center;">
-              <label for="metric_{{ i }}">Metric {{ i }}</label><br />
-              <select
-                name="metric_{{ i }}"
-                id="metric_{{ i }}"
-                style="width:100%;"
-              >
-                {% for opt in metric_options %}
-                {% set val = opt or '' %}
-                {% set label = opt if opt else 'Empty' %}
-                <option
-                  value="{{ val | e }}"
-                  {% if val == current_metrics[i-1] %}selected{% endif %}
+                <div class="row three">
+                  {% for i in range(1, 4) %}
+                  <div>
+                    <label for="metric_{{ i }}">Metric {{ i }}</label>
+                    <select name="metric_{{ i }}" id="metric_{{ i }}">
+                      {% for opt in metric_options %}
+                      {% set val = opt or '' %}
+                      {% set label = opt if opt else 'Empty' %}
+                      <option
+                        value="{{ val | e }}"
+                        {% if val == current_metrics[i-1] %}selected{% endif %}
+                      >
+                        {{ label | e }}
+                      </option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  {% endfor %}
+                </div>
+
+                <div class="row three">
+                  {% for i in range(4, 7) %}
+                  <div>
+                    <label for="metric_{{ i }}">Metric {{ i }}</label>
+                    <select name="metric_{{ i }}" id="metric_{{ i }}">
+                      {% for opt in metric_options %}
+                      {% set val = opt or '' %}
+                      {% set label = opt if opt else 'Empty' %}
+                      <option
+                        value="{{ val | e }}"
+                        {% if val == current_metrics[i-1] %}selected{% endif %}
+                      >
+                        {{ label | e }}
+                      </option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  {% endfor %}
+                </div>
+              </div>
+
+              <div class="modal-footer" style="margin-top:auto;">
+                <button
+                  type="button"
+                  class="button black"
+                  onclick="window.closeSensorSettingsModal && window.closeSensorSettingsModal();"
                 >
-                  {{ label | e }}
-                </option>
-                {% endfor %}
-              </select>
-            </td>
-            {% endfor %}
-          </tr>
+                  Home
+                </button>
+                <button type="submit" class="button blue" id="saveBtn">
+                  Save
+                  <span
+                    id="saveSpinner"
+                    class="spinner"
+                    style="display:none; width:16px; height:16px; border:2px solid #ccc; border-top:2px solid #333; border-radius:50%; animation:spin 1s linear infinite; vertical-align:middle;"
+                  ></span>
+                </button>
+              </div>
+            </form>
+          </div>
 
-          <tr>
-            {% for i in range(4, 7) %}
-            <td style="padding:0.5rem; text-align:center;">
-              <label for="metric_{{ i }}">Metric {{ i }}</label><br />
-              <select
-                name="metric_{{ i }}"
-                id="metric_{{ i }}"
-                style="width:100%;"
-              >
-                {% for opt in metric_options %}
-                {% set val = opt or '' %}
-                {% set label = opt if opt else 'Empty' %}
-                <option
-                  value="{{ val | e }}"
-                  {% if val == current_metrics[i-1] %}selected{% endif %}
-                >
-                  {{ label | e }}
-                </option>
-                {% endfor %}
-              </select>
-            </td>
-            {% endfor %}
-          </tr>
-        </table>
+          <div class="sensor-pane-view" id="sensor-calibration-pane" style="display:none; flex:1; flex-direction:column; min-height:0;">
+            <div class="list-header">
+              <span>Sensor Calibration</span>
+            </div>
+            <div class="form">
+              <div class="section">
+                <p class="muted" style="margin-top:0;">
+                  You are calibrating this device:
+                </p>
+                <div class="device-summary" style="font-size:0.9rem; margin-bottom:0.75rem;">
+                  <div><strong>Sensor ID:</strong> {{ sensor_id }}</div>
+                  {% if device_label or device_kind %}
+                  <div>
+                    <strong>Device:</strong>
+                    {{ device_label if device_label is defined and device_label else device_kind | default("Unknown") }}
+                  </div>
+                  {% endif %}
+                  {% if location %}
+                  <div><strong>Location:</strong> {{ location }}</div>
+                  {% endif %}
+                </div>
+              </div>
 
-        <div
-          class="modal-footer"
-          style="margin-top:1rem; display:flex; gap:.5rem; justify-content:space-between; align-items:center;"
-        >
-          <!-- Home: just close modal now, no full reload -->
-          <button
-            type="button"
-            class="button black"
-            onclick="window.closeSensorSettingsModal && window.closeSensorSettingsModal();"
-          >
-            Home
-          </button>
+              <div class="section">
+                {% if is_apvpd %}
+                  <h4 class="section-title">Ambient BME280 Offsets</h4>
+                  <p class="muted" style="font-size:0.85rem; margin-top:0;">
+                    These offsets apply to the Ambient BME280 sensor on the i2c-1 bus.
+                  </p>
 
-          <!-- System Calibration -->
-          <button
-            type="button"
-            class="button green"
-            id="sysCalBtn"
-            onclick="window.openSystemCalibrationModal && window.openSystemCalibrationModal('{{ sensor_id }}');"
-          >
-            Calibrate Sensor
-          </button>
+                  <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+                    <tbody>
+                      <tr data-dev-cal-row="1">
+                        <td style="padding:0.25rem 0.5rem;">
+                          Ambient Temperature Offset (°C)
+                        </td>
+                        <td style="padding:0.25rem 0.5rem; text-align:right;">
+                          <input type="number"
+                                 step="any"
+                                 data-key="ambient_temp_offset"
+                                 class="devCalInput"
+                                 style="width:100%; text-align:right;"
+                                 value="{{ ambient_temp_offset | default(0) }}">
+                        </td>
+                      </tr>
+                      <tr data-dev-cal-row="1">
+                        <td style="padding:0.25rem 0.5rem;">
+                          Ambient RH Offset (%)
+                        </td>
+                        <td style="padding:0.25rem 0.5rem; text-align:right;">
+                          <input type="number"
+                                 step="any"
+                                 data-key="ambient_rh_offset"
+                                 class="devCalInput"
+                                 style="width:100%; text-align:right;"
+                                 value="{{ ambient_rh_offset | default(0) }}">
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
 
-          <!-- Save -->
-          <button type="submit" class="button blue" id="saveBtn">
-            Save
-            <span
-              id="saveSpinner"
-              class="spinner"
-              style="display:none; width:16px; height:16px; border:2px solid #ccc; border-top:2px solid #333; border-radius:50%; animation:spin 1s linear infinite; vertical-align:middle;"
-            ></span>
-          </button>
-        </div>
-      </form>
+                  <div style="margin-top:0.75rem; display:flex; justify-content:flex-end;">
+                    <button type="button" class="button blue" id="devCalApplyBtn">
+                      Apply Device Calibration
+                    </button>
+                  </div>
+                  <div style="display:flex; justify-content:flex-end; margin-top:0.25rem; min-height:1.25rem;">
+                    <span id="devCalStatus" class="muted" style="font-size:0.8rem;"></span>
+                  </div>
+
+                  <hr style="margin:0.75rem 0;">
+
+                  <h4 class="section-title">Plant Sensor Calibration</h4>
+                  <p class="muted" style="font-size:0.85rem; margin-top:0;">
+                    Run the APVPD plant calibration routine for this sensor.
+                  </p>
+                  <div style="display:flex; justify-content:flex-end;">
+                    <button type="button" class="button green" id="plantCalBtn">
+                      Calibrate Plant Sensor
+                    </button>
+                  </div>
+                  <div style="display:flex; justify-content:flex-end; margin-top:0.25rem; min-height:1.25rem;">
+                    <span id="plantCalStatus" class="muted" style="font-size:0.8rem;"></span>
+                  </div>
+
+                {% elif device_offsets %}
+                  <h4 class="section-title">Offsets</h4>
+                  <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+                    <tbody>
+                      {% for off in device_offsets %}
+                      <tr data-dev-cal-row="1">
+                        <td style="padding:0.25rem 0.5rem;">
+                          {{ off.label }}
+                          {% if off.unit %} ({{ off.unit }}){% endif %}
+                        </td>
+                        <td style="padding:0.25rem 0.5rem; text-align:right;">
+                          <input type="number"
+                                 step="any"
+                                 data-key="{{ off.key }}"
+                                 class="devCalInput"
+                                 style="width:100%; text-align:right;"
+                                 value="{{ off.value | default(0) }}">
+                        </td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+
+                  <div style="margin-top:0.75rem; display:flex; justify-content:flex-end;">
+                    <button type="button" class="button blue" id="devCalApplyBtn">
+                      Apply Device Calibration
+                    </button>
+                  </div>
+                  <div style="display:flex; justify-content:flex-end; margin-top:0.25rem; min-height:1.25rem;">
+                    <span id="devCalStatus" class="muted" style="font-size:0.8rem;"></span>
+                  </div>
+
+                {% else %}
+                  <p class="muted" style="margin-top:0;">
+                    This device does not expose per-metric offsets yet.
+                  </p>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          <div class="sensor-pane-view" id="system-calibration-pane" style="display:none; flex:1; flex-direction:column; min-height:0;">
+            <div class="list-header">
+              <span>System Calibration</span>
+            </div>
+            <div class="form" style="flex:1; min-height:0; overflow:auto;">
+              <div class="row" style="grid-template-columns:1fr 160px;">
+                <div>
+                  <label for="sysCalRefSensor">Choose reference sensor</label>
+                  <select id="sysCalRefSensor" style="width:100%;">
+                    <option value="">-- Select reference --</option>
+                    {% for sid in candidate_sensors %}
+                      <option value="{{ sid }}" {% if sid == sensor_id %}selected{% endif %}>
+                        {{ sid }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div>
+                  <label for="sysCalRangeHours">Cal Range (hours)</label>
+                  <input
+                    id="sysCalRangeHours"
+                    type="number"
+                    min="24"
+                    max="72"
+                    step="1"
+                    value="{{ default_range_hours | default(24) }}"
+                    style="width:100%;"
+                  >
+                </div>
+              </div>
+
+              <div class="section">
+                <h4 class="section-title">Sensors to Calibrate</h4>
+                <p class="muted" style="margin-top:0;">
+                  These sensors report Temperature &amp; RH and can be calibrated against the selected reference.
+                </p>
+
+                <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+                  <thead>
+                    <tr>
+                      <th style="text-align:left; padding:0.25rem 0.5rem;">Use</th>
+                      <th style="text-align:left; padding:0.25rem 0.5rem;">Sensor ID</th>
+                      <th style="text-align:right; padding:0.25rem 0.5rem;">ΔTemp (°C)</th>
+                      <th style="text-align:right; padding:0.25rem 0.5rem;">ΔRH (%)</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sysCalSensorsTable">
+                    {% for sid in candidate_sensors %}
+                    <tr data-sensor-id="{{ sid }}">
+                      <td style="padding:0.25rem 0.5rem;">
+                        <input type="checkbox"
+                               class="sysCalSensorCheck"
+                               value="{{ sid }}"
+                               {% if sid != sensor_id %}checked{% endif %}>
+                      </td>
+                      <td style="padding:0.25rem 0.5rem;">{{ sid }}</td>
+                      <td style="padding:0.25rem 0.5rem; text-align:right;" class="sysCalDeltaTemp">–</td>
+                      <td style="padding:0.25rem 0.5rem; text-align:right;" class="sysCalDeltaRh">–</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="modal-footer" style="margin-top:auto; display:flex; flex-direction:column; align-items:stretch;">
+              <div style="display:flex; gap:0.75rem; justify-content:flex-end; align-items:center;">
+                <button type="button" class="button blue" id="sysCalPreviewBtn">
+                  Preview Calibration
+                </button>
+                <button type="button" class="button green" id="sysCalApplyBtn" disabled>
+                  Apply Calibration
+                </button>
+              </div>
+              <div id="sysCalStatus" class="muted" style="font-size:0.8rem; line-height:1.3; margin-top:0.35rem; min-height:1.2rem; text-align:right;"></div>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
   </div>
 </div>
-
-<script>
-document.addEventListener("DOMContentLoaded", () => {
-  const form = document.querySelector("#sensorSettingsModal form");
-  const saveBtn = document.getElementById("saveBtn");
-  const spinner = document.getElementById("saveSpinner");
-  if (form && saveBtn && spinner) {
-    form.addEventListener("submit", () => {
-      spinner.style.display = "inline-block";
-      saveBtn.disabled = true;
-    });
-  }
-});
-</script>
