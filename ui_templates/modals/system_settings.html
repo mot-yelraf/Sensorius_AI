@@ -94,6 +94,13 @@
   max-width: 340px;
   margin-inline: auto;
 }
+#setupPiModal .field-grid-advanced {
+  display: grid;
+  grid-template-columns: minmax(260px, 460px);
+  gap: .75rem 1rem;
+  max-width: 460px;
+  margin-inline: auto;
+}
 #setupPiModal .field-stack {
   display: flex;
   flex-direction: column;
@@ -106,6 +113,17 @@
 #setupPiModal .field-stack select {
   width: 100%;
   padding: .5rem .6rem;
+}
+#setupPiModal .adv-debug-row {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  white-space: nowrap;
+  margin: 0;
+}
+#setupPiModal .adv-debug-row input[type="checkbox"] {
+  width: auto;
+  margin: 0;
 }
 #setupPiModal .subhead {
   margin: 1rem 0 .5rem 0;
@@ -194,6 +212,17 @@
   border: none;
   cursor: pointer;
 }
+#setupPiModal .button:disabled,
+#setupPiModal .button[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: grayscale(0.25);
+}
+#setupPiModal .green:disabled,
+#setupPiModal .green[disabled] {
+  background-color: #8db79a;
+  color: #eef3ef;
+}
 #setupPiModal .green   { background-color: #28a745; color: white; }
 #setupPiModal .red     { background-color: #dc3545; color: white; }
 #setupPiModal .black   { background-color: #000; color: white; }
@@ -211,6 +240,10 @@
     max-width: 100%;
   }
   #setupPiModal .field-grid-single {
+    grid-template-columns: 1fr;
+    max-width: 100%;
+  }
+  #setupPiModal .field-grid-advanced {
     grid-template-columns: 1fr;
     max-width: 100%;
   }
@@ -238,7 +271,6 @@
           <button type="button" class="system-menu-btn" data-target="pane-add">Add Device</button>
           <button type="button" class="system-menu-btn" data-target="pane-remove">Remove Device</button>
           <button type="button" class="system-menu-btn" data-target="pane-advanced">Advanced</button>
-          <button type="button" class="system-menu-btn" data-target="pane-clear">Clear Database</button>
         </aside>
 
         <section class="system-settings-content">
@@ -321,7 +353,7 @@
             <div class="status-text" id="ha-status"></div>
 
             <div class="pane-footer">
-              <span></span>
+              <button type="button" class="button black btn-back-system">Back</button>
               <button type="button" class="button blue" id="btn-ha-save">Save</button>
             </div>
           </div>
@@ -333,7 +365,7 @@
             </div>
             <div class="status-text" id="locations-status"></div>
             <div class="pane-footer">
-              <span></span>
+              <button type="button" class="button black btn-back-system">Back</button>
               <button type="button" class="button blue" id="btn-locations-save">Save</button>
             </div>
           </div>
@@ -364,8 +396,14 @@
               </li>
             </ul>
             <div class="pane-footer">
-              <button type="button" class="button neutral" id="btn-onboard-reset">Reset</button>
-              <button type="button" class="button green" id="btn-onboard-add">Add</button>
+              <div class="inline-actions">
+                <button type="button" class="button black btn-back-system">Back</button>
+                <button type="button" class="button neutral" id="btn-onboard-reset">Reset</button>
+              </div>
+              <div class="inline-actions">
+                <span id="add-scan-status" class="status-text" style="min-height:unset; margin:0;">Scanning for Nodus_Setup...</span>
+                <button type="button" class="button green" id="btn-onboard-add" disabled>Add</button>
+              </div>
             </div>
           </div>
 
@@ -380,27 +418,67 @@
               I understand this deletes settings and data
             </label>
             <div class="pane-footer">
-              <span></span>
+              <button type="button" class="button black btn-back-system">Back</button>
               <button id="remove-device-run" disabled class="button red">Remove Selected</button>
             </div>
           </div>
 
           <div class="settings-pane" id="pane-advanced" hidden>
             <h3 class="pane-title">Advanced</h3>
-            <div class="status-text" style="min-height:unset;">
-              Advanced settings are reserved for upcoming configuration features.
-            </div>
-          </div>
+            <div class="field-grid-advanced">
+              <div class="field-stack">
+                <label for="adv-autostart-enabled">Auto-start Sensorius on login</label>
+                <input type="checkbox" id="adv-autostart-enabled" style="width:auto;">
+              </div>
 
-          <div class="settings-pane" id="pane-clear" hidden>
-            <h3 class="pane-title">Clear Database</h3>
-            <div style="line-height:1.45; max-width:700px;">
-              Clearing the database deletes stored sensor history.
+              <div class="field-stack">
+                <label for="adv-autostart-scope">Auto-start scope</label>
+                <select id="adv-autostart-scope">
+                  <option value="user">User-level (default)</option>
+                  <option value="system">System-level</option>
+                </select>
+              </div>
+
+              <div class="status-text" id="adv-autostart-note" style="min-height:unset;"></div>
+
+              <div class="field-stack">
+                <label for="adv-log-level">SENSORIUS_LOG_LEVEL</label>
+                <select id="adv-log-level">
+                  <option value="DEBUG">DEBUG</option>
+                  <option value="INFO">INFO</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="ERROR">ERROR</option>
+                  <option value="CRITICAL">CRITICAL</option>
+                </select>
+              </div>
+
+              <div class="field-stack">
+                <label for="adv-file-log">SENSORIUS_FILE_LOG</label>
+                <input type="checkbox" id="adv-file-log" style="width:auto;">
+              </div>
+
+              <div class="field-stack">
+                <label>SENSORIUS_DEBUG_MODULES</label>
+                <div id="adv-debug-modules" style="display:flex; flex-direction:row; flex-wrap:wrap; gap:.35rem .85rem; align-items:center;"></div>
+              </div>
+
+              <div class="field-stack">
+                <label for="adv-db-retention">SENSORIUS_DB_RETENTION_DAYS (30-180)</label>
+                <input type="number" id="adv-db-retention" min="30" max="180" step="1" value="90">
+              </div>
+
+              <div class="field-stack">
+                <button type="button" class="button red" id="btn-clear-db">Clear Database</button>
+              </div>
             </div>
-            <div class="status-text" id="cleardb-status"></div>
+            <div class="status-text" id="adv-status" style="margin-top:.5rem;"></div>
+            <div class="status-text" style="min-height:unset; margin-top:.25rem;">
+              If auto-start is enabled, do not also run <code>python Sensorius.py</code> manually.
+              If you change auto-start mode, restart Sensorius once in a clean single-instance state.
+            </div>
             <div class="pane-footer">
-              <span></span>
-              <button type="button" class="button red" id="btn-clear-db">Clear Database</button>
+              <button type="button" class="button black btn-back-system">Back</button>
+              <button type="button" class="button blue" id="btn-advanced-save">Save</button>
             </div>
           </div>
         </section>
@@ -422,6 +500,11 @@
 
   let locationsLoaded = false;
   let onboardWs = null;
+  let addScanTimer = null;
+  let addScanActive = false;
+  let addScanAttempt = 0;
+  const addScanMax = 5;
+  const addScanDelayMs = 60000;
 
   function openSetupModal() {
     root.style.display = "flex";
@@ -466,6 +549,9 @@
     if (paneId === "pane-ha") hydrateHAFromData();
     if (paneId === "pane-locations" && !locationsLoaded) loadLocations();
     if (paneId === "pane-remove") loadRemovableDevices();
+    if (paneId === "pane-advanced") loadAdvancedSettings();
+    if (paneId === "pane-add") startAddScan();
+    if (paneId !== "pane-add") stopAddScan();
   }
 
   function setStatus(id, text) {
@@ -614,6 +700,83 @@
     }
   }
 
+  async function loadAdvancedSettings() {
+    try {
+      setStatus("adv-status", "");
+      const resp = await fetch("/advanced/status", { cache: "no-store" });
+      if (!resp.ok) {
+        throw new Error("HTTP " + resp.status);
+      }
+      const js = await resp.json();
+      document.getElementById("adv-autostart-enabled").checked = !!js.autostart_enabled;
+      document.getElementById("adv-autostart-scope").value = js.autostart_scope || "user";
+      document.getElementById("adv-log-level").value = js.log_level || "DEBUG";
+      document.getElementById("adv-file-log").checked = !!js.file_log;
+      document.getElementById("adv-db-retention").value = String(js.db_retention_days || 90);
+      setStatus("adv-autostart-note", js.autostart_scope_note || "");
+
+      const box = document.getElementById("adv-debug-modules");
+      if (box) {
+        box.innerHTML = "";
+        const selected = new Set(js.debug_modules || []);
+        (js.debug_module_choices || []).forEach((name) => {
+          const id = "adv-dbg-" + name;
+          const row = document.createElement("label");
+          row.className = "adv-debug-row";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.id = id;
+          cb.value = name;
+          cb.checked = selected.has(name);
+          row.appendChild(cb);
+          const span = document.createElement("span");
+          span.textContent = name;
+          row.appendChild(span);
+          box.appendChild(row);
+        });
+      }
+    } catch (e) {
+      console.error(e);
+      setStatus("adv-status", "Failed to load Advanced settings.");
+    }
+  }
+
+  async function saveAdvancedSettings() {
+    try {
+      const dbgChecks = [...document.querySelectorAll("#adv-debug-modules input[type='checkbox']")];
+      const debugModules = dbgChecks.filter((el) => el.checked).map((el) => el.value);
+      const payload = {
+        autostart_enabled: !!document.getElementById("adv-autostart-enabled")?.checked,
+        autostart_scope: (document.getElementById("adv-autostart-scope")?.value || "user").trim(),
+        log_level: (document.getElementById("adv-log-level")?.value || "DEBUG").trim(),
+        file_log: !!document.getElementById("adv-file-log")?.checked,
+        debug_modules: debugModules,
+        db_retention_days: parseInt(document.getElementById("adv-db-retention")?.value || "90", 10),
+      };
+
+      setStatus("adv-status", "Saving...");
+      const resp = await fetch("/advanced/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const js = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(js.error || ("HTTP " + resp.status));
+      }
+      if (js.status === "partial") {
+        setStatus("adv-status", "Saved, but auto-start update had an issue: " + (js.autostart_message || "unknown"));
+      } else {
+        setStatus("adv-status", "Saved.");
+      }
+      if (window.showToast) window.showToast("Advanced settings saved", "ok");
+    } catch (e) {
+      console.error(e);
+      setStatus("adv-status", "Failed to save Advanced settings.");
+      if (window.showToast) window.showToast("Failed to save Advanced settings", "error");
+    }
+  }
+
   function markOnboardStep(step, ok, label, detail) {
     const li = document.getElementById(`step-${step}`);
     if (!li) return;
@@ -664,6 +827,8 @@
   async function startOnboard() {
     if (!formEl) return;
     const addBtn = document.getElementById("btn-onboard-add");
+    if (addBtn && addBtn.disabled) return;
+    stopAddScan();
     if (addBtn) addBtn.disabled = true;
 
     try {
@@ -698,23 +863,86 @@
           if (typeof msg.step === "number") {
             markOnboardStep(step, !!msg.ok, msg.label || "", msg.detail || "");
           }
-          if (msg.done && addBtn) addBtn.disabled = false;
+          if (msg.done && addBtn && !addScanActive) addBtn.disabled = false;
         } catch (e) {
           console.error(e);
         }
       };
 
       onboardWs.onerror = () => {
-        if (addBtn) addBtn.disabled = false;
+        if (addBtn && !addScanActive) addBtn.disabled = false;
       };
       onboardWs.onclose = () => {
-        if (addBtn) addBtn.disabled = false;
+        if (addBtn && !addScanActive) addBtn.disabled = false;
       };
     } catch (e) {
       console.error(e);
       if (addBtn) addBtn.disabled = false;
       markOnboardStep(1, false, "Failed to start onboarding", String(e));
     }
+  }
+
+  function setAddScanStatus(msg) {
+    const el = document.getElementById("add-scan-status");
+    if (el) el.textContent = msg || "";
+  }
+
+  function stopAddScan() {
+    addScanActive = false;
+    if (addScanTimer) {
+      clearTimeout(addScanTimer);
+      addScanTimer = null;
+    }
+  }
+
+  async function scanAddAttempt() {
+    if (!addScanActive) return;
+    const addBtn = document.getElementById("btn-onboard-add");
+    if (addBtn) addBtn.disabled = true;
+    addScanAttempt += 1;
+    setAddScanStatus(`Scanning for Nodus_Setup (${addScanAttempt}/${addScanMax})...`);
+
+    try {
+      const resp = await fetch("/scan-nodus-setup?ssid=" + encodeURIComponent("Nodus_Setup"), { cache: "no-store" });
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const js = await resp.json();
+      if (js && js.found) {
+        setAddScanStatus("Nodus_Setup found");
+        if (addBtn) addBtn.disabled = false;
+        stopAddScan();
+        return;
+      }
+      if (addScanAttempt >= addScanMax) {
+        setAddScanStatus("Nodus_Setup not found");
+        if (addBtn) addBtn.disabled = true;
+        stopAddScan();
+        return;
+      }
+      setAddScanStatus(`Nodus_Setup not found. Retrying in 60s (${addScanAttempt}/${addScanMax})...`);
+      if (addBtn) addBtn.disabled = true;
+      addScanTimer = setTimeout(scanAddAttempt, addScanDelayMs);
+    } catch (e) {
+      console.error(e);
+      if (addScanAttempt >= addScanMax) {
+        setAddScanStatus("Scan failed - Nodus_Setup not found");
+        if (addBtn) addBtn.disabled = true;
+        stopAddScan();
+        return;
+      }
+      setAddScanStatus(`Scan error. Retrying in 60s (${addScanAttempt}/${addScanMax})...`);
+      if (addBtn) addBtn.disabled = true;
+      addScanTimer = setTimeout(scanAddAttempt, addScanDelayMs);
+    }
+  }
+
+  function startAddScan() {
+    stopAddScan();
+    addScanActive = true;
+    addScanAttempt = 0;
+    const addBtn = document.getElementById("btn-onboard-add");
+    if (addBtn) addBtn.disabled = true;
+    setAddScanStatus("Scanning for Nodus_Setup...");
+    scanAddAttempt();
   }
 
   function setRemoveStatus(msg) {
@@ -831,12 +1059,22 @@
     }
     if (ev.target && ev.target.id === "btn-onboard-reset") {
       resetOnboardUI();
+      if (!addScanActive) startAddScan();
     }
     if (ev.target && ev.target.id === "remove-device-run") {
       submitRemoveDevices();
     }
     if (ev.target && ev.target.id === "btn-clear-db") {
       clearDatabase();
+    }
+    if (ev.target && ev.target.id === "btn-advanced-save") {
+      saveAdvancedSettings();
+    }
+    if (ev.target && ev.target.classList && ev.target.classList.contains("btn-back-system")) {
+      if (document.getElementById("pane-add") && !document.getElementById("pane-add").hidden) {
+        stopAddScan();
+      }
+      setActivePane("pane-system");
     }
   });
 

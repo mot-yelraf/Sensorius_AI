@@ -66,6 +66,53 @@ def _load_runtime_config(timeout: float | int) -> tuple[float, float, float]:
         )
     return timeout_sec, loop_interval, jitter
 
+
+def _task_elapsed_snapshot(heartbeat_items, now: float) -> list[tuple[str, float]]:
+    """
+    Return [(task_name, elapsed_seconds)] sorted by largest elapsed first.
+    Excludes watchdog tasks and tolerates malformed heartbeat entries.
+    """
+    rows: list[tuple[str, float]] = []
+    for task_name, last_beat in heartbeat_items:
+        if str(task_name).startswith("Watchdog"):
+            continue
+        try:
+            elapsed = max(0.0, now - float(last_beat))
+        except Exception:
+            elapsed = float("inf")
+        rows.append((str(task_name), elapsed))
+    rows.sort(key=lambda item: item[1], reverse=True)
+    return rows
+
+
+def _log_timeout_snapshot(task_name: str, elapsed: float, timeout_sec: float, heartbeat_items, now: float) -> None:
+    """
+    Emit pre-exit diagnostics to help distinguish single-task hang from
+    whole-loop starvation.
+    """
+    snapshot = _task_elapsed_snapshot(heartbeat_items, now)
+    timed_out = [(name, age) for name, age in snapshot if age > timeout_sec]
+    total = len(snapshot)
+    top5 = ", ".join(f"{name}={age:.1f}s" for name, age in snapshot[:5]) if snapshot else "none"
+
+    # If several tasks time out with very similar ages, suspect global stall.
+    timed_out_ages = [age for _, age in timed_out]
+    stall_hint = "single_task_or_subset"
+    if len(timed_out_ages) >= 3:
+        spread = max(timed_out_ages) - min(timed_out_ages)
+        if spread <= 5.0:
+            stall_hint = "possible_global_event_loop_stall"
+
+    printDM(
+        (
+            f"[Watchdog] Timeout snapshot: trigger={task_name} elapsed={elapsed:.1f}s "
+            f"timeout={timeout_sec:.1f}s timed_out={len(timed_out)}/{total} "
+            f"stall_hint={stall_hint} top5=[{top5}]"
+        ),
+        location=MODULE,
+        level="warning",
+    )
+
 async def _force_process_exit(reason: str, code: int) -> None:
     """
     Make a best effort to stop cleanly, then HARD-exit the interpreter.
@@ -181,6 +228,20 @@ async def WatchdogMonitor(supervisor, timeout: float | int = 71):
                 elapsed = float("inf")
 
             if elapsed > timeout_sec:
+                try:
+                    _log_timeout_snapshot(
+                        task_name=str(task_name),
+                        elapsed=elapsed,
+                        timeout_sec=timeout_sec,
+                        heartbeat_items=heartbeat_items,
+                        now=now,
+                    )
+                except Exception as diag_ex:
+                    printDM(
+                        f"[Watchdog] Failed to build timeout snapshot: {diag_ex}",
+                        location=MODULE,
+                        level="warning",
+                    )
                 await _force_process_exit(
                     reason=f"'{task_name}' not fed in {int(elapsed)}s (timeout={int(timeout_sec)}s)",
                     code=EXIT_CODE_TIMEOUT

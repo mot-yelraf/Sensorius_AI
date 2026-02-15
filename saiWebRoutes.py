@@ -28,6 +28,8 @@ import asyncio
 import subprocess
 import time
 import os
+import sys
+import platform
 import hmac
 import base64, zlib
 import re
@@ -37,6 +39,10 @@ from collections import OrderedDict
 import shutil, httpx
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+try:
+    import pwd  # POSIX only
+except Exception:
+    pwd = None
 from saiUtils import (
     printDM,
     debug_enabled,
@@ -224,6 +230,301 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     def _graph_setups_payload(data: dict[str, dict[str, object]], last_used: str) -> dict[str, object]:
         items = [{"name": name, "config": cfg} for name, cfg in sorted(data.items(), key=lambda kv: kv[0].lower())]
         return {"items": items, "last_used": (last_used or "")}
+
+    _ENV_PATH = Path(__file__).resolve().parent / ".env"
+    _ENV_DEF_PATH = Path(__file__).resolve().parent / ".env.def"
+    _AUTOSTART_LABEL = "com.sensorius.app"
+    _AUTOSTART_SERVICE = "sensorius.service"
+    _AUTOSTART_TASK = "SensoriusAutoStart"
+    _ADV_DEBUG_MODULE_CHOICES = [
+        "Sensorius",
+        "saiSensor",
+        "saiMQTTIngest",
+        "saiHtml",
+        "saiSwitch",
+        "saiWebRoutes",
+    ]
+
+    def _read_env_pairs(path: Path) -> list[tuple[str, str]]:
+        out: list[tuple[str, str]] = []
+        try:
+            if not path.exists():
+                return out
+            for raw_line in path.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, val = line.split("=", 1)
+                out.append((key.strip(), val.strip()))
+        except Exception:
+            return out
+        return out
+
+    def _env_map_with_defaults() -> dict[str, str]:
+        merged: dict[str, str] = {}
+        for k, v in _read_env_pairs(_ENV_DEF_PATH):
+            merged[k] = v
+        for k, v in _read_env_pairs(_ENV_PATH):
+            merged[k] = v
+        return merged
+
+    def _write_env_updates(updates: dict[str, str]) -> None:
+        lines: list[str] = []
+        if _ENV_PATH.exists():
+            try:
+                lines = _ENV_PATH.read_text(encoding="utf-8").splitlines()
+            except Exception:
+                lines = []
+        elif _ENV_DEF_PATH.exists():
+            try:
+                lines = _ENV_DEF_PATH.read_text(encoding="utf-8").splitlines()
+            except Exception:
+                lines = []
+
+        keys_seen: set[str] = set()
+        out_lines: list[str] = []
+        for raw in lines:
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in raw:
+                out_lines.append(raw)
+                continue
+            key = raw.split("=", 1)[0].strip()
+            if key in updates:
+                out_lines.append(f"{key}={updates[key]}")
+                keys_seen.add(key)
+            else:
+                out_lines.append(raw)
+
+        for key, val in updates.items():
+            if key not in keys_seen:
+                out_lines.append(f"{key}={val}")
+
+        _ENV_PATH.write_text("\n".join(out_lines).rstrip() + "\n", encoding="utf-8")
+        try:
+            os.chmod(_ENV_PATH, 0o644)
+        except Exception:
+            pass
+        try:
+            if os.name == "posix" and os.geteuid() == 0 and pwd is not None:
+                target_user = (os.environ.get("SUDO_USER") or "").strip()
+                if target_user:
+                    pw = pwd.getpwnam(target_user)
+                    os.chown(_ENV_PATH, pw.pw_uid, pw.pw_gid)
+        except Exception:
+            pass
+
+    def _bool_text(v: bool) -> str:
+        return "true" if bool(v) else "false"
+
+    def _is_true_text(v: str | None, default: bool = False) -> bool:
+        if v is None:
+            return default
+        return str(v).strip().lower() in {"1", "true", "yes", "on"}
+
+    def _run_quiet(cmd: list[str]) -> tuple[bool, str]:
+        try:
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            ok = (p.returncode == 0)
+            msg = (p.stdout or p.stderr or "").strip()
+            return ok, msg
+        except Exception as ex:
+            return False, str(ex)
+
+    def _autostart_paths() -> dict[str, Path]:
+        home = Path.home()
+        return {
+            "linux_user": home / ".config" / "systemd" / "user" / _AUTOSTART_SERVICE,
+            "linux_system": Path("/etc/systemd/system") / _AUTOSTART_SERVICE,
+            "mac_user": home / "Library" / "LaunchAgents" / f"{_AUTOSTART_LABEL}.plist",
+            "mac_system": Path("/Library/LaunchDaemons") / f"{_AUTOSTART_LABEL}.plist",
+            "win_user": home / "AppData" / "Roaming" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / "Sensorius_autostart.cmd",
+        }
+
+    def _autostart_is_enabled(scope: str) -> bool:
+        scope = "system" if str(scope).lower() == "system" else "user"
+        sys_name = platform.system().lower()
+        paths = _autostart_paths()
+        if sys_name == "linux":
+            if scope == "user":
+                ok, out = _run_quiet(["systemctl", "--user", "is-enabled", _AUTOSTART_SERVICE])
+            else:
+                ok, out = _run_quiet(["systemctl", "is-enabled", _AUTOSTART_SERVICE])
+            if ok:
+                return "enabled" in out.lower()
+            path_key = "linux_system" if scope == "system" else "linux_user"
+            return paths[path_key].exists()
+        if sys_name == "darwin":
+            path_key = "mac_system" if scope == "system" else "mac_user"
+            return paths[path_key].exists()
+        if sys_name == "windows":
+            if scope == "system":
+                ok, _ = _run_quiet(["schtasks", "/Query", "/TN", _AUTOSTART_TASK])
+                return ok
+            return paths["win_user"].exists()
+        return False
+
+    def _autostart_apply(enabled: bool, scope: str) -> tuple[bool, str]:
+        scope = "system" if str(scope).lower() == "system" else "user"
+        sys_name = platform.system().lower()
+        paths = _autostart_paths()
+        project_dir = Path(__file__).resolve().parent
+        python_exe = Path(sys.executable).resolve()
+        sensorius_py = (project_dir / "Sensorius.py").resolve()
+
+        if sys_name == "linux":
+            path_key = "linux_system" if scope == "system" else "linux_user"
+            unit_path = paths[path_key]
+            unit_text = "\n".join([
+                "[Unit]",
+                "Description=Sensorius Service",
+                "After=network-online.target",
+                "Wants=network-online.target",
+                "",
+                "[Service]",
+                "Type=simple",
+                f"WorkingDirectory={project_dir}",
+                f"ExecStart={python_exe} {sensorius_py}",
+                "Restart=on-failure",
+                "RestartSec=3",
+                f"EnvironmentFile={_ENV_PATH}",
+                "",
+                "[Install]",
+                "WantedBy=default.target" if scope == "user" else "WantedBy=multi-user.target",
+                "",
+            ])
+            try:
+                unit_path.parent.mkdir(parents=True, exist_ok=True)
+                if enabled:
+                    unit_path.write_text(unit_text, encoding="utf-8")
+                    if scope == "user":
+                        _run_quiet(["systemctl", "--user", "daemon-reload"])
+                        ok, msg = _run_quiet(["systemctl", "--user", "enable", "--now", _AUTOSTART_SERVICE])
+                    else:
+                        _run_quiet(["systemctl", "daemon-reload"])
+                        ok, msg = _run_quiet(["systemctl", "enable", "--now", _AUTOSTART_SERVICE])
+                    return ok, msg or "Enabled"
+                else:
+                    if scope == "user":
+                        _run_quiet(["systemctl", "--user", "disable", "--now", _AUTOSTART_SERVICE])
+                        _run_quiet(["systemctl", "--user", "daemon-reload"])
+                    else:
+                        _run_quiet(["systemctl", "disable", "--now", _AUTOSTART_SERVICE])
+                        _run_quiet(["systemctl", "daemon-reload"])
+                    if unit_path.exists():
+                        unit_path.unlink()
+                    return True, "Disabled"
+            except Exception as ex:
+                return False, str(ex)
+
+        if sys_name == "darwin":
+            path_key = "mac_system" if scope == "system" else "mac_user"
+            plist_path = paths[path_key]
+            plist_text = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>{_AUTOSTART_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{python_exe}</string>
+    <string>{sensorius_py}</string>
+  </array>
+  <key>WorkingDirectory</key><string>{project_dir}</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+</dict>
+</plist>
+"""
+            try:
+                plist_path.parent.mkdir(parents=True, exist_ok=True)
+                uid = str(os.getuid())
+                domain = "system" if scope == "system" else f"gui/{uid}"
+                if enabled:
+                    plist_path.write_text(plist_text, encoding="utf-8")
+                    _run_quiet(["launchctl", "bootout", domain, str(plist_path)])
+                    ok, msg = _run_quiet(["launchctl", "bootstrap", domain, str(plist_path)])
+                    if not ok:
+                        ok, msg = _run_quiet(["launchctl", "load", str(plist_path)])
+                    return ok, msg or "Enabled"
+                else:
+                    _run_quiet(["launchctl", "bootout", domain, str(plist_path)])
+                    _run_quiet(["launchctl", "unload", str(plist_path)])
+                    if plist_path.exists():
+                        plist_path.unlink()
+                    return True, "Disabled"
+            except Exception as ex:
+                return False, str(ex)
+
+        if sys_name == "windows":
+            try:
+                if scope == "system":
+                    if enabled:
+                        cmd = f'"{python_exe}" "{sensorius_py}"'
+                        ok, msg = _run_quiet(["schtasks", "/Create", "/F", "/SC", "ONSTART", "/TN", _AUTOSTART_TASK, "/TR", cmd, "/RU", "SYSTEM"])
+                        return ok, msg or "Enabled"
+                    _run_quiet(["schtasks", "/Delete", "/F", "/TN", _AUTOSTART_TASK])
+                    return True, "Disabled"
+                startup_cmd = paths["win_user"]
+                if enabled:
+                    startup_cmd.parent.mkdir(parents=True, exist_ok=True)
+                    content = "\n".join([
+                        "@echo off",
+                        f'cd /d "{project_dir}"',
+                        f'start "" "{python_exe}" "{sensorius_py}"',
+                        "",
+                    ])
+                    startup_cmd.write_text(content, encoding="utf-8")
+                    return True, "Enabled"
+                if startup_cmd.exists():
+                    startup_cmd.unlink()
+                return True, "Disabled"
+            except Exception as ex:
+                return False, str(ex)
+
+        return False, f"Unsupported platform: {platform.system()}"
+
+    def _scan_for_ssid(target_ssid: str) -> tuple[bool, str]:
+        ssid = str(target_ssid or "").strip()
+        if not ssid:
+            return False, "SSID missing"
+        sys_name = platform.system().lower()
+        try:
+            if sys_name == "linux":
+                p = subprocess.run(
+                    ["nmcli", "-t", "-f", "SSID", "dev", "wifi", "list"],
+                    capture_output=True, text=True, timeout=8
+                )
+                if p.returncode != 0:
+                    return False, (p.stderr or p.stdout or "nmcli failed").strip()
+                lines = [ln.strip() for ln in (p.stdout or "").splitlines() if ln.strip()]
+                return (ssid in lines), "ok"
+
+            if sys_name == "darwin":
+                airport = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport"
+                if not Path(airport).exists():
+                    return False, "airport tool not found"
+                p = subprocess.run([airport, "-s"], capture_output=True, text=True, timeout=8)
+                if p.returncode != 0:
+                    return False, (p.stderr or p.stdout or "airport scan failed").strip()
+                out = p.stdout or ""
+                found = any(ln.strip().startswith(ssid + " ") or ln.strip() == ssid for ln in out.splitlines())
+                return found, "ok"
+
+            if sys_name == "windows":
+                p = subprocess.run(
+                    ["netsh", "wlan", "show", "networks", "mode=bssid"],
+                    capture_output=True, text=True, timeout=10
+                )
+                if p.returncode != 0:
+                    return False, (p.stderr or p.stdout or "netsh scan failed").strip()
+                for ln in (p.stdout or "").splitlines():
+                    m = re.match(r"^\s*SSID\s+\d+\s*:\s*(.*)$", ln, flags=re.IGNORECASE)
+                    if m and m.group(1).strip() == ssid:
+                        return True, "ok"
+                return False, "ok"
+        except Exception as ex:
+            return False, str(ex)
+        return False, f"unsupported platform: {platform.system()}"
 
     @router.get("/", response_class=HTMLResponse)
     async def current_data_page(request: Request, sensor_id: str = Query(None), json_only: bool = Query(False)):
@@ -3087,6 +3388,112 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         settings.replace_setting("HomeAssistant", "HA_PASSWORD", saiSettings.obfuscate_secret(password))
 
         return JSONResponse({"status": "ok"})
+
+    @router.get("/advanced/status")
+    async def advanced_status(request: Request):
+        env_map = _env_map_with_defaults()
+        log_level = str(env_map.get("SENSORIUS_LOG_LEVEL", "DEBUG") or "DEBUG").upper()
+        if log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+            log_level = "DEBUG"
+
+        file_log = _is_true_text(env_map.get("SENSORIUS_FILE_LOG"), default=False)
+        dbg_raw = str(env_map.get("SENSORIUS_DEBUG_MODULES", "") or "")
+        debug_modules = [m.strip() for m in dbg_raw.split(",") if m.strip()]
+
+        try:
+            retention_days = int(str(env_map.get("SENSORIUS_DB_RETENTION_DAYS", "90") or "90"))
+        except Exception:
+            retention_days = 90
+        retention_days = max(30, min(180, retention_days))
+
+        autostart_scope = str(env_map.get("SENSORIUS_AUTOSTART_SCOPE", "user") or "user").strip().lower()
+        if autostart_scope not in {"user", "system"}:
+            autostart_scope = "user"
+        autostart_enabled = _autostart_is_enabled(autostart_scope)
+
+        return JSONResponse({
+            "platform": platform.system(),
+            "autostart_scope": autostart_scope,
+            "autostart_enabled": bool(autostart_enabled),
+            "log_level": log_level,
+            "file_log": bool(file_log),
+            "debug_module_choices": list(_ADV_DEBUG_MODULE_CHOICES),
+            "debug_modules": debug_modules,
+            "db_retention_days": retention_days,
+            "autostart_note": "If you manually run 'python Sensorius.py', stop that instance before enabling auto-start to avoid duplicate instances.",
+            "autostart_scope_note": "macOS user-level launchctl is default. System-level may require admin privileges.",
+        })
+
+    @router.post("/advanced/save")
+    async def advanced_save(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+
+        log_level = str(body.get("log_level", "DEBUG") or "DEBUG").strip().upper()
+        if log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+            return JSONResponse({"error": "invalid_log_level"}, status_code=400)
+
+        file_log = bool(body.get("file_log", False))
+        autostart_enabled = bool(body.get("autostart_enabled", False))
+        autostart_scope = str(body.get("autostart_scope", "user") or "user").strip().lower()
+        if autostart_scope not in {"user", "system"}:
+            return JSONResponse({"error": "invalid_autostart_scope"}, status_code=400)
+
+        debug_modules_in = body.get("debug_modules", [])
+        if not isinstance(debug_modules_in, list):
+            return JSONResponse({"error": "invalid_debug_modules"}, status_code=400)
+        clean_modules: list[str] = []
+        seen: set[str] = set()
+        for raw in debug_modules_in:
+            m = str(raw or "").strip()
+            if not m:
+                continue
+            if m not in _ADV_DEBUG_MODULE_CHOICES:
+                continue
+            if m in seen:
+                continue
+            seen.add(m)
+            clean_modules.append(m)
+
+        try:
+            retention_days = int(body.get("db_retention_days", 90))
+        except Exception:
+            return JSONResponse({"error": "invalid_db_retention_days"}, status_code=400)
+        if retention_days < 30 or retention_days > 180:
+            return JSONResponse({"error": "invalid_db_retention_days_range"}, status_code=400)
+
+        updates = {
+            "SENSORIUS_LOG_LEVEL": log_level,
+            "SENSORIUS_FILE_LOG": _bool_text(file_log),
+            "SENSORIUS_DEBUG_MODULES": ",".join(clean_modules),
+            "SENSORIUS_DB_RETENTION_DAYS": str(retention_days),
+            "SENSORIUS_AUTOSTART_SCOPE": autostart_scope,
+            "SENSORIUS_AUTOSTART_ENABLED": _bool_text(autostart_enabled),
+        }
+
+        try:
+            _write_env_updates(updates)
+        except Exception as ex:
+            return JSONResponse({"error": f"env_write_failed: {ex}"}, status_code=500)
+
+        ok, msg = _autostart_apply(autostart_enabled, autostart_scope)
+        return JSONResponse({
+            "status": "ok" if ok else "partial",
+            "autostart_applied": bool(ok),
+            "autostart_message": msg,
+        })
+
+    @router.get("/scan-nodus-setup")
+    async def scan_nodus_setup(ssid: str = Query("Nodus_Setup")):
+        found, msg = await asyncio.to_thread(_scan_for_ssid, ssid)
+        return JSONResponse({
+            "ssid": ssid,
+            "found": bool(found),
+            "platform": platform.system(),
+            "message": msg,
+        })
 
     @router.get("/sensor-ids", response_class=JSONResponse)
     async def list_sensor_ids():

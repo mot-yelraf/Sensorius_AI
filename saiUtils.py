@@ -21,6 +21,10 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from zoneinfo import ZoneInfo
+try:
+    import pwd  # POSIX only
+except Exception:  # pragma: no cover - windows-safe guard
+    pwd = None
 
 try:
     from dotenv import load_dotenv, dotenv_values
@@ -86,6 +90,34 @@ def _strip_env_value(raw: str) -> str:
 
 def _generate_api_key() -> str:
     return secrets.token_urlsafe(32)
+
+
+def _normalize_dotenv_ownership(dotenv_path: Path) -> None:
+    """
+    Ensure .env is user-writable and, when possible, owned by the invoking user.
+    """
+    try:
+        if not dotenv_path.exists():
+            return
+        try:
+            os.chmod(dotenv_path, 0o644)
+        except Exception:
+            pass
+
+        if os.name != "posix":
+            return
+        if os.geteuid() != 0:
+            return
+
+        target_user = (os.environ.get("SUDO_USER") or "").strip()
+        if not target_user:
+            return
+        if pwd is None:
+            return
+        pw = pwd.getpwnam(target_user)
+        os.chown(dotenv_path, pw.pw_uid, pw.pw_gid)
+    except Exception:
+        pass
 
 
 def _ensure_startup_api_keys() -> None:
@@ -176,6 +208,7 @@ def _ensure_startup_api_keys() -> None:
 
     try:
         dotenv_path.write_text("\n".join(file_lines).rstrip() + "\n", encoding="utf-8")
+        _normalize_dotenv_ownership(dotenv_path)
     except Exception:
         # Keep runtime env keys even if persistence fails.
         pass
