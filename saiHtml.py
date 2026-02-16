@@ -217,6 +217,39 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 return (_loc or "").strip()
         return ""
 
+    def _channels_from_switch_settings(sw_id: str) -> list[str]:
+        """
+        Fallback channel discovery for remote switches when MQTT has not emitted
+        state/event yet and /itaot did not include switch topics.
+        """
+        if not sw_mgr:
+            return []
+        try:
+            doc = sw_mgr.load(sw_id) or {}
+            sw_blk = doc.get("Switch", {}) if isinstance(doc, dict) else {}
+            if not isinstance(sw_blk, dict):
+                return []
+
+            sw_type = str(sw_blk.get("TYPE", "") or "").strip().lower()
+            has_en_keys = ("SWITCH_1_EN" in sw_blk) or ("SWITCH_2_EN" in sw_blk)
+            labels: list[str] = []
+            if sw_type in ("picow", "pico2w") or has_en_keys:
+                for i in range(1, 9):
+                    lbl = str(sw_blk.get(f"SWITCH_{i}", "") or "").strip()
+                    env = sw_blk.get(f"SWITCH_{i}_EN", "")
+                    enabled = isinstance(env, (int, float)) or (isinstance(env, str) and env.strip() != "")
+                    if lbl and enabled:
+                        labels.append(lbl)
+            else:
+                for i in range(1, 33):
+                    lbl = str(sw_blk.get(f"SWITCH_{i}", "") or "").strip()
+                    pin = sw_blk.get(f"SWITCH_{i}_PIN", None)
+                    if lbl and isinstance(pin, (int, float)):
+                        labels.append(lbl)
+            return labels
+        except Exception:
+            return []
+
     # read cached state: { "switch-dzia16": {"GP28": "on", "GP27": "off", ...}, ... }
     remote_cache = getattr(mqtt_ingest, "_switch_state_cache", {}) or {}
 
@@ -241,12 +274,17 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         pass
 
     all_remote_ids = set(remote_cache.keys()) | set(discovered_switches.keys())
+    # Include on-disk switch IDs so a remote switch can render before first MQTT
+    # switch state/event packet, as long as settings exist.
+    all_remote_ids |= set(switch_locations_on_disk.keys())
     for sw_id in sorted(all_remote_ids):
         try:
             ch_map = remote_cache.get(sw_id, {}) or {}
             label_map = discovered_switches.get(sw_id, {})
 
             channels = list(label_map.keys()) if label_map else list(ch_map.keys())
+            if not channels:
+                channels = _channels_from_switch_settings(sw_id)
             if not channels:
                 continue
 

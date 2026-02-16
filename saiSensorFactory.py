@@ -30,8 +30,7 @@ SENSOR_MODULES = {
     "vpd":   ("sensor_modules.sensor_vpd",    "VPDSensor"),
     "avpd":  ("sensor_modules.sensor_vpd",    "VPDSensor"),
     "apvpd": ("sensor_modules.sensor_apvpd",  "VPDPlantSensor"),
-    "veml":  ("sensor_modules.sensor_veml",   "VEMLSensor"),
-    "soil":("sensor_modules.sensor_soil",   "SoilSensor"),
+    "veml":  ("sensor_modules.sensor_veml",   "VEML7700Sensor"),
 }
 
 def create_sensor(settings, supervisor):
@@ -59,8 +58,8 @@ def create_sensor(settings, supervisor):
 # --- Autodetection on first boot ---
 @dataclass
 class DeviceDescriptor:
-    kind: str                 # "apvpd" | "aqi" | "avpd" | "co2" | "veml" | "soil" 
-    bus:  str                 # "i2c-1" | "i2c-0" | None (for soil)
+    kind: str                 # "apvpd" | "aqi" | "avpd" | "co2" | "veml"
+    bus:  str                 # "i2c-1" | "i2c-0"
     addrs: tuple[int, ...]    # addresses consumed by this device
 
 # Simple scan cache to avoid repeated i2c scans in one boot phase
@@ -157,13 +156,6 @@ def find_sensors(known_used: Optional[dict[str, set[int]]] = None) -> list[Devic
             found.append(DeviceDescriptor("veml", bus, (VEML7700_ADDR,)))
             # support multiple if you want; otherwise break
             
-    # 6) soil via RS485 (no I2C address consumption)
-    try:
-        if _probe_soil_rs485():
-            found.append(DeviceDescriptor("soil", None, ()))
-    except Exception as e:
-        printDM(f"RS485 probe skipped/failed: {e}", location="saiSensorFactory")
-
     if DEBUG:
         printDM(f"found: {found}", location=f"{MODULE}.find_sensors")
         

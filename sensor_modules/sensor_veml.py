@@ -468,3 +468,7 @@ class VEML7700Sensor(BaseSensor):
     def supports_calibration(self):
         # We now expose device offsets for Light Intensity + PPFD
         return True
+
+
+# Backward-compatible alias for older factory mappings/imports.
+VEMLSensor = VEML7700Sensor

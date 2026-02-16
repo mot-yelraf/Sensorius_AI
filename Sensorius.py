@@ -86,7 +86,11 @@ async def ensure_local_sensor_ids(settings) -> list[str]:
 
     for desc in descriptors:
         kind = (desc.kind or "").strip().lower()
-        bus = ((desc.bus or "uart")).strip().lower()  # soil/RS485 -> "uart"
+        bus = (desc.bus or "").strip().lower()
+        if not bus:
+            # Defensive fallback: skip malformed descriptors instead of generating bad IDs.
+            printDM(f"Skipping descriptor with empty bus: kind={kind}", location="ensure_local_sensor_ids")
+            continue
         sid = f"{kind}-{bus}-{host}"
 
         # Always ensure sensor.toml exists (idempotent if already present)

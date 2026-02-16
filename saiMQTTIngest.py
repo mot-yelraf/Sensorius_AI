@@ -160,6 +160,10 @@ class saiMQTTIngest:
         self.host_to_peer_ids: dict[str, list[str]] = {}  # map host -> [peer_ids] (already guarded in loop, but ensure exists early)
         self.last_mqtt_seen: dict[str, float] = {}  # last mqtt seen map (guarded elsewhere; set here for safety)
         self.nodus_availability: dict[str, str] = {}  # host -> "online"|"offline" (from MQTT /availability)
+        # Retained startup replays can include stale hosts. Track repeated retained traffic and
+        # only promote to discovery after we see sustained retained data from the same host.
+        self._retained_data_seen: dict[str, int] = {}
+        self._retained_avail_probe_inflight: set[str] = set()
 
         self.last_check_time = defaultdict(lambda: 0)
         self.mqtt_clients = set(self.mqtt_clients or [])
@@ -507,7 +511,10 @@ class saiMQTTIngest:
                     if status:
                         base = self._host_from_sid_base(nodus_id)
                         if base:
-                            self._maybe_add_mqtt_client(base)
+                            if not retain:
+                                self._maybe_add_mqtt_client(base)
+                            else:
+                                self._maybe_promote_retained_host(base, source="availability")
                             now_t = time.time()
                             self.last_mqtt_seen[base] = now_t
                             self.last_mqtt_seen[f"{base}.local"] = now_t
@@ -550,7 +557,10 @@ class saiMQTTIngest:
                 try:
                     host = self._host_from_topic_or_sid(topic, sensor_id)
                     if host:
-                        self._maybe_add_mqtt_client(host)
+                        if not retain:
+                            self._maybe_add_mqtt_client(host)
+                        else:
+                            self._maybe_promote_retained_host(host, source="data")
                         peers = self.host_to_peer_ids.setdefault(host, [])
                         if sensor_id and sensor_id not in peers:
                             peers.append(sensor_id)
@@ -853,6 +863,111 @@ class saiMQTTIngest:
         if base in (self.mqtt_clients or set()):
             return
         self.add_client(base)
+
+    def _maybe_promote_retained_host(self, host_like: str | None, *, source: str) -> None:
+        """
+        Handle retained MQTT messages without immediately re-enrolling stale hosts.
+        Policy:
+          - retained availability must pass /hayd once before auto-enroll
+          - retained data/state can promote a host after 2 sightings
+        """
+        base = self._normalize_host_key(host_like)
+        if not base:
+            return
+        if base in (self.mqtt_clients or set()):
+            return
+
+        src = (source or "").strip().lower()
+        if src in {"data", "state"}:
+            n = int(self._retained_data_seen.get(base, 0)) + 1
+            self._retained_data_seen[base] = n
+            if n >= 2:
+                if DEBUG:
+                    printDM(f"[retained] promoting host after repeated {src}: {base}", location=MODULE)
+                self._maybe_add_mqtt_client(base)
+            elif DEBUG:
+                printDM(f"[retained] defer auto-enroll {base} ({src} seen {n}/2)", location=MODULE)
+        elif src == "availability":
+            if base in self._retained_avail_probe_inflight:
+                return
+            self._retained_avail_probe_inflight.add(base)
+            ok = self._schedule_coro(self._validate_retained_availability_and_add(base))
+            if not ok:
+                self._retained_avail_probe_inflight.discard(base)
+                if DEBUG:
+                    printDM(f"[retained] skip auto-enroll for {base} (availability; no loop)", location=MODULE)
+            elif DEBUG:
+                printDM(f"[retained] validating availability before enroll: {base}", location=MODULE)
+        elif DEBUG:
+            printDM(f"[retained] skip auto-enroll for {base} ({src})", location=MODULE)
+
+    async def _validate_retained_availability_and_add(self, base: str) -> None:
+        """
+        For retained availability, only enroll after a quick /hayd validation.
+        This blocks stale retained ghosts while letting real devices onboard.
+        """
+        try:
+            if not base or base in (self.mqtt_clients or set()):
+                return
+
+            def _parse_hayd_ok(data: object) -> bool:
+                if not isinstance(data, dict):
+                    return False
+                status = str((data or {}).get("STATUS", "")).strip().lower()
+                return status in {"ok", "online", "ready"}
+
+            targets: list[str] = []
+            mdns = mdns_hostname(base)
+            if mdns:
+                targets.append(mdns)
+            if base and base != mdns:
+                targets.append(base)
+            try:
+                ip_cached = (self._host_ip_cache or {}).get(base)
+                if ip_cached:
+                    targets.append(ip_cached)
+            except Exception:
+                pass
+            try:
+                ip_itaot = (self._host_ipv4addr or {}).get(base)
+                if ip_itaot:
+                    targets.append(ip_itaot)
+            except Exception:
+                pass
+
+            seen = set()
+            ordered_targets = []
+            for t in targets:
+                tt = str(t or "").strip()
+                if tt and tt not in seen:
+                    seen.add(tt)
+                    ordered_targets.append(tt)
+
+            timeout_cfg = httpx.Timeout(connect=1.5, read=1.5, write=1.5, pool=1.0)
+            async with httpx.AsyncClient(timeout=timeout_cfg, http2=False) as client:
+                for target in ordered_targets:
+                    try:
+                        resp = await client.get(f"http://{target}:8000/hayd", headers={"Connection": "close"})
+                        if resp.status_code != 200:
+                            continue
+                        try:
+                            data = resp.json()
+                        except Exception:
+                            continue
+                        if _parse_hayd_ok(data):
+                            if target.replace(".", "").isdigit():
+                                self._host_ip_cache[base] = target
+                            self._maybe_add_mqtt_client(base)
+                            if DEBUG:
+                                printDM(f"[retained] availability validated via /hayd: {base} ({target})", location=MODULE)
+                            return
+                    except Exception:
+                        continue
+
+            if DEBUG:
+                printDM(f"[retained] availability validation failed: {base}", location=MODULE)
+        finally:
+            self._retained_avail_probe_inflight.discard(base)
 
     def _register_switch_topics(self, switch_id: str, switch_location: str, switch_topics_map: dict) -> bool:
         """
