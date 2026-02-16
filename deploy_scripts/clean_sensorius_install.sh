@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'HELP'
 Usage:
-  testApparatus/clean_sensorius_install.sh [--apply] [--dry-run] [--hosts FILE] [--host HOST]...
+  deploy_scripts/clean_sensorius_install.sh [--apply] [--dry-run] [--hosts FILE] [--host HOST]...
                                         [--ssh-bin PATH] [--mqtt-host HOST] [--mqtt-port PORT]
                                         [--mqtt-user USER] [--mqtt-pass PASS]
 
@@ -32,19 +32,18 @@ Notes:
   - post_clean_command is only executed in --apply mode.
 
 Examples:
-  testApparatus/clean_sensorius_install.sh
-  testApparatus/clean_sensorius_install.sh --apply
-  testApparatus/clean_sensorius_install.sh --apply --host pi-lab-a
+  deploy_scripts/clean_sensorius_install.sh
+  deploy_scripts/clean_sensorius_install.sh --apply
+  deploy_scripts/clean_sensorius_install.sh --apply --host pi-lab-a
 HELP
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 DRY_RUN=1
-HOSTS_FILE="${REPO_ROOT}/deploy_scripts/sai_hosts.txt"
+HOSTS_FILE="${SCRIPT_DIR}/sai_hosts.txt"
 if [[ ! -f "${HOSTS_FILE}" ]]; then
-  HOSTS_FILE="${REPO_ROOT}/deploy_scripts/sai_hosts.def"
+  HOSTS_FILE="${SCRIPT_DIR}/sai_hosts.def"
 fi
 
 SSH_BIN="ssh"
@@ -143,8 +142,8 @@ TARGET_DIR="$1"
 DRY_RUN="$2"
 MQTT_HOST="$3"
 MQTT_PORT="$4"
-MQTT_USER="$5"
-MQTT_PASS="$6"
+MQTT_USER="${5-}"
+MQTT_PASS="${6-}"
 
 log() {
   printf '%s\n' "$*"
@@ -276,23 +275,51 @@ if ! command -v mosquitto_sub >/dev/null 2>&1 || ! command -v mosquitto_pub >/de
   exit 0
 fi
 
-if ! mosquitto_sub --help 2>&1 | grep -q -- '--retained-only'; then
-  log "  mosquitto_sub lacks --retained-only; MQTT cleanup skipped"
-  exit 0
-fi
-
-sub_cmd=(mosquitto_sub -h "$MQTT_HOST" -p "$MQTT_PORT" --retained-only -F '%t' -W 3 -t '#')
-if [[ -n "$MQTT_USER" ]]; then
-  sub_cmd+=( -u "$MQTT_USER" )
-fi
-if [[ -n "$MQTT_PASS" ]]; then
-  sub_cmd+=( -P "$MQTT_PASS" )
-fi
-
 retained_topics=()
-while IFS= read -r topic; do
-  [[ -n "$topic" ]] && retained_topics+=("$topic")
-done < <("${sub_cmd[@]}" 2>/dev/null | sed '/^[[:space:]]*$/d' | sort -u || true)
+sub_help="$(mosquitto_sub --help 2>&1 || true)"
+
+if grep -q -- '--retained-only' <<<"$sub_help"; then
+  sub_cmd=(mosquitto_sub -h "$MQTT_HOST" -p "$MQTT_PORT" --retained-only -F '%t' -W 3 -t '#')
+  if [[ -n "$MQTT_USER" ]]; then
+    sub_cmd+=( -u "$MQTT_USER" )
+  fi
+  if [[ -n "$MQTT_PASS" ]]; then
+    sub_cmd+=( -P "$MQTT_PASS" )
+  fi
+
+  while IFS= read -r topic; do
+    [[ -n "$topic" ]] && retained_topics+=("$topic")
+  done < <("${sub_cmd[@]}" 2>/dev/null | sed '/^[[:space:]]*$/d' | sort -u || true)
+elif grep -q -- '-F' <<<"$sub_help"; then
+  log "  mosquitto_sub lacks --retained-only; using -F '%r|%t' fallback"
+  sub_cmd=(mosquitto_sub -h "$MQTT_HOST" -p "$MQTT_PORT" -F '%r|%t' -W 3 -t '#')
+  if [[ -n "$MQTT_USER" ]]; then
+    sub_cmd+=( -u "$MQTT_USER" )
+  fi
+  if [[ -n "$MQTT_PASS" ]]; then
+    sub_cmd+=( -P "$MQTT_PASS" )
+  fi
+
+  while IFS= read -r line; do
+    [[ "$line" == 1\|* ]] || continue
+    topic="${line#1|}"
+    [[ -n "$topic" ]] && retained_topics+=("$topic")
+  done < <("${sub_cmd[@]}" 2>/dev/null | sed '/^[[:space:]]*$/d' | sort -u || true)
+else
+  log "  mosquitto_sub lacks --retained-only/-F; using topic scan fallback"
+  sub_cmd=(mosquitto_sub -h "$MQTT_HOST" -p "$MQTT_PORT" -v -W 3 -t '#')
+  if [[ -n "$MQTT_USER" ]]; then
+    sub_cmd+=( -u "$MQTT_USER" )
+  fi
+  if [[ -n "$MQTT_PASS" ]]; then
+    sub_cmd+=( -P "$MQTT_PASS" )
+  fi
+
+  while IFS= read -r line; do
+    topic="${line%% *}"
+    [[ -n "$topic" ]] && retained_topics+=("$topic")
+  done < <("${sub_cmd[@]}" 2>/dev/null | sed '/^[[:space:]]*$/d' | sort -u || true)
+fi
 
 if [[ ${#retained_topics[@]} -eq 0 ]]; then
   log "  no retained topics discovered"

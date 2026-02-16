@@ -2904,6 +2904,67 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # Clients list is no longer authoritative; nothing to remove.
         return True
 
+    def _collect_related_device_ids(device_id: str, *, mqtt_ingest=None) -> list[str]:
+        """
+        Expand a remove target into related Nodus IDs (host + peer switch IDs).
+        This ensures remove-device purges retained topics for the full Nodus identity set.
+        """
+        out: list[str] = []
+        seen: set[str] = set()
+
+        def _add(raw: str | None) -> None:
+            val = str(raw or "").strip()
+            if not val:
+                return
+            key = val.lower()
+            if key in seen:
+                return
+            seen.add(key)
+            out.append(val)
+
+        def _alias_set(raw: str | None) -> set[str]:
+            val = str(raw or "").strip()
+            aliases: set[str] = set()
+            if not val:
+                return aliases
+            aliases.add(val.lower())
+            base = normalize_hostname_base(val)
+            if base:
+                aliases.add(base.lower())
+                aliases.add(mdns_hostname(base).lower())
+            return aliases
+
+        _add(device_id)
+        if not mqtt_ingest:
+            return out
+
+        wanted = _alias_set(device_id)
+        try:
+            norm = getattr(mqtt_ingest, "_normalize_host_key", None)
+            if callable(norm):
+                host_base = norm(device_id)
+                if host_base:
+                    wanted |= _alias_set(host_base)
+                    _add(host_base)
+        except Exception:
+            pass
+
+        mapping = getattr(mqtt_ingest, "host_to_peer_ids", None)
+        if not isinstance(mapping, dict):
+            return out
+
+        for host, peers in list(mapping.items()):
+            host_aliases = _alias_set(host)
+            peer_aliases: set[str] = set()
+            for peer in (peers or []):
+                peer_aliases |= _alias_set(peer)
+            if wanted & (host_aliases | peer_aliases):
+                _add(host)
+                for peer in (peers or []):
+                    _add(peer)
+
+        return out
+
     def _collect_switch_channels(device_id: str, mqtt_ingest=None) -> list[dict]:
         """
         Return switch channel dicts: [{"channel_id": "...", "label": "..."}].
@@ -2988,7 +3049,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return out
 
     def _clear_ha_entities(device_id: str, *, mqtt_ingest=None, data_logger=None) -> dict:
-        stats = {"topics_cleared": 0}
+        stats = {"topics_cleared": 0, "ids_expanded": []}
         if not mqtt_ingest:
             return stats
         try:
@@ -3007,36 +3068,40 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if not topic_map:
             return stats
 
-        metrics = _collect_sensor_metrics(device_id, data_logger, mqtt_ingest)
-        channels = _collect_switch_channels(device_id, mqtt_ingest)
-
         topics: list[str] = []
-        for metric in metrics:
-            object_id = f"{device_id}__{slugify(metric)}"
-            topics.append(topic_map.sensor_discovery_topic(object_id))
-        for ch in channels:
-            ch_id = str(ch.get("channel_id") or "").strip()
-            label = str(ch.get("label") or "").strip()
-            if ch_id:
-                topics.append(topic_map.switch_discovery_topic(f"{device_id}__{ch_id}"))
-            if label:
-                topics.append(topic_map.switch_discovery_topic(f"{device_id}__{slugify(label)}"))
+        ids = _collect_related_device_ids(device_id, mqtt_ingest=mqtt_ingest)
+        stats["ids_expanded"] = ids
+        for dev_id in ids:
+            metrics = _collect_sensor_metrics(dev_id, data_logger, mqtt_ingest)
+            channels = _collect_switch_channels(dev_id, mqtt_ingest)
+            for metric in metrics:
+                object_id = f"{dev_id}__{slugify(metric)}"
+                topics.append(topic_map.sensor_discovery_topic(object_id))
+            for ch in channels:
+                ch_id = str(ch.get("channel_id") or "").strip()
+                label = str(ch.get("label") or "").strip()
+                if ch_id:
+                    topics.append(topic_map.switch_discovery_topic(f"{dev_id}__{ch_id}"))
+                if label:
+                    topics.append(topic_map.switch_discovery_topic(f"{dev_id}__{slugify(label)}"))
 
         if not topics:
             try:
                 known = getattr(mqtt_ingest, "_ha_discovered_sensor_metrics", None) or set()
                 for key in list(known):
-                    if key.startswith(f"{device_id}::"):
-                        metric_slug = key.split("::", 1)[1]
-                        topics.append(topic_map.sensor_discovery_topic(f"{device_id}__{metric_slug}"))
+                    for dev_id in ids:
+                        if key.startswith(f"{dev_id}::"):
+                            metric_slug = key.split("::", 1)[1]
+                            topics.append(topic_map.sensor_discovery_topic(f"{dev_id}__{metric_slug}"))
             except Exception:
                 pass
             try:
                 known = getattr(mqtt_ingest, "_ha_discovered_switch_channels", None) or set()
                 for key in list(known):
-                    if key.startswith(f"{device_id}::"):
-                        ch_id = key.split("::", 1)[1]
-                        topics.append(topic_map.switch_discovery_topic(f"{device_id}__{ch_id}"))
+                    for dev_id in ids:
+                        if key.startswith(f"{dev_id}::"):
+                            ch_id = key.split("::", 1)[1]
+                            topics.append(topic_map.switch_discovery_topic(f"{dev_id}__{ch_id}"))
             except Exception:
                 pass
 
@@ -3055,33 +3120,52 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return stats
 
     def _clear_retained_mqtt_topics(device_id: str, *, mqtt_ingest=None) -> dict:
-        stats = {"topics_cleared": 0}
+        stats = {"topics_cleared": 0, "ids_expanded": []}
         if not mqtt_ingest:
             return stats
         client = mqtt_ingest.client
         base_topic = getattr(mqtt_ingest, "base_topic", "") or ""
+        ids = _collect_related_device_ids(device_id, mqtt_ingest=mqtt_ingest)
+        ids_l = {i.lower() for i in ids}
+        stats["ids_expanded"] = ids
 
         topics: set[str] = set()
         try:
             for topic, dev in (mqtt_ingest.topic_dev_id_map or {}).items():
-                if dev == device_id and topic:
+                if str(dev or "").strip().lower() in ids_l and topic:
                     topics.add(topic)
         except Exception:
             pass
-        for suffix in ("data", "state", "availability"):
-            topics.add(f"nodus/{device_id}/{suffix}")
-            if base_topic:
-                topics.add(f"{base_topic}/nodus/{device_id}/{suffix}")
+        for dev_id in ids:
+            for suffix in ("data", "state", "availability"):
+                topics.add(f"nodus/{dev_id}/{suffix}")
+                topics.add(f"switch/{dev_id}/{suffix}")
+                if base_topic:
+                    topics.add(f"{base_topic}/nodus/{dev_id}/{suffix}")
+                    topics.add(f"{base_topic}/switch/{dev_id}/{suffix}")
         try:
             for (sw_id, _ch_id), topic in (mqtt_ingest.nodus_switch_command_topics or {}).items():
-                if sw_id == device_id and topic:
+                if str(sw_id or "").strip().lower() in ids_l and topic:
                     topics.add(topic)
             for (sw_id, _ch_id), topic in (mqtt_ingest.nodus_switch_state_topics or {}).items():
-                if sw_id == device_id and topic:
+                if str(sw_id or "").strip().lower() in ids_l and topic:
                     topics.add(topic)
             for (sw_id, _ch_id), topic in (mqtt_ingest.nodus_switch_event_topics or {}).items():
-                if sw_id == device_id and topic:
+                if str(sw_id or "").strip().lower() in ids_l and topic:
                     topics.add(topic)
+        except Exception:
+            pass
+        try:
+            for topic, meta in (mqtt_ingest.nodus_switch_topic_map or {}).items():
+                sw_id = str((meta or {}).get("switch_id") or "").strip().lower()
+                if sw_id in ids_l and topic:
+                    topics.add(topic)
+        except Exception:
+            pass
+        try:
+            for (sw_id, _label), base in (getattr(mqtt_ingest, "_set_base_by_label", {}) or {}).items():
+                if str(sw_id or "").strip().lower() in ids_l and base:
+                    topics.add(f"{base}/set")
         except Exception:
             pass
 
@@ -3103,12 +3187,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         def _bump():
             stats["ingest_keys_cleared"] += 1
 
-        try:
-            base = ing._normalize_host_key(device_id) if hasattr(ing, "_normalize_host_key") else device_id
-        except Exception:
-            base = device_id
+        ids = _collect_related_device_ids(device_id, mqtt_ingest=ing)
+        expanded_keys: set[str] = set()
+        for dev_id in ids:
+            try:
+                base = ing._normalize_host_key(dev_id) if hasattr(ing, "_normalize_host_key") else dev_id
+            except Exception:
+                base = dev_id
+            for key in (dev_id, base, mdns_hostname(base)):
+                if key:
+                    expanded_keys.add(key)
 
-        for key in (device_id, base, mdns_hostname(base)):
+        for key in expanded_keys:
             if not key:
                 continue
             for dname in ("device_type", "expected_gauge_map", "latest_meta"):
@@ -3203,11 +3293,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         try:
             mapping = getattr(ing, "host_to_peer_ids", None)
             if isinstance(mapping, dict):
-                if base in mapping:
-                    mapping.pop(base, None); _bump()
+                for dev_id in ids:
+                    dev_base = normalize_hostname_base(dev_id) or dev_id
+                    if dev_base in mapping:
+                        mapping.pop(dev_base, None); _bump()
                 for host, peers in list(mapping.items()):
-                    if device_id in (peers or []):
-                        peers[:] = [p for p in peers if p != device_id]
+                    peer_set_l = {str(p or "").strip().lower() for p in (peers or [])}
+                    if peer_set_l & {i.lower() for i in ids}:
+                        peers[:] = [p for p in peers if str(p or "").strip().lower() not in {i.lower() for i in ids}]
                         _bump()
         except Exception:
             pass
