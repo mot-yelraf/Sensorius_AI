@@ -86,32 +86,14 @@ def _normalize_timestamp_input(ts_value, default_tz: ZoneInfo) -> Tuple[str, flo
     dt = datetime.fromtimestamp(epoch, default_tz)
     return dt.isoformat(), epoch
 
-def build_switch_key(switch_id: str, channel_or_label: str, channel_id: str | None = None) -> str:
+def build_switch_key(channel_id: str, label: str) -> str:
     """
-    Canonical switch key constructor used across the app.
-
-    Preferred shape:
-      - If channel_id is provided and non-empty:
-            "<switch_id>::<channel_id>"
-      - Otherwise:
-            "<switch_id>::<channel_or_label>"
-
-    This keeps older 2-argument calls working:
-        build_switch_key("switch-abc", "Fan")
-    while allowing richer callers to pass an explicit channel_id:
-        build_switch_key("switch-abc", "Fan", channel_id="S1-")
+    Canonical switch key constructor used across the app:
+      "<channel_id>::<label>"
     """
-    switch_id_safe = (switch_id or "").strip()
-
-    if channel_id is not None:
-        # Prefer explicit channel_id when provided; fall back to channel_or_label if blank
-        chan = str(channel_id or "").strip()
-        if not chan:
-            chan = str(channel_or_label or "").strip()
-    else:
-        chan = str(channel_or_label or "").strip()
-
-    return f"{switch_id_safe}{SW_KEY_DELIM}{chan}"
+    chan = str(channel_id or "").strip()
+    lab = str(label or "").strip()
+    return f"{chan}{SW_KEY_DELIM}{lab}"
 
 class saiDataLogger:
     _init_lock = threading.Lock()
@@ -213,7 +195,7 @@ class saiDataLogger:
                         cur.execute("""
                             CREATE TABLE IF NOT EXISTS switch_ids (
                                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                switch_key TEXT NOT NULL UNIQUE,  -- "<switch_id>::<channel_id>"
+                                switch_key TEXT NOT NULL UNIQUE,  -- "<channel_id>::<label>"
                                 switch_id  TEXT NOT NULL,
                                 label      TEXT NOT NULL,         -- user-visible name ("Fan","Light",...)
                                 location   TEXT
@@ -234,7 +216,7 @@ class saiDataLogger:
                                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                                 timestamp  TEXT NOT NULL,         -- ISO8601
                                 ts_epoch   REAL,                  -- epoch seconds (UTC comparable)
-                                switch_key TEXT NOT NULL,         -- "<switch_id>::<label>"
+                                switch_key TEXT NOT NULL,         -- "<channel_id>::<label>"
                                 state      INTEGER NOT NULL,      -- 0 = Off, 1 = On
                                 source     TEXT,                  -- 'manual','ui','mqtt','rule', etc.
                                 sensor_id  TEXT                   -- lineage/host if useful
@@ -726,9 +708,9 @@ class saiDataLogger:
         Register/update a switch identity row.
 
         New canonical form:
-          - switch_key MUST be "<switch_id>::<channel_id>"
+          - switch_key MUST be "<channel_id>::<label>"
             where channel_id is the stable per-channel ID
-            (e.g. SWITCH_1_ID = "S1-123456").
+            (e.g. SWITCH_1_CHANNEL_ID = "S1-123456").
 
         Notes:
           - `label` is the user-visible name ("Fan","Light",...) and may change
@@ -763,7 +745,7 @@ class saiDataLogger:
         """
         Append a switch event to sw_events.
 
-        - switch_key: '<switch_id>::<channel_id>' (canonical; channel_id = SWITCH_N_ID)
+        - switch_key: '<channel_id>::<label>' (canonical)
         - is_on: True/False
         - source: optional ('manual','ui','mqtt','rule', etc.)
         - sensor_id: optional lineage/host (kept for joins/filters)
@@ -900,7 +882,7 @@ class saiDataLogger:
 
     #  convenience query
     def get_known_switches(self) -> list[str]:
-        """Return list of registered switch_key values ('<switch_id>::<channel_id>'), sorted."""
+        """Return list of registered switch_key values ('<channel_id>::<label>'), sorted."""
         try:
             with self._open_conn() as conn:
                 rows = conn.execute("SELECT switch_key FROM switch_ids ORDER BY switch_key").fetchall()
@@ -912,7 +894,7 @@ class saiDataLogger:
     def get_switch_identities(self) -> list[dict]:
         """
         Returns list of dicts:
-        {"switch_key": "<switch_id>::<channel_id>", "switch_id": "...", "channel_id": "...", "label": "...", "location": "..."}
+        {"switch_key": "<channel_id>::<label>", "switch_id": "...", "channel_id": "...", "label": "...", "location": "..."}
         """
         try:
             with self._open_conn() as conn:
@@ -927,9 +909,9 @@ class saiDataLogger:
                 label = r[2] or ""
                 location = r[3] if len(r) > 3 else None
 
-                # switch_key is "<switch_id>::<channel_id>"
+                # switch_key is "<channel_id>::<label>"
                 parts = switch_key.split(SW_KEY_DELIM, 1)
-                channel_id = parts[1] if len(parts) == 2 else ""
+                channel_id = parts[0] if len(parts) == 2 else ""
 
                 results.append({
                     "switch_key": switch_key,

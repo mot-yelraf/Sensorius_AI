@@ -50,10 +50,22 @@ class SwitchController:
                 return (self.settings or {}).get(section, {}).get(key, default)
 
         sw = self._switch_block()
+        sw_type = str(sw.get("TYPE", "") or "").strip().lower()
+        has_en_keys = ("SWITCH_1_ENABLE_PIN" in sw) or ("SWITCH_2_ENABLE_PIN" in sw)
+
+        def _enable_field_value(sw_map: dict, idx: int):
+            return sw_map.get(f"SWITCH_{idx}_ENABLE_PIN", "")
+
+        def _has_install_marker(val) -> bool:
+            if val is None:
+                return False
+            if isinstance(val, bool):
+                return val
+            return str(val).strip() != ""
 
         self.device     = get("Switch", "DEVICE",     sw.get("DEVICE", "switch"))
-        self.serial_num = get("Switch", "SERIAL_NUM", sw.get("SERIAL_NUM", "unknown"))
-        self.switch_id  = get("Switch", "SWITCH_ID",  sw.get("SWITCH_ID", "switch"))
+        self.serial_num = get("Switch", "DEVICE_SERIAL_NUM", sw.get("DEVICE_SERIAL_NUM", "unknown"))
+        self.switch_id  = get("Switch", "SWITCH_DEVICE_ID",  sw.get("SWITCH_DEVICE_ID", "switch"))
         self.location   = get("Switch", "SWITCH_LOCATION",   sw.get("SWITCH_LOCATION", "Unknown"))
         self.topic      = f"switch/{self.switch_id}/event"
         # map human label -> channel_id (SWITCH_n_ID); used for DB identity
@@ -95,16 +107,18 @@ class SwitchController:
         # ---- Gather labels & persisted states from [Switch] ----
         labels = []
         for k, v in sw.items():
-            # only exact base keys like SWITCH_1, SWITCH_2, ...
-            if not k.startswith("SWITCH_"):
+            if not k.startswith("SWITCH_") or not k.endswith("_LABEL"):
                 continue
             parts = k.split("_")
-            if len(parts) != 2 or not parts[1].isdigit():
+            if len(parts) != 3 or not parts[1].isdigit():
                 continue
             n = int(parts[1])
             label = str(v).strip()
             if not label:
                 continue
+            if sw_type in ("picow", "pico2w") or has_en_keys:
+                if not _has_install_marker(_enable_field_value(sw, n)):
+                    continue
 
             labels.append(label)
 
@@ -116,7 +130,7 @@ class SwitchController:
             self.last_set_time.setdefault(label, 0.0)
 
             # channel ID from new schema (may be empty → None)
-            chan_id_key = f"SWITCH_{n}_ID"
+            chan_id_key = f"SWITCH_{n}_CHANNEL_ID"
             chan_id = str(sw.get(chan_id_key, "") or "").strip() or None
             self.channel_id_for_label[label] = chan_id
 
@@ -197,23 +211,18 @@ class SwitchController:
     def _switch_key(self, name: str) -> str:
         """
         Canonical DB identity for a channel:
-          "<switch_id>::<channel_id>" when SWITCH_n_ID is available,
-          falling back to "<switch_id>::<Label>" if needed.
-
-        Uses saiDataLogger.build_switch_key so the format matches MQTT ingest.
+          "<channel_id>::<label>"
         """
-        sid = getattr(self, "switch_id", "") or "unknown"
         chan_id = None
         try:
             chan_id = (self.channel_id_for_label or {}).get(name)
         except Exception:
             chan_id = None
+        chan_id = str(chan_id or "").strip()
 
         if _build_switch_key:
-            # build_switch_key(switch_id, channel_or_label, channel_id=None)
-            return _build_switch_key(sid, name, channel_id=chan_id)
-        # fallback to older label-based shape if helper missing
-        return f"{sid}::{name}"
+            return _build_switch_key(chan_id, name)
+        return f"{chan_id}::{name}"
 
     def get_latest_state_from_db(self, label: str) -> str | None:
         """Convenience: return 'On'/'Off'/None for a given label using sw_events."""
@@ -328,7 +337,7 @@ class SwitchController:
 
         sw = (getattr(self, "settings", {}) or {}).get("Switch", {}) or {}
         for n in range(1, 33):
-            if str(sw.get(f"SWITCH_{n}", "")).strip().lower() == label.strip().lower():
+            if str(sw.get(f"SWITCH_{n}_LABEL", "")).strip().lower() == label.strip().lower():
                 return n
         return None
 

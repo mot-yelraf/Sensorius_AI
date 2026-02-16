@@ -212,6 +212,10 @@ class AQISensor(BaseSensor):
     # ------------------------------------------------------------------
     def _get_calibrated_temp_c(self) -> float:
         raw_temp = self._get_raw_temp_c()
+        if raw_temp is None:
+            self.latest_raw["Temperature"] = None
+            self.current_values["Temperature"] = None
+            return None
         temp_c = raw_temp + self.temp_offset_c
         self.latest_raw["Temperature"] = raw_temp
         self.current_values["Temperature"] = temp_c
@@ -219,12 +223,19 @@ class AQISensor(BaseSensor):
 
     def _get_calibrated_temp_f(self) -> float:
         temp_c = self._get_calibrated_temp_c()
+        if temp_c is None:
+            self.current_values["Temperature_F"] = None
+            return None
         temp_f = (temp_c * 9.0 / 5.0) + 32.0
         self.current_values["Temperature_F"] = temp_f
         return temp_f
 
     def _get_calibrated_rh(self) -> float:
         raw_rh = self._get_raw_rh()
+        if raw_rh is None:
+            self.latest_raw["Rel-Humidity"] = None
+            self.current_values["Rel-Humidity"] = None
+            return None
         rh = raw_rh + self.rh_offset_pct
         rh = self._clamp_if_number(rh, 0.0, 100.0)
         self.latest_raw["Rel-Humidity"] = raw_rh
@@ -233,6 +244,10 @@ class AQISensor(BaseSensor):
 
     def _get_calibrated_gas(self) -> float:
         raw_gas = self._get_raw_gas_ohms()
+        if raw_gas is None:
+            self.latest_raw["Gas"] = None
+            self.current_values["Gas"] = None
+            return None
         gas = raw_gas + self.gas_offset_ohms
         gas = self._clamp_if_number(gas, 500, 2_000_000)
         self.latest_raw["Gas"] = raw_gas
@@ -242,6 +257,9 @@ class AQISensor(BaseSensor):
     def _get_calibrated_abs_humidity(self) -> float:
         temp_c = self._get_calibrated_temp_c()
         rh = self._get_calibrated_rh()
+        if temp_c is None or rh is None:
+            self.current_values["Humidity"] = None
+            return None
         abs_h = self.calculate_absolute_humidity(temp_c, rh)
         self.current_values["Humidity"] = abs_h
         return abs_h
@@ -249,6 +267,9 @@ class AQISensor(BaseSensor):
     def _get_calibrated_vpd(self) -> float:
         temp_c = self._get_calibrated_temp_c()
         rh = self._get_calibrated_rh()
+        if temp_c is None or rh is None:
+            self.current_values["Ambient VPD"] = None
+            return None
         vpd = self.calculate_vpd(temp_c, rh)
         vpd_clamped = self._clamp_if_number(vpd, 0.0, 5.0)
         self.current_values["Ambient VPD"] = vpd_clamped
@@ -257,12 +278,18 @@ class AQISensor(BaseSensor):
     def _get_calibrated_dewpoint_c(self) -> float:
         temp_c = self._get_calibrated_temp_c()
         rh = self._get_calibrated_rh()
+        if temp_c is None or rh is None:
+            self.current_values["Dew-Point"] = None
+            return None
         dewpoint_c = self.calculate_dewpoint(temp_c, rh)
         self.current_values["Dew-Point"] = dewpoint_c
         return dewpoint_c
 
     def _get_calibrated_dewpoint_f(self) -> float:
         dewpoint_c = self._get_calibrated_dewpoint_c()
+        if dewpoint_c is None:
+            self.current_values["Dew-Point_F"] = None
+            return None
         dewpoint_f = (dewpoint_c * 9.0 / 5.0) + 32.0
         self.current_values["Dew-Point_F"] = dewpoint_f
         return dewpoint_f
@@ -270,6 +297,9 @@ class AQISensor(BaseSensor):
     def _get_calibrated_dewpoint_depression(self) -> float:
         temp_c = self._get_calibrated_temp_c()
         rh = self._get_calibrated_rh()
+        if temp_c is None or rh is None:
+            self.current_values["Dewpoint Depression"] = None
+            return None
         depression = self.calculate_dewpoint_depression(temp_c, rh)
         depression = self._clamp_if_number(depression, 0.0, 30.0)
         self.current_values["Dewpoint Depression"] = depression
@@ -278,7 +308,13 @@ class AQISensor(BaseSensor):
     def _get_calibrated_dewvpd_risk(self) -> float:
         temp_c = self._get_calibrated_temp_c()
         rh = self._get_calibrated_rh()
+        if temp_c is None or rh is None:
+            self.current_values["DewVPD Risk"] = None
+            return None
         vpd = self._get_calibrated_vpd()
+        if vpd is None:
+            self.current_values["DewVPD Risk"] = None
+            return None
         risk = self.calculate_dewvpd_risk(temp_c, rh, vpd=vpd)
         risk = self._clamp_if_number(risk, 0.0, 100.0)
         self.current_values["DewVPD Risk"] = risk
@@ -290,7 +326,15 @@ class AQISensor(BaseSensor):
         """
         gas = self._get_calibrated_gas()
         rh = self._get_calibrated_rh()
+        if gas is None:
+            self.latest_raw["Air Quality"] = None
+            self.current_values["Air Quality"] = None
+            return None
         raw_aqi = self.estimate_aqi(gas, rh_percent=rh)
+        if raw_aqi is None:
+            self.latest_raw["Air Quality"] = None
+            self.current_values["Air Quality"] = None
+            return None
         aqi = raw_aqi + self.aqi_offset
         aqi = self._clamp_if_number(aqi, 0.0, 500.0)
         self.latest_raw["Air Quality"] = raw_aqi

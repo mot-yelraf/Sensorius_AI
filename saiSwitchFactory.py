@@ -89,8 +89,8 @@ class OneRelaySwitch:
         self.controlPin = controlPin
         self.settings = settings
         self.device = settings.get("Switch", {}).get("DEVICE", "switch")
-        self.serial_num = settings.get("Switch", {}).get("SERIAL_NUM", "unknown")
-        self.switch_id = settings.get("Switch", {}).get("SWITCH_ID", "unknown")        
+        self.serial_num = settings.get("Switch", {}).get("DEVICE_SERIAL_NUM", "unknown")
+        self.switch_id = settings.get("Switch", {}).get("SWITCH_DEVICE_ID", "unknown")
         self.location = settings.get("Switch", {}).get("SWITCH_LOCATION", "unknown")
         
         self.switches = []
@@ -163,7 +163,7 @@ def _iter_channel_defs(sw: dict, max_n: int = 8):
     def norm(k): return k.strip().upper().replace(" ", "_").replace("-","_")
     up = {norm(k): v for k, v in (sw or {}).items()}
     for n in range(1, max_n + 1):
-        label = up.get(f"SWITCH_{n}", f"Relay {n}")
+        label = up.get(f"SWITCH_{n}_LABEL", f"Relay {n}")
         pin   = up.get(f"SWITCH_{n}_PIN", None)
         if pin in ("", None):
             continue
@@ -193,15 +193,15 @@ def ensure_switch_settings_for_host(host_switch_id: str, switch_loc: str | None 
         # First time: create from the detected template
         mgr.materialize_from_template(host_switch_id, want_template, switch_loc=switch_loc)
         # also make sure ACTIVE matches detection
-        mgr.update_setting(host_switch_id, "SWITCH_ACTIVE", want_active)
-        mgr.update_setting(host_switch_id, "SWITCH_EN_PIN", want_en)
+        mgr.update_setting(host_switch_id, "SWITCH_ACTIVE_LEVEL", want_active)
+        mgr.update_setting(host_switch_id, "SWITCH_ENABLE_PIN", want_en)
         return mgr.load(host_switch_id) or {}
 
     # Exists → check whether settings line up with detection
     doc = mgr.load(host_switch_id) or {}
     sw = (doc.get("Switch", {}) or {})
-    cur_en = sw.get("SWITCH_EN_PIN")
-    cur_active = (sw.get("SWITCH_ACTIVE", "") or "").strip().lower()
+    cur_en = sw.get("SWITCH_ENABLE_PIN")
+    cur_active = (sw.get("SWITCH_ACTIVE_LEVEL", "") or "").strip().lower()
     has_any_channels = any(k.startswith("SWITCH_") and k.endswith("_PIN") for k in sw.keys())
 
     # If channels layout is missing/empty OR EN/polarity disagree → retarget
@@ -212,8 +212,8 @@ def ensure_switch_settings_for_host(host_switch_id: str, switch_loc: str | None 
     )
     if need_retarget:
         mgr.retarget_to_template(host_switch_id, want_template)
-        mgr.update_setting(host_switch_id, "SWITCH_ACTIVE", want_active)
-        mgr.update_setting(host_switch_id, "SWITCH_EN_PIN", want_en)
+        mgr.update_setting(host_switch_id, "SWITCH_ACTIVE_LEVEL", want_active)
+        mgr.update_setting(host_switch_id, "SWITCH_ENABLE_PIN", want_en)
         if DEBUG:
             printDM(f"[{host_switch_id}] Retargeted to {want_template} (EN={want_en}, ACTIVE={want_active})",
                     location=MODULE)
@@ -228,10 +228,10 @@ class LocalGPIOSwitch:
         self.settings = settings or {}
         sw = self.settings.get("Switch", {}) or {}
         self.device     = sw.get("DEVICE", "switch")
-        self.serial_num = sw.get("SERIAL_NUM", "unknown")
-        self.switch_id  = sw.get("SWITCH_ID", "unknown")
+        self.serial_num = sw.get("DEVICE_SERIAL_NUM", "unknown")
+        self.switch_id  = sw.get("SWITCH_DEVICE_ID", "unknown")
         self.location   = sw.get("SWITCH_LOCATION", "unknown")
-        self.active_state = _bool_active(sw.get("SWITCH_ACTIVE", "high"))
+        self.active_state = _bool_active(sw.get("SWITCH_ACTIVE_LEVEL", "high"))
         self._persist_detection = bool(_persist_detection)
         self.is_present = False
         self.channels = []
@@ -247,9 +247,9 @@ class LocalGPIOSwitch:
         if inferred_pin is not None:
             inferred_level = "low" if inferred_pin == WS_DETECT_PIN else "high"
             # If SWITCH_ACTIVE not set, seed it; either way, set runtime polarity
-            if not str(sw.get("SWITCH_ACTIVE", "")).strip():
-                sw["SWITCH_ACTIVE"] = inferred_level
-            self.active_state = _bool_active(sw.get("SWITCH_ACTIVE", inferred_level))
+            if not str(sw.get("SWITCH_ACTIVE_LEVEL", "")).strip():
+                sw["SWITCH_ACTIVE_LEVEL"] = inferred_level
+            self.active_state = _bool_active(sw.get("SWITCH_ACTIVE_LEVEL", inferred_level))
 
 
             # Persist and then re-bind EN pin and re-apply OFF states
@@ -296,7 +296,7 @@ class LocalGPIOSwitch:
         """(Re)create the EN pin from current settings and drive it to the 'enabled' level
         that keeps all relays OFF given the current active_state."""
         try:
-            en = sw_block.get("SWITCH_EN_PIN", None)
+            en = sw_block.get("SWITCH_ENABLE_PIN", None)
             if en in (None, ""):
                 # If previously created, drop it cleanly
                 try:
@@ -319,7 +319,7 @@ class LocalGPIOSwitch:
             dio.value = True if self.active_state else False
             self.en_pin = dio
         except Exception as e:
-            printDM(f"SWITCH_EN_PIN init failed ({sw_block.get('SWITCH_EN_PIN')}): {e}", location=MODULE)
+            printDM(f"SWITCH_ENABLE_PIN init failed ({sw_block.get('SWITCH_ENABLE_PIN')}): {e}", location=MODULE)
             self.en_pin = None
 
     def _apply_initial_channel_states(self, sw_block: dict) -> None:
@@ -369,22 +369,22 @@ class LocalGPIOSwitch:
         # Only write if changed to avoid extra IO
         doc = mgr.load(sid) or {}
         swb = doc.setdefault("Switch", {})
-        cur_en  = swb.get("SWITCH_EN_PIN", None)
-        cur_lvl = (swb.get("SWITCH_ACTIVE", "") or "").strip().lower()
+        cur_en  = swb.get("SWITCH_ENABLE_PIN", None)
+        cur_lvl = (swb.get("SWITCH_ACTIVE_LEVEL", "") or "").strip().lower()
 
         if cur_en != en_bcm:
-            mgr.update_setting(sid, "SWITCH_EN_PIN", en_bcm)
+            mgr.update_setting(sid, "SWITCH_ENABLE_PIN", en_bcm)
             if DEBUG:
-                printDM(f"[{sid}] SWITCH_EN_PIN -> {en_bcm}", location=MODULE)
+                printDM(f"[{sid}] SWITCH_ENABLE_PIN -> {en_bcm}", location=MODULE)
 
         if cur_lvl != level:
-            mgr.update_setting(sid, "SWITCH_ACTIVE", level)
+            mgr.update_setting(sid, "SWITCH_ACTIVE_LEVEL", level)
             if DEBUG:
-                printDM(f"[{sid}] SWITCH_ACTIVE -> {level}", location=MODULE)
+                printDM(f"[{sid}] SWITCH_ACTIVE_LEVEL -> {level}", location=MODULE)
 
         # Reflect in-memory immediately so runtime matches disk
-        swb["SWITCH_EN_PIN"] = en_bcm
-        swb["SWITCH_ACTIVE"] = level
+        swb["SWITCH_ENABLE_PIN"] = en_bcm
+        swb["SWITCH_ACTIVE_LEVEL"] = level
 
         if DEBUG:
             printDM(f"[{self.switch_id}] present={self.is_present} active_state={self.active_state} "
@@ -442,19 +442,35 @@ class MQTTSwitch:
         self.settings  = settings or {}
         sw = self.settings.get("Switch", {}) or {}
         self.device     = sw.get("DEVICE", "switch")
-        self.serial_num = sw.get("SERIAL_NUM", " ")
-        self.switch_id  = sw.get("SWITCH_ID", " ")
+        self.serial_num = sw.get("DEVICE_SERIAL_NUM", " ")
+        self.switch_id  = sw.get("SWITCH_DEVICE_ID", " ")
         self.location   = sw.get("SWITCH_LOCATION", "Unknown")
         self.is_present = True  # logical presence
 
         # channel labels + stable IDs from settings
         self.channels = []
         self.channel_id_for_label = {}
+        has_en_keys = ("SWITCH_1_ENABLE_PIN" in sw) or ("SWITCH_2_ENABLE_PIN" in sw)
+        is_picow_like = str(sw.get("TYPE", "") or "").strip().lower() in ("picow", "pico2w")
+
+        def _has_install_marker(val) -> bool:
+            if val is None:
+                return False
+            if isinstance(val, bool):
+                return val
+            return str(val).strip() != ""
+
+        def _enable_field_value(sw_map: dict, idx: int):
+            return sw_map.get(f"SWITCH_{idx}_ENABLE_PIN", "")
+
         for n in range(1, 9):
-            label = str(sw.get(f"SWITCH_{n}", "") or "").strip()
+            label = str(sw.get(f"SWITCH_{n}_LABEL", "") or "").strip()
             if not label:
                 continue
-            channel_id = str(sw.get(f"SWITCH_{n}_ID", "") or "").strip()
+            if is_picow_like or has_en_keys:
+                if not _has_install_marker(_enable_field_value(sw, n)):
+                    continue
+            channel_id = str(sw.get(f"SWITCH_{n}_CHANNEL_ID", "") or "").strip()
             self.channels.append({"n": n, "name": label, "channel_id": channel_id})
             if channel_id:
                 self.channel_id_for_label[label] = channel_id
@@ -543,7 +559,7 @@ def create_switch(settings=None, mqtt_client=None):
 def detect_relay_board():
     try:
         # Build a probe-only instance that won't write to disk
-        inst = LocalGPIOSwitch({"Switch": {"SWITCH_ID": "__probe__"}}, _persist_detection=False)
+        inst = LocalGPIOSwitch({"Switch": {"SWITCH_DEVICE_ID": "__probe__"}}, _persist_detection=False)
         return inst._detect_relay_board()
     except Exception:
         return None

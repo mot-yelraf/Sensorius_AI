@@ -136,7 +136,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if sid == target_sid and lab == target_label:
                     sk = str(row.get("switch_key", "")).strip()
                     if "::" in sk:
-                        return sk.split("::", 1)[1].strip()
+                        return sk.split("::", 1)[0].strip()
         except Exception:
             return None
 
@@ -542,7 +542,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if n.startswith("switch_") or n.startswith("switch-"):
                     return True
                 # Nodus per-channel IDs (case-sensitive canonical form), e.g. "S1-en1n8i"
-                return bool(re.match(r"^S\d+-[A-Za-z0-9._-]+$", s))
+                return bool(re.match(r"^S\d+-[A-Za-z0-9][A-Za-z0-9._-]*$", s))
+
+            def _is_channel_switch_id(name: str) -> bool:
+                s = (name or "").strip()
+                return bool(re.match(r"^[sS]\d+-[A-Za-z0-9][A-Za-z0-9._-]*$", s))
 
             def _canonical_channel_id(name: str | None) -> str:
                 """
@@ -590,9 +594,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 for raw in values or []:
                     sid = _strip_local_suffix(raw)
                     sid = _canonical_channel_id(sid)
-                    if not _is_switch_id(sid) and sid.lower() not in allowed_extra_l:
+                    sid_l = sid.lower()
+                    looks_channel = bool(re.match(r"^[sS]\d+-", sid))
+                    # Never allow malformed channel IDs through the allowed-extra bypass.
+                    if looks_channel and not _is_switch_id(sid):
                         continue
-                    sid_key = sid.lower()
+                    if not _is_switch_id(sid) and sid_l not in allowed_extra_l:
+                        continue
+                    sid_key = sid_l
                     if sid_key not in seen_switch:
                         seen_switch.add(sid_key)
                         out.append(sid)
@@ -692,6 +701,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             # Build a switch inventory for debug visibility (local + discovered + DB identities).
             available_switches = []
+            renderable_switch_controllers = []
             try:
                 switch_ids_local = []
                 try:
@@ -719,22 +729,23 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 try:
                     for row in (data_logger.get_switch_identities() or []):
                         ch_id = str(row.get("channel_id", "")).strip()
-                        sid = str(row.get("switch_id", "")).strip()
                         if ch_id:
                             switch_ids_db.append(_canonical_channel_id(ch_id))
-                        elif sid:
-                            switch_ids_db.append(sid)
                 except Exception:
                     switch_ids_db = []
 
                 nodus_channels = list(switch_ids_discovered_channels) + list(switch_ids_db)
-                host_fallback = [] if nodus_channels else list(switch_ids_discovered)
                 available_switches = _normalize_switch_ids(
-                    list(switch_ids_local) + list(switch_ids_live) + nodus_channels + host_fallback,
-                    allowed_extra=set(list(switch_ids_live) + nodus_channels),
+                    nodus_channels,
+                    allowed_extra=set(nodus_channels),
+                )
+                renderable_switch_controllers = _normalize_switch_ids(
+                    list(switch_ids_local) + list(switch_ids_live) + list(switch_ids_discovered),
+                    allowed_extra=set(list(switch_ids_local) + list(switch_ids_live)),
                 )
             except Exception:
                 available_switches = []
+                renderable_switch_controllers = []
 
             # ---- Build a fresh location map for all 'available' sensors ----
             sensor_locations_map = { sid: resolve_location_for_sid(sid) for sid in available }
@@ -865,15 +876,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             ch_id = _resolve_channel_id_from_label(sid, lab)
             if _build_switch_key is not None:
                 try:
-                    if ch_id:
-                        return _build_switch_key(sid, lab, ch_id)
-                    # new-style signature
-                    return _build_switch_key(switch_id=sid, label=lab)
-                except TypeError:
-                    # old-style (sid, label)
-                    return _build_switch_key(sid, lab)
+                    return _build_switch_key(ch_id, lab)
+                except Exception:
+                    pass
             # fallback: current behavior
-            return f"{sid}::{lab}"
+            return f"{ch_id}::{lab}"
 
         def _format_ts_no_micros(ts: str) -> str:
             """
@@ -1082,6 +1089,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 for sid in all_values
             }
             statuses = { sid: _resolve_meas_status_for_sid(sid) for sid in available }
+            renderable_switches = [
+                sid for sid in (renderable_switch_controllers or [])
+                if sid and (not _is_channel_switch_id(sid))
+            ]
             
             return JSONResponse({
                 "available": available,
@@ -1092,6 +1103,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "timestamp": get_timestamp(),
                 "locations": sensor_locations,
                 "expected_gauge_map": expected_gauge_map,
+                "available_switches": available_switches,
+                "renderable_switches": renderable_switches,
                 "statuses": statuses, 
             })
 
@@ -1837,7 +1850,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             ...
           ],
           "switches": [
-            {"SWITCH_ID": "...", "channels": ["Fan","Light"],
+            {"SWITCH_DEVICE_ID": "...", "channels": ["Fan","Light"],
              "mqtt_switch_topics": { "GP28": "switch/<id>-GP28/event", ... }},
             ...
           ],
@@ -1931,12 +1944,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         if hasattr(switch_mgr, "get_switch_channel_names"):
                             channel_names = switch_mgr.get_switch_channel_names(sw_doc) or []
                         else:
-                            # Derive channel names from keys like SWITCH_1="Fan", ignoring *_PIN/_LAST_STATE/_OVERRIDE_SCRIPT
+                            # Derive channel names from keys like SWITCH_1_LABEL="Fan", ignoring non-label keys.
                             channel_names = []
                             for k, v in (sw_blk or {}).items():
                                 if not isinstance(v, str):
                                     continue
-                                if k.startswith("SWITCH_") and not any(k.endswith(suf) for suf in ("_PIN", "_LAST_STATE", "_OVERRIDE_SCRIPT")) and k not in ("SWITCH_ID","SWITCH_LOCATION","SWITCH_EN_PIN","SWITCH_ACTIVE","DEVICE","SERIAL_NUM"):
+                                if k.startswith("SWITCH_") and k.endswith("_LABEL"):
                                     channel_names.append(v)
                     except Exception as ex:
                         channel_names = []
@@ -1945,7 +1958,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                             printDM(f"/itaot: switch '{switch_id}' load failed: {ex}", location="saiWebRoutes:itaot")
 
                     switches_payload.append({
-                        "SWITCH_ID": switch_id,
+                        "SWITCH_DEVICE_ID": switch_id,
                         "SWITCH_LOCATION": switch_location,
                         "channels": channel_names,
                         "mqtt_switch_topic": _topic_for_switch(switch_id),
@@ -1993,7 +2006,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 # Include the Pi switch config(s) if present
                 try:
                     for switch in (switches_payload or []):
-                        switch_id = switch["SWITCH_ID"]
+                        switch_id = switch["SWITCH_DEVICE_ID"]
                         switch_toml_path = Path(r"switch_settings") / switch_id / "switch.toml"
                         switch_blob = _compressed_b64_or_none(switch_toml_path, redact_secrets=True)
                         if switch_blob:
@@ -2903,11 +2916,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             for key, val in sw.items():
                 if not isinstance(key, str) or not key.startswith("SWITCH_"):
                     continue
-                suffix = key.removeprefix("SWITCH_")
-                if not suffix.isdigit():
+                m = re.fullmatch(r"SWITCH_(\d+)_LABEL", str(key))
+                if not m:
                     continue
                 label = str(val or "").strip()
-                id_key = f"SWITCH_{suffix}_ID"
+                suffix = m.group(1)
+                id_key = f"SWITCH_{suffix}_CHANNEL_ID"
                 channel_id = str(sw.get(id_key, "") or "").strip()
                 if channel_id:
                     channels.append({"channel_id": channel_id, "label": label})
@@ -5517,19 +5531,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     def _switch_key(switch_id: str, label: str) -> str:
         """
         Canonical switch key builder: use saiDataLogger.build_switch_key if present,
-        otherwise fall back to '<switch_id>::<label>'.
+        otherwise fall back to '<channel_id>::<label>'.
         """
         sid = (switch_id or "").strip()
         lab = (label or "").strip()
         ch_id = _resolve_channel_id_from_label(sid, lab)
         if _build_switch_key is not None:
             try:
-                if ch_id:
-                    return _build_switch_key(sid, lab, ch_id)
-                return _build_switch_key(sid, lab)
+                return _build_switch_key(ch_id, lab)
             except Exception:
                 pass
-        return f"{sid}::{lab}"
+        return f"{ch_id}::{lab}"
 
     @router.get("/edit-switch", response_class=HTMLResponse)
     async def edit_switch_page(
@@ -5555,14 +5567,22 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # ---- helper: extract enabled channel indices (same semantics as saiHtml._extract_channel_indices) ----
         sw = (settings_dict or {}).get("Switch", {}) or {}
 
-        def _truthy(val) -> bool:
-            s = str(val).strip().lower()
-            return s not in ("", "0", "false", "no", "off", "none", "null")
+        def _has_install_marker(val) -> bool:
+            if val is None:
+                return False
+            if isinstance(val, bool):
+                return val
+            return str(val).strip() != ""
 
         def _extract_channel_indices(sw_section: dict) -> list[int]:
+            sw_type = str(sw_section.get("TYPE", "") or "").strip().lower()
+            has_en_keys = ("SWITCH_1_ENABLE_PIN" in sw_section) or ("SWITCH_2_ENABLE_PIN" in sw_section)
+
+            def _enable_value(i: int):
+                return sw_section.get(f"SWITCH_{i}_ENABLE_PIN", "")
             indices_found: set[int] = set()
             for key in sw_section.keys():
-                m = re.match(r"^SWITCH_(\d+)(?:_EN|_Trigger)?$", str(key))
+                m = re.match(r"^SWITCH_(\d+)(?:_LABEL|_ENABLE_PIN|_PIN|_Trigger)?$", str(key))
                 if m:
                     indices_found.add(int(m.group(1)))
             if not indices_found:
@@ -5570,13 +5590,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             render_indices: list[int] = []
             for i in sorted(indices_found):
-                en_key = f"SWITCH_{i}_EN"
-                label_key = f"SWITCH_{i}"
-                if en_key in sw_section:
-                    if _truthy(sw_section.get(en_key)):
+                label_key = f"SWITCH_{i}_LABEL"
+                pin_key = f"SWITCH_{i}_PIN"
+                if sw_type in ("picow", "pico2w") or has_en_keys:
+                    if _has_install_marker(_enable_value(i)):
                         render_indices.append(i)
                 else:
-                    if str(sw_section.get(label_key, "")).strip():
+                    if str(sw_section.get(label_key, "")).strip() and str(sw_section.get(pin_key, "")).strip():
                         render_indices.append(i)
             return render_indices or [1]
 
@@ -5584,7 +5604,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         channels = [
             {
                 "index": idx,
-                "label": str(sw.get(f"SWITCH_{idx}", "") or ""),
+                "label": str(sw.get(f"SWITCH_{idx}_LABEL", "") or ""),
             }
             for idx in channel_indices
         ]
@@ -5675,7 +5695,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # --- dynamically collect channel indices from the form
         idxs = set()
-        pat = re.compile(r"^SWITCH_(\d+)(?:_Trigger)?$")
+        pat = re.compile(r"^SWITCH_(\d+)_(?:LABEL|Trigger)$")
         for key in form.keys():
             m = pat.match(key)
             if m:
@@ -5685,7 +5705,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # Optional: store CHANNELS
         sw_block = OrderedDict({
             "DEVICE":          device_value or existing_doc["Switch"].get("DEVICE", ""),
-            "SWITCH_ID":       new_id or existing_doc["Switch"].get("SWITCH_ID", old_id),
+            "SWITCH_DEVICE_ID": new_id or existing_doc["Switch"].get("SWITCH_DEVICE_ID", old_id),
             "SWITCH_LOCATION": location_value or existing_doc["Switch"].get("SWITCH_LOCATION", "Unknown"),
             "CHANNELS":        len(channel_indices),
         })
@@ -5694,7 +5714,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # Merge per-channel updates
         for i in channel_indices:
-            label_key   = f"SWITCH_{i}"
+            label_key   = f"SWITCH_{i}_LABEL"
             trigger_key = f"SWITCH_{i}_Trigger"
             if label_key in form:
                 sw_block[label_key] = (form.get(label_key, "") or "").strip()
@@ -5715,7 +5735,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 for section_name, section_map in merged_doc.items():
                     manager.save(old_id, OrderedDict([(section_name, section_map)]))
 
-        # ---- handle directory rename if SWITCH_ID changed ----
+        # ---- handle directory rename if SWITCH_DEVICE_ID changed ----
         base_dir = Path(getattr(manager, "base_dir", "switch_settings"))
         old_dir = base_dir / old_id
         new_dir = base_dir / new_id
@@ -5810,23 +5830,37 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             sw = (dat.get("Switch") or {})
 
-            # 1) Collect labels from SWITCH_<n> or (fallback) SWITCH_<n>_LABEL
+            # 1) Collect labels from SWITCH_<n>_LABEL in the new schema.
             labels: dict[int, str] = {}
             import re
+            sw_type = str(sw.get("TYPE", "") or "").strip().lower()
+            has_en_keys = ("SWITCH_1_ENABLE_PIN" in sw) or ("SWITCH_2_ENABLE_PIN" in sw)
+
+            def _enable_value(i: int):
+                return sw.get(f"SWITCH_{i}_ENABLE_PIN", "")
+
+            def _has_install_marker(val) -> bool:
+                if val is None:
+                    return False
+                if isinstance(val, bool):
+                    return val
+                return str(val).strip() != ""
+
             for k, v in sw.items():
                 ks = str(k).strip()
-                m = re.fullmatch(r"SWITCH_(\d+)", ks, flags=re.IGNORECASE)
+                m = re.fullmatch(r"SWITCH_(\d+)_LABEL", ks, flags=re.IGNORECASE)
                 if m:
                     idx = int(m.group(1))
                     label_text = ("" if v is None else str(v)).strip()
+                    if not label_text:
+                        continue
+                    if sw_type in ("picow", "pico2w") or has_en_keys:
+                        if not _has_install_marker(_enable_value(idx)):
+                            continue
+                    else:
+                        if not str(sw.get(f"SWITCH_{idx}_PIN", "")).strip():
+                            continue
                     if label_text:
-                        labels[idx] = label_text
-                    continue
-                m2 = re.fullmatch(r"SWITCH_(\d+)_LABEL", ks, flags=re.IGNORECASE)
-                if m2:
-                    idx = int(m2.group(1))
-                    label_text = ("" if v is None else str(v)).strip()
-                    if label_text and idx not in labels:
                         labels[idx] = label_text
 
             # 2) Determine channel count from CHANNELS (if present) or from the max SWITCH_<n> index
@@ -5989,16 +6023,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                                         continue
                                     sk = str(row.get("switch_key", "")).strip()
                                     if "::" in sk:
-                                        channel_id = sk.split("::", 1)[1].strip()
+                                        channel_id = sk.split("::", 1)[0].strip()
                                         break
                                 if channel_id:
                                     doc = switch_mgr.load(sid) or {}
                                     sw_map = doc.get("Switch") or {}
                                     for k, v in sw_map.items():
-                                        if not str(k).startswith("SWITCH_") or not str(k).endswith("_ID"):
+                                        if not str(k).startswith("SWITCH_") or not str(k).endswith("_CHANNEL_ID"):
                                             continue
                                         parts = str(k).split("_")
-                                        if len(parts) != 3 or not parts[1].isdigit():
+                                        if len(parts) != 4 or not parts[1].isdigit():
                                             continue
                                         if str(v).strip() == channel_id:
                                             channel_index = int(parts[1])
@@ -6615,7 +6649,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         try:
                             human_state = (cache.get(sid, {}) or {}).get(label, "")
                             if not human_state and "::" in db_key:
-                                ch_id = db_key.split("::", 1)[1]
+                                ch_id = db_key.split("::", 1)[0]
                                 human_state = (cache.get(sid, {}) or {}).get(ch_id, "")
                         except Exception:
                             human_state = ""
@@ -6626,11 +6660,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     events = _format_events(db_key, None, limit=5)
                     states[ui_key] = {"state": latest_bool, "time": events}
                     seen_ui_keys.add(ui_key)
-                    # Also expose alias key keyed by channel_id when canonical key
-                    # is "<switch_id>::<channel_id>" so channel-id UI payloads stay in sync.
+                    # Also expose alias key keyed by channel_id for UI payload sync.
                     try:
                         if "::" in db_key:
-                            ch_id = db_key.split("::", 1)[1].strip()
+                            ch_id = db_key.split("::", 1)[0].strip()
                             alias_key = f"{ch_id}::{label}" if ch_id else ""
                             if alias_key and alias_key not in states:
                                 states[alias_key] = {"state": latest_bool, "time": events}
@@ -6845,7 +6878,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     r_key = str(row.get("switch_key", "")).strip()
                     r_channel = ""
                     if "::" in r_key:
-                        r_channel = r_key.split("::", 1)[1].strip().lower()
+                        r_channel = r_key.split("::", 1)[0].strip().lower()
 
                     # Bridge either direction if controller id is host-id or channel-id.
                     if ctrl_sid and r_sid == ctrl_sid and r_channel:
@@ -6889,7 +6922,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                             r_label = str(row.get("label", "") or "").strip()
                             r_channel = str(row.get("channel_id", "") or "").strip()
                             if not r_channel and "::" in r_key:
-                                r_channel = r_key.split("::", 1)[1].strip()
+                                r_channel = r_key.split("::", 1)[0].strip()
                             if not r_channel:
                                 continue
                             if r_channel.lower() != channel_id.lower():
@@ -7200,16 +7233,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                                 continue
                             sk = str(row.get("switch_key", "")).strip()
                             if "::" in sk:
-                                channel_id = sk.split("::", 1)[1].strip()
+                                channel_id = sk.split("::", 1)[0].strip()
                                 break
                         if channel_id:
                             doc = switch_mgr.load(sid) or {}
                             sw_map = doc.get("Switch") or {}
                             for k, v in sw_map.items():
-                                if not str(k).startswith("SWITCH_") or not str(k).endswith("_ID"):
+                                if not str(k).startswith("SWITCH_") or not str(k).endswith("_CHANNEL_ID"):
                                     continue
                                 parts = str(k).split("_")
-                                if len(parts) != 3 or not parts[1].isdigit():
+                                if len(parts) != 4 or not parts[1].isdigit():
                                     continue
                                 if str(v).strip() == channel_id:
                                     channel_index = int(parts[1])

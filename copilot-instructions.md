@@ -2,7 +2,7 @@
 
 ### Project context
 - This project is cross-platform (Raspberry Pi, macOS, Windows, Linux).
-- It was originally designed for Raspberry Pi; only the Pi supports directly connected sensors/relay hardware.
+- It was originally designed for Raspberry Pi and only the Pi supports directly connected sensors/relay hardware.
 - All platforms support Nodus (MQTT) sensors and switches.
 - Prefer changes that are safe for low-power / low-RAM devices.
 - Use absolute paths when referring to on-device files.
@@ -14,13 +14,14 @@
 
 ### Python standards
 - Avoid heavy dependencies unless necessary.
+- Avoid fallback strategies that add complexity; prefer explicit error handling and user prompts.
 - Prefer existing utilities in `saiUtils.py`, `saiDataLogger.py`, and `saiMQTTIngest.py`.
 - Keep logging lightweight; use `printDM` and existing debug flags.
 - In Python-rendered JS/HTML (for example `yield "..."` blocks in `saiHtml.py`), do **not** emit JavaScript `//` comments anywhere inside emitted strings (including trailing inline forms like `"}; //end"`). Use Python comments (`# ...`) outside emitted strings instead, because inline `//` in these builders has historically caused front-end rendering regressions (including missing gauges).
 
 ### MQTT & DB conventions
 - Switch events should be written via `saiDataLogger.log_switch_event`.
-- Use canonical switch keys: `<switch_id>::<channel_id>` when available.
+- Use ui/action switch keys: `<channel_id>::<label>`, e.g. 'S1-sernum::Eastside_Pump'.
 - Preserve legacy topics/payloads unless the user explicitly opts in to breaking changes.
 
 ### Home Assistant integration (workflow)

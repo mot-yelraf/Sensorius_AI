@@ -87,10 +87,11 @@ def _resolve_label_from_slug_via_db(data_logger, switch_id: str, slug: str) -> s
     Look up label by slug using switch_ids table.
     """
     try:
-        for key in data_logger.get_known_switches():  # returns list of switch_key strings
-            if not key.lower().startswith(f"{switch_id.lower()}::"):
+        for row in (data_logger.get_switch_identities() or []):
+            rsid = str(row.get("switch_id", "") or "").strip().lower()
+            if rsid != str(switch_id or "").strip().lower():
                 continue
-            label = key.split("::", 1)[1]
+            label = str(row.get("label", "") or "").strip()
             if _slugify(label) == slug:
                 return label
     except Exception:
@@ -1043,20 +1044,20 @@ class saiMQTTIngest:
 
     def _extract_switch_channels(self, info: dict) -> list[tuple[str, str]]:
         """
-        Return list of (label, channel_id) from either a Switch block or top-level SWITCH_n keys.
+        Return list of (label, channel_id) from either a Switch block or top-level SWITCH_n_LABEL keys.
         """
         channels: list[tuple[str, str]] = []
 
         def _scan_block(block: dict) -> None:
             for key, val in block.items():
-                m = re.fullmatch(r"SWITCH_(\d+)", str(key))
+                m = re.fullmatch(r"SWITCH_(\d+)_LABEL", str(key))
                 if not m:
                     continue
                 label = (val or "").strip()
                 if not label:
                     continue
                 idx = int(m.group(1))
-                ch_id = str(block.get(f"SWITCH_{idx}_ID", "") or "").strip()
+                ch_id = str(block.get(f"SWITCH_{idx}_CHANNEL_ID", "") or "").strip()
                 if ch_id:
                     channels.append((label, ch_id))
 
@@ -1147,8 +1148,8 @@ class saiMQTTIngest:
         """
         Enumerate enabled channels and their labels from a /itaot 'info' blob.
         Handles:
-          - Pi multi-relay board: single SWITCH_EN_PIN for all channels, enable = label present AND SWITCH_x_PIN set.
-          - Pico2 W: per-channel enable via non-empty SWITCH_x_EN; enable = label present AND SWITCH_x_EN non-empty.
+          - Pi multi-relay board: single SWITCH_ENABLE_PIN for all channels, enable = label present AND SWITCH_x_PIN set.
+          - Pico2 W: per-channel enable via non-empty SWITCH_x_EN; enable = SWITCH_x_LABEL present AND SWITCH_x_EN non-empty.
 
         Returns a list of (channel_index, label), where channel_index is the integer X in SWITCH_X.
         """
@@ -1159,14 +1160,13 @@ class saiMQTTIngest:
             return []
 
         is_picow = (switch_blk.get("TYPE") or switch_blk.get("type") or "").strip().lower() in ("picow", "pico2w")
-        has_global_enable_pin = bool(str(switch_blk.get("SWITCH_EN_PIN", "") or "").strip())
+        has_global_enable_pin = bool(str(switch_blk.get("SWITCH_ENABLE_PIN", "") or "").strip())
 
         enabled: list[tuple[int, str]] = []
 
-        # find all indexed SWITCH_<n> labels
-        # e.g. SWITCH_1 = "Fan", SWITCH_2 = "Light"
+        # find all indexed SWITCH_<n>_LABEL values
         for key, label in switch_blk.items():
-            m = re.fullmatch(r"SWITCH_(\d+)", str(key))
+            m = re.fullmatch(r"SWITCH_(\d+)_LABEL", str(key))
             if not m:
                 continue
 
@@ -1188,7 +1188,7 @@ class saiMQTTIngest:
                     enabled.append((idx, label_str))
             else:
                 # Pi relay board: enabled iff channel PIN is present (non-empty)
-                # (global SWITCH_EN_PIN can exist, but channel PIN presence is the decisive signal)
+                # (global SWITCH_ENABLE_PIN can exist, but channel PIN presence is the decisive signal)
                 if pin_val:
                     enabled.append((idx, label_str))
 
@@ -1482,9 +1482,7 @@ class saiMQTTIngest:
 
             # Try serial pairing against sensors discovered from this same /itaot payload.
             sw_serial = str(
-                sw_blob.get("SWITCH_SERIAL_NUM")
-                or sw_blob.get("SERIAL_NUM")
-                or info.get("SWITCH_SERIAL_NUM")
+                sw_blob.get("DEVICE_SERIAL_NUM")
                 or ""
             ).strip().lower()
             if sw_serial:
@@ -1590,7 +1588,7 @@ class saiMQTTIngest:
         if isinstance(switches_block, list):
             for sw in switches_block:
                 try:
-                    _switch_id       = sw.get("SWITCH_ID")
+                    _switch_id       = sw.get("SWITCH_DEVICE_ID")
                     _switch_location = _resolve_switch_location(sw)
 
                     event_topics  = sw.get("mqtt_switch_topics") or {}
@@ -1611,7 +1609,7 @@ class saiMQTTIngest:
                         "channels": 0,
                         "switch_payload": sw,
                         "switch_type": sw.get("TYPE") or sw.get("type") or "",
-                        "serial": sw.get("SWITCH_SERIAL_NUM") or sw.get("SERIAL_NUM") or "",
+                        "serial": sw.get("DEVICE_SERIAL_NUM") or "",
                     })
 
                     # --- derive (label, channel_id) pairs ---
@@ -1638,11 +1636,9 @@ class saiMQTTIngest:
                                 continue
 
                             if channel_id:
-                                # New canonical form: "<switch_id>::<channel_id>"
-                                _switch_key = build_switch_key(_switch_id, channel_id)
+                                _switch_key = build_switch_key(channel_id, label_str)
                             else:
-                                # Back-compat: fall back to label-based key
-                                _switch_key = f"{_switch_id}::{label_str}"
+                                continue
 
                             self.data_logger.upsert_switch_identity(
                                 switch_key=_switch_key,
@@ -1674,7 +1670,7 @@ class saiMQTTIngest:
 
         # ---------- Legacy flat switch fields (back-compat) ----------
         try:
-            _switch_id_flat         = info.get("SWITCH_ID")
+            _switch_id_flat         = info.get("SWITCH_DEVICE_ID")
             _switch_location_flat   = _resolve_switch_location(info)
             _switch_event_map_flat  = info.get("mqtt_switch_topics") or {}
             _switch_state_map_flat  = info.get("mqtt_switch_state_topics") or {}
@@ -1687,7 +1683,7 @@ class saiMQTTIngest:
                     "channels": 0,
                     "switch_payload": info,
                     "switch_type": info.get("TYPE") or info.get("type") or "",
-                    "serial": info.get("SWITCH_SERIAL_NUM") or info.get("SERIAL_NUM") or "",
+                    "serial": info.get("DEVICE_SERIAL_NUM") or "",
                 })
                 channels_with_ids = []
                 try:
@@ -1697,9 +1693,9 @@ class saiMQTTIngest:
                             continue
 
                         if channel_id:
-                            _switch_key = build_switch_key(_switch_id_flat, channel_id)
+                            _switch_key = build_switch_key(channel_id, lbl)
                         else:
-                            _switch_key = f"{_switch_id_flat}::{lbl}"
+                            continue
 
                         self.data_logger.upsert_switch_identity(
                             switch_key=_switch_key,
@@ -1979,7 +1975,7 @@ class saiMQTTIngest:
             if DEBUG:
                 printDM(f"[itaot-settings] sensor seed error: {exc}", location=MODULE)
 
-        # ---- switch_settings/<SWITCH_ID>/switch.toml ----
+        # ---- switch_settings/<SWITCH_DEVICE_ID>/switch.toml ----
         try:
             switch_mgr = SwitchSettingsManager()
             for sw in (switches or []):
@@ -2001,12 +1997,12 @@ class saiMQTTIngest:
                         doc["Switch"] = OrderedDict()
                     sb = doc["Switch"]
                     sb["DEVICE"] = "switch"
-                    sb["SWITCH_ID"] = switch_id
+                    sb["SWITCH_DEVICE_ID"] = switch_id
                     sb["SWITCH_LOCATION"] = switch_loc
                     if switch_type:
                         sb["TYPE"] = switch_type
                     if switch_serial:
-                        sb["SWITCH_SERIAL_NUM"] = switch_serial
+                        sb["DEVICE_SERIAL_NUM"] = switch_serial
                     try:
                         switch_mgr._ensure_channel_ids(sb)
                     except Exception:
@@ -2185,7 +2181,7 @@ class saiMQTTIngest:
                         if rsid == target_sid and rlab == target_label:
                             sk = str(row.get("switch_key", "")).strip()
                             if "::" in sk:
-                                channel_id = sk.split("::", 1)[1].strip()
+                                channel_id = sk.split("::", 1)[0].strip()
                                 break
                 except Exception:
                     channel_id = None
@@ -2251,8 +2247,8 @@ class saiMQTTIngest:
         Persist a switch event *only if* it represents a state change relative to cache.
 
         Notes:
-          - channel_id is the stable per-channel identifier (e.g. SWITCH_1_ID = "S1-123456").
-          - The canonical DB key is build_switch_key(switch_id, channel_id).
+          - channel_id is the stable per-channel identifier (e.g. SWITCH_1_CHANNEL_ID = "S1-123456").
+          - The canonical DB key is build_switch_key(channel_id, label) => "<channel_id>::<label>".
           - sensor_lineage lets us store the specific origin (e.g., "switch-oqs3lr-GP28") when known.
         """
         try:
@@ -2278,10 +2274,24 @@ class saiMQTTIngest:
             last_cache[channel_id_str] = new_state
             self._known_switch_ids.add(switch_id_str)
 
+            label_resolved = None
+            try:
+                for row in (self.data_logger.get_switch_identities() or []):
+                    rsid = str(row.get("switch_id", "") or "").strip()
+                    rch = str(row.get("channel_id", "") or "").strip()
+                    rlab = str(row.get("label", "") or "").strip()
+                    if rsid == switch_id_str and rch == channel_id_str and rlab:
+                        label_resolved = rlab
+                        break
+            except Exception:
+                label_resolved = None
+            if not label_resolved:
+                label_resolved = channel_id_str
+
             writer = getattr(self.data_logger, "log_switch_event", None)
             if callable(writer):
                 writer(
-                    switch_key=build_switch_key(switch_id_str, channel_id_str),
+                    switch_key=build_switch_key(channel_id_str, label_resolved),
                     is_on=is_on,
                     timestamp=ts_iso,
                     sensor_id=(sensor_lineage or switch_id_str),
@@ -2375,7 +2385,7 @@ class saiMQTTIngest:
                 pass
 
             if DEBUG:
-                db_key = build_switch_key(switch_id, channel_id)
+                db_key = build_switch_key(channel_id, label or channel_id)
                 printDM(
                     f"[state] {switch_id} [{channel_id}] -> {cache[channel_id]} db_key={db_key} (topic {topic})",
                     location=MODULE,

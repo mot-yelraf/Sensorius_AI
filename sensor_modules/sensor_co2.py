@@ -1,4 +1,5 @@
 # sensor_modules/sensor_co2.py
+import time
 from saiUtils import printDM, debug_enabled
 from sensor_modules.base import BaseSensor, find_sensor_bus
 
@@ -110,6 +111,8 @@ class CO2Sensor(BaseSensor):
         self.filtered_data = {name: None for name in self.meas_types}
         self.latest_raw = {name: None for name in self.meas_types}
         self.current_values = {name: None for name in self.meas_types}
+        self._core_sample: tuple[float | None, float | None, float | None] = (None, None, None)
+        self._core_sample_ts: float = 0.0
 
     # ------------------------------------------------------------------
     # Calibration loading
@@ -241,24 +244,53 @@ class CO2Sensor(BaseSensor):
         return True
 
     def _get_raw_temp_c(self) -> float:
-        if not self._data_ready():
-            return None
-        return self.scd30.temperature
+        temp_c, _rh, _co2 = self._read_core_sample()
+        return temp_c
 
     def _get_raw_rh(self) -> float:
-        if not self._data_ready():
-            return None
-        # clamp raw RH to sane range before offset
-        return self._clamp_if_number(self.scd30.relative_humidity, 0.0, 100.0)
+        _temp_c, rh, _co2 = self._read_core_sample()
+        return rh
 
     def _get_raw_co2(self) -> float:
+        _temp_c, _rh, co2 = self._read_core_sample()
+        return co2
+
+    def _read_core_sample(self, cache_ttl_s: float = 0.5) -> tuple[float | None, float | None, float | None]:
+        """
+        Read a coherent core sample (temp, RH, CO2).
+        Gate output so partial reads are treated as not-ready:
+        either all three are numeric or all are None.
+        """
+        now = time.monotonic()
+        if (now - self._core_sample_ts) <= max(0.0, float(cache_ttl_s)):
+            return self._core_sample
+
         if not self._data_ready():
-            return None
-        # SCD30.CO2 is ppm; we'll apply offset and clamp later
-        return self.scd30.CO2
+            self._core_sample = (None, None, None)
+            self._core_sample_ts = now
+            return self._core_sample
+
+        try:
+            raw_temp = self._clamp_if_number(getattr(self.scd30, "temperature", None), -40.0, 125.0)
+            raw_rh = self._clamp_if_number(getattr(self.scd30, "relative_humidity", None), 0.0, 100.0)
+            # SCD30/SCD4x Adafruit APIs expose CO2 with uppercase name.
+            raw_co2 = self._clamp_if_number(getattr(self.scd30, "CO2", None), 0.0, 10000.0)
+        except Exception:
+            raw_temp, raw_rh, raw_co2 = (None, None, None)
+
+        if raw_temp is None or raw_rh is None or raw_co2 is None:
+            self._core_sample = (None, None, None)
+        else:
+            self._core_sample = (raw_temp, raw_rh, raw_co2)
+        self._core_sample_ts = now
+        return self._core_sample
 
     def _get_calibrated_temp_c(self) -> float:
         raw_temp = self._get_raw_temp_c()
+        if raw_temp is None:
+            self.latest_raw["Temperature"] = None
+            self.current_values["Temperature"] = None
+            return None
         temp_c = raw_temp + self.temp_offset_c
         self.latest_raw["Temperature"] = raw_temp
         self.current_values["Temperature"] = temp_c
@@ -266,12 +298,19 @@ class CO2Sensor(BaseSensor):
 
     def _get_calibrated_temp_f(self) -> float:
         temp_c = self._get_calibrated_temp_c()
+        if temp_c is None:
+            self.current_values["Temperature_F"] = None
+            return None
         temp_f = (temp_c * 9.0 / 5.0) + 32.0
         self.current_values["Temperature_F"] = temp_f
         return temp_f
 
     def _get_calibrated_rh(self) -> float:
         raw_rh = self._get_raw_rh()
+        if raw_rh is None:
+            self.latest_raw["Rel-Humidity"] = None
+            self.current_values["Rel-Humidity"] = None
+            return None
         rh = raw_rh + self.rh_offset_pct
         rh = self._clamp_if_number(rh, 0.0, 100.0)
         self.latest_raw["Rel-Humidity"] = raw_rh
@@ -281,6 +320,9 @@ class CO2Sensor(BaseSensor):
     def _get_calibrated_abs_humidity(self) -> float:
         temp_c = self._get_calibrated_temp_c()
         rh = self._get_calibrated_rh()
+        if temp_c is None or rh is None:
+            self.current_values["Humidity"] = None
+            return None
         abs_h = self.calculate_absolute_humidity(temp_c, rh)
         self.current_values["Humidity"] = abs_h
         return abs_h
@@ -288,6 +330,9 @@ class CO2Sensor(BaseSensor):
     def _get_calibrated_vpd(self) -> float:
         temp_c = self._get_calibrated_temp_c()
         rh = self._get_calibrated_rh()
+        if temp_c is None or rh is None:
+            self.current_values["Ambient VPD"] = None
+            return None
         vpd = self.calculate_vpd(temp_c, rh)
         vpd_clamped = self._clamp_if_number(vpd, 0.0, 5.0)
         self.current_values["Ambient VPD"] = vpd_clamped
@@ -296,12 +341,18 @@ class CO2Sensor(BaseSensor):
     def _get_calibrated_dewpoint_c(self) -> float:
         temp_c = self._get_calibrated_temp_c()
         rh = self._get_calibrated_rh()
+        if temp_c is None or rh is None:
+            self.current_values["Dew-Point"] = None
+            return None
         dewpoint_c = self.calculate_dewpoint(temp_c, rh)
         self.current_values["Dew-Point"] = dewpoint_c
         return dewpoint_c
 
     def _get_calibrated_dewpoint_f(self) -> float:
         dewpoint_c = self._get_calibrated_dewpoint_c()
+        if dewpoint_c is None:
+            self.current_values["Dew-Point_F"] = None
+            return None
         dewpoint_f = (dewpoint_c * 9.0 / 5.0) + 32.0
         self.current_values["Dew-Point_F"] = dewpoint_f
         return dewpoint_f
@@ -309,6 +360,9 @@ class CO2Sensor(BaseSensor):
     def _get_calibrated_dewpoint_depression(self) -> float:
         temp_c = self._get_calibrated_temp_c()
         rh = self._get_calibrated_rh()
+        if temp_c is None or rh is None:
+            self.current_values["Dewpoint Depression"] = None
+            return None
         depression = self.calculate_dewpoint_depression(temp_c, rh)
         depression = self._clamp_if_number(depression, 0.0, 30.0)
         self.current_values["Dewpoint Depression"] = depression
@@ -317,7 +371,13 @@ class CO2Sensor(BaseSensor):
     def _get_calibrated_dewvpd_risk(self) -> float:
         temp_c = self._get_calibrated_temp_c()
         rh = self._get_calibrated_rh()
+        if temp_c is None or rh is None:
+            self.current_values["DewVPD Risk"] = None
+            return None
         vpd = self._get_calibrated_vpd()
+        if vpd is None:
+            self.current_values["DewVPD Risk"] = None
+            return None
         risk = self.calculate_dewvpd_risk(temp_c, rh, vpd=vpd)
         risk = self._clamp_if_number(risk, 0.0, 100.0)
         self.current_values["DewVPD Risk"] = risk
@@ -325,6 +385,10 @@ class CO2Sensor(BaseSensor):
 
     def _get_calibrated_co2(self) -> float:
         raw_co2 = self._get_raw_co2()
+        if raw_co2 is None:
+            self.latest_raw["CO2"] = None
+            self.current_values["CO2"] = None
+            return None
         co2 = raw_co2 + self.co2_offset_ppm
         # Clamp CO2 to a realistic non-negative range
         co2 = self._clamp_if_number(co2, 0.0, 10000.0)

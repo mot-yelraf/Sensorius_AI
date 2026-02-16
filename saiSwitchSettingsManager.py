@@ -8,6 +8,7 @@ settings -> saiSwitchFactory -> saiSwitch.
 from __future__ import annotations
 
 import os
+import re
 import threading
 import secrets
 import copy
@@ -103,7 +104,7 @@ class SwitchSettingsManager:
         Template filtering rules:
           - Skip directories named in _TEMPLATE_DIR_NAMES (case-insensitive).
           - Skip any entry whose [Switch].DEVICE == "template".
-          - Skip any entry whose [Switch].SWITCH_ID is empty.
+          - Skip any entry whose [Switch].SWITCH_DEVICE_ID is empty.
         Applies to both new layout (<base>/<id>/switch.toml) and legacy (<base>/<id>.toml).
         """
         ids: set[str] = set()
@@ -123,17 +124,17 @@ class SwitchSettingsManager:
             if not sw_file.exists():
                 continue
 
-            # Peek to ensure not a template / not empty SWITCH_ID
+            # Peek to ensure not a template / not empty SWITCH_DEVICE_ID
             try:
                 dat = self._parse_toml_from_disk(sw_file)
                 sw = dat.get("Switch", {})
                 device = str(sw.get("DEVICE", "")).strip().lower()
-                switch_id = str(sw.get("SWITCH_ID", "")).strip()
+                switch_id = str(sw.get("SWITCH_DEVICE_ID", "")).strip()
 
                 if device == "template":
                     continue
                 if not switch_id:
-                    # Treat blank SWITCH_ID as template-ish / not provisioned
+                    # Treat blank SWITCH_DEVICE_ID as template-ish / not provisioned
                     continue
             except Exception:
                 # On parse failure, be conservative: do not include
@@ -151,7 +152,7 @@ class SwitchSettingsManager:
                 dat = self._parse_toml_from_disk(toml_path)
                 sw = dat.get("Switch", {})
                 device = str(sw.get("DEVICE", "")).strip().lower()
-                switch_id = str(sw.get("SWITCH_ID", "")).strip()
+                switch_id = str(sw.get("SWITCH_DEVICE_ID", "")).strip()
                 if device == "template" or not switch_id:
                     continue
             except Exception:
@@ -220,19 +221,18 @@ class SwitchSettingsManager:
         if not isinstance(switch_block, dict):
             return []
 
-        # 2) collect SWITCH_N labels in numeric order
+        # 2) collect SWITCH_N_LABEL values in numeric order
         channel_pairs: list[tuple[int, str]] = []
         for key, value in switch_block.items():
             if not key.startswith("SWITCH_"):
                 continue
-            # Only keys like SWITCH_1, SWITCH_2 (not *_PIN, *_LAST_STATE, *_OVERRIDE_SCRIPT)
-            suffix = key.removeprefix("SWITCH_")
-            if not suffix.isdigit():
+            m = re.fullmatch(r"SWITCH_(\d+)_LABEL", str(key))
+            if not m:
                 continue
             label = (value or "")
             if isinstance(label, str) and label.strip():
                 try:
-                    channel_pairs.append((int(suffix), label.strip()))
+                    channel_pairs.append((int(m.group(1)), label.strip()))
                 except ValueError:
                     pass
 
@@ -322,20 +322,20 @@ class SwitchSettingsManager:
             tmpl = OrderedDict()
             tmpl["Switch"] = OrderedDict({
                 "DEVICE": "switch",
-                "SERIAL_NUM": "",
-                "SWITCH_ID": "",
+                "DEVICE_SERIAL_NUM": "",
+                "SWITCH_DEVICE_ID": "",
                 "SWITCH_LOCATION": "Unknown",
-                "SWITCH_EN_PIN": 5,
-                "SWITCH_ACTIVE": "high",
-                "SWITCH_1": "Fan",    "SWITCH_1_PIN": 26, "SWITCH_1_LAST_STATE": False, "SWITCH_1_OVERRIDE_SCRIPT": False,
-                "SWITCH_2": "Light",  "SWITCH_2_PIN": 20, "SWITCH_2_LAST_STATE": False, "SWITCH_2_OVERRIDE_SCRIPT": False,
-                "SWITCH_3": "Pump",   "SWITCH_3_PIN": 21, "SWITCH_3_LAST_STATE": False, "SWITCH_3_OVERRIDE_SCRIPT": False,
+                "SWITCH_ENABLE_PIN": 5,
+                "SWITCH_ACTIVE_LEVEL": "high",
+                "SWITCH_1_LABEL": "Fan",    "SWITCH_1_CHANNEL_ID": "S1-", "SWITCH_1_PIN": 26, "SWITCH_1_LAST_STATE": False, "SWITCH_1_OVERRIDE_SCRIPT": False,
+                "SWITCH_2_LABEL": "Light",  "SWITCH_2_CHANNEL_ID": "S2-", "SWITCH_2_PIN": 20, "SWITCH_2_LAST_STATE": False, "SWITCH_2_OVERRIDE_SCRIPT": False,
+                "SWITCH_3_LABEL": "Pump",   "SWITCH_3_CHANNEL_ID": "S3-", "SWITCH_3_PIN": 21, "SWITCH_3_LAST_STATE": False, "SWITCH_3_OVERRIDE_SCRIPT": False,
             })
 
-        # 4) apply overrides: DEVICE = "switch", SWITCH_ID, SWITCH_LOCATION
+        # 4) apply overrides: DEVICE = "switch", SWITCH_DEVICE_ID, SWITCH_LOCATION
         sw = tmpl["Switch"]
         sw["DEVICE"] = "switch"  # <-- force host copy to be a real switch, not a template
-        sw["SWITCH_ID"] = host_id
+        sw["SWITCH_DEVICE_ID"] = host_id
         if switch_loc is not None:
             sw["SWITCH_LOCATION"] = str(switch_loc)
         self._ensure_channel_ids(sw)
@@ -375,7 +375,7 @@ class SwitchSettingsManager:
 
         sw = tmpl["Switch"]
         sw["DEVICE"] = "switch"
-        sw["SWITCH_ID"] = switch_id
+        sw["SWITCH_DEVICE_ID"] = switch_id
         if switch_loc is not None:
             sw["SWITCH_LOCATION"] = str(switch_loc)
         self._ensure_channel_ids(sw)
@@ -386,7 +386,7 @@ class SwitchSettingsManager:
         return switch_id
 
     def retarget_to_template(self, switch_id: str, template_name: str,
-                             preserve_keys: tuple[str, ...] = ("DEVICE", "SWITCH_ID", "SWITCH_LOCATION")) -> None:
+                             preserve_keys: tuple[str, ...] = ("DEVICE", "SWITCH_DEVICE_ID", "SWITCH_LOCATION")) -> None:
         """
         Replace the on-disk switch.toml layout using a factory template while
         preserving key identity/location fields.
@@ -664,14 +664,14 @@ class SwitchSettingsManager:
     def _generate_channel_id(channel_index: int) -> str:
         """
         Generate a stable-looking channel ID like 'S1-123456'.
-        Called only when a SWITCH_N_ID is missing/empty.
+        Called only when a SWITCH_N_CHANNEL_ID is missing/empty.
         """
         random_value = secrets.randbelow(1_000_000)  # 000000..999999
         return f"S{channel_index}-{random_value:06d}"
 
     def _ensure_channel_ids(self, switch_block: dict) -> None:
         """
-        Ensure each defined SWITCH_N has a companion SWITCH_N_ID.
+        Ensure each defined SWITCH_N_LABEL has a companion SWITCH_N_CHANNEL_ID.
         Does NOT overwrite existing non-empty IDs.
         """
         if not isinstance(switch_block, dict):
@@ -682,13 +682,12 @@ class SwitchSettingsManager:
             if not key.startswith("SWITCH_"):
                 continue
 
-            suffix = key.removeprefix("SWITCH_")
-            if not suffix.isdigit():
-                # Skip SWITCH_EN_PIN, SWITCH_ACTIVE, etc.
+            m = re.fullmatch(r"SWITCH_(\d+)_LABEL", str(key))
+            if not m:
                 continue
 
             try:
-                channel_index = int(suffix)
+                channel_index = int(m.group(1))
             except ValueError:
                 continue
 
@@ -697,7 +696,7 @@ class SwitchSettingsManager:
             if not (isinstance(label, str) and label.strip()):
                 continue
 
-            id_key = f"SWITCH_{channel_index}_ID"
+            id_key = f"SWITCH_{channel_index}_CHANNEL_ID"
             existing_id = switch_block.get(id_key)
 
             # If an ID already exists and is non-empty, leave it alone
@@ -709,7 +708,7 @@ class SwitchSettingsManager:
             
     def ensure_channel_ids_for_switch(self, switch_id: str) -> bool:
         """
-        Backfill SWITCH_N_ID keys for an existing switch, if missing.
+        Backfill SWITCH_N_CHANNEL_ID keys for an existing switch, if missing.
         Returns True if changes were made and saved, False otherwise.
         """
         doc = self.load(switch_id) or OrderedDict()

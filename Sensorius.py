@@ -153,7 +153,7 @@ async def build_switch_controllers(sensors, supervisor):
 
     for sw_id in switch_ids:
         sw_config = SettingsWrapper(switch_mgr.load(sw_id))
-        switch_id = sw_config.get_setting("Switch", "SWITCH_ID", "").lower()
+        switch_id = sw_config.get_setting("Switch", "SWITCH_DEVICE_ID", "").lower()
         sw_location = sw_config.get_setting("Switch", "SWITCH_LOCATION", "").lower()
 
         match_sensor = next((s for s in sensors if s.location.lower() == sw_location), None)
@@ -186,7 +186,7 @@ def seed_switch_state_history_once(data_logger, switch_controllers):
     controller’s current state so the DB and hardware are aligned.
 
     Uses SwitchController._switch_key(...) so the DB key always matches the
-    canonical "<switch_id>::<channel_id>" form when SWITCH_n_ID is defined.
+    canonical "<channel_id>::<label>" form when SWITCH_n_CHANNEL_ID is defined.
     """
     import time
 

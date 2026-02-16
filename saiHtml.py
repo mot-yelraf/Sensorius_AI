@@ -103,6 +103,20 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             return UNKNOWN_KEY
         return v
 
+    def _has_install_marker(val) -> bool:
+        """
+        Parse SWITCH_n_ENABLE_PIN install markers.
+        For Nodus channels: non-empty means installed.
+        """
+        if val is None:
+            return False
+        if isinstance(val, bool):
+            return val
+        return str(val).strip() != ""
+
+    def _enable_field_value(sw_block: dict, idx: int):
+        return sw_block.get(f"SWITCH_{idx}_ENABLE_PIN", "")
+
     # ---------- build a unified switches_by_loc once ----------
     from saiSwitchSettingsManager import SwitchSettingsManager
 
@@ -231,18 +245,18 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 return []
 
             sw_type = str(sw_blk.get("TYPE", "") or "").strip().lower()
-            has_en_keys = ("SWITCH_1_EN" in sw_blk) or ("SWITCH_2_EN" in sw_blk)
+            has_en_keys = ("SWITCH_1_ENABLE_PIN" in sw_blk) or ("SWITCH_2_ENABLE_PIN" in sw_blk)
             labels: list[str] = []
             if sw_type in ("picow", "pico2w") or has_en_keys:
                 for i in range(1, 9):
-                    lbl = str(sw_blk.get(f"SWITCH_{i}", "") or "").strip()
-                    env = sw_blk.get(f"SWITCH_{i}_EN", "")
-                    enabled = isinstance(env, (int, float)) or (isinstance(env, str) and env.strip() != "")
+                    lbl = str(sw_blk.get(f"SWITCH_{i}_LABEL", "") or "").strip()
+                    env = _enable_field_value(sw_blk, i)
+                    enabled = _has_install_marker(env)
                     if lbl and enabled:
                         labels.append(lbl)
             else:
                 for i in range(1, 33):
-                    lbl = str(sw_blk.get(f"SWITCH_{i}", "") or "").strip()
+                    lbl = str(sw_blk.get(f"SWITCH_{i}_LABEL", "") or "").strip()
                     pin = sw_blk.get(f"SWITCH_{i}_PIN", None)
                     if lbl and isinstance(pin, (int, float)):
                         labels.append(lbl)
@@ -264,21 +278,21 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
 
             out: dict[str, str] = {}
             sw_type = str(sw_blk.get("TYPE", "") or "").strip().lower()
-            has_en_keys = ("SWITCH_1_EN" in sw_blk) or ("SWITCH_2_EN" in sw_blk)
+            has_en_keys = ("SWITCH_1_ENABLE_PIN" in sw_blk) or ("SWITCH_2_ENABLE_PIN" in sw_blk)
             if sw_type in ("picow", "pico2w") or has_en_keys:
-                # Pico/Nodus: channel is enabled only if SWITCH_n_EN is non-empty.
+                # Pico/Nodus: channel is installed when SWITCH_n_ENABLE_PIN is non-empty.
                 for i in range(1, 9):
-                    lbl = str(sw_blk.get(f"SWITCH_{i}", "") or "").strip()
-                    cid = str(sw_blk.get(f"SWITCH_{i}_ID", "") or "").strip()
-                    env = sw_blk.get(f"SWITCH_{i}_EN", "")
-                    enabled = isinstance(env, (int, float)) or (isinstance(env, str) and env.strip() != "")
+                    lbl = str(sw_blk.get(f"SWITCH_{i}_LABEL", "") or "").strip()
+                    cid = str(sw_blk.get(f"SWITCH_{i}_CHANNEL_ID", "") or "").strip()
+                    env = _enable_field_value(sw_blk, i)
+                    enabled = _has_install_marker(env)
                     if lbl and cid and enabled:
                         out[lbl] = cid
             else:
                 # Local Pi relays: channel is enabled when label + numeric pin are present.
                 for i in range(1, 33):
-                    lbl = str(sw_blk.get(f"SWITCH_{i}", "") or "").strip()
-                    cid = str(sw_blk.get(f"SWITCH_{i}_ID", "") or "").strip()
+                    lbl = str(sw_blk.get(f"SWITCH_{i}_LABEL", "") or "").strip()
+                    cid = str(sw_blk.get(f"SWITCH_{i}_CHANNEL_ID", "") or "").strip()
                     pin = sw_blk.get(f"SWITCH_{i}_PIN", None)
                     if lbl and cid and isinstance(pin, (int, float)):
                         out[lbl] = cid
@@ -789,16 +803,16 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 sw_blk = doc.get("Switch", {}) if isinstance(doc, dict) else {}
 
                 sw_type = str(sw_blk.get("TYPE", "") or "").strip().lower()
-                has_en_keys = ("SWITCH_1_EN" in sw_blk) or ("SWITCH_2_EN" in sw_blk)
+                has_en_keys = ("SWITCH_1_ENABLE_PIN" in sw_blk) or ("SWITCH_2_ENABLE_PIN" in sw_blk)
 
                 if sw_type in ("picow", "pico2w") or has_en_keys:
-                    # Pico2 W: *_EN means enabled
-                    pairs = [("SWITCH_1", "SWITCH_1_EN"), ("SWITCH_2", "SWITCH_2_EN")]
+                    # Pico2 W: *_ENABLE_PIN indicates channel installed
+                    pairs = [("SWITCH_1_LABEL", 1), ("SWITCH_2_LABEL", 2)]
                     tmp = []
-                    for lbl_key, en_key in pairs:
+                    for lbl_key, idx in pairs:
                         label = (sw_blk.get(lbl_key) or "").strip()
-                        en_val = sw_blk.get(en_key, "")
-                        enabled = (isinstance(en_val, (int, float)) or (isinstance(en_val, str) and en_val.strip() != ""))
+                        en_val = _enable_field_value(sw_blk, idx)
+                        enabled = _has_install_marker(en_val)
                         if label and enabled:
                             tmp.append(label)
                     if tmp:
@@ -807,7 +821,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                     # Pi: require BOTH a label and an integer PIN to render the channel
                     tmp = []
                     for n in range(1, 33):
-                        label = (str(sw_blk.get(f"SWITCH_{n}", "") or "").strip())
+                        label = (str(sw_blk.get(f"SWITCH_{n}_LABEL", "") or "").strip())
                         pin   = sw_blk.get(f"SWITCH_{n}_PIN", None)
                         if not label:
                             continue
@@ -1004,6 +1018,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "});"
     
     yield "let knownSensors = new Set();"
+    yield "let pendingLayoutRefresh = false;"
 
     yield "function ensureSensorInSelector(sid) {"
     yield "  const sel = document.getElementById('sensorSelect');"
@@ -1295,6 +1310,82 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  return Number.isFinite(n) ? n.toFixed(1) : '--';"
     yield "}"
 
+    yield "function _normSwitchId(id) {"
+    yield "  return String(id || '').trim().toLowerCase();"
+    yield "}"
+
+    yield "function _asStringSet(items) {"
+    yield "  const out = new Set();"
+    yield "  (items || []).forEach(v => {"
+    yield "    const s = String(v || '').trim();"
+    yield "    if (s) out.add(s);"
+    yield "  });"
+    yield "  return out;"
+    yield "}"
+
+    yield "function _sameStringSet(a, b) {"
+    yield "  if (a.size !== b.size) return false;"
+    yield "  for (const v of a) { if (!b.has(v)) return false; }"
+    yield "  return true;"
+    yield "}"
+
+    yield "function _renderedMetricsForSensor(sid) {"
+    yield "  const row = document.getElementById(`row_${sid}`);"
+    yield "  if (!row) return [];"
+    yield "  return Array.from(row.querySelectorAll('.metric-container[data-metric]'))"
+    yield "    .map(el => String(el.dataset.metric || '').trim())"
+    yield "    .filter(Boolean);"
+    yield "}"
+
+    yield "function _renderedSwitchIds() {"
+    yield "  return Array.from(document.querySelectorAll('.switch-metric-container h3[id$=\"_header\"]'))"
+    yield "    .map(h => String(h.id || '').replace(/_header$/, ''))"
+    yield "    .map(_normSwitchId)"
+    yield "    .filter(Boolean);"
+    yield "}"
+
+    yield "function _layoutSignature(available, nextExpMap, renderableSwitches) {"
+    yield "  const sensors = (available || []).map(sid => ({"
+    yield "    sid: String(sid || ''),"
+    yield "    metrics: (Array.isArray(nextExpMap?.[sid]) ? nextExpMap[sid] : []).map(m => String(m || '').trim()).filter(Boolean).sort()"
+    yield "  })).sort((a,b) => a.sid.localeCompare(b.sid));"
+    yield "  const switches = (renderableSwitches || []).map(_normSwitchId).filter(Boolean).sort();"
+    yield "  return JSON.stringify({ sensors, switches });"
+    yield "}"
+
+    yield "function scheduleLayoutRefresh(reason, sig) {"
+    yield "  if (pendingLayoutRefresh) return;"
+    yield "  try {"
+    yield "    const prevSig = sessionStorage.getItem('layoutRefreshSig') || '';"
+    yield "    if (sig && prevSig === sig) return;"
+    yield "    if (sig) sessionStorage.setItem('layoutRefreshSig', sig);"
+    yield "  } catch (_) {}"
+    yield "  pendingLayoutRefresh = true;"
+    yield "  console.info('[layout-refresh]', reason || 'layout changed');"
+    yield "  setTimeout(() => window.location.reload(), 350);"
+    yield "}"
+
+    yield "function shouldRefreshForLayoutDrift(available, nextExpMap, renderableSwitches, selectedView) {"
+    yield "  for (const sid of (available || [])) {"
+    yield "    const expected = _asStringSet(Array.isArray(nextExpMap?.[sid]) ? nextExpMap[sid] : []);"
+    yield "    if (!expected.size) continue;"
+    yield "    const row = document.getElementById(`row_${sid}`);"
+    yield "    if (!row) continue;"
+    yield "    const rendered = _asStringSet(_renderedMetricsForSensor(sid));"
+    yield "    if (!_sameStringSet(expected, rendered)) return { reason: `metrics:${sid}` };"
+    yield "  }"
+    yield "  const selected = String(selectedView || 'All');"
+    yield "  const shouldCheckSwitches = (selected === 'All');"
+    yield "  const expectedSwitches = new Set((renderableSwitches || []).map(_normSwitchId).filter(Boolean));"
+    yield "  if (shouldCheckSwitches && expectedSwitches.size) {"
+    yield "    const renderedSwitches = new Set(_renderedSwitchIds());"
+    yield "    for (const swId of expectedSwitches) {"
+    yield "      if (!renderedSwitches.has(swId)) return { reason: `switch:${swId}` };"
+    yield "    }"
+    yield "  }"
+    yield "  return null;"
+    yield "}"
+
     yield "async function updateGauges() {"
     yield "  const sensorIdEl = document.getElementById('sensor_id');"
     yield "  const sensorId = sensorIdEl ? sensorIdEl.value : 'All';"
@@ -1319,7 +1410,14 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     
     yield "  const available = Array.isArray(d.available) ? d.available : [];"
     yield "  const nextExpMap = d.expected_gauge_map || {};"
+    yield "  const renderableSwitches = Array.isArray(d.renderable_switches) ? d.renderable_switches : [];"
     yield "  const locations  = d.locations || {};"
+    yield "  const layoutDrift = shouldRefreshForLayoutDrift(available, nextExpMap, renderableSwitches, sensorId);"
+    yield "  if (layoutDrift) {"
+    yield "    const sig = _layoutSignature(available, nextExpMap, renderableSwitches);"
+    yield "    scheduleLayoutRefresh(layoutDrift.reason, sig);"
+    yield "    return;"
+    yield "  }"
     yield ""
     yield ""
     #yield "  console.warn('updateGauges: step 3 - sensor available loop');"
@@ -3117,8 +3215,8 @@ def render_graph_modal(switch_installed=None):
                         swblk = (doc or {}).get("Switch", {}) if isinstance(doc, dict) else {}
                         labels: list[str] = []
                         for i in range(1, 7):
-                            lab = str(swblk.get(f"SWITCH_{i}", "") or "").strip()
-                            en = str(swblk.get(f"SWITCH_{i}_EN", "") or "").strip()
+                            lab = str(swblk.get(f"SWITCH_{i}_LABEL", "") or "").strip()
+                            en = str(swblk.get(f"SWITCH_{i}_ENABLE_PIN", "") or "").strip()
                             pin = str(swblk.get(f"SWITCH_{i}_PIN", "") or "").strip()
                             if lab and (en or pin):
                                 labels.append(lab)

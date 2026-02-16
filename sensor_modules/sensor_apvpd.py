@@ -409,6 +409,10 @@ class VPDPlantSensor(BaseSensor):
 
     def _get_calibrated_ambient_temp_c(self) -> float:
         raw_temp = self._get_raw_ambient_temp_c()
+        if raw_temp is None:
+            self.latest_raw["Temperature"] = None
+            self.current_values["Temperature"] = None
+            return None
         temp_c = raw_temp + self.ambient_temp_offset_c
         self.latest_raw["Temperature"] = raw_temp
         self.current_values["Temperature"] = temp_c
@@ -416,12 +420,19 @@ class VPDPlantSensor(BaseSensor):
 
     def _get_calibrated_ambient_temp_f(self) -> float:
         temp_c = self._get_calibrated_ambient_temp_c()
+        if temp_c is None:
+            self.current_values["Temperature_F"] = None
+            return None
         temp_f = (temp_c * 9.0 / 5.0) + 32.0
         self.current_values["Temperature_F"] = temp_f
         return temp_f
 
     def _get_calibrated_ambient_rh(self) -> float:
         raw_rh = self._get_raw_ambient_rh()
+        if raw_rh is None:
+            self.latest_raw["Rel-Humidity"] = None
+            self.current_values["Rel-Humidity"] = None
+            return None
         rh = raw_rh + self.ambient_rh_offset_pct
         rh = self._clamp_if_number(rh, 0.0, 100.0)
         self.latest_raw["Rel-Humidity"] = raw_rh
@@ -431,6 +442,9 @@ class VPDPlantSensor(BaseSensor):
     def _get_calibrated_ambient_abs_humidity(self) -> float:
         temp_c = self._get_calibrated_ambient_temp_c()
         rh = self._get_calibrated_ambient_rh()
+        if temp_c is None or rh is None:
+            self.current_values["Humidity"] = None
+            return None
         abs_h = self.calculate_absolute_humidity(temp_c, rh)
         self.current_values["Humidity"] = abs_h
         return abs_h
@@ -438,6 +452,9 @@ class VPDPlantSensor(BaseSensor):
     def _get_calibrated_ambient_vpd(self) -> float:
         temp_c = self._get_calibrated_ambient_temp_c()
         rh = self._get_calibrated_ambient_rh()
+        if temp_c is None or rh is None:
+            self.current_values["Ambient VPD"] = None
+            return None
         vpd = self.calculate_vpd(temp_c, rh)
         vpd_clamped = self._clamp_if_number(vpd, 0.0, 5.0)
         self.current_values["Ambient VPD"] = vpd_clamped
@@ -446,12 +463,18 @@ class VPDPlantSensor(BaseSensor):
     def _get_calibrated_ambient_dewpoint_c(self) -> float:
         temp_c = self._get_calibrated_ambient_temp_c()
         rh = self._get_calibrated_ambient_rh()
+        if temp_c is None or rh is None:
+            self.current_values["Dew-Point"] = None
+            return None
         dewpoint_c = self.calculate_dewpoint(temp_c, rh)
         self.current_values["Dew-Point"] = dewpoint_c
         return dewpoint_c
 
     def _get_calibrated_ambient_dewpoint_f(self) -> float:
         dewpoint_c = self._get_calibrated_ambient_dewpoint_c()
+        if dewpoint_c is None:
+            self.current_values["Dew-Point_F"] = None
+            return None
         dewpoint_f = (dewpoint_c * 9.0 / 5.0) + 32.0
         self.current_values["Dew-Point_F"] = dewpoint_f
         return dewpoint_f
@@ -459,6 +482,9 @@ class VPDPlantSensor(BaseSensor):
     def _get_calibrated_ambient_dewpoint_depression(self) -> float:
         temp_c = self._get_calibrated_ambient_temp_c()
         rh = self._get_calibrated_ambient_rh()
+        if temp_c is None or rh is None:
+            self.current_values["Dewpoint Depression"] = None
+            return None
         depression = self.calculate_dewpoint_depression(temp_c, rh)
         depression = self._clamp_if_number(depression, 0.0, 30.0)
         self.current_values["Dewpoint Depression"] = depression
@@ -467,7 +493,13 @@ class VPDPlantSensor(BaseSensor):
     def _get_calibrated_ambient_dewvpd_risk(self) -> float:
         temp_c = self._get_calibrated_ambient_temp_c()
         rh = self._get_calibrated_ambient_rh()
+        if temp_c is None or rh is None:
+            self.current_values["DewVPD Risk"] = None
+            return None
         vpd = self._get_calibrated_ambient_vpd()
+        if vpd is None:
+            self.current_values["DewVPD Risk"] = None
+            return None
         risk = self.calculate_dewvpd_risk(temp_c, rh, vpd=vpd)
         risk = self._clamp_if_number(risk, 0.0, 100.0)
         self.current_values["DewVPD Risk"] = risk
@@ -484,6 +516,10 @@ class VPDPlantSensor(BaseSensor):
 
     def _get_calibrated_plant_temp_c(self) -> float:
         raw_temp = self._get_raw_plant_temp_c()
+        if raw_temp is None:
+            self.latest_raw["Plant Temperature"] = None
+            self.current_values["Plant Temperature"] = None
+            return None
         temp_c = raw_temp + self.thp280_plant_temp_cal
         self.latest_raw["Plant Temperature"] = raw_temp
         self.current_values["Plant Temperature"] = temp_c
@@ -491,12 +527,19 @@ class VPDPlantSensor(BaseSensor):
 
     def _get_calibrated_plant_temp_f(self) -> float:
         temp_c = self._get_calibrated_plant_temp_c()
+        if temp_c is None:
+            self.current_values["Plant Temperature_F"] = None
+            return None
         temp_f = (temp_c * 9.0 / 5.0) + 32.0
         self.current_values["Plant Temperature_F"] = temp_f
         return temp_f
 
     def _get_calibrated_plant_rh(self) -> float:
         raw_rh = self._get_raw_plant_rh()
+        if raw_rh is None:
+            self.latest_raw["Plant Rel-Humidity"] = None
+            self.current_values["Plant Rel-Humidity"] = None
+            return None
         rh = raw_rh + self.thp280_plant_rh_cal
         rh = self._clamp_if_number(rh, 0.0, 100.0)
         self.latest_raw["Plant Rel-Humidity"] = raw_rh
@@ -506,6 +549,9 @@ class VPDPlantSensor(BaseSensor):
     def _get_calibrated_plant_abs_humidity(self) -> float:
         temp_c = self._get_calibrated_plant_temp_c()
         rh = self._get_calibrated_plant_rh()
+        if temp_c is None or rh is None:
+            self.current_values["Plant Humidity"] = None
+            return None
         abs_h = self.calculate_absolute_humidity(temp_c, rh)
         self.current_values["Plant Humidity"] = abs_h
         return abs_h
@@ -513,6 +559,9 @@ class VPDPlantSensor(BaseSensor):
     def _get_calibrated_plant_vpd(self) -> float:
         temp_c = self._get_calibrated_plant_temp_c()
         rh = self._get_calibrated_plant_rh()
+        if temp_c is None or rh is None:
+            self.current_values["Plant VPD"] = None
+            return None
         vpd = self.calculate_vpd(temp_c, rh)
         vpd_clamped = self._clamp_if_number(vpd, 0.0, 5.0)
         self.current_values["Plant VPD"] = vpd_clamped
@@ -521,12 +570,18 @@ class VPDPlantSensor(BaseSensor):
     def _get_calibrated_plant_dewpoint_c(self) -> float:
         temp_c = self._get_calibrated_plant_temp_c()
         rh = self._get_calibrated_plant_rh()
+        if temp_c is None or rh is None:
+            self.current_values["Plant Dew-Point"] = None
+            return None
         dewpoint_c = self.calculate_dewpoint(temp_c, rh)
         self.current_values["Plant Dew-Point"] = dewpoint_c
         return dewpoint_c
 
     def _get_calibrated_plant_dewpoint_f(self) -> float:
         dewpoint_c = self._get_calibrated_plant_dewpoint_c()
+        if dewpoint_c is None:
+            self.current_values["Plant Dew-Point_F"] = None
+            return None
         dewpoint_f = (dewpoint_c * 9.0 / 5.0) + 32.0
         self.current_values["Plant Dew-Point_F"] = dewpoint_f
         return dewpoint_f
@@ -534,6 +589,9 @@ class VPDPlantSensor(BaseSensor):
     def _get_calibrated_plant_dewpoint_depression(self) -> float:
         temp_c = self._get_calibrated_plant_temp_c()
         rh = self._get_calibrated_plant_rh()
+        if temp_c is None or rh is None:
+            self.current_values["Plant Dewpoint Depression"] = None
+            return None
         depression = self.calculate_dewpoint_depression(temp_c, rh)
         depression = self._clamp_if_number(depression, 0.0, 30.0)
         self.current_values["Plant Dewpoint Depression"] = depression
@@ -542,7 +600,13 @@ class VPDPlantSensor(BaseSensor):
     def _get_calibrated_plant_dewvpd_risk(self) -> float:
         temp_c = self._get_calibrated_plant_temp_c()
         rh = self._get_calibrated_plant_rh()
+        if temp_c is None or rh is None:
+            self.current_values["Plant DewVPD Risk"] = None
+            return None
         vpd = self._get_calibrated_plant_vpd()
+        if vpd is None:
+            self.current_values["Plant DewVPD Risk"] = None
+            return None
         risk = self.calculate_dewvpd_risk(temp_c, rh, vpd=vpd)
         risk = self._clamp_if_number(risk, 0.0, 100.0)
         self.current_values["Plant DewVPD Risk"] = risk

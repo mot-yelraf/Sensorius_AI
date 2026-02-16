@@ -94,10 +94,29 @@ EXCLUDES=(
   "*.md"
   "sensor_data.db"
   "sensorius_data.db*"
-  "system_settings/"
-  "sensor_settings/"
-  "switch_settings/"
+  "system_settings/***"
+  "sensor_settings/***"
+  "switch_settings/***"
   "*.log"
+)
+
+# Keep runtime settings directories excluded, but explicitly include factory templates.
+INCLUDES=(
+  "system_settings/"
+  "system_settings/factory/"
+  "system_settings/factory/***"
+  "system_settings/factory_nodus/"
+  "system_settings/factory_nodus/***"
+  "sensor_settings/"
+  "sensor_settings/factory/"
+  "sensor_settings/factory/***"
+  "sensor_settings/factory_nodus/"
+  "sensor_settings/factory_nodus/***"
+  "switch_settings/"
+  "switch_settings/factory/"
+  "switch_settings/factory/***"
+  "switch_settings/factory_nodus/"
+  "switch_settings/factory_nodus/***"
 )
 
 RSYNC_OPTS=(-az --delete --itemize-changes --human-readable)
@@ -107,6 +126,9 @@ if [[ "${DRY_RUN}" -eq 1 ]]; then
 else
   echo "Mode: APPLY"
 fi
+for i in "${INCLUDES[@]}"; do
+  RSYNC_OPTS+=(--include "${i}")
+done
 for x in "${EXCLUDES[@]}"; do
   RSYNC_OPTS+=(--exclude "${x}")
 done

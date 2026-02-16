@@ -336,7 +336,7 @@ class SensorSettingsManager:
             "aqi":   ["Air Quality", "Temperature", "Rel-Humidity", "Ambient VPD", "DewVPD Risk", "Baro-Pressure"],
             "avpd":  ["Ambient VPD", "Temperature", "Rel-Humidity", "DewVPD Risk", "Baro-Pressure", ""],
             "co2":   ["CO2", "Temperature", "Rel-Humidity", "Ambient VPD", "DewVPD Risk", ""],
-            "veml":  [ "PPFD", "DLI", "Light Intensity", "Lux", "", ""],
+            "veml":  [ "PPFD", "DLI", "Light Intensity", "", "", ""],
             "soil":  ["Soil-Moisture", "Soil-Temp", "Soil-pH", "Soil-EC", "", ""],
         }
         metric_fallback: list[str] = ["", "", "", "", "", ""]

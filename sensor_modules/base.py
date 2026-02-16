@@ -1,6 +1,7 @@
 # sensor_modules/base.py - base sensor class
 import time
 import math
+import traceback
 from collections.abc import Iterable as _Iterable
 from saiUtils import printDM, debug_enabled, get_timestamp
 
@@ -195,22 +196,32 @@ class BaseSensor:
         Calculate absolute humidity in grams per cubic meter (g/m³)
         using temperature (°C) and relative humidity (%)
         """
-        # Constants
-        mw = 18.016  # molar mass of water vapor [g/mol]
-        R = 8314.3   # universal gas constant [J/(kmol·K)]
-        # Saturation vapor pressure in Pa
-        svp = 610.78 * 10 ** ((7.5 * temp_C) / (237.3 + temp_C))
-        # Actual vapor pressure in Pa
-        avp = svp * (rh / 100.0)
-        # Temperature in Kelvin
-        temp_K = temp_C + 273.15
-        # AH in g/m³
-        ah = (avp * mw) / (R * temp_K) * 1000
-        return ah
+        try:
+            t = float(temp_C)
+            h = float(rh)
+            # Constants
+            mw = 18.016  # molar mass of water vapor [g/mol]
+            R = 8314.3   # universal gas constant [J/(kmol·K)]
+            # Saturation vapor pressure in Pa
+            svp = 610.78 * 10 ** ((7.5 * t) / (237.3 + t))
+            # Actual vapor pressure in Pa
+            avp = svp * (h / 100.0)
+            # Temperature in Kelvin
+            temp_K = t + 273.15
+            # AH in g/m³
+            ah = (avp * mw) / (R * temp_K) * 1000
+            return ah
+        except Exception:
+            return None
 
     def calculate_vpd(self, temp_C, rh):
-        svp = 610.78 * 10 ** ((7.5 * temp_C) / (237.3 + temp_C))
-        return (1 - (rh / 100.0)) * svp / 1000.0
+        try:
+            t = float(temp_C)
+            h = float(rh)
+            svp = 610.78 * 10 ** ((7.5 * t) / (237.3 + t))
+            return (1 - (h / 100.0)) * svp / 1000.0
+        except Exception:
+            return None
 
     def calculate_dewpoint(self, temp_C, rh):
         """
@@ -258,6 +269,19 @@ class BaseSensor:
 
     def iir_filter(self, key, new_val):
         prev = self.filtered_data.get(key)
+        # If sensor data is temporarily unavailable, keep the previous filtered
+        # value instead of feeding None into numeric filter math.
+        if new_val is None:
+            if prev is None:
+                self.filtered_data[key] = None
+            return
+        # Defensive guard: stale/non-numeric previous values should not enter
+        # filter math.
+        if prev is not None and not isinstance(prev, (int, float)):
+            self.filtered_data[key] = new_val
+            return
+        if not isinstance(new_val, (int, float)):
+            return
         if prev is None:
             self.filtered_data[key] = new_val
         else:
@@ -277,9 +301,12 @@ class BaseSensor:
 
             for name, _, _, precision in self.measurements:
                 filtered = self.filtered_data[name]
-                self.current_values[name] = (
-                    int(filtered) if precision is None else round(filtered, precision)
-                )
+                if filtered is None:
+                    self.current_values[name] = None
+                else:
+                    self.current_values[name] = (
+                        int(filtered) if precision is None else round(filtered, precision)
+                    )
 
             return dict(self.current_values), dict(self.unit_map), ts
 
@@ -287,6 +314,10 @@ class BaseSensor:
             self.meas_status = "pending"
             printDM(
                 f"read_sensor_data error: {exc}",
+                location=f"{__name__}.{self.__class__.__name__}.read_sensor_data",
+            )
+            printDM(
+                traceback.format_exc(),
                 location=f"{__name__}.{self.__class__.__name__}.read_sensor_data",
             )
             return {n: None for n in self.meas_types}, {n: u for n, u in self.unit_map.items()}, ts
