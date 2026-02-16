@@ -250,8 +250,48 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         except Exception:
             return []
 
+    def _channel_map_from_switch_settings(sw_id: str) -> dict[str, str]:
+        """
+        Return label -> channel_id from switch_settings/<sw_id>/switch.toml when available.
+        """
+        if not sw_mgr:
+            return {}
+        try:
+            doc = sw_mgr.load(sw_id) or {}
+            sw_blk = doc.get("Switch", {}) if isinstance(doc, dict) else {}
+            if not isinstance(sw_blk, dict):
+                return {}
+
+            out: dict[str, str] = {}
+            sw_type = str(sw_blk.get("TYPE", "") or "").strip().lower()
+            has_en_keys = ("SWITCH_1_EN" in sw_blk) or ("SWITCH_2_EN" in sw_blk)
+            if sw_type in ("picow", "pico2w") or has_en_keys:
+                # Pico/Nodus: channel is enabled only if SWITCH_n_EN is non-empty.
+                for i in range(1, 9):
+                    lbl = str(sw_blk.get(f"SWITCH_{i}", "") or "").strip()
+                    cid = str(sw_blk.get(f"SWITCH_{i}_ID", "") or "").strip()
+                    env = sw_blk.get(f"SWITCH_{i}_EN", "")
+                    enabled = isinstance(env, (int, float)) or (isinstance(env, str) and env.strip() != "")
+                    if lbl and cid and enabled:
+                        out[lbl] = cid
+            else:
+                # Local Pi relays: channel is enabled when label + numeric pin are present.
+                for i in range(1, 33):
+                    lbl = str(sw_blk.get(f"SWITCH_{i}", "") or "").strip()
+                    cid = str(sw_blk.get(f"SWITCH_{i}_ID", "") or "").strip()
+                    pin = sw_blk.get(f"SWITCH_{i}_PIN", None)
+                    if lbl and cid and isinstance(pin, (int, float)):
+                        out[lbl] = cid
+            return out
+        except Exception:
+            return {}
+
     # read cached state: { "switch-dzia16": {"GP28": "on", "GP27": "off", ...}, ... }
     remote_cache = getattr(mqtt_ingest, "_switch_state_cache", {}) or {}
+    try:
+        db_switch_rows = list(data_logger.get_switch_identities() or [])
+    except Exception:
+        db_switch_rows = []
 
     # include switches discovered via /itaot even if they haven't emitted state yet
     discovered_switches: dict[str, dict[str, str]] = {}  # switch_id -> {label: channel_id}
@@ -281,6 +321,33 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         try:
             ch_map = remote_cache.get(sw_id, {}) or {}
             label_map = discovered_switches.get(sw_id, {})
+            if not label_map and db_switch_rows:
+                try:
+                    sid_l = str(sw_id or "").strip().lower()
+                    mapped: dict[str, str] = {}
+                    for row in db_switch_rows:
+                        rsid = str(row.get("switch_id", "")).strip().lower()
+                        if rsid != sid_l:
+                            continue
+                        lbl = str(row.get("label", "") or "").strip()
+                        cid = str(row.get("channel_id", "") or "").strip()
+                        if lbl and cid:
+                            mapped[lbl] = cid
+                    if mapped:
+                        label_map = mapped
+                except Exception:
+                    label_map = label_map or {}
+
+            enabled_map = _channel_map_from_switch_settings(sw_id)
+            if enabled_map:
+                enabled_labels = set(enabled_map.keys())
+                if label_map:
+                    # Drop disabled/stale labels from discovery/DB maps.
+                    label_map = {lbl: cid for lbl, cid in label_map.items() if lbl in enabled_labels}
+                else:
+                    label_map = dict(enabled_map)
+            if not label_map:
+                label_map = dict(enabled_map)
 
             channels = list(label_map.keys()) if label_map else list(ch_map.keys())
             if not channels:
@@ -304,6 +371,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 location=_infer_switch_location(sw_id),
                 is_present=True,
                 switches=channels,                 # NOTE: list of channel labels
+                channel_id_for_label=dict(label_map or {}),
                 last_state=last_state,             # {label: bool}
                 last_set_time={ch: "" for ch in channels},
                 override_script=defaultdict(bool), # nothing to override yet for remote
@@ -799,8 +867,14 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 checked_attr = "checked" if override_enabled else ""
                 last_time_str = getattr(switch_ctrl, "last_set_time", {}).get(label, "")
 
-                # ── build a stable key "hostname::label" when hostname exists ─────────
-                switch_key = f"{sw_id}::{label}" if sw_id else f"::{label}"  
+                # Prefer channel_id for action payload when available; otherwise use switch_id.
+                channel_id = ""
+                try:
+                    channel_id = str((getattr(switch_ctrl, "channel_id_for_label", {}) or {}).get(label, "") or "").strip()
+                except Exception:
+                    channel_id = ""
+                action_sid = channel_id or sw_id
+                switch_key = f"{action_sid}::{label}" if action_sid else f"::{label}"
                 box_id  = f"{sw_id}-{safe_label}_box" if sw_id else f"{safe_label}_box"
                 state_id= f"{sw_id}-{safe_label}_state" if sw_id else f"{safe_label}_state"
                 time_id = f"{sw_id}-{safe_label}_time"  if sw_id else f"{safe_label}_time"
@@ -816,7 +890,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                     f"  title='Toggle state for {label}' "
                     f"  data-switch-name='{label}' "
                     f"  data-switch-key='{switch_key}' "
-                    f"  data-switch-id='{sw_id}' "
+                    f"  data-switch-id='{action_sid}' "
                     f"  data-state='{state_str}' "
                     f"  onclick='toggleSwitchInline(this)'>"
                     f"{'On' if is_on else 'Off'}"

@@ -537,8 +537,23 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 return normalize_hostname_base(name)
 
             def _is_switch_id(name: str) -> bool:
-                n = (name or "").strip().lower()
-                return n.startswith("switch_") or n.startswith("switch-")
+                s = (name or "").strip()
+                n = s.lower()
+                if n.startswith("switch_") or n.startswith("switch-"):
+                    return True
+                # Nodus per-channel IDs (case-sensitive canonical form), e.g. "S1-en1n8i"
+                return bool(re.match(r"^S\d+-[A-Za-z0-9._-]+$", s))
+
+            def _canonical_channel_id(name: str | None) -> str:
+                """
+                Normalize channel-id prefix to canonical uppercase form: S<idx>-<serial>.
+                Leaves non-channel ids unchanged.
+                """
+                s = (name or "").strip()
+                m = re.match(r"^[sS](\d+)-(.+)$", s)
+                if not m:
+                    return s
+                return f"S{m.group(1)}-{m.group(2)}"
 
             def _is_valid_sensor_id(name: str) -> bool:
                 s = (name or "").strip()
@@ -574,10 +589,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 allowed_extra_l = {str(x).strip().lower() for x in (allowed_extra or set()) if str(x).strip()}
                 for raw in values or []:
                     sid = _strip_local_suffix(raw)
+                    sid = _canonical_channel_id(sid)
                     if not _is_switch_id(sid) and sid.lower() not in allowed_extra_l:
                         continue
-                    if sid not in seen_switch:
-                        seen_switch.add(sid)
+                    sid_key = sid.lower()
+                    if sid_key not in seen_switch:
+                        seen_switch.add(sid_key)
                         out.append(sid)
                 return sorted(out)
 
@@ -686,23 +703,35 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 switch_ids_live = _get_local_switch_ids()
 
                 switch_ids_discovered = []
+                switch_ids_discovered_channels = []
                 try:
                     switch_ids_discovered = mqtt_ingest.get_known_switch_devices() or []
+                    nodus_topic_map = getattr(mqtt_ingest, "nodus_switch_topic_map", {}) or {}
+                    for meta in nodus_topic_map.values():
+                        ch_id = str((meta or {}).get("channel_id", "") or "").strip()
+                        if ch_id:
+                            switch_ids_discovered_channels.append(_canonical_channel_id(ch_id))
                 except Exception:
                     switch_ids_discovered = []
+                    switch_ids_discovered_channels = []
 
                 switch_ids_db = []
                 try:
                     for row in (data_logger.get_switch_identities() or []):
+                        ch_id = str(row.get("channel_id", "")).strip()
                         sid = str(row.get("switch_id", "")).strip()
-                        if sid:
+                        if ch_id:
+                            switch_ids_db.append(_canonical_channel_id(ch_id))
+                        elif sid:
                             switch_ids_db.append(sid)
                 except Exception:
                     switch_ids_db = []
 
+                nodus_channels = list(switch_ids_discovered_channels) + list(switch_ids_db)
+                host_fallback = [] if nodus_channels else list(switch_ids_discovered)
                 available_switches = _normalize_switch_ids(
-                    list(switch_ids_local) + list(switch_ids_live) + list(switch_ids_discovered) + list(switch_ids_db),
-                    allowed_extra=set(switch_ids_live),
+                    list(switch_ids_local) + list(switch_ids_live) + nodus_channels + host_fallback,
+                    allowed_extra=set(list(switch_ids_live) + nodus_channels),
                 )
             except Exception:
                 available_switches = []
@@ -6597,6 +6626,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     events = _format_events(db_key, None, limit=5)
                     states[ui_key] = {"state": latest_bool, "time": events}
                     seen_ui_keys.add(ui_key)
+                    # Also expose alias key keyed by channel_id when canonical key
+                    # is "<switch_id>::<channel_id>" so channel-id UI payloads stay in sync.
+                    try:
+                        if "::" in db_key:
+                            ch_id = db_key.split("::", 1)[1].strip()
+                            alias_key = f"{ch_id}::{label}" if ch_id else ""
+                            if alias_key and alias_key not in states:
+                                states[alias_key] = {"state": latest_bool, "time": events}
+                                seen_ui_keys.add(alias_key)
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -6648,13 +6688,27 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return s.strip() if s else None
 
         def _norm_switch_id(s: str | None) -> str | None:
-            return s.strip().lower() if s else None
+            return s.strip() if s else None
 
         def _ctrl_switch_id(ctrl) -> str | None:
             val = getattr(ctrl, "switch_id", None)
             if isinstance(val, str) and val.strip():
-                return val.strip().lower()
+                return val.strip()
             return None
+
+        def _ctrl_labels(ctrl) -> list[str]:
+            """
+            Support both full SwitchController objects and remote presenter objects.
+            """
+            try:
+                getter = getattr(ctrl, "get_switch_names", None)
+                if callable(getter):
+                    raw = getter() or []
+                else:
+                    raw = getattr(ctrl, "switches", []) or []
+                return [str(s).strip() for s in raw if str(s).strip()]
+            except Exception:
+                return []
 
         def _slugify(text: str) -> str:
             return (text or "").strip().lower().replace(" ", "_")
@@ -6751,28 +6805,140 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 return JSONResponse({"error": "bad_switch_name"}, status_code=400)
 
             label_q_lower = label_raw.lower()
+            try:
+                identity_rows = list(data_logger.get_switch_identities() or [])
+            except Exception:
+                identity_rows = []
+
+            def _switch_id_matches(ctrl, wanted_sid: str | None, label: str) -> bool:
+                """
+                Match explicit switch_id against controller id and known aliases:
+                - host switch_id (e.g. switch-en1n8i)
+                - channel_id from switch_key suffix (e.g. S1-en1n8i)
+                """
+                if not wanted_sid:
+                    return True
+
+                wanted_l = wanted_sid.lower()
+                ctrl_sid = _ctrl_switch_id(ctrl)
+                if ctrl_sid and ctrl_sid.lower() == wanted_l:
+                    return True
+
+                aliases: set[str] = set()
+                if ctrl_sid:
+                    aliases.add(ctrl_sid.lower())
+
+                try:
+                    ch_map = getattr(ctrl, "channel_id_for_label", {}) or {}
+                    channel_id = str(ch_map.get(label, "") or "").strip().lower()
+                    if channel_id:
+                        aliases.add(channel_id)
+                except Exception:
+                    pass
+
+                label_l = (label or "").strip().lower()
+                for row in identity_rows:
+                    r_label = str(row.get("label", "")).strip().lower()
+                    if r_label != label_l:
+                        continue
+                    r_sid = str(row.get("switch_id", "")).strip().lower()
+                    r_key = str(row.get("switch_key", "")).strip()
+                    r_channel = ""
+                    if "::" in r_key:
+                        r_channel = r_key.split("::", 1)[1].strip().lower()
+
+                    # Bridge either direction if controller id is host-id or channel-id.
+                    if ctrl_sid and r_sid == ctrl_sid and r_channel:
+                        aliases.add(r_channel)
+                    if ctrl_sid and r_channel and r_channel == ctrl_sid and r_sid:
+                        aliases.add(r_sid)
+
+                return wanted_l in aliases
 
             # ---- Find matching controllers ----
             sc_map = switch_controllers if isinstance(switch_controllers, dict) else {}
             matches: list[tuple[object, str]] = []
 
             for ctrl in sc_map.values():
-                try:
-                    ctrl_labels = [s.strip() for s in (ctrl.get_switch_names() or [])]
-                except Exception as e:
-                    printDM(f"[toggle_switch] skipping non-controller: {e}", location=MODULE)
+                ctrl_labels = _ctrl_labels(ctrl)
+                if not ctrl_labels:
+                    if DEBUG:
+                        printDM("[toggle_switch] skipping switch with no labels", location=MODULE)
                     continue
 
                 match_label = next((lbl for lbl in ctrl_labels if (lbl or "").lower() == label_q_lower), None)
                 if not match_label:
                     continue
 
-                if switch_id_raw and (_ctrl_switch_id(ctrl) or "") != switch_id_raw:
+                if switch_id_raw and not _switch_id_matches(ctrl, switch_id_raw, match_label):
                     continue
 
                 matches.append((ctrl, match_label))
 
             if not matches:
+                # Direct channel-ID fallback for remote Nodus switches (e.g., S1-xxxxxx).
+                try:
+                    looks_channel = bool(re.match(r"^S\d+-[A-Za-z0-9._-]+$", str(switch_id_raw or "").strip()))
+                    if looks_channel and mqtt_ingest:
+                        channel_id = str(switch_id_raw or "").strip()
+                        resolved_sid = ""
+                        resolved_db_key = ""
+                        for row in identity_rows:
+                            r_key = str(row.get("switch_key", "") or "").strip()
+                            r_sid = str(row.get("switch_id", "") or "").strip()
+                            r_label = str(row.get("label", "") or "").strip()
+                            r_channel = str(row.get("channel_id", "") or "").strip()
+                            if not r_channel and "::" in r_key:
+                                r_channel = r_key.split("::", 1)[1].strip()
+                            if not r_channel:
+                                continue
+                            if r_channel.lower() != channel_id.lower():
+                                continue
+                            if label_raw and r_label and r_label.lower() != label_raw.lower():
+                                continue
+                            resolved_sid = r_sid or resolved_sid
+                            resolved_db_key = r_key or resolved_db_key
+                            if resolved_sid and resolved_db_key:
+                                break
+
+                        current_on = None
+                        try:
+                            cache = getattr(mqtt_ingest, "_switch_state_cache", {}) or {}
+                            if resolved_sid:
+                                raw_state = (cache.get(resolved_sid, {}) or {}).get(channel_id)
+                                if raw_state is None:
+                                    raw_state = (cache.get(resolved_sid, {}) or {}).get(channel_id.lower())
+                                if raw_state is not None:
+                                    current_on = (str(raw_state).strip().lower() == "on")
+                            if current_on is None:
+                                for _sid, chmap in cache.items():
+                                    if not isinstance(chmap, dict):
+                                        continue
+                                    raw_state = chmap.get(channel_id)
+                                    if raw_state is None:
+                                        raw_state = chmap.get(channel_id.lower())
+                                    if raw_state is not None:
+                                        current_on = (str(raw_state).strip().lower() == "on")
+                                        break
+                        except Exception:
+                            current_on = None
+
+                        if current_on is None and resolved_db_key:
+                            try:
+                                last = data_logger.get_latest_switch_state(resolved_db_key)
+                                if last is not None:
+                                    current_on = (str(last).strip().lower() == "on")
+                            except Exception:
+                                current_on = None
+
+                        new_state = (not current_on) if current_on is not None else True
+                        ok = bool(mqtt_ingest.set_switch_by_channel_id(resolved_sid or "", channel_id, new_state))
+                        if ok:
+                            ts = time.time()
+                            return {"state": bool(new_state), "time": ts}
+                except Exception as e:
+                    printDM(f"[toggle_switch] channel fallback failed: {e}", location=MODULE)
+
                 if DEBUG:
                     printDM(f"[toggle_switch] No match found for: label='{label_raw}', switch_id='{switch_id_raw}'", location=MODULE)
                 return JSONResponse({"error": "switch_not_found"}, status_code=404)
@@ -6783,7 +6949,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     try:
                         options.append({
                             "location": getattr(ctrl, "location", None),
-                            "labels": list(ctrl.get_switch_names() or []),
+                            "labels": _ctrl_labels(ctrl),
                             "switch_id": getattr(ctrl, "switch_id", None),
                         })
                     except Exception:
@@ -6799,7 +6965,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             # Target resolved
             ctrl, matched_label = matches[0]
-            sid = switch_id_raw or _ctrl_switch_id(ctrl) or getattr(ctrl, "switch_id", None)
+            # Use the controller-resolved id for command publish. The incoming
+            # switch_id can be an alias (e.g. channel_id) used only for matching.
+            sid = _ctrl_switch_id(ctrl) or switch_id_raw or getattr(ctrl, "switch_id", None)
 
             # Read current state; fall back to controller cache if needed
             try:
@@ -6954,12 +7122,23 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             label_lower = label_q.lower()
 
             # Find the one controller that matches
+            def _ctrl_labels(ctrl) -> list[str]:
+                try:
+                    getter = getattr(ctrl, "get_switch_names", None)
+                    if callable(getter):
+                        raw = getter() or []
+                    else:
+                        raw = getattr(ctrl, "switches", []) or []
+                    return [str(s).strip() for s in raw if str(s).strip()]
+                except Exception:
+                    return []
+
             matches = []
             for ctrl in (switch_controllers or {}).values():
-                try:
-                    ctrl_labels = [s.strip() for s in (ctrl.get_switch_names() or [])]
-                except Exception as e:
-                    printDM(f"[override_switch] skipping non-controller: {e}", location=MODULE)
+                ctrl_labels = _ctrl_labels(ctrl)
+                if not ctrl_labels:
+                    if DEBUG:
+                        printDM("[override_switch] skipping switch with no labels", location=MODULE)
                     continue
 
                 match_label = next((lbl for lbl in ctrl_labels if lbl.lower() == label_lower), None)
@@ -6980,7 +7159,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     options.append({
                         "switch_id": getattr(ctrl, "switch_id", None),
                         "location": getattr(ctrl, "location", None),
-                        "labels": list((ctrl.get_switch_names() or [])),
+                        "labels": _ctrl_labels(ctrl),
                     })
                 return JSONResponse({"error": "ambiguous_switch", "options": options}, status_code=409)
 
