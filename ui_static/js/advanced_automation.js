@@ -88,6 +88,12 @@ async function waitForSelector(root, selector, timeoutMs = 2000) {
 // ----- UI helpers (scoped to current modal) -----
 function q(root, sel){ return root ? root.querySelector(sel) : null; }
 
+function clampOneDecimal(value, fallback = 0) {
+  const n = Number.parseFloat(String(value ?? ""));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.round(n * 10) / 10;
+}
+
 function setAutomationView(modal, mode) {
   const chooser = q(modal, "#automationChooser");
   const editor = q(modal, "#automationEditorWrap");
@@ -322,20 +328,24 @@ function addCondition(modal, cond) {
 
   const valueWrap = create("div");
   const valueLab = create("label");
-  valueLab.textContent = "Threshold (0.1 steps)";
+  valueLab.textContent = "Threshold";
   const valueIn = create("input");
   valueIn.type = "number";
-  valueIn.step = "0.1";
+  valueIn.step = "1";
+  valueIn.inputMode = "decimal";
   valueIn.value = cond?.value ?? 0;
+  valueIn.addEventListener("blur", () => { valueIn.value = String(clampOneDecimal(valueIn.value, 0)); });
   valueWrap.append(valueLab, valueIn);
 
   const hystWrap = create("div");
   const hystLab = create("label");
-  hystLab.textContent = "Hysteresis (0.1 steps)";
+  hystLab.textContent = "Hysteresis";
   const hystIn = create("input");
   hystIn.type = "number";
-  hystIn.step = "0.1";
+  hystIn.step = "1";
+  hystIn.inputMode = "decimal";
   hystIn.value = cond?.hyst ?? 0;
+  hystIn.addEventListener("blur", () => { hystIn.value = String(clampOneDecimal(hystIn.value, 0)); });
   hystWrap.append(hystLab, hystIn);
 
   const rem = create("button","remove");
@@ -491,8 +501,8 @@ function serializeForm(modal){
       const metric = group.querySelector(".sensor-bottom select.metric-select")?.value || "";
       const op     = group.querySelector(".sensor-bottom select.op-select")?.value || ">";
       const nums   = [...group.querySelectorAll(".sensor-bottom input[type='number']")];
-      const value  = parseFloat(nums[0]?.value || "0");
-      const hyst   = parseFloat(nums[1]?.value || "0");
+      const value  = clampOneDecimal(nums[0]?.value || "0", 0);
+      const hyst   = clampOneDecimal(nums[1]?.value || "0", 0);
       return { type:"sensor", sensor, metric, op, value, hyst };
     }
   });
@@ -530,19 +540,63 @@ async function loadSwitchInfoInto(rootLike) {
   switchLabels = info.labels || {};
   switchChannels = info.channels || 1;
 
+  if (!Object.keys(switchLabels).length) {
+    const fromForm = {};
+    const fields = modal.querySelectorAll("input[name^='SWITCH_'][name$='_LABEL'], input[id^='SWITCH_'][id$='_LABEL']");
+    for (const el of fields) {
+      const key = (el.name || el.id || "").toUpperCase();
+      const m = key.match(/^SWITCH_(\d+)_LABEL$/);
+      if (!m) continue;
+      const idx = Number.parseInt(m[1], 10);
+      const text = String(el.value || "").trim();
+      if (Number.isFinite(idx) && idx > 0 && text) fromForm[idx] = text;
+    }
+    if (Object.keys(fromForm).length) {
+      switchLabels = fromForm;
+      switchChannels = Math.max(switchChannels || 1, ...Object.keys(fromForm).map(n => Number.parseInt(n, 10)));
+    }
+  }
+
   const sel = modal.querySelector("#actionSwitch") || document.querySelector("#actionSwitch");
   if (!sel) {
     console.warn("[AdvancedAutomation] #actionSwitch not found in DOM yet; skipping populate.");
     return;
   }
 
+  const enabledIndexSet = new Set(
+    String(modal.dataset?.channelIndices || "")
+      .split(",")
+      .map(s => Number.parseInt(String(s).trim(), 10))
+      .filter(n => Number.isFinite(n) && n > 0)
+  );
+
+  const prev = sel.value;
   sel.innerHTML = "";
-  for (let i = 1; i <= switchChannels; i++) {
-    const lab = switchLabels[i] || `CH${i}`;
+  const entries = Object.entries(switchLabels || {})
+    .map(([idx, lab]) => ({ idx: Number.parseInt(idx, 10), lab: String(lab || "").trim() }))
+    .filter(x => Number.isFinite(x.idx) && x.idx > 0 && x.lab)
+    .filter(x => !enabledIndexSet.size || enabledIndexSet.has(x.idx))
+    .sort((a, b) => a.idx - b.idx);
+
+  if (!entries.length) {
+    const opt = create("option");
+    opt.value = "";
+    opt.textContent = "No labeled channels";
+    opt.disabled = true;
+    opt.selected = true;
+    sel.appendChild(opt);
+    return;
+  }
+
+  for (const { lab } of entries) {
     const opt = create("option");
     opt.value = `${currentSwitchId}::${lab}`;
     opt.textContent = lab;
     sel.appendChild(opt);
+  }
+
+  if (prev && [...sel.options].some(o => o.value === prev)) {
+    sel.value = prev;
   }
 }
 

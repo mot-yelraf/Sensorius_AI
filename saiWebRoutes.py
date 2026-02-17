@@ -5991,19 +5991,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # 1) Collect labels from SWITCH_<n>_LABEL in the new schema.
             labels: dict[int, str] = {}
             import re
-            sw_type = str(sw.get("TYPE", "") or "").strip().lower()
-            has_en_keys = ("SWITCH_1_ENABLE_PIN" in sw) or ("SWITCH_2_ENABLE_PIN" in sw)
-
-            def _enable_value(i: int):
-                return sw.get(f"SWITCH_{i}_ENABLE_PIN", "")
-
-            def _has_install_marker(val) -> bool:
-                if val is None:
-                    return False
-                if isinstance(val, bool):
-                    return val
-                return str(val).strip() != ""
-
             for k, v in sw.items():
                 ks = str(k).strip()
                 m = re.fullmatch(r"SWITCH_(\d+)_LABEL", ks, flags=re.IGNORECASE)
@@ -6012,14 +5999,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     label_text = ("" if v is None else str(v)).strip()
                     if not label_text:
                         continue
-                    if sw_type in ("picow", "pico2w") or has_en_keys:
-                        if not _has_install_marker(_enable_value(idx)):
-                            continue
-                    else:
-                        if not str(sw.get(f"SWITCH_{idx}_PIN", "")).strip():
-                            continue
-                    if label_text:
-                        labels[idx] = label_text
+                    labels[idx] = label_text
 
             # 2) Determine channel count from CHANNELS (if present) or from the max SWITCH_<n> index
             try:
@@ -6030,10 +6010,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             if not channels:
                 channels = max(labels.keys(), default=1)
-
-            # 3) Ensure every [1..channels] has a label (fallback to CH<i> only if unnamed)
-            for i in range(1, channels + 1):
-                labels.setdefault(i, f"CH{i}")
 
             return {"switch_id": switch_id, "channels": channels, "labels": labels}
         except Exception as exc:

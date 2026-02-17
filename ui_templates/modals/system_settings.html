@@ -96,10 +96,45 @@
 }
 #setupPiModal .field-grid-advanced {
   display: grid;
-  grid-template-columns: minmax(260px, 460px);
-  gap: .75rem 1rem;
-  max-width: 460px;
+  grid-template-columns: repeat(3, minmax(220px, 1fr));
+  gap: 3rem 1rem;
+  max-width: 980px;
   margin-inline: auto;
+  align-items: start;
+}
+#setupPiModal .adv-center {
+  align-items: center;
+}
+#setupPiModal .adv-center input[type="checkbox"] {
+  width: auto;
+}
+#setupPiModal .adv-span-all {
+  grid-column: 1 / -1;
+}
+#setupPiModal .ha-enabled-wrap {
+  display: flex;
+  justify-content: center;
+  margin: .1rem 0 .8rem 0;
+}
+#setupPiModal .ha-enabled-wrap .field-stack {
+  align-items: center;
+  gap: .4rem;
+}
+#setupPiModal .ha-enabled-wrap .field-stack input[type="checkbox"] {
+  width: auto;
+}
+#setupPiModal .ha-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 340px));
+  gap: .75rem 1rem;
+  max-width: 760px;
+  margin-inline: auto;
+}
+#setupPiModal .ha-grid .field-stack {
+  align-items: flex-start;
+}
+#setupPiModal .ha-grid .field-stack label {
+  text-align: left;
 }
 #setupPiModal .field-stack {
   display: flex;
@@ -113,6 +148,17 @@
 #setupPiModal .field-stack select {
   width: 100%;
   padding: .5rem .6rem;
+  box-sizing: border-box;
+}
+#setupPiModal .ha-grid > .field-stack {
+  min-width: 0;
+}
+#setupPiModal .ha-grid .inline-actions {
+  width: 100%;
+  flex-wrap: nowrap;
+}
+#setupPiModal .ha-grid .inline-actions input {
+  min-width: 0;
 }
 #setupPiModal .adv-debug-row {
   display: inline-flex;
@@ -247,6 +293,10 @@
     grid-template-columns: 1fr;
     max-width: 100%;
   }
+  #setupPiModal .ha-grid {
+    grid-template-columns: 1fr;
+    max-width: 100%;
+  }
 }
 </style>
 
@@ -259,7 +309,7 @@
        data-ha-broker="{{ ha_broker | default('') }}"
        data-ha-port="{{ ha_port | default(1883) }}">
     <div class="system-settings-header">
-      <h2 class="system-settings-title">{{ app_name_long }} {{ app_version }} - System Settings</h2>
+      <h2 class="system-settings-title">{{ app_name_long }} {{ app_version }}</h2>
     </div>
 
     <div class="system-settings-body">
@@ -324,11 +374,14 @@
 
           <div class="settings-pane" id="pane-ha" hidden>
             <h3 class="pane-title">Home Assistant</h3>
-            <div class="field-grid-single">
+            <div class="ha-enabled-wrap">
               <div class="field-stack">
                 <label for="ha-enabled">Enabled</label>
-                <input type="checkbox" id="ha-enabled" style="width:auto;">
+                <input type="checkbox" id="ha-enabled">
               </div>
+            </div>
+
+            <div class="ha-grid">
               <div class="field-stack">
                 <label for="ha-broker">Broker</label>
                 <input type="text" id="ha-broker" placeholder="homeassistant.local">
@@ -348,7 +401,7 @@
                   <button type="button" class="button black" id="ha-pass-toggle">Show</button>
                 </div>
               </div>
-             </div>
+            </div>
 
             <div class="status-text" id="ha-status"></div>
 
@@ -426,9 +479,9 @@
           <div class="settings-pane" id="pane-advanced" hidden>
             <h3 class="pane-title">Advanced</h3>
             <div class="field-grid-advanced">
-              <div class="field-stack">
+              <div class="field-stack adv-center">
                 <label for="adv-autostart-enabled">Auto-start Sensorius on login</label>
-                <input type="checkbox" id="adv-autostart-enabled" style="width:auto;">
+                <input type="checkbox" id="adv-autostart-enabled">
               </div>
 
               <div class="field-stack">
@@ -439,7 +492,15 @@
                 </select>
               </div>
 
-              <div class="status-text" id="adv-autostart-note" style="min-height:unset;"></div>
+              <div class="field-stack">
+                <label for="adv-db-retention">Maximum Days of Data (30-180)</label>
+                <input type="number" id="adv-db-retention" min="30" max="180" step="1" value="90">
+              </div>
+
+              <div class="field-stack adv-center">
+                <label for="adv-file-log">SENSORIUS_FILE_LOG</label>
+                <input type="checkbox" id="adv-file-log">
+              </div>
 
               <div class="field-stack">
                 <label for="adv-log-level">SENSORIUS_LOG_LEVEL</label>
@@ -453,29 +514,15 @@
               </div>
 
               <div class="field-stack">
-                <label for="adv-file-log">SENSORIUS_FILE_LOG</label>
-                <input type="checkbox" id="adv-file-log" style="width:auto;">
-              </div>
-
-              <div class="field-stack">
                 <label>SENSORIUS_DEBUG_MODULES</label>
                 <div id="adv-debug-modules" style="display:flex; flex-direction:row; flex-wrap:wrap; gap:.35rem .85rem; align-items:center;"></div>
               </div>
 
-              <div class="field-stack">
-                <label for="adv-db-retention">SENSORIUS_DB_RETENTION_DAYS (30-180)</label>
-                <input type="number" id="adv-db-retention" min="30" max="180" step="1" value="90">
-              </div>
-
-              <div class="field-stack">
+              <div class="field-stack adv-span-all adv-center">
                 <button type="button" class="button red" id="btn-clear-db">Clear Database</button>
               </div>
             </div>
             <div class="status-text" id="adv-status" style="margin-top:.5rem;"></div>
-            <div class="status-text" style="min-height:unset; margin-top:.25rem;">
-              If auto-start is enabled, do not also run <code>python Sensorius.py</code> manually.
-              If you change auto-start mode, restart Sensorius once in a clean single-instance state.
-            </div>
             <div class="pane-footer">
               <button type="button" class="button black btn-back-system">Back</button>
               <button type="button" class="button blue" id="btn-advanced-save">Save</button>

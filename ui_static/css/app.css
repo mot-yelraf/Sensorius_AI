@@ -228,8 +228,29 @@ canvas{
 }
 .switch-form-grid{
   display:grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(260px, 1fr) minmax(300px, 1fr);
   gap:.75rem 1rem;
+  align-items:start;
+}
+.switch-form-col{
+  display:flex;
+  flex-direction:column;
+  gap:.65rem;
+}
+.switch-form-col-left .field-stack{
+  align-items:flex-start;
+}
+.switch-form-col-left .field-stack label{
+  text-align:left;
+}
+.switch-form-col-right{
+  align-items:stretch;
+}
+.switch-form-col-right .field-stack{
+  align-items:flex-start;
+}
+.switch-form-col-right .field-stack label{
+  text-align:left;
 }
 .field-stack{
   display:flex;
@@ -248,8 +269,7 @@ canvas{
   max-width:360px;
 }
 .switch-section-title{
-  grid-column: 1 / -1;
-  margin:.35rem 0 0 0;
+  margin:.15rem 0 .15rem 0;
   text-align:center;
 }
 .switch-form-footer{

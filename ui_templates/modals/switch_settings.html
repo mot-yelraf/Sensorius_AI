@@ -14,7 +14,7 @@
 
     <div class="modal-body">
       <h3 style="text-align:center; margin-top:0.25rem; margin-bottom:0.75rem;">
-        {{ switch_id }}
+        {{ switch_id | upper }}
       </h3>
 
       <div class="split switch-dialog-split">
@@ -33,55 +33,33 @@
               <input type="hidden" name="switch_id" value="{{ switch_id }}" />
 
               <div class="switch-form-grid">
-                <div class="field-stack">
-                  <label for="device">DEVICE</label>
-                  <input
-                    type="text"
-                    id="device"
-                    name="device"
-                    readonly
-                    style="background-color: lightgray;"
-                    value="{{ settings.Switch.DEVICE if settings.Switch and settings.Switch.DEVICE is not none else 'switch' }}"
-                  />
+                <div class="switch-form-col switch-form-col-left">
+                  <div class="field-stack">
+                    <label for="location">LOCATION</label>
+                    <input
+                      type="text"
+                      id="location"
+                      name="location"
+                      required
+                      value="{{ settings.Switch.SWITCH_LOCATION if settings.Switch and settings.Switch.SWITCH_LOCATION is not none else 'Unknown' }}"
+                    />
+                  </div>
                 </div>
 
-                <div class="field-stack">
-                  <label for="switch_id_field">SWITCH_ID</label>
-                  <input
-                    type="text"
-                    id="switch_id_field"
-                    name="switch_id_field"
-                    readonly
-                    style="background-color: lightgray;"
-                    value="{{ settings.Switch.SWITCH_ID if settings.Switch and settings.Switch.SWITCH_ID is not none else switch_id }}"
-                  />
+                <div class="switch-form-col switch-form-col-right">
+                  {% for ch in channels %}
+                  <div class="field-stack">
+                    <label for="SWITCH_{{ ch.index }}_LABEL">Channel label for switch_{{ ch.index }}</label>
+                    <input
+                      type="text"
+                      id="SWITCH_{{ ch.index }}_LABEL"
+                      name="SWITCH_{{ ch.index }}_LABEL"
+                      placeholder="Switch {{ ch.index }} label"
+                      value="{{ ch.label | default('') | e }}"
+                    />
+                  </div>
+                  {% endfor %}
                 </div>
-
-                <div class="field-stack">
-                  <label for="location">LOCATION</label>
-                  <input
-                    type="text"
-                    id="location"
-                    name="location"
-                    required
-                    value="{{ settings.Switch.SWITCH_LOCATION if settings.Switch and settings.Switch.SWITCH_LOCATION is not none else 'Unknown' }}"
-                  />
-                </div>
-
-                <p class="section-title switch-section-title">Channel Labels</p>
-
-                {% for ch in channels %}
-                <div class="field-stack">
-                  <label for="SWITCH_{{ ch.index }}">SWITCH_{{ ch.index }}</label>
-                  <input
-                    type="text"
-                    id="SWITCH_{{ ch.index }}"
-                    name="SWITCH_{{ ch.index }}"
-                    placeholder="CH{{ ch.index }} label"
-                    value="{{ ch.label | default('') | e }}"
-                  />
-                </div>
-                {% endfor %}
               </div>
 
               <div class="modal-footer switch-form-footer">
