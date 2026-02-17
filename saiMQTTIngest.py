@@ -82,22 +82,6 @@ def split_switch_id_and_pin(sw_part: str) -> tuple[str, str | None]:
     except Exception:
         return (sw_part, None)
 
-def _resolve_label_from_slug_via_db(data_logger, switch_id: str, slug: str) -> str | None:
-    """
-    Look up label by slug using switch_ids table.
-    """
-    try:
-        for row in (data_logger.get_switch_identities() or []):
-            rsid = str(row.get("switch_id", "") or "").strip().lower()
-            if rsid != str(switch_id or "").strip().lower():
-                continue
-            label = str(row.get("label", "") or "").strip()
-            if _slugify(label) == slug:
-                return label
-    except Exception:
-        pass
-    return None
-
 _current_ingest = None
 
 def set_current_ingest(inst):
@@ -201,11 +185,7 @@ class saiMQTTIngest:
         self._known_switch_ids: set[str] = set()
         self._switch_state_cache: dict[str, dict] = {}  # switch_id -> {channel: "on"/"off"}
 
-        # fast lookup for switch topic metadata
-        self.switch_topic_meta: dict[str, dict] = {}  # topic -> {"switch_id": str, "channel": str, "location": str}
-        self.switch_control_map: dict[tuple[str, str], str] = {}
         self.switch_channel_map: dict[tuple[str, str], str] = {}  # (switch_id, "SWITCH_n") -> label
-        self.state_topic_to_label: dict[str, str] = {}  # "switch/<id>/<slug>/state" -> "Label"
         self.event_topic_to_label: dict[str, str] = {}  # "switch/<id>-<pin>/event"   -> "Label"
         self.nodus_switch_topic_map: dict[str, dict] = {}  # topic -> {"switch_id","channel_id","label","kind"}
         self.nodus_switch_command_topics: dict[tuple[str, str], str] = {}  # (switch_id, channel_id) -> topic
@@ -233,7 +213,6 @@ class saiMQTTIngest:
                 f"{self.base_topic}/nodus/+/state",
                 f"{self.base_topic}/nodus/+/availability",
             })
-        self._set_base_by_label = {}   # (switch_id, norm_label) -> "switch/<id>/<slug>"
         self._pending_set: dict[tuple[str, str], float] = {}
         self._loop = None  # set in start()
         
@@ -970,59 +949,6 @@ class saiMQTTIngest:
         finally:
             self._retained_avail_probe_inflight.discard(base)
 
-    def _register_switch_topics(self, switch_id: str, switch_location: str, switch_topics_map: dict) -> bool:
-        """
-        Record topic metadata, set device_location, and subscribe to event topics.
-        Returns True if any new topic subscriptions were created.
-        """
-        if not switch_id or not isinstance(switch_topics_map, dict) or not switch_topics_map:
-            return False
-
-        self.device_type[switch_id] = "nodus"
-        self._known_switch_ids.add(switch_id)
-
-        any_new = False
-        for channel, sw_topic in switch_topics_map.items():
-            ch   = str(channel)
-            base = str(sw_topic)
-
-            # forward: topic -> meta
-            self.switch_topic_meta[base] = {
-                "switch_id": switch_id,
-                "channel": ch,
-                "location": switch_location or "Unknown",
-            }
-            # reverse: (id, channel) -> base
-            self.switch_control_map[(switch_id, ch)] = base
-
-            # store location for this base topic (this was only in the duplicate loop before)
-            self.device_location[base] = switch_location or "Unknown"
-
-            # subscribe if new
-            if base not in self.registered_topics:
-                self.registered_topics.add(base)
-                self.client.subscribe(base)
-                any_new = True
-                printDM(f"Subscribed to nodus switch topic: {base} ({switch_location})", location=MODULE)
-
-            # Also listen for label-slug state updates (no DB writes; cache only)
-            wild_state_legacy = f"nodus/{switch_id}/+/state"
-            wild_event_legacy = f"nodus/{switch_id}/+/event"
-            wild_state_new    = f"{self.base_topic}/nodus/{switch_id}/+/state"
-            wild_event_new    = f"{self.base_topic}/nodus/{switch_id}/+/event"
-
-            for w in (wild_state_legacy, wild_event_legacy, wild_state_new, wild_event_new):
-                if w not in self.registered_topics:
-                    self.registered_topics.add(w)
-                    self.client.subscribe(w)
-            if DEBUG:
-                printDM(f"Subscribed to state wildcard: {wild_state_legacy}", location=MODULE)
-                printDM(f"Subscribed to event wildcard: {wild_event_legacy}", location=MODULE)
-                printDM(f"Subscribed to state wildcard: {wild_state_new}", location=MODULE)
-                printDM(f"Subscribed to event wildcard: {wild_event_new}", location=MODULE)
-
-        return any_new
-
     def _safe_get_switch_block(self, info: dict) -> dict:
         """
         Return the Switch block from the /itaot 'info' structure.
@@ -1264,37 +1190,6 @@ class saiMQTTIngest:
             if dev_id and loc:
                 dev_locs[dev_id] = loc
         return dev_locs
-
-    def _find_base_topic(self, switch_id: str, channel_label: str) -> str | None:
-        sid = str(switch_id).strip().lower()
-        label_in = channel_label or ""
-        label_norm = _norm_label(label_in)
-
-        # 0) Preferred: discovery-time cache (label → set-base)
-        base = self._set_base_by_label.get((sid, label_norm))
-        if base:
-            return base
-
-        # 1) Existing map that used channel keys (kept for back-compat).
-        key = (str(switch_id), str(channel_label))
-        base = self.switch_control_map.get(key)
-        if base:
-            return base
-
-        # 2) Fallback: scan switch_topic_meta (but those 'channel' fields are often "SWITCH_n")
-        want_id = str(switch_id)
-        want_ch = str(channel_label).lower()
-        for topic, meta in self.switch_topic_meta.items():
-            if meta.get("switch_id") == want_id and str(meta.get("channel", "")).lower() == want_ch:
-                return topic
-
-        # 3) Label slug standard
-        slug = _slugify(label_in)
-        if slug:
-            return f"nodus/{switch_id}/{slug}"
-
-        # 4) Legacy non-slug fallback
-        return f"nodus/{switch_id}/{channel_label}"
 
     def add_client(self, hostname: str):
         """Register a new client and force an immediate probe in the discovery loop."""
@@ -1795,8 +1690,6 @@ class saiMQTTIngest:
                         command_topics=command_topics,
                         label_by_channel_id=label_by_channel,
                     )
-                    if not new and event_topics:
-                        new = self._register_switch_topics(_switch_id, _switch_location, event_topics)
                     _seed_switch_cache_from_itaot(_switch_id, sw, channels_with_ids)
                     subscribed = subscribed or new
                     itaot_valid = True
@@ -1855,8 +1748,6 @@ class saiMQTTIngest:
                     command_topics=_switch_cmd_map_flat,
                     label_by_channel_id=label_by_channel,
                 )
-                if not new and _switch_event_map_flat:
-                    new = self._register_switch_topics(_switch_id_flat, _switch_location_flat, _switch_event_map_flat)
                 _seed_switch_cache_from_itaot(_switch_id_flat, info, channels_with_ids)
                 subscribed = subscribed or new
                 itaot_valid = True
@@ -2301,8 +2192,7 @@ class saiMQTTIngest:
 
     def set_switch(self, switch_id: str, channel_label: str, new_state: bool, qos: int = 0, retain: bool = False) -> bool:
         """
-        Publish a command to a remote switch channel using '<base>/set'.
-        Payload format: {'set':'on'|'off', 'timestamp': <epoch>}
+        Publish a command to a remote switch channel using channel-id topics.
         Returns True if publish was queued with rc==0.
         """
         try:
@@ -2337,26 +2227,14 @@ class saiMQTTIngest:
                 except Exception:
                     channel_id = None
 
-            if channel_id:
-                topic = (self.nodus_switch_command_topics.get((switch_id, channel_id))
-                         or self.nodus_channel_command_topics.get(channel_id)
-                         or f"nodus/{channel_id}/set")
-            else:
-                topic = None
+            if not channel_id:
+                printDM(f"[set_switch] No channel_id for {switch_id}::{channel_label}", location=MODULE)
+                return False
 
-            if topic:
-                payload = "ON" if new_state else "OFF"
-            else:
-                base = self._find_base_topic(switch_id, channel_label)
-                if not base:
-                    printDM(f"[set_switch] No base topic for {switch_id}::{channel_label}", location=MODULE)
-                    return False
-                topic = f"{base}/set"
-                onoff = "on" if new_state else "off"
-                payload = json.dumps({
-                    "set": onoff,
-                    "timestamp": time.time(),
-                })
+            topic = (self.nodus_switch_command_topics.get((switch_id, channel_id))
+                     or self.nodus_channel_command_topics.get(channel_id)
+                     or f"nodus/{channel_id}/set")
+            payload = "ON" if new_state else "OFF"
             if DEBUG:
                 printDM(f"[set_switch] computed new_state={new_state} topic={topic}", location=MODULE)
 

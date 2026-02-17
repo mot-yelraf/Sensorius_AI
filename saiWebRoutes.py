@@ -6965,9 +6965,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             except Exception:
                 return []
 
-        def _slugify(text: str) -> str:
-            return (text or "").strip().lower().replace(" ", "_")
-
         def _looks_remote(ctrl) -> bool:
             # Heuristics that cover MQTTSwitch and your remote ids
             return (
@@ -6975,26 +6972,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 bool(getattr(getattr(ctrl, "switch", None), "switch_topics", None)) or
                 str(getattr(ctrl, "switch_id", "")).startswith("switch-")
             )
-
-        def _publish_label_set_direct(set_client, sid: str, label: str, new_state: bool) -> bool:
-            """
-            Last-resort: publish to label-slug set topic:
-                switch/<sid>/<label_slug>/set
-            Accepts {"set":"on|off"} payload which your Pico2 W handler supports.
-            """
-            try:
-                if not set_client:
-                    return False
-                label_slug = _slugify(label)
-                topic = f"switch/{sid}/{label_slug}/set"
-                payload = json.dumps({"set": "on" if new_state else "off", "timestamp": time.time()})
-                set_client.publish(topic, payload, qos=0, retain=False)
-                if DEBUG:
-                    printDM(f"[toggle_switch] fallback publish → {topic} {payload}", location=MODULE)
-                return True
-            except Exception as e:
-                printDM(f"[toggle_switch] fallback publish failed: {e}", location=MODULE)
-                return False
 
         # even if the db does not have a state value, set the state
         def _desired_toggle_from_db(data_logger, switch_id: str | None, label: str, ctrl) -> bool:
@@ -7253,8 +7230,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if not mqtt_ingest:
                     return JSONResponse({"error": "mqtt_not_ready", "detail": "ingest_not_injected"}, status_code=503)
 
-                ingest_client = getattr(mqtt_ingest, "client", None)
-                if ingest_client is None:
+                if getattr(mqtt_ingest, "client", None) is None:
                     return JSONResponse({"error": "mqtt_not_ready", "detail": "ingest_client_none"}, status_code=503)
 
                 # Primary: use ingest helper (finds correct base topic and emits {"set": "..."} JSON)
@@ -7263,10 +7239,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         ok = bool(mqtt_ingest.set_switch(sid, matched_label, new_state))
                     except Exception as e:
                         printDM(f"[toggle_switch] ingest.set_switch error: {e}", location=MODULE)
-
-                # Fallback: publish to label-slug set topic directly with ingest client
-                if not ok and sid:
-                    ok = _publish_label_set_direct(ingest_client, sid, matched_label, new_state)
 
             # ...after we've tried to set the state (ok = ctrl.set_state(...) or MQTT path)...
             if not ok:

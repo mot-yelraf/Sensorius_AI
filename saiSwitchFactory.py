@@ -7,7 +7,6 @@ Flow:
    publishes MQTT events, and enforces safety rules.
 """
 
-import json
 from saiUtils import printDM, debug_enabled
 from saiSwitchSettingsManager import SwitchSettingsManager
 
@@ -521,14 +520,13 @@ class MQTTSwitch:
                 or None
             )
 
+        if not channel_id and not topic:
+            printDM(f"[{self.switch_id}] missing channel_id for '{name}'; refusing legacy slug publish", location=MODULE)
+            return False
+
         if channel_id and not topic:
             topic = f"nodus/{channel_id}/set"
-            payload = "ON" if on else "OFF"
-        if not topic:
-            slug = name.strip().lower().replace(" ", "_")
-            topic = f"switch/{self.switch_id}/{slug}/set"
-            payload = json.dumps({"set": "on" if on else "off"})
-        elif payload is None:
+        if payload is None:
             payload = "ON" if on else "OFF"
 
         try:

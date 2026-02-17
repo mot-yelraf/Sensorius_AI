@@ -112,7 +112,11 @@ def test_ensure_switch_settings_retargets_on_confident_probe(monkeypatch):
 def test_mqtt_switch_uses_channel_id_topic_and_checks_rc():
     sw = MQTTSwitch(
         settings={
-            "Switch": {"SWITCH_ID": "switch-1", "SWITCH_1": "Fan", "SWITCH_1_ID": "S1-abc"}
+            "Switch": {
+                "SWITCH_DEVICE_ID": "switch-1",
+                "SWITCH_1_LABEL": "Fan",
+                "SWITCH_1_CHANNEL_ID": "S1-abc",
+            }
         },
         mqtt_client=_FakeMQTT(rc=0),
     )
@@ -121,21 +125,26 @@ def test_mqtt_switch_uses_channel_id_topic_and_checks_rc():
 
     sw_fail = MQTTSwitch(
         settings={
-            "Switch": {"SWITCH_ID": "switch-1", "SWITCH_1": "Fan", "SWITCH_1_ID": "S1-abc"}
+            "Switch": {
+                "SWITCH_DEVICE_ID": "switch-1",
+                "SWITCH_1_LABEL": "Fan",
+                "SWITCH_1_CHANNEL_ID": "S1-abc",
+            }
         },
         mqtt_client=_FakeMQTT(rc=2),
     )
     assert sw_fail.set_state("Fan", True) is False
 
 
-def test_mqtt_switch_falls_back_to_slug_json_set_topic():
+def test_mqtt_switch_requires_channel_id_and_does_not_fallback_to_slug_topic():
     sw = MQTTSwitch(
         settings={
-            "Switch": {"SWITCH_ID": "switch-1", "SWITCH_1": "Grow Light"}
+            "Switch": {
+                "SWITCH_DEVICE_ID": "switch-1",
+                "SWITCH_1_LABEL": "Grow Light",
+            }
         },
         mqtt_client=_FakeMQTT(rc=0),
     )
-    assert sw.set_state("Grow Light", False) is True
-    topic, payload = sw.mqtt.calls[-1]
-    assert topic == "switch/switch-1/grow_light/set"
-    assert payload == '{"set": "off"}'
+    assert sw.set_state("Grow Light", False) is False
+    assert sw.mqtt.calls == []
