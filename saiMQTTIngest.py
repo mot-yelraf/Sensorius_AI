@@ -1209,10 +1209,15 @@ class saiMQTTIngest:
                 pass
             topic = (self.nodus_switch_command_topics.get((switch_id, channel_id))
                      or self.nodus_channel_command_topics.get(channel_id)
-                     or f"switch/{switch_id}/{channel_id}/set")  # fallback
+                     or f"nodus/{channel_id}/set")  # fallback for Nodus channel-id commands
             payload = "ON" if new_state else "OFF"          # match your slug/state convention
             info = self.client.publish(topic, payload, qos=qos, retain=retain)
             rc = getattr(info, "rc", 0) if info is not None else 0
+            if DEBUG:
+                printDM(
+                    f"[set_switch_by_channel_id] publish topic={topic} payload={payload} rc={rc}",
+                    location=MODULE,
+                )
             return rc == 0
         except Exception as e:
             printDM(f"[set_switch_by_channel_id] error: {e}", location=MODULE)
@@ -1534,6 +1539,136 @@ class saiMQTTIngest:
                         return ip
             return None
 
+        def _coerce_switch_state(raw) -> bool | None:
+            if isinstance(raw, bool):
+                return raw
+            if isinstance(raw, (int, float)):
+                return bool(int(raw))
+            txt = str(raw or "").strip().lower()
+            if not txt:
+                return None
+            if txt in {"on", "1", "true", "t", "yes", "y"}:
+                return True
+            if txt in {"off", "0", "false", "f", "no", "n"}:
+                return False
+            return None
+
+        def _seed_switch_cache_from_itaot(switch_id: str, switch_blob: dict, channels_with_ids: list[tuple[str, str]]) -> None:
+            """
+            Seed initial switch state cache from /itaot metadata when available.
+            This updates only in-memory cache; no synthetic sw_events writes.
+            """
+            try:
+                if not switch_id:
+                    return
+
+                by_label: dict[str, str] = {}
+                by_channel_lc: dict[str, str] = {}
+                for lbl, ch in (channels_with_ids or []):
+                    label = str(lbl or "").strip()
+                    ch_id = str(ch or "").strip()
+                    if not label or not ch_id:
+                        continue
+                    by_label[label.lower()] = ch_id
+                    by_channel_lc[ch_id.lower()] = ch_id
+
+                switch_blk = self._safe_get_switch_block(switch_blob)
+                idx_to_channel: dict[int, str] = {}
+                if isinstance(switch_blk, dict):
+                    for idx in range(1, 33):
+                        ch_id = str(switch_blk.get(f"SWITCH_{idx}_CHANNEL_ID", "") or "").strip()
+                        if ch_id:
+                            idx_to_channel[idx] = ch_id
+                if isinstance(switch_blob, dict):
+                    for idx in range(1, 33):
+                        ch_id = str(switch_blob.get(f"SWITCH_{idx}_CHANNEL_ID", "") or "").strip()
+                        if ch_id:
+                            idx_to_channel.setdefault(idx, ch_id)
+
+                seeded: dict[str, bool] = {}
+
+                # Indexed fields (preferred): SWITCH_n_LAST_STATE / SWITCH_n_STATE
+                if isinstance(switch_blk, dict):
+                    for idx, ch_id in idx_to_channel.items():
+                        val = switch_blk.get(f"SWITCH_{idx}_LAST_STATE", None)
+                        if val is None:
+                            val = switch_blk.get(f"SWITCH_{idx}_STATE", None)
+                        st = _coerce_switch_state(val)
+                        if st is not None:
+                            seeded[ch_id] = st
+
+                # Flat top-level fields (common in Nodus single-payload /itaot):
+                # SWITCH_n_LAST_STATE / SWITCH_n_STATE alongside SWITCH_n_CHANNEL_ID.
+                if isinstance(switch_blob, dict):
+                    for idx, ch_id in idx_to_channel.items():
+                        val = switch_blob.get(f"SWITCH_{idx}_LAST_STATE", None)
+                        if val is None:
+                            val = switch_blob.get(f"SWITCH_{idx}_STATE", None)
+                        st = _coerce_switch_state(val)
+                        if st is not None:
+                            seeded[ch_id] = st
+
+                # Mapping payloads (tolerant of Nodus shape variants)
+                map_candidates: list[dict] = []
+                for key in ("state", "switch_state", "switch_states", "last_state", "last_states", "event"):
+                    obj = switch_blob.get(key) if isinstance(switch_blob, dict) else None
+                    if isinstance(obj, dict):
+                        map_candidates.append(obj)
+
+                for mp in map_candidates:
+                    for raw_key, raw_val in mp.items():
+                        st = _coerce_switch_state(raw_val)
+                        if st is None:
+                            continue
+                        k = str(raw_key or "").strip()
+                        if not k:
+                            continue
+                        kl = k.lower()
+                        target_channel = None
+
+                        if kl in by_channel_lc:
+                            target_channel = by_channel_lc[kl]
+                        elif kl in by_label:
+                            target_channel = by_label[kl]
+                        else:
+                            m = re.fullmatch(r"SWITCH_(\d+)", k, flags=re.IGNORECASE)
+                            if m:
+                                try:
+                                    idx = int(m.group(1))
+                                    target_channel = idx_to_channel.get(idx)
+                                except Exception:
+                                    target_channel = None
+                        if target_channel:
+                            seeded[target_channel] = st
+
+                # Single-value fallback for single-channel devices
+                if not seeded and len(channels_with_ids) == 1 and isinstance(switch_blob, dict):
+                    only_ch = str(channels_with_ids[0][1] or "").strip()
+                    if only_ch:
+                        for key in ("state", "switch_state", "last_state"):
+                            st = _coerce_switch_state(switch_blob.get(key))
+                            if st is not None:
+                                seeded[only_ch] = st
+                                break
+
+                if not seeded:
+                    return
+
+                cache = self._switch_state_cache.setdefault(str(switch_id), {})
+                for label, ch_id in (channels_with_ids or []):
+                    ch = str(ch_id or "").strip()
+                    if not ch or ch not in seeded:
+                        continue
+                    st_txt = "on" if seeded[ch] else "off"
+                    cache[ch] = st_txt
+                    lbl = str(label or "").strip()
+                    if lbl:
+                        cache[lbl] = st_txt
+                self._known_switch_ids.add(str(switch_id))
+            except Exception as e:
+                if DEBUG:
+                    printDM(f"[onboard] switch cache seed failed for {switch_id}: {e}", location=MODULE)
+
         try:
             ip_from_itaot = _extract_ipv4addr(info)
             if ip_from_itaot:
@@ -1662,6 +1797,7 @@ class saiMQTTIngest:
                     )
                     if not new and event_topics:
                         new = self._register_switch_topics(_switch_id, _switch_location, event_topics)
+                    _seed_switch_cache_from_itaot(_switch_id, sw, channels_with_ids)
                     subscribed = subscribed or new
                     itaot_valid = True
 
@@ -1721,6 +1857,7 @@ class saiMQTTIngest:
                 )
                 if not new and _switch_event_map_flat:
                     new = self._register_switch_topics(_switch_id_flat, _switch_location_flat, _switch_event_map_flat)
+                _seed_switch_cache_from_itaot(_switch_id_flat, info, channels_with_ids)
                 subscribed = subscribed or new
                 itaot_valid = True
         except Exception as e:
@@ -1772,6 +1909,20 @@ class saiMQTTIngest:
                 del self.discovery_failures[base]
             if peer_ids_for_host:
                 self.host_to_peer_ids[base] = peer_ids_for_host
+            # Nudge dashboard clients to re-evaluate layout immediately when
+            # discovery adds switch/sensor metadata, instead of waiting for poll.
+            if subscribed:
+                try:
+                    import saiWebRoutes as routes
+                    switch_broadcast = getattr(getattr(routes, "app", object()), "state", object()).switch_broadcast
+                    if switch_broadcast:
+                        self._schedule_coro(switch_broadcast({
+                            "type": "switch_inventory_changed",
+                            "host": base,
+                            "timestamp": get_timestamp(),
+                        }))
+                except Exception:
+                    pass
 
         # ---------- ensure settings files from itaot ----------
         try:
@@ -2242,6 +2393,7 @@ class saiMQTTIngest:
         ts_iso: str | None,
         source: str,
         sensor_lineage: str | None = None,
+        force_write: bool = False,
     ):
         """
         Persist a switch event *only if* it represents a state change relative to cache.
@@ -2262,7 +2414,7 @@ class saiMQTTIngest:
             last_state = str(last_cache.get(channel_id_str, "")).lower()  # "on"/"off"
             new_state  = "on" if is_on else "off"
 
-            if last_state == new_state:
+            if (not force_write) and last_state == new_state:
                 if DEBUG:
                     printDM(
                         f"[dedupe] {switch_id_str}::{channel_id_str} unchanged ({new_state}) — skip DB",
@@ -2402,6 +2554,54 @@ class saiMQTTIngest:
         Uses /itaot-derived maps to resolve switch_id/channel_id/label.
         """
         try:
+            def _labels_for_channel(sid: str, ch_id: str, hint: str | None = None) -> list[str]:
+                labels: list[str] = []
+                seen: set[str] = set()
+
+                def _add(val: str | None) -> None:
+                    s = str(val or "").strip()
+                    if not s or s in seen:
+                        return
+                    seen.add(s)
+                    labels.append(s)
+
+                _add(hint)
+                try:
+                    sid_l = str(sid or "").strip().lower()
+                    ch_l = str(ch_id or "").strip().lower()
+                    for row in (self.data_logger.get_switch_identities() or []):
+                        rsid = str(row.get("switch_id", "") or "").strip().lower()
+                        rch = str(row.get("channel_id", "") or "").strip().lower()
+                        rlab = str(row.get("label", "") or "").strip()
+                        if rsid == sid_l and rch == ch_l and rlab:
+                            _add(rlab)
+                except Exception:
+                    pass
+
+                try:
+                    sid_l = str(sid or "").strip().lower()
+                    ch_l = str(ch_id or "").strip().lower()
+                    for meta in (self.nodus_switch_topic_map or {}).values():
+                        msid = str(meta.get("switch_id", "") or "").strip().lower()
+                        mch = str(meta.get("channel_id", "") or "").strip().lower()
+                        mlab = str(meta.get("label", "") or "").strip()
+                        if msid == sid_l and mch == ch_l and mlab:
+                            _add(mlab)
+                except Exception:
+                    pass
+
+                return labels
+
+            def _cache_channel_state(sid: str, ch_id: str, state_on: bool, hint: str | None = None) -> list[str]:
+                cache = self._switch_state_cache.setdefault(sid, {})
+                state_txt = "on" if state_on else "off"
+                cache[ch_id] = state_txt
+                labels = _labels_for_channel(sid, ch_id, hint=hint)
+                for lbl in labels:
+                    cache[lbl] = state_txt
+                self._known_switch_ids.add(sid)
+                return labels
+
             info = self.nodus_switch_topic_map.get(topic)
             if not info:
                 return
@@ -2456,11 +2656,37 @@ class saiMQTTIngest:
                 is_on = payload_text.upper() == "ON"
 
             if kind == "state":
-                cache = self._switch_state_cache.setdefault(switch_id, {})
-                cache[channel_id] = "on" if is_on else "off"
-                if label:
-                    cache[label] = "on" if is_on else "off"
-                self._known_switch_ids.add(switch_id)
+                # Persist state transitions too; dedupe prevents retained-state spam.
+                force_write = False
+                try:
+                    label_resolved = None
+                    for row in (self.data_logger.get_switch_identities() or []):
+                        rsid = str(row.get("switch_id", "") or "").strip()
+                        rch = str(row.get("channel_id", "") or "").strip()
+                        rlab = str(row.get("label", "") or "").strip()
+                        if rsid == str(switch_id) and rch == str(channel_id) and rlab:
+                            label_resolved = rlab
+                            break
+                    if not label_resolved:
+                        label_resolved = label or str(channel_id)
+                    db_key = build_switch_key(str(channel_id), str(label_resolved))
+                    latest = self.data_logger.get_latest_switch_state(db_key)
+                    if latest is not None:
+                        latest_on = str(latest).strip().lower() == "on"
+                        force_write = (latest_on != bool(is_on))
+                except Exception:
+                    force_write = False
+
+                self._maybe_persist_switch_event(
+                    switch_id=switch_id,
+                    channel_id=channel_id,
+                    is_on=is_on,
+                    ts_iso=ts_iso,
+                    source=f"{source}-state",
+                    sensor_lineage=f"Switch_{switch_id}",
+                    force_write=force_write,
+                )
+                _cache_channel_state(switch_id, channel_id, is_on, hint=label)
             elif kind == "event":
                 self._maybe_persist_switch_event(
                     switch_id=switch_id,
@@ -2470,11 +2696,8 @@ class saiMQTTIngest:
                     source=source,
                     sensor_lineage=f"Switch_{switch_id}",
                 )
-                # keep label cache in sync after persist (persist updates channel_id cache)
-                if label:
-                    cache = self._switch_state_cache.setdefault(switch_id, {})
-                    cache[label] = "on" if is_on else "off"
-                self._known_switch_ids.add(switch_id)
+                labels = _cache_channel_state(switch_id, channel_id, is_on, hint=label)
+                ui_label = labels[0] if labels else (label or channel_id)
                 # Push live updates to the UI (label-based key for listbox match)
                 try:
                     import saiWebRoutes as routes
@@ -2482,7 +2705,7 @@ class saiMQTTIngest:
                     if switch_broadcast:
                         self._schedule_coro(switch_broadcast({
                             "type": "switch_event",
-                            "key": f"{switch_id}::{label or channel_id}",
+                            "key": f"{switch_id}::{ui_label}",
                             "state": bool(is_on),
                             "timestamp": ts_iso or get_timestamp(),
                             "source": source,
@@ -3075,7 +3298,16 @@ class saiMQTTIngest:
                                         pids = self.host_to_peer_ids.get(base, [])
                                         now_ts = time.time()
                                         recent = any((now_ts - self.last_mqtt_seen.get(pid, 0.0)) < MQTT_GRACE_S for pid in pids)
-                                        self._mark_host_status(base, "online" if recent else "pending")
+                                        # If /hayd is unavailable but MQTT data is clearly flowing,
+                                        # bootstrap onboarding from MQTT liveness and schedule /itaot.
+                                        if recent:
+                                            first_hayd_done[base] = True
+                                            onboarding_done.setdefault(base, False)
+                                            if not onboarding_done.get(base, False):
+                                                itaot_due_at.setdefault(base, time.monotonic() + 5.0)
+                                            self._mark_host_status(base, "online")
+                                        else:
+                                            self._mark_host_status(base, "pending")
                                     continue  # next host
 
                                 # 3) Post-startup steady state
@@ -3113,6 +3345,21 @@ class saiMQTTIngest:
                                     if recent:
                                         # Node is still talking via MQTT → treat as PENDING (degraded)
                                         self._mark_host_status(base, "pending")
+                                        # Also honor scheduled /itaot onboarding using MQTT liveness
+                                        # when /hayd is unavailable on the device.
+                                        due = itaot_due_at.get(base)
+                                        now_probe = time.monotonic()
+                                        if due and now_probe >= due:
+                                            if now_probe < next_itaot_slot_at:
+                                                continue
+                                            itaot_due_at.pop(base, None)
+                                            next_itaot_slot_at = now_probe + ITAOT_HOST_SPACING_S
+                                            if await _probe_itaot(client, hostname):
+                                                onboarding_done[base] = True
+                                                self._mark_host_status(base, "online")
+                                                self.device_offline_count[base] = 0
+                                            else:
+                                                self._mark_host_status(base, "pending")
                                         # do NOT increment offline counter while MQTT is still flowing
                                     else:
                                         n = self.device_offline_count.get(base, 0) + 1

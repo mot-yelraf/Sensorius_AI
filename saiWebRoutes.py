@@ -685,6 +685,52 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
                 return "Unknown"
 
+            def resolve_location_for_switch_id(sw_id: str) -> str:
+                """
+                1) live MQTT topic map/device_location
+                2) disk switch settings
+                3) in-memory switch controllers
+                4) 'Unknown'
+                """
+                sw = str(sw_id or "").strip()
+                if not sw:
+                    return "Unknown"
+
+                try:
+                    topic_map = getattr(mqtt_ingest, "nodus_switch_topic_map", {}) or {}
+                    for topic, meta in topic_map.items():
+                        if str((meta or {}).get("switch_id", "") or "").strip().lower() != sw.lower():
+                            continue
+                        loc = mqtt_ingest.device_location.get(topic)
+                        if isinstance(loc, str) and loc.strip():
+                            return loc.strip()
+                except Exception:
+                    pass
+
+                try:
+                    from saiSwitchSettingsManager import SwitchSettingsManager
+                    mgr = SwitchSettingsManager("switch_settings")
+                    loc = mgr.get_setting(sw, "Switch.SWITCH_LOCATION", None)
+                    if isinstance(loc, str) and loc.strip():
+                        return loc.strip()
+                except Exception:
+                    pass
+
+                try:
+                    sc = getattr(app.state, "switch_controllers", None)
+                    if isinstance(sc, dict):
+                        for ctrl in sc.values():
+                            sid = str(getattr(ctrl, "switch_id", "") or "").strip()
+                            if sid.lower() != sw.lower():
+                                continue
+                            loc = getattr(ctrl, "location", None)
+                            if isinstance(loc, str) and loc.strip():
+                                return loc.strip()
+                except Exception:
+                    pass
+
+                return "Unknown"
+
             sensors_from_logger = data_logger.get_available_sensors()
             mqtt_discovered = mqtt_ingest.get_known_devices()
 
@@ -926,7 +972,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         SELECT timestamp, state, source, sensor_id
                         FROM sw_events
                         WHERE switch_key = ?
-                        ORDER BY timestamp DESC
+                        ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC
                         LIMIT ?
                         """,
                         (switch_key, limit),
@@ -1093,6 +1139,24 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 sid for sid in (renderable_switch_controllers or [])
                 if sid and (not _is_channel_switch_id(sid))
             ]
+            # View-aware switch list so frontend can detect missing switch containers
+            # without false positives from other locations.
+            renderable_switches_view = list(renderable_switches)
+            try:
+                target_loc = ""
+                if isinstance(sensor_id, str) and sensor_id.startswith("loc:"):
+                    target_loc = sensor_id[4:].strip()
+                elif sensor_id and sensor_id != "All":
+                    target_loc = sensor_locations.get(sensor_id) or resolve_location_for_sid(sensor_id)
+
+                if isinstance(target_loc, str) and target_loc.strip():
+                    loc_norm = target_loc.strip().lower()
+                    renderable_switches_view = [
+                        swid for swid in renderable_switches
+                        if (resolve_location_for_switch_id(swid) or "").strip().lower() == loc_norm
+                    ]
+            except Exception:
+                renderable_switches_view = list(renderable_switches)
             
             return JSONResponse({
                 "available": available,
@@ -1105,6 +1169,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "expected_gauge_map": expected_gauge_map,
                 "available_switches": available_switches,
                 "renderable_switches": renderable_switches,
+                "renderable_switches_view": renderable_switches_view,
                 "statuses": statuses, 
             })
 
@@ -6670,6 +6735,36 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 out.append(f"{label} {ts}")
             return out  # oldest → newest
 
+        def _format_events_remote(switch_key: str, limit: int = 5) -> list[str]:
+            """
+            Remote/Nodus history should reflect broker-confirmed rows.
+            Ignore stale optimistic UI/manual rows.
+            """
+            out: list[str] = []
+            try:
+                import sqlite3
+                db_path = getattr(data_logger, "db_path", "sensorius_data.db")
+                with sqlite3.connect(db_path) as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        """
+                        SELECT timestamp, state
+                        FROM sw_events
+                        WHERE switch_key = ? COLLATE NOCASE
+                          AND LOWER(COALESCE(source, '')) LIKE 'mqtt%'
+                        ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC
+                        LIMIT ?
+                        """,
+                        (switch_key, limit),
+                    )
+                    rows = cur.fetchall()
+                for ts, st in rows:
+                    is_on = bool(st) if isinstance(st, (int, bool)) else (str(st).lower() in ("1", "true", "on"))
+                    out.append(f"{'On' if is_on else 'Off'} {ts}")
+                return out
+            except Exception:
+                return []
+
         try:
             # --- A) Local Pi switch controllers ---
             if switch_controllers and isinstance(switch_controllers, dict):
@@ -6702,6 +6797,21 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # --- B) Remote Pico2 W / Nodus switches ---
             # Prefer DB identities (authoritative mapping), then fall back to MQTT cache.
             cache = getattr(mqtt_ingest, "_switch_state_cache", {}) or {}
+            try:
+                identity_rows = list(data_logger.get_switch_identities() or [])
+            except Exception:
+                identity_rows = []
+
+            known_channel_ids_by_sid: dict[str, set[str]] = {}
+            for row in (identity_rows or []):
+                sid = str(row.get("switch_id", "")).strip()
+                sk = str(row.get("switch_key", "")).strip()
+                if not sid or "::" not in sk:
+                    continue
+                ch = sk.split("::", 1)[0].strip()
+                if not ch:
+                    continue
+                known_channel_ids_by_sid.setdefault(sid, set()).add(ch.lower())
 
             # Resolve a canonical DB key for a (switch_id, label) pair, using switch_ids table if present.
             def _db_key_for_label(sid: str, label: str) -> str:
@@ -6709,7 +6819,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     if data_logger:
                         target_sid = (sid or "").strip().lower()
                         target_label = (label or "").strip().lower()
-                        for row in (data_logger.get_switch_identities() or []):
+                        for row in (identity_rows or []):
                             rsid = str(row.get("switch_id", "")).strip().lower()
                             rlab = str(row.get("label", "")).strip().lower()
                             if rsid == target_sid and rlab == target_label:
@@ -6724,10 +6834,28 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 except Exception:
                     return f"{sid}::{label}"
 
+            def _cache_state_for(sid: str, label: str, db_key: str) -> bool | None:
+                try:
+                    ch_map = cache.get(sid, {}) or {}
+                    human_state = ch_map.get(label)
+                    if human_state is None and "::" in db_key:
+                        ch_id = db_key.split("::", 1)[0].strip()
+                        human_state = ch_map.get(ch_id)
+                    if human_state is None:
+                        return None
+                    txt = str(human_state).strip().lower()
+                    if txt == "on":
+                        return True
+                    if txt == "off":
+                        return False
+                except Exception:
+                    pass
+                return None
+
             # 1) Seed states from DB identities (authoritative mapping)
             seen_ui_keys: set[str] = set()
             try:
-                for row in (data_logger.get_switch_identities() or []):
+                for row in (identity_rows or []):
                     sid = str(row.get("switch_id", "")).strip()
                     label = str(row.get("label", "")).strip()
                     db_key = str(row.get("switch_key", "")).strip()
@@ -6735,22 +6863,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         continue
 
                     ui_key = f"{sid}::{label}"
-                    latest = data_logger.get_latest_switch_state(db_key)
-                    # If DB has nothing yet, fall back to cache (label or channel_id)
-                    if latest is None:
-                        human_state = ""
-                        try:
-                            human_state = (cache.get(sid, {}) or {}).get(label, "")
-                            if not human_state and "::" in db_key:
-                                ch_id = db_key.split("::", 1)[0]
-                                human_state = (cache.get(sid, {}) or {}).get(ch_id, "")
-                        except Exception:
-                            human_state = ""
-                        latest_bool = (str(human_state).lower() == "on")
+                    # For remote switches, prefer live ingest cache (/itaot + MQTT state/events).
+                    # DB can contain stale 'ui' rows from prior sessions.
+                    cached_bool = _cache_state_for(sid, label, db_key)
+                    if cached_bool is not None:
+                        latest_bool = cached_bool
                     else:
-                        latest_bool = (latest == "On")
+                        latest = data_logger.get_latest_switch_state(db_key)
+                        latest_bool = (latest == "On") if latest is not None else False
 
-                    events = _format_events(db_key, None, limit=5)
+                    events = _format_events_remote(db_key, limit=5) or _format_events(db_key, None, limit=5)
                     states[ui_key] = {"state": latest_bool, "time": events}
                     seen_ui_keys.add(ui_key)
                     # Also expose alias key keyed by channel_id for UI payload sync.
@@ -6771,6 +6893,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     continue
                 sensor_lineage = f"Switch_{remote_switch_id}"
                 for channel_label, human_state in ch_map.items():
+                    # Avoid phantom UI rows such as "switch-<id>::S1-<id>" when
+                    # canonical identities already map the channel ID to a label.
+                    if str(channel_label or "").strip().lower() in known_channel_ids_by_sid.get(str(remote_switch_id), set()):
+                        continue
                     # UI key is still label-based
                     ui_key = f"{remote_switch_id}::{channel_label}"
                     if ui_key in seen_ui_keys:
@@ -6779,11 +6905,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     # DB key: prefer switch_ids mapping for label → channel_id
                     db_key = _db_key_for_label(remote_switch_id, channel_label)
 
-                    # For remote MQTT switches, prefer the latest DB row regardless of sensor_id.
-                    # UI-originated rows often have empty sensor_id, which would otherwise be ignored.
-                    latest = data_logger.get_latest_switch_state(db_key)
-                    latest_bool = (latest == "On") if latest is not None else (str(human_state).lower() == "on")
-                    events = _format_events(db_key, None, limit=5)
+                    cached_bool = _cache_state_for(remote_switch_id, channel_label, db_key)
+                    if cached_bool is not None:
+                        latest_bool = cached_bool
+                    else:
+                        latest = data_logger.get_latest_switch_state(db_key)
+                        latest_bool = (latest == "On") if latest is not None else (str(human_state).lower() == "on")
+                    events = _format_events_remote(db_key, limit=5) or _format_events(db_key, None, limit=5)
                     states[ui_key] = {"state": latest_bool, "time": events}
 
             _switch_status_cache_payload = states
@@ -6808,6 +6936,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
           3) switch_name="<label>"          (legacy; ambiguous if duplicates exist)
         """
         import time
+        global _switch_status_cache_payload, _switch_status_cache_until
         _require_protected_access(request, require_csrf=True)
 
         def _norm_label(s: str | None) -> str | None:
@@ -7009,6 +7138,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         channel_id = str(switch_id_raw or "").strip()
                         resolved_sid = ""
                         resolved_db_key = ""
+                        resolved_label = label_raw or channel_id
                         for row in identity_rows:
                             r_key = str(row.get("switch_key", "") or "").strip()
                             r_sid = str(row.get("switch_id", "") or "").strip()
@@ -7024,6 +7154,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                                 continue
                             resolved_sid = r_sid or resolved_sid
                             resolved_db_key = r_key or resolved_db_key
+                            resolved_label = r_label or resolved_label
                             if resolved_sid and resolved_db_key:
                                 break
 
@@ -7061,6 +7192,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         ok = bool(mqtt_ingest.set_switch_by_channel_id(resolved_sid or "", channel_id, new_state))
                         if ok:
                             ts = time.time()
+                            # Remote fallback path: do not persist UI-originated events.
+                            # sw_events should reflect only confirmed MQTT state/event messages.
+                            # Invalidate short-lived switch status cache after a state change request.
+                            _switch_status_cache_payload = None
+                            _switch_status_cache_until = 0.0
                             return {"state": bool(new_state), "time": ts}
                 except Exception as e:
                     printDM(f"[toggle_switch] channel fallback failed: {e}", location=MODULE)
@@ -7177,23 +7313,25 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # Prefer controller’s recorded set time if available
             ts_map = getattr(ctrl, "last_set_time", {}) or {}
             ts = ts_map.get(matched_label, time.time())
-            try:
-                if sid:
-                    try:
-                        db_key = ctrl._switch_key(matched_label)
-                    except Exception:
-                        # Fallback for older controllers
-                        db_key = f"{sid}::{matched_label}"
+            # Persist UI-originated switch events only for local/direct controllers.
+            # For remote/Nodus, history should be written only from confirmed MQTT event/state ingest.
+            if not remote:
+                try:
+                    if sid:
+                        try:
+                            db_key = ctrl._switch_key(matched_label)
+                        except Exception:
+                            # Fallback for older controllers
+                            db_key = f"{sid}::{matched_label}"
 
-                    state_text = "On" if bool(new_state) else "Off"
-                    data_logger.log_switch_event(
-                        switch_key=db_key,
-                        is_on=bool(new_state),
-                        source="ui",
-                        sensor_id=f"Switch_{sid}",
-                    )
-            except Exception as e:
-                printDM(f"[toggle_switch] failed to log sw_event for {matched_label}: {e}", location=MODULE)
+                        data_logger.log_switch_event(
+                            switch_key=db_key,
+                            is_on=bool(new_state),
+                            source="ui",
+                            sensor_id=f"Switch_{sid}",
+                        )
+                except Exception as e:
+                    printDM(f"[toggle_switch] failed to log sw_event for {matched_label}: {e}", location=MODULE)
 
             # Let controller optionally record/log an event
             try:
@@ -7204,7 +7342,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 pass
 
             # Invalidate short-lived switch status cache after a state change.
-            global _switch_status_cache_payload, _switch_status_cache_until
             _switch_status_cache_payload = None
             _switch_status_cache_until = 0.0
 
