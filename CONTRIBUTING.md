@@ -56,6 +56,11 @@ Sensorius includes:
 - Database persistence
 - Sensor/switch abstraction layers
 
+Current switch abstractions include:
+
+- `SwitchController` (local GPIO relay controllers)
+- `RemoteSwitchController` (MQTT-backed Nodus/Pico controllers)
+
 When contributing:
 
 - Avoid blocking operations inside async request handlers.

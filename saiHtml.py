@@ -247,7 +247,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             sw_type = str(sw_blk.get("TYPE", "") or "").strip().lower()
             has_en_keys = ("SWITCH_1_ENABLE_PIN" in sw_blk) or ("SWITCH_2_ENABLE_PIN" in sw_blk)
             labels: list[str] = []
-            if sw_type in ("picow", "pico2w") or has_en_keys:
+            if sw_type in ("picow", "pico2w", "nodus", "remote", "mqtt") or has_en_keys:
                 for i in range(1, 9):
                     lbl = str(sw_blk.get(f"SWITCH_{i}_LABEL", "") or "").strip()
                     env = _enable_field_value(sw_blk, i)
@@ -279,7 +279,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             out: dict[str, str] = {}
             sw_type = str(sw_blk.get("TYPE", "") or "").strip().lower()
             has_en_keys = ("SWITCH_1_ENABLE_PIN" in sw_blk) or ("SWITCH_2_ENABLE_PIN" in sw_blk)
-            if sw_type in ("picow", "pico2w") or has_en_keys:
+            if sw_type in ("picow", "pico2w", "nodus", "remote", "mqtt") or has_en_keys:
                 # Pico/Nodus: channel is installed when SWITCH_n_ENABLE_PIN is non-empty.
                 for i in range(1, 9):
                     lbl = str(sw_blk.get(f"SWITCH_{i}_LABEL", "") or "").strip()
@@ -398,14 +398,34 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             switches_by_loc[loc_key].append(presenter)
         except Exception:
             pass
-            
-        if DEBUG:
-            try:
-                bucket_names = list(switches_by_loc.keys())
-                printDM(f"sw_by_loc buckets={bucket_names} total_items={sum(len(v) for v in switches_by_loc.values())}",
-                        location=f"{MODULE}.render_dashboard")
-            except Exception:
-                pass
+    
+    def _db_label_map_for_switch(sw_id: str) -> dict[str, str]:
+        out: dict[str, str] = {}
+        try:
+            sid_l = str(sw_id or "").strip().lower()
+            if not sid_l:
+                return out
+            for row in (db_switch_rows or []):
+                rsid = str(row.get("switch_id", "") or "").strip().lower()
+                if rsid != sid_l:
+                    continue
+                lbl = str(row.get("label", "") or "").strip()
+                cid = str(row.get("channel_id", "") or "").strip()
+                if lbl and cid:
+                    out[lbl] = cid
+        except Exception:
+            return out
+        return out
+
+    if DEBUG:
+        try:
+            bucket_names = list(switches_by_loc.keys())
+            printDM(
+                f"sw_by_loc buckets={bucket_names} total_items={sum(len(v) for v in switches_by_loc.values())}",
+                location=f"{MODULE}.render_dashboard",
+            )
+        except Exception:
+            pass
 
     GAUGE_SIZES = {
         "Small": {
@@ -805,7 +825,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 sw_type = str(sw_blk.get("TYPE", "") or "").strip().lower()
                 has_en_keys = ("SWITCH_1_ENABLE_PIN" in sw_blk) or ("SWITCH_2_ENABLE_PIN" in sw_blk)
 
-                if sw_type in ("picow", "pico2w") or has_en_keys:
+                if sw_type in ("picow", "pico2w", "nodus", "remote", "mqtt") or has_en_keys:
                     # Pico2 W: *_ENABLE_PIN indicates channel installed
                     pairs = [("SWITCH_1_LABEL", 1), ("SWITCH_2_LABEL", 2)]
                     tmp = []
@@ -837,6 +857,34 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             # Final fallback: whatever the controller reported (may be stale)
             if not render_labels:
                 render_labels = list(getattr(switch_ctrl, "switches", []))
+            # If the controller only reports generic relay placeholders, prefer
+            # discovery/DB-derived labels for this switch_id.
+            try:
+                is_generic_only = bool(render_labels) and all(
+                    re.match(r"(?i)^relay\s+\d+$", str(lbl or "").strip()) for lbl in render_labels
+                )
+            except Exception:
+                is_generic_only = False
+            if (not render_labels) or is_generic_only:
+                try:
+                    discovered_map = dict(discovered_switches.get(sw_id, {}) or {})
+                    db_map = _db_label_map_for_switch(sw_id)
+                    enabled_map = _channel_map_from_switch_settings(sw_id)
+                    candidate_map: dict[str, str] = {}
+                    if discovered_map:
+                        candidate_map.update(discovered_map)
+                    for lbl, cid in db_map.items():
+                        candidate_map.setdefault(lbl, cid)
+                    if enabled_map:
+                        enabled_labels = set(enabled_map.keys())
+                        if candidate_map:
+                            candidate_map = {lbl: cid for lbl, cid in candidate_map.items() if lbl in enabled_labels}
+                        if not candidate_map:
+                            candidate_map = dict(enabled_map)
+                    if candidate_map:
+                        render_labels = list(candidate_map.keys())
+                except Exception:
+                    pass
 
             # ----------------------------------------------------------------------
             yield "<div class='switch-metric-container'>"

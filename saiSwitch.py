@@ -25,6 +25,27 @@ except Exception:
 
 MODULE = "saiSwitch"
 DEBUG = debug_enabled(MODULE)
+REMOTE_SWITCH_TYPES = {"picow", "pico2w", "nodus", "remote", "mqtt"}
+
+
+def _switch_type_from_settings(switch_settings) -> str:
+    try:
+        if hasattr(switch_settings, "get_setting"):
+            return str(
+                switch_settings.get_setting("Switch", "TYPE", "")
+                or ""
+            ).strip().lower()
+    except Exception:
+        pass
+    try:
+        sw = (switch_settings or {}).get("Switch", {}) or {}
+        return str(sw.get("TYPE", "") or "").strip().lower()
+    except Exception:
+        return ""
+
+
+def is_remote_switch_settings(switch_settings) -> bool:
+    return _switch_type_from_settings(switch_settings) in REMOTE_SWITCH_TYPES
 
 class SwitchController:
     def __init__(self, switch_settings=None, supervisor=None, sensor=None):
@@ -74,7 +95,7 @@ class SwitchController:
         # If this is a Pi GPIO switch, ensure settings match detected hardware/template
         try:
             sw_type = str(sw.get("TYPE", "pi")).strip().lower()
-            if sw_type not in ("picow", "pico2w"):
+            if sw_type not in REMOTE_SWITCH_TYPES:
                 from saiSwitchFactory import ensure_switch_settings_for_host
                 refreshed = ensure_switch_settings_for_host(self.switch_id, self.location)
                 if isinstance(self.settings, dict):
@@ -1161,3 +1182,65 @@ class SwitchController:
 
             await asyncio.sleep(interval + random.uniform(-0.8, 0.8))
             await asyncio.sleep(0)  # REPL hook
+
+
+class RemoteSwitchController(SwitchController):
+    """MQTT-backed switch controller for remote Nodus/Pico devices."""
+
+    def __init__(self, switch_settings=None, supervisor=None, sensor=None, mqtt_ingest=None):
+        self.is_remote = True
+        self.mqtt_ingest = mqtt_ingest
+        super().__init__(switch_settings=switch_settings, supervisor=supervisor, sensor=sensor)
+
+    def _refresh_state_from_ingest(self) -> None:
+        try:
+            ing = self.mqtt_ingest
+            if ing is None:
+                from saiMQTTIngest import get_current_ingest
+                ing = get_current_ingest()
+            if ing is None:
+                return
+
+            sid = str(getattr(self, "switch_id", "") or "").strip()
+            if not sid:
+                return
+
+            ch_map = (getattr(ing, "_switch_state_cache", {}) or {}).get(sid, {}) or {}
+            if not isinstance(ch_map, dict) or not ch_map:
+                return
+
+            for label in (self.get_switch_names() or []):
+                channel_id = str((self.channel_id_for_label or {}).get(label, "") or "").strip()
+                raw = None
+                if channel_id:
+                    raw = ch_map.get(channel_id)
+                    if raw is None:
+                        raw = ch_map.get(channel_id.lower())
+                if raw is None:
+                    raw = ch_map.get(label)
+                if raw is None:
+                    raw = ch_map.get(str(label).lower())
+                if raw is None:
+                    continue
+                self.last_state[label] = str(raw).strip().lower() in ("on", "true", "1")
+        except Exception:
+            return
+
+    def get_state(self, name):
+        self._refresh_state_from_ingest()
+        return super().get_state(name)
+
+
+def build_switch_controller(*, switch_settings=None, supervisor=None, sensor=None, mqtt_ingest=None):
+    if is_remote_switch_settings(switch_settings):
+        return RemoteSwitchController(
+            switch_settings=switch_settings,
+            supervisor=supervisor,
+            sensor=sensor,
+            mqtt_ingest=mqtt_ingest,
+        )
+    return SwitchController(
+        switch_settings=switch_settings,
+        supervisor=supervisor,
+        sensor=sensor,
+    )

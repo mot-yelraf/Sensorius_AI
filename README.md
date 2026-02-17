@@ -65,6 +65,7 @@ Default UI URL: `http://127.0.0.1:8000`
 
 - Setup: `docs/setup.md`
 - Configuration and `.env`: `docs/configuration.md`
+- Architecture: `docs/architecture.md`
 - Sensors and metrics: `docs/sensors.md`
 - Hardware and GPIO mapping: `docs/hardware.md`
 - Switch automations: `docs/automations.md`

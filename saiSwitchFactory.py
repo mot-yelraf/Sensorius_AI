@@ -548,7 +548,7 @@ class MQTTSwitch:
 def create_switch(settings=None, mqtt_client=None):
     sw = (settings or {}).get("Switch", {}) or {}
     typ = str(sw.get("TYPE", "pi")).strip().lower()
-    if typ in ("picow", "pico2w"):
+    if typ in ("picow", "pico2w", "nodus", "remote", "mqtt"):
         return MQTTSwitch(settings=settings, mqtt_client=mqtt_client)
     # default: Pi GPIO
     return LocalGPIOSwitch(settings=settings)

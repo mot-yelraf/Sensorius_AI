@@ -26,7 +26,12 @@ if "paho" not in sys.modules:
     sys.modules["paho.mqtt.client"] = mqtt_client_mod
 
 import saiSwitch
-from saiSwitch import SwitchController
+from saiSwitch import (
+    RemoteSwitchController,
+    SwitchController,
+    build_switch_controller,
+    is_remote_switch_settings,
+)
 from saiUtils import SettingsWrapper
 
 
@@ -223,3 +228,41 @@ def test_init_applies_refreshed_settings_for_settings_wrapper(monkeypatch: pytes
     assert ctrl.settings.get_setting("Switch", "SWITCH_1") == "Fan"
     assert seen_settings
     assert seen_settings[0].get_setting("Switch", "SWITCH_1") == "Fan"
+
+
+def test_is_remote_switch_settings():
+    assert is_remote_switch_settings({"Switch": {"TYPE": "pico2w"}}) is True
+    assert is_remote_switch_settings({"Switch": {"TYPE": "nodus"}}) is True
+    assert is_remote_switch_settings({"Switch": {"TYPE": "pi"}}) is False
+
+
+def test_build_switch_controller_selects_remote(monkeypatch: pytest.MonkeyPatch):
+    class FakeRemote:
+        def __init__(self, **kwargs):
+            self.kind = "remote"
+            self.kwargs = kwargs
+
+    class FakeLocal:
+        def __init__(self, **kwargs):
+            self.kind = "local"
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(saiSwitch, "RemoteSwitchController", FakeRemote)
+    monkeypatch.setattr(saiSwitch, "SwitchController", FakeLocal)
+
+    remote = build_switch_controller(switch_settings={"Switch": {"TYPE": "nodus"}}, supervisor=None, sensor=None)
+    local = build_switch_controller(switch_settings={"Switch": {"TYPE": "pi"}}, supervisor=None, sensor=None)
+
+    assert remote.kind == "remote"
+    assert local.kind == "local"
+
+
+def test_remote_switch_controller_refreshes_state_from_ingest_cache():
+    ctrl = RemoteSwitchController.__new__(RemoteSwitchController)
+    ctrl.switch_id = "switch-1"
+    ctrl.channel_id_for_label = {"Fan": "S1-abc"}
+    ctrl.last_state = {"Fan": False}
+    ctrl.mqtt_ingest = types.SimpleNamespace(_switch_state_cache={"switch-1": {"S1-abc": "ON"}})
+    ctrl.get_switch_names = lambda: ["Fan"]
+
+    assert RemoteSwitchController.get_state(ctrl, "Fan") is True

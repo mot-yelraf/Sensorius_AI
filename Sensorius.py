@@ -133,16 +133,16 @@ async def build_sensor_controllers(sensor_ids, supervisor, gc_mgr, data_logger):
 
 async def build_switch_controllers(sensors, supervisor):
     switch_controllers = {}
-    if not detect_relay_board():
-        return switch_controllers
 
     from saiSwitchSettingsManager import SwitchSettingsManager
-    from saiSwitch import SwitchController
+    from saiSwitch import build_switch_controller, is_remote_switch_settings
 
-    # create switch.toml if needed
+    # Materialize local host switch settings only when local relay hardware is present.
     switch_mgr = SwitchSettingsManager(base_dir="switch_settings")
-    device_id = saiSettings().device_id  # this class already resolves hostname
-    switch_mgr.ensure_host_switch(device_id, template_id="factory", switch_loc="Unknown")
+    local_relay_present = bool(detect_relay_board())
+    if local_relay_present:
+        device_id = saiSettings().device_id  # this class already resolves hostname
+        switch_mgr.ensure_host_switch(device_id, template_id="factory", switch_loc="Unknown")
 
     switch_ids = switch_mgr.list_switches()
     if DEBUG:
@@ -153,22 +153,27 @@ async def build_switch_controllers(sensors, supervisor):
 
     for sw_id in switch_ids:
         sw_config = SettingsWrapper(switch_mgr.load(sw_id))
-        switch_id = sw_config.get_setting("Switch", "SWITCH_DEVICE_ID", "").lower()
+        switch_id = (sw_config.get_setting("Switch", "SWITCH_DEVICE_ID", "") or sw_id).strip().lower()
         sw_location = sw_config.get_setting("Switch", "SWITCH_LOCATION", "").lower()
+        sw_type = str(sw_config.get_setting("Switch", "TYPE", "") or "").strip().lower()
 
         match_sensor = next((s for s in sensors if s.location.lower() == sw_location), None)
         if DEBUG:
-            printDM(f"sw_id: {switch_id}, location: {sw_location}, matched: {match_sensor}", location=f"{MODULE}:build_switch")
+            printDM(
+                f"sw_id: {switch_id}, type: {sw_type or 'pi'}, location: {sw_location}, matched: {match_sensor}",
+                location=f"{MODULE}:build_switch",
+            )
 
-        switch_ctrl_temp = SwitchController(
+        switch_ctrl_temp = build_switch_controller(
             switch_settings=sw_config,
             supervisor=supervisor,
-            sensor=match_sensor
+            sensor=match_sensor,
         )
         if switch_ctrl_temp.is_present:
-            switch_controllers[sw_location] = switch_ctrl_temp
+            switch_controllers[switch_id] = switch_ctrl_temp
             if DEBUG:
-                printDM(f"Build Switch Initialized: {switch_id}", location=f"{MODULE}:bswc")
+                kind = "remote" if is_remote_switch_settings(sw_config) else "local"
+                printDM(f"Build Switch Initialized: {switch_id} ({kind})", location=f"{MODULE}:bswc")
         else:
             printDM(f"No relay hardware detected for {switch_id} — skipping", location=f"{MODULE}:bswc")
 

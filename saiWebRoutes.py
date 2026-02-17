@@ -88,6 +88,7 @@ statter = saiStats()
 _calibration_progress_cache: dict[str, dict[str, object]] = {}
 _switch_status_cache_payload: dict[str, dict] | None = None
 _switch_status_cache_until: float = 0.0
+_dynamic_switch_monitor_tasks: dict[str, asyncio.Task] = {}
 _SWITCH_STATUS_CACHE_TTL_SEC: float = 1.5
 _cdp_debug_last_log: float = 0.0
 _CDP_DEBUG_MIN_INTERVAL_SEC: float = 5.0
@@ -6575,6 +6576,65 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         sc._rules_cache["mtime"] = None
             except Exception:
                 pass
+
+            # Ensure a monitor exists for this switch_id even when it was discovered
+            # after startup and no supervised controller loop was created.
+            try:
+                created_ctrl = None
+                sc = globals().get("switch_controllers")
+                if not isinstance(sc, dict):
+                    sc = {}
+                    globals()["switch_controllers"] = sc
+
+                found_ctrl = None
+                for ctrl in sc.values():
+                    if str(getattr(ctrl, "switch_id", "") or "").strip().lower() == str(switch_id).strip().lower():
+                        found_ctrl = ctrl
+                        break
+
+                if not found_ctrl:
+                    sw_mgr = SwitchSettingsManager("switch_settings")
+                    sw_doc = sw_mgr.load(switch_id) or {}
+                    if isinstance(sw_doc, dict) and (sw_doc.get("Switch") or {}):
+                        from saiSwitch import build_switch_controller
+                        sw_loc = str((sw_doc.get("Switch") or {}).get("SWITCH_LOCATION", "") or "").strip().lower()
+                        sensor_match = None
+                        sm = globals().get("sensor_map") or []
+                        candidates = sm.values() if isinstance(sm, dict) else sm
+                        for s in (candidates or []):
+                            try:
+                                if str(getattr(s, "location", "") or "").strip().lower() == sw_loc:
+                                    sensor_match = s
+                                    break
+                            except Exception:
+                                continue
+
+                        ctrl = build_switch_controller(
+                            switch_settings=sw_doc,
+                            supervisor=None,
+                            sensor=sensor_match,
+                        )
+                        if bool(getattr(ctrl, "is_present", False)):
+                            sc[str(switch_id)] = ctrl
+                            try:
+                                request.app.state.switch_controllers = sc
+                            except Exception:
+                                pass
+                            found_ctrl = ctrl
+                            created_ctrl = ctrl
+
+                if created_ctrl is not None:
+                    task_name = f"{switch_id} Controladora Monitor (dynamic)"
+                    existing_task = _dynamic_switch_monitor_tasks.get(str(switch_id))
+                    if existing_task is None or existing_task.done():
+                        _dynamic_switch_monitor_tasks[str(switch_id)] = asyncio.create_task(
+                            created_ctrl.run_controladora_monitor(created_ctrl.sensor),
+                            name=task_name,
+                        )
+                        printDM(f"[{MODULE}] started dynamic switch monitor for {switch_id}", location=MODULE)
+            except Exception as _ensure_exc:
+                if DEBUG:
+                    printDM(f"[{MODULE}] dynamic monitor ensure failed for {switch_id}: {_ensure_exc}", location=MODULE)
 
             # If enabled, ensure override_script is cleared for targeted channels.
             try:
