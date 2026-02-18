@@ -156,6 +156,7 @@ function addCondition(modal, cond) {
   typeSel.innerHTML = `
     <option value="sensor">sensor</option>
     <option value="time">time of day</option>
+    <option value="astral">astral</option>
     <option value="timer">timer</option>
     <option value="or">or</option>`;
   typeSel.value = initialType;
@@ -220,6 +221,30 @@ function addCondition(modal, cond) {
     dowBox.appendChild(cbLabel);
   });
   dowWrap.append(dowLab, dowBox);
+
+  // Astral controls
+  const astralEventWrap = create("div");
+  const astralEventLab = create("label");
+  astralEventLab.textContent = "Event";
+  const astralEventSel = create("select");
+  astralEventSel.classList.add("astral-event");
+  astralEventSel.innerHTML = `
+    <option value="sunrise">sunrise</option>
+    <option value="sunset">sunset</option>`;
+  astralEventSel.value = (cond?.astral_event || cond?.event || "sunrise");
+  astralEventWrap.append(astralEventLab, astralEventSel);
+
+  const astralOffsetWrap = create("div");
+  const astralOffsetLab = create("label");
+  astralOffsetLab.textContent = "Offset (minutes)";
+  const astralOffsetIn = create("input");
+  astralOffsetIn.type = "number";
+  astralOffsetIn.min = "-120";
+  astralOffsetIn.max = "120";
+  astralOffsetIn.step = "1";
+  astralOffsetIn.classList.add("astral-offset");
+  astralOffsetIn.value = cond?.offset_min ?? cond?.offset_minutes ?? 0;
+  astralOffsetWrap.append(astralOffsetLab, astralOffsetIn);
 
   // Timer controls
   const timerDurWrap = create("div");
@@ -377,6 +402,23 @@ function renderAsTime() {
   group.append(row1, row2);
 }
 
+  function renderAsAstral() {
+    group.innerHTML = "";
+
+    const row = create("div", "cond astral");
+    row.style.display = "flex";
+    row.style.flexWrap = "wrap";
+    row.style.gap = "0.5rem";
+    row.append(typeWrap, astralEventWrap, astralOffsetWrap, rem);
+
+    const row2 = create("div", "cond astral-days");
+    row2.style.display = "block";
+    row2.style.marginTop = "0.25rem";
+    row2.append(dowWrap);
+
+    group.append(row, row2);
+  }
+
   function renderAsTimer(){
     group.innerHTML = "";
 
@@ -407,17 +449,19 @@ function renderAsTime() {
     group.appendChild(row);
   }
 
-  if (initialType === "time")        renderAsTime();
-  else if (initialType === "timer")  renderAsTimer();
-  else if (initialType === "or")     renderAsOr();
-  else                               renderAsSensor();
+  if (initialType === "time")         renderAsTime();
+  else if (initialType === "astral")  renderAsAstral();
+  else if (initialType === "timer")   renderAsTimer();
+  else if (initialType === "or")      renderAsOr();
+  else                                renderAsSensor();
 
   sensorSel.addEventListener("change", refreshMetricOptions);
   typeSel.addEventListener("change", () => {
-    if (typeSel.value === "time")        renderAsTime();
-    else if (typeSel.value === "timer")  renderAsTimer();
-    else if (typeSel.value === "or")     renderAsOr();
-    else                                 renderAsSensor();
+    if (typeSel.value === "time")         renderAsTime();
+    else if (typeSel.value === "astral")  renderAsAstral();
+    else if (typeSel.value === "timer")   renderAsTimer();
+    else if (typeSel.value === "or")      renderAsOr();
+    else                                  renderAsSensor();
   });
 
   container.appendChild(group);
@@ -482,6 +526,22 @@ function serializeForm(modal){
         .filter(n => Number.isFinite(n) && n >= 0 && n <= 6);
 
       return { type:"time", start, end, days };
+    } else if (typeVal === "astral") {
+      const eventSel = group.querySelector(".astral select.astral-event");
+      const offsetIn = group.querySelector(".astral input.astral-offset");
+      const event = eventSel?.value === "sunset" ? "sunset" : "sunrise";
+
+      let offsetMin = parseInt(offsetIn?.value || "0", 10);
+      if (!Number.isFinite(offsetMin)) offsetMin = 0;
+      offsetMin = Math.max(-120, Math.min(120, offsetMin));
+
+      const dayChecks = group.querySelectorAll(".dow-checkbox");
+      const days = Array.from(dayChecks)
+        .filter(cb => cb.checked)
+        .map(cb => parseInt(cb.dataset.day || "0", 10))
+        .filter(n => Number.isFinite(n) && n >= 0 && n <= 6);
+
+      return { type:"astral", astral_event: event, offset_min: offsetMin, days };
     } else if (typeVal === "timer") {
       const durInput = group.querySelector(".timer-duration");
       const freqSel  = group.querySelector(".timer-frequency");

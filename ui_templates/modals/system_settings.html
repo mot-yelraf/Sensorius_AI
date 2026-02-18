@@ -346,6 +346,34 @@
                 </div>
               </div>
 
+              <div class="subhead">Astral</div>
+              <div class="field-grid-stack">
+                <div class="field-stack">
+                  <label for="astral_lat">Latitude</label>
+                  <input type="text" id="astral_lat" value="{{ astral_lat | default('--') }}" readonly>
+                </div>
+                <div class="field-stack">
+                  <label for="astral_lon">Longitude</label>
+                  <input type="text" id="astral_lon" value="{{ astral_lon | default('--') }}" readonly>
+                </div>
+                <div class="field-stack">
+                  <label for="astral_sunrise">Sunrise</label>
+                  <input type="text" id="astral_sunrise" value="{{ astral_sunrise | default('--') }}" readonly>
+                </div>
+                <div class="field-stack">
+                  <label for="astral_sunset">Sunset</label>
+                  <input type="text" id="astral_sunset" value="{{ astral_sunset | default('--') }}" readonly>
+                </div>
+                <div class="field-stack">
+                  <label for="astral_daylight">Daylight Hours</label>
+                  <input type="text" id="astral_daylight" value="{{ astral_daylight | default('--') }}" readonly>
+                </div>
+                <div class="field-stack">
+                  <label for="astral_noon">Sun Peak Time</label>
+                  <input type="text" id="astral_noon" value="{{ astral_noon | default('--') }}" readonly>
+                </div>
+              </div>
+
               <div class="subhead">Display</div>
               <div class="field-grid-stack">
                 <div class="field-stack">

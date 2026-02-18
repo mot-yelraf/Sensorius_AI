@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import types
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -161,6 +162,66 @@ def test_advanced_delay_is_non_blocking(monkeypatch: pytest.MonkeyPatch):
 
     for key in list(ctrl._advanced_delay_due.keys()):
         ctrl._advanced_delay_due[key] = time.monotonic() - 0.1
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    assert calls == [("Fan", True)]
+
+
+def test_eval_astral_condition_threshold_logic(monkeypatch: pytest.MonkeyPatch):
+    class FakeLocationInfo:
+        def __init__(self, **_kwargs):
+            self.observer = object()
+
+    ctrl = _make_controller()
+    ctrl._resolve_astral_location = lambda: {"lat": 40.0, "lon": -105.0, "tz": "UTC"}
+
+    monkeypatch.setattr(saiSwitch, "LocationInfo", FakeLocationInfo)
+
+    def _sun_past(_observer, date=None, tzinfo=None):
+        now = datetime.now(tzinfo)
+        return {
+            "sunrise": now - timedelta(minutes=5),
+            "sunset": now + timedelta(hours=6),
+        }
+
+    monkeypatch.setattr(saiSwitch, "_astral_sun", _sun_past)
+    assert SwitchController._eval_astral_condition(
+        ctrl,
+        {"type": "astral", "astral_event": "sunrise", "offset_min": 0},
+    ) is True
+
+    def _sun_future(_observer, date=None, tzinfo=None):
+        now = datetime.now(tzinfo)
+        return {
+            "sunrise": now + timedelta(hours=2),
+            "sunset": now + timedelta(hours=6),
+        }
+
+    monkeypatch.setattr(saiSwitch, "_astral_sun", _sun_future)
+    assert SwitchController._eval_astral_condition(
+        ctrl,
+        {"type": "astral", "astral_event": "sunrise", "offset_min": 0},
+    ) is False
+
+
+def test_advanced_rule_supports_astral_condition(monkeypatch: pytest.MonkeyPatch):
+    ctrl = _make_controller()
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "rule1": {
+                "enabled": True,
+                "script_json": {
+                    "enabled": True,
+                    "conditions": [{"type": "astral", "astral_event": "sunset", "offset_min": 10}],
+                    "actions": [{"switch_key": "sw1::Fan", "set": True, "delay_s": 0}],
+                },
+            }
+        }
+    }
+    monkeypatch.setattr(ctrl, "_eval_astral_condition", lambda _cond: True)
+    ctrl.get_state = lambda _label: False
+    calls = []
+    ctrl.set_state = lambda label, desired: calls.append((label, desired))
 
     SwitchController._evaluate_and_apply_advanced(ctrl, {})
     assert calls == [("Fan", True)]

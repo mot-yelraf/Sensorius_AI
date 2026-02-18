@@ -8,7 +8,13 @@ Switch automations support:
 - Sensor + metric threshold conditions (for example: `Temperature_F > 82`)
 - Threshold hysteresis and minimum interval timing to reduce relay chatter
 - Time-of-day windows (`start` / `end`) and day-based scheduling (`days` in Advanced rules)
+- Astral conditions (`astral_event` + `offset_min`) for sunrise/sunset schedules
 - Timer-based schedules (`duration_min`, `freq_hours`) for periodic ON windows
+
+Astral conditions require `astral` and use location from:
+
+- Manual settings in `[Astral]` (`LATITUDE`, `LONGITUDE`, `TIMEZONE`), or
+- IP geolocation fallback when `[Astral].AUTO_IP = true` (internet required).
 
 ## Controller Model
 

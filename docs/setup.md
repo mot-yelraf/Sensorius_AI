@@ -121,9 +121,14 @@ Notes:
 
 - Uses `apt` to install precompiled system packages (`python3`, `mosquitto`, etc.).
 - Installs Python dependencies from `deploy_scripts/setup_reqs_linux.txt`.
+- Requirements now include `astral` for sunrise/sunset automation conditions.
 - Defaults to wheel-only Python installs (`PIP_ONLY_BINARY=1`) to avoid source builds.
 - Set `INSTALL_PYWEBVIEW=0` to skip pywebview and force headless mode.
 - Access the UI in a browser at `http://127.0.0.1:8000` (or `http://<host-ip>:8000` from another device).
+
+## Astral Automation Note
+
+If you use Astral automation conditions, Sensorius can auto-resolve location from IP (internet required) when `[Astral].AUTO_IP = true` and manual coordinates are not set.
 
 ## Application Startup
 

@@ -12,11 +12,23 @@ import time
 import random
 import asyncio
 import board
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from saiUtils import printDM, debug_enabled, get_timestamp
 from saiSwitchFactory import create_switch
 from saiMQTTClient import get_mqtt_client
 from saiDataLogger import saiDataLogger
+try:
+    import requests
+except Exception:
+    requests = None
+try:
+    from astral import LocationInfo
+    from astral.sun import sun as _astral_sun
+except Exception:
+    LocationInfo = None
+    _astral_sun = None
 try:
     # canonical helper that knows how to combine switch_id + label + channel_id
     from saiDataLogger import build_switch_key as _build_switch_key
@@ -62,6 +74,7 @@ class SwitchController:
         self.min_on_time = 5
         self.min_off_time = 5
         self._advanced_delay_due = {}
+        self._astral_location_cache = {"value": None, "expires_at": 0.0}
 
         # Settings accessor that works with either wrapper or dict
         try:
@@ -294,6 +307,139 @@ class SwitchController:
         e = (end or "24:00")
         # handle wrap-around (e.g., 22:00–06:00)
         return (s <= now_str < e) if s <= e else (now_str >= s) or (now_str < e)
+
+    def _ip_geolocate(self, timeout_s: float = 2.5) -> dict | None:
+        """
+        Resolve coarse location via IP geolocation (internet required).
+        """
+        if requests is None:
+            return None
+        try:
+            resp = requests.get("https://ipapi.co/json/", timeout=timeout_s)
+            if resp.status_code != 200:
+                return None
+            payload = resp.json() or {}
+            lat = payload.get("latitude")
+            lon = payload.get("longitude")
+            tz_name = str(payload.get("timezone", "") or "").strip()
+            try:
+                lat_f = float(lat)
+                lon_f = float(lon)
+            except Exception:
+                return None
+            if not (-90.0 <= lat_f <= 90.0 and -180.0 <= lon_f <= 180.0):
+                return None
+            if not tz_name:
+                return None
+            return {"lat": lat_f, "lon": lon_f, "tz": tz_name}
+        except Exception:
+            return None
+
+    def _resolve_astral_location(self) -> dict | None:
+        """
+        Resolve location for astral calculations.
+        Priority:
+          1) Manual settings [Astral].LATITUDE/LONGITUDE/TIMEZONE
+          2) IP geolocation when [Astral].AUTO_IP is true
+          3) None (astral condition evaluates False)
+        """
+        now = time.monotonic()
+        cache = getattr(self, "_astral_location_cache", None) or {}
+        if now < float(cache.get("expires_at", 0.0) or 0.0):
+            return cache.get("value")
+
+        resolved = None
+        try:
+            from saiSettings import saiSettings
+
+            settings = saiSettings(apply_live=False)
+            astral_cfg = settings.get_section("Astral") or {}
+            time_tz = str(settings.get_setting("Time", "TZ", "") or "").strip()
+
+            raw_lat = astral_cfg.get("LATITUDE", "")
+            raw_lon = astral_cfg.get("LONGITUDE", "")
+            raw_tz = str(astral_cfg.get("TIMEZONE", "") or "").strip() or time_tz
+
+            try:
+                lat = float(raw_lat)
+                lon = float(raw_lon)
+            except Exception:
+                lat = None
+                lon = None
+
+            if lat is not None and lon is not None and -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0 and raw_tz:
+                resolved = {"lat": lat, "lon": lon, "tz": raw_tz}
+            else:
+                auto_ip_raw = astral_cfg.get("AUTO_IP", True)
+                auto_ip = str(auto_ip_raw).strip().lower() in {"1", "true", "yes", "on"} if isinstance(auto_ip_raw, str) else bool(auto_ip_raw)
+                if auto_ip:
+                    resolved = self._ip_geolocate() or None
+        except Exception:
+            resolved = None
+
+        ttl = 3600.0 if resolved else 300.0
+        self._astral_location_cache = {"value": resolved, "expires_at": now + ttl}
+        return resolved
+
+    def _eval_astral_condition(self, cond: dict) -> bool:
+        """
+        Astral condition is true when local time in configured timezone is at/after:
+          sunrise|sunset + offset_min
+        Optionally restricted by `days` (0=Mon..6=Sun).
+        """
+        if LocationInfo is None or _astral_sun is None:
+            return False
+
+        resolved = self._resolve_astral_location()
+        if not resolved:
+            return False
+
+        tz_name = str(resolved.get("tz", "") or "").strip()
+        try:
+            tz = ZoneInfo(tz_name)
+        except Exception:
+            return False
+
+        now_local = datetime.now(tz)
+
+        raw_days = cond.get("days") or []
+        allowed_days: list[int] = []
+        for d in raw_days:
+            try:
+                n = int(d)
+            except Exception:
+                continue
+            if 0 <= n <= 6:
+                allowed_days.append(n)
+        if allowed_days and (now_local.weekday() not in allowed_days):
+            return False
+
+        event = str(cond.get("astral_event", cond.get("event", "sunrise")) or "sunrise").strip().lower()
+        if event not in {"sunrise", "sunset"}:
+            return False
+
+        try:
+            offset = int(cond.get("offset_min", cond.get("offset_minutes", 0)) or 0)
+        except Exception:
+            offset = 0
+        offset = max(-120, min(120, offset))
+
+        try:
+            loc = LocationInfo(
+                name="sensorius",
+                region="local",
+                timezone=tz_name,
+                latitude=float(resolved["lat"]),
+                longitude=float(resolved["lon"]),
+            )
+            s = _astral_sun(loc.observer, date=now_local.date(), tzinfo=tz)
+            evt_dt = s.get(event)
+            if evt_dt is None:
+                return False
+            threshold = evt_dt + timedelta(minutes=offset)
+            return now_local >= threshold
+        except Exception:
+            return False
 
     def _log(self, name, on: bool):
         # Persist as a SWITCH EVENT (not a generic reading) so /switch-status-update
@@ -699,6 +845,8 @@ class SwitchController:
             * "time":   time-of-day window using _time_in_window(start, end),
                         optionally restricted to certain weekdays via `days`.
                         days = [0..6] = Mon..Sun (Python-style weekday).
+            * "astral": sunrise/sunset threshold using IP/manual location:
+                        true when local time is at/after event + offset_min.
             * "timer":  periodic window based on duration_min (minutes) and
                         freq_hours (hours). True for the first duration_min
                         minutes of each freq_hours period within a day.
@@ -782,6 +930,11 @@ class SwitchController:
                     return False
 
                 return self._time_in_window(start, end, now_str)
+
+            # --- ASTRAL CONDITION --------------------------------------------
+            # type == "astral"
+            if ctype == "astral":
+                return self._eval_astral_condition(cond)
 
             # --- TIMER CONDITION ----------------------------------------------
             # type == "timer"

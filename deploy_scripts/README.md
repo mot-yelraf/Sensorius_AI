@@ -6,6 +6,8 @@ This folder contains:
 - Uninstall scripts (`uninstall*.sh`, `uninstall*.ps1`)
 - Host deploy sync script (`deploy_sai.sh`)
 
+Requirements files in this folder include `astral` for sunrise/sunset automation scheduling.
+
 ## Setup Entry Points
 
 - Root `../setup.sh`: interactive dispatcher (asks `uv` vs `pip`, detects OS, runs the right script in this folder)

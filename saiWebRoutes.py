@@ -40,6 +40,12 @@ import shutil, httpx
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 try:
+    from astral import LocationInfo
+    from astral.sun import sun as _astral_sun
+except Exception:
+    LocationInfo = None
+    _astral_sun = None
+try:
     import pwd  # POSIX only
 except Exception:
     pwd = None
@@ -1626,6 +1632,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             settings.get_setting("Time", "TZ_NAME", "")
             or ""
         )
+        astral_lat = "--"
+        astral_lon = "--"
+        astral_sunrise = "--"
+        astral_sunset = "--"
+        astral_daylight = "--"
+        astral_noon = "--"
         gauge_size = settings.get_setting("Display", "gauge_size", "") or "Small"
         display_style = settings.get_setting("Display", "display_style", "") or "Gauge"
         ha_enabled = bool(settings.get_setting("HomeAssistant", "ENABLED", False))
@@ -1646,6 +1658,77 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         clients = settings.get_all_clients() or []
         client_list = "\n".join(clients)
 
+        def _safe_float(v) -> float | None:
+            try:
+                return float(v)
+            except Exception:
+                return None
+
+        def _format_hhmm(dt_obj: datetime | None) -> str:
+            if dt_obj is None:
+                return "--"
+            return dt_obj.strftime("%H:%M")
+
+        resolved_lat: float | None = None
+        resolved_lon: float | None = None
+        resolved_tz = str(settings.get_setting("Astral", "TIMEZONE", "") or "").strip() or str(tz or "").strip()
+
+        cfg_lat = _safe_float(settings.get_setting("Astral", "LATITUDE", ""))
+        cfg_lon = _safe_float(settings.get_setting("Astral", "LONGITUDE", ""))
+        if cfg_lat is not None and cfg_lon is not None and -90.0 <= cfg_lat <= 90.0 and -180.0 <= cfg_lon <= 180.0:
+            resolved_lat = cfg_lat
+            resolved_lon = cfg_lon
+        else:
+            auto_ip_raw = settings.get_setting("Astral", "AUTO_IP", True)
+            auto_ip = str(auto_ip_raw).strip().lower() in {"1", "true", "yes", "on"} if isinstance(auto_ip_raw, str) else bool(auto_ip_raw)
+            if auto_ip:
+                try:
+                    with httpx.Client(timeout=2.5) as client:
+                        r = client.get("https://ipapi.co/json/")
+                        if r.status_code == 200:
+                            payload = r.json() or {}
+                            ip_lat = _safe_float(payload.get("latitude"))
+                            ip_lon = _safe_float(payload.get("longitude"))
+                            ip_tz = str(payload.get("timezone", "") or "").strip()
+                            if ip_lat is not None and ip_lon is not None:
+                                if -90.0 <= ip_lat <= 90.0 and -180.0 <= ip_lon <= 180.0:
+                                    resolved_lat = ip_lat
+                                    resolved_lon = ip_lon
+                                    if ip_tz:
+                                        resolved_tz = ip_tz
+                except Exception:
+                    pass
+
+        if resolved_lat is not None and resolved_lon is not None:
+            astral_lat = f"{resolved_lat:.6f}"
+            astral_lon = f"{resolved_lon:.6f}"
+
+        if LocationInfo is not None and _astral_sun is not None and resolved_lat is not None and resolved_lon is not None and resolved_tz:
+            try:
+                tzinfo = ZoneInfo(resolved_tz)
+                now_local = datetime.now(tzinfo)
+                loc = LocationInfo(
+                    name="sensorius",
+                    region="local",
+                    timezone=resolved_tz,
+                    latitude=resolved_lat,
+                    longitude=resolved_lon,
+                )
+                sun_map = _astral_sun(loc.observer, date=now_local.date(), tzinfo=tzinfo)
+                sunrise_dt = sun_map.get("sunrise")
+                sunset_dt = sun_map.get("sunset")
+                noon_dt = sun_map.get("noon")
+                astral_sunrise = _format_hhmm(sunrise_dt)
+                astral_sunset = _format_hhmm(sunset_dt)
+                astral_noon = _format_hhmm(noon_dt)
+                if isinstance(sunrise_dt, datetime) and isinstance(sunset_dt, datetime):
+                    if sunset_dt >= sunrise_dt:
+                        span = sunset_dt - sunrise_dt
+                        total_min = int(span.total_seconds() // 60)
+                        astral_daylight = f"{total_min // 60:02d}:{total_min % 60:02d}"
+            except Exception:
+                pass
+
         templates = request.app.state.templates
         system_modal_html = templates.get_template("modals/system_settings.html").render(
             app_name_long=APP_NAME_LONG,
@@ -1658,6 +1741,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             tz_name=tz_name,
             gauge_size=gauge_size,
             display_style=display_style,
+            astral_lat=astral_lat,
+            astral_lon=astral_lon,
+            astral_sunrise=astral_sunrise,
+            astral_sunset=astral_sunset,
+            astral_daylight=astral_daylight,
+            astral_noon=astral_noon,
             client_list=client_list,
             ha_enabled=ha_enabled,
             ha_username=ha_username,
@@ -6375,6 +6464,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         enabled = parse_bool(str(payload.get("enabled", "true")))
         rule_id = str(payload.get("rule_id", "")).strip()
 
+        # Load switch settings early; needed for action switch-key normalization.
+        settings_mgr = SwitchSettingsManager("switch_settings")
+        sw_doc = settings_mgr.load(switch_id) or {}
+        switch_map = sw_doc.get("Switch") or {}
+
         # ---------- normalize/compact script ----------
         # Try to parse & normalize a bit; if it fails, store raw string (your runtime can validate later)
         is_json_request = request.headers.get("content-type", "").startswith("application/json")
@@ -6406,7 +6500,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         days_norm.append(n)
 
                 normalized_conditions.append({
-                    "type":   cond_type,  # 'sensor' / 'time' / 'timer' / 'or'
+                    "type":   cond_type,  # 'sensor' / 'time' / 'astral' / 'timer' / 'or'
                     "sensor": str(c.get("sensor",  c.get("sensor_id", ""))).strip(),
                     "metric": str(c.get("metric",  "")).strip(),
                     "op":     str(c.get("op",      ">")).strip(),
@@ -6414,6 +6508,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     "hyst":   _num(c.get("hyst"),  float, None),
                     "start":  str(c.get("start",   "")).strip(),
                     "end":    str(c.get("end",     "")).strip(),
+                    "astral_event": str(c.get("astral_event", c.get("event", "sunrise"))).strip().lower(),
+                    "offset_min": _num(c.get("offset_min", c.get("offset_minutes")), int, 0),
                     # new optional fields
                     "days":        days_norm or None,
                     "duration_min": _num(c.get("duration_min"), int, None),
@@ -6493,9 +6589,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             printDM(f"[{MODULE}] Advanced script JSON parse failed; storing raw. Error: {e}", location=MODULE)
 
         # ---------- verify/adjust channel against settings ----------
-        settings_mgr = SwitchSettingsManager("switch_settings")
-        sw_doc = settings_mgr.load(switch_id) or {}
-        switch_map = sw_doc.get("Switch") or {}
         # derive available indices from keys when CHANNELS missing
         indices = []
         for k in switch_map.keys():
