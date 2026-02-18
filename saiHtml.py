@@ -62,12 +62,29 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     import os
     import re
     import sys
+    import math
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
     from types import SimpleNamespace
     from collections import defaultdict
     from saiUtils import get_timestamp
+    from saiSettings import saiSettings
     import saiAddDevice
     from saiSensorSettingsManager import SensorSettingsManager
     from saiHtml import render_graph_modal
+    try:
+        import httpx
+    except Exception:
+        httpx = None
+    try:
+        from astral import LocationInfo
+        from astral.sun import sun as _astral_sun, elevation as _astral_elevation
+        from astral import moon as _astral_moon
+    except Exception:
+        LocationInfo = None
+        _astral_sun = None
+        _astral_elevation = None
+        _astral_moon = None
     if isinstance(switch_controllers, dict):
         switch_controllers = {
             (k if isinstance(k, str) else str(k)).lower(): v
@@ -89,6 +106,141 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             is_pi_platform = "raspberry pi" in model
     except Exception:
         is_pi_platform = False
+
+    def _safe_float(v):
+        try:
+            return float(v)
+        except Exception:
+            return None
+
+    def _moon_phase_name(phase_val: float) -> str:
+        p = phase_val % 28.0
+
+        def _circular_dist(a: float, b: float, cycle: float = 28.0) -> float:
+            d = abs(a - b) % cycle
+            return min(d, cycle - d)
+
+        if _circular_dist(p, 0.0) <= 1.0:
+            return "New Moon"
+        if _circular_dist(p, 7.0) <= 1.0:
+            return "1st Quarter"
+        if _circular_dist(p, 14.0) <= 1.0:
+            return "Full Moon"
+        if _circular_dist(p, 21.0) <= 1.0:
+            return "3rd Quarter"
+        if 1.0 < p < 6.0:
+            return "Approaching 1st Quarter"
+        if 8.0 < p < 13.0:
+            return "Approaching Full Moon"
+        if 15.0 < p < 20.0:
+            return "Approaching 3rd Quarter"
+        return "Approaching New Moon"
+
+    def _build_astro_payload() -> dict:
+        out = {
+            "ok": False,
+            "lat": None,
+            "lon": None,
+            "tz": "",
+            "sunrise": "",
+            "sunset": "",
+            "sun_noon": "",
+            "sun_points": [],
+            "moon_phase_value": None,
+            "moon_phase_label": "",
+        }
+        if LocationInfo is None or _astral_sun is None or _astral_elevation is None or _astral_moon is None:
+            return out
+
+        resolved_lat = None
+        resolved_lon = None
+        resolved_tz = ""
+        try:
+            s = saiSettings(apply_live=False)
+            resolved_tz = str(s.get_setting("Astral", "TIMEZONE", "") or "").strip() or str(s.get_setting("Time", "TZ", "") or "").strip()
+            cfg_lat = _safe_float(s.get_setting("Astral", "LATITUDE", ""))
+            cfg_lon = _safe_float(s.get_setting("Astral", "LONGITUDE", ""))
+            if cfg_lat is not None and cfg_lon is not None and -90.0 <= cfg_lat <= 90.0 and -180.0 <= cfg_lon <= 180.0:
+                resolved_lat = cfg_lat
+                resolved_lon = cfg_lon
+            else:
+                auto_ip_raw = s.get_setting("Astral", "AUTO_IP", True)
+                auto_ip = str(auto_ip_raw).strip().lower() in {"1", "true", "yes", "on"} if isinstance(auto_ip_raw, str) else bool(auto_ip_raw)
+                if auto_ip and httpx is not None:
+                    try:
+                        with httpx.Client(timeout=2.5) as client:
+                            resp = client.get("https://ipapi.co/json/")
+                        if resp.status_code == 200:
+                            payload = resp.json() or {}
+                            ip_lat = _safe_float(payload.get("latitude"))
+                            ip_lon = _safe_float(payload.get("longitude"))
+                            ip_tz = str(payload.get("timezone", "") or "").strip()
+                            if ip_lat is not None and ip_lon is not None:
+                                if -90.0 <= ip_lat <= 90.0 and -180.0 <= ip_lon <= 180.0:
+                                    resolved_lat = ip_lat
+                                    resolved_lon = ip_lon
+                                    if ip_tz:
+                                        resolved_tz = ip_tz
+                    except Exception:
+                        pass
+        except Exception:
+            return out
+
+        if resolved_lat is None or resolved_lon is None or not resolved_tz:
+            return out
+
+        try:
+            tzinfo = ZoneInfo(resolved_tz)
+            now_local = datetime.now(tzinfo)
+            obs = LocationInfo(
+                name="sensorius",
+                region="local",
+                timezone=resolved_tz,
+                latitude=resolved_lat,
+                longitude=resolved_lon,
+            ).observer
+            sun_map = _astral_sun(obs, date=now_local.date(), tzinfo=tzinfo)
+            sunrise = sun_map.get("sunrise")
+            sunset = sun_map.get("sunset")
+            noon = sun_map.get("noon")
+            if not isinstance(sunrise, datetime) or not isinstance(sunset, datetime):
+                return out
+
+            pts = []
+            cur = sunrise
+            while cur <= sunset:
+                try:
+                    elev = float(_astral_elevation(obs, cur))
+                except Exception:
+                    elev = float("nan")
+                if math.isfinite(elev):
+                    pts.append({"t": cur.strftime("%H:%M"), "e": round(elev, 2)})
+                cur = cur + timedelta(minutes=5)
+            if pts and pts[-1]["t"] != sunset.strftime("%H:%M"):
+                try:
+                    elev_sunset = float(_astral_elevation(obs, sunset))
+                except Exception:
+                    elev_sunset = 0.0
+                pts.append({"t": sunset.strftime("%H:%M"), "e": round(elev_sunset, 2)})
+
+            moon_val = float(_astral_moon.phase(now_local.date()))
+            out.update({
+                "ok": True,
+                "lat": round(resolved_lat, 6),
+                "lon": round(resolved_lon, 6),
+                "tz": resolved_tz,
+                "sunrise": sunrise.strftime("%H:%M"),
+                "sunset": sunset.strftime("%H:%M"),
+                "sun_noon": noon.strftime("%H:%M") if isinstance(noon, datetime) else "",
+                "sun_points": pts,
+                "moon_phase_value": round(moon_val, 2),
+                "moon_phase_label": _moon_phase_name(moon_val),
+            })
+            return out
+        except Exception:
+            return out
+
+    astro_payload = _build_astro_payload()
     
     def _safe(s: str) -> str:
         return re.sub(r"[^A-Za-z0-9_-]", "_", s)
@@ -662,8 +814,35 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
   
     yield "<p id='update_time'>--</p>"
 
-    yield "<form method='get' style='margin-top:1rem;'>"
-    #yield "<label for='sensor_id'>Location </label>"
+    yield "<style>"
+    yield ".dash-top-row{display:flex;justify-content:center;align-items:stretch;gap:.75rem;flex-wrap:wrap;margin-top:1rem;}"
+    yield ".dash-loc-form{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:.45rem;background:#e6faff;border:1px solid #c9ddff;border-radius:10px;padding:.45rem .65rem .55rem;min-height:102px;min-width:172px;width:172px;}"
+    yield ".dash-loc-head{display:flex;align-items:center;justify-content:space-between;gap:.1rem;}"
+    yield ".dash-loc-label{font-size:.78rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;opacity:.85;}"
+    yield ".astro-box{display:flex;align-items:flex-start;justify-content:flex-start;background:#f8f3e7;border:1px solid #d9cdb3;border-radius:10px;padding:.45rem .55rem;min-height:102px;}"
+    yield ".astro-card{display:flex;flex-direction:column;align-items:center;gap:.2rem;min-width:132px;}"
+    yield ".astro-title{font-size:.78rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;opacity:.8;}"
+    yield ".astro-meta{font-size:.74rem;line-height:1.25;text-align:center;color:#27313a;min-height:1.9em;white-space:normal;}"
+    yield ".astro-times{width:156px;display:flex;justify-content:space-between;gap:.35rem;font-variant-numeric:tabular-nums;}"
+    yield ".astro-times span{display:inline-block;min-width:0;}"
+    yield "#sunPathCanvas{width:156px;height:96px;border:1px solid #d5c7a8;border-radius:8px;background:linear-gradient(180deg,#dff1ff 0%,#fff8de 75%);}"
+    yield "#moonPhaseCanvas{width:96px;height:96px;border:1px solid #d5c7a8;border-radius:50%;background:#081322;}"
+    yield "@media (max-width: 760px){#sunPathCanvas{width:142px;height:86px}.astro-times{width:142px}.astro-card{min-width:120px}.dash-loc-form,.astro-box{min-height:unset}}"
+    yield "</style>"
+
+    yield "<div class='dash-top-row'>"
+    yield "<div class='astro-box' id='sunBox' aria-live='polite'>"
+    yield "  <div class='astro-card'>"
+    yield "    <div class='astro-title'>Sun Position</div>"
+    yield "    <canvas id='sunPathCanvas' width='156' height='96'></canvas>"
+    yield "    <div class='astro-meta astro-times' id='sunMeta'><span id='sunTimeRise'>--</span><span id='sunTimeNoon'>--</span><span id='sunTimeSet'>--</span></div>"
+    yield "  </div>"
+    yield "</div>"
+    yield "<form method='get' class='dash-loc-form'>"
+    yield "<div class='dash-loc-head'>"
+    yield "  <div class='dash-loc-label'>Device Locations</div>"
+    yield "  <a id='refresh_link' class='refresh-link' href='/' title='Refresh dashboard' aria-label='Refresh dashboard'>⟳</a>"
+    yield "</div>"
     yield "<select name='sensor_id' id='sensor_id' onchange='this.form.submit()' style='background-color:#e6faff;'>"
     # treat any non 'loc:*' as All (back-compat: direct sensor ids will land here)
     is_loc_filter = isinstance(sensor_id, str) and sensor_id.startswith("loc:")
@@ -673,8 +852,15 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         sel = "selected" if sensor_id == val else ""
         yield f"<option value='{val}' {sel}>{disp}</option>"
     yield "</select>"
-    yield "<a id='refresh_link' class='refresh-link' href='/' title='Refresh dashboard' aria-label='Refresh dashboard'>⟳</a>"
     yield "</form>"
+    yield "<div class='astro-box' id='moonBox' aria-live='polite'>"
+    yield "  <div class='astro-card'>"
+    yield "    <div class='astro-title'>Moon Phase</div>"
+    yield "    <canvas id='moonPhaseCanvas' width='96' height='96'></canvas>"
+    yield "    <div class='astro-meta' id='moonMeta'>Loading moon data...</div>"
+    yield "  </div>"
+    yield "</div>"
+    yield "</div>"
     
     # Per-sensor gauge blocks
     for sid, sensor_metrics in expected_gauge_map.items():
@@ -1026,6 +1212,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield f"const currentValues = {json.dumps(all_values)};"
     yield f"const sensorStats = {json.dumps(all_stats)};"
     yield f"const expectedGaugeMap = {json.dumps(expected_gauge_map)};"
+    yield f"const astroData = {json.dumps(astro_payload)};"
     yield f"const isPiPlatform = {str(is_pi_platform).lower()};"
     yield "const lastTimestamps = {};"
     yield f"const displayStyle = {json.dumps(display_style_js)};"
@@ -1052,8 +1239,114 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  }"
     yield "}"
 
+    yield "function drawSunPath(data){"
+    yield "  const c = document.getElementById('sunPathCanvas');"
+    yield "  const meta = document.getElementById('sunMeta');"
+    yield "  const riseEl = document.getElementById('sunTimeRise');"
+    yield "  const noonEl = document.getElementById('sunTimeNoon');"
+    yield "  const setEl = document.getElementById('sunTimeSet');"
+    yield "  if (!c || !meta || !riseEl || !noonEl || !setEl) return;"
+    yield "  const ctx = c.getContext('2d');"
+    yield "  ctx.clearRect(0,0,c.width,c.height);"
+    yield "  if (!data || !data.ok || !Array.isArray(data.sun_points) || data.sun_points.length < 2){"
+    yield "    riseEl.textContent = '--'; noonEl.textContent = '--'; setEl.textContent = '--';"
+    yield "    return;"
+    yield "  }"
+    yield "  const fmtSun = (hhmm) => {"
+    yield "    const m = String(hhmm || '').match(/^(\\d{1,2}):(\\d{2})$/);"
+    yield "    if (!m) return '--';"
+    yield "    const hh = parseInt(m[1], 10);"
+    yield "    const mm = m[2];"
+    yield "    const ap = hh < 12 ? 'A' : 'P';"
+    yield "    const h12 = (hh % 12) || 12;"
+    yield "    return `${h12}:${mm}${ap}`;"
+    yield "  };"
+    yield "  const pts = data.sun_points;"
+    yield "  let minE = Infinity, maxE = -Infinity;"
+    yield "  for (const p of pts){ if (typeof p.e === 'number'){ minE=Math.min(minE,p.e); maxE=Math.max(maxE,p.e);} }"
+    yield "  if (!Number.isFinite(minE) || !Number.isFinite(maxE)){ riseEl.textContent='--'; noonEl.textContent='--'; setEl.textContent='--'; return; }"
+    yield "  if (Math.abs(maxE-minE) < 0.001){ maxE = minE + 1; }"
+    yield "  const padX = 8, padY = 8;"
+    yield "  const w = c.width - padX*2, h = c.height - padY*2;"
+    yield "  ctx.strokeStyle = '#8fa4b3'; ctx.lineWidth = 1;"
+    yield "  ctx.beginPath(); ctx.moveTo(padX, c.height-padY); ctx.lineTo(c.width-padX, c.height-padY); ctx.stroke();"
+    yield "  ctx.strokeStyle = '#f5a623'; ctx.lineWidth = 2;"
+    yield "  ctx.beginPath();"
+    yield "  pts.forEach((p, i) => {"
+    yield "    const x = padX + (i/(pts.length-1))*w;"
+    yield "    const y = padY + (1-((p.e-minE)/(maxE-minE)))*h;"
+    yield "    if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);"
+    yield "  });"
+    yield "  ctx.stroke();"
+    yield "  const now = new Date();"
+    yield "  const hh = String(now.getHours()).padStart(2,'0');"
+    yield "  const mm = String(now.getMinutes()).padStart(2,'0');"
+    yield "  const cur = `${hh}:${mm}`;"
+    yield "  let idx = 0;"
+    yield "  for (let i=0;i<pts.length;i++){ if (pts[i].t <= cur) idx = i; }"
+    yield "  const xNow = padX + (idx/(pts.length-1))*w;"
+    yield "  const yNow = padY + (1-((pts[idx].e-minE)/(maxE-minE)))*h;"
+    yield "  ctx.fillStyle = '#0d1b2a'; ctx.beginPath(); ctx.arc(xNow, yNow, 3.2, 0, Math.PI*2); ctx.fill();"
+    yield "  riseEl.textContent = fmtSun(data.sunrise);"
+    yield "  noonEl.textContent = fmtSun(data.sun_noon);"
+    yield "  setEl.textContent = fmtSun(data.sunset);"
+    yield "}"
+
+    yield "function drawMoonPhase(data){"
+    yield "  const c = document.getElementById('moonPhaseCanvas');"
+    yield "  const meta = document.getElementById('moonMeta');"
+    yield "  if (!c || !meta) return;"
+    yield "  const ctx = c.getContext('2d');"
+    yield "  ctx.clearRect(0,0,c.width,c.height);"
+    yield "  if (!data || !data.ok || typeof data.moon_phase_value !== 'number'){"
+    yield "    meta.textContent = 'Moon data unavailable';"
+    yield "    return;"
+    yield "  }"
+    yield "  const w = c.width, h = c.height;"
+    yield "  const r = Math.min(w, h) / 2 - 1;"
+    yield "  const x = w / 2, y = h / 2;"
+    yield "  const phase = ((data.moon_phase_value % 28) + 28) % 28;"
+    yield "  const illum = 0.5 * (1 - Math.cos((2*Math.PI*phase)/28));"
+    yield "  const lat = Number(data.lat || 0);"
+    yield "  const hemisphereFlip = lat < 0 ? -1 : 1;"
+    yield "  const image = ctx.createImageData(w, h);"
+    yield "  const pix = image.data;"
+    yield "  const phaseAngle = (2 * Math.PI * phase) / 28;"
+    yield "  const sx = Math.sin(phaseAngle) * hemisphereFlip;"
+    yield "  const sz = -Math.cos(phaseAngle);"
+    yield "  for (let py = 0; py < h; py++) {"
+    yield "    for (let px = 0; px < w; px++) {"
+    yield "      const dx = (px + 0.5 - x) / r;"
+    yield "      const dy = (py + 0.5 - y) / r;"
+    yield "      const rr = dx*dx + dy*dy;"
+    yield "      const off = (py * w + px) * 4;"
+    yield "      if (rr > 1) { pix[off+3] = 0; continue; }"
+    yield "      const dz = Math.sqrt(Math.max(0, 1 - rr));"
+    yield "      const dot = dx * sx + dz * sz;"
+    yield "      const lit = Math.max(0, dot);"
+    yield "      const earthshine = 0.08;"
+    yield "      const shade = Math.pow(Math.min(1, lit + earthshine), 0.72);"
+    yield "      const baseR = 9, baseG = 18, baseB = 34;"
+    yield "      const litR = 248, litG = 244, litB = 218;"
+    yield "      pix[off+0] = Math.round(baseR + (litR - baseR) * shade);"
+    yield "      pix[off+1] = Math.round(baseG + (litG - baseG) * shade);"
+    yield "      pix[off+2] = Math.round(baseB + (litB - baseB) * shade);"
+    yield "      pix[off+3] = 255;"
+    yield "    }"
+    yield "  }"
+    yield "  ctx.putImageData(image, 0, 0);"
+    yield "  ctx.strokeStyle = '#c7ba9b';"
+    yield "  ctx.lineWidth = 1;"
+    yield "  ctx.beginPath();"
+    yield "  ctx.arc(x, y, r, 0, Math.PI * 2);"
+    yield "  ctx.stroke();"
+    yield "  meta.textContent = `${data.moon_phase_label || 'Moon'} (${(illum*100).toFixed(0)}% lit)`;"
+    yield "}"
+
     # Dynamic sensor UI helpers 
     yield "document.addEventListener('DOMContentLoaded',()=>{"
+    yield "  if (typeof drawSunPath === 'function') drawSunPath(astroData);"
+    yield "  if (typeof drawMoonPhase === 'function') drawMoonPhase(astroData);"
     yield "  const form = document.querySelector('form');"
     yield "  const btn = document.getElementById('saveBtn');"
     yield "  const spinner = document.getElementById('saveSpinner');"
@@ -3001,6 +3294,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  }"
 
     yield "  setInterval(updateLocalTime, 1000);"
+    yield "  setInterval(function(){ if (typeof drawSunPath === 'function') drawSunPath(astroData); }, 60000);"
+    yield "  setInterval(function(){ if (typeof drawMoonPhase === 'function') drawMoonPhase(astroData); }, 3600000);"
     yield "  setInterval(checkAndRetryIfNoGauges, 60000);"
     yield "  setInterval(updateGauges, 15000);"
     yield "  setInterval(refreshAndApplySwitchStatus, 60000);"
