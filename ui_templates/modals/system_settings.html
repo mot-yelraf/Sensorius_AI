@@ -334,7 +334,7 @@
                 </div>
                 <div class="field-stack">
                   <label for="httpport">HTTP Port</label>
-                  <input type="text" id="httpport" name="httpport" value="{{ httpport }}" readonly>
+                  <input type="number" id="httpport" name="httpport" value="{{ httpport }}" min="1" max="65535" step="1">
                 </div>
                 <div class="field-stack">
                   <label for="broker">Sensorius Hub</label>
@@ -342,7 +342,12 @@
                 </div>
                 <div class="field-stack">
                   <label for="tz">Time Zone</label>
-                  <input type="text" id="tz" name="tz" value="{{ tz }}">
+                  <input type="text" id="tz" name="tz" value="{{ tz }}" list="tz-options" autocomplete="off" placeholder="America/Denver">
+                  <datalist id="tz-options">
+                    {% for tz_opt in tz_options | default([]) %}
+                    <option value="{{ tz_opt }}"></option>
+                    {% endfor %}
+                  </datalist>
                 </div>
               </div>
 
@@ -350,11 +355,11 @@
               <div class="field-grid-stack">
                 <div class="field-stack">
                   <label for="astral_lat">Latitude</label>
-                  <input type="text" id="astral_lat" value="{{ astral_lat | default('--') }}" readonly>
+                  <input type="text" id="astral_lat" name="astral_lat" value="{{ astral_lat | default('') }}" placeholder="40.0150">
                 </div>
                 <div class="field-stack">
                   <label for="astral_lon">Longitude</label>
-                  <input type="text" id="astral_lon" value="{{ astral_lon | default('--') }}" readonly>
+                  <input type="text" id="astral_lon" name="astral_lon" value="{{ astral_lon | default('') }}" placeholder="-105.2705">
                 </div>
                 <div class="field-stack">
                   <label for="astral_sunrise">Sunrise</label>
@@ -572,6 +577,10 @@
   const formEl = document.getElementById("systemSettingsForm");
   const menu = document.getElementById("systemSettingsMenu");
   const panes = root.querySelectorAll(".settings-pane");
+  const tzInput = document.getElementById("tz");
+  const tzOptionsEl = document.getElementById("tz-options");
+  const astralLatEl = document.getElementById("astral_lat");
+  const astralLonEl = document.getElementById("astral_lon");
 
   let locationsLoaded = false;
   let onboardWs = null;
@@ -632,6 +641,39 @@
   function setStatus(id, text) {
     const el = document.getElementById(id);
     if (el) el.textContent = text || "";
+  }
+
+  function refreshTzOptionsList(items) {
+    if (!tzOptionsEl) return;
+    tzOptionsEl.innerHTML = "";
+    (items || []).forEach((name) => {
+      if (!name) return;
+      const opt = document.createElement("option");
+      opt.value = String(name);
+      tzOptionsEl.appendChild(opt);
+    });
+  }
+
+  async function refreshTimezoneOptionsFromCoords() {
+    if (!tzInput) return;
+    const lat = (astralLatEl?.value || "").trim();
+    const lon = (astralLonEl?.value || "").trim();
+    const qs = new URLSearchParams();
+    if (lat) qs.set("lat", lat);
+    if (lon) qs.set("lon", lon);
+    qs.set("limit", "80");
+    try {
+      const resp = await fetch("/timezone-options?" + qs.toString(), { cache: "no-store" });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const zones = Array.isArray(data?.timezones) ? data.timezones : [];
+      refreshTzOptionsList(zones);
+      if (!tzInput.value && data?.recommended) {
+        tzInput.value = data.recommended;
+      }
+    } catch (_e) {
+      // Non-fatal: keep existing datalist options
+    }
   }
 
   function hydrateHAFromData() {
@@ -1157,6 +1199,13 @@
     if (ev?.target?.id === "remove-device-confirm") {
       toggleRemoveEnable();
     }
+    if (ev?.target?.id === "astral_lat" || ev?.target?.id === "astral_lon") {
+      refreshTimezoneOptionsFromCoords();
+    }
   });
+
+  if (astralLatEl) astralLatEl.addEventListener("blur", refreshTimezoneOptionsFromCoords);
+  if (astralLonEl) astralLonEl.addEventListener("blur", refreshTimezoneOptionsFromCoords);
+  refreshTimezoneOptionsFromCoords();
 })();
 </script>

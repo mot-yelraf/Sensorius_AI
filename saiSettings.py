@@ -22,6 +22,8 @@ import threading
 import copy
 import shutil
 import hashlib
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from collections import OrderedDict
 from saiUtils import debug_enabled, printDM, get_pi_network_info, get_time_settings
@@ -505,6 +507,87 @@ class saiSettings:
         self.settings[section][key] = value
         self._dirty = True
         self.save_settings()  # write-through + updates RAM cache
+
+    @staticmethod
+    def _safe_float(value) -> float | None:
+        try:
+            return float(value)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _truthy_text(value, default: bool = False) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    def timezone_info(self, tz_name: str) -> tuple[int, str]:
+        """
+        Resolve timezone offset/name from an IANA timezone string.
+        Returns (offset_seconds, tz_abbreviation).
+        """
+        tz = ZoneInfo(str(tz_name).strip())
+        now = datetime.now(tz)
+        offset = now.utcoffset()
+        offset_sec = int(offset.total_seconds()) if offset is not None else 0
+        return offset_sec, (now.tzname() or "")
+
+    def resolve_astral_location(self, *, persist_if_auto: bool = False, timeout_sec: float = 2.5) -> dict:
+        """
+        Resolve Astral location from manual settings or IP geolocation fallback.
+        When persist_if_auto is True, successful IP resolution is written to
+        [Astral].LATITUDE/LONGITUDE (and TIMEZONE if empty).
+        """
+        resolved_tz = str(self.get_setting("Astral", "TIMEZONE", "") or "").strip() or str(self.get_setting("Time", "TZ", "") or "").strip()
+        resolved_lat = None
+        resolved_lon = None
+        source = "none"
+
+        cfg_lat = self._safe_float(self.get_setting("Astral", "LATITUDE", ""))
+        cfg_lon = self._safe_float(self.get_setting("Astral", "LONGITUDE", ""))
+        if cfg_lat is not None and cfg_lon is not None and -90.0 <= cfg_lat <= 90.0 and -180.0 <= cfg_lon <= 180.0:
+            resolved_lat = cfg_lat
+            resolved_lon = cfg_lon
+            source = "manual"
+        else:
+            auto_ip = self._truthy_text(self.get_setting("Astral", "AUTO_IP", True), default=True)
+            if auto_ip:
+                try:
+                    import httpx
+                    with httpx.Client(timeout=timeout_sec) as client:
+                        resp = client.get("https://ipapi.co/json/")
+                    if resp.status_code == 200:
+                        payload = resp.json() or {}
+                        ip_lat = self._safe_float(payload.get("latitude"))
+                        ip_lon = self._safe_float(payload.get("longitude"))
+                        ip_tz = str(payload.get("timezone", "") or "").strip()
+                        if ip_lat is not None and ip_lon is not None and -90.0 <= ip_lat <= 90.0 and -180.0 <= ip_lon <= 180.0:
+                            resolved_lat = ip_lat
+                            resolved_lon = ip_lon
+                            if ip_tz:
+                                resolved_tz = ip_tz
+                            source = "ip"
+                except Exception:
+                    pass
+
+        if persist_if_auto and source == "ip" and resolved_lat is not None and resolved_lon is not None:
+            updates: list[tuple[str, str, object]] = []
+            updates.append(("Astral", "LATITUDE", f"{resolved_lat:.6f}"))
+            updates.append(("Astral", "LONGITUDE", f"{resolved_lon:.6f}"))
+            if not str(self.get_setting("Astral", "TIMEZONE", "") or "").strip() and resolved_tz:
+                updates.append(("Astral", "TIMEZONE", resolved_tz))
+            if updates:
+                self.set_many_in_memory(updates)
+                self.save_settings()
+
+        return {
+            "lat": resolved_lat,
+            "lon": resolved_lon,
+            "tz": resolved_tz,
+            "source": source,
+        }
 
     def get_section(self, name: str, reload_if_changed: bool = False) -> dict:
         if reload_if_changed:

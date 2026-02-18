@@ -38,7 +38,7 @@ from urllib.parse import urlparse
 from collections import OrderedDict
 import shutil, httpx
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, available_timezones
 try:
     from astral import LocationInfo
     from astral.sun import sun as _astral_sun
@@ -78,6 +78,7 @@ MODULE = "saiWebRoutes"
 DEBUG = debug_enabled(MODULE)
 data_logger = saiDataLogger()
 statter = saiStats()
+_ALL_IANA_TIMEZONES: tuple[str, ...] = tuple(sorted(available_timezones()))
 
 # In-memory calibration state per sensor_id.
 # This never touches disk and is lost on Sensorius restart (which is fine).
@@ -909,8 +910,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     break
             expected_gauge_map[sid] = deduped
 
-        # Use the location map we already built
-        sensor_locations = { sid: sensor_locations_map.get(sid, "Unknown") for sid in all_values }
+        # Keep a full location map for the location dropdown, even when a single
+        # sensor_id view narrows all_values to one sensor.
+        sensor_locations = dict(sensor_locations_map)
+        # Ensure any actively rendered sensor IDs are still represented.
+        for sid in all_values:
+            sensor_locations.setdefault(sid, resolve_location_for_sid(sid))
 
         if DEBUG:
             now_mono = time.monotonic()
@@ -1608,6 +1613,103 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             printDM(f"/graph-setups/use error: {exc}", location=MODULE)
             return JSONResponse({"error": "internal_error"}, status_code=500)
 
+    def _safe_float(v) -> float | None:
+        try:
+            return float(v)
+        except Exception:
+            return None
+
+    def _timezone_suggestions(
+        *,
+        lon_hint: float | None,
+        preferred: list[str] | None = None,
+        limit: int = 80,
+    ) -> list[str]:
+        """
+        Produce a practical shortlist of IANA timezones.
+        If longitude is known, rank by proximity to expected UTC offset.
+        """
+        preferred_list = [str(tz).strip() for tz in (preferred or []) if str(tz).strip()]
+        seen: set[str] = set()
+        out: list[str] = []
+
+        def _push(tz_name: str):
+            if tz_name in _ALL_IANA_TIMEZONES and tz_name not in seen:
+                seen.add(tz_name)
+                out.append(tz_name)
+
+        for tz_name in preferred_list:
+            _push(tz_name)
+
+        if lon_hint is None:
+            for fallback in (
+                "America/New_York",
+                "America/Chicago",
+                "America/Denver",
+                "America/Los_Angeles",
+                "America/Phoenix",
+                "America/Anchorage",
+                "Pacific/Honolulu",
+                "UTC",
+            ):
+                _push(fallback)
+            for tz_name in _ALL_IANA_TIMEZONES:
+                if len(out) >= max(10, limit):
+                    break
+                _push(tz_name)
+            return out[:max(10, limit)]
+
+        # Approximate UTC offset from longitude for candidate ranking.
+        expected_sec = int(round((lon_hint / 15.0) * 3600))
+        now_utc = datetime.now(ZoneInfo("UTC"))
+        ranked: list[tuple[int, str]] = []
+        for tz_name in _ALL_IANA_TIMEZONES:
+            try:
+                tzinfo = ZoneInfo(tz_name)
+                off = now_utc.astimezone(tzinfo).utcoffset()
+                off_sec = int(off.total_seconds()) if off is not None else 0
+                score = abs(off_sec - expected_sec)
+                if tz_name.startswith("Etc/"):
+                    score += 3600
+                ranked.append((score, tz_name))
+            except Exception:
+                continue
+        ranked.sort(key=lambda x: (x[0], x[1]))
+        for _score, tz_name in ranked:
+            if len(out) >= max(10, limit):
+                break
+            _push(tz_name)
+        return out[:max(10, limit)]
+
+    @router.get("/timezone-options", response_class=JSONResponse)
+    async def timezone_options(
+        lat: str | None = Query(None),
+        lon: str | None = Query(None),
+        limit: int = Query(80, ge=10, le=200),
+    ):
+        settings_local = saiSettings(apply_live=False)
+        resolved = settings_local.resolve_astral_location(persist_if_auto=False, timeout_sec=2.5)
+        current_tz = str(settings_local.get_setting("Time", "TZ", "") or "").strip()
+        detected_tz = str(resolved.get("tz") or "").strip()
+
+        lon_val = _safe_float(lon)
+        if lon_val is None:
+            lon_val = _safe_float(resolved.get("lon"))
+        lat_val = _safe_float(lat)
+        if lat_val is None:
+            lat_val = _safe_float(resolved.get("lat"))
+
+        preferred = [current_tz, detected_tz]
+        candidates = _timezone_suggestions(lon_hint=lon_val, preferred=preferred, limit=limit)
+
+        return JSONResponse({
+            "timezones": candidates,
+            "recommended": candidates[0] if candidates else "",
+            "detected": detected_tz,
+            "lat": lat_val,
+            "lon": lon_val,
+        })
+
     @router.get("/edit-system", response_class=HTMLResponse)
     async def edit_pi_settings_page(request: Request):
         from saiSettings import saiSettings
@@ -1632,8 +1734,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             settings.get_setting("Time", "TZ_NAME", "")
             or ""
         )
-        astral_lat = "--"
-        astral_lon = "--"
+        astral_lat = str(settings.get_setting("Astral", "LATITUDE", "") or "").strip()
+        astral_lon = str(settings.get_setting("Astral", "LONGITUDE", "") or "").strip()
         astral_sunrise = "--"
         astral_sunset = "--"
         astral_daylight = "--"
@@ -1658,50 +1760,24 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         clients = settings.get_all_clients() or []
         client_list = "\n".join(clients)
 
-        def _safe_float(v) -> float | None:
-            try:
-                return float(v)
-            except Exception:
-                return None
-
         def _format_hhmm(dt_obj: datetime | None) -> str:
             if dt_obj is None:
                 return "--"
             return dt_obj.strftime("%H:%M")
 
-        resolved_lat: float | None = None
-        resolved_lon: float | None = None
-        resolved_tz = str(settings.get_setting("Astral", "TIMEZONE", "") or "").strip() or str(tz or "").strip()
-
-        cfg_lat = _safe_float(settings.get_setting("Astral", "LATITUDE", ""))
-        cfg_lon = _safe_float(settings.get_setting("Astral", "LONGITUDE", ""))
-        if cfg_lat is not None and cfg_lon is not None and -90.0 <= cfg_lat <= 90.0 and -180.0 <= cfg_lon <= 180.0:
-            resolved_lat = cfg_lat
-            resolved_lon = cfg_lon
-        else:
-            auto_ip_raw = settings.get_setting("Astral", "AUTO_IP", True)
-            auto_ip = str(auto_ip_raw).strip().lower() in {"1", "true", "yes", "on"} if isinstance(auto_ip_raw, str) else bool(auto_ip_raw)
-            if auto_ip:
-                try:
-                    with httpx.Client(timeout=2.5) as client:
-                        r = client.get("https://ipapi.co/json/")
-                        if r.status_code == 200:
-                            payload = r.json() or {}
-                            ip_lat = _safe_float(payload.get("latitude"))
-                            ip_lon = _safe_float(payload.get("longitude"))
-                            ip_tz = str(payload.get("timezone", "") or "").strip()
-                            if ip_lat is not None and ip_lon is not None:
-                                if -90.0 <= ip_lat <= 90.0 and -180.0 <= ip_lon <= 180.0:
-                                    resolved_lat = ip_lat
-                                    resolved_lon = ip_lon
-                                    if ip_tz:
-                                        resolved_tz = ip_tz
-                except Exception:
-                    pass
+        resolved = settings.resolve_astral_location(persist_if_auto=True, timeout_sec=2.5)
+        resolved_lat = resolved.get("lat")
+        resolved_lon = resolved.get("lon")
+        resolved_tz = str(resolved.get("tz") or "").strip()
+        tz_options = _timezone_suggestions(
+            lon_hint=_safe_float(resolved_lon),
+            preferred=[str(tz or "").strip(), resolved_tz],
+            limit=80,
+        )
 
         if resolved_lat is not None and resolved_lon is not None:
-            astral_lat = f"{resolved_lat:.6f}"
-            astral_lon = f"{resolved_lon:.6f}"
+            astral_lat = astral_lat or f"{resolved_lat:.6f}"
+            astral_lon = astral_lon or f"{resolved_lon:.6f}"
 
         if LocationInfo is not None and _astral_sun is not None and resolved_lat is not None and resolved_lon is not None and resolved_tz:
             try:
@@ -1739,6 +1815,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             tz=tz,
             tz_offset=tz_offset,
             tz_name=tz_name,
+            tz_options=tz_options,
             gauge_size=gauge_size,
             display_style=display_style,
             astral_lat=astral_lat,
@@ -3642,14 +3719,55 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         #settings.replace_setting("Network", "PASSWORD", form.get("password", ""))
         #settings.replace_setting("Network", "HOSTNAME", form.get("hostname", ""))
 
-        settings.replace_setting("SensorNetwork", "BROKER", form.get("broker", ""))
+        broker = str(form.get("broker", "") or "").strip()
+        tz = str(form.get("tz", "") or "").strip()
+        raw_httpport = str(form.get("httpport", "") or "").strip()
+        raw_lat = str(form.get("astral_lat", "") or "").strip()
+        raw_lon = str(form.get("astral_lon", "") or "").strip()
+        gauge_size = str(form.get("gauge_size", "") or "").strip()
+        display_style = str(form.get("display_style", "") or "").strip()
 
-        settings.replace_setting("Time", "TZ", form.get("tz", ""))
-        settings.replace_setting("Time", "TZ_OFFSET", int(form.get("tzOffset", 0)))
-        settings.replace_setting("Time", "TZ_NAME", form.get("tzName", ""))
+        if not tz:
+            return PlainTextResponse("Time zone is required.", status_code=400)
+        try:
+            ZoneInfo(tz)
+        except Exception:
+            return PlainTextResponse(f"Invalid timezone '{tz}'. Use a valid IANA timezone (example: America/Denver).", status_code=400)
 
-        settings.replace_setting("Display", "gauge_size", form.get("gauge_size", ""))
-        settings.replace_setting("Display", "display_style", form.get("display_style", ""))
+        try:
+            httpport = int(raw_httpport or "8000")
+        except Exception:
+            return PlainTextResponse("HTTP Port must be a number.", status_code=400)
+        if httpport < 1 or httpport > 65535:
+            return PlainTextResponse("HTTP Port must be between 1 and 65535.", status_code=400)
+
+        lat_to_store = ""
+        lon_to_store = ""
+        if raw_lat or raw_lon:
+            try:
+                lat_val = float(raw_lat)
+                lon_val = float(raw_lon)
+            except Exception:
+                return PlainTextResponse("Latitude and Longitude must be numeric values.", status_code=400)
+            if not (-90.0 <= lat_val <= 90.0):
+                return PlainTextResponse("Latitude must be between -90 and 90.", status_code=400)
+            if not (-180.0 <= lon_val <= 180.0):
+                return PlainTextResponse("Longitude must be between -180 and 180.", status_code=400)
+            lat_to_store = f"{lat_val:.6f}"
+            lon_to_store = f"{lon_val:.6f}"
+
+        tz_offset, tz_name = settings.timezone_info(tz)
+
+        settings.replace_setting("Network", "HTTPPORT", httpport)
+        settings.replace_setting("SensorNetwork", "BROKER", broker)
+        settings.replace_setting("Time", "TZ", tz)
+        settings.replace_setting("Time", "TZ_OFFSET", tz_offset)
+        settings.replace_setting("Time", "TZ_NAME", tz_name)
+        settings.replace_setting("Astral", "TIMEZONE", tz)
+        settings.replace_setting("Astral", "LATITUDE", lat_to_store)
+        settings.replace_setting("Astral", "LONGITUDE", lon_to_store)
+        settings.replace_setting("Display", "gauge_size", gauge_size)
+        settings.replace_setting("Display", "display_style", display_style)
 
         return RedirectResponse(url="/?refresh=true", status_code=303)        
 

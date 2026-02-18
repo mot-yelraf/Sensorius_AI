@@ -295,6 +295,15 @@ async def main():
     supervisor = TaskSupervisor()
     gc_mgr = GCManager(interval_sec=31, supervisor=supervisor)
     settings = saiSettings()
+    try:
+        astral_loc = settings.resolve_astral_location(persist_if_auto=True, timeout_sec=2.5)
+        if astral_loc.get("source") == "ip" and astral_loc.get("lat") is not None and astral_loc.get("lon") is not None:
+            printDM(
+                f"Astral auto-location persisted: lat={astral_loc['lat']:.6f}, lon={astral_loc['lon']:.6f}",
+                location=f"{MODULE}:main",
+            )
+    except Exception as e:
+        printDM(f"Astral auto-location bootstrap skipped: {e}", location=f"{MODULE}:main")
 
     from saiNet import rPiNetManager
     net_mgr = rPiNetManager()

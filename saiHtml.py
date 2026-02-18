@@ -73,10 +73,6 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     from saiSensorSettingsManager import SensorSettingsManager
     from saiHtml import render_graph_modal
     try:
-        import httpx
-    except Exception:
-        httpx = None
-    try:
         from astral import LocationInfo
         from astral.sun import sun as _astral_sun, elevation as _astral_elevation
         from astral import moon as _astral_moon
@@ -106,12 +102,6 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             is_pi_platform = "raspberry pi" in model
     except Exception:
         is_pi_platform = False
-
-    def _safe_float(v):
-        try:
-            return float(v)
-        except Exception:
-            return None
 
     def _moon_phase_name(phase_val: float) -> str:
         p = phase_val % 28.0
@@ -157,32 +147,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         resolved_tz = ""
         try:
             s = saiSettings(apply_live=False)
-            resolved_tz = str(s.get_setting("Astral", "TIMEZONE", "") or "").strip() or str(s.get_setting("Time", "TZ", "") or "").strip()
-            cfg_lat = _safe_float(s.get_setting("Astral", "LATITUDE", ""))
-            cfg_lon = _safe_float(s.get_setting("Astral", "LONGITUDE", ""))
-            if cfg_lat is not None and cfg_lon is not None and -90.0 <= cfg_lat <= 90.0 and -180.0 <= cfg_lon <= 180.0:
-                resolved_lat = cfg_lat
-                resolved_lon = cfg_lon
-            else:
-                auto_ip_raw = s.get_setting("Astral", "AUTO_IP", True)
-                auto_ip = str(auto_ip_raw).strip().lower() in {"1", "true", "yes", "on"} if isinstance(auto_ip_raw, str) else bool(auto_ip_raw)
-                if auto_ip and httpx is not None:
-                    try:
-                        with httpx.Client(timeout=2.5) as client:
-                            resp = client.get("https://ipapi.co/json/")
-                        if resp.status_code == 200:
-                            payload = resp.json() or {}
-                            ip_lat = _safe_float(payload.get("latitude"))
-                            ip_lon = _safe_float(payload.get("longitude"))
-                            ip_tz = str(payload.get("timezone", "") or "").strip()
-                            if ip_lat is not None and ip_lon is not None:
-                                if -90.0 <= ip_lat <= 90.0 and -180.0 <= ip_lon <= 180.0:
-                                    resolved_lat = ip_lat
-                                    resolved_lon = ip_lon
-                                    if ip_tz:
-                                        resolved_tz = ip_tz
-                    except Exception:
-                        pass
+            resolved = s.resolve_astral_location(persist_if_auto=True, timeout_sec=2.5)
+            resolved_lat = resolved.get("lat")
+            resolved_lon = resolved.get("lon")
+            resolved_tz = str(resolved.get("tz") or "").strip()
         except Exception:
             return out
 
