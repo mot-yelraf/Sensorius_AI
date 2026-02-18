@@ -1756,6 +1756,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             or settings.get_setting("HomeAssistant", "PORT", 1883)
             or 1883
         )
+        farm_enabled = bool(settings.get_setting("FarmOS", "ENABLED", False))
+        farm_base_url = settings.get_setting("FarmOS", "BASE_URL", "") or ""
+        farm_verify_tls = bool(settings.get_setting("FarmOS", "VERIFY_TLS", True))
+        farm_access_token_raw = settings.get_setting("FarmOS", "ACCESS_TOKEN", "") or ""
+        farm_access_token = saiSettings.deobfuscate_secret(farm_access_token_raw)
+        farm_client_id = settings.get_setting("FarmOS", "CLIENT_ID", "farm") or "farm"
+        farm_client_secret_raw = settings.get_setting("FarmOS", "CLIENT_SECRET", "") or ""
+        farm_client_secret = saiSettings.deobfuscate_secret(farm_client_secret_raw)
+        farm_username = settings.get_setting("FarmOS", "USERNAME", "") or ""
+        farm_password_raw = settings.get_setting("FarmOS", "PASSWORD", "") or ""
+        farm_password = saiSettings.deobfuscate_secret(farm_password_raw)
+        farm_log_bundle = settings.get_setting("FarmOS", "LOG_BUNDLE", "observation") or "observation"
 
         clients = settings.get_all_clients() or []
         client_list = "\n".join(clients)
@@ -1830,6 +1842,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             ha_password=ha_password,
             ha_broker=ha_broker,
             ha_port=ha_port,
+            farm_enabled=farm_enabled,
+            farm_base_url=farm_base_url,
+            farm_verify_tls=farm_verify_tls,
+            farm_access_token=farm_access_token,
+            farm_client_id=farm_client_id,
+            farm_client_secret=farm_client_secret,
+            farm_username=farm_username,
+            farm_password=farm_password,
+            farm_log_bundle=farm_log_bundle,
         )
 
         fragment_parts: list[str] = []
@@ -3797,6 +3818,70 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         settings.replace_setting("HomeAssistant", "HA_PASSWORD", saiSettings.obfuscate_secret(password))
 
         return JSONResponse({"status": "ok"})
+
+    @router.post("/submit-farmos-settings")
+    async def submit_farmos_settings(request: Request):
+        settings = saiSettings()
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+
+        enabled = bool(data.get("enabled", False))
+        base_url = str(data.get("base_url", "") or "").strip().rstrip("/")
+        verify_tls = bool(data.get("verify_tls", True))
+        access_token = str(data.get("access_token", "") or "").strip()
+        client_id = str(data.get("client_id", "farm") or "farm").strip() or "farm"
+        client_secret = str(data.get("client_secret", "") or "").strip()
+        username = str(data.get("username", "") or "").strip()
+        password = str(data.get("password", "") or "").strip()
+        log_bundle = str(data.get("log_bundle", "observation") or "observation").strip().lower() or "observation"
+
+        settings.replace_setting("FarmOS", "ENABLED", enabled)
+        settings.replace_setting("FarmOS", "BASE_URL", base_url)
+        settings.replace_setting("FarmOS", "VERIFY_TLS", verify_tls)
+        settings.replace_setting("FarmOS", "ACCESS_TOKEN", saiSettings.obfuscate_secret(access_token))
+        settings.replace_setting("FarmOS", "CLIENT_ID", client_id)
+        settings.replace_setting("FarmOS", "CLIENT_SECRET", saiSettings.obfuscate_secret(client_secret))
+        settings.replace_setting("FarmOS", "USERNAME", username)
+        settings.replace_setting("FarmOS", "PASSWORD", saiSettings.obfuscate_secret(password))
+        settings.replace_setting("FarmOS", "LOG_BUNDLE", log_bundle)
+
+        return JSONResponse({"status": "ok"})
+
+    @router.get("/farmos/status")
+    async def farmos_status(request: Request):
+        bridge = getattr(request.app.state, "farmos_bridge", None)
+        if bridge and hasattr(bridge, "status_snapshot"):
+            try:
+                return JSONResponse(bridge.status_snapshot())
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+        settings = saiSettings(apply_live=False)
+        return JSONResponse({
+            "enabled": bool(settings.get_setting("FarmOS", "ENABLED", False)),
+            "base_url": str(settings.get_setting("FarmOS", "BASE_URL", "") or "").strip(),
+            "verify_tls": bool(settings.get_setting("FarmOS", "VERIFY_TLS", True)),
+            "log_bundle": str(settings.get_setting("FarmOS", "LOG_BUNDLE", "observation") or "observation").strip(),
+            "queue_depth": 0,
+            "has_static_token": bool(str(settings.get_setting("FarmOS", "ACCESS_TOKEN", "") or "").strip()),
+            "has_runtime_token": False,
+            "last_error": "FarmOS bridge not attached",
+        })
+
+    @router.post("/farmos/test")
+    async def farmos_test(request: Request):
+        bridge = getattr(request.app.state, "farmos_bridge", None)
+        if bridge and hasattr(bridge, "test_connection"):
+            try:
+                result = await bridge.test_connection()
+                code = 200 if bool(result.get("ok")) else 502
+                return JSONResponse(result, status_code=code)
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+        return JSONResponse({"ok": False, "error": "FarmOS bridge not attached"}, status_code=503)
 
     @router.get("/advanced/status")
     async def advanced_status(request: Request):

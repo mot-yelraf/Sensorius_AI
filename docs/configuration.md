@@ -82,6 +82,8 @@ System Settings in the web UI now allow saving:
 
 - HTTP Port
 - Sensorius Hub (MQTT broker)
+- Home Assistant integration settings
+- FarmOS integration settings
 - Time Zone (`Time.TZ`)
 - Astral Latitude/Longitude (`Astral.LATITUDE`, `Astral.LONGITUDE`)
 - Gauge Size and Display Style

@@ -307,7 +307,16 @@
        data-ha-username="{{ ha_username | default('') }}"
        data-ha-password="{{ ha_password | default('') }}"
        data-ha-broker="{{ ha_broker | default('') }}"
-       data-ha-port="{{ ha_port | default(1883) }}">
+       data-ha-port="{{ ha_port | default(1883) }}"
+       data-farm-enabled="{{ farm_enabled | default(false) }}"
+       data-farm-base-url="{{ farm_base_url | default('') }}"
+       data-farm-verify-tls="{{ farm_verify_tls | default(true) }}"
+       data-farm-access-token="{{ farm_access_token | default('') }}"
+       data-farm-client-id="{{ farm_client_id | default('farm') }}"
+       data-farm-client-secret="{{ farm_client_secret | default('') }}"
+       data-farm-username="{{ farm_username | default('') }}"
+       data-farm-password="{{ farm_password | default('') }}"
+       data-farm-log-bundle="{{ farm_log_bundle | default('observation') }}">
     <div class="system-settings-header">
       <h2 class="system-settings-title">{{ app_name_long }} {{ app_version }}</h2>
     </div>
@@ -317,6 +326,7 @@
         <aside class="system-settings-menu" id="systemSettingsMenu" aria-label="System settings sections">
           <button type="button" class="system-menu-btn active" data-target="pane-system">System Settings</button>
           <button type="button" class="system-menu-btn" data-target="pane-ha">Home Assistant</button>
+          <button type="button" class="system-menu-btn" data-target="pane-farm">FarmOS</button>
           <button type="button" class="system-menu-btn" data-target="pane-locations">Edit Locations</button>
           <button type="button" class="system-menu-btn" data-target="pane-add">Add Device</button>
           <button type="button" class="system-menu-btn" data-target="pane-remove">Remove Device</button>
@@ -441,6 +451,68 @@
             <div class="pane-footer">
               <button type="button" class="button black btn-back-system">Back</button>
               <button type="button" class="button blue" id="btn-ha-save">Save</button>
+            </div>
+          </div>
+
+          <div class="settings-pane" id="pane-farm" hidden>
+            <h3 class="pane-title">FarmOS</h3>
+            <div class="ha-enabled-wrap">
+              <div class="field-stack">
+                <label for="farm-enabled">Enabled</label>
+                <input type="checkbox" id="farm-enabled">
+              </div>
+              <div class="field-stack">
+                <label for="farm-verify-tls">Verify TLS</label>
+                <input type="checkbox" id="farm-verify-tls">
+              </div>
+            </div>
+
+            <div class="ha-grid">
+              <div class="field-stack">
+                <label for="farm-base-url">Base URL</label>
+                <input type="text" id="farm-base-url" placeholder="https://farmos.example.com">
+              </div>
+              <div class="field-stack">
+                <label for="farm-log-bundle">Log Bundle</label>
+                <input type="text" id="farm-log-bundle" placeholder="observation">
+              </div>
+              <div class="field-stack">
+                <label for="farm-access-token">Access Token (optional)</label>
+                <div class="inline-actions">
+                  <input type="password" id="farm-access-token" autocomplete="off" style="flex:1;">
+                  <button type="button" class="button black" id="farm-token-toggle">Show</button>
+                </div>
+              </div>
+              <div class="field-stack">
+                <label for="farm-client-id">Client ID</label>
+                <input type="text" id="farm-client-id" autocomplete="off">
+              </div>
+              <div class="field-stack">
+                <label for="farm-client-secret">Client Secret</label>
+                <div class="inline-actions">
+                  <input type="password" id="farm-client-secret" autocomplete="off" style="flex:1;">
+                  <button type="button" class="button black" id="farm-client-secret-toggle">Show</button>
+                </div>
+              </div>
+              <div class="field-stack">
+                <label for="farm-username">Username</label>
+                <input type="text" id="farm-username" autocomplete="username">
+              </div>
+              <div class="field-stack">
+                <label for="farm-password">Password</label>
+                <div class="inline-actions">
+                  <input type="password" id="farm-password" autocomplete="current-password" style="flex:1;">
+                  <button type="button" class="button black" id="farm-password-toggle">Show</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="status-text" id="farm-status"></div>
+
+            <div class="pane-footer">
+              <button type="button" class="button black btn-back-system">Back</button>
+              <button type="button" class="button neutral" id="btn-farm-test">Test Connection</button>
+              <button type="button" class="button blue" id="btn-farm-save">Save</button>
             </div>
           </div>
 
@@ -631,6 +703,10 @@
     });
 
     if (paneId === "pane-ha") hydrateHAFromData();
+    if (paneId === "pane-farm") {
+      hydrateFarmFromData();
+      loadFarmStatus();
+    }
     if (paneId === "pane-locations" && !locationsLoaded) loadLocations();
     if (paneId === "pane-remove") loadRemovableDevices();
     if (paneId === "pane-advanced") loadAdvancedSettings();
@@ -736,6 +812,145 @@
       console.error(e);
       setStatus("ha-status", "Failed to save Home Assistant settings.");
       if (window.showToast) window.showToast("Failed to save Home Assistant settings", "error");
+    }
+  }
+
+  function hydrateFarmFromData() {
+    if (!shell) return;
+    const enabled = String(shell.dataset.farmEnabled || "").toLowerCase() === "true";
+    const baseUrl = shell.dataset.farmBaseUrl || "";
+    const verifyTls = String(shell.dataset.farmVerifyTls || "").toLowerCase() !== "false";
+    const accessToken = shell.dataset.farmAccessToken || "";
+    const clientId = shell.dataset.farmClientId || "farm";
+    const clientSecret = shell.dataset.farmClientSecret || "";
+    const username = shell.dataset.farmUsername || "";
+    const password = shell.dataset.farmPassword || "";
+    const logBundle = shell.dataset.farmLogBundle || "observation";
+
+    const enabledEl = document.getElementById("farm-enabled");
+    const verifyTlsEl = document.getElementById("farm-verify-tls");
+    const baseUrlEl = document.getElementById("farm-base-url");
+    const accessTokenEl = document.getElementById("farm-access-token");
+    const clientIdEl = document.getElementById("farm-client-id");
+    const clientSecretEl = document.getElementById("farm-client-secret");
+    const usernameEl = document.getElementById("farm-username");
+    const passwordEl = document.getElementById("farm-password");
+    const logBundleEl = document.getElementById("farm-log-bundle");
+
+    if (enabledEl) enabledEl.checked = enabled;
+    if (verifyTlsEl) verifyTlsEl.checked = verifyTls;
+    if (baseUrlEl) baseUrlEl.value = baseUrl;
+    if (accessTokenEl) {
+      accessTokenEl.value = accessToken;
+      accessTokenEl.type = "password";
+    }
+    if (clientIdEl) clientIdEl.value = clientId;
+    if (clientSecretEl) {
+      clientSecretEl.value = clientSecret;
+      clientSecretEl.type = "password";
+    }
+    if (usernameEl) usernameEl.value = username;
+    if (passwordEl) {
+      passwordEl.value = password;
+      passwordEl.type = "password";
+    }
+    if (logBundleEl) logBundleEl.value = logBundle;
+
+    const toggleTokenEl = document.getElementById("farm-token-toggle");
+    const toggleClientSecretEl = document.getElementById("farm-client-secret-toggle");
+    const togglePasswordEl = document.getElementById("farm-password-toggle");
+    if (toggleTokenEl) toggleTokenEl.textContent = "Show";
+    if (toggleClientSecretEl) toggleClientSecretEl.textContent = "Show";
+    if (togglePasswordEl) togglePasswordEl.textContent = "Show";
+    setStatus("farm-status", "");
+  }
+
+  async function saveFarmSettings() {
+    try {
+      const enabled = !!document.getElementById("farm-enabled")?.checked;
+      const verify_tls = !!document.getElementById("farm-verify-tls")?.checked;
+      const base_url = (document.getElementById("farm-base-url")?.value || "").trim();
+      const access_token = (document.getElementById("farm-access-token")?.value || "").trim();
+      const client_id = (document.getElementById("farm-client-id")?.value || "farm").trim() || "farm";
+      const client_secret = (document.getElementById("farm-client-secret")?.value || "").trim();
+      const username = (document.getElementById("farm-username")?.value || "").trim();
+      const password = (document.getElementById("farm-password")?.value || "").trim();
+      const log_bundle = (document.getElementById("farm-log-bundle")?.value || "observation").trim().toLowerCase() || "observation";
+
+      setStatus("farm-status", "Saving...");
+
+      const resp = await fetch("/submit-farmos-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled, verify_tls, base_url, access_token, client_id, client_secret, username, password, log_bundle
+        })
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => "");
+        throw new Error("HTTP " + resp.status + " " + text);
+      }
+
+      shell.dataset.farmEnabled = String(enabled);
+      shell.dataset.farmVerifyTls = String(verify_tls);
+      shell.dataset.farmBaseUrl = base_url;
+      shell.dataset.farmAccessToken = access_token;
+      shell.dataset.farmClientId = client_id;
+      shell.dataset.farmClientSecret = client_secret;
+      shell.dataset.farmUsername = username;
+      shell.dataset.farmPassword = password;
+      shell.dataset.farmLogBundle = log_bundle;
+      await loadFarmStatus("Saved.");
+      if (window.showToast) window.showToast("FarmOS settings saved", "ok");
+    } catch (e) {
+      console.error(e);
+      setStatus("farm-status", "Failed to save FarmOS settings.");
+      if (window.showToast) window.showToast("Failed to save FarmOS settings", "error");
+    }
+  }
+
+  async function loadFarmStatus(prefixText) {
+    try {
+      const resp = await fetch("/farmos/status", { cache: "no-store" });
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      const parts = [];
+      if (prefixText) parts.push(prefixText);
+      parts.push(`Enabled=${!!data.enabled}`);
+      parts.push(`Queue=${Number(data.queue_depth || 0)}`);
+      parts.push(`StaticToken=${!!data.has_static_token}`);
+      parts.push(`RuntimeToken=${!!data.has_runtime_token}`);
+      if (data.last_error) parts.push(`LastError=${data.last_error}`);
+      setStatus("farm-status", parts.join(" | "));
+    } catch (e) {
+      console.error(e);
+      if (!prefixText) setStatus("farm-status", "Failed to load FarmOS status.");
+    }
+  }
+
+  async function testFarmConnection() {
+    try {
+      setStatus("farm-status", "Testing connection...");
+      const resp = await fetch("/farmos/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data.ok) {
+        const msg = data.error || ("HTTP " + resp.status);
+        setStatus("farm-status", "Connection failed: " + msg);
+        if (window.showToast) window.showToast("FarmOS test failed", "error");
+        return;
+      }
+      setStatus("farm-status", `Connection OK (${data.status_code || 200})`);
+      if (window.showToast) window.showToast("FarmOS connection OK", "ok");
+      await loadFarmStatus();
+    } catch (e) {
+      console.error(e);
+      setStatus("farm-status", "Connection failed.");
+      if (window.showToast) window.showToast("FarmOS test failed", "error");
     }
   }
 
@@ -1167,6 +1382,33 @@
     }
     if (ev.target && ev.target.id === "btn-ha-save") {
       saveHASettings();
+    }
+    if (ev.target && ev.target.id === "farm-token-toggle") {
+      const input = document.getElementById("farm-access-token");
+      if (!input) return;
+      const show = input.type === "password";
+      input.type = show ? "text" : "password";
+      ev.target.textContent = show ? "Hide" : "Show";
+    }
+    if (ev.target && ev.target.id === "farm-client-secret-toggle") {
+      const input = document.getElementById("farm-client-secret");
+      if (!input) return;
+      const show = input.type === "password";
+      input.type = show ? "text" : "password";
+      ev.target.textContent = show ? "Hide" : "Show";
+    }
+    if (ev.target && ev.target.id === "farm-password-toggle") {
+      const input = document.getElementById("farm-password");
+      if (!input) return;
+      const show = input.type === "password";
+      input.type = show ? "text" : "password";
+      ev.target.textContent = show ? "Hide" : "Show";
+    }
+    if (ev.target && ev.target.id === "btn-farm-save") {
+      saveFarmSettings();
+    }
+    if (ev.target && ev.target.id === "btn-farm-test") {
+      testFarmConnection();
     }
     if (ev.target && ev.target.id === "btn-locations-save") {
       saveLocations();

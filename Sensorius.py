@@ -18,6 +18,7 @@ from saiGarbageCollection import GCManager
 from saiWebServer import WebServerController, launch_webview
 from saiWatchdog import WatchdogMonitor
 from saiMQTTIngest import saiMQTTIngest
+from saiFarmOSBridge import saiFarmOSBridge
 from saiSettings import saiSettings
 from saiSensorSettingsManager import SensorSettingsManager
 from saiUtils import SettingsWrapper
@@ -484,6 +485,8 @@ async def main():
             printDM("No SensorNetwork.BROKER configured — MQTT ingest not started.", location=f"{MODULE}:main")
 
     # --- Always-on supervisors ---
+    farmos_bridge = saiFarmOSBridge(settings=settings, data_logger=data_logger, supervisor=supervisor)
+    supervisor.add(farmos_bridge.run, name="FarmOS Bridge")
     supervisor.add(WatchdogMonitor, supervisor, name="Watchdog Monitor")
     supervisor.add(gc_mgr.run, name="GC Manager")
     
@@ -511,6 +514,7 @@ async def main():
     web_server = WebServerController(settings, net_mgr, supervisor, gc_mgr, mqtt_ingest_clients)
     # make ingest available to request.app.state for /retry-discovery
     web_server.app.state.mqtt_ingest = mqtt_ingest_clients
+    web_server.app.state.farmos_bridge = farmos_bridge
     
     await web_server.initialize_server()
     await web_server.run_async()
