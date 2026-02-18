@@ -148,3 +148,22 @@ def test_mqtt_switch_requires_channel_id_and_does_not_fallback_to_slug_topic():
     )
     assert sw.set_state("Grow Light", False) is False
     assert sw.mqtt.calls == []
+
+
+def test_mqtt_switch_accepts_switch_n_en_install_markers():
+    sw = MQTTSwitch(
+        settings={
+            "Switch": {
+                "TYPE": "nodus",
+                "SWITCH_DEVICE_ID": "switch-1",
+                "SWITCH_1_LABEL": "Desk Fan",
+                "SWITCH_1_CHANNEL_ID": "S1-abc",
+                "SWITCH_1_EN": "5",
+                "SWITCH_2_LABEL": "Humidifier",
+                "SWITCH_2_CHANNEL_ID": "S2-abc",
+                "SWITCH_2_EN": "",
+            }
+        },
+        mqtt_client=_FakeMQTT(rc=0),
+    )
+    assert sw.get_switch_names() == ["Desk Fan"]

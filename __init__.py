@@ -1,3 +1,3 @@
 """Sensorius package metadata."""
 
-__version__ = "v0.26.047.0"
+__version__ = "v0.26.049.0"

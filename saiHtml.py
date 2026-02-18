@@ -267,7 +267,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         return str(val).strip() != ""
 
     def _enable_field_value(sw_block: dict, idx: int):
-        return sw_block.get(f"SWITCH_{idx}_ENABLE_PIN", "")
+        # Nodus/Pico payloads have used both SWITCH_n_ENABLE_PIN and SWITCH_n_EN.
+        return sw_block.get(f"SWITCH_{idx}_ENABLE_PIN", sw_block.get(f"SWITCH_{idx}_EN", ""))
 
     # ---------- build a unified switches_by_loc once ----------
     from saiSwitchSettingsManager import SwitchSettingsManager
@@ -397,7 +398,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 return []
 
             sw_type = str(sw_blk.get("TYPE", "") or "").strip().lower()
-            has_en_keys = ("SWITCH_1_ENABLE_PIN" in sw_blk) or ("SWITCH_2_ENABLE_PIN" in sw_blk)
+            has_en_keys = (
+                ("SWITCH_1_ENABLE_PIN" in sw_blk) or ("SWITCH_2_ENABLE_PIN" in sw_blk)
+                or ("SWITCH_1_EN" in sw_blk) or ("SWITCH_2_EN" in sw_blk)
+            )
             labels: list[str] = []
             if sw_type in ("picow", "pico2w", "nodus", "remote", "mqtt") or has_en_keys:
                 for i in range(1, 9):
@@ -430,7 +434,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
 
             out: dict[str, str] = {}
             sw_type = str(sw_blk.get("TYPE", "") or "").strip().lower()
-            has_en_keys = ("SWITCH_1_ENABLE_PIN" in sw_blk) or ("SWITCH_2_ENABLE_PIN" in sw_blk)
+            has_en_keys = (
+                ("SWITCH_1_ENABLE_PIN" in sw_blk) or ("SWITCH_2_ENABLE_PIN" in sw_blk)
+                or ("SWITCH_1_EN" in sw_blk) or ("SWITCH_2_EN" in sw_blk)
+            )
             if sw_type in ("picow", "pico2w", "nodus", "remote", "mqtt") or has_en_keys:
                 # Pico/Nodus: channel is installed when SWITCH_n_ENABLE_PIN is non-empty.
                 for i in range(1, 9):
@@ -825,7 +832,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ".astro-meta{font-size:.74rem;line-height:1.25;text-align:center;color:#27313a;min-height:1.9em;white-space:normal;}"
     yield ".astro-times{width:156px;display:flex;justify-content:space-between;gap:.35rem;font-variant-numeric:tabular-nums;}"
     yield ".astro-times span{display:inline-block;min-width:0;}"
-    yield "#sunPathCanvas{width:156px;height:96px;border:1px solid #d5c7a8;border-radius:8px;background:linear-gradient(180deg,#dff1ff 0%,#fff8de 75%);}"
+    yield "#sunPathCanvas{width:156px;height:96px;border:1px solid #d5c7a8;border-radius:8px;background:#dff1ff;}"
     yield "#moonPhaseCanvas{width:96px;height:96px;border:1px solid #d5c7a8;border-radius:50%;background:#081322;}"
     yield "@media (max-width: 760px){#sunPathCanvas{width:142px;height:86px}.astro-times{width:142px}.astro-card{min-width:120px}.dash-loc-form,.astro-box{min-height:unset}}"
     yield "</style>"
@@ -1009,7 +1016,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 sw_blk = doc.get("Switch", {}) if isinstance(doc, dict) else {}
 
                 sw_type = str(sw_blk.get("TYPE", "") or "").strip().lower()
-                has_en_keys = ("SWITCH_1_ENABLE_PIN" in sw_blk) or ("SWITCH_2_ENABLE_PIN" in sw_blk)
+                has_en_keys = (
+                    ("SWITCH_1_ENABLE_PIN" in sw_blk) or ("SWITCH_2_ENABLE_PIN" in sw_blk)
+                    or ("SWITCH_1_EN" in sw_blk) or ("SWITCH_2_EN" in sw_blk)
+                )
 
                 if sw_type in ("picow", "pico2w", "nodus", "remote", "mqtt") or has_en_keys:
                     # Pico2 W: *_ENABLE_PIN indicates channel installed
@@ -1270,7 +1280,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  const w = c.width - padX*2, h = c.height - padY*2;"
     yield "  ctx.strokeStyle = '#8fa4b3'; ctx.lineWidth = 1;"
     yield "  ctx.beginPath(); ctx.moveTo(padX, c.height-padY); ctx.lineTo(c.width-padX, c.height-padY); ctx.stroke();"
-    yield "  ctx.strokeStyle = '#f5a623'; ctx.lineWidth = 2;"
+    yield "  ctx.strokeStyle = '#7ec8ff'; ctx.lineWidth = 2;"
     yield "  ctx.beginPath();"
     yield "  pts.forEach((p, i) => {"
     yield "    const x = padX + (i/(pts.length-1))*w;"
@@ -1286,7 +1296,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  for (let i=0;i<pts.length;i++){ if (pts[i].t <= cur) idx = i; }"
     yield "  const xNow = padX + (idx/(pts.length-1))*w;"
     yield "  const yNow = padY + (1-((pts[idx].e-minE)/(maxE-minE)))*h;"
-    yield "  ctx.fillStyle = '#0d1b2a'; ctx.beginPath(); ctx.arc(xNow, yNow, 3.2, 0, Math.PI*2); ctx.fill();"
+    yield "  ctx.fillStyle = '#ffff00'; ctx.beginPath(); ctx.arc(xNow, yNow, 3.84, 0, Math.PI*2); ctx.fill(); ctx.strokeStyle = '#ff8c00'; ctx.lineWidth = 1; ctx.stroke();"
     yield "  riseEl.textContent = fmtSun(data.sunrise);"
     yield "  noonEl.textContent = fmtSun(data.sun_noon);"
     yield "  setEl.textContent = fmtSun(data.sunset);"
@@ -3571,7 +3581,10 @@ def render_graph_modal(switch_installed=None):
                         labels: list[str] = []
                         for i in range(1, 7):
                             lab = str(swblk.get(f"SWITCH_{i}_LABEL", "") or "").strip()
-                            en = str(swblk.get(f"SWITCH_{i}_ENABLE_PIN", "") or "").strip()
+                            en = str(
+                                swblk.get(f"SWITCH_{i}_ENABLE_PIN", swblk.get(f"SWITCH_{i}_EN", ""))
+                                or ""
+                            ).strip()
                             pin = str(swblk.get(f"SWITCH_{i}_PIN", "") or "").strip()
                             if lab and (en or pin):
                                 labels.append(lab)

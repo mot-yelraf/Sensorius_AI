@@ -5824,13 +5824,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         def _extract_channel_indices(sw_section: dict) -> list[int]:
             sw_type = str(sw_section.get("TYPE", "") or "").strip().lower()
-            has_en_keys = ("SWITCH_1_ENABLE_PIN" in sw_section) or ("SWITCH_2_ENABLE_PIN" in sw_section)
+            has_en_keys = (
+                ("SWITCH_1_ENABLE_PIN" in sw_section) or ("SWITCH_2_ENABLE_PIN" in sw_section)
+                or ("SWITCH_1_EN" in sw_section) or ("SWITCH_2_EN" in sw_section)
+            )
 
             def _enable_value(i: int):
-                return sw_section.get(f"SWITCH_{i}_ENABLE_PIN", "")
+                return sw_section.get(f"SWITCH_{i}_ENABLE_PIN", sw_section.get(f"SWITCH_{i}_EN", ""))
             indices_found: set[int] = set()
             for key in sw_section.keys():
-                m = re.match(r"^SWITCH_(\d+)(?:_LABEL|_ENABLE_PIN|_PIN|_Trigger)?$", str(key))
+                m = re.match(r"^SWITCH_(\d+)(?:_LABEL|_ENABLE_PIN|_EN|_PIN|_Trigger)?$", str(key))
                 if m:
                     indices_found.add(int(m.group(1)))
             if not indices_found:

@@ -449,7 +449,10 @@ class MQTTSwitch:
         # channel labels + stable IDs from settings
         self.channels = []
         self.channel_id_for_label = {}
-        has_en_keys = ("SWITCH_1_ENABLE_PIN" in sw) or ("SWITCH_2_ENABLE_PIN" in sw)
+        has_en_keys = (
+            ("SWITCH_1_ENABLE_PIN" in sw) or ("SWITCH_2_ENABLE_PIN" in sw)
+            or ("SWITCH_1_EN" in sw) or ("SWITCH_2_EN" in sw)
+        )
         is_picow_like = str(sw.get("TYPE", "") or "").strip().lower() in ("picow", "pico2w")
 
         def _has_install_marker(val) -> bool:
@@ -460,7 +463,7 @@ class MQTTSwitch:
             return str(val).strip() != ""
 
         def _enable_field_value(sw_map: dict, idx: int):
-            return sw_map.get(f"SWITCH_{idx}_ENABLE_PIN", "")
+            return sw_map.get(f"SWITCH_{idx}_ENABLE_PIN", sw_map.get(f"SWITCH_{idx}_EN", ""))
 
         for n in range(1, 9):
             label = str(sw.get(f"SWITCH_{n}_LABEL", "") or "").strip()

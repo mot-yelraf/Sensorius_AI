@@ -1085,7 +1085,7 @@ class saiMQTTIngest:
                 printDM("[discover_enabled_switch_labels] No Switch block found", location=MODULE)
             return []
 
-        is_picow = (switch_blk.get("TYPE") or switch_blk.get("type") or "").strip().lower() in ("picow", "pico2w")
+        is_picow = (switch_blk.get("TYPE") or switch_blk.get("type") or "").strip().lower() in ("picow", "pico2w", "nodus")
         has_global_enable_pin = bool(str(switch_blk.get("SWITCH_ENABLE_PIN", "") or "").strip())
 
         enabled: list[tuple[int, str]] = []
@@ -1104,9 +1104,10 @@ class saiMQTTIngest:
             # channel-specific pins/enable flags
             pin_key = f"SWITCH_{idx}_PIN"
             en_key  = f"SWITCH_{idx}_EN"
+            en_pin_key = f"SWITCH_{idx}_ENABLE_PIN"
 
             pin_val = str(switch_blk.get(pin_key, "") or "").strip()
-            en_val  = str(switch_blk.get(en_key, "") or "").strip()
+            en_val  = str(switch_blk.get(en_key, switch_blk.get(en_pin_key, "")) or "").strip()
 
             if is_picow:
                 # Pico2 W: enabled iff per-channel EN is present (non-empty)
@@ -2030,6 +2031,7 @@ class saiMQTTIngest:
                 switch_loc = sw.get("switch_location") or "Unknown"
                 switch_type = (sw.get("switch_type") or "").strip()
                 switch_serial = (sw.get("serial") or "").strip()
+                switch_payload = sw.get("switch_payload") if isinstance(sw, dict) else None
 
                 nodus_dir = switch_mgr.base_dir / "factory_nodus"
                 tpl_path = nodus_dir / "switch.toml.def"
@@ -2045,6 +2047,19 @@ class saiMQTTIngest:
                         sb["TYPE"] = switch_type
                     if switch_serial:
                         sb["DEVICE_SERIAL_NUM"] = switch_serial
+                    # Overlay indexed switch fields from /itaot so rendering does
+                    # not fall back to generic "Relay N" labels after onboarding.
+                    try:
+                        src = {}
+                        if isinstance(switch_payload, dict):
+                            src = switch_payload.get("Switch") if isinstance(switch_payload.get("Switch"), dict) else switch_payload
+                        if isinstance(src, dict):
+                            for k, v in src.items():
+                                ks = str(k or "")
+                                if ks.startswith("SWITCH_") and ks != "SWITCH_DEVICE_ID":
+                                    sb[ks] = v
+                    except Exception:
+                        pass
                     try:
                         switch_mgr._ensure_channel_ids(sb)
                     except Exception:

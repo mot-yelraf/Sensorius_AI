@@ -687,11 +687,35 @@ def connect_to_sensor_ap(ap_ssid: str, ap_password: str, *, attempts: int = 3) -
 
 # ---------- device-id selection ----------
 def _choose_device_id(payload: dict) -> str | None:
-    for key in ("SENSOR_ID", "SWITCH_ID", "HOSTNAME"):
+    for key in ("SENSOR_ID", "SWITCH_ID", "SWITCH_DEVICE_ID", "HOSTNAME"):
         val = (payload.get(key) or "").strip()
         if val:
             return val
     return None
+
+
+def _choose_switch_id(payload: dict) -> str:
+    """
+    Resolve switch id from /itaot payload across legacy and current schemas.
+    """
+    if not isinstance(payload, dict):
+        return ""
+
+    for key in ("SWITCH_ID", "SWITCH_DEVICE_ID"):
+        val = str(payload.get(key) or "").strip()
+        if val:
+            return val
+
+    # Modern schema often uses a switches[] array.
+    switches = payload.get("switches")
+    if isinstance(switches, list):
+        for sw in switches:
+            if not isinstance(sw, dict):
+                continue
+            val = str(sw.get("SWITCH_DEVICE_ID") or sw.get("switch_id") or sw.get("SWITCH_ID") or "").strip()
+            if val:
+                return val
+    return ""
 
 # ---------- persistence: system / sensor / switch ----------
 def persist_system_settings_by_device_id(updates: list[Dict[str, Any]]) -> Optional[str]:
@@ -1013,11 +1037,12 @@ def perform_picow_configure_and_reboot() -> tuple[bool, Optional[str]]:
             s_name, s_enc, s_b64 = st2
             persist_sensor_toml(sensor_id, s_name or "sensor.toml", s_enc, s_b64)
 
-    if device_info.get("SWITCH_ID"):
+    switch_id = _choose_switch_id(device_info)
+    if switch_id:
         sw = fetch_switch_toml(endpoints)
         if sw:
             sw_enc, sw_b64 = sw
-            persist_switch_toml(device_info.get("SWITCH_ID"), sw_enc, sw_b64)
+            persist_switch_toml(switch_id, sw_enc, sw_b64)
 
     # --- send updates to Pico2 W (will reboot) ---
     try:
@@ -1065,7 +1090,7 @@ async def begin_onboarding_preview() -> Dict[str, Any]:
         now_info = get_pi_network_info()
 
         switch_preview = {
-            "switch_id":          (info.get("SWITCH_ID") or ""),
+            "switch_id":          _choose_switch_id(info),
             "switch_location":    (info.get("SWITCH_LOCATION") or ""),
             "mqtt_switch_topics": info.get("mqtt_switch_topics") or {},
         }
