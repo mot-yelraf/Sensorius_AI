@@ -130,6 +130,20 @@ Notes:
 
 If you use Astral automation conditions, Sensorius can auto-resolve location from IP (internet required) when `[Astral].AUTO_IP = true` and manual coordinates are not set.
 
+## Web UI Astral Data
+
+When Astral location and timezone are available, the web UI dashboard shows:
+
+- Sun position path with sunrise, noon, and sunset times
+- Moon phase visualization and illumination
+
+Location resolution order is:
+
+- Manual `[Astral].LATITUDE` / `[Astral].LONGITUDE` / `[Astral].TIMEZONE`
+- IP geolocation when `[Astral].AUTO_IP = true`
+
+If manual lat/lon are blank and IP lookup succeeds, Sensorius now persists the discovered coordinates into `[Astral]` for later boots.
+
 ## Application Startup
 
 ### Manual Start

@@ -75,3 +75,17 @@ Temporary shell overrides (session-only) are still supported, for example:
 export SENSORIUS_LOG_LEVEL=DEBUG
 export SENSORIUS_GUI=0
 ```
+
+## Web UI System Settings
+
+System Settings in the web UI now allow saving:
+
+- HTTP Port
+- Sensorius Hub (MQTT broker)
+- Time Zone (`Time.TZ`)
+- Astral Latitude/Longitude (`Astral.LATITUDE`, `Astral.LONGITUDE`)
+- Gauge Size and Display Style
+
+Time Zone entry supports suggestion options from available IANA zones (`zoneinfo`), prioritized using Astral location when available.
+
+When `Astral.AUTO_IP = true` and manual lat/lon are empty, Sensorius can auto-discover coordinates from IP geolocation and persist them into `[Astral]`.

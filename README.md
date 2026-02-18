@@ -12,6 +12,7 @@ The goal is simple: get visibility, storage, and control with minimal manual set
 - Discovers Nodus sensors and switches via MQTT and `/itaot` metadata
 - Stores sensor readings and switch events in a local SQLite database
 - Provides live dashboards, historical graphing, and location-based views
+- Shows Astral-based sun position and moon phase cards in the dashboard when location/timezone are available
 - Supports manual and automated switch control
 - Supports calibration workflows for sensors
 - Can publish discovery/state for Home Assistant
