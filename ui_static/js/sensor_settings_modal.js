@@ -12,7 +12,7 @@ window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
       const on = pane.id === paneId;
       pane.style.display = on ? "flex" : "none";
     });
-    const items = menu ? menu.querySelectorAll(".list-item[data-pane-target]") : [];
+    const items = menu ? menu.querySelectorAll("button[data-pane-target], .list-item[data-pane-target]") : [];
     items.forEach((item) => {
       const target = item.getAttribute("data-pane-target") || "";
       if (target === paneId) item.classList.add("active");
@@ -21,7 +21,7 @@ window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
   }
 
   if (menu) {
-    const items = menu.querySelectorAll(".list-item[data-pane-target]");
+    const items = menu.querySelectorAll("button[data-pane-target], .list-item[data-pane-target]");
     items.forEach((item) => {
       item.addEventListener("click", () => {
         const target = item.getAttribute("data-pane-target") || "";

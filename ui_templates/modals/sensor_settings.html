@@ -14,18 +14,18 @@
 
     <div class="modal-body">
       <div class="split" style="grid-template-columns:260px 1fr; min-height:560px;">
-        <aside class="panel" style="background:#f7fcfa;">
+        <aside class="panel switch-dialog-menu">
           <div class="list-header">
             <span>{{ sensor_id }}</span>
           </div>
-          <div class="list" id="sensorSettingsMenu" style="padding:0.6rem;">
-            <button type="button" class="list-item active" data-pane-target="sensor-settings-pane">
+          <div id="sensorSettingsMenu" style="display:flex; flex-direction:column; gap:.5rem;">
+            <button type="button" class="switch-menu-btn list-item active" data-pane-target="sensor-settings-pane">
               <span class="item-name">Sensor Settings</span>
             </button>
-            <button type="button" class="list-item" data-pane-target="sensor-calibration-pane">
+            <button type="button" class="switch-menu-btn list-item" data-pane-target="sensor-calibration-pane">
               <span class="item-name">Sensor Calibration</span>
             </button>
-            <button type="button" class="list-item" data-pane-target="system-calibration-pane">
+            <button type="button" class="switch-menu-btn list-item" data-pane-target="system-calibration-pane">
               <span class="item-name">System Calibration</span>
             </button>
           </div>

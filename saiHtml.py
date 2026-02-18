@@ -129,12 +129,12 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         if _circular_dist(p, 21.0) <= 1.0:
             return "3rd Quarter"
         if 1.0 < p < 6.0:
-            return "Approaching 1st Quarter"
+            return "Waxing Crescent"
         if 8.0 < p < 13.0:
-            return "Approaching Full Moon"
+            return "Waxing Gibbous"
         if 15.0 < p < 20.0:
-            return "Approaching 3rd Quarter"
-        return "Approaching New Moon"
+            return "Waning Gibbous"
+        return "Waning Crescent"
 
     def _build_astro_payload() -> dict:
         out = {
@@ -826,15 +826,19 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ".dash-loc-form{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:.45rem;background:#e6faff;border:1px solid #c9ddff;border-radius:10px;padding:.45rem .65rem .55rem;min-height:102px;min-width:172px;width:172px;}"
     yield ".dash-loc-head{display:flex;align-items:center;justify-content:space-between;gap:.1rem;}"
     yield ".dash-loc-label{font-size:.78rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;opacity:.85;}"
-    yield ".astro-box{display:flex;align-items:flex-start;justify-content:flex-start;background:#f8f3e7;border:1px solid #d9cdb3;border-radius:10px;padding:.45rem .55rem;min-height:102px;}"
+    yield ".astro-box{display:flex;align-items:flex-start;justify-content:flex-start;background:#ffffe0;border:1px solid #ccc;border-radius:10px;padding:.45rem .55rem;min-height:102px;}"
+    yield ".dash-loc-form select{background:#ffffe0;border:1px solid #ccc;}"
     yield ".astro-card{display:flex;flex-direction:column;align-items:center;gap:.2rem;min-width:132px;}"
     yield ".astro-title{font-size:.78rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;opacity:.8;}"
     yield ".astro-meta{font-size:.74rem;line-height:1.25;text-align:center;color:#27313a;min-height:1.9em;white-space:normal;}"
-    yield ".astro-times{width:156px;display:flex;justify-content:space-between;gap:.35rem;font-variant-numeric:tabular-nums;}"
+    yield "#sunBox .astro-card{min-width:230px;}"
+    yield "#moonBox .astro-card{min-width:230px;}"
+    yield "#moonMeta{white-space:nowrap;padding:0 10px;}"
+    yield ".astro-times{width:210px;display:flex;justify-content:space-between;gap:.35rem;font-variant-numeric:tabular-nums;}"
     yield ".astro-times span{display:inline-block;min-width:0;}"
-    yield "#sunPathCanvas{width:156px;height:96px;border:1px solid #d5c7a8;border-radius:8px;background:#dff1ff;}"
+    yield "#sunPathCanvas{width:210px;height:96px;border:1px solid #d5c7a8;border-radius:8px;background:#dff1ff;}"
     yield "#moonPhaseCanvas{width:96px;height:96px;border:1px solid #d5c7a8;border-radius:50%;background:#081322;}"
-    yield "@media (max-width: 760px){#sunPathCanvas{width:142px;height:86px}.astro-times{width:142px}.astro-card{min-width:120px}.dash-loc-form,.astro-box{min-height:unset}}"
+    yield "@media (max-width: 760px){#sunPathCanvas{width:184px;height:86px}.astro-times{width:184px}.astro-card{min-width:120px}.dash-loc-form,.astro-box{min-height:unset}}"
     yield "</style>"
 
     yield "<div class='dash-top-row'>"
@@ -850,7 +854,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  <div class='dash-loc-label'>Device Locations</div>"
     yield "  <a id='refresh_link' class='refresh-link' href='/' title='Refresh dashboard' aria-label='Refresh dashboard'>⟳</a>"
     yield "</div>"
-    yield "<select name='sensor_id' id='sensor_id' onchange='this.form.submit()' style='background-color:#e6faff;'>"
+    yield "<select name='sensor_id' id='sensor_id' onchange='this.form.submit()' style='background-color:#ffffe0;'>"
     # treat any non 'loc:*' as All (back-compat: direct sensor ids will land here)
     is_loc_filter = isinstance(sensor_id, str) and sensor_id.startswith("loc:")
     yield f"<option value='All' {'selected' if (not is_loc_filter or sensor_id == 'All') else ''}>All Locations</option>"
@@ -3405,14 +3409,15 @@ def render_graph_modal(switch_installed=None):
       background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;
     }
     #graphModal .modal-content {
-      background:#F5FFFA; padding:1rem; border-radius:0.5rem;
-      max-width:860px; width:96%; max-height:90%; overflow:hidden;
-      display:grid; grid-template-columns: 30% 70%; gap:1rem;
+      background:#F5FFFA; padding:1rem; border-radius:14px;
+      box-shadow:0 10px 30px rgba(0,0,0,.18);
+      width:fit-content; max-width:96vw; max-height:90%; overflow:hidden;
+      display:grid; grid-template-columns: minmax(200px, 240px) minmax(400px, 520px); gap:1rem;
       box-sizing:border-box;
     }
     #graphModal .graph-left-pane,
     #graphModal .graph-right-pane{
-      border:1px solid #d7e6df;
+      border:1px solid #d6dfd8;
       border-radius:10px;
       background:#ffffff;
       min-height:560px;
@@ -3420,10 +3425,10 @@ def render_graph_modal(switch_installed=None):
       flex-direction:column;
       overflow:hidden;
     }
-    #graphModal .graph-left-pane{ background:#f7fcfa; }
+    #graphModal .graph-left-pane{ background:#ecf5ee; }
     #graphModal .graph-pane-title{
       margin:0; padding:0.85rem 1rem; font-size:1rem; font-weight:700;
-      border-bottom:1px solid #e3eee8;
+      border-bottom:1px solid #e6ece8;
     }
     #graphSetupList{
       flex:1;
@@ -3443,15 +3448,15 @@ def render_graph_modal(switch_installed=None):
       font-size:0.92rem;
       line-height:1.25;
     }
-    #graphSetupList .setup-item:hover{ background:#eef8f4; border-color:#b7d5c8; }
-    #graphSetupList .setup-item.active{ background:#e3f4ec; border-color:#86b9a0; font-weight:700; }
+    #graphSetupList .setup-item:hover{ background:#fff; border-color:#d6dfd8; }
+    #graphSetupList .setup-item.active{ background:#dce9ff; border-color:#afc8f7; font-weight:700; }
     #graphSetupList .setup-empty{
       font-size:0.9rem;
       color:#5f7469;
       padding:0.4rem;
     }
     #graphModal .graph-left-footer{
-      border-top:1px solid #e3eee8;
+      border-top:1px solid #e6ece8;
       padding:0.65rem;
       display:flex;
       justify-content:center;
@@ -3467,7 +3472,7 @@ def render_graph_modal(switch_installed=None):
       padding:0.95rem 1rem 0.6rem 1rem;
     }
     #graphModal .graph-actions{
-      border-top:1px solid #e3eee8;
+      border-top:1px solid #e6ece8;
       padding:0.75rem 1rem;
       display:flex;
       justify-content:space-between;
