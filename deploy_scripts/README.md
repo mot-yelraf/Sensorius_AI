@@ -9,7 +9,7 @@ This folder contains:
 Requirements files in this folder include:
 
 - `astral` for sunrise/sunset automation scheduling
-- `farmOS` for optional FarmOS integration via `farmOS.py`
+- `httpx`-based FarmOS integration support (no `farmOS.py` dependency)
 
 ## Setup Entry Points
 
@@ -29,6 +29,26 @@ Shell and PowerShell setup scripts deploy app files from your cloned repo into:
 - `~/Sensorius`
 
 That path is used for runtime execution and service working directories.
+
+## Mosquitto Scope
+
+Linux and Windows setup scripts support `BROKER_SCOPE`:
+
+- `system` (default): system service install/startup (`sudo`/Administrator required)
+- `user`: user-owned mosquitto config/state and user startup (no elevated broker runtime)
+
+Examples:
+
+```bash
+BROKER_SCOPE=user ./deploy_scripts/setup_linux.sh
+```
+
+```powershell
+$env:BROKER_SCOPE = 'user'
+.\deploy_scripts\setup_win_uv.ps1
+```
+
+macOS setup scripts now configure mosquitto in user scope by default (LaunchAgent + user-owned config/data paths).
 
 ## Examples
 

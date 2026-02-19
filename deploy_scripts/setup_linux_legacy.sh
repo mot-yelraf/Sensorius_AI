@@ -6,6 +6,7 @@ VENV_PATH="${VENV_PATH:-${PROJECT_DIR}/.venv}"
 REQ_FILE="${REQ_FILE:-${PROJECT_DIR}/setup_reqs_linux.txt}"
 INSTALL_PYWEBVIEW="${INSTALL_PYWEBVIEW:-1}"
 PIP_ONLY_BINARY="${PIP_ONLY_BINARY:-1}"
+BROKER_SCOPE="${BROKER_SCOPE:-}"
 HEARTBEAT_SECONDS="${HEARTBEAT_SECONDS:-60}"
 START_TS="$(date +%s)"
 
@@ -54,6 +55,23 @@ ensure_apt() {
     cleanup
     exit 1
   fi
+}
+
+choose_broker_scope() {
+  if [[ "${BROKER_SCOPE}" == "user" || "${BROKER_SCOPE}" == "system" ]]; then
+    return
+  fi
+  local ans
+  read -r -p "Mosquitto scope [system/user] (default: system): " ans
+  ans="$(printf '%s' "${ans:-}" | tr '[:upper:]' '[:lower:]')"
+  if [[ -z "${ans}" ]]; then
+    ans="system"
+  fi
+  if [[ "${ans}" != "system" && "${ans}" != "user" ]]; then
+    echo "Invalid Mosquitto scope '${ans}', defaulting to system."
+    ans="system"
+  fi
+  BROKER_SCOPE="${ans}"
 }
 
 install_system_packages() {
@@ -138,6 +156,66 @@ verify_runtime_imports() {
 }
 
 install_mosquitto_config() {
+  if [[ "${BROKER_SCOPE}" == "user" ]]; then
+    local mosq_bin user_root user_run user_lib user_log user_conf user_svc_dir user_svc_file
+    mosq_bin="$(command -v mosquitto || true)"
+    if [[ -z "${mosq_bin}" ]]; then
+      echo "ERROR: mosquitto binary not found in PATH."
+      cleanup
+      exit 1
+    fi
+
+    user_root="${HOME}/.local/share/sensorius/mosquitto"
+    user_run="${user_root}/run"
+    user_lib="${user_root}/lib"
+    user_log="${user_root}/log"
+    user_conf="${HOME}/.config/sensorius/mosquitto/mosquitto.conf"
+    user_svc_dir="${HOME}/.config/systemd/user"
+    user_svc_file="${user_svc_dir}/sensorius-mosquitto.service"
+
+    mkdir -p "${user_run}" "${user_lib}" "${user_log}" "$(dirname "${user_conf}")" "${user_svc_dir}"
+    touch "${user_log}/mosquitto.log"
+
+    cat > "${user_conf}" <<EOF
+pid_file ${user_run}/mosquitto.pid
+persistence true
+persistence_location ${user_lib}/
+log_dest file ${user_log}/mosquitto.log
+listener 1883
+allow_anonymous true
+EOF
+
+    if command -v systemctl >/dev/null 2>&1; then
+      cat > "${user_svc_file}" <<EOF
+[Unit]
+Description=Sensorius Mosquitto (User)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${mosq_bin} -c ${user_conf}
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target
+EOF
+      run_with_heartbeat "Reload user systemd daemon" systemctl --user daemon-reload
+      run_with_heartbeat "Enable user mosquitto service" systemctl --user enable sensorius-mosquitto.service
+      run_with_heartbeat "Restart user mosquitto service" systemctl --user restart sensorius-mosquitto.service
+    else
+      echo "WARNING: systemctl --user not available; starting mosquitto in background for this session."
+      nohup "${mosq_bin}" -c "${user_conf}" >/dev/null 2>&1 &
+    fi
+
+    # Avoid port conflicts if a system service is active.
+    if command -v systemctl >/dev/null 2>&1; then
+      sudo systemctl stop mosquitto >/dev/null 2>&1 || true
+    fi
+    return
+  fi
+
   local conf_tmp
   conf_tmp="$(mktemp)"
   cat > "${conf_tmp}" <<'EOF'
@@ -205,6 +283,7 @@ main() {
   echo "Using precompiled system packages and binary Python wheels when possible."
 
   ensure_apt
+  choose_broker_scope
   install_system_packages
   install_requirements
   verify_runtime_imports

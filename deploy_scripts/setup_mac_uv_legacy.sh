@@ -215,35 +215,73 @@ install_mosquitto() {
 
   local brew_prefix
   brew_prefix="$(brew --prefix)"
-  MOSQ_ETC="${brew_prefix}/etc/mosquitto"
-  MOSQ_CONF="${MOSQ_ETC}/mosquitto.conf"
-  MOSQ_CONF_D="${MOSQ_ETC}/conf.d"
-  local mosq_var_run="${brew_prefix}/var/run/mosquitto"
-  local mosq_var_lib="${brew_prefix}/var/lib/mosquitto"
-  local mosq_var_log="${brew_prefix}/var/log"
-
-  mkdir -p "${mosq_var_run}" "${mosq_var_lib}" "${mosq_var_log}"
-  touch "${mosq_var_log}/mosquitto.log"
-  mkdir -p "${MOSQ_CONF_D}"
-
-  if [[ ! -f "${MOSQ_CONF}" ]]; then
-    cat > "${MOSQ_CONF}" <<EOF
-pid_file ${mosq_var_run}/mosquitto.pid
-persistence true
-persistence_location ${mosq_var_lib}/
-log_dest file ${mosq_var_log}/mosquitto.log
-include_dir ${MOSQ_CONF_D}
-EOF
-  elif ! grep -q "^include_dir .*conf.d" "${MOSQ_CONF}"; then
-    echo "include_dir ${MOSQ_CONF_D}" >> "${MOSQ_CONF}"
+  local mosq_bin="${brew_prefix}/opt/mosquitto/sbin/mosquitto"
+  if [[ ! -x "${mosq_bin}" ]]; then
+    mosq_bin="${brew_prefix}/sbin/mosquitto"
+  fi
+  if [[ ! -x "${mosq_bin}" ]]; then
+    echo "ERROR: Mosquitto binary not found under ${brew_prefix}."
+    cleanup
+    exit 1
   fi
 
-  cat > "${MOSQ_CONF_D}/anon.conf" <<'EOF'
+  local user_root="${HOME}/Library/Application Support/Sensorius/mosquitto"
+  local user_run="${user_root}/run"
+  local user_lib="${user_root}/lib"
+  local user_log="${user_root}/log"
+  local user_conf="${user_root}/mosquitto.conf"
+  local mosq_label="com.sensorius.mosquitto"
+  local service_uid
+  service_uid="$(id -u)"
+  local launchd_domain="gui/${service_uid}"
+  local launchd_label="${launchd_domain}/${mosq_label}"
+  local plist_dir="${HOME}/Library/LaunchAgents"
+  local plist_path="${plist_dir}/${mosq_label}.plist"
+
+  mkdir -p "${user_run}" "${user_lib}" "${user_log}" "${plist_dir}"
+  touch "${user_log}/mosquitto.log" "${user_log}/mosquitto.err.log"
+
+  cat > "${user_conf}" <<EOF
+pid_file ${user_run}/mosquitto.pid
+persistence true
+persistence_location ${user_lib}/
+log_dest file ${user_log}/mosquitto.log
 listener 1883
 allow_anonymous true
 EOF
 
-  brew services restart mosquitto || brew services start mosquitto
+  # Ensure Homebrew-managed service doesn't conflict with user LaunchAgent.
+  brew services stop mosquitto >/dev/null 2>&1 || true
+
+  cat > "${plist_path}" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${mosq_label}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${mosq_bin}</string>
+    <string>-c</string>
+    <string>${user_conf}</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>${user_log}/mosquitto.log</string>
+  <key>StandardErrorPath</key>
+  <string>${user_log}/mosquitto.err.log</string>
+</dict>
+</plist>
+EOF
+
+  launchctl bootout "${launchd_label}" >/dev/null 2>&1 || true
+  launchctl bootstrap "${launchd_domain}" "${plist_path}"
+  launchctl enable "${launchd_label}"
+  launchctl kickstart -k "${launchd_label}"
 }
 
 configure_boot_start() {

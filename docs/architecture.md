@@ -50,7 +50,7 @@ When FarmOS integration is enabled:
 
 - `saiFarmOSBridge` listens for newly written sensor readings from `saiDataLogger`.
 - Readings are queued in memory (bounded by `FarmOS.QUEUE_MAX`).
-- A worker loop flushes queued items to farmOS using the selected backend (`httpx` direct JSON:API calls, or `farmospy` client log API `send`/`create`).
+- A worker loop flushes queued items to farmOS using direct `httpx` JSON:API calls.
 - Failed writes are re-queued for retry, and status/error details are exposed through `/farmos/status`.
 
 ## Discovery and Identity

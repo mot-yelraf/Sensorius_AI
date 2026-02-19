@@ -73,6 +73,7 @@ Notes:
 
 - These scripts install Python 3.13.5 and create a local `.venv`.
 - Mosquitto is installed and configured with anonymous access on port 1883.
+- Mosquitto runs in user scope (LaunchAgent + user-owned config/data paths), avoiding `/usr/local/var/*` permission issues.
 - Add Device onboarding uses native macOS Wi-Fi tools (`networksetup`/`airport`); no `nmcli` install is required.
 - GUI is optional. Set `SENSORIUS_GUI=0` to force headless mode.
 - If `pywebview` is not installed, Sensorius will continue headless.
@@ -98,13 +99,22 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 Notes:
 
-- These scripts use `winget` and require running PowerShell as Administrator.
+- These scripts use `winget`.
+- By default (`BROKER_SCOPE=system`), run in elevated PowerShell (Administrator).
+- For user-level setup, set `BROKER_SCOPE=user` and run in normal PowerShell.
 - Python 3.13.5 is installed via `pyenv-win` (pip script) or `uv` (uv script).
 - Mosquitto is installed and configured with anonymous access on port 1883.
 - Add Device onboarding uses native Windows Wi-Fi tooling (`netsh`); no `nmcli` equivalent install is required.
 - GUI is optional. Set `SENSORIUS_GUI=0` to force headless mode.
 - If `pywebview` is not installed, Sensorius will continue headless.
 - Access the UI in a browser at `http://127.0.0.1:8000` (or `http://<host-ip>:8000` from another device).
+
+Windows scope example:
+
+```powershell
+$env:BROKER_SCOPE = 'user'
+.\deploy_scripts\setup_win_uv.ps1
+```
 
 ## Linux Setup (Debian/Ubuntu, Hub + MQTT Only)
 
@@ -124,15 +134,22 @@ Notes:
 - Requirements now include `astral` for sunrise/sunset automation conditions.
 - Defaults to wheel-only Python installs (`PIP_ONLY_BINARY=1`) to avoid source builds.
 - Set `INSTALL_PYWEBVIEW=0` to skip pywebview and force headless mode.
+- Broker scope defaults to `system`; set `BROKER_SCOPE=user` to use user-owned mosquitto config/data and user service startup.
 - Access the UI in a browser at `http://127.0.0.1:8000` (or `http://<host-ip>:8000` from another device).
+
+Linux scope example:
+
+```bash
+BROKER_SCOPE=user ./deploy_scripts/setup_linux.sh
+```
 
 ## FarmOS Integration Prerequisites
 
 FarmOS export is optional and can be enabled after install from the web UI System Settings.
 
-- Python requirements include `farmOS` (`farmOS.py`) in current `deploy_scripts/setup_reqs*.txt` files.
-- If you choose backend `httpx`, only API endpoint/auth access to your farmOS instance is required.
-- If you choose backend `farmospy`, verify the `farmOS` package is installed in the runtime environment.
+- FarmOS export uses the built-in `httpx` backend only.
+- Python requirements do not include `farmOS.py`.
+- You only need API endpoint/auth access to your farmOS instance.
 - Configure FarmOS URL/auth and run the built-in `Test` action in System Settings before turning `FarmOS.ENABLED` on.
 - See `docs/farmos.md` for key settings and troubleshooting details.
 

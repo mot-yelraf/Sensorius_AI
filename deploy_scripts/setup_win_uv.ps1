@@ -8,6 +8,7 @@ $VenvPath = if ($env:VENV_PATH) { $env:VENV_PATH } else { Join-Path $ProjectDir 
 $ReqFile = if ($env:REQ_FILE) { $env:REQ_FILE } else { Join-Path $ScriptDir 'setup_reqs_win.txt' }
 $InstallPywebview = if ($env:INSTALL_PYWEBVIEW) { $env:INSTALL_PYWEBVIEW } else { '1' }
 $PipOnlyBinary = if ($env:PIP_ONLY_BINARY) { $env:PIP_ONLY_BINARY } else { '1' }
+$BrokerScope = if ($env:BROKER_SCOPE) { ($env:BROKER_SCOPE).ToLowerInvariant() } else { '' }
 
 $CreatedVenv = $false
 
@@ -49,6 +50,28 @@ function Ensure-Admin {
         Write-Host 'Please re-run this script in an elevated PowerShell (Run as Administrator).'
         Cleanup
         exit 1
+    }
+}
+
+function Resolve-BrokerScope {
+    if ($BrokerScope -in @('user', 'system')) {
+        return
+    }
+    $answer = Read-Host 'Mosquitto scope [system/user] (default: system)'
+    $choice = if ($null -eq $answer) { '' } else { $answer.Trim().ToLowerInvariant() }
+    if ([string]::IsNullOrWhiteSpace($choice)) {
+        $choice = 'system'
+    }
+    if ($choice -notin @('user', 'system')) {
+        Write-Host "Invalid scope '$choice'. Defaulting to system."
+        $choice = 'system'
+    }
+    $script:BrokerScope = $choice
+}
+
+function Ensure-AdminIfNeeded {
+    if ($BrokerScope -eq 'system') {
+        Ensure-Admin
     }
 }
 
@@ -152,7 +175,11 @@ function Resolve-MosquittoRoot {
 function Ensure-Uv {
     if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
         Write-Host 'Installing uv via winget...'
-        Install-WingetPackage -PackageId 'Astral.uv' -ScopeMachine
+        if ($BrokerScope -eq 'system') {
+            Install-WingetPackage -PackageId 'Astral.uv' -ScopeMachine
+        } else {
+            Install-WingetPackage -PackageId 'Astral.uv'
+        }
     }
     if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
         throw 'uv was not found after installation attempt.'
@@ -211,6 +238,46 @@ function Ensure-WebView2Runtime {
 }
 
 function Install-Mosquitto {
+    if ($BrokerScope -eq 'user') {
+        Write-Host 'Ensuring Mosquitto is installed via winget (user scope)...'
+        $installed = Install-WingetPackage -PackageId 'Eclipse.Mosquitto'
+        if (-not $installed) {
+            throw 'Mosquitto winget install/upgrade did not report success.'
+        }
+
+        $mosqRoot = Resolve-MosquittoRoot -ServiceObj $null
+        if (-not $mosqRoot) {
+            throw 'Mosquitto appears installed, but install path could not be resolved.'
+        }
+        $mosqExe = Join-Path $mosqRoot 'mosquitto.exe'
+        if (-not (Test-Path $mosqExe)) {
+            throw "Mosquitto executable not found at $mosqExe"
+        }
+
+        $userRoot = Join-Path $env:LOCALAPPDATA 'Sensorius\mosquitto'
+        $userRun = Join-Path $userRoot 'run'
+        $userLib = Join-Path $userRoot 'lib'
+        $userLog = Join-Path $userRoot 'log'
+        $userConf = Join-Path $userRoot 'mosquitto.conf'
+        New-Item -ItemType Directory -Force -Path $userRun, $userLib, $userLog | Out-Null
+
+        @"
+pid_file $userRun\mosquitto.pid
+persistence true
+persistence_location $userLib\
+log_dest file $userLog\mosquitto.log
+listener 1883
+allow_anonymous true
+"@ | Set-Content $userConf
+
+        $taskName = 'SensoriusMosquittoUser'
+        $taskCmd = "`"$mosqExe`" -c `"$userConf`""
+        & schtasks /Create /TN $taskName /SC ONLOGON /TR $taskCmd /F | Out-Null
+        Start-Process -FilePath $mosqExe -ArgumentList @('-c', $userConf) -WindowStyle Hidden -ErrorAction SilentlyContinue | Out-Null
+        Write-Host "Mosquitto configured for user startup task '$taskName'."
+        return
+    }
+
     Write-Host 'Ensuring Mosquitto is installed via winget (machine scope)...'
     $installed = Install-WingetPackage -PackageId 'Eclipse.Mosquitto' -ScopeMachine
     if (-not $installed) {
@@ -270,20 +337,24 @@ function Configure-BootStartup {
         return
     }
 
-    $taskName = 'SensoriusStartup'
+    $taskName = if ($BrokerScope -eq 'system') { 'SensoriusStartup' } else { 'SensoriusStartupUser' }
     $venvPython = Join-Path $VenvPath 'Scripts\python.exe'
     $scriptPath = Join-Path $ProjectDir 'Sensorius.py'
-
-    $action = New-ScheduledTaskAction -Execute $venvPython -Argument "`"$scriptPath`"" -WorkingDirectory $ProjectDir
-    $trigger = New-ScheduledTaskTrigger -AtStartup
-
-    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -User 'SYSTEM' -RunLevel Highest -Force | Out-Null
-    Write-Host "Configured startup task '$taskName'."
+    if ($BrokerScope -eq 'system') {
+        $action = New-ScheduledTaskAction -Execute $venvPython -Argument "`"$scriptPath`"" -WorkingDirectory $ProjectDir
+        $trigger = New-ScheduledTaskTrigger -AtStartup
+        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -User 'SYSTEM' -RunLevel Highest -Force | Out-Null
+    } else {
+        $taskCmd = "`"$venvPython`" `"$scriptPath`""
+        & schtasks /Create /TN $taskName /SC ONLOGON /TR $taskCmd /F | Out-Null
+    }
+    Write-Host "Configured startup task '$taskName' ($BrokerScope scope)."
 }
 
 try {
-    Ensure-Admin
     Deploy-ProjectFiles
+    Resolve-BrokerScope
+    Ensure-AdminIfNeeded
     Ensure-Winget
     Ensure-Uv
     Install-Python

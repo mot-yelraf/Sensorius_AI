@@ -83,7 +83,7 @@ System Settings in the web UI now allow saving:
 - HTTP Port
 - Sensorius Hub (MQTT broker)
 - Home Assistant integration settings
-- FarmOS integration settings (backend selector: `httpx` or `farmOS.py`)
+- FarmOS integration settings (`httpx` backend)
 - Time Zone (`Time.TZ`)
 - Astral Latitude/Longitude (`Astral.LATITUDE`, `Astral.LONGITUDE`)
 - Gauge Size and Display Style
@@ -100,7 +100,6 @@ It is stored under the `[FarmOS]` section in `system_settings/*/settings.toml`.
 ```toml
 [FarmOS]
 ENABLED = false
-BACKEND = "httpx"            # "httpx" or "farmospy"
 BASE_URL = ""
 VERIFY_TLS = true
 ACCESS_TOKEN = ""
@@ -112,13 +111,11 @@ LOG_BUNDLE = "observation"
 QUEUE_MAX = 1000
 FLUSH_INTERVAL_SEC = 3.0
 REQUEST_TIMEOUT_SEC = 10.0
-SCOPE = "farm_manager"       # optional; used by farmOS.py backend
 ```
 
 Key behavior:
 
 - `ENABLED`: if `false`, the bridge stays idle and does not flush queued telemetry.
-- `BACKEND`: `httpx` uses direct JSON:API calls; `farmospy` uses the optional `farmOS.py` client.
 - `BASE_URL`: farmOS server root URL, for example `https://farm.example.com`.
 - `VERIFY_TLS`: HTTPS certificate verification for outbound calls.
 - `ACCESS_TOKEN`: static bearer token; when set, it is preferred over runtime OAuth refresh.
@@ -127,7 +124,6 @@ Key behavior:
 - `QUEUE_MAX`: in-memory queue cap. Oldest events are dropped when full.
 - `FLUSH_INTERVAL_SEC`: polling interval used when queue is empty.
 - `REQUEST_TIMEOUT_SEC`: outbound request timeout.
-- `SCOPE`: optional scope used by `farmOS.py` auth flow.
 
 Operational notes:
 
