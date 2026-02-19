@@ -6,7 +6,10 @@ This folder contains:
 - Uninstall scripts (`uninstall*.sh`, `uninstall*.ps1`)
 - Host deploy sync script (`deploy_sai.sh`)
 
-Requirements files in this folder include `astral` for sunrise/sunset automation scheduling.
+Requirements files in this folder include:
+
+- `astral` for sunrise/sunset automation scheduling
+- `farmOS` for optional FarmOS integration via `farmOS.py`
 
 ## Setup Entry Points
 

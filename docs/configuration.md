@@ -83,7 +83,7 @@ System Settings in the web UI now allow saving:
 - HTTP Port
 - Sensorius Hub (MQTT broker)
 - Home Assistant integration settings
-- FarmOS integration settings
+- FarmOS integration settings (backend selector: `httpx` or `farmOS.py`)
 - Time Zone (`Time.TZ`)
 - Astral Latitude/Longitude (`Astral.LATITUDE`, `Astral.LONGITUDE`)
 - Gauge Size and Display Style
@@ -91,3 +91,50 @@ System Settings in the web UI now allow saving:
 Time Zone entry supports suggestion options from available IANA zones (`zoneinfo`), prioritized using Astral location when available.
 
 When `Astral.AUTO_IP = true` and manual lat/lon are empty, Sensorius can auto-discover coordinates from IP geolocation and persist them into `[Astral]`.
+
+## FarmOS Settings (`[FarmOS]`)
+
+FarmOS integration can be configured from the System Settings modal in the web UI.
+It is stored under the `[FarmOS]` section in `system_settings/*/settings.toml`.
+
+```toml
+[FarmOS]
+ENABLED = false
+BACKEND = "httpx"            # "httpx" or "farmospy"
+BASE_URL = ""
+VERIFY_TLS = true
+ACCESS_TOKEN = ""
+CLIENT_ID = "farm"
+CLIENT_SECRET = ""
+USERNAME = ""
+PASSWORD = ""
+LOG_BUNDLE = "observation"
+QUEUE_MAX = 1000
+FLUSH_INTERVAL_SEC = 3.0
+REQUEST_TIMEOUT_SEC = 10.0
+SCOPE = "farm_manager"       # optional; used by farmOS.py backend
+```
+
+Key behavior:
+
+- `ENABLED`: if `false`, the bridge stays idle and does not flush queued telemetry.
+- `BACKEND`: `httpx` uses direct JSON:API calls; `farmospy` uses the optional `farmOS.py` client.
+- `BASE_URL`: farmOS server root URL, for example `https://farm.example.com`.
+- `VERIFY_TLS`: HTTPS certificate verification for outbound calls.
+- `ACCESS_TOKEN`: static bearer token; when set, it is preferred over runtime OAuth refresh.
+- `CLIENT_ID`, `CLIENT_SECRET`, `USERNAME`, `PASSWORD`: used for password-grant token acquisition when no static token is provided.
+- `LOG_BUNDLE`: farmOS log bundle to write, default `observation`.
+- `QUEUE_MAX`: in-memory queue cap. Oldest events are dropped when full.
+- `FLUSH_INTERVAL_SEC`: polling interval used when queue is empty.
+- `REQUEST_TIMEOUT_SEC`: outbound request timeout.
+- `SCOPE`: optional scope used by `farmOS.py` auth flow.
+
+Operational notes:
+
+- Use `POST /farmos/test` in the UI to validate connectivity/auth before enabling export.
+- Bridge status is available from `GET /farmos/status` (queue depth, token state, last error).
+- Secrets are obfuscated in saved settings and deobfuscated at runtime for auth flows.
+
+See `docs/farmos.md` for end-to-end setup and troubleshooting.
+
+For Home Assistant integration details, see `docs/homeassistant.md`.

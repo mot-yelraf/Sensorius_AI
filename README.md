@@ -2,7 +2,7 @@
 
 **Environmental Sensing + Automation Hub**
 
-Sensorius is a Raspberry Pi-first sensor and automation hub with a full web UI, MQTT ingestion, and optional Home Assistant integration. It auto-detects local sensors, discovers Nodus devices over MQTT, and turns those signals into live dashboards, historical data, and switch control.
+Sensorius is a Raspberry Pi-first sensor and automation hub with a full web UI, MQTT ingestion, and optional Home Assistant and farmOS integrations. It auto-detects local sensors, discovers Nodus devices over MQTT, and turns those signals into live dashboards, historical data, switch control, and optional farmOS telemetry export.
 
 The goal is simple: get visibility, storage, and control with minimal manual setup.
 
@@ -16,6 +16,7 @@ The goal is simple: get visibility, storage, and control with minimal manual set
 - Supports manual and automated switch control
 - Supports calibration workflows for sensors
 - Can publish discovery/state for Home Assistant
+- Can export sensor telemetry to farmOS log entries
 
 ## Deployment Modes
 
@@ -47,25 +48,46 @@ Default UI URL: `http://127.0.0.1:8000`
 
 ## Architecture (High-Level)
 
+Home Assistant option:
+
 ```text
-                     +------------------------+        +------------------+
-                     |      Sensorius Hub     |<------>| Home Assistant   |
-                     |  (FastAPI + MQTT + DB) |        |     (optional)   |
-                     +------------------------+        +------------------+
-                         ^            ^
-                         |            |
-                 +-------+            +-------+
-                 |                            |
-                 v                            v
-         +---------------+            +----------------+
-         | Nodus Sensor  |            | Nodus Switch   |
-         +---------------+            +----------------+
+                  +------------------------+      +------------------+
+                  |      Sensorius Hub     |<---->| Home Assistant   |
+                  |  (FastAPI + MQTT + DB) |      |    (optional)    |
+                  +------------------------+      +------------------+
+                      ^                 ^
+                      |                 |
+              +-------+                 +-------+
+              |                                 |
+              v                                 v
+      +---------------+                 +----------------+
+      | Nodus Sensor  |                 | Nodus Switch   |
+      +---------------+                 +----------------+
+```
+
+farmOS export option:
+
+```text
+                  +------------------------+      +------------------+
+                  |      Sensorius Hub     |----->|      farmOS      |
+                  |  (FastAPI + MQTT + DB) |      |    (optional)    |
+                  +------------------------+      +------------------+
+                      ^                 ^
+                      |                 |
+              +-------+                 +-------+
+              |                                 |
+              v                                 v
+      +---------------+                 +----------------+
+      | Nodus Sensor  |                 | Nodus Switch   |
+      +---------------+                 +----------------+
 ```
 
 ## Documentation
 
 - Setup: `docs/setup.md`
 - Configuration and `.env`: `docs/configuration.md`
+- Home Assistant integration: `docs/homeassistant.md`
+- FarmOS integration: `docs/farmos.md`
 - Architecture: `docs/architecture.md`
 - Sensors and metrics: `docs/sensors.md`
 - Hardware and GPIO mapping: `docs/hardware.md`

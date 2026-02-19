@@ -126,6 +126,16 @@ Notes:
 - Set `INSTALL_PYWEBVIEW=0` to skip pywebview and force headless mode.
 - Access the UI in a browser at `http://127.0.0.1:8000` (or `http://<host-ip>:8000` from another device).
 
+## FarmOS Integration Prerequisites
+
+FarmOS export is optional and can be enabled after install from the web UI System Settings.
+
+- Python requirements include `farmOS` (`farmOS.py`) in current `deploy_scripts/setup_reqs*.txt` files.
+- If you choose backend `httpx`, only API endpoint/auth access to your farmOS instance is required.
+- If you choose backend `farmospy`, verify the `farmOS` package is installed in the runtime environment.
+- Configure FarmOS URL/auth and run the built-in `Test` action in System Settings before turning `FarmOS.ENABLED` on.
+- See `docs/farmos.md` for key settings and troubleshooting details.
+
 ## Astral Automation Note
 
 If you use Astral automation conditions, Sensorius can auto-resolve location from IP (internet required) when `[Astral].AUTO_IP = true` and manual coordinates are not set.

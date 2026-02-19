@@ -1757,6 +1757,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             or 1883
         )
         farm_enabled = bool(settings.get_setting("FarmOS", "ENABLED", False))
+        farm_backend = settings.get_setting("FarmOS", "BACKEND", "httpx") or "httpx"
         farm_base_url = settings.get_setting("FarmOS", "BASE_URL", "") or ""
         farm_verify_tls = bool(settings.get_setting("FarmOS", "VERIFY_TLS", True))
         farm_access_token_raw = settings.get_setting("FarmOS", "ACCESS_TOKEN", "") or ""
@@ -1843,6 +1844,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             ha_broker=ha_broker,
             ha_port=ha_port,
             farm_enabled=farm_enabled,
+            farm_backend=farm_backend,
             farm_base_url=farm_base_url,
             farm_verify_tls=farm_verify_tls,
             farm_access_token=farm_access_token,
@@ -3828,6 +3830,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             data = {}
 
         enabled = bool(data.get("enabled", False))
+        backend = str(data.get("backend", "httpx") or "httpx").strip().lower()
+        if backend not in {"httpx", "farmospy"}:
+            backend = "httpx"
         base_url = str(data.get("base_url", "") or "").strip().rstrip("/")
         verify_tls = bool(data.get("verify_tls", True))
         access_token = str(data.get("access_token", "") or "").strip()
@@ -3838,6 +3843,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         log_bundle = str(data.get("log_bundle", "observation") or "observation").strip().lower() or "observation"
 
         settings.replace_setting("FarmOS", "ENABLED", enabled)
+        settings.replace_setting("FarmOS", "BACKEND", backend)
         settings.replace_setting("FarmOS", "BASE_URL", base_url)
         settings.replace_setting("FarmOS", "VERIFY_TLS", verify_tls)
         settings.replace_setting("FarmOS", "ACCESS_TOKEN", saiSettings.obfuscate_secret(access_token))
@@ -3861,12 +3867,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         settings = saiSettings(apply_live=False)
         return JSONResponse({
             "enabled": bool(settings.get_setting("FarmOS", "ENABLED", False)),
+            "backend": str(settings.get_setting("FarmOS", "BACKEND", "httpx") or "httpx").strip().lower(),
             "base_url": str(settings.get_setting("FarmOS", "BASE_URL", "") or "").strip(),
             "verify_tls": bool(settings.get_setting("FarmOS", "VERIFY_TLS", True)),
             "log_bundle": str(settings.get_setting("FarmOS", "LOG_BUNDLE", "observation") or "observation").strip(),
             "queue_depth": 0,
             "has_static_token": bool(str(settings.get_setting("FarmOS", "ACCESS_TOKEN", "") or "").strip()),
             "has_runtime_token": False,
+            "farmospy_available": False,
             "last_error": "FarmOS bridge not attached",
         })
 

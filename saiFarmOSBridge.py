@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from datetime import datetime
+import importlib.util
 import threading
 from typing import Any
 
@@ -41,12 +42,14 @@ class saiFarmOSBridge:
             queue_depth = len(self._queue)
         return {
             "enabled": self._is_enabled(),
+            "backend": self._backend(),
             "base_url": self._base_url(),
             "verify_tls": self._verify_tls(),
             "log_bundle": self._log_bundle(),
             "queue_depth": queue_depth,
             "has_static_token": bool(self._cfg_str("FarmOS", "ACCESS_TOKEN", "")),
             "has_runtime_token": bool(self._token_runtime),
+            "farmospy_available": bool(importlib.util.find_spec("farmOS")),
             "last_error": self._last_error or "",
         }
 
@@ -78,6 +81,10 @@ class saiFarmOSBridge:
 
     def _is_enabled(self) -> bool:
         return self._cfg_bool("FarmOS", "ENABLED", False)
+
+    def _backend(self) -> str:
+        raw = self._cfg_str("FarmOS", "BACKEND", "httpx").lower()
+        return raw if raw in {"httpx", "farmospy"} else "httpx"
 
     def _register_listener_once(self) -> None:
         if self._listener_registered:
@@ -222,10 +229,97 @@ class saiFarmOSBridge:
             self._token_runtime = ""
         resp.raise_for_status()
 
+    def _farmospy_client_sync(self):
+        try:
+            from farmOS import farmOS as FarmOSClient  # type: ignore
+        except Exception as exc:
+            raise RuntimeError(f"farmOS.py not installed: {exc}") from exc
+
+        base_url = self._base_url()
+        if not base_url:
+            raise RuntimeError("FarmOS.BASE_URL is empty")
+
+        client_id = self._cfg_str("FarmOS", "CLIENT_ID", "farm") or "farm"
+        access_token = self._cfg_str("FarmOS", "ACCESS_TOKEN", "")
+
+        kwargs: dict[str, Any] = {
+            "hostname": base_url,
+            "client_id": client_id,
+        }
+        if access_token:
+            kwargs["token"] = {"access_token": access_token}
+
+        client = FarmOSClient(**kwargs)
+
+        if not access_token:
+            username = self._cfg_str("FarmOS", "USERNAME", "")
+            password_obf = self._cfg_str("FarmOS", "PASSWORD", "")
+            password = saiSettings.deobfuscate_secret(password_obf)
+            scope = self._cfg_str("FarmOS", "SCOPE", "farm_manager") or "farm_manager"
+            if username and password:
+                token = None
+                try:
+                    token = client.authorize(username, password, scope=scope)
+                except TypeError:
+                    token = client.authorize(username, password)
+                if isinstance(token, dict):
+                    self._token_runtime = str(token.get("access_token") or self._token_runtime or "")
+        return client
+
+    def _farmospy_send_sync(self, client, item: dict[str, Any]) -> Any:
+        bundle = self._log_bundle()
+        sensor_id = str(item.get("sensor_id") or "").strip()
+        values = item.get("values") if isinstance(item.get("values"), dict) else {}
+        timestamp = str(item.get("timestamp") or "").strip() or datetime.now().astimezone().isoformat()
+        note = f"Sensorius sensor_id={sensor_id}; values={values}"
+
+        payload = {
+            "attributes": {
+                "name": self._format_name(sensor_id, values),
+                "status": "done",
+                "timestamp": timestamp,
+                "notes": {"value": note, "format": "plain_text"},
+            }
+        }
+
+        log_api = getattr(client, "log", None)
+        if log_api is None:
+            raise RuntimeError("farmOS.py client missing .log API")
+        if hasattr(log_api, "send"):
+            return log_api.send(bundle, payload)
+        if hasattr(log_api, "create"):
+            return log_api.create(bundle, payload)
+        raise RuntimeError("farmOS.py client log API has no send/create method")
+
+    async def _post_item_farmospy(self, item: dict[str, Any]) -> None:
+        client = await asyncio.to_thread(self._farmospy_client_sync)
+        await asyncio.to_thread(self._farmospy_send_sync, client, item)
+
+    def _farmospy_test_sync(self) -> dict[str, Any]:
+        client = self._farmospy_client_sync()
+        if hasattr(client, "info"):
+            info = client.info()
+            return {"ok": True, "backend": "farmospy", "info": bool(info)}
+        if hasattr(client, "log"):
+            return {"ok": True, "backend": "farmospy"}
+        return {"ok": False, "backend": "farmospy", "error": "farmOS.py client probe failed"}
+
     async def test_connection(self) -> dict[str, Any]:
         """
         Best-effort connectivity and auth test against farmOS.
         """
+        if self._backend() == "farmospy":
+            try:
+                result = await asyncio.to_thread(self._farmospy_test_sync)
+                if result.get("ok"):
+                    self._last_error = ""
+                else:
+                    self._last_error = str(result.get("error") or "farmospy test failed")
+                return result
+            except Exception as exc:
+                self._last_error = str(exc)
+                return {"ok": False, "backend": "farmospy", "error": self._last_error}
+
         base_url = self._base_url()
         if not base_url:
             return {"ok": False, "error": "FarmOS.BASE_URL is empty"}
@@ -254,12 +348,13 @@ class saiFarmOSBridge:
                 self._last_error = ""
                 return {
                     "ok": True,
+                    "backend": "httpx",
                     "status_code": resp.status_code,
                     "url": api_url,
                 }
         except Exception as exc:
             self._last_error = str(exc)
-            return {"ok": False, "error": self._last_error}
+            return {"ok": False, "backend": "httpx", "error": self._last_error}
 
     async def run(self):
         self._loop = asyncio.get_running_loop()
@@ -284,13 +379,16 @@ class saiFarmOSBridge:
                     await asyncio.sleep(interval_sec)
                     continue
 
-                async with httpx.AsyncClient(
-                    timeout=httpx.Timeout(timeout_sec),
-                    verify=verify_tls,
-                ) as client:
-                    await self._refresh_token_if_needed(client)
-                    await self._post_item(client, item)
-                    self._last_error = ""
+                if self._backend() == "farmospy":
+                    await self._post_item_farmospy(item)
+                else:
+                    async with httpx.AsyncClient(
+                        timeout=httpx.Timeout(timeout_sec),
+                        verify=verify_tls,
+                    ) as client:
+                        await self._refresh_token_if_needed(client)
+                        await self._post_item(client, item)
+                self._last_error = ""
 
                 if DEBUG:
                     sid = item.get("sensor_id", "?")

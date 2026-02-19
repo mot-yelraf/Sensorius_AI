@@ -309,6 +309,7 @@
        data-ha-broker="{{ ha_broker | default('') }}"
        data-ha-port="{{ ha_port | default(1883) }}"
        data-farm-enabled="{{ farm_enabled | default(false) }}"
+       data-farm-backend="{{ farm_backend | default('httpx') }}"
        data-farm-base-url="{{ farm_base_url | default('') }}"
        data-farm-verify-tls="{{ farm_verify_tls | default(true) }}"
        data-farm-access-token="{{ farm_access_token | default('') }}"
@@ -468,6 +469,13 @@
             </div>
 
             <div class="ha-grid">
+              <div class="field-stack">
+                <label for="farm-backend">Backend</label>
+                <select id="farm-backend">
+                  <option value="httpx">HTTPX (built-in)</option>
+                  <option value="farmospy">farmOS.py</option>
+                </select>
+              </div>
               <div class="field-stack">
                 <label for="farm-base-url">Base URL</label>
                 <input type="text" id="farm-base-url" placeholder="https://farmos.example.com">
@@ -818,6 +826,7 @@
   function hydrateFarmFromData() {
     if (!shell) return;
     const enabled = String(shell.dataset.farmEnabled || "").toLowerCase() === "true";
+    const backend = String(shell.dataset.farmBackend || "httpx").toLowerCase();
     const baseUrl = shell.dataset.farmBaseUrl || "";
     const verifyTls = String(shell.dataset.farmVerifyTls || "").toLowerCase() !== "false";
     const accessToken = shell.dataset.farmAccessToken || "";
@@ -829,6 +838,7 @@
 
     const enabledEl = document.getElementById("farm-enabled");
     const verifyTlsEl = document.getElementById("farm-verify-tls");
+    const backendEl = document.getElementById("farm-backend");
     const baseUrlEl = document.getElementById("farm-base-url");
     const accessTokenEl = document.getElementById("farm-access-token");
     const clientIdEl = document.getElementById("farm-client-id");
@@ -839,6 +849,7 @@
 
     if (enabledEl) enabledEl.checked = enabled;
     if (verifyTlsEl) verifyTlsEl.checked = verifyTls;
+    if (backendEl) backendEl.value = (backend === "farmospy") ? "farmospy" : "httpx";
     if (baseUrlEl) baseUrlEl.value = baseUrl;
     if (accessTokenEl) {
       accessTokenEl.value = accessToken;
@@ -868,6 +879,8 @@
   async function saveFarmSettings() {
     try {
       const enabled = !!document.getElementById("farm-enabled")?.checked;
+      const backendRaw = (document.getElementById("farm-backend")?.value || "httpx").trim().toLowerCase();
+      const backend = (backendRaw === "farmospy") ? "farmospy" : "httpx";
       const verify_tls = !!document.getElementById("farm-verify-tls")?.checked;
       const base_url = (document.getElementById("farm-base-url")?.value || "").trim();
       const access_token = (document.getElementById("farm-access-token")?.value || "").trim();
@@ -883,7 +896,7 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          enabled, verify_tls, base_url, access_token, client_id, client_secret, username, password, log_bundle
+          enabled, backend, verify_tls, base_url, access_token, client_id, client_secret, username, password, log_bundle
         })
       });
 
@@ -893,6 +906,7 @@
       }
 
       shell.dataset.farmEnabled = String(enabled);
+      shell.dataset.farmBackend = backend;
       shell.dataset.farmVerifyTls = String(verify_tls);
       shell.dataset.farmBaseUrl = base_url;
       shell.dataset.farmAccessToken = access_token;
@@ -918,6 +932,10 @@
       const parts = [];
       if (prefixText) parts.push(prefixText);
       parts.push(`Enabled=${!!data.enabled}`);
+      parts.push(`Backend=${String(data.backend || "httpx")}`);
+      if (typeof data.farmospy_available !== "undefined") {
+        parts.push(`farmOS.py=${!!data.farmospy_available}`);
+      }
       parts.push(`Queue=${Number(data.queue_depth || 0)}`);
       parts.push(`StaticToken=${!!data.has_static_token}`);
       parts.push(`RuntimeToken=${!!data.has_runtime_token}`);

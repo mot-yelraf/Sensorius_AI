@@ -10,10 +10,8 @@ This document describes the runtime architecture of Sensorius and how local and 
 - `saiSensor.py`: local directly connected sensor controllers.
 - `saiSwitch.py`: switch controllers and automation monitor loop.
 - `saiDataLogger.py`: SQLite persistence for sensor data, switch events, and switch identities.
-- Settings managers:
-- `saiSensorSettingsManager.py`
-- `saiSwitchSettingsManager.py`
-- `saiSettings.py`
+- `saiFarmOSBridge.py`: optional farmOS telemetry export bridge (queue + flush worker).
+- Settings managers: `saiSensorSettingsManager.py`, `saiSwitchSettingsManager.py`, `saiSettings.py`
 
 ## Switch Controller Model
 
@@ -41,8 +39,18 @@ This keeps local and remote switch behavior consistent for automation and dashbo
 2. Local sensors are detected and instantiated (if present on host hardware).
 3. Switch settings are enumerated and a controller is created per switch via `build_switch_controller(...)`.
 4. MQTT ingest is started and begins remote discovery (`/itaot` + MQTT topics).
-5. Web server starts; dashboard and API routes read from controllers + ingest + DB.
-6. Each switch controller monitor (`run_controladora_monitor`) is scheduled to evaluate automations.
+5. FarmOS bridge task is started and subscribes to new readings from `saiDataLogger`.
+6. Web server starts; dashboard and API routes read from controllers + ingest + DB.
+7. Each switch controller monitor (`run_controladora_monitor`) is scheduled to evaluate automations.
+
+## FarmOS Telemetry Path
+
+When FarmOS integration is enabled:
+
+- `saiFarmOSBridge` listens for newly written sensor readings from `saiDataLogger`.
+- Readings are queued in memory (bounded by `FarmOS.QUEUE_MAX`).
+- A worker loop flushes queued items to farmOS using the selected backend (`httpx` direct JSON:API calls, or `farmospy` client log API `send`/`create`).
+- Failed writes are re-queued for retry, and status/error details are exposed through `/farmos/status`.
 
 ## Discovery and Identity
 
