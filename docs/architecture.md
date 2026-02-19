@@ -7,6 +7,7 @@ This document describes the runtime architecture of Sensorius and how local and 
 - `Sensorius.py`: process entrypoint and runtime wiring.
 - `saiWebServer.py` + `saiWebRoutes.py`: FastAPI UI/API layer.
 - `saiMQTTIngest.py`: MQTT discovery, ingest, topic registration, and remote state cache.
+- `saiHomeAssistantMqtt.py`: optional Home Assistant MQTT discovery + state bridge.
 - `saiSensor.py`: local directly connected sensor controllers.
 - `saiSwitch.py`: switch controllers and automation monitor loop.
 - `saiDataLogger.py`: SQLite persistence for sensor data, switch events, and switch identities.
