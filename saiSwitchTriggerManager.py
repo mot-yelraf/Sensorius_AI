@@ -4,14 +4,14 @@ This module now mirrors the active automation storage/runtime contract used by
 `saiAutomationManager` while preserving the historical class/function names.
 
 Storage location:
-  switch_settings/<hostname>/automations.toml
+  switch_settings/automations/automations.toml
 """
 from __future__ import annotations
 
 # ---------- user-defined constants (top) ----------
 TRIGGERS_BASE_DIR: str = r"switch_settings"
+TRIGGERS_SUBDIR: str = "automations"
 TRIGGERS_FILENAME: str = "automations.toml"
-LEGACY_TRIGGERS_FILENAME: str = "triggers.toml"
 TMP_SUFFIX: str = ".tmp"
 
 # Preferred top-level sections (kept stable for readability)
@@ -61,16 +61,25 @@ class SwitchTriggerManager:
             raise ValueError(f"Invalid hostname/switch_id path segment: {hostname!r}")
         return host
 
-    def _dir_for_hostname(self, hostname: str) -> Path:
-        return self.base_dir / self._validate_hostname(hostname)
+    def _storage_dir(self) -> Path:
+        parent = self.base_dir / TRIGGERS_SUBDIR
+        parent.mkdir(parents=True, exist_ok=True)
+        return parent
+
+    def _storage_path(self) -> Path:
+        return self._storage_dir() / TRIGGERS_FILENAME
 
     def _path_for_hostname(self, hostname: str) -> Path:
-        parent = self._dir_for_hostname(hostname)
-        parent.mkdir(parents=True, exist_ok=True)
-        return parent / TRIGGERS_FILENAME
+        _ = hostname
+        return self._storage_path()
 
-    def _legacy_path_for_hostname(self, hostname: str) -> Path:
-        return self._dir_for_hostname(hostname) / LEGACY_TRIGGERS_FILENAME
+    def get_storage_path(self) -> Path:
+        return self._storage_path()
+
+    def _dir_for_hostname(self, hostname: str) -> Path:
+        # Kept for compatibility; storage is shared globally.
+        _ = hostname
+        return self._storage_dir()
 
     def _atomic_update(self, hostname: str, mutator: Callable[[Dict[str, Any]], T]) -> T:
         with self._lock:
@@ -83,22 +92,10 @@ class SwitchTriggerManager:
     def load(self, hostname: str) -> Dict[str, Any]:
         """
         Load automations.toml into a dict with all expected sections present.
-        Missing file returns defaults. Legacy triggers.toml is auto-read if present.
+        Missing file returns defaults.
         """
         triggers_path = self._path_for_hostname(hostname)
         if not triggers_path.exists():
-            legacy_path = self._legacy_path_for_hostname(hostname)
-            if legacy_path.exists():
-                try:
-                    with legacy_path.open("rb") as f:
-                        data = tomllib.load(f) or {}
-                    data.setdefault(SECTION_META, dict(DEFAULT_META))
-                    data.setdefault(SECTION_ADV, {})
-                    data.setdefault(SECTION_SCRIPTS, {})
-                    return data
-                except Exception as e:
-                    logger.warning("[triggers] Failed to read legacy %s: %r", legacy_path, e)
-
             logger.debug("[triggers] No file yet for %s; returning defaults", hostname)
             return {
                 SECTION_META: dict(DEFAULT_META),

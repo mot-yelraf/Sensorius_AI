@@ -599,29 +599,28 @@ class SwitchController:
     # --- rule detection helpers -------------------------------------------------
     def _get_triggers_path(self) -> Path | None:
         """
-        Compute .../switch_settings/<SWITCH_ID>/automations.toml using the settings manager.
+        Compute shared automation path:
+        .../switch_settings/automations/automations.toml
         Returns None if path cannot be resolved.
         """
         try:
-            from saiSwitchSettingsManager import SwitchSettingsManager
-            mgr = SwitchSettingsManager("switch_settings")
-            switch_toml_path = Path(mgr.get_path(self.switch_id))
-            return switch_toml_path.parent / "automations.toml"
+            from saiAutomationManager import AutomationManager
+            mgr = AutomationManager("switch_settings")
+            return Path(mgr.get_storage_path())
         except Exception:
             return None
 
     def _load_triggers_dict(self) -> dict:
         """
-        Uses saiAutomationManager.load_triggers(manager, switch_id) if available.
+        Uses AutomationManager shared automations file.
         Falls back to loading automations.toml directly via tomllib.
         Returns dict with 'Advanced' key.
         """
-        # Try helper first
+        # Try manager first
         try:
-            from saiSwitchSettingsManager import SwitchSettingsManager
-            from saiAutomationManager import load_triggers
-            mgr = SwitchSettingsManager("switch_settings")
-            data = load_triggers(mgr, self.switch_id) or {}
+            from saiAutomationManager import AutomationManager
+            mgr = AutomationManager("switch_settings")
+            data = mgr.load(self.switch_id) or {}
             return {"Advanced": data.get("Advanced") or {}}
         except Exception:
             pass

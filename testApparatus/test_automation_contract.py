@@ -28,7 +28,7 @@ def test_round_trip_advanced_and_scripts_sections(tmp_path: Path, adapter):
     assert "script_json" in data["Advanced"]["rule_a"]
     assert data["Scripts"]["NightMode"] is True
 
-    saved_path = tmp_path / host / adapter.filename
+    saved_path = mgr.get_storage_path()
     assert saved_path.exists()
     raw = saved_path.read_text(encoding="utf-8")
     assert "[Advanced]" in raw
@@ -63,8 +63,35 @@ def test_enable_and_remove_helpers_cover_advanced_and_scripts(tmp_path: Path, ad
 
 
 @pytest.mark.parametrize("adapter", adapters(), ids=lambda a: a.name)
-def test_invalid_hostnames_are_rejected(tmp_path: Path, adapter):
+def test_storage_is_shared_across_switch_ids(tmp_path: Path, adapter):
     mgr = make_manager(adapter, tmp_path)
-    for bad in ("", ".", "..", "../x", "x/../y", "x/y", r"x\y"):
-        with pytest.raises(ValueError):
-            mgr.load(bad)
+    mgr.upsert_advanced_rule(
+        "sw-alpha",
+        "rule_shared",
+        enabled=True,
+        script={"enabled": True, "actions": [{"switch_key": "sw-alpha::Fan", "set": True}]},
+    )
+    loaded_from_other_context = mgr.load("sw-beta")
+    assert "rule_shared" in loaded_from_other_context["Advanced"]
+
+
+@pytest.mark.parametrize("adapter", adapters(), ids=lambda a: a.name)
+def test_enable_and_delete_work_across_switch_contexts(tmp_path: Path, adapter):
+    mgr = make_manager(adapter, tmp_path)
+    payload = {
+        "Meta": {"version": 1},
+        "Advanced": {
+            "rule_shared": {
+                "enabled": False,
+                "script_json": "{\"actions\":[{\"switch_key\":\"sw-alpha::Fan\",\"set\":true}]}",
+            }
+        },
+        "Scripts": {},
+    }
+    adapter.save_fn(mgr, "sw-alpha", payload)
+
+    assert mgr.set_rule_enabled("sw-beta", "Advanced", "rule_shared", True) is True
+    assert mgr.load("sw-alpha")["Advanced"]["rule_shared"]["enabled"] is True
+
+    assert mgr.delete_rule("sw-gamma", "Advanced", "rule_shared") is True
+    assert "rule_shared" not in mgr.load("sw-alpha")["Advanced"]

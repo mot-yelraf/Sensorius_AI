@@ -10,25 +10,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from saiSwitchTriggerManager import SwitchTriggerManager, load_triggers, save_triggers
 
 
-def test_load_reads_legacy_triggers_toml_when_automations_missing(tmp_path: Path):
-    host = "sw-legacy"
-    host_dir = tmp_path / host
-    host_dir.mkdir(parents=True, exist_ok=True)
-    (host_dir / "triggers.toml").write_text(
-        (
-            "[Meta]\n"
-            "version = 1\n"
-            "notes = \"legacy\"\n\n"
-            "[Advanced]\n"
-            "rule_1 = { enabled=true, script_json=\"{\\\"actions\\\":[{\\\"switch_key\\\":\\\"sw-legacy::Fan\\\",\\\"set\\\":true}]}\" }\n"
-        ),
-        encoding="utf-8",
-    )
-
+def test_load_defaults_when_automation_file_missing(tmp_path: Path):
     mgr = SwitchTriggerManager(base_dir=str(tmp_path))
-    data = mgr.load(host)
-    assert data["Advanced"]["rule_1"]["enabled"] is True
-    assert (tmp_path / host / "automations.toml").exists() is False
+    data = mgr.load("sw-legacy")
+    assert data["Advanced"] == {}
+    assert mgr.get_storage_path().exists() is False
 
 
 def test_save_writes_automations_toml(tmp_path: Path):
@@ -40,7 +26,7 @@ def test_save_writes_automations_toml(tmp_path: Path):
         script={"actions": [{"switch_key": "sw-new::Fan", "set": True}]},
     )
 
-    saved = tmp_path / "sw-new" / "automations.toml"
+    saved = mgr.get_storage_path()
     assert saved.exists()
     text = saved.read_text(encoding="utf-8")
     assert "[Advanced]" in text

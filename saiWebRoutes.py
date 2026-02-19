@@ -38,13 +38,17 @@ from urllib.parse import urlparse
 from collections import OrderedDict
 import shutil, httpx
 from datetime import datetime, timedelta
+import math
 from zoneinfo import ZoneInfo, available_timezones
 try:
     from astral import LocationInfo
-    from astral.sun import sun as _astral_sun
+    from astral.sun import sun as _astral_sun, elevation as _astral_elevation
+    from astral import moon as _astral_moon
 except Exception:
     LocationInfo = None
     _astral_sun = None
+    _astral_elevation = None
+    _astral_moon = None
 try:
     import pwd  # POSIX only
 except Exception:
@@ -120,6 +124,168 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return False
         now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
         return dt >= (now - window)
+
+    def _moon_phase_name(phase_val: float) -> str:
+        p = phase_val % 28.0
+
+        def _circular_dist(a: float, b: float, cycle: float = 28.0) -> float:
+            d = abs(a - b) % cycle
+            return min(d, cycle - d)
+
+        if _circular_dist(p, 0.0) <= 1.0:
+            return "New Moon"
+        if _circular_dist(p, 7.0) <= 1.0:
+            return "1st Quarter"
+        if _circular_dist(p, 14.0) <= 1.0:
+            return "Full Moon"
+        if _circular_dist(p, 21.0) <= 1.0:
+            return "3rd Quarter"
+        if 1.0 < p < 6.0:
+            return "Waxing Crescent"
+        if 8.0 < p < 13.0:
+            return "Waxing Gibbous"
+        if 15.0 < p < 20.0:
+            return "Waning Gibbous"
+        return "Waning Crescent"
+
+    def _build_astro_payload() -> dict[str, object]:
+        out: dict[str, object] = {
+            "ok": False,
+            "lat": None,
+            "lon": None,
+            "tz": "",
+            "sunrise": "",
+            "sunset": "",
+            "sun_noon": "",
+            "sun_points": [],
+            "moon_phase_value": None,
+            "moon_phase_label": "",
+            "moon_lit_pct": None,
+            "moon_rise": "",
+            "moon_set": "",
+            "moon_next_full": "",
+        }
+        if (
+            LocationInfo is None
+            or _astral_sun is None
+            or _astral_elevation is None
+            or _astral_moon is None
+        ):
+            return out
+
+        try:
+            s = saiSettings(apply_live=False)
+            resolved = s.resolve_astral_location(persist_if_auto=False, timeout_sec=2.5)
+            resolved_lat = resolved.get("lat")
+            resolved_lon = resolved.get("lon")
+            resolved_tz = str(resolved.get("tz") or "").strip()
+            if resolved_lat is None or resolved_lon is None or not resolved_tz:
+                return out
+
+            tzinfo = ZoneInfo(resolved_tz)
+            now_local = datetime.now(tzinfo)
+            obs = LocationInfo(
+                name="sensorius",
+                region="local",
+                timezone=resolved_tz,
+                latitude=resolved_lat,
+                longitude=resolved_lon,
+            ).observer
+
+            sun_map = _astral_sun(obs, date=now_local.date(), tzinfo=tzinfo)
+            sunrise = sun_map.get("sunrise")
+            sunset = sun_map.get("sunset")
+            noon = sun_map.get("noon")
+            if not isinstance(sunrise, datetime) or not isinstance(sunset, datetime):
+                return out
+
+            pts: list[dict[str, object]] = []
+            cur = sunrise
+            while cur <= sunset:
+                try:
+                    elev = float(_astral_elevation(obs, cur))
+                except Exception:
+                    elev = float("nan")
+                if math.isfinite(elev):
+                    pts.append({"t": cur.strftime("%H:%M"), "e": round(elev, 2)})
+                cur = cur + timedelta(minutes=5)
+            if pts and pts[-1]["t"] != sunset.strftime("%H:%M"):
+                try:
+                    elev_sunset = float(_astral_elevation(obs, sunset))
+                except Exception:
+                    elev_sunset = 0.0
+                pts.append({"t": sunset.strftime("%H:%M"), "e": round(elev_sunset, 2)})
+
+            moon_val = float(_astral_moon.phase(now_local.date()))
+            moon_lit_pct = int(
+                round((0.5 * (1 - math.cos((2 * math.pi * (moon_val % 28.0)) / 28.0))) * 100)
+            )
+
+            moon_rise = ""
+            moon_set = ""
+            try:
+                mr_fn = getattr(_astral_moon, "moonrise", None)
+                ms_fn = getattr(_astral_moon, "moonset", None)
+                mr = mr_fn(obs, date=now_local.date(), tzinfo=tzinfo) if callable(mr_fn) else None
+                ms = ms_fn(obs, date=now_local.date(), tzinfo=tzinfo) if callable(ms_fn) else None
+                if isinstance(mr, datetime):
+                    moon_rise = mr.strftime("%H:%M")
+                if isinstance(ms, datetime):
+                    moon_set = ms.strftime("%H:%M")
+            except Exception:
+                moon_rise = ""
+                moon_set = ""
+
+            moon_next_full = ""
+            try:
+                nf_fn = getattr(_astral_moon, "next_full_moon", None)
+                nf = nf_fn(now_local.date()) if callable(nf_fn) else None
+                if isinstance(nf, datetime):
+                    moon_next_full = nf.date().isoformat()
+                elif hasattr(nf, "isoformat"):
+                    moon_next_full = str(nf.isoformat())
+                if moon_next_full:
+                    moon_next_full = moon_next_full[:10]
+            except Exception:
+                moon_next_full = ""
+
+            if not moon_next_full:
+                best_date = None
+                for i in range(1, 32):
+                    d = now_local.date() + timedelta(days=i)
+                    try:
+                        pv = float(_astral_moon.phase(d))
+                    except Exception:
+                        continue
+                    dist = abs((pv % 28.0) - 14.0)
+                    dist = min(dist, 28.0 - dist)
+                    if dist <= 0.6:
+                        best_date = d
+                        break
+                if best_date is not None:
+                    moon_next_full = best_date.isoformat()
+
+            out.update(
+                {
+                    "ok": True,
+                    "lat": round(float(resolved_lat), 6),
+                    "lon": round(float(resolved_lon), 6),
+                    "tz": resolved_tz,
+                    "sunrise": sunrise.strftime("%H:%M"),
+                    "sunset": sunset.strftime("%H:%M"),
+                    "sun_noon": noon.strftime("%H:%M") if isinstance(noon, datetime) else "",
+                    "sun_points": pts,
+                    "moon_phase_value": round(moon_val, 2),
+                    "moon_phase_label": _moon_phase_name(moon_val),
+                    "moon_lit_pct": moon_lit_pct,
+                    "moon_rise": moon_rise,
+                    "moon_set": moon_set,
+                    "moon_next_full": moon_next_full,
+                }
+            )
+            return out
+        except Exception:
+            return out
 
     def _resolve_channel_id_from_label(switch_id: str, label: str) -> str | None:
         try:
@@ -1182,7 +1348,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "available_switches": available_switches,
                 "renderable_switches": renderable_switches,
                 "renderable_switches_view": renderable_switches_view,
-                "statuses": statuses, 
+                "statuses": statuses,
+                "astro": _build_astro_payload(),
             })
 
 
@@ -6323,40 +6490,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     @router.get("/advanced/automations", response_class=JSONResponse)
     async def api_list_advanced_automations(switch_id: str = Query(...)):
         from saiAutomationManager import AutomationManager
-        from saiSwitchTriggerManager import SwitchTriggerManager
         try:
-            # Use the same resolved base path as switch settings to avoid cwd-relative drift.
-            switch_mgr = SwitchSettingsManager("switch_settings")
-            resolved_base = str(switch_mgr.base_dir)
-
-            data = {}
-            mgr = AutomationManager(resolved_base)
-            try:
-                data = mgr.load(switch_id) or {}
-            except Exception:
-                data = {}
-
-            # Compatibility fallback: legacy manager supports reading triggers.toml.
-            if not (data.get("Advanced") or data.get("advanced")):
-                try:
-                    legacy_mgr = SwitchTriggerManager(resolved_base)
-                    data = legacy_mgr.load(switch_id) or data
-                except Exception:
-                    pass
-
-            # Final fallback: read the exact sibling automations.toml next to switch.toml.
-            # This mirrors runtime loading paths for directly connected switches.
-            if not (data.get("Advanced") or data.get("advanced")):
-                try:
-                    sw_path = switch_mgr.get_path(switch_id)
-                    auto_path = sw_path.parent / "automations.toml"
-                    if auto_path.exists():
-                        with auto_path.open("rb") as f:
-                            raw = tomllib.load(f) or {}
-                        if isinstance(raw, dict):
-                            data = raw
-                except Exception:
-                    pass
+            mgr = AutomationManager("switch_settings")
+            data = mgr.load(switch_id) or {}
 
             adv = (
                 data.get("Advanced")
@@ -6560,24 +6696,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         Returns the current Advanced script JSON (normalized) for SWITCH_<channel>_Advanced,
         or {} if not present.
         """
-        from saiSwitchSettingsManager import SwitchSettingsManager
-        try:
-            from saiAutomationManager import AutomationManager, load_triggers
-        except Exception:
-            from saiAutomationManager import load_triggers
-            AutomationManager = None  # type: ignore
+        from saiAutomationManager import AutomationManager
 
         def _coerce_int(x, default=1):
             try: return int(str(x).strip())
             except Exception: return default
 
         ch = _coerce_int(channel, 1)
-        settings_mgr = SwitchSettingsManager("switch_settings")
-        data = {}
-        try:
-            data = load_triggers(settings_mgr, switch_id) or {}
-        except Exception:
-            data = {}
+        mgr = AutomationManager("switch_settings")
+        data = mgr.load(switch_id) or {}
 
         # We use the naming convention SWITCH_<n>_Advanced
         rule_id = f"SWITCH_{ch}_Advanced"
@@ -6614,7 +6741,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     @router.post("/submit-advanced-trigger")
     async def submit_advanced_trigger(request: Request):
         """
-        Persists an Advanced trigger script to switch_settings/<switch_id>/automations.toml
+        Persists an Advanced trigger script to switch_settings/automations/automations.toml
         Accepts form or JSON payloads.
 
         Expected fields:
@@ -6626,13 +6753,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
           - enabled         (optional; default: true)
         """
         from saiSwitchSettingsManager import SwitchSettingsManager
-        try:
-            # Prefer class API
-            from saiAutomationManager import AutomationManager, load_triggers, save_triggers
-        except Exception:
-            # Fallback module functions
-            from saiAutomationManager import load_automations as load_triggers, save_automations as save_triggers
-            AutomationManager = None  # type: ignore
+        from saiAutomationManager import AutomationManager
 
         def norm_switch_id(raw: str) -> str:
             s = (raw or "").strip().replace(" ", "-")
@@ -6842,32 +6963,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 i += 1
 
         try:
-            if AutomationManager is not None:
-                trig_mgr = AutomationManager("switch_settings")
-                # Peek existing to ensure uniqueness (manager helpers)
-                existing = None
-                try:
-                    # If class exposes loader, use it; otherwise fallback to module fn
-                    existing = load_triggers(settings_mgr, switch_id)
-                except Exception:
-                    existing = None
-                existing_ids = set((existing or {}).get("Advanced", {}).keys())
-                final_rule_id = _unique_rule_id(existing_ids, rule_id)
-                trig_mgr.upsert_advanced_rule(
-                    hostname=switch_id,
-                    rule_id=final_rule_id,
-                    enabled=enabled,
-                    script=compact_script,
-                )
-            else:
-                # Fallback: manual merge & save
-                data = load_triggers(settings_mgr, switch_id) or {}
-                adv = data.get("Advanced", {})
-                existing_ids = set(adv.keys())
-                final_rule_id = _unique_rule_id(existing_ids, rule_id)
-                adv[final_rule_id] = compact_script  # keep same shape as before (string value)
-                data["Advanced"] = adv
-                save_triggers(settings_mgr, switch_id, data)
+            trig_mgr = AutomationManager("switch_settings")
+            existing = trig_mgr.load(switch_id) or {}
+            existing_ids = set((existing or {}).get("Advanced", {}).keys())
+            final_rule_id = _unique_rule_id(existing_ids, rule_id)
+            trig_mgr.upsert_advanced_rule(
+                hostname=switch_id,
+                rule_id=final_rule_id,
+                enabled=enabled,
+                script=compact_script,
+            )
 
             printDM(f"[{MODULE}] Saved Advanced trigger {rule_id} -> {final_rule_id} for {switch_id}", location=MODULE)
             # Invalidate rules cache for the matching switch controller so it reloads immediately.
@@ -6949,7 +7054,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     switch_mgr = SwitchSettingsManager("switch_settings")
                     payload = None
                     try:
-                        data = load_triggers(settings_mgr, switch_id) or {}
+                        data = trig_mgr.load(switch_id) or {}
                         adv = (data.get("Advanced") or {})
                         payload = adv.get(final_rule_id) if isinstance(adv, dict) else None
                     except Exception:

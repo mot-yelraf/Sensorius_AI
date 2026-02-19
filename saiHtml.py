@@ -138,6 +138,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             "sun_points": [],
             "moon_phase_value": None,
             "moon_phase_label": "",
+            "moon_lit_pct": None,
+            "moon_rise": "",
+            "moon_set": "",
+            "moon_next_full": "",
         }
         if LocationInfo is None or _astral_sun is None or _astral_elevation is None or _astral_moon is None:
             return out
@@ -192,6 +196,52 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 pts.append({"t": sunset.strftime("%H:%M"), "e": round(elev_sunset, 2)})
 
             moon_val = float(_astral_moon.phase(now_local.date()))
+            moon_lit_pct = int(round((0.5 * (1 - math.cos((2 * math.pi * (moon_val % 28.0)) / 28.0))) * 100))
+
+            moon_rise = ""
+            moon_set = ""
+            try:
+                mr_fn = getattr(_astral_moon, "moonrise", None)
+                ms_fn = getattr(_astral_moon, "moonset", None)
+                mr = mr_fn(obs, date=now_local.date(), tzinfo=tzinfo) if callable(mr_fn) else None
+                ms = ms_fn(obs, date=now_local.date(), tzinfo=tzinfo) if callable(ms_fn) else None
+                if isinstance(mr, datetime):
+                    moon_rise = mr.strftime("%H:%M")
+                if isinstance(ms, datetime):
+                    moon_set = ms.strftime("%H:%M")
+            except Exception:
+                moon_rise = ""
+                moon_set = ""
+
+            moon_next_full = ""
+            try:
+                nf_fn = getattr(_astral_moon, "next_full_moon", None)
+                nf = nf_fn(now_local.date()) if callable(nf_fn) else None
+                if isinstance(nf, datetime):
+                    moon_next_full = nf.date().isoformat()
+                elif hasattr(nf, "isoformat"):
+                    moon_next_full = str(nf.isoformat())
+                if moon_next_full:
+                    moon_next_full = moon_next_full[:10]
+            except Exception:
+                moon_next_full = ""
+
+            if not moon_next_full:
+                best_date = None
+                for i in range(1, 32):
+                    d = now_local.date() + timedelta(days=i)
+                    try:
+                        pv = float(_astral_moon.phase(d))
+                    except Exception:
+                        continue
+                    dist = abs((pv % 28.0) - 14.0)
+                    dist = min(dist, 28.0 - dist)
+                    if dist <= 0.6:
+                        best_date = d
+                        break
+                if best_date is not None:
+                    moon_next_full = best_date.isoformat()
+
             out.update({
                 "ok": True,
                 "lat": round(resolved_lat, 6),
@@ -203,6 +253,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 "sun_points": pts,
                 "moon_phase_value": round(moon_val, 2),
                 "moon_phase_label": _moon_phase_name(moon_val),
+                "moon_lit_pct": moon_lit_pct,
+                "moon_rise": moon_rise,
+                "moon_set": moon_set,
+                "moon_next_full": moon_next_full,
             })
             return out
         except Exception:
@@ -799,14 +853,20 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ".astro-card{display:flex;flex-direction:column;align-items:center;gap:.2rem;min-width:132px;}"
     yield ".astro-title{font-size:.78rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;opacity:.8;}"
     yield ".astro-meta{font-size:.74rem;line-height:1.25;text-align:center;color:#27313a;min-height:1.9em;white-space:normal;}"
-    yield "#sunBox .astro-card{min-width:230px;}"
-    yield "#moonBox .astro-card{min-width:230px;}"
-    yield "#moonMeta{white-space:nowrap;padding:0 10px;}"
+    yield "#sunBox .astro-card{width:230px;min-width:230px;}"
+    yield "#moonBox .astro-card{width:230px;min-width:230px;align-items:stretch;}"
+    yield ".moon-layout{width:fit-content;max-width:100%;margin:0 auto;display:grid;grid-template-columns:max-content 88px max-content;align-items:center;column-gap:.2rem;}"
+    yield ".moon-side{font-size:.64rem;line-height:1.14;white-space:nowrap;font-variant-numeric:tabular-nums;}"
+    yield ".moon-side.left{text-align:left;}"
+    yield ".moon-side.right{text-align:right;}"
+    yield ".moon-label{display:block;opacity:.82;}"
+    yield ".moon-value{display:block;font-weight:600;margin-bottom:.2rem;}"
+    yield "#moonMeta{white-space:nowrap;padding:0 4px;text-align:center;font-size:.69rem;}"
     yield ".astro-times{width:210px;display:flex;justify-content:space-between;gap:.35rem;font-variant-numeric:tabular-nums;}"
     yield ".astro-times span{display:inline-block;min-width:0;}"
     yield "#sunPathCanvas{width:210px;height:96px;border:1px solid #d5c7a8;border-radius:8px;background:#dff1ff;}"
-    yield "#moonPhaseCanvas{width:96px;height:96px;border:1px solid #d5c7a8;border-radius:50%;background:#081322;}"
-    yield "@media (max-width: 760px){#sunPathCanvas{width:184px;height:86px}.astro-times{width:184px}.astro-card{min-width:120px}.dash-loc-form,.astro-box{min-height:unset}}"
+    yield "#moonPhaseCanvas{width:88px;height:88px;border:1px solid #d5c7a8;border-radius:50%;background:#081322;}"
+    yield "@media (max-width: 760px){#sunPathCanvas{width:184px;height:86px}.astro-times{width:184px}.astro-card{min-width:120px}.dash-loc-form,.astro-box{min-height:unset}#sunBox .astro-card{width:206px;min-width:206px}#moonBox .astro-card{width:206px;min-width:206px}.moon-layout{grid-template-columns:max-content 78px max-content;column-gap:.14rem}#moonPhaseCanvas{width:78px;height:78px}.moon-side{font-size:.6rem}#moonMeta{font-size:.64rem}}"
     yield "</style>"
 
     yield "<div class='dash-top-row'>"
@@ -835,7 +895,21 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "<div class='astro-box' id='moonBox' aria-live='polite'>"
     yield "  <div class='astro-card'>"
     yield "    <div class='astro-title'>Moon Phase</div>"
-    yield "    <canvas id='moonPhaseCanvas' width='96' height='96'></canvas>"
+    yield "    <div class='moon-layout'>"
+    yield "      <div class='moon-side left'>"
+    yield "        <span class='moon-label'>Moonrise</span>"
+    yield "        <span class='moon-value' id='moonRiseTime'>--</span>"
+    yield "        <span class='moon-label'>Moonset</span>"
+    yield "        <span class='moon-value' id='moonSetTime'>--</span>"
+    yield "      </div>"
+    yield "      <canvas id='moonPhaseCanvas' width='88' height='88'></canvas>"
+    yield "      <div class='moon-side right'>"
+    yield "        <span class='moon-label'>% Lit</span>"
+    yield "        <span class='moon-value' id='moonLitPct'>--</span>"
+    yield "        <span class='moon-label'>Full Moon</span>"
+    yield "        <span class='moon-value' id='moonNextFull'>--</span>"
+    yield "      </div>"
+    yield "    </div>"
     yield "    <div class='astro-meta' id='moonMeta'>Loading moon data...</div>"
     yield "  </div>"
     yield "</div>"
@@ -1277,11 +1351,38 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "function drawMoonPhase(data){"
     yield "  const c = document.getElementById('moonPhaseCanvas');"
     yield "  const meta = document.getElementById('moonMeta');"
-    yield "  if (!c || !meta) return;"
+    yield "  const riseEl = document.getElementById('moonRiseTime');"
+    yield "  const setEl = document.getElementById('moonSetTime');"
+    yield "  const litEl = document.getElementById('moonLitPct');"
+    yield "  const nextFullEl = document.getElementById('moonNextFull');"
+    yield "  if (!c || !meta || !riseEl || !setEl || !litEl || !nextFullEl) return;"
     yield "  const ctx = c.getContext('2d');"
     yield "  ctx.clearRect(0,0,c.width,c.height);"
+    yield "  const fmtRaw = (v) => (typeof v === 'string' && v.trim() ? v.trim() : '--');"
+    yield "  const fmtMoonTime = (v) => {"
+    yield "    const s = fmtRaw(v);"
+    yield "    const m = s.match(/^(\\d{1,2}):(\\d{2})$/);"
+    yield "    if (!m) return s;"
+    yield "    const hh = parseInt(m[1], 10);"
+    yield "    const mm = m[2];"
+    yield "    const ap = hh < 12 ? 'A' : 'P';"
+    yield "    const h12 = (hh % 12) || 12;"
+    yield "    return `${h12}:${mm}${ap}`;"
+    yield "  };"
+    yield "  const fmtMoonDate = (v) => {"
+    yield "    const s = fmtRaw(v);"
+    yield "    const m = s.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);"
+    yield "    if (!m) return s;"
+    yield "    const yy = m[1].slice(-2);"
+    yield "    const mon = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][Math.max(0, Math.min(11, parseInt(m[2],10)-1))];"
+    yield "    return `${m[3]}${mon}${yy}`;"
+    yield "  };"
     yield "  if (!data || !data.ok || typeof data.moon_phase_value !== 'number'){"
     yield "    meta.textContent = 'Moon data unavailable';"
+    yield "    riseEl.textContent = '--';"
+    yield "    setEl.textContent = '--';"
+    yield "    litEl.textContent = '--';"
+    yield "    nextFullEl.textContent = '--';"
     yield "    return;"
     yield "  }"
     yield "  const w = c.width, h = c.height;"
@@ -1322,7 +1423,12 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  ctx.beginPath();"
     yield "  ctx.arc(x, y, r, 0, Math.PI * 2);"
     yield "  ctx.stroke();"
-    yield "  meta.textContent = `${data.moon_phase_label || 'Moon'} (${(illum*100).toFixed(0)}% lit)`;"
+    yield "  const litPct = Number.isFinite(Number(data.moon_lit_pct)) ? `${Math.round(Number(data.moon_lit_pct))}%` : `${(illum*100).toFixed(0)}%`;"
+    yield "  meta.textContent = (data.moon_phase_label || 'Moon');"
+    yield "  riseEl.textContent = fmtMoonTime(data.moon_rise);"
+    yield "  setEl.textContent = fmtMoonTime(data.moon_set);"
+    yield "  litEl.textContent = litPct;"
+    yield "  nextFullEl.textContent = fmtMoonDate(data.moon_next_full);"
     yield "}"
 
     # Dynamic sensor UI helpers 
@@ -3235,6 +3341,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      dot.title = `Measurement status: ${s}`;"
     yield "      dot.setAttribute('aria-label', `Measurement status: ${s}`);"
     yield "    });"
+    yield "    if (data && data.astro && typeof data.astro === 'object') {"
+    yield "      Object.assign(astroData, data.astro);"
+    yield "      if (typeof drawSunPath === 'function') drawSunPath(astroData);"
+    yield "      if (typeof drawMoonPhase === 'function') drawMoonPhase(astroData);"
+    yield "    }"
     yield "  } catch (_) { /* silent */ }"
     yield "}"
     yield "window.addEventListener('load', ()=>{"

@@ -227,6 +227,28 @@ def test_advanced_rule_supports_astral_condition(monkeypatch: pytest.MonkeyPatch
     assert calls == [("Fan", True)]
 
 
+def test_advanced_evaluation_ignores_actions_for_other_switch_ids():
+    ctrl = _make_controller()
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "rule1": {
+                "enabled": True,
+                "script_json": {
+                    "enabled": True,
+                    "conditions": [{"type": "time", "start": "00:00", "end": "24:00"}],
+                    "actions": [{"switch_key": "sw-other::Fan", "set": True, "delay_s": 0}],
+                },
+            }
+        }
+    }
+    ctrl.get_state = lambda _label: False
+    calls = []
+    ctrl.set_state = lambda label, desired: calls.append((label, desired))
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    assert calls == []
+
+
 def test_init_applies_refreshed_settings_for_settings_wrapper(monkeypatch: pytest.MonkeyPatch):
     refreshed = {
         "Switch": {

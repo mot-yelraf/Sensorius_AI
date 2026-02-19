@@ -1,7 +1,7 @@
 """Switch automation rule manager and TOML schema helper.
 
-Loads, validates, and persists switch automation rules stored per host at
-`switch_settings/<hostname>/automations.toml`.
+Loads, validates, and persists switch automation rules in a shared file at
+`switch_settings/automations/automations.toml`.
 
 Current runtime contract is Advanced-only automation rules plus optional global
 Script toggles:
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 # ---------- user-defined constants (top) ----------
 TRIGGERS_BASE_DIR: str = r"switch_settings"
+TRIGGERS_SUBDIR: str = "automations"
 TRIGGERS_FILENAME: str = "automations.toml"
 TMP_SUFFIX: str = ".tmp"
 
@@ -53,7 +54,7 @@ T = TypeVar("T")
 class AutomationManager:
     """
     File layout:
-      switch_settings/<hostname>/automations.toml
+      switch_settings/automations/automations.toml
 
     TOML schema (kept human-friendly):
       [Meta]
@@ -83,13 +84,22 @@ class AutomationManager:
             raise ValueError(f"Invalid hostname/switch_id path segment: {hostname!r}")
         return host
 
-    def _dir_for_hostname(self, hostname: str) -> Path:
-        return self.base_dir / self._validate_hostname(hostname)
+    def _storage_dir(self) -> Path:
+        parent = self.base_dir / TRIGGERS_SUBDIR
+        parent.mkdir(parents=True, exist_ok=True)
+        return parent
+
+    def _storage_path(self) -> Path:
+        return self._storage_dir() / TRIGGERS_FILENAME
 
     def _path_for_hostname(self, hostname: str) -> Path:
-        parent = self._dir_for_hostname(hostname)
-        parent.mkdir(parents=True, exist_ok=True)
-        return parent / TRIGGERS_FILENAME
+        # Storage is now shared globally; keep hostname parameter for API compatibility.
+        _ = hostname
+        return self._storage_path()
+
+    def get_storage_path(self) -> Path:
+        """Public helper for shared automation file path."""
+        return self._storage_path()
 
     def _atomic_update(self, hostname: str, mutator: Callable[[Dict[str, Any]], T]) -> T:
         """Serialize load->mutate->save for one manager instance."""
