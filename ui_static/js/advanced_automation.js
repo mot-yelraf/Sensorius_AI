@@ -94,6 +94,52 @@ function clampOneDecimal(value, fallback = 0) {
   return Math.round(n * 10) / 10;
 }
 
+function getEnabledChannelIndexSet(modal) {
+  return new Set(
+    String(modal?.dataset?.channelIndices || "")
+      .split(",")
+      .map(s => Number.parseInt(String(s).trim(), 10))
+      .filter(n => Number.isFinite(n) && n > 0)
+  );
+}
+
+function getActionOptionEntries(modal) {
+  const enabledIndexSet = getEnabledChannelIndexSet(modal);
+  return Object.entries(switchLabels || {})
+    .map(([idx, lab]) => ({ idx: Number.parseInt(idx, 10), lab: String(lab || "").trim() }))
+    .filter(x => Number.isFinite(x.idx) && x.idx > 0 && x.lab)
+    .filter(x => !enabledIndexSet.size || enabledIndexSet.has(x.idx))
+    .sort((a, b) => a.idx - b.idx);
+}
+
+function fillActionSwitchOptions(selectEl, modal, preferredValue = "") {
+  if (!selectEl) return;
+
+  const entries = getActionOptionEntries(modal);
+  selectEl.innerHTML = "";
+
+  if (!entries.length) {
+    const opt = create("option");
+    opt.value = "";
+    opt.textContent = "No labeled channels";
+    opt.disabled = true;
+    opt.selected = true;
+    selectEl.appendChild(opt);
+    return;
+  }
+
+  for (const { lab } of entries) {
+    const opt = create("option");
+    opt.value = `${currentSwitchId}::${lab}`;
+    opt.textContent = lab;
+    selectEl.appendChild(opt);
+  }
+
+  if (preferredValue && [...selectEl.options].some(o => o.value === preferredValue)) {
+    selectEl.value = preferredValue;
+  }
+}
+
 function setAutomationView(modal, mode) {
   const chooser = q(modal, "#automationChooser");
   const editor = q(modal, "#automationEditorWrap");
@@ -467,6 +513,65 @@ function renderAsTime() {
   container.appendChild(group);
 }
 
+// ----- Actions builder -----
+function addAction(modal, action) {
+  const container = q(modal, "#actionsContainer");
+  if (!container) return;
+
+  const group = create("div", "action-group");
+
+  const switchWrap = create("div");
+  const switchLab = create("label");
+  switchLab.textContent = "Switch";
+  const switchSel = create("select");
+  switchSel.classList.add("action-switch");
+  switchWrap.append(switchLab, switchSel);
+
+  const setWrap = create("div");
+  const setLab = create("label");
+  setLab.textContent = "Set";
+  const setSel = create("select");
+  setSel.classList.add("action-set");
+  setSel.innerHTML = `
+    <option value="on">On</option>
+    <option value="off">Off</option>`;
+  setSel.value = action?.set ? "on" : "off";
+  setWrap.append(setLab, setSel);
+
+  const delayWrap = create("div");
+  const delayLab = create("label");
+  delayLab.textContent = "Delay (s, 0-60)";
+  const delayIn = create("input");
+  delayIn.type = "number";
+  delayIn.min = "0";
+  delayIn.max = "60";
+  delayIn.step = "1";
+  delayIn.classList.add("action-delay");
+  const actionDelay = parseInt(String(action?.delay_s ?? "0"), 10);
+  delayIn.value = String(Number.isFinite(actionDelay) ? Math.max(0, Math.min(60, actionDelay)) : 0);
+  delayWrap.append(delayLab, delayIn);
+
+  const rem = create("button", "remove");
+  rem.type = "button";
+  rem.setAttribute("aria-label", "Remove action");
+  rem.textContent = "×";
+  rem.title = "Remove action";
+  rem.onclick = () => {
+    const groups = [...container.querySelectorAll(".action-group")];
+    if (groups.length <= 1) {
+      return;
+    }
+    group.remove();
+  };
+
+  const row = create("div", "action-row");
+  row.append(switchWrap, setWrap, delayWrap, rem);
+  group.appendChild(row);
+  container.appendChild(group);
+
+  fillActionSwitchOptions(switchSel, modal, String(action?.switch_key || "").trim());
+}
+
 // ----- Form helpers -----
 function loadSelectedIntoForm(rootLike){
   const modal = getModalRoot(rootLike);
@@ -480,12 +585,10 @@ function loadSelectedIntoForm(rootLike){
 
   const nameEl   = modal.querySelector("#autoName");
   const enEl     = modal.querySelector("#autoEnabled");
-  const swSelEl  = modal.querySelector("#actionSwitch");
-  const setSelEl = modal.querySelector("#actionSet");
-  const delayEl  = modal.querySelector("#actionDelay");
   const box      = modal.querySelector("#conditionsContainer");
+  const actionsBox = modal.querySelector("#actionsContainer");
 
-  if (!nameEl || !enEl || !swSelEl || !setSelEl || !delayEl || !box) {
+  if (!nameEl || !enEl || !box || !actionsBox) {
     console.warn("[AdvancedAutomation] form elements missing; skipping loadSelectedIntoForm");
     return;
   }
@@ -493,15 +596,14 @@ function loadSelectedIntoForm(rootLike){
   nameEl.value      = auto.name || "";
   enEl.checked      = !!auto.enabled;
 
-  const firstAction = (Array.isArray(auto.actions) && auto.actions[0]) ? auto.actions[0] : null;
-  const defaultSwitchKey = swSelEl.options?.[0]?.value || "";
-  swSelEl.value = firstAction?.switch_key || defaultSwitchKey;
-  setSelEl.value = firstAction?.set ? "on" : "off";
-  delayEl.value  = Number.isFinite(firstAction?.delay_s) ? firstAction.delay_s : 0;
-
   box.innerHTML = "";
   if ((auto.conditions||[]).length === 0) addCondition(modal,{type:"sensor"});
   else auto.conditions.forEach(c => addCondition(modal,c));
+
+  actionsBox.innerHTML = "";
+  const normalizedActions = Array.isArray(auto.actions) ? auto.actions : (auto.actions ? [auto.actions] : []);
+  if (!normalizedActions.length) addAction(modal, {});
+  else normalizedActions.forEach(a => addAction(modal, a));
 
   showPreview(modal, auto);
 }
@@ -567,16 +669,27 @@ function serializeForm(modal){
     }
   });
 
-  const singleAction = {
-    switch_key: q(modal,"#actionSwitch").value,
-    set:        q(modal,"#actionSet").value === "on",
-    delay_s:    Math.max(0, Math.min(60, parseInt(q(modal,"#actionDelay").value || "0", 10))),
-  };
+  const actionGroups = [...modal.querySelectorAll("#actionsContainer .action-group")];
+  const actions = actionGroups.map(group => {
+    const switchKey = String(group.querySelector(".action-switch")?.value || "").trim();
+    const set = group.querySelector(".action-set")?.value === "on";
+    const delayRaw = parseInt(group.querySelector(".action-delay")?.value || "0", 10);
+    const delay_s = Number.isFinite(delayRaw) ? Math.max(0, Math.min(60, delayRaw)) : 0;
+    return { switch_key: switchKey, set, delay_s };
+  }).filter(a => !!a.switch_key);
+
+  if (!actions.length) {
+    const fallback = q(modal, "#actionsContainer .action-switch");
+    const fallbackKey = String(fallback?.value || "").trim();
+    if (fallbackKey) {
+      actions.push({ switch_key: fallbackKey, set: true, delay_s: 0 });
+    }
+  }
 
   return {
     id: selectedId || `auto-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`,
     name, enabled, conditions,
-    actions: [ singleAction ]
+    actions
   };
 }
 
@@ -617,47 +730,9 @@ async function loadSwitchInfoInto(rootLike) {
     }
   }
 
-  const sel = modal.querySelector("#actionSwitch") || document.querySelector("#actionSwitch");
-  if (!sel) {
-    console.warn("[AdvancedAutomation] #actionSwitch not found in DOM yet; skipping populate.");
-    return;
-  }
-
-  const enabledIndexSet = new Set(
-    String(modal.dataset?.channelIndices || "")
-      .split(",")
-      .map(s => Number.parseInt(String(s).trim(), 10))
-      .filter(n => Number.isFinite(n) && n > 0)
-  );
-
-  const prev = sel.value;
-  sel.innerHTML = "";
-  const entries = Object.entries(switchLabels || {})
-    .map(([idx, lab]) => ({ idx: Number.parseInt(idx, 10), lab: String(lab || "").trim() }))
-    .filter(x => Number.isFinite(x.idx) && x.idx > 0 && x.lab)
-    .filter(x => !enabledIndexSet.size || enabledIndexSet.has(x.idx))
-    .sort((a, b) => a.idx - b.idx);
-
-  if (!entries.length) {
-    const opt = create("option");
-    opt.value = "";
-    opt.textContent = "No labeled channels";
-    opt.disabled = true;
-    opt.selected = true;
-    sel.appendChild(opt);
-    return;
-  }
-
-  for (const { lab } of entries) {
-    const opt = create("option");
-    opt.value = `${currentSwitchId}::${lab}`;
-    opt.textContent = lab;
-    sel.appendChild(opt);
-  }
-
-  if (prev && [...sel.options].some(o => o.value === prev)) {
-    sel.value = prev;
-  }
+  const actionSelectors = [...modal.querySelectorAll("#actionsContainer .action-switch")];
+  if (!actionSelectors.length) return;
+  actionSelectors.forEach(sel => fillActionSwitchOptions(sel, modal, sel.value));
 }
 
 async function loadAutomationsListInto(rootLike, opts = {}) {
@@ -769,14 +844,14 @@ window.initAdvancedAutomationModal = async function (modalEl) {
 
     // Wait (non-throwing) for the critical elements inside the modal
     const elList   = await waitForSelector(modalRoot, "#automationList",       2000);
-    const elSwitch = await waitForSelector(modalRoot, "#actionSwitch",         2000);
+    const elActs   = await waitForSelector(modalRoot, "#actionsContainer",     2000);
     const elName   = await waitForSelector(modalRoot, "#autoName",             2000);
     const elConds  = await waitForSelector(modalRoot, "#conditionsContainer",  2000);
 
     // If essentials are missing, surface but don't throw
-    if (!elList || !elSwitch || !elName || !elConds) {
+    if (!elList || !elActs || !elName || !elConds) {
       console.warn("[AdvancedAutomation] essential nodes missing; modal will still open but UI may be incomplete", {
-        hasList: !!elList, hasSwitch: !!elSwitch, hasName: !!elName, hasConds: !!elConds
+        hasList: !!elList, hasActions: !!elActs, hasName: !!elName, hasConds: !!elConds
       });
     }
 
@@ -785,6 +860,7 @@ window.initAdvancedAutomationModal = async function (modalEl) {
     const btnNew  = rootForQuery.querySelector("#btnNewAutomation");
     const btnNewFromList = rootForQuery.querySelector("#btnNewFromList");
     const btnAdd  = rootForQuery.querySelector("#btnAddCondition");
+    const btnAddAction = rootForQuery.querySelector("#btnAddAction");
     const btnSave = rootForQuery.querySelector("#btnSetAutomation");
     const btnDel  = rootForQuery.querySelector("#btnRemove");
     const btnSavedAutomations = rootForQuery.querySelector("#btnSavedAutomations");
@@ -799,6 +875,7 @@ window.initAdvancedAutomationModal = async function (modalEl) {
     if (btnNew) btnNew.onclick = startNewAutomation;
     if (btnNewFromList) btnNewFromList.onclick = startNewAutomation;
     if (btnAdd)  btnAdd.onclick  = () => addCondition(modalRoot, { type:"sensor" });
+    if (btnAddAction) btnAddAction.onclick = () => addAction(modalRoot, {});
     if (btnSave) btnSave.onclick = () => saveCurrent(modalRoot).catch(e=>alert(e.message));
     if (btnDel)  btnDel.onclick  = () => deleteSelected(modalRoot);
     if (btnSavedAutomations) btnSavedAutomations.onclick = () => setAutomationView(modalRoot, "chooser");

@@ -177,9 +177,13 @@ class saiMQTTIngest:
             self.ha_client = self.client
             self._ha_connected_evt = self._connected_evt
 
-        # Apply auth if configured
-        self._apply_mqtt_auth(self.client, section="MQTT")
-        if self.ha_client is not self.client:
+        # Apply auth if configured.
+        # When HA uses the same broker/client as ingest, prefer HomeAssistant
+        # credentials with MQTT as fallback so UI-entered HA creds still work.
+        if self.ha_client is self.client:
+            self._apply_mqtt_auth(self.client, section="HomeAssistant", fallback_section="MQTT")
+        else:
+            self._apply_mqtt_auth(self.client, section="MQTT")
             self._apply_mqtt_auth(self.ha_client, section="HomeAssistant", fallback_section="MQTT")
 
         self._known_switch_ids: set[str] = set()

@@ -3152,9 +3152,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     # --- Validate the required nodes are actually in the DOM now ---
     yield "    const modalInDom = document.querySelector('#automationManagerModal');"
     yield "    const hasList = modalInDom && modalInDom.querySelector('#automationList');"
-    yield "    const hasSwitch = modalInDom && modalInDom.querySelector('#actionSwitch');"
-    yield "    if (!modalInDom || !hasList || !hasSwitch) {"
-    yield "      console.error('Required nodes missing after mount', { modalInDom, hasList, hasSwitch });"
+    yield "    const hasActions = modalInDom && modalInDom.querySelector('#actionsContainer');"
+    yield "    if (!modalInDom || !hasList || !hasActions) {"
+    yield "      console.error('Required nodes missing after mount', { modalInDom, hasList, hasActions });"
     yield "      alert('Unable to open Automations modal'); return;"
     yield "    }"
     yield ""

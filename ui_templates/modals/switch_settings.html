@@ -125,24 +125,11 @@
                 </div>
 
                 <div class="section">
-                  <p class="section-title">Action</p>
-                  <div class="row three">
-                    <div>
-                      <label for="actionSwitch">Switch</label>
-                      <select id="actionSwitch"></select>
-                    </div>
-                    <div>
-                      <label for="actionSet">Set</label>
-                      <select id="actionSet">
-                        <option value="on">On</option>
-                        <option value="off">Off</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label for="actionDelay">Delay (s, 0–60)</label>
-                      <input id="actionDelay" type="number" min="0" max="60" step="1" value="0" />
-                    </div>
+                  <p class="section-title">Action(s)</p>
+                  <div class="inline" style="align-items:center; margin:.25rem 0 .5rem 0;">
+                    <button class="add" type="button" id="btnAddAction">Add Action</button>
                   </div>
+                  <div id="actionsContainer" aria-live="polite"></div>
                 </div>
 
                 <div class="row single">
