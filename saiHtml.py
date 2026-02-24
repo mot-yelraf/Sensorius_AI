@@ -260,7 +260,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                         up_axis = _unit(_sub(north, _mul(moon_vec, _dot(north, moon_vec))))
 
                     if up_axis is not None:
-                        right_axis = _unit(_cross(moon_vec, up_axis))
+                        # Build screen-right from the local up axis and moon-view direction.
+                        # The previous cross-product order mirrored the phase left/right.
+                        right_axis = _unit(_cross(up_axis, moon_vec))
                         limb_vec = _unit(_sub(sun_vec, _mul(moon_vec, _dot(sun_vec, moon_vec))))
                         if right_axis is not None and limb_vec is not None:
                             ang = math.degrees(math.atan2(_dot(limb_vec, up_axis), _dot(limb_vec, right_axis)))

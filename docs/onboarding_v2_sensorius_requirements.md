@@ -191,6 +191,34 @@ Duplicate replay behavior (idempotent):
 }
 ```
 
+### Nodus Enforcement Checklist (Required)
+1. Persist `onboard_token` from `/itaot-init` and require the same token in:
+   - `onboard/hello`
+   - `config/set`
+2. Keep token valid until `config/result.applied == true`, then invalidate it.
+3. Reject `config/set` when token is missing/mismatch/expired/already used.
+4. Process `payload.settings` as the canonical full-config shape.
+5. Ignore unknown top-level fields in `config/set` (forward compatibility), including:
+   - `checksum`
+   - `config_version`
+6. Publish `config/ack` for every received `config/set`, including duplicates.
+7. On duplicate `message_id`, return idempotent ack:
+   - `accepted: true`
+   - `duplicate: true` (recommended)
+8. Publish `config/result` once per unique `message_id` with stable replay semantics.
+9. Correlate and deduplicate by `device_id + message_id`, not timestamp.
+10. Do not require NTP-synchronized timestamps for onboarding correctness.
+
+### Standard Error Values (Recommended)
+Use stable short error strings to keep UI and recovery behavior predictable:
+1. `token_invalid`
+2. `token_expired`
+3. `token_already_used`
+4. `config_rejected`
+5. `schema_invalid`
+6. `apply_failed`
+7. `not_ready`
+
 ### `meta` Payload Field Notes
 `nodus/<device_id>/meta` (`schema = "nodus-meta/v1"`) includes:
 1. `sensor.display_metrics` for Sensorius TOML `[Display]` materialization.
