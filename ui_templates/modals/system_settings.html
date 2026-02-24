@@ -246,6 +246,25 @@
   font-size: .88rem;
   color: #444;
 }
+#setupPiModal .onboard-badge {
+  margin-top: .4rem;
+  padding: .45rem .55rem;
+  border-radius: 6px;
+  border: 1px solid #d6dfd8;
+  background: #f8fbf9;
+  color: #2e3a33;
+  font-size: .88rem;
+}
+#setupPiModal .onboard-badge.fail {
+  border-color: #e4b8bf;
+  background: #fdeeee;
+  color: #7d1f2a;
+}
+#setupPiModal .onboard-badge.ok {
+  border-color: #b8dfc5;
+  background: #eef9f0;
+  color: #245e35;
+}
 
 /* legacy button classes used across current templates */
 #setupPiModal .button {
@@ -316,7 +335,8 @@
        data-farm-client-secret="{{ farm_client_secret | default('') }}"
        data-farm-username="{{ farm_username | default('') }}"
        data-farm-password="{{ farm_password | default('') }}"
-       data-farm-log-bundle="{{ farm_log_bundle | default('observation') }}">
+       data-farm-log-bundle="{{ farm_log_bundle | default('observation') }}"
+       data-onboarding-v2-enabled="{{ onboarding_v2_mqtt_enabled | default(true) }}">
     <div class="system-settings-header">
       <h2 class="system-settings-title">{{ app_name_long }} {{ app_version }}</h2>
     </div>
@@ -539,7 +559,7 @@
               </li>
               <li id="step-2" class="step pending">
                 <span class="icon">•</span>
-                <span class="label">Sensor Setup connection established</span>
+                <span class="label">Nodus setup connection established</span>
                 <div class="detail" id="step-2-detail"></div>
               </li>
               <li id="step-3" class="step pending">
@@ -549,14 +569,17 @@
               </li>
               <li id="step-4" class="step pending">
                 <span class="icon">•</span>
-                <span class="label">Reconnecting to <span id="step-4-ssid">...</span></span>
+                <span class="label">Applying configuration and finalizing</span>
                 <div class="detail" id="step-4-detail"></div>
               </li>
             </ul>
+            <div id="onboard-terminal-badge" class="onboard-badge" hidden></div>
             <div class="pane-footer">
               <div class="inline-actions">
                 <button type="button" class="button black btn-back-system">Back</button>
                 <button type="button" class="button neutral" id="btn-onboard-reset">Reset</button>
+                <button type="button" class="button yellow" id="btn-onboard-retry">Retry</button>
+                <button type="button" class="button blue" id="btn-onboard-restart">Restart</button>
               </div>
               <div class="inline-actions">
                 <span id="add-scan-status" class="status-text" style="min-height:unset; margin:0;">Scanning for Nodus_Setup...</span>
@@ -646,6 +669,7 @@
   root.dataset.initialized = "1";
 
   const shell = root.querySelector(".system-settings-shell");
+  const onboardingV2Enabled = String(shell?.dataset?.onboardingV2Enabled || "true").toLowerCase() !== "false";
   const formEl = document.getElementById("systemSettingsForm");
   const menu = document.getElementById("systemSettingsMenu");
   const panes = root.querySelectorAll(".settings-pane");
@@ -656,6 +680,8 @@
 
   let locationsLoaded = false;
   let onboardWs = null;
+  let onboardSessionId = "";
+  let onboardPollTimer = null;
   let addScanTimer = null;
   let addScanActive = false;
   let addScanAttempt = 0;
@@ -671,6 +697,10 @@
     if (onboardWs) {
       try { onboardWs.close(); } catch (_e) {}
       onboardWs = null;
+    }
+    if (onboardPollTimer) {
+      clearTimeout(onboardPollTimer);
+      onboardPollTimer = null;
     }
   }
 
@@ -1133,13 +1163,6 @@
       const tgt = document.getElementById("step-3-sensor");
       if (tgt) tgt.textContent = seg || "...";
     }
-    if (step === 4 && label) {
-      const m = label.match(/Reconnecting to\s+(.+)/);
-      if (m) {
-        const tgt = document.getElementById("step-4-ssid");
-        if (tgt) tgt.textContent = m[1];
-      }
-    }
   }
 
   function resetOnboardUI() {
@@ -1154,6 +1177,112 @@
       const det = document.getElementById(`step-${i}-detail`);
       if (det) det.textContent = "";
     }
+    const badge = document.getElementById("onboard-terminal-badge");
+    if (badge) {
+      badge.hidden = true;
+      badge.textContent = "";
+      badge.classList.remove("fail", "ok");
+    }
+  }
+
+  function setOnboardBadge(text, kind) {
+    const badge = document.getElementById("onboard-terminal-badge");
+    if (!badge) return;
+    const msg = String(text || "").trim();
+    if (!msg) {
+      badge.hidden = true;
+      badge.textContent = "";
+      badge.classList.remove("fail", "ok");
+      return;
+    }
+    badge.hidden = false;
+    badge.textContent = msg;
+    badge.classList.remove("fail", "ok");
+    if (kind === "fail") badge.classList.add("fail");
+    if (kind === "ok") badge.classList.add("ok");
+  }
+
+  function markPendingStep(step, label, detail) {
+    const li = document.getElementById(`step-${step}`);
+    if (!li) return;
+    li.classList.remove("pass", "fail");
+    li.classList.add("pending");
+    const ic = li.querySelector(".icon");
+    if (ic) ic.textContent = "\u2022";
+    if (label && step !== 3 && step !== 4) {
+      const lab = li.querySelector(".label");
+      if (lab) lab.textContent = label;
+    }
+    const det = document.getElementById(`step-${step}-detail`);
+    if (det) det.textContent = detail || "";
+  }
+
+  function renderV2SessionState(session) {
+    const state = String(session?.state || "");
+    const reason = String(session?.failure_reason || "");
+    const addBtn = document.getElementById("btn-onboard-add");
+    if (state === "AP_DISCOVERED" || state === "INIT_SENDING" || state === "INIT_SENT" || state === "WAITING_REBOOT") {
+      markOnboardStep(1, true, "Adding Device, this can take up to 30 seconds", state);
+      markPendingStep(2, "Nodus setup connection established", "Waiting for MQTT hello");
+      return;
+    }
+    if (state === "WAITING_MQTT_HELLO") {
+      markOnboardStep(1, true, "Adding Device, this can take up to 30 seconds", "Bootstrap sent");
+      markPendingStep(2, "Nodus setup connection established", "Waiting for hello");
+      return;
+    }
+    if (state === "CONFIG_SENDING" || state === "WAITING_CONFIG_ACK") {
+      markOnboardStep(1, true, "Adding Device, this can take up to 30 seconds", "Bootstrap accepted");
+      markOnboardStep(2, true, "Nodus setup connection established", "MQTT hello received");
+      markPendingStep(3, "Device configured and rebooting", "Sending config");
+      return;
+    }
+    if (state === "WAITING_CONFIG_RESULT") {
+      markOnboardStep(1, true, "Adding Device, this can take up to 30 seconds", "Bootstrap accepted");
+      markOnboardStep(2, true, "Nodus setup connection established", "Config ACK received");
+      markOnboardStep(3, true, "Device configured and rebooting", "Config accepted");
+      markPendingStep(4, "Applying configuration and finalizing", "Waiting for apply result");
+      return;
+    }
+    if (state === "ONLINE") {
+      markOnboardStep(1, true, "Adding Device, this can take up to 30 seconds", "Bootstrap accepted");
+      markOnboardStep(2, true, "Nodus setup connection established", "MQTT hello received");
+      markOnboardStep(3, true, "Device configured and rebooting", "Config sent");
+      markOnboardStep(4, true, "Applying configuration and finalizing", "Device online");
+      setOnboardBadge("Device onboarded successfully.", "ok");
+      if (addBtn && !addScanActive) addBtn.disabled = false;
+      return;
+    }
+    if (state === "FAILED") {
+      let failStep = 1;
+      if (reason.includes("hello")) failStep = 2;
+      if (reason.includes("config")) failStep = 4;
+      markOnboardStep(failStep, false, "Onboarding failed", reason || "failed");
+      setOnboardBadge(`Onboarding failed: ${reason || "unknown error"}`, "fail");
+      if (addBtn && !addScanActive) addBtn.disabled = false;
+      return;
+    }
+    setOnboardBadge("", "");
+  }
+
+  async function pollV2Session() {
+    if (!onboardingV2Enabled) return;
+    if (!onboardSessionId) return;
+    try {
+      const res = await fetch(`/onboard-device/v2/session/${encodeURIComponent(onboardSessionId)}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const js = await res.json();
+      renderV2SessionState(js || {});
+      const terminal = js && (js.state === "ONLINE" || js.state === "FAILED");
+      if (terminal) {
+        onboardPollTimer = null;
+        return;
+      }
+      onboardPollTimer = setTimeout(pollV2Session, 1200);
+    } catch (e) {
+      console.error(e);
+      onboardPollTimer = setTimeout(pollV2Session, 2000);
+    }
   }
 
   async function startOnboard() {
@@ -1166,7 +1295,50 @@
     try {
       resetOnboardUI();
       const fd = new FormData(formEl);
-      const res = await fetch("/onboard-device", { method: "POST", body: fd });
+      if (!onboardingV2Enabled) {
+        const resLegacy = await fetch("/onboard-device", { method: "POST", body: fd });
+        if (!resLegacy.ok) {
+          markOnboardStep(1, false, "Failed to start onboarding", "HTTP " + resLegacy.status);
+          if (addBtn) addBtn.disabled = false;
+          return;
+        }
+        const jsLegacy = await resLegacy.json();
+        const jobId = String(jsLegacy?.job_id || "");
+        if (!jobId) throw new Error("Missing legacy job_id");
+        if (onboardWs) {
+          try { onboardWs.close(); } catch (_e) {}
+          onboardWs = null;
+        }
+        const proto = location.protocol === "https:" ? "wss" : "ws";
+        onboardWs = new WebSocket(`${proto}://${location.host}/ws/onboard/${encodeURIComponent(jobId)}`);
+        onboardWs.onmessage = (ev) => {
+          try {
+            const msg = JSON.parse(ev.data || "{}");
+            if (msg?.hello) return;
+            if (msg?.done) {
+              markOnboardStep(4, true, "Applying configuration and finalizing", "Done");
+              setOnboardBadge("Device onboarded successfully.", "ok");
+              if (addBtn && !addScanActive) addBtn.disabled = false;
+              return;
+            }
+            const step = Number(msg?.step || 0);
+            if (step >= 1 && step <= 3) {
+              const ok = !!msg.ok;
+              markOnboardStep(step, ok, String(msg.label || "Onboarding"), String(msg.detail || ""));
+              if (!ok) {
+                setOnboardBadge(String(msg.label || "Onboarding failed"), "fail");
+                if (addBtn && !addScanActive) addBtn.disabled = false;
+              }
+            }
+          } catch (_err) {}
+        };
+        onboardWs.onerror = () => {
+          setOnboardBadge("Onboarding websocket error.", "fail");
+          if (addBtn && !addScanActive) addBtn.disabled = false;
+        };
+        return;
+      }
+      const res = await fetch("/onboard-device/v2/start", { method: "POST", body: fd });
 
       if (!res.ok) {
         markOnboardStep(1, false, "Failed to start onboarding", "HTTP " + res.status);
@@ -1175,42 +1347,73 @@
       }
 
       const js = await res.json();
-      const jobId = js.job_id;
-      const proto = (location.protocol === "https:") ? "wss" : "ws";
-
-      if (onboardWs) {
-        try { onboardWs.close(); } catch (_e) {}
+      onboardSessionId = String(js?.session_id || "");
+      if (!onboardSessionId) throw new Error("Missing session_id");
+      renderV2SessionState(js || {});
+      if (onboardPollTimer) {
+        clearTimeout(onboardPollTimer);
+        onboardPollTimer = null;
       }
-
-      onboardWs = new WebSocket(`${proto}://${location.host}/ws/onboard/${jobId}`);
-
-      onboardWs.onmessage = (ev) => {
-        try {
-          const msg = JSON.parse(ev.data);
-          if (msg.hello) return;
-
-          let step = msg.step;
-          if (step === 1 || step === 2 || step === 3) step = step + 1;
-
-          if (typeof msg.step === "number") {
-            markOnboardStep(step, !!msg.ok, msg.label || "", msg.detail || "");
-          }
-          if (msg.done && addBtn && !addScanActive) addBtn.disabled = false;
-        } catch (e) {
-          console.error(e);
-        }
-      };
-
-      onboardWs.onerror = () => {
-        if (addBtn && !addScanActive) addBtn.disabled = false;
-      };
-      onboardWs.onclose = () => {
-        if (addBtn && !addScanActive) addBtn.disabled = false;
-      };
+      onboardPollTimer = setTimeout(pollV2Session, 1000);
     } catch (e) {
       console.error(e);
       if (addBtn) addBtn.disabled = false;
       markOnboardStep(1, false, "Failed to start onboarding", String(e));
+    }
+  }
+
+  async function retryOnboard() {
+    if (!onboardingV2Enabled) {
+      await startOnboard();
+      return;
+    }
+    if (!onboardSessionId) {
+      markOnboardStep(1, false, "Retry unavailable", "No active V2 session");
+      return;
+    }
+    try {
+      const res = await fetch(`/onboard-device/v2/retry/${encodeURIComponent(onboardSessionId)}`, { method: "POST" });
+      const js = await res.json().catch(() => ({}));
+      if (!res.ok || !js.ok) {
+        const msg = js.error || ("HTTP " + res.status);
+        markOnboardStep(4, false, "Retry failed", msg);
+        return;
+      }
+      renderV2SessionState(js || {});
+      if (!onboardPollTimer) onboardPollTimer = setTimeout(pollV2Session, 900);
+    } catch (e) {
+      markOnboardStep(4, false, "Retry failed", String(e));
+    }
+  }
+
+  async function restartOnboardSession() {
+    if (!onboardingV2Enabled) {
+      await startOnboard();
+      return;
+    }
+    if (!onboardSessionId) {
+      markOnboardStep(1, false, "Restart unavailable", "No active V2 session");
+      return;
+    }
+    try {
+      const res = await fetch(`/onboard-device/v2/restart/${encodeURIComponent(onboardSessionId)}`, { method: "POST" });
+      const js = await res.json().catch(() => ({}));
+      if (!res.ok || !js.ok) {
+        const msg = js.error || ("HTTP " + res.status);
+        setOnboardBadge(`Restart failed: ${msg}`, "fail");
+        return;
+      }
+      onboardSessionId = String(js.session_id || "");
+      resetOnboardUI();
+      renderV2SessionState(js || {});
+      if (onboardPollTimer) {
+        clearTimeout(onboardPollTimer);
+        onboardPollTimer = null;
+      }
+      onboardPollTimer = setTimeout(pollV2Session, 900);
+      setOnboardBadge("Restarted onboarding session. Click Add to re-run AP bootstrap.", "ok");
+    } catch (e) {
+      setOnboardBadge(`Restart failed: ${String(e)}`, "fail");
     }
   }
 
@@ -1235,29 +1438,32 @@
     setAddScanStatus(`Scanning for Nodus_Setup (${addScanAttempt}/${addScanMax})...`);
 
     try {
-      const resp = await fetch("/scan-nodus-setup?ssid=" + encodeURIComponent("Nodus_Setup"), { cache: "no-store" });
+      const resp = await fetch("/scan-nodus-setup", { cache: "no-store" });
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       const js = await resp.json();
+      const targetSsid = (js && js.ssid) ? js.ssid : "Nodus_Setup";
+      const detailMsg = (js && js.message) ? String(js.message) : "no scan details";
       if (js && js.found) {
-        setAddScanStatus("Nodus_Setup found");
+        setAddScanStatus(`${targetSsid} found`);
         if (addBtn) addBtn.disabled = false;
         stopAddScan();
         return;
       }
       if (addScanAttempt >= addScanMax) {
-        setAddScanStatus("Nodus_Setup not found");
-        if (addBtn) addBtn.disabled = true;
+        // Do not hard-block onboarding: macOS scan visibility can fail even when connect works.
+        setAddScanStatus(`${targetSsid} not found by scanner (${detailMsg}). You can still click Add.`);
+        if (addBtn) addBtn.disabled = false;
         stopAddScan();
         return;
       }
-      setAddScanStatus(`Nodus_Setup not found. Retrying in 60s (${addScanAttempt}/${addScanMax})...`);
+      setAddScanStatus(`${targetSsid} not found. Retrying in 60s (${addScanAttempt}/${addScanMax})...`);
       if (addBtn) addBtn.disabled = true;
       addScanTimer = setTimeout(scanAddAttempt, addScanDelayMs);
     } catch (e) {
       console.error(e);
       if (addScanAttempt >= addScanMax) {
-        setAddScanStatus("Scan failed - Nodus_Setup not found");
-        if (addBtn) addBtn.disabled = true;
+        setAddScanStatus("Scan failed. You can still click Add.");
+        if (addBtn) addBtn.disabled = false;
         stopAddScan();
         return;
       }
@@ -1416,8 +1622,19 @@
     if (ev.target && ev.target.id === "btn-onboard-add") {
       startOnboard();
     }
+    if (ev.target && ev.target.id === "btn-onboard-retry") {
+      retryOnboard();
+    }
+    if (ev.target && ev.target.id === "btn-onboard-restart") {
+      restartOnboardSession();
+    }
     if (ev.target && ev.target.id === "btn-onboard-reset") {
       resetOnboardUI();
+      onboardSessionId = "";
+      if (onboardPollTimer) {
+        clearTimeout(onboardPollTimer);
+        onboardPollTimer = null;
+      }
       if (!addScanActive) startAddScan();
     }
     if (ev.target && ev.target.id === "remove-device-run") {

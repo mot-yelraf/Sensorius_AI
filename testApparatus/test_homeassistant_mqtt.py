@@ -24,7 +24,7 @@ class _FakeMqttClients:
         )
         return True
 
-    def publish_json(self, topic, payload, qos=0, retain=False):
+    def publish_json(self, topic, payload, qos=0, retain=False, use_ha_client=True):
         return True
 
     def subscribe(self, topic, callback, qos=0):

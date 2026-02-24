@@ -14,11 +14,19 @@ import asyncio
 import time
 import random
 import json
+import socket
+import ipaddress
 import paho.mqtt.client as mqtt
 from saiUtils import printDM, debug_enabled
 
 MODULE = "saiMQTTClient"
 DEBUG = debug_enabled(MODULE)
+DEFAULT_HEARTBEAT_INTERVAL_S = 30.0
+MIN_HEARTBEAT_INTERVAL_S = 10.0
+HEARTBEAT_STATUS_ONLINE = "online"
+HEARTBEAT_STATUS_DEGRADED = "degraded"
+HEARTBEAT_STATUS_OFFLINE = "offline"
+HEARTBEAT_STATUS_UNKNOWN = "unknown"
 
 class saiMQTTClient:
     def __init__(self, sensor, settings, supervisor=None):
@@ -32,6 +40,24 @@ class saiMQTTClient:
         self.base_topic = settings.get_setting("HomeAssistant", "BASE_TOPIC", "sensorius")
         self.sensor_state_topic = f"{self.base_topic}/sensor/{self.sensor.sensor_id}/state"
         self.ha_state_retain = bool(settings.get_setting("HomeAssistant", "PUBLISH_STATE_RETAIN", True))
+        self.device_id = (
+            str(getattr(self.settings, "device_id", "") or "").strip().lower()
+            or str(self.settings.get_setting("Network", "HOSTNAME", "") or "").strip().lower()
+            or str(getattr(self.sensor, "sensor_id", "") or "").strip().lower()
+            or "nodus"
+        )
+        self.mqtt_namespace = str(self.settings.get_setting("MQTT", "BASE_TOPIC", "nodus") or "nodus").strip().strip("/") or "nodus"
+        self.heartbeat_topic = f"{self.mqtt_namespace}/{self.device_id}/status/heartbeat"
+        try:
+            hb_interval = float(self.settings.get_setting("MQTT", "HEARTBEAT_INTERVAL_S", DEFAULT_HEARTBEAT_INTERVAL_S) or DEFAULT_HEARTBEAT_INTERVAL_S)
+        except Exception:
+            hb_interval = DEFAULT_HEARTBEAT_INTERVAL_S
+        self.heartbeat_interval_s = max(MIN_HEARTBEAT_INTERVAL_S, hb_interval)
+        self.last_heartbeat_status = ""
+        self.last_heartbeat_publish_ts = 0.0
+        self._last_dns_signal_ok = True
+        self._last_dns_check_ts = 0.0
+        self._dns_check_interval_s = 5.0
         # this is the legacy topic
         self.topic = f"sensor/{self.sensor.sensor_id}/data"
         client_id = f"sensorius-{self.sensor.sensor_id}"
@@ -58,6 +84,83 @@ class saiMQTTClient:
             self.client.username_pw_set(mqtt_username, mqtt_password)
             if DEBUG:
                 printDM("MQTT username/password configured", location=MODULE)
+
+    @staticmethod
+    def _normalize_heartbeat_status(status: str | None) -> str:
+        s = str(status or "").strip().lower()
+        if s in {HEARTBEAT_STATUS_ONLINE, HEARTBEAT_STATUS_DEGRADED, HEARTBEAT_STATUS_OFFLINE, HEARTBEAT_STATUS_UNKNOWN}:
+            return s
+        if s == "pending":
+            return HEARTBEAT_STATUS_UNKNOWN
+        return HEARTBEAT_STATUS_UNKNOWN
+
+    def _heartbeat_payload(self, status: str, *, ts: float | None = None) -> str:
+        ts_epoch = int(ts if ts is not None else time.time())
+        payload = {
+            "device_id": self.device_id,
+            "status": self._normalize_heartbeat_status(status),
+            "timestamp": ts_epoch,
+            "heartbeat_interval_s": int(self.heartbeat_interval_s),
+        }
+        return json.dumps(payload, separators=(",", ":"))
+
+    def _publish_status_heartbeat(self, status: str, *, force: bool = False) -> bool:
+        if self.broker == "":
+            return False
+        if not self.client or not self.client.is_connected():
+            return False
+        now = time.time()
+        norm = self._normalize_heartbeat_status(status)
+        if (not force) and norm == self.last_heartbeat_status and (now - self.last_heartbeat_publish_ts) < self.heartbeat_interval_s:
+            return True
+        payload = self._heartbeat_payload(norm, ts=now)
+        try:
+            info = self.client.publish(self.heartbeat_topic, payload, qos=0, retain=True)
+            rc = getattr(info, "rc", 0) if info is not None else 0
+            if rc != 0:
+                printDM(f"Heartbeat publish failed rc={rc} topic={self.heartbeat_topic}", location=MODULE)
+                return False
+            self.last_heartbeat_status = norm
+            self.last_heartbeat_publish_ts = now
+            if DEBUG:
+                printDM(f"Heartbeat {norm} published to {self.heartbeat_topic}", location=MODULE)
+            return True
+        except Exception as e:
+            printDM(f"Heartbeat publish error: {e}", location=MODULE)
+            return False
+
+    def _configure_last_will(self) -> None:
+        if self.broker == "" or not self.client:
+            return
+        try:
+            payload = self._heartbeat_payload(HEARTBEAT_STATUS_OFFLINE)
+            self.client.will_set(self.heartbeat_topic, payload, qos=0, retain=True)
+        except Exception as e:
+            printDM(f"MQTT will_set failed: {e}", location=MODULE)
+
+    def _dns_signal_ok(self) -> bool:
+        broker = str(self.broker or "").strip()
+        if not broker:
+            return True
+        now = time.monotonic()
+        if (now - self._last_dns_check_ts) < self._dns_check_interval_s:
+            return self._last_dns_signal_ok
+        self._last_dns_check_ts = now
+        if broker in {"localhost", "127.0.0.1", "::1"}:
+            self._last_dns_signal_ok = True
+            return True
+        try:
+            ipaddress.ip_address(broker)
+            self._last_dns_signal_ok = True
+            return True
+        except Exception:
+            pass
+        try:
+            socket.getaddrinfo(broker, None)
+            self._last_dns_signal_ok = True
+        except Exception:
+            self._last_dns_signal_ok = False
+        return self._last_dns_signal_ok
 
     def _on_connect(self, client, userdata, flags, rc):
         if self.broker == "":
@@ -88,6 +191,7 @@ class saiMQTTClient:
         try:
             if self.client:
                 try:
+                    self._publish_status_heartbeat(HEARTBEAT_STATUS_OFFLINE, force=True)
                     self.client.disconnect()
                 finally:
                     self.client.loop_stop()
@@ -149,11 +253,13 @@ class saiMQTTClient:
                     printDM(f"MQTT connect attempt {attempt+1}/3 to {self.broker}:{self.port}", location=MODULE)
 
                 # connect() is non-blocking enough for typical use; it triggers on_connect via loop thread
+                self._configure_last_will()
                 self.client.connect(self.broker, self.port)
 
                 # Give on_connect a moment to run (without busy waiting)
                 ok = await self.ensure_connected(timeout=5)
                 if ok:
+                    self._publish_status_heartbeat(HEARTBEAT_STATUS_ONLINE, force=True)
                     if DEBUG:
                         printDM("MQTT reconnected", location=MODULE)
                     return
@@ -186,6 +292,9 @@ class saiMQTTClient:
 
                 if not self.client.is_connected():
                     await self.mqtt_reconnect()
+                else:
+                    hb_status = HEARTBEAT_STATUS_ONLINE if self._dns_signal_ok() else HEARTBEAT_STATUS_DEGRADED
+                    self._publish_status_heartbeat(hb_status)
 
                 # Optional keepalive “tick” (only if you want)
                 # If you already publish regularly (sensor data), you can omit this.

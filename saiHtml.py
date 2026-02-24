@@ -74,12 +74,13 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     from saiHtml import render_graph_modal
     try:
         from astral import LocationInfo
-        from astral.sun import sun as _astral_sun, elevation as _astral_elevation
+        from astral.sun import sun as _astral_sun, elevation as _astral_elevation, azimuth as _astral_azimuth
         from astral import moon as _astral_moon
     except Exception:
         LocationInfo = None
         _astral_sun = None
         _astral_elevation = None
+        _astral_azimuth = None
         _astral_moon = None
     if isinstance(switch_controllers, dict):
         switch_controllers = {
@@ -142,8 +143,15 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             "moon_rise": "",
             "moon_set": "",
             "moon_next_full": "",
+            "moon_visible_angle": None,
         }
-        if LocationInfo is None or _astral_sun is None or _astral_elevation is None or _astral_moon is None:
+        if (
+            LocationInfo is None
+            or _astral_sun is None
+            or _astral_elevation is None
+            or _astral_azimuth is None
+            or _astral_moon is None
+        ):
             return out
 
         resolved_lat = None
@@ -197,18 +205,97 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
 
             moon_val = float(_astral_moon.phase(now_local.date()))
             moon_lit_pct = int(round((0.5 * (1 - math.cos((2 * math.pi * (moon_val % 28.0)) / 28.0))) * 100))
+            moon_visible_angle = None
+            try:
+                moon_az_fn = getattr(_astral_moon, "azimuth", None)
+                moon_el_fn = getattr(_astral_moon, "elevation", None)
+                moon_az = float(moon_az_fn(obs, now_local)) if callable(moon_az_fn) else float("nan")
+                moon_el = float(moon_el_fn(obs, now_local)) if callable(moon_el_fn) else float("nan")
+                sun_az = float(_astral_azimuth(obs, now_local))
+                sun_el = float(_astral_elevation(obs, now_local))
+
+                if all(math.isfinite(v) for v in (moon_az, moon_el, sun_az, sun_el)):
+                    def _h_to_unit(az_deg: float, el_deg: float) -> tuple[float, float, float]:
+                        az = math.radians(az_deg)
+                        el = math.radians(el_deg)
+                        cel = math.cos(el)
+                        return (
+                            cel * math.sin(az),  # east
+                            cel * math.cos(az),  # north
+                            math.sin(el),        # up
+                        )
+
+                    def _dot(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
+                        return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2])
+
+                    def _cross(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
+                        return (
+                            (a[1] * b[2]) - (a[2] * b[1]),
+                            (a[2] * b[0]) - (a[0] * b[2]),
+                            (a[0] * b[1]) - (a[1] * b[0]),
+                        )
+
+                    def _sub(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
+                        return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+                    def _mul(a: tuple[float, float, float], k: float) -> tuple[float, float, float]:
+                        return (a[0] * k, a[1] * k, a[2] * k)
+
+                    def _norm(v: tuple[float, float, float]) -> float:
+                        return math.sqrt(_dot(v, v))
+
+                    def _unit(v: tuple[float, float, float]) -> tuple[float, float, float] | None:
+                        n = _norm(v)
+                        if n <= 1e-9:
+                            return None
+                        return (v[0] / n, v[1] / n, v[2] / n)
+
+                    moon_vec = _h_to_unit(moon_az, moon_el)
+                    sun_vec = _h_to_unit(sun_az, sun_el)
+                    zenith = (0.0, 0.0, 1.0)
+                    north = (0.0, 1.0, 0.0)
+
+                    up_axis = _unit(_sub(zenith, _mul(moon_vec, _dot(zenith, moon_vec))))
+                    if up_axis is None:
+                        up_axis = _unit(_sub(north, _mul(moon_vec, _dot(north, moon_vec))))
+
+                    if up_axis is not None:
+                        right_axis = _unit(_cross(moon_vec, up_axis))
+                        limb_vec = _unit(_sub(sun_vec, _mul(moon_vec, _dot(sun_vec, moon_vec))))
+                        if right_axis is not None and limb_vec is not None:
+                            ang = math.degrees(math.atan2(_dot(limb_vec, up_axis), _dot(limb_vec, right_axis)))
+                            moon_visible_angle = round(ang % 360.0, 2)
+            except Exception:
+                moon_visible_angle = None
 
             moon_rise = ""
             moon_set = ""
             try:
                 mr_fn = getattr(_astral_moon, "moonrise", None)
                 ms_fn = getattr(_astral_moon, "moonset", None)
-                mr = mr_fn(obs, date=now_local.date(), tzinfo=tzinfo) if callable(mr_fn) else None
-                ms = ms_fn(obs, date=now_local.date(), tzinfo=tzinfo) if callable(ms_fn) else None
-                if isinstance(mr, datetime):
-                    moon_rise = mr.strftime("%H:%M")
-                if isinstance(ms, datetime):
-                    moon_set = ms.strftime("%H:%M")
+
+                def _pick_nearest_event(fn):
+                    if not callable(fn):
+                        return ""
+                    candidates = []
+                    for offset in (-1, 0, 1, 2):
+                        d = now_local.date() + timedelta(days=offset)
+                        try:
+                            ev = fn(obs, date=d, tzinfo=tzinfo)
+                        except Exception:
+                            continue
+                        if isinstance(ev, datetime):
+                            if ev.tzinfo is None:
+                                ev = ev.replace(tzinfo=tzinfo)
+                            candidates.append(ev)
+                    if not candidates:
+                        return ""
+                    future = [ev for ev in candidates if ev >= now_local]
+                    chosen = min(future) if future else max(candidates)
+                    return chosen.strftime("%H:%M")
+
+                moon_rise = _pick_nearest_event(mr_fn)
+                moon_set = _pick_nearest_event(ms_fn)
             except Exception:
                 moon_rise = ""
                 moon_set = ""
@@ -257,6 +344,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 "moon_rise": moon_rise,
                 "moon_set": moon_set,
                 "moon_next_full": moon_next_full,
+                "moon_visible_angle": moon_visible_angle,
             })
             return out
         except Exception:
@@ -766,14 +854,14 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         Order of precedence:
           1) Direct sensor object’s sensor.meas_status if available
           2) MQTT ingest device_status[hostname or hostname.local]
-          3) Fallback: 'pending'
-        Returns one of: 'online' | 'offline' | 'pending'
+          3) Fallback: 'unknown'
+        Returns one of: 'online' | 'degraded' | 'offline' | 'unknown' | 'migration_required'
         """
         # 1) direct/local sensor object
         try:
             sensor_obj = _active_sensor_for(sid)
             st = getattr(getattr(sensor_obj, "sensor", sensor_obj), "meas_status", None)
-            if isinstance(st, str) and st.strip().lower() in {"online", "offline", "pending"}:
+            if isinstance(st, str) and st.strip().lower() in {"online", "degraded", "offline", "unknown", "migration_required"}:
                 return st.strip().lower()
         except Exception:
             pass
@@ -782,25 +870,29 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         try:
             for host in _hostname_variants_from_sid(sid):
                 st = (getattr(mqtt_ingest, "device_status", {}) or {}).get(host)
-                if isinstance(st, str) and st.strip().lower() in {"online", "offline", "pending"}:
+                if isinstance(st, str) and st.strip().lower() in {"online", "degraded", "offline", "unknown", "migration_required"}:
                     return st.strip().lower()
         except Exception:
             pass
 
         # 3) fallback
-        return "pending"
+        return "unknown"
 
     def _status_color_hex(status: str) -> str:
         """
         Map status -> color (matches your CSS palette):
-          pending = yellow, online = green, offline = red
+          unknown = yellow, online = green, degraded = amber, offline = red, migration_required = blue-gray
         """
         s = (status or "").strip().lower()
         if s == "online":
             return "#28a745"  # green
+        if s == "degraded":
+            return "#fd7e14"  # amber
         if s == "offline":
             return "#dc3545"  # red
-        return "#ffc107"      # yellow (pending)
+        if s == "migration_required":
+            return "#6c757d"  # blue-gray
+        return "#ffc107"      # yellow (unknown)
 
     if DEBUG:
         for sid, metrics in sensor_display_map.items():
@@ -862,8 +954,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ".moon-label{display:block;opacity:.82;}"
     yield ".moon-value{display:block;font-weight:600;margin-bottom:.2rem;}"
     yield "#moonMeta{white-space:nowrap;padding:0 4px;text-align:center;font-size:.69rem;}"
-    yield ".astro-times{width:210px;display:flex;justify-content:space-between;gap:.35rem;font-variant-numeric:tabular-nums;}"
-    yield ".astro-times span{display:inline-block;min-width:0;}"
+    yield ".astro-times{width:210px;position:relative;height:1.1em;font-variant-numeric:tabular-nums;}"
+    yield ".astro-times span{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap;}"
     yield "#sunPathCanvas{width:210px;height:96px;border:1px solid #d5c7a8;border-radius:8px;background:#dff1ff;}"
     yield "#moonPhaseCanvas{width:88px;height:88px;border:1px solid #d5c7a8;border-radius:50%;background:#081322;}"
     yield "@media (max-width: 760px){#sunPathCanvas{width:184px;height:86px}.astro-times{width:184px}.astro-card{min-width:120px}.dash-loc-form,.astro-box{min-height:unset}#sunBox .astro-card{width:206px;min-width:206px}#moonBox .astro-card{width:206px;min-width:206px}.moon-layout{grid-template-columns:max-content 78px max-content;column-gap:.14rem}#moonPhaseCanvas{width:78px;height:78px}.moon-side{font-size:.6rem}#moonMeta{font-size:.64rem}}"
@@ -1304,10 +1396,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  if (!c || !meta || !riseEl || !noonEl || !setEl) return;"
     yield "  const ctx = c.getContext('2d');"
     yield "  ctx.clearRect(0,0,c.width,c.height);"
-    yield "  if (!data || !data.ok || !Array.isArray(data.sun_points) || data.sun_points.length < 2){"
-    yield "    riseEl.textContent = '--'; noonEl.textContent = '--'; setEl.textContent = '--';"
-    yield "    return;"
-    yield "  }"
+    yield "  const toMin = (hhmm) => {"
+    yield "    const m = String(hhmm || '').match(/^(\\d{1,2}):(\\d{2})$/);"
+    yield "    if (!m) return null;"
+    yield "    return Math.max(0, Math.min(1439, (parseInt(m[1], 10) * 60) + parseInt(m[2], 10)));"
+    yield "  };"
     yield "  const fmtSun = (hhmm) => {"
     yield "    const m = String(hhmm || '').match(/^(\\d{1,2}):(\\d{2})$/);"
     yield "    if (!m) return '--';"
@@ -1317,35 +1410,77 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const h12 = (hh % 12) || 12;"
     yield "    return `${h12}:${mm}${ap}`;"
     yield "  };"
-    yield "  const pts = data.sun_points;"
-    yield "  let minE = Infinity, maxE = -Infinity;"
-    yield "  for (const p of pts){ if (typeof p.e === 'number'){ minE=Math.min(minE,p.e); maxE=Math.max(maxE,p.e);} }"
-    yield "  if (!Number.isFinite(minE) || !Number.isFinite(maxE)){ riseEl.textContent='--'; noonEl.textContent='--'; setEl.textContent='--'; return; }"
-    yield "  if (Math.abs(maxE-minE) < 0.001){ maxE = minE + 1; }"
+    yield "  const placeLabel = (el, minutes) => {"
+    yield "    const p = Number.isFinite(minutes) ? (minutes / 1440) : 0.5;"
+    yield "    const clamped = Math.max(0.06, Math.min(0.94, p));"
+    yield "    el.style.left = `${(clamped * 100).toFixed(2)}%`;"
+    yield "  };"
+    yield "  const sr = toMin(data && data.sunrise);"
+    yield "  const ss = toMin(data && data.sunset);"
+    yield "  const nn = toMin(data && data.sun_noon);"
+    yield "  riseEl.textContent = fmtSun(data && data.sunrise);"
+    yield "  noonEl.textContent = fmtSun(data && data.sun_noon);"
+    yield "  setEl.textContent = fmtSun(data && data.sunset);"
+    yield "  placeLabel(riseEl, sr);"
+    yield "  placeLabel(noonEl, Number.isFinite(nn) ? nn : 720);"
+    yield "  placeLabel(setEl, ss);"
     yield "  const padX = 8, padY = 8;"
     yield "  const w = c.width - padX*2, h = c.height - padY*2;"
-    yield "  ctx.strokeStyle = '#8fa4b3'; ctx.lineWidth = 1;"
-    yield "  ctx.beginPath(); ctx.moveTo(padX, c.height-padY); ctx.lineTo(c.width-padX, c.height-padY); ctx.stroke();"
-    yield "  ctx.strokeStyle = '#7ec8ff'; ctx.lineWidth = 2;"
+    yield "  const yBase = padY + (h * 0.5);"
+    yield "  ctx.fillStyle = '#000000';"
+    yield "  ctx.fillRect(padX, yBase, w, (c.height - padY) - yBase);"
+    yield "  if (!data || !data.ok || !Number.isFinite(sr) || !Number.isFinite(ss) || sr >= ss){"
+    yield "    ctx.strokeStyle = '#8fa4b3';"
+    yield "    ctx.lineWidth = 1;"
+    yield "    ctx.beginPath();"
+    yield "    ctx.moveTo(padX, yBase);"
+    yield "    ctx.lineTo(c.width - padX, yBase);"
+    yield "    ctx.stroke();"
+    yield "    return;"
+    yield "  }"
+    yield "  const dayAmp = h * 0.46;"
+    yield "  const nightAmp = h * 0.24;"
+    yield "  const xForMin = (m) => padX + ((Math.max(0, Math.min(1440, m)) / 1440) * w);"
+    yield "  const yForMin = (m) => {"
+    yield "    if (m <= sr){"
+    yield "      const denom = Math.max(1, sr);"
+    yield "      const frac = m / denom;"
+    yield "      return yBase + (nightAmp * Math.cos((Math.PI * frac) / 2));"
+    yield "    }"
+    yield "    if (m < ss){"
+    yield "      const frac = (m - sr) / Math.max(1, (ss - sr));"
+    yield "      return yBase - (dayAmp * Math.sin(Math.PI * frac));"
+    yield "    }"
+    yield "    const denom = Math.max(1, (1440 - ss));"
+    yield "    const frac = (m - ss) / denom;"
+    yield "    return yBase + (nightAmp * Math.sin((Math.PI * frac) / 2));"
+    yield "  };"
+    yield "  ctx.strokeStyle = '#8fa4b3';"
+    yield "  ctx.lineWidth = 1;"
     yield "  ctx.beginPath();"
-    yield "  pts.forEach((p, i) => {"
-    yield "    const x = padX + (i/(pts.length-1))*w;"
-    yield "    const y = padY + (1-((p.e-minE)/(maxE-minE)))*h;"
-    yield "    if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);"
-    yield "  });"
+    yield "  ctx.moveTo(padX, yBase);"
+    yield "  ctx.lineTo(c.width - padX, yBase);"
+    yield "  ctx.stroke();"
+    yield "  ctx.strokeStyle = '#7ec8ff';"
+    yield "  ctx.lineWidth = 2;"
+    yield "  ctx.beginPath();"
+    yield "  for (let m = 0; m <= 1440; m += 10){"
+    yield "    const x = xForMin(m);"
+    yield "    const y = yForMin(m);"
+    yield "    if (m === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);"
+    yield "  }"
     yield "  ctx.stroke();"
     yield "  const now = new Date();"
-    yield "  const hh = String(now.getHours()).padStart(2,'0');"
-    yield "  const mm = String(now.getMinutes()).padStart(2,'0');"
-    yield "  const cur = `${hh}:${mm}`;"
-    yield "  let idx = 0;"
-    yield "  for (let i=0;i<pts.length;i++){ if (pts[i].t <= cur) idx = i; }"
-    yield "  const xNow = padX + (idx/(pts.length-1))*w;"
-    yield "  const yNow = padY + (1-((pts[idx].e-minE)/(maxE-minE)))*h;"
-    yield "  ctx.fillStyle = '#ffff00'; ctx.beginPath(); ctx.arc(xNow, yNow, 3.84, 0, Math.PI*2); ctx.fill(); ctx.strokeStyle = '#ff8c00'; ctx.lineWidth = 1; ctx.stroke();"
-    yield "  riseEl.textContent = fmtSun(data.sunrise);"
-    yield "  noonEl.textContent = fmtSun(data.sun_noon);"
-    yield "  setEl.textContent = fmtSun(data.sunset);"
+    yield "  const curMin = (now.getHours() * 60) + now.getMinutes();"
+    yield "  const xNow = xForMin(curMin);"
+    yield "  const yNow = yForMin(curMin);"
+    yield "  ctx.fillStyle = '#ffff00';"
+    yield "  ctx.beginPath();"
+    yield "  ctx.arc(xNow, yNow, 3.84, 0, Math.PI*2);"
+    yield "  ctx.fill();"
+    yield "  ctx.strokeStyle = '#ff8c00';"
+    yield "  ctx.lineWidth = 1;"
+    yield "  ctx.stroke();"
     yield "}"
 
     yield "function drawMoonPhase(data){"
@@ -1395,7 +1530,12 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  const image = ctx.createImageData(w, h);"
     yield "  const pix = image.data;"
     yield "  const phaseAngle = (2 * Math.PI * phase) / 28;"
-    yield "  const sx = Math.sin(phaseAngle) * hemisphereFlip;"
+    yield "  const limbStrength = Math.sin(phaseAngle);"
+    yield "  const visibleAngle = Number(data.moon_visible_angle);"
+    yield "  const theta = Number.isFinite(visibleAngle) ? ((visibleAngle * Math.PI) / 180) : (hemisphereFlip < 0 ? Math.PI : 0);"
+    yield "  if (Number.isFinite(visibleAngle)) c.setAttribute('data-visible-angle', visibleAngle.toFixed(2)); else c.removeAttribute('data-visible-angle');"
+    yield "  const sx = limbStrength * Math.cos(theta);"
+    yield "  const sy = limbStrength * Math.sin(theta);"
     yield "  const sz = -Math.cos(phaseAngle);"
     yield "  for (let py = 0; py < h; py++) {"
     yield "    for (let px = 0; px < w; px++) {"
@@ -1405,7 +1545,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      const off = (py * w + px) * 4;"
     yield "      if (rr > 1) { pix[off+3] = 0; continue; }"
     yield "      const dz = Math.sqrt(Math.max(0, 1 - rr));"
-    yield "      const dot = dx * sx + dz * sz;"
+    yield "      const dot = dx * sx + (-dy) * sy + dz * sz;"
     yield "      const lit = Math.max(0, dot);"
     yield "      const earthshine = 0.08;"
     yield "      const shade = Math.pow(Math.min(1, lit + earthshine), 0.72);"
@@ -1484,11 +1624,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const locText = (locationText || sid);"
     yield "    const sidUpper = (sid || '').toUpperCase();"
     yield "    const sidLower = (sid || '').toLowerCase();"
-    yield "    const pendingColor = '#ffc107';"  # default; poller will repaint
+    yield "    const pendingColor = '#ffc107';"  # default unknown; poller will repaint
     yield "    headerWrap.innerHTML = `"
     yield "      <h3 id='${sid}_header'>"
     yield "        <span class='sensor-status-dot' id='${sid}_statusdot' data-sid='${sid}'"
-    yield "              title='Connection status: pending' aria-label='Connections status: pending'"
+    yield "              title='Connection status: unknown' aria-label='Connections status: unknown'"
     yield "              style='display:inline-block;width:15px;height:15px;border-radius:50%;"
     yield "                     vertical-align:middle;margin-right:6px;margin-bottom:4px;"
     yield "                     background:${pendingColor};border:1px solid #666;'></span>"
@@ -1517,8 +1657,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      dot.className = 'sensor-status-dot';"
     yield "      dot.id = `${sid}_statusdot`;"
     yield "      dot.setAttribute('data-sid', sid);"
-    yield "      dot.setAttribute('title', 'Connection status: pending');"
-    yield "      dot.setAttribute('aria-label', 'Connection status: pending');"
+    yield "      dot.setAttribute('title', 'Connection status: unknown');"
+    yield "      dot.setAttribute('aria-label', 'Connection status: unknown');"
     yield "      dot.setAttribute('style', 'display:inline-block;width:15px;height:15px;border-radius:50%;"
     yield "                                   vertical-align:middle;margin-right:6px;margin-bottom:4px;"
     yield "                                   background:#ffc107;border:1px solid #666;');"
@@ -3313,7 +3453,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "})();"
     yield ""
   
-    yield "const SENSOR_STATUS_COLORS = { online:'#28a745', offline:'#dc3545', pending:'#ffc107' };"
+    yield "const SENSOR_STATUS_COLORS = { online:'#28a745', degraded:'#fd7e14', offline:'#dc3545', unknown:'#ffc107', migration_required:'#6c757d' };"
     yield "let __lastJsonOnly = null;"
     yield "let __lastJsonOnlyAtMs = 0;"
     yield "async function refreshAndApplySensorStatus(){"
@@ -3335,8 +3475,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    Object.entries(statuses).forEach(([sid,st]) => {"
     yield "      const dot = document.getElementById(`${sid}_statusdot`);"
     yield "      if (!dot) return;"
-    yield "      const s = (st||'pending').toLowerCase();"
-    yield "      const color = SENSOR_STATUS_COLORS[s] || SENSOR_STATUS_COLORS.pending;"
+    yield "      const s = (st||'unknown').toLowerCase();"
+    yield "      const color = SENSOR_STATUS_COLORS[s] || SENSOR_STATUS_COLORS.unknown;"
     yield "      dot.style.background = color;"
     yield "      dot.title = `Measurement status: ${s}`;"
     yield "      dot.setAttribute('aria-label', `Measurement status: ${s}`);"

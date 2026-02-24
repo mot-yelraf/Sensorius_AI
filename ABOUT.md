@@ -8,7 +8,7 @@ Sensorius combines data collection, discovery, configuration, visualization, and
 
 - Auto-detects locally attached sensors.
 - Used for Nodus device bootstrapping via `System Settings > Add Device`
-- Discovers Nodus sensors and switches via MQTT and `/itaot` metadata.
+- Discovers Nodus sensors and switches via MQTT and retained `nodus/<device_id>/meta` metadata.
 - Stores readings and switch events in the built-in database.
 - Provides a live dashboard for all devices and locations.
 - Handles sensor calibration workflows (device and system).
@@ -17,14 +17,14 @@ Sensorius combines data collection, discovery, configuration, visualization, and
 
 ## Discovery and Metadata
 
-Sensorius discovers Nodus devices by listening to MQTT traffic and then fetching `/itaot` metadata from the device. That metadata drives:
+Sensorius discovers Nodus devices by listening to MQTT traffic and consuming retained `nodus/<device_id>/meta` metadata. (`/itaot` remains a legacy/diagnostic fallback.) That metadata drives:
 
 - Device identity (sensor id, type, serial, hostname).
 - Sensor location, display metrics, and dashboard grouping.
 - Switch definitions and channel labels.
 - MQTT topics for state, event, and command channels.
 
-This keeps the dashboard clean and intentional: a device appears once its `/itaot` metadata is known.
+This keeps the dashboard clean and intentional: a device appears once its MQTT metadata is known.
 
 ## Dashboard and Views
 
@@ -45,7 +45,7 @@ Sensorius supports both local and Nodus sensor configuration:
 
 - Sensor settings can be edited from the dashboard.
 - Calibration workflows are available for device and system calibration.
-- Display metrics are based on sensor settings and `/itaot` hints.
+- Display metrics are based on sensor settings and metadata hints.
 
 Calibration state can be surfaced in the UI, and settings are stored in the sensor configuration files so they persist across restarts.
 
@@ -90,7 +90,7 @@ This lets Sensorius work as a standalone hub or as a data/automation source for 
 ## Nodus Devices
 
 Nodus devices are MQTT-native sensor and switch nodes.
-Sensorius uses `/itaot` responses to learn their layout and topics, then:
+Sensorius uses MQTT metadata to learn their layout and topics, then:
 
 - Subscribes to their data and switch topics.
 - Mirrors state into the local dashboard and database.

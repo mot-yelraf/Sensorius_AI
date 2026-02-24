@@ -1,13 +1,12 @@
-"""Device onboarding + settings sync for Sensorius hubs and Pico2 W/Nodus nodes.
+"""Device onboarding bootstrap for Sensorius hubs and Pico2 W/Nodus nodes.
 
 This module handles the end-to-end "Add Device" workflow:
 - connects to a Pico2 W AP, pushes Wi-Fi credentials, and initializes Nodus settings
-- fetches /itaot metadata and applies sensor/switch/system settings on the hub
-- writes TOML payloads into the correct settings directories and updates hub clients
+- uses POST /itaot-init for AP bootstrap
 - provides helpers for hostname/ID normalization, file decoding, and Wi-Fi band info
 
 It is used by the web UI and discovery flows to register new devices and
-keep hub-side settings in sync with remote sensors/switches.
+start MQTT-driven onboarding.
 """
 from __future__ import annotations
 
@@ -17,13 +16,11 @@ PICOW_AP_PASSWORD  = ""
 PICOW_IFNAME       = "wlan0"
 PICOW_ADDR         = "192.168.4.1"
 HTTPPORT           = 8000
-ITAOT_URL          = f"http://{PICOW_ADDR}:{HTTPPORT}/itaot"
-INIT_NODUS_URL     = f"http://{PICOW_ADDR}:{HTTPPORT}/init-nodus-settings"
+ITAOT_INIT_URL     = f"http://{PICOW_ADDR}:{HTTPPORT}/itaot-init"
 DEFAULT_ENCODING   = "base64"
 
 import os
 import re
-import json
 import time
 import asyncio
 import socket
@@ -34,12 +31,12 @@ import subprocess
 import tempfile
 import requests
 from pathlib import Path
-import tomllib
 from typing import Dict, Any, Optional, List, Tuple
 from zoneinfo import ZoneInfo
+from uuid import uuid4
 from xml.sax.saxutils import escape as xml_escape
 
-from saiUtils import get_pi_network_info, get_time_settings, printDM, debug_enabled, mdns_hostname
+from saiUtils import get_pi_network_info, printDM, debug_enabled, mdns_hostname
 
 MODULE = "saiAddDevice"
 DEBUG = debug_enabled(MODULE)
@@ -823,113 +820,102 @@ def persist_switch_toml(switch_id: str, encoding: str, data_b64: str) -> Optiona
         return None
 
 # ---------- HTTP helpers (sync) ----------
-def _http_get_json(url: str, timeout: float = 8.0) -> dict:
-    headers = {"Accept": "application/json", "Connection": "close"}
-    resp = requests.get(url, headers=headers, timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()
-
-def _get_itaot_once(timeout_sec: float = 8.0) -> Optional[Dict[str, Any]]:
-    headers = {"Accept": "application/json", "Connection": "close"}
-    resp = requests.get(ITAOT_URL, headers=headers, timeout=timeout_sec)
-    resp.raise_for_status()
-    raw = resp.text or ""
+def _build_itaot_init_payload(
+    *,
+    ssid: str,
+    password: str,
+    hostname: str,
+    onboard_token: str,
+) -> Dict[str, Any]:
+    pi_info = get_pi_network_info()
+    broker_host = str(pi_info.get("broker", "") or "").strip() or mdns_hostname(PI_HOSTNAME)
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError as e:
+        broker_port = int(pi_info.get("port", 1883) or 1883)
+    except Exception:
+        broker_port = 1883
+    if broker_port <= 0:
+        broker_port = 1883
+
+    return {
+        "onboard_token": str(onboard_token or "").strip(),
+        "ssid": str(ssid or "").strip(),
+        "password": str(password or ""),
+        "hostname": str(hostname or "").strip(),
+        "mqtt": {
+            "broker_host": broker_host,
+            "broker_port": broker_port,
+            "username": "",
+            "password": "",
+            "use_tls": False,
+            "active_profile": "sensorius",
+        },
+        "sensorius": {
+            "instance_id": PI_HOSTNAME or "sensorius",
+            "base_topic": "nodus",
+            "reply_topic": f"sensorius/{PI_HOSTNAME or 'sensorius'}/onboard/reply",
+        },
+    }
+
+def _extract_device_id_from_init_result(result: Dict[str, Any], fallback_hostname: str) -> str:
+    body = result.get("body") if isinstance(result, dict) else None
+    if not isinstance(body, dict):
+        return str(fallback_hostname or "").strip()
+    for key in ("device_id", "sensor_id", "hostname"):
+        val = str(body.get(key) or "").strip()
+        if val:
+            return val
+    return str(fallback_hostname or "").strip()
+
+def post_itaot_init(payload: Dict[str, Any], timeout_sec: float = 8.0) -> Dict[str, Any]:
+    """
+    V2 onboarding bootstrap call.
+    Posts minimal bootstrap payload to /itaot-init while Nodus is in AP mode.
+
+    Returns normalized shape:
+      {"ok": bool, "status_code": int, "body": dict|None, "error": str}
+    """
+    try:
+        if not isinstance(payload, dict):
+            return {"ok": False, "status_code": 0, "body": None, "error": "invalid_payload_type"}
+
+        resp = requests.post(ITAOT_INIT_URL, json=payload, timeout=timeout_sec)
+        status = int(getattr(resp, "status_code", 0) or 0)
+        body: Optional[Dict[str, Any]] = None
         try:
-            Path("/tmp").mkdir(parents=True, exist_ok=True)
-            Path("/tmp/itaot_raw.txt").write_text(raw, encoding="utf-8")
+            body_obj = resp.json()
+            if isinstance(body_obj, dict):
+                body = body_obj
         except Exception:
-            pass
-        pos = getattr(e, "pos", 0)
-        start = max(0, pos - 120)
-        end   = min(len(raw), pos + 120)
-        snippet = raw[start:end]
-        caret_offset = pos - start
-        caret_line = " " * max(0, caret_offset) + "^"
-        logger.warning(
-            "JSON decode failed at pos=%s (line=%s col=%s): %s\n"
-            "…snippet…\n%s\n%s\n"
-            "Saved full body to /tmp/itaot_raw.txt",
-            pos, getattr(e, "lineno", "?"), getattr(e, "colno", "?"), e.msg,
-            snippet, caret_line
-        )
-        raise
-
-def _post_init_nodus_settings(settings_list: List[Dict[str, Any]], timeout_sec: float = 8.0) -> Dict[str, Any]:
-    serialized = json.dumps(settings_list, separators=(",", ":"))
-    if DEBUG:
-        printDM(f"JSON→/init_nodus length={len(serialized)}", location=f"{MODULE}._post_init")
-
-    try:
-        resp = requests.post(INIT_NODUS_URL, json=settings_list, timeout=timeout_sec)
-        if resp.status_code >= 400:
             body = None
-            try:
-                body = resp.text
-            except Exception:
-                pass
-            raise requests.HTTPError(f"{resp.status_code} {resp.reason}; body={body!r}", response=resp)
 
-        try:
-            return resp.json()
-        except json.JSONDecodeError:
-            printDM("Non-JSON response; assuming success due to Pico reboot.", location=f"{MODULE}._post_init")
-            return {"success": True, "updated": None, "hostname": None}
-
-    except requests.exceptions.ConnectionError as e:
-        msg = str(e)
-        if "104" in msg or "Connection reset by peer" in msg:
-            printDM("ECONNRESET after POST; assuming Pico applied settings and rebooted.", location=f"{MODULE}._post_init")
-            return {"success": True, "updated": None, "hostname": None}
-        raise
-
-# ---------- TOML fetchers (new endpoints) ----------
-def _resolve_endpoint(base: str, path_or_abs: str) -> str:
-    p = (path_or_abs or "").strip()
-    if p.startswith("http://") or p.startswith("https://"):
-        return p
-    return f"http://{PICOW_ADDR}:{HTTPPORT}{p if p.startswith('/') else '/'+p}"
-
-def fetch_settings_toml(endpoints: dict) -> Optional[tuple[str, str]]:
-    try:
-        url = _resolve_endpoint(ITAOT_URL, endpoints.get("settings") or "/getSettingsToml")
-        obj = _http_get_json(url, timeout=8.0)
-        name = obj.get("name") or "settings.toml"
-        enc  = obj.get("encoding") or DEFAULT_ENCODING
-        data = obj.get("data")
-        if not data:
-            return None
-        return name, enc, data  # returning 3-tuple for uniformity; sensor/switch need id to persist
-    except Exception as e:
+        if status != 200:
+            return {
+                "ok": False,
+                "status_code": status,
+                "body": body,
+                "error": "non_200_response",
+            }
+        if not body:
+            return {
+                "ok": False,
+                "status_code": status,
+                "body": None,
+                "error": "malformed_response",
+            }
+        accepted = bool(body.get("accepted", False))
+        rebooting = bool(body.get("rebooting", False))
+        if not accepted:
+            return {
+                "ok": False,
+                "status_code": status,
+                "body": body,
+                "error": "init_not_accepted",
+            }
         if DEBUG:
-            printDM(f"fetch_settings_toml: {e}", location=MODULE)
-        return None
-
-def fetch_sensor_toml(endpoints: dict, active_name: str | None) -> Optional[tuple[str, str, str]]:
-    try:
-        base_path = endpoints.get("sensor") or "/getSensorToml"
-        if active_name and active_name.strip() and active_name.strip() != "sensor.toml":
-            sep = "&" if "?" in base_path else "?"
-            base_path = f"{base_path}{sep}name={active_name.strip()}"
-        url = _resolve_endpoint(ITAOT_URL, base_path)
-        obj = _http_get_json(url, timeout=8.0)
-        return obj.get("name"), obj.get("encoding") or DEFAULT_ENCODING, obj.get("data")
+            printDM(f"/itaot-init accepted={accepted} rebooting={rebooting}", location=f"{MODULE}.post_itaot_init")
+        return {"ok": True, "status_code": status, "body": body, "error": ""}
     except Exception as e:
-        if DEBUG:
-            printDM(f"fetch_sensor_toml: {e}", location=MODULE)
-        return None
-
-def fetch_switch_toml(endpoints: dict) -> Optional[tuple[str, str]]:
-    try:
-        url = _resolve_endpoint(ITAOT_URL, endpoints.get("switch") or "/getSwitchToml")
-        obj = _http_get_json(url, timeout=8.0)
-        return obj.get("encoding") or DEFAULT_ENCODING, obj.get("data")
-    except Exception as e:
-        if DEBUG:
-            printDM(f"fetch_switch_toml: {e}", location=MODULE)
-        return None
+        return {"ok": False, "status_code": 0, "body": None, "error": str(e)}
 
 # ---------- TOML edit utilities for hub settings ----------
 def _toml_escape(s: str) -> str:
@@ -970,147 +956,64 @@ def perform_picow_configure_and_reboot() -> tuple[bool, Optional[str]]:
     """
     Assumes we are already connected to the Pico2 W AP.
     Flow:
-      - GET /itaot (metadata-only)
-      - fetch TOMLs via /getSettingsToml, /getSensorToml, /getSwitchToml
-      - persist locally
-      - POST /set-nodus-setting (device likely reboots)
-    Returns: (success, sensor_id or None)
+      - POST /itaot-init with minimal bootstrap payload
+      - Nodus reboots and publishes identity/metadata over MQTT after reconnect
+    Returns: (success, device_id_or_hostname or None)
     """
-    pi_info       = get_pi_network_info()
-    time_settings = get_time_settings()
-
-    device_info: Optional[Dict[str, Any]] = None
-    for attempt in range(1, 4):
-        if DEBUG:
-            printDM(f"Attempting to fetch /itaot (Attempt {attempt}/3)...", location=f"{MODULE}.ppcar")
-        try:
-            device_info = _get_itaot_once(timeout_sec=8.0)
-            if device_info:
-                break
-        except Exception as e:
-            printDM(f"Attempt {attempt} failed: {e}", location=f"{MODULE}.ppcar")
-            if attempt < 3:
-                time.sleep(2)
-
-    if not device_info:
-        printDM("Failed to get /itaot after multiple attempts.", location=f"{MODULE}.ppcar")
+    ssid_resolved, psk_resolved = resolve_pi_wifi_credentials()
+    if not ssid_resolved:
+        printDM("Cannot bootstrap Nodus: local SSID unknown", location=f"{MODULE}.ppcar")
         return (False, None)
 
-    hostname   = device_info.get("HOSTNAME")
-    sensor_id  = device_info.get("SENSOR_ID", "")
-    mqtt_topic = device_info.get("mqtt_sensor_topic", "")
-    endpoints  = device_info.get("endpoints") or {}
+    host_suffix = f"{int(time.time()) % 1000000:06d}"
+    hostname = f"nodus-{host_suffix}"
+    init_payload = _build_itaot_init_payload(
+        ssid=ssid_resolved,
+        password=psk_resolved,
+        hostname=hostname,
+        onboard_token=f"legacy-{uuid4().hex}",
+    )
 
-    if not hostname:
-        printDM("Missing HOSTNAME in /itaot response", location=f"{MODULE}.ppcar")
-        return (False, sensor_id or None)
-
-    # Build updates (what we want the Pico to adopt)
-    updates = build_picow_settings_updates(pi_info, time_settings, hostname)
-
-    # Persist hub-side system settings immediately
-    persist_system_settings_by_device_id(updates)
-
-    # --- fetch and persist TOMLs from new endpoints ---
     try:
-        st = fetch_settings_toml(endpoints)
-        if st:
-            name, enc, data_b64 = st
-            # system settings are saved under system_settings/<HOSTNAME>/settings.toml by persist_system_settings_by_device_id (authoritative)
-            # We still keep a copy from device if ever needed for audit; store as .device.snapshot
-            try:
-                safe_host = _sanitize_for_fs(hostname)
-                audit_dir = Path(_SYS_BASE_DIR) / safe_host
-                _ensure_dir(audit_dir)
-                snap_path = audit_dir / f"{Path(name).stem}.device.snapshot.toml"
-                snap_path.write_bytes(_decode_bytes(data_b64, enc))
-            except Exception as e:
-                if DEBUG:
-                    printDM(f"settings snapshot skipped: {e}", location=f"{MODULE}.ppcar")
-    except Exception:
-        pass
-
-    if sensor_id:
-        active_file = device_info.get("active_sensor_file") or None
-        st2 = fetch_sensor_toml(endpoints, active_file)
-        if st2:
-            s_name, s_enc, s_b64 = st2
-            persist_sensor_toml(sensor_id, s_name or "sensor.toml", s_enc, s_b64)
-
-    switch_id = _choose_switch_id(device_info)
-    if switch_id:
-        sw = fetch_switch_toml(endpoints)
-        if sw:
-            sw_enc, sw_b64 = sw
-            persist_switch_toml(switch_id, sw_enc, sw_b64)
-
-    # --- send updates to Pico2 W (will reboot) ---
-    try:
-        result = _post_init_nodus_settings(updates, timeout_sec=11.0)
-        if not result.get("success", False):
-            printDM(f"{INIT_NODUS_URL} failed: {result}", location=f"{MODULE}.ppcar")
-            return (False, sensor_id or None)
-        if DEBUG:
-            printDM(f"{INIT_NODUS_URL} success: {result}", location=f"{MODULE}.ppcar")
-        return (True, sensor_id or None)
+        result = post_itaot_init(init_payload, timeout_sec=11.0)
     except Exception as e:
-        printDM(f"Failed posting {INIT_NODUS_URL}: {e}", location=f"{MODULE}.ppcar")
-        return (False, sensor_id or None)
+        printDM(f"Failed posting {ITAOT_INIT_URL}: {e}", location=f"{MODULE}.ppcar")
+        return (False, None)
+
+    if not bool(result.get("ok", False)):
+        printDM(f"{ITAOT_INIT_URL} failed: {result}", location=f"{MODULE}.ppcar")
+        return (False, None)
+
+    device_id = _extract_device_id_from_init_result(result, hostname)
+    if DEBUG:
+        printDM(f"{ITAOT_INIT_URL} success for device={device_id}", location=f"{MODULE}.ppcar")
+    return (True, device_id or hostname)
 
 # ---------- Public entrypoints (async) ----------
 async def begin_onboarding_preview() -> Dict[str, Any]:
     """
     Preview for UI:
       - connect to Pico AP
-      - GET /itaot (metadata-only)
-      - return summary + switch meta (no TOML blobs)
+      - no metadata HTTP fetch; identity/config arrives via MQTT after reboot
+      - return only local bootstrap summary
     """
     ok24, reason24 = await asyncio.to_thread(_require_24ghz_or_abort)
     if not ok24:
         return {"error": f"Cannot start onboarding: {reason24}"}
         
-    ok = await asyncio.to_thread(connect_to_ap, PICOW_AP_SSID, PICOW_AP_PASSWORD, 3)
+    target_ap = (PICOW_AP_SSID or "Nodus_Setup").strip() or "Nodus_Setup"
+    ok = await asyncio.to_thread(connect_to_ap, target_ap, PICOW_AP_PASSWORD, 3)
     if not ok:
-        return {"error": "Could not connect to Sensor_Setup AP"}
+        return {"error": f"Could not connect to {target_ap} AP"}
 
-    try:
-        if DEBUG:
-            printDM(f"requesting {ITAOT_URL}", location=f"{MODULE}.bop")
-        info = await asyncio.to_thread(_get_itaot_once, 5.0)
-        if not info:
-            return {"error": "Empty /itaot response"}
-
-        hostname   = info.get("HOSTNAME", "")
-        mqtt_topic = info.get("mqtt_sensor_topic", "")
-        sensor_id  = info.get("SENSOR_ID", "")
-        if not hostname:
-            printDM("Incomplete /itaot (missing HOSTNAME)", location=f"{MODULE}.bop")
-            return {"error": "Incomplete /itaot: no HOSTNAME"}
-
-        now_info = get_pi_network_info()
-
-        switch_preview = {
-            "switch_id":          _choose_switch_id(info),
-            "switch_location":    (info.get("SWITCH_LOCATION") or ""),
-            "mqtt_switch_topics": info.get("mqtt_switch_topics") or {},
-        }
-
-        return {
-            "ssid":       now_info.get("ssid", ""),
-            "password":   now_info.get("password", ""),
-            "hostname":   hostname,
-            "mqtt_topic": mqtt_topic,
-            "device":     info.get("DEVICE", ""),
-            "sensor_id":  sensor_id,
-            "broker":     now_info.get("broker", ""),
-            "location":   info.get("LOCATION", ""),
-            "active_sensor_file": info.get("active_sensor_file", ""),
-            "switch":     switch_preview,
-        }
-
-    except Exception as e:
-        printDM(f"Failed to get /itaot: {e}", location=f"{MODULE}.bop")
-        return {"error": f"Pico2 W not responding at {ITAOT_URL}"}
+    now_info = get_pi_network_info()
+    ssid_resolved, psk_resolved = await asyncio.to_thread(resolve_pi_wifi_credentials)
+    return {
+        "ssid": ssid_resolved or now_info.get("ssid", ""),
+        "password": psk_resolved or now_info.get("password", ""),
+        "broker": now_info.get("broker", ""),
+        "note": "Device identity and metadata will be learned from MQTT after /itaot-init and reboot.",
+    }
 
 async def onboard_picow() -> bool:
     """
@@ -1123,7 +1026,8 @@ async def onboard_picow() -> bool:
             printDM(f"Onboarding aborted: {reason24}", location=f"{MODULE}.onboard_picow")
         return False
         
-    ok = await asyncio.to_thread(connect_to_ap, PICOW_AP_SSID, PICOW_AP_PASSWORD, 3)
+    target_ap = (PICOW_AP_SSID or "Nodus_Setup").strip() or "Nodus_Setup"
+    ok = await asyncio.to_thread(connect_to_ap, target_ap, PICOW_AP_PASSWORD, 3)
     if not ok:
         return False
 

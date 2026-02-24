@@ -30,7 +30,9 @@ import time
 import os
 import sys
 import platform
+import plistlib
 import hmac
+import hashlib
 import base64, zlib
 import re
 import tomllib
@@ -42,12 +44,13 @@ import math
 from zoneinfo import ZoneInfo, available_timezones
 try:
     from astral import LocationInfo
-    from astral.sun import sun as _astral_sun, elevation as _astral_elevation
+    from astral.sun import sun as _astral_sun, elevation as _astral_elevation, azimuth as _astral_azimuth
     from astral import moon as _astral_moon
 except Exception:
     LocationInfo = None
     _astral_sun = None
     _astral_elevation = None
+    _astral_azimuth = None
     _astral_moon = None
 try:
     import pwd  # POSIX only
@@ -62,6 +65,8 @@ from saiUtils import (
     mdns_hostname,
 )
 from saiSettings import saiSettings
+from saiOnboardingStore import OnboardingSessionStore, OnboardingStates
+from saiOnboardingToken import OnboardingTokenManager
 from saiDataLogger import saiDataLogger
 try:
     from saiDataLogger import build_switch_key as _build_switch_key
@@ -106,6 +111,10 @@ _CDP_DEBUG_MIN_INTERVAL_SEC: float = 5.0
 
 async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     router = APIRouter()
+    main_loop = asyncio.get_running_loop()
+    onboarding_store = OnboardingSessionStore(base_dir=getattr(saiSettings, "DEFAULT_BASE_DIR", "system_settings"))
+    onboarding_tokens = OnboardingTokenManager(onboarding_store, default_ttl_sec=600)
+    _v2_session_tasks: Dict[str, asyncio.Task] = {}
     default_sensor_id = settings.get_all_sensor_ids()[0] if settings.get_all_sensor_ids() else ""
     # On startup
     fastStats = FastStats(data_logger, statter, hz=1.0)
@@ -164,11 +173,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "moon_rise": "",
             "moon_set": "",
             "moon_next_full": "",
+            "moon_visible_angle": None,
         }
         if (
             LocationInfo is None
             or _astral_sun is None
             or _astral_elevation is None
+            or _astral_azimuth is None
             or _astral_moon is None
         ):
             return out
@@ -220,18 +231,97 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             moon_lit_pct = int(
                 round((0.5 * (1 - math.cos((2 * math.pi * (moon_val % 28.0)) / 28.0))) * 100)
             )
+            moon_visible_angle = None
+            try:
+                moon_az_fn = getattr(_astral_moon, "azimuth", None)
+                moon_el_fn = getattr(_astral_moon, "elevation", None)
+                moon_az = float(moon_az_fn(obs, now_local)) if callable(moon_az_fn) else float("nan")
+                moon_el = float(moon_el_fn(obs, now_local)) if callable(moon_el_fn) else float("nan")
+                sun_az = float(_astral_azimuth(obs, now_local))
+                sun_el = float(_astral_elevation(obs, now_local))
+
+                if all(math.isfinite(v) for v in (moon_az, moon_el, sun_az, sun_el)):
+                    def _h_to_unit(az_deg: float, el_deg: float) -> tuple[float, float, float]:
+                        az = math.radians(az_deg)
+                        el = math.radians(el_deg)
+                        cel = math.cos(el)
+                        return (
+                            cel * math.sin(az),  # east
+                            cel * math.cos(az),  # north
+                            math.sin(el),        # up
+                        )
+
+                    def _dot(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
+                        return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2])
+
+                    def _cross(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
+                        return (
+                            (a[1] * b[2]) - (a[2] * b[1]),
+                            (a[2] * b[0]) - (a[0] * b[2]),
+                            (a[0] * b[1]) - (a[1] * b[0]),
+                        )
+
+                    def _sub(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
+                        return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+                    def _mul(a: tuple[float, float, float], k: float) -> tuple[float, float, float]:
+                        return (a[0] * k, a[1] * k, a[2] * k)
+
+                    def _norm(v: tuple[float, float, float]) -> float:
+                        return math.sqrt(_dot(v, v))
+
+                    def _unit(v: tuple[float, float, float]) -> tuple[float, float, float] | None:
+                        n = _norm(v)
+                        if n <= 1e-9:
+                            return None
+                        return (v[0] / n, v[1] / n, v[2] / n)
+
+                    moon_vec = _h_to_unit(moon_az, moon_el)
+                    sun_vec = _h_to_unit(sun_az, sun_el)
+                    zenith = (0.0, 0.0, 1.0)
+                    north = (0.0, 1.0, 0.0)
+
+                    up_axis = _unit(_sub(zenith, _mul(moon_vec, _dot(zenith, moon_vec))))
+                    if up_axis is None:
+                        up_axis = _unit(_sub(north, _mul(moon_vec, _dot(north, moon_vec))))
+
+                    if up_axis is not None:
+                        right_axis = _unit(_cross(moon_vec, up_axis))
+                        limb_vec = _unit(_sub(sun_vec, _mul(moon_vec, _dot(sun_vec, moon_vec))))
+                        if right_axis is not None and limb_vec is not None:
+                            ang = math.degrees(math.atan2(_dot(limb_vec, up_axis), _dot(limb_vec, right_axis)))
+                            moon_visible_angle = round(ang % 360.0, 2)
+            except Exception:
+                moon_visible_angle = None
 
             moon_rise = ""
             moon_set = ""
             try:
                 mr_fn = getattr(_astral_moon, "moonrise", None)
                 ms_fn = getattr(_astral_moon, "moonset", None)
-                mr = mr_fn(obs, date=now_local.date(), tzinfo=tzinfo) if callable(mr_fn) else None
-                ms = ms_fn(obs, date=now_local.date(), tzinfo=tzinfo) if callable(ms_fn) else None
-                if isinstance(mr, datetime):
-                    moon_rise = mr.strftime("%H:%M")
-                if isinstance(ms, datetime):
-                    moon_set = ms.strftime("%H:%M")
+
+                def _pick_nearest_event(fn):
+                    if not callable(fn):
+                        return ""
+                    candidates: list[datetime] = []
+                    for offset in (-1, 0, 1, 2):
+                        d = now_local.date() + timedelta(days=offset)
+                        try:
+                            ev = fn(obs, date=d, tzinfo=tzinfo)
+                        except Exception:
+                            continue
+                        if isinstance(ev, datetime):
+                            if ev.tzinfo is None:
+                                ev = ev.replace(tzinfo=tzinfo)
+                            candidates.append(ev)
+                    if not candidates:
+                        return ""
+                    future = [ev for ev in candidates if ev >= now_local]
+                    chosen = min(future) if future else max(candidates)
+                    return chosen.strftime("%H:%M")
+
+                moon_rise = _pick_nearest_event(mr_fn)
+                moon_set = _pick_nearest_event(ms_fn)
             except Exception:
                 moon_rise = ""
                 moon_set = ""
@@ -281,6 +371,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     "moon_rise": moon_rise,
                     "moon_set": moon_set,
                     "moon_next_full": moon_next_full,
+                    "moon_visible_angle": moon_visible_angle,
                 }
             )
             return out
@@ -677,12 +768,39 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 airport = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport"
                 if not Path(airport).exists():
                     return False, "airport tool not found"
+                # Prefer plist output (-x) for robust parsing across spacing/alignment changes.
+                p_xml = subprocess.run([airport, "-s", "-x"], capture_output=True, timeout=8)
+                if p_xml.returncode == 0 and p_xml.stdout:
+                    try:
+                        rows = plistlib.loads(p_xml.stdout)
+                        wanted = ssid.strip()
+                        for row in (rows or []):
+                            if not isinstance(row, dict):
+                                continue
+                            candidate = str(row.get("SSID_STR") or row.get("SSID") or "").strip()
+                            if candidate == wanted:
+                                return True, "ok"
+                        return False, "ok"
+                    except Exception:
+                        pass
+
+                # Fallback to text output if plist parsing isn't available on this host.
                 p = subprocess.run([airport, "-s"], capture_output=True, text=True, timeout=8)
                 if p.returncode != 0:
-                    return False, (p.stderr or p.stdout or "airport scan failed").strip()
-                out = p.stdout or ""
-                found = any(ln.strip().startswith(ssid + " ") or ln.strip() == ssid for ln in out.splitlines())
-                return found, "ok"
+                    err = p.stderr or p.stdout
+                    if not err and p_xml.returncode != 0:
+                        err = (p_xml.stderr or b"").decode(errors="ignore")
+                    return False, (err or "airport scan failed").strip()
+                wanted = ssid.strip()
+                for ln in (p.stdout or "").splitlines():
+                    line = ln.rstrip()
+                    if not line or line.lstrip().startswith("SSID "):
+                        continue
+                    bssid = re.search(r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}", line)
+                    candidate = line[:bssid.start()].strip() if bssid else line.strip()
+                    if candidate == wanted:
+                        return True, "ok"
+                return False, "ok"
 
             if sys_name == "windows":
                 p = subprocess.run(
@@ -1279,7 +1397,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 sc = _active_sensor_for(sid)
                 base = getattr(sc, "sensor", sc)
                 st = getattr(base, "meas_status", None)
-                if isinstance(st, str) and st.strip().lower() in {"online", "offline", "pending"}:
+                if isinstance(st, str) and st.strip().lower() in {"online", "degraded", "offline", "unknown", "migration_required"}:
                     return st.strip().lower()
             except Exception:
                 pass
@@ -1288,7 +1406,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             try:
                 if ing is not None and hasattr(ing, "get_measure_status") and callable(ing.get_measure_status):
                     st = ing.get_measure_status(sid)  # should accept either sid or host
-                    if isinstance(st, str) and st.strip().lower() in {"online", "offline", "pending"}:
+                    if isinstance(st, str) and st.strip().lower() in {"online", "degraded", "offline", "unknown", "migration_required"}:
                         return st.strip().lower()
             except Exception:
                 pass
@@ -1300,12 +1418,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 base = normalize_hostname_base(host)
                 for key in (host, base, mdns_hostname(base)):
                     st = dev_map.get(key or "")
-                    if isinstance(st, str) and st.strip().lower() in {"online", "offline", "pending"}:
+                    if isinstance(st, str) and st.strip().lower() in {"online", "degraded", "offline", "unknown", "migration_required"}:
                         return st.strip().lower()
             except Exception:
                 pass
 
-            return "pending"
+            return "unknown"
          
         if json_only:
             timestamps = {
@@ -2018,6 +2136,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             farm_username=farm_username,
             farm_password=farm_password,
             farm_log_bundle=farm_log_bundle,
+            onboarding_v2_mqtt_enabled=_onboarding_v2_enabled(),
         )
 
         fragment_parts: list[str] = []
@@ -2493,6 +2612,553 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "detail": detail,      # optional
         })
 
+    def _build_v2_bootstrap_payload(
+        *,
+        onboard_token: str,
+        ssid: str,
+        password: str,
+        hostname: str,
+    ) -> Dict[str, Any]:
+        broker_host = str(settings.get_setting("SensorNetwork", "BROKER", "") or "").strip()
+        broker_port_raw = settings.get_setting("MQTT", "PORT", 1883)
+        try:
+            broker_port = int(broker_port_raw)
+        except Exception:
+            broker_port = 1883
+        mqtt_user = str(settings.get_setting("MQTT", "USERNAME", "") or "").strip()
+        mqtt_password = str(settings.get_setting("MQTT", "PASSWORD", "") or "")
+        use_tls = bool(settings.get_setting("MQTT", "USE_TLS", False))
+        instance_id = socket.gethostname().strip() or "sensorius"
+        payload: Dict[str, Any] = {
+            "onboard_token": onboard_token,
+            "ssid": ssid,
+            "password": password,
+            "hostname": hostname,
+            "mqtt": {
+                "broker_host": broker_host,
+                "broker_port": broker_port,
+                "username": mqtt_user,
+                "password": mqtt_password,
+                "use_tls": use_tls,
+                "active_profile": "sensorius",
+            },
+            "sensorius": {
+                "instance_id": instance_id,
+                "base_topic": "nodus",
+                "reply_topic": f"sensorius/{instance_id}/onboard/reply",
+            },
+        }
+        return payload
+
+    def _onboarding_v2_enabled() -> bool:
+        raw = settings.get_setting("Onboarding", "ONBOARDING_V2_MQTT", None)
+        if raw is None:
+            raw = settings.get_setting("Onboarding", "onboarding_v2_mqtt", True)
+        if isinstance(raw, bool):
+            return raw
+        text = str(raw or "").strip().lower()
+        if text in {"1", "true", "yes", "on"}:
+            return True
+        if text in {"0", "false", "no", "off"}:
+            return False
+        return True
+
+    def _onboarding_timeouts() -> Dict[str, float]:
+        hello_timeout = float(settings.get_setting("Onboarding", "HELLO_TIMEOUT_SEC", 60) or 60)
+        ack_timeout = float(settings.get_setting("Onboarding", "ACK_TIMEOUT_SEC", 10) or 10)
+        result_timeout = float(settings.get_setting("Onboarding", "RESULT_TIMEOUT_SEC", 30) or 30)
+        retry_backoff = float(settings.get_setting("Onboarding", "CONFIG_SET_BACKOFF_MS", 1500) or 1500) / 1000.0
+        max_attempts = int(settings.get_setting("Onboarding", "CONFIG_SET_MAX_ATTEMPTS", 3) or 3)
+        return {
+            "hello_timeout_sec": max(5.0, hello_timeout),
+            "ack_timeout_sec": max(2.0, ack_timeout),
+            "result_timeout_sec": max(5.0, result_timeout),
+            "retry_backoff_sec": max(0.25, retry_backoff),
+            "max_attempts": max(1, max_attempts),
+        }
+
+    def _emit_onboarding_event(event_name: str, *, session_id: str = "", device_id: str = "", detail: str = "") -> None:
+        payload = {
+            "event": str(event_name or "").strip(),
+            "session_id": str(session_id or "").strip(),
+            "device_id": str(device_id or "").strip(),
+            "detail": str(detail or "").strip(),
+            "ts": time.time(),
+        }
+        try:
+            printDM(f"[onboarding_event] {json.dumps(payload, separators=(',', ':'))}", location=MODULE)
+        except Exception:
+            pass
+
+    def _build_v2_config_payload(device_id: str) -> Dict[str, Any]:
+        """
+        Build full config payload from hub-side settings managers.
+        Falls back to empty section dicts when per-device docs do not exist yet.
+        """
+        def _to_jsonable(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {str(k): _to_jsonable(v) for k, v in value.items()}
+            if isinstance(value, (list, tuple)):
+                return [_to_jsonable(v) for v in value]
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                return value
+            try:
+                return str(value)
+            except Exception:
+                return None
+
+        network_doc: Dict[str, Any] = {}
+        sensor_doc: Dict[str, Any] = {}
+        switch_doc: Dict[str, Any] = {}
+        mqtt_doc: Dict[str, Any] = {}
+        display_doc: Dict[str, Any] = {}
+        calibration_doc: Dict[str, Any] = {}
+
+        try:
+            sys_settings = saiSettings(apply_live=False, device_id=device_id)
+            network_doc = dict(sys_settings.get_section("Network") or {})
+            mqtt_doc = dict(sys_settings.get_section("MQTT") or {})
+            display_doc = dict(sys_settings.get_section("Display") or {})
+            calibration_doc = dict(sys_settings.get_section("Calibration") or {})
+        except Exception:
+            pass
+        try:
+            sensor_doc = dict(SensorSettingsManager(base_dir_name=_SENSOR_BASE_DIR).load(device_id) or {})
+        except Exception:
+            sensor_doc = {}
+        try:
+            switch_doc = dict(SwitchSettingsManager(base_dir=_SWITCH_BASE_DIR).load(device_id) or {})
+        except Exception:
+            switch_doc = {}
+
+        settings_map: Dict[str, Any] = {}
+        if isinstance(network_doc, dict) and network_doc:
+            settings_map["Network"] = _to_jsonable(network_doc)
+        if isinstance(mqtt_doc, dict) and mqtt_doc:
+            settings_map["MQTT"] = _to_jsonable(mqtt_doc)
+        if isinstance(display_doc, dict) and display_doc:
+            settings_map["Display"] = _to_jsonable(display_doc)
+        if isinstance(calibration_doc, dict) and calibration_doc:
+            settings_map["Calibration"] = _to_jsonable(calibration_doc)
+        if isinstance(sensor_doc, dict) and sensor_doc:
+            settings_map["Sensor"] = _to_jsonable(sensor_doc)
+        if isinstance(switch_doc, dict) and switch_doc:
+            settings_map["Switch"] = _to_jsonable(switch_doc)
+        return {"settings": settings_map}
+
+    def _publish_config_set_for_session(session_id: str, device_id: str) -> bool:
+        session = onboarding_store.get_session(session_id)
+        if not session:
+            return False
+        policy = _onboarding_timeouts()
+        message_id = str(session.get("message_id", "") or "").strip()
+        config_version = int(session.get("config_version", 1) or 1)
+        payload_block = session.get("config_payload")
+        if not isinstance(payload_block, dict):
+            payload_block = _build_v2_config_payload(device_id)
+
+        payload_bytes = json.dumps(payload_block, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        checksum = "sha256:" + hashlib.sha256(payload_bytes).hexdigest()
+        if not message_id:
+            message_id = f"cfg-{int(time.time())}-{uuid4().hex[:8]}"
+        token_secret = str(session.get("onboard_token_secret", "") or "")
+        onboard_token = saiSettings.deobfuscate_secret(token_secret).strip() if token_secret else ""
+        if not onboard_token:
+            onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="missing_onboard_token")
+            _emit_onboarding_event("onboarding_failed", session_id=session_id, device_id=device_id, detail="missing_onboard_token")
+            return False
+
+        envelope = {
+            "message_id": message_id,
+            "onboard_token": onboard_token,
+            "config_version": config_version,
+            "checksum": checksum,
+            "payload": payload_block,
+        }
+        topic = f"nodus/{device_id}/config/set"
+        ok = bool(mqtt_ingest.publish_json(topic, envelope, qos=1, retain=False, use_ha_client=False))
+        now = time.time()
+        if not ok:
+            _emit_onboarding_event("onboarding_failed", session_id=session_id, device_id=device_id, detail="config_publish_failed")
+            return False
+        current_retry = int(session.get("retry_count", 0) or 0)
+        onboarding_store.update_session(
+            session_id,
+            state=OnboardingStates.WAITING_CONFIG_ACK,
+            device_id=device_id,
+            message_id=message_id,
+            config_version=config_version,
+            config_payload=payload_block,
+            retry_count=current_retry + 1,
+            last_config_sent_at=now,
+            ack_deadline_at=now + float(policy["ack_timeout_sec"]),
+        )
+        _emit_onboarding_event("onboarding_config_sent", session_id=session_id, device_id=device_id, detail=message_id)
+        return True
+
+    async def _v2_session_monitor(session_id: str) -> None:
+        policy = _onboarding_timeouts()
+        while True:
+            await asyncio.sleep(0.5)
+            session = onboarding_store.get_session(session_id)
+            if not session:
+                return
+            state = str(session.get("state", "") or "").strip()
+            if state in {OnboardingStates.ONLINE, OnboardingStates.FAILED}:
+                return
+
+            now = time.time()
+            token_exp = float(session.get("token_expires_at", 0.0) or 0.0)
+            if token_exp and now > token_exp and state != OnboardingStates.ONLINE:
+                onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="token_expired")
+                _emit_onboarding_event("onboarding_failed", session_id=session_id, detail="token_expired")
+                return
+
+            if state == OnboardingStates.WAITING_MQTT_HELLO:
+                hello_deadline = float(session.get("hello_deadline_at", 0.0) or 0.0)
+                if hello_deadline and now > hello_deadline:
+                    onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="hello_timeout")
+                    _emit_onboarding_event("onboarding_failed", session_id=session_id, detail="hello_timeout")
+                    return
+                continue
+
+            if state == OnboardingStates.WAITING_CONFIG_ACK:
+                ack_deadline = float(session.get("ack_deadline_at", 0.0) or 0.0)
+                if not ack_deadline or now <= ack_deadline:
+                    continue
+                retries = int(session.get("retry_count", 0) or 0)
+                if retries >= int(policy["max_attempts"]):
+                    onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="config_ack_timeout")
+                    _emit_onboarding_event("onboarding_failed", session_id=session_id, detail="config_ack_timeout")
+                    return
+                await asyncio.sleep(float(policy["retry_backoff_sec"]))
+                device_id = str(session.get("device_id", "") or session.get("expected_device_id", "") or "").strip()
+                if not device_id:
+                    onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="missing_device_id")
+                    _emit_onboarding_event("onboarding_failed", session_id=session_id, detail="missing_device_id")
+                    return
+                _publish_config_set_for_session(session_id, device_id)
+                continue
+
+            if state == OnboardingStates.WAITING_CONFIG_RESULT:
+                result_deadline = float(session.get("result_deadline_at", 0.0) or 0.0)
+                if result_deadline and now > result_deadline:
+                    onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="config_result_timeout")
+                    _emit_onboarding_event("onboarding_failed", session_id=session_id, detail="config_result_timeout")
+                    return
+
+    def _ensure_v2_session_monitor(session_id: str) -> None:
+        def _spawn() -> None:
+            existing = _v2_session_tasks.get(session_id)
+            if existing and not existing.done():
+                return
+            _v2_session_tasks[session_id] = asyncio.create_task(_v2_session_monitor(session_id))
+
+        existing = _v2_session_tasks.get(session_id)
+        if existing and not existing.done():
+            return
+        try:
+            running = asyncio.get_running_loop()
+            if running is main_loop:
+                _spawn()
+                return
+        except Exception:
+            pass
+        try:
+            main_loop.call_soon_threadsafe(_spawn)
+        except Exception:
+            pass
+
+    def _handle_onboarding_event(event: Dict[str, Any]) -> None:
+        event_type = str(event.get("event_type", "") or "").strip()
+        device_id = str(event.get("device_id", "") or "").strip()
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if not event_type or not device_id:
+            return
+
+        if event_type == "onboarding_hello":
+            token = str(payload.get("onboard_token", "") or "").strip()
+            if not token:
+                return
+
+            # Always resolve by token validation first so parallel/restarted sessions
+            # with the same device id do not fail the wrong session.
+            session = None
+            for candidate in onboarding_store.list_active_sessions():
+                sid = str(candidate.get("session_id", "") or "").strip()
+                if not sid:
+                    continue
+                ok, _ = onboarding_tokens.validate_for_session(
+                    session_id=sid,
+                    token=token,
+                    device_id=device_id,
+                )
+                if ok:
+                    session = candidate
+                    break
+            if not session:
+                return
+
+            sid = str(session.get("session_id", "") or "").strip()
+            ok, reason, _updated = onboarding_tokens.consume_for_session(
+                session_id=sid,
+                token=token,
+                device_id=device_id,
+            )
+            if not ok:
+                onboarding_store.set_state(sid, OnboardingStates.FAILED, failure_reason=reason)
+                _emit_onboarding_event("onboarding_failed", session_id=sid, device_id=device_id, detail=reason)
+                return
+            onboarding_store.set_device_id(sid, device_id)
+            onboarding_store.update_session(sid, last_hello_at=time.time(), device_id=device_id)
+            _emit_onboarding_event("onboarding_hello_received", session_id=sid, device_id=device_id)
+            onboarding_store.set_state(sid, OnboardingStates.CONFIG_SENDING)
+            if not _publish_config_set_for_session(sid, device_id):
+                onboarding_store.set_state(sid, OnboardingStates.FAILED, failure_reason="config_publish_failed")
+                return
+            _ensure_v2_session_monitor(sid)
+            return
+
+        if event_type == "onboarding_config_ack":
+            msg_id = str(payload.get("message_id", "") or "").strip()
+            if not msg_id:
+                return
+            session = onboarding_store.find_active_by_device_and_message(device_id, msg_id)
+            if not session:
+                return
+            sid = str(session.get("session_id", "") or "").strip()
+            if not sid:
+                return
+            accepted = bool(payload.get("accepted", True))
+            if not accepted:
+                reason = str(payload.get("error", "") or "config_rejected")
+                onboarding_store.set_state(sid, OnboardingStates.FAILED, failure_reason=reason)
+                _emit_onboarding_event("onboarding_failed", session_id=sid, device_id=device_id, detail=reason)
+                return
+            result_deadline = time.time() + float(_onboarding_timeouts()["result_timeout_sec"])
+            onboarding_store.update_session(sid, state=OnboardingStates.WAITING_CONFIG_RESULT, result_deadline_at=result_deadline)
+            _emit_onboarding_event("onboarding_config_ack", session_id=sid, device_id=device_id, detail=msg_id)
+            return
+
+        if event_type == "onboarding_config_result":
+            msg_id = str(payload.get("message_id", "") or "").strip()
+            applied = bool(payload.get("applied", False))
+            if not msg_id:
+                return
+            session = onboarding_store.find_active_by_device_and_message(device_id, msg_id)
+            if not session:
+                return
+            sid = str(session.get("session_id", "") or "").strip()
+            if not sid:
+                return
+            _emit_onboarding_event("onboarding_config_result", session_id=sid, device_id=device_id, detail=msg_id)
+            if applied:
+                onboarding_store.update_session(sid, state=OnboardingStates.ONLINE, last_seen=time.time())
+                onboarding_tokens.invalidate_session_token(sid)
+                _emit_onboarding_event("onboarding_online", session_id=sid, device_id=device_id, detail=msg_id)
+            else:
+                reason = str(payload.get("error", "") or "config_apply_failure")
+                onboarding_store.set_state(sid, OnboardingStates.FAILED, failure_reason=reason)
+                _emit_onboarding_event("onboarding_failed", session_id=sid, device_id=device_id, detail=reason)
+
+    try:
+        mqtt_ingest.set_onboarding_event_handler(_handle_onboarding_event)
+    except Exception as e:
+        if DEBUG:
+            printDM(f"Failed to set onboarding MQTT callback: {e}", location=MODULE)
+    for _session in onboarding_store.list_active_sessions():
+        _sid = str(_session.get("session_id", "") or "").strip()
+        if _sid:
+            _ensure_v2_session_monitor(_sid)
+
+    @router.post("/onboard-device/v2/start")
+    async def onboard_start_v2(request: Request):
+        """
+        V2 bootstrap start:
+        1) Connect to Nodus AP
+        2) Issue short-lived single-use token (stored hashed)
+        3) POST /itaot-init with minimal bootstrap payload
+        4) Persist WAITING_MQTT_HELLO state for resume/correlation
+        """
+        if not _onboarding_v2_enabled():
+            return JSONResponse({"ok": False, "error": "onboarding_v2_disabled"}, status_code=409)
+
+        import saiAddDevice
+
+        form = await request.form()
+        target_ap = str(form.get("target_ap", "") or "").strip() or (saiAddDevice.PICOW_AP_SSID or "Nodus_Setup").strip() or "Nodus_Setup"
+        target_ap_password = str(form.get("target_ap_password", "") or "")
+        local_ssid = str(form.get("local_ssid", "") or "").strip()
+        local_password = str(form.get("local_password", "") or "")
+        requested_device_id = str(form.get("device_id", "") or "").strip()
+        hostname = requested_device_id or str(form.get("hostname", "") or "").strip() or f"nodus-{uuid4().hex[:8]}"
+
+        session_id = uuid4().hex
+        issued = onboarding_tokens.issue_token(
+            session_id=session_id,
+            expected_device_id=requested_device_id,
+            ttl_sec=600,
+        )
+        token = issued["token"]
+        onboarding_store.set_state(session_id, OnboardingStates.AP_DISCOVERED)
+
+        ok_ap = False
+        try:
+            ok_ap = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: saiAddDevice.connect_to_sensor_ap(target_ap, target_ap_password, attempts=3),
+            )
+        except Exception as e:
+            onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason=f"ap_connect_error:{e}")
+            return JSONResponse(
+                {"ok": False, "session_id": session_id, "state": OnboardingStates.FAILED, "error": "ap_connect_error"},
+                status_code=502,
+            )
+
+        if not ok_ap:
+            onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="ap_connect_failed")
+            return JSONResponse(
+                {"ok": False, "session_id": session_id, "state": OnboardingStates.FAILED, "error": "ap_connect_failed"},
+                status_code=502,
+            )
+
+        if not local_ssid:
+            try:
+                resolved_ssid, resolved_password = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    saiAddDevice.resolve_pi_wifi_credentials,
+                )
+                local_ssid = (resolved_ssid or "").strip()
+                if not local_password:
+                    local_password = resolved_password or ""
+            except Exception:
+                pass
+
+        if not local_ssid:
+            onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="missing_local_ssid")
+            _emit_onboarding_event("onboarding_failed", session_id=session_id, detail="missing_local_ssid")
+            return JSONResponse(
+                {"ok": False, "session_id": session_id, "state": OnboardingStates.FAILED, "error": "missing_local_ssid"},
+                status_code=400,
+            )
+
+        onboarding_store.set_state(session_id, OnboardingStates.INIT_SENDING)
+        _emit_onboarding_event("onboarding_init_sent", session_id=session_id, detail=hostname)
+        init_payload = _build_v2_bootstrap_payload(
+            onboard_token=token,
+            ssid=local_ssid,
+            password=local_password,
+            hostname=hostname,
+        )
+        init_result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: saiAddDevice.post_itaot_init(init_payload, timeout_sec=11.0),
+        )
+        if not bool(init_result.get("ok", False)):
+            onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="INIT_FAILED")
+            _emit_onboarding_event("onboarding_failed", session_id=session_id, detail=f"INIT_FAILED:{init_result.get('error', '')}")
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "session_id": session_id,
+                    "state": OnboardingStates.FAILED,
+                    "error": "INIT_FAILED",
+                    "detail": str(init_result.get("error", "")),
+                },
+                status_code=502,
+            )
+
+        onboarding_store.set_state(session_id, OnboardingStates.INIT_SENT)
+        _emit_onboarding_event("onboarding_init_ack", session_id=session_id, detail=hostname)
+        onboarding_store.set_state(session_id, OnboardingStates.WAITING_REBOOT)
+        hello_deadline = time.time() + float(_onboarding_timeouts()["hello_timeout_sec"])
+        onboarding_store.update_session(session_id, state=OnboardingStates.WAITING_MQTT_HELLO, hello_deadline_at=hello_deadline)
+        _ensure_v2_session_monitor(session_id)
+        return JSONResponse(
+            {
+                "ok": True,
+                "session_id": session_id,
+                "state": OnboardingStates.WAITING_MQTT_HELLO,
+                "token_expires_at": issued.get("expires_at"),
+                "expected_device_id": requested_device_id,
+            }
+        )
+
+    @router.get("/onboard-device/v2/session/{session_id}")
+    async def onboard_session_v2(session_id: str):
+        if not _onboarding_v2_enabled():
+            return JSONResponse({"error": "onboarding_v2_disabled"}, status_code=409)
+        session = onboarding_store.get_session(session_id)
+        if not session:
+            return JSONResponse({"error": "session_not_found"}, status_code=404)
+        safe = dict(session)
+        safe.pop("onboard_token_hash", None)
+        safe.pop("onboard_token_secret", None)
+        return JSONResponse(safe)
+
+    @router.get("/onboard-device/v2/sessions")
+    async def onboard_sessions_v2(active_only: bool = Query(True)):
+        if not _onboarding_v2_enabled():
+            return JSONResponse({"error": "onboarding_v2_disabled"}, status_code=409)
+        sessions = onboarding_store.list_active_sessions() if active_only else onboarding_store.list_sessions()
+        redacted: list[Dict[str, Any]] = []
+        for s in sessions:
+            one = dict(s)
+            one.pop("onboard_token_hash", None)
+            one.pop("onboard_token_secret", None)
+            redacted.append(one)
+        return JSONResponse({"count": len(redacted), "items": redacted})
+
+    @router.post("/onboard-device/v2/retry/{session_id}")
+    async def onboard_retry_v2(session_id: str):
+        if not _onboarding_v2_enabled():
+            return JSONResponse({"ok": False, "error": "onboarding_v2_disabled"}, status_code=409)
+        session = onboarding_store.get_session(session_id)
+        if not session:
+            return JSONResponse({"error": "session_not_found"}, status_code=404)
+        state = str(session.get("state", "") or "").strip()
+        device_id = str(session.get("device_id", "") or session.get("expected_device_id", "") or "").strip()
+        if state == OnboardingStates.WAITING_MQTT_HELLO:
+            hello_deadline = time.time() + float(_onboarding_timeouts()["hello_timeout_sec"])
+            onboarding_store.update_session(session_id, hello_deadline_at=hello_deadline)
+            _ensure_v2_session_monitor(session_id)
+            return JSONResponse({"ok": True, "session_id": session_id, "state": state})
+        if state in {OnboardingStates.WAITING_CONFIG_ACK, OnboardingStates.CONFIG_SENDING} and device_id:
+            if not _publish_config_set_for_session(session_id, device_id):
+                return JSONResponse({"ok": False, "error": "config_publish_failed"}, status_code=502)
+            _ensure_v2_session_monitor(session_id)
+            return JSONResponse({"ok": True, "session_id": session_id, "state": OnboardingStates.WAITING_CONFIG_ACK})
+        return JSONResponse({"ok": False, "error": "retry_not_allowed_for_state", "state": state}, status_code=409)
+
+    @router.post("/onboard-device/v2/restart/{session_id}")
+    async def onboard_restart_v2(session_id: str):
+        if not _onboarding_v2_enabled():
+            return JSONResponse({"ok": False, "error": "onboarding_v2_disabled"}, status_code=409)
+        old = onboarding_store.get_session(session_id)
+        if not old:
+            return JSONResponse({"error": "session_not_found"}, status_code=404)
+        expected_device_id = str(old.get("expected_device_id", "") or old.get("device_id", "") or "").strip()
+        new_id = uuid4().hex
+        issued = onboarding_tokens.issue_token(
+            session_id=new_id,
+            expected_device_id=expected_device_id,
+            ttl_sec=600,
+        )
+        onboarding_store.update_session(
+            new_id,
+            state=OnboardingStates.AP_DISCOVERED,
+            restart_of=session_id,
+        )
+        return JSONResponse(
+            {
+                "ok": True,
+                "session_id": new_id,
+                "state": OnboardingStates.AP_DISCOVERED,
+                "token_expires_at": issued.get("expires_at"),
+                "expected_device_id": expected_device_id,
+            }
+        )
+
     # lightweight connection/health check
     @router.get("/hayd", response_class=JSONResponse)
     async def how_are_you_doing():
@@ -2623,13 +3289,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         async def run_flow():
             # Step 1: AP connect
-            label1 = "Sensor Setup connection established"
+            target_ap = (saiAddDevice.PICOW_AP_SSID or "Nodus_Setup").strip() or "Nodus_Setup"
+            label1 = f"{target_ap} connection established"
             ok1 = False
             try:
                 ok1 = await asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: saiAddDevice.connect_to_sensor_ap(
-                        saiAddDevice.PICOW_AP_SSID,
+                        target_ap,
                         saiAddDevice.PICOW_AP_PASSWORD,
                         attempts=3
                     )
@@ -3625,7 +4292,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 d = getattr(ing, dname, None)
                 if isinstance(d, dict) and key in d:
                     d.pop(key, None); _bump()
-            for dname in ("device_status", "last_mqtt_seen", "nodus_availability"):
+            for dname in ("device_status", "last_mqtt_seen", "nodus_availability", "last_heartbeat_ts", "last_heartbeat_payload", "heartbeat_interval_s_by_host", "heartbeat_stale"):
                 d = getattr(ing, dname, None)
                 if isinstance(d, dict) and key in d:
                     d.pop(key, None); _bump()
@@ -3893,7 +4560,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         hostname = data.get("host")
         if hostname in request.app.state.mqtt_ingest.discovery_failures:
             del request.app.state.mqtt_ingest.discovery_failures[hostname]
-            request.app.state.mqtt_ingest.device_status[hostname] = "pending"
+            request.app.state.mqtt_ingest.device_status[hostname] = "unknown"
             return JSONResponse(content={"status": "retrying"})
         return JSONResponse(content={"status": "unknown host"}, status_code=400)
 
@@ -4147,10 +4814,19 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         })
 
     @router.get("/scan-nodus-setup")
-    async def scan_nodus_setup(ssid: str = Query("Nodus_Setup")):
-        found, msg = await asyncio.to_thread(_scan_for_ssid, ssid)
+    async def scan_nodus_setup(ssid: str = Query(None)):
+        target_ssid = (ssid or "").strip()
+        if not target_ssid:
+            try:
+                import saiAddDevice
+                target_ssid = (getattr(saiAddDevice, "PICOW_AP_SSID", "") or "").strip()
+            except Exception:
+                target_ssid = ""
+        if not target_ssid:
+            target_ssid = "Nodus_Setup"
+        found, msg = await asyncio.to_thread(_scan_for_ssid, target_ssid)
         return JSONResponse({
-            "ssid": ssid,
+            "ssid": target_ssid,
             "found": bool(found),
             "platform": platform.system(),
             "message": msg,

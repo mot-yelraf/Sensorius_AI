@@ -24,10 +24,27 @@ from saiDataLogger import saiDataLogger, build_switch_key
 
 MODULE = "saiMQTTIngest"
 DEBUG = debug_enabled(MODULE)
+DEFAULT_HEARTBEAT_INTERVAL_S = 30.0
+MIN_HEARTBEAT_INTERVAL_S = 10.0
+HEARTBEAT_STALE_AFTER_S = 90.0
+HEARTBEAT_CLOCK_SKEW_TOLERANCE_S = 15.0
+LEGACY_POLLER_SUNSET_DATE = "2026-06-30"
 
 # module helpers
 def _slugify(text: str) -> str:
     return (text or "").strip().lower().replace(" ", "_")
+
+def _to_bool(raw, default: bool = False) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    if raw is None:
+        return default
+    text = str(raw).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
     
 def _norm_label(label: str | None) -> str:
     return (label or "").strip().lower()
@@ -136,19 +153,30 @@ class saiMQTTIngest:
         self.device_location = {}  # device location
         self.registered_topics = set()
         self.mqtt_clients = mqtt_clients or []
+        try:
+            raw_debug = self.settings.get_setting("SensorNetwork", "NODUS_DEBUG_DATA_ONLY", False) if self.settings else False
+            self.nodus_debug_data_only = _to_bool(raw_debug, default=False)
+        except Exception:
+            self.nodus_debug_data_only = False
         self.expected_gauge_map = {}
         self._host_ip_cache: dict[str, str] = {}
         self.discovery_failures = {}  # track failures by hostname, time.monotonic()
-        self.device_status = {}       # track device status by hostname → "online"/"offline"/"pending"
+        self.device_status = {}       # track device status by hostname → "online"/"degraded"/"offline"/"unknown"
         self.device_offline_count = defaultdict(int)  # track device offline by hostname 
         self.discovery_cache: dict[str, dict] = {} # cache of last /itaot per host (optional but handy)
         self.host_to_peer_ids: dict[str, list[str]] = {}  # map host -> [peer_ids] (already guarded in loop, but ensure exists early)
         self.last_mqtt_seen: dict[str, float] = {}  # last mqtt seen map (guarded elsewhere; set here for safety)
         self.nodus_availability: dict[str, str] = {}  # host -> "online"|"offline" (from MQTT /availability)
+        self.last_heartbeat_ts: dict[str, float] = {}  # host -> unix epoch seconds from heartbeat payload
+        self.last_heartbeat_payload: dict[str, dict] = {}  # host -> last heartbeat payload object
+        self.heartbeat_interval_s_by_host: dict[str, float] = {}  # host -> advertised interval
+        self.heartbeat_stale: dict[str, bool] = {}  # host -> heartbeat freshness diagnostic
         # Retained startup replays can include stale hosts. Track repeated retained traffic and
         # only promote to discovery after we see sustained retained data from the same host.
         self._retained_data_seen: dict[str, int] = {}
         self._retained_avail_probe_inflight: set[str] = set()
+        self._legacy_firmware_hosts: set[str] = self._load_legacy_firmware_hosts()
+        self._legacy_poller_sunset_epoch: float = self._load_legacy_poller_sunset_epoch()
 
         self.last_check_time = defaultdict(lambda: 0)
         self.mqtt_clients = set(self.mqtt_clients or [])
@@ -196,6 +224,7 @@ class saiMQTTIngest:
         self.nodus_channel_command_topics: dict[str, str] = {}  # channel_id -> topic
         self.nodus_switch_state_topics: dict[tuple[str, str], str] = {}  # (switch_id, channel_id) -> topic
         self.nodus_switch_event_topics: dict[tuple[str, str], str] = {}  # (switch_id, channel_id) -> topic
+        self.nodus_switch_availability_topics: dict[tuple[str, str], str] = {}  # (switch_id, channel_id) -> topic
         self.nodus_sensor_topics: dict[str, str] = {}  # sensor_id -> topic
         self.nodus_label_to_channel: dict[tuple[str, str], str] = {}  # (switch_id, norm_label) -> channel_id
         try:
@@ -206,17 +235,36 @@ class saiMQTTIngest:
 
         # Default wildcards so Nodus data is ingested even before /itaot discovery.
         # Topics observed: nodus/<sensor_id>/data (and sometimes /state).
-        self.registered_topics.update({
+        base_topics = {
             "nodus/+/data",
             "nodus/+/state",
-            "nodus/+/availability",
-        })
+        }
+        if not self.nodus_debug_data_only:
+            base_topics.update({
+                "nodus/+/availability",
+                "nodus/+/status/heartbeat",
+                "nodus/+/meta",
+                "nodus/+/onboard/hello",
+                "nodus/+/config/ack",
+                "nodus/+/config/result",
+            })
+        self.registered_topics.update(base_topics)
         if self.base_topic:
-            self.registered_topics.update({
+            prefixed_topics = {
                 f"{self.base_topic}/nodus/+/data",
                 f"{self.base_topic}/nodus/+/state",
-                f"{self.base_topic}/nodus/+/availability",
-            })
+            }
+            if not self.nodus_debug_data_only:
+                prefixed_topics.update({
+                    f"{self.base_topic}/nodus/+/availability",
+                    f"{self.base_topic}/nodus/+/status/heartbeat",
+                    f"{self.base_topic}/nodus/+/meta",
+                    f"{self.base_topic}/nodus/+/onboard/hello",
+                    f"{self.base_topic}/nodus/+/config/ack",
+                    f"{self.base_topic}/nodus/+/config/result",
+                })
+            self.registered_topics.update(prefixed_topics)
+        self.onboarding_event_handler = None
         self._pending_set: dict[tuple[str, str], float] = {}
         self._loop = None  # set in start()
         
@@ -256,6 +304,134 @@ class saiMQTTIngest:
         except Exception:
             return
 
+    def _load_legacy_firmware_hosts(self) -> set[str]:
+        """
+        Hostnames explicitly marked as non-upgraded firmware that still require legacy pollers.
+        """
+        hosts: set[str] = set()
+        try:
+            sec = self.settings.get_section("SensorNetwork") if self.settings else {}
+            raw = (sec or {}).get("LEGACY_FIRMWARE_HOSTS", [])
+            if isinstance(raw, str):
+                raw = [raw]
+            if isinstance(raw, (list, tuple, set)):
+                for item in raw:
+                    base = self._normalize_host_key(str(item or ""))
+                    if base:
+                        hosts.add(base)
+        except Exception:
+            pass
+        return hosts
+
+    def _load_legacy_poller_sunset_epoch(self) -> float:
+        try:
+            sec = self.settings.get_section("SensorNetwork") if self.settings else {}
+            raw = str((sec or {}).get("LEGACY_POLLER_SUNSET_DATE", LEGACY_POLLER_SUNSET_DATE) or LEGACY_POLLER_SUNSET_DATE).strip()
+            dt = datetime.strptime(raw, "%Y-%m-%d")
+            return dt.timestamp()
+        except Exception:
+            try:
+                return datetime.strptime(LEGACY_POLLER_SUNSET_DATE, "%Y-%m-%d").timestamp()
+            except Exception:
+                return 0.0
+
+    def _legacy_pollers_allowed(self) -> bool:
+        try:
+            return time.time() < float(self._legacy_poller_sunset_epoch or 0.0)
+        except Exception:
+            return False
+
+    def _use_legacy_pollers_for(self, host_like: str | None) -> bool:
+        base = self._normalize_host_key(host_like)
+        if not base:
+            return False
+        return (base in self._legacy_firmware_hosts) and self._legacy_pollers_allowed()
+
+    @staticmethod
+    def _normalize_liveness_state(status: str | None) -> str:
+        s = str(status or "").strip().lower()
+        if s in {"online", "degraded", "offline", "unknown", "pending", "migration_required"}:
+            if s == "pending":
+                return "unknown"
+            return s
+        return "unknown"
+
+    def _derive_heartbeat_interval_s(self, data: dict | None) -> float:
+        interval = DEFAULT_HEARTBEAT_INTERVAL_S
+        try:
+            if isinstance(data, dict):
+                raw = data.get("heartbeat_interval_s", DEFAULT_HEARTBEAT_INTERVAL_S)
+                interval = float(raw or DEFAULT_HEARTBEAT_INTERVAL_S)
+        except Exception:
+            interval = DEFAULT_HEARTBEAT_INTERVAL_S
+        if interval < MIN_HEARTBEAT_INTERVAL_S:
+            interval = MIN_HEARTBEAT_INTERVAL_S
+        return interval
+
+    def _extract_heartbeat_timestamp(self, data: dict | None) -> float | None:
+        if not isinstance(data, dict):
+            return None
+        raw_ts = data.get("timestamp", None)
+        if raw_ts is None:
+            return None
+        try:
+            return float(raw_ts)
+        except Exception:
+            return None
+
+    def _heartbeat_is_stale(self, ts_epoch: float | None, *, retain: bool, now_ts: float | None = None) -> bool:
+        """
+        Freshness rule:
+        - retained heartbeat older than HEARTBEAT_STALE_AFTER_S is stale
+        - heartbeat timestamp beyond skew tolerance into the future is stale
+        """
+        if ts_epoch is None:
+            return bool(retain)
+        now_v = float(now_ts if now_ts is not None else time.time())
+        if ts_epoch > (now_v + HEARTBEAT_CLOCK_SKEW_TOLERANCE_S):
+            return True
+        if retain and (now_v - ts_epoch) > HEARTBEAT_STALE_AFTER_S:
+            return True
+        return False
+
+    def _apply_heartbeat_timeout_state(self, base: str, now_ts: float | None = None) -> str:
+        """
+        Derive online/degraded/offline from last heartbeat timing:
+          online   <= 2 intervals
+          degraded > 2 and < 3 intervals
+          offline  >= 3 intervals
+        """
+        base = self._normalize_host_key(base) or ""
+        if not base:
+            return "unknown"
+        now_v = float(now_ts if now_ts is not None else time.time())
+        interval = float(self.heartbeat_interval_s_by_host.get(base, DEFAULT_HEARTBEAT_INTERVAL_S) or DEFAULT_HEARTBEAT_INTERVAL_S)
+        if interval < MIN_HEARTBEAT_INTERVAL_S:
+            interval = MIN_HEARTBEAT_INTERVAL_S
+
+        hb_ts = self.last_heartbeat_ts.get(base)
+        if hb_ts:
+            missed = max(0.0, now_v - float(hb_ts))
+        else:
+            # No heartbeat yet: derive liveness from general MQTT activity so hosts
+            # can still age to OFFLINE when traffic stops.
+            last_seen = float(
+                self.last_mqtt_seen.get(base)
+                or self.last_mqtt_seen.get(f"{base}.local")
+                or 0.0
+            )
+            if last_seen <= 0.0:
+                return self.device_status.get(base, "unknown")
+            if self._get_nodus_availability(base) == "offline":
+                return "offline"
+            missed = max(0.0, now_v - last_seen)
+
+        if missed <= (2.0 * interval):
+            return "online"
+        if missed < (3.0 * interval):
+            return "degraded"
+        return "offline"
+
     def _feed_watchdog(self, name: str = "MQTT Discovery Loop") -> None:
         """Best-effort watchdog feed; safe if supervisor is missing."""
         try:
@@ -288,6 +464,73 @@ class saiMQTTIngest:
         except Exception:
             pass
         return False
+
+    def set_onboarding_event_handler(self, handler) -> None:
+        """
+        Register callback to receive parsed onboarding topic events.
+        Handler signature: fn(event_dict) -> None
+        """
+        self.onboarding_event_handler = handler
+
+    def _maybe_handle_onboarding_topics(self, topic: str, payload_text: str, data: dict | None) -> bool:
+        """
+        Parse V2 onboarding topics and optionally dispatch to the registered callback.
+        Topics:
+          nodus/<device_id>/onboard/hello
+          nodus/<device_id>/config/ack
+          nodus/<device_id>/config/result
+        """
+        try:
+            parts = topic.split("/")
+            root_idx = -1
+            if len(parts) >= 4 and parts[0] == "nodus":
+                root_idx = 0
+            elif (
+                self.base_topic
+                and len(parts) >= 5
+                and parts[0] == self.base_topic
+                and parts[1] == "nodus"
+            ):
+                root_idx = 1
+            if root_idx < 0:
+                return False
+
+            device_id = str(parts[root_idx + 1] or "").strip()
+            family = str(parts[root_idx + 2] or "").strip()
+            leaf = str(parts[root_idx + 3] or "").strip()
+            if not device_id:
+                return False
+
+            event_type = ""
+            if family == "onboard" and leaf == "hello":
+                event_type = "onboarding_hello"
+            elif family == "config" and leaf == "ack":
+                event_type = "onboarding_config_ack"
+            elif family == "config" and leaf == "result":
+                event_type = "onboarding_config_result"
+            else:
+                return False
+
+            payload = data if isinstance(data, dict) else {}
+            event = {
+                "event_type": event_type,
+                "topic": topic,
+                "device_id": device_id,
+                "payload": payload,
+                "received_at": time.time(),
+            }
+            cb = getattr(self, "onboarding_event_handler", None)
+            if callable(cb):
+                try:
+                    cb(event)
+                except Exception as e:
+                    if DEBUG:
+                        printDM(f"[onboarding] callback error: {e}", location=MODULE)
+            return True
+        except Exception as e:
+            if DEBUG:
+                printDM(f"[onboarding] parse error: {e}", location=MODULE)
+            return False
 
     def _mirror_to_ha(self, topic: str, payload: str, *, qos: int = 0, retain: bool = False) -> None:
         """
@@ -436,34 +679,43 @@ class saiMQTTIngest:
                 printDM(f"[on_message] time request skipped: {e}", location=MODULE)
 
         # --- let your existing helpers try first (but never crash this handler) ---
-        try:
-            self.handle_switch_event_slug(topic, payload_text)
-        except Exception as e:
-            if DEBUG:
-                printDM(f"[on_message] slug parser skipped: {e}", location=MODULE)
-        # Slug-state updates (cache only; no DB writes)
-        try:
-            self.handle_switch_state_slug(topic, payload_text)
-        except Exception as e:
-            if DEBUG:
-                printDM(f"[on_message] state slug skipped: {e}", location=MODULE)
-        try:
-            self.handle_switch_event_device(topic, payload_text)
-        except Exception as e:
-            if DEBUG:
-                printDM(f"[on_message] device parser skipped: {e}", location=MODULE)
-        # Nodus switch topics: nodus/<channel_id>/(state|event)
-        try:
-            self.handle_nodus_switch_topic(topic, payload_text)
-        except Exception as e:
-            if DEBUG:
-                printDM(f"[on_message] nodus switch parser skipped: {e}", location=MODULE)
+        if not self.nodus_debug_data_only:
+            try:
+                self.handle_switch_event_slug(topic, payload_text)
+            except Exception as e:
+                if DEBUG:
+                    printDM(f"[on_message] slug parser skipped: {e}", location=MODULE)
+            # Slug-state updates (cache only; no DB writes)
+            try:
+                self.handle_switch_state_slug(topic, payload_text)
+            except Exception as e:
+                if DEBUG:
+                    printDM(f"[on_message] state slug skipped: {e}", location=MODULE)
+            try:
+                self.handle_switch_event_device(topic, payload_text)
+            except Exception as e:
+                if DEBUG:
+                    printDM(f"[on_message] device parser skipped: {e}", location=MODULE)
+            # Nodus switch topics: nodus/<channel_id>/(state|event)
+            try:
+                self.handle_nodus_switch_topic(topic, payload_text)
+            except Exception as e:
+                if DEBUG:
+                    printDM(f"[on_message] nodus switch parser skipped: {e}", location=MODULE)
 
         # --- parse JSON if possible ---
         try:
             data = json.loads(payload_text)
         except Exception:
             data = None
+
+        if not self.nodus_debug_data_only:
+            try:
+                if self._maybe_handle_onboarding_topics(topic, payload_text, data):
+                    return
+            except Exception as e:
+                if DEBUG:
+                    printDM(f"[on_message] onboarding parser skipped: {e}", location=MODULE)
 
         try:
             parts = topic.split("/")
@@ -485,7 +737,72 @@ class saiMQTTIngest:
             )
             if is_nodus_root or is_nodus_prefixed:
                 id_index = 1 if is_nodus_root else 2
-                if len(parts) > id_index + 1 and parts[id_index + 1] == "availability":
+                if (not self.nodus_debug_data_only) and len(parts) > id_index + 1 and parts[id_index + 1] == "meta":
+                    nodus_id = parts[id_index]
+                    if _looks_like_channel_id(nodus_id):
+                        return
+                    ok_meta, _ = self._parse_and_subscribe_from_nodus_meta(
+                        data if isinstance(data, dict) else {},
+                        topic_device_id=nodus_id,
+                        retain=retain,
+                    )
+                    if ok_meta:
+                        return
+                if (not self.nodus_debug_data_only) and len(parts) > id_index + 2 and parts[id_index + 1] == "status" and parts[id_index + 2] == "heartbeat":
+                    nodus_id = parts[id_index]
+                    if _looks_like_channel_id(nodus_id):
+                        return
+                    base = self._host_from_sid_base(nodus_id)
+                    if not base:
+                        return
+                    now_t = time.time()
+                    if not retain:
+                        self._maybe_add_mqtt_client(base)
+                    else:
+                        self._maybe_promote_retained_host(base, source="state")
+
+                    peers = self.host_to_peer_ids.setdefault(base, [])
+                    if nodus_id and nodus_id not in peers:
+                        peers.append(nodus_id)
+
+                    hb_state = self._normalize_liveness_state((data or {}).get("status") if isinstance(data, dict) else None)
+                    hb_ts = self._extract_heartbeat_timestamp(data if isinstance(data, dict) else None)
+                    hb_interval = self._derive_heartbeat_interval_s(data if isinstance(data, dict) else None)
+                    self.heartbeat_interval_s_by_host[base] = hb_interval
+                    self.heartbeat_interval_s_by_host[f"{base}.local"] = hb_interval
+
+                    stale = self._heartbeat_is_stale(hb_ts, retain=retain, now_ts=now_t)
+                    self.heartbeat_stale[base] = bool(stale)
+                    self.heartbeat_stale[f"{base}.local"] = bool(stale)
+                    self.last_mqtt_seen[base] = now_t
+                    self.last_mqtt_seen[f"{base}.local"] = now_t
+
+                    if isinstance(data, dict):
+                        self.last_heartbeat_payload[base] = dict(data)
+                        self.last_heartbeat_payload[f"{base}.local"] = dict(data)
+
+                    if stale:
+                        self._mark_host_status(base, "unknown")
+                        return
+
+                    if hb_ts is not None:
+                        self.last_heartbeat_ts[base] = float(hb_ts)
+                        self.last_heartbeat_ts[f"{base}.local"] = float(hb_ts)
+                    else:
+                        self.last_heartbeat_ts[base] = now_t
+                        self.last_heartbeat_ts[f"{base}.local"] = now_t
+
+                    # Keep explicit offline status authoritative, otherwise derive from heartbeat timing.
+                    if hb_state == "offline":
+                        self._mark_host_status(base, "offline")
+                    else:
+                        derived = self._apply_heartbeat_timeout_state(base, now_ts=now_t)
+                        self._mark_host_status(base, derived)
+                        if derived == "online":
+                            self.device_offline_count[base] = 0
+                    return
+
+                if (not self.nodus_debug_data_only) and len(parts) > id_index + 1 and parts[id_index + 1] == "availability":
                     nodus_id = parts[id_index]
                     if _looks_like_channel_id(nodus_id):
                         if DEBUG:
@@ -512,6 +829,10 @@ class saiMQTTIngest:
                             if status == "online":
                                 self.device_offline_count[base] = 0
                                 self._mark_host_status(base, "online")
+                                # Recovery on fresh availability when heartbeat is stale/missing.
+                                if base not in self.last_heartbeat_ts:
+                                    self.heartbeat_stale[base] = True
+                                    self.heartbeat_stale[f"{base}.local"] = True
                             elif status == "offline":
                                 self._mark_host_status(base, "offline")
                     return
@@ -554,6 +875,9 @@ class saiMQTTIngest:
                         self.last_mqtt_seen[f"{host}.local"] = now_t 
 
                         self._mark_host_status(host, "online")
+                        if (not self.nodus_debug_data_only) and host not in self.last_heartbeat_ts:
+                            self.heartbeat_stale[host] = True
+                            self.heartbeat_stale[f"{host}.local"] = True
                 except Exception:
                     pass
                 
@@ -563,7 +887,7 @@ class saiMQTTIngest:
                 return
 
             # ==================== SWITCH INFO ====================
-            elif parts and parts[0] == "nodus" and len(parts) > 1:
+            elif (not self.nodus_debug_data_only) and parts and parts[0] == "nodus" and len(parts) > 1:
                 sw_part = parts[1]  # "switch-xxxx" or "switch-xxxx-GP28" or "<channel_id>"
                 base_id = None
                 if parts[-1] in ("state", "event", "set"):
@@ -831,9 +1155,7 @@ class saiMQTTIngest:
         base = self._normalize_host_key(host_like)
         if not base:
             return
-        s = str(status).strip().lower()
-        if s not in {"online", "pending", "offline"}:
-            s = "pending"
+        s = self._normalize_liveness_state(status)
         self.device_status[base] = s
         self.device_status[f"{base}.local"] = s
 
@@ -1020,6 +1342,7 @@ class saiMQTTIngest:
         event_topics: dict | None = None,
         state_topics: dict | None = None,
         command_topics: dict | None = None,
+        availability_topics: dict | None = None,
         label_by_channel_id: dict[str, str] | None = None,
     ) -> bool:
         """
@@ -1056,8 +1379,10 @@ class saiMQTTIngest:
             elif kind == "command":
                 self.nodus_switch_command_topics[(switch_id, ch_id)] = topic
                 self.nodus_channel_command_topics[ch_id] = topic
+            elif kind == "availability":
+                self.nodus_switch_availability_topics[(switch_id, ch_id)] = topic
 
-            if kind in ("state", "event"):
+            if kind in ("state", "event", "availability"):
                 if topic not in self.registered_topics:
                     self.registered_topics.add(topic)
                     self.client.subscribe(topic)
@@ -1071,8 +1396,373 @@ class saiMQTTIngest:
             _register("state", str(_m))
         for _m in (command_topics or {}).values():
             _register("command", str(_m))
+        for _m in (availability_topics or {}).values():
+            _register("availability", str(_m))
 
         return any_new
+
+    def _parse_and_subscribe_from_nodus_meta(
+        self,
+        meta: dict,
+        *,
+        topic_device_id: str | None = None,
+        retain: bool = False,
+    ) -> tuple[bool, bool]:
+        """
+        Parse retained MQTT-first metadata from "nodus/<device_id>/meta".
+        Returns (meta_valid, any_new_subscriptions).
+        """
+        if not isinstance(meta, dict):
+            return False, False
+
+        schema = str(meta.get("schema") or "").strip().lower()
+        if schema and schema != "nodus-meta/v1":
+            return False, False
+
+        def _meta_topic(raw_topic: str | None) -> str:
+            t = str(raw_topic or "").strip()
+            if not t:
+                return ""
+            if t.startswith("nodus/"):
+                return t
+            if self.base_topic and t.startswith(f"{self.base_topic}/nodus/"):
+                return t
+            return ""
+
+        def _is_unknown_loc(val: str | None) -> bool:
+            v = (val or "").strip().lower()
+            return v in ("", "unknown", "n/a", "na", "none", "-")
+
+        def _pick_location(*vals: str) -> str:
+            for raw in vals:
+                loc = str(raw or "").strip()
+                if loc and not _is_unknown_loc(loc):
+                    return loc
+            return "Unknown"
+
+        def _coerce_switch_state(raw_state) -> bool | None:
+            if isinstance(raw_state, bool):
+                return raw_state
+            txt = str(raw_state or "").strip().lower()
+            if txt in ("on", "1", "true", "t", "yes", "y"):
+                return True
+            if txt in ("off", "0", "false", "f", "no", "n"):
+                return False
+            return None
+
+        device_id = str(meta.get("device_id") or topic_device_id or "").strip()
+        if not device_id:
+            return False, False
+        base = self._normalize_host_key(device_id) or device_id
+        now_t = time.time()
+
+        sensor_blob = meta.get("sensor") if isinstance(meta.get("sensor"), dict) else {}
+        switch_blob = meta.get("switch") if isinstance(meta.get("switch"), dict) else {}
+        location_group = meta.get("location_group") if isinstance(meta.get("location_group"), dict) else {}
+
+        sensor_id = str(sensor_blob.get("sensor_id") or "").strip()
+        switch_id = str(
+            switch_blob.get("switch_device_id")
+            or switch_blob.get("device_id")
+            or ""
+        ).strip()
+        group_location = str(location_group.get("location") or "").strip()
+        sensor_location = str(sensor_blob.get("location") or "").strip()
+        switch_location = str(switch_blob.get("location") or "").strip()
+        resolved_location = _pick_location(group_location, switch_location, sensor_location)
+
+        if not retain:
+            self._maybe_add_mqtt_client(base)
+
+        self.last_mqtt_seen[base] = now_t
+        self.last_mqtt_seen[f"{base}.local"] = now_t
+
+        peer_ids_for_host: list[str] = []
+        discovered_sensors: list[dict] = []
+        discovered_switches: list[dict] = []
+        subscribed = False
+        touched = False
+
+        members = location_group.get("members")
+        if isinstance(members, list):
+            for member in members:
+                m = str(member or "").strip()
+                if m and m not in peer_ids_for_host:
+                    peer_ids_for_host.append(m)
+
+        if device_id and device_id not in peer_ids_for_host:
+            peer_ids_for_host.append(device_id)
+
+        # sensor metadata
+        if sensor_id:
+            touched = True
+            if sensor_id not in peer_ids_for_host:
+                peer_ids_for_host.append(sensor_id)
+            self.device_type[sensor_id] = "nodus"
+            self.last_mqtt_seen[sensor_id] = now_t
+
+            register_sensor = getattr(self.data_logger, "register_sensor", None)
+            if callable(register_sensor):
+                try:
+                    register_sensor(sensor_id)
+                except Exception:
+                    pass
+
+            data_topic = _meta_topic(sensor_blob.get("data_topic"))
+            avail_topic = _meta_topic(sensor_blob.get("availability_topic"))
+            event_topic = _meta_topic(sensor_blob.get("event_topic"))
+            sensor_loc = _pick_location(sensor_location, resolved_location)
+
+            if data_topic:
+                self.nodus_sensor_topics[sensor_id] = data_topic
+
+            for t in (data_topic, avail_topic, event_topic):
+                if not t:
+                    continue
+                self.topic_dev_id_map[t] = sensor_id
+                self.device_location[t] = sensor_loc
+                if t not in self.registered_topics:
+                    self.registered_topics.add(t)
+                    self.client.subscribe(t)
+                    subscribed = True
+
+            discovered_sensors.append({
+                "sensor_id": sensor_id,
+                "device_type": "nodus",
+                "device": str(sensor_blob.get("device") or "").strip(),
+                "sensor_type": str(sensor_blob.get("type") or "nodus").strip(),
+                "location": sensor_loc,
+                "serial": str(sensor_blob.get("serial") or "").strip(),
+            })
+
+        # switch metadata
+        channels = switch_blob.get("channels")
+        if switch_id and isinstance(channels, list):
+            touched = True
+            if switch_id not in peer_ids_for_host:
+                peer_ids_for_host.append(switch_id)
+
+            switch_loc = _pick_location(switch_location, resolved_location)
+            self.device_type[switch_id] = "nodus"
+            self._known_switch_ids.add(switch_id)
+            self.last_mqtt_seen[switch_id] = now_t
+
+            event_topics: dict[str, str] = {}
+            state_topics: dict[str, str] = {}
+            command_topics: dict[str, str] = {}
+            availability_topics: dict[str, str] = {}
+            label_by_channel: dict[str, str] = {}
+            channels_with_ids: list[tuple[str, str]] = []
+            switch_payload: dict[str, object] = {
+                "TYPE": "nodus",
+                "SWITCH_DEVICE_ID": switch_id,
+                "SWITCH_LOCATION": switch_loc,
+            }
+
+            for fallback_idx, row in enumerate(channels, start=1):
+                if not isinstance(row, dict):
+                    continue
+                channel_id = str(row.get("channel_id") or "").strip()
+                if not channel_id:
+                    continue
+                label = str(row.get("label") or channel_id).strip() or channel_id
+                try:
+                    idx = int(row.get("index"))
+                except Exception:
+                    idx = fallback_idx
+                idx = max(1, idx)
+
+                ev_t = _meta_topic(row.get("event_topic"))
+                st_t = _meta_topic(row.get("state_topic"))
+                set_t = _meta_topic(row.get("set_topic"))
+                av_t = _meta_topic(row.get("availability_topic"))
+
+                channels_with_ids.append((label, channel_id))
+                label_by_channel[channel_id] = label
+                self.nodus_label_to_channel[(switch_id, _norm_label(label))] = channel_id
+                self.last_mqtt_seen[channel_id] = now_t
+
+                if ev_t:
+                    event_topics[str(idx)] = ev_t
+                if st_t:
+                    state_topics[str(idx)] = st_t
+                if set_t:
+                    command_topics[str(idx)] = set_t
+                if av_t:
+                    availability_topics[str(idx)] = av_t
+
+                switch_payload[f"SWITCH_{idx}_LABEL"] = label
+                switch_payload[f"SWITCH_{idx}_CHANNEL_ID"] = channel_id
+                switch_payload[f"SWITCH_{idx}_EN"] = "1"
+                switch_payload[f"SWITCH_{idx}_ENABLE_PIN"] = "mqtt"
+
+                state_bool = _coerce_switch_state(row.get("state"))
+                if state_bool is not None:
+                    switch_payload[f"SWITCH_{idx}_LAST_STATE"] = "ON" if state_bool else "OFF"
+                    cache = self._switch_state_cache.setdefault(switch_id, {})
+                    cache[channel_id] = "on" if state_bool else "off"
+                    cache[label] = "on" if state_bool else "off"
+
+                try:
+                    self.data_logger.upsert_switch_identity(
+                        switch_key=build_switch_key(channel_id, label),
+                        switch_id=switch_id,
+                        label=label,
+                        location=switch_loc,
+                    )
+                except Exception:
+                    pass
+
+            if channels_with_ids:
+                discovered_switches.append({
+                    "switch_id": switch_id,
+                    "switch_location": switch_loc,
+                    "channels": len(channels_with_ids),
+                    "switch_payload": switch_payload,
+                    "switch_type": "nodus",
+                    "serial": str(switch_blob.get("serial") or "").strip(),
+                })
+                new_subs = self._register_nodus_switch_topics(
+                    switch_id,
+                    switch_loc,
+                    event_topics=event_topics,
+                    state_topics=state_topics,
+                    command_topics=command_topics,
+                    availability_topics=availability_topics,
+                    label_by_channel_id=label_by_channel,
+                )
+                subscribed = subscribed or new_subs
+
+        if not touched:
+            return False, False
+
+        peers = self.host_to_peer_ids.setdefault(base, [])
+        for pid in peer_ids_for_host:
+            if pid and pid not in peers:
+                peers.append(pid)
+
+        if not retain:
+            self._mark_host_status(base, "online")
+
+        try:
+            self.discovery_cache[base] = meta
+        except Exception:
+            pass
+
+        try:
+            if discovered_sensors or discovered_switches:
+                self._ensure_settings_from_itaot(
+                    {"HOSTNAME": base, "Network": {"HOSTNAME": base}},
+                    base,
+                    discovered_sensors,
+                    discovered_switches,
+                )
+        except Exception as e:
+            printDM(f"[nodus-meta] settings seed failed: {e}", location=MODULE)
+
+        if discovered_switches:
+            try:
+                import saiWebRoutes as routes
+                switch_broadcast = getattr(getattr(routes, "app", object()), "state", object()).switch_broadcast
+                if switch_broadcast:
+                    self._schedule_coro(switch_broadcast({
+                        "type": "switch_inventory_changed",
+                        "host": base,
+                        "timestamp": get_timestamp(),
+                    }))
+            except Exception:
+                pass
+
+        return True, subscribed
+
+    def _normalize_itaot_meta_to_nodus_meta(self, payload: dict, *, topic_device_id: str | None = None) -> dict:
+        """
+        Convert /itaot-meta payload (schema: itaot-meta/v1) to nodus-meta/v1 shape.
+        """
+        if not isinstance(payload, dict):
+            return {}
+
+        sensor_blob = payload.get("sensor") if isinstance(payload.get("sensor"), dict) else {}
+        switch_blob = payload.get("switch") if isinstance(payload.get("switch"), dict) else {}
+        group_blob = payload.get("location_group") if isinstance(payload.get("location_group"), dict) else {}
+
+        device_id = str(payload.get("device_id") or topic_device_id or "").strip()
+        sensor_id = str(sensor_blob.get("sensor_id") or device_id).strip()
+        switch_id = str(
+            switch_blob.get("switch_device_id")
+            or switch_blob.get("device_id")
+            or ""
+        ).strip()
+        location = str(
+            group_blob.get("location")
+            or switch_blob.get("location")
+            or sensor_blob.get("location")
+            or ""
+        ).strip()
+
+        channels_out = []
+        raw_channels = switch_blob.get("channels")
+        if isinstance(raw_channels, list):
+            for idx, row in enumerate(raw_channels, start=1):
+                if not isinstance(row, dict):
+                    continue
+                channel_id = str(row.get("channel_id") or "").strip()
+                if not channel_id:
+                    continue
+                try:
+                    channel_idx = int(row.get("index"))
+                except Exception:
+                    channel_idx = idx
+                channels_out.append({
+                    "index": channel_idx,
+                    "label": str(row.get("label") or channel_id).strip() or channel_id,
+                    "channel_id": channel_id,
+                    "state": row.get("state"),
+                    "event_topic": f"nodus/{channel_id}/event",
+                    "state_topic": f"nodus/{channel_id}/state",
+                    "set_topic": f"nodus/{channel_id}/set",
+                    "availability_topic": f"nodus/{channel_id}/availability",
+                })
+
+        return {
+            "schema": "nodus-meta/v1",
+            "device_id": device_id,
+            "sensor": {
+                "sensor_id": sensor_id,
+                "location": str(sensor_blob.get("location") or location).strip(),
+                "data_topic": f"nodus/{sensor_id}/data" if sensor_id else "",
+                "event_topic": f"nodus/{sensor_id}/event" if sensor_id else "",
+                "availability_topic": f"nodus/{sensor_id}/availability" if sensor_id else "",
+            },
+            "switch": {
+                "switch_device_id": switch_id,
+                "location": str(switch_blob.get("location") or location).strip(),
+                "channels": channels_out,
+            },
+            "location_group": {
+                "location": location,
+                "members": group_blob.get("members") if isinstance(group_blob.get("members"), list) else [],
+            },
+        }
+
+    def _parse_and_subscribe_from_http_meta(self, payload: dict, hostname: str) -> tuple[bool, bool]:
+        """
+        Parse metadata payload from HTTP fallback endpoint.
+        Supports:
+          - nodus-meta/v1
+          - itaot-meta/v1 (normalized to nodus-meta/v1)
+          - legacy /itaot shape
+        """
+        if not isinstance(payload, dict):
+            return False, False
+
+        schema = str(payload.get("schema") or "").strip().lower()
+        if schema == "nodus-meta/v1":
+            return self._parse_and_subscribe_from_nodus_meta(payload, topic_device_id=hostname, retain=False)
+        if schema == "itaot-meta/v1":
+            normalized = self._normalize_itaot_meta_to_nodus_meta(payload, topic_device_id=hostname)
+            return self._parse_and_subscribe_from_nodus_meta(normalized, topic_device_id=hostname, retain=False)
+        return self._parse_and_subscribe_from_itaot(payload, hostname)
 
     def discover_enabled_switch_labels(self, info: dict) -> list[tuple[int, str]]:
         """
@@ -1207,8 +1897,8 @@ class saiMQTTIngest:
             return
         # add to the tracked set
         self.mqtt_clients.add(normalized)
-        # mark pending and clear any previous OFFLINE cooldown
-        self._mark_host_status(normalized, "pending")
+        # mark unknown and clear any previous OFFLINE cooldown
+        self._mark_host_status(normalized, "unknown")
         if normalized in self.discovery_failures:
             del self.discovery_failures[normalized]
         # nudge discovery loop to run right away for this host
@@ -1244,18 +1934,18 @@ class saiMQTTIngest:
 
     def get_measure_status(self, name: str, grace_sec: float = 120.0) -> str:
         """
-        Return 'online' | 'pending' | 'offline' for either a host ('apvpd-luvk44' or '.local')
+        Return 'online' | 'degraded' | 'offline' | 'unknown' for either a host ('apvpd-luvk44' or '.local')
         or a peer id ('apvpd-luvk44').
         Rule:
           - If /availability reported a status, honor it first
           - If any peer mapped to this host has MQTT within grace_sec → 'online'
           - Else if we have a device_status for this host → that value
           - Else if the name itself (peer id) has recent MQTT → 'online'
-          - Else 'pending'
+          - Else 'unknown'
         """
         base = self._normalize_host_key(name) or (name or "").strip()
         if not base:
-            return "pending"
+            return "unknown"
 
         now_ts = time.time()
 
@@ -1288,9 +1978,8 @@ class saiMQTTIngest:
         # 3) Fall back to discovery/HTTP opinion
         s = (self.device_status.get(base)
              or self.device_status.get(f"{base}.local")
-             or "pending")
-        s = s.lower().strip()
-        return s if s in ("online", "pending", "offline") else "pending"
+             or "unknown")
+        return self._normalize_liveness_state(s)
 
     def resolve_nodus_hostname(self, device_id: str, device_type: str | None = None) -> str | None:
         """
@@ -2080,7 +2769,7 @@ class saiMQTTIngest:
 
     async def force_refresh_device_metadata(self, sensor_or_host: str, *, port: int = 8000, timeout_sec: float = 6.0) -> bool:
         """
-        Immediately GET /itaot from the given device (sensor_id or hostname),
+        Immediately GET /itaot-meta from the given device (sensor_id or hostname),
         update expected_gauge_map, topics, and host status using the same path as discovery.
         Returns True if refreshed OK.
         """
@@ -2090,7 +2779,7 @@ class saiMQTTIngest:
                 printDM("[force_refresh] could not resolve hostname", location=MODULE)
             return False
 
-        url = f"http://{hostname}:{port}/itaot?t={int(time.time())}"
+        url = f"http://{hostname}:{port}/itaot-meta?t={int(time.time())}"
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(connect=2.0, read=timeout_sec, write=2.0, pool=2.0)) as client:
                 resp = await client.get(url, headers={"Accept": "application/json"})
@@ -2110,7 +2799,7 @@ class saiMQTTIngest:
                 printDM(f"[force_refresh] error for {hostname}: {exc}", location=MODULE)
             return False
 
-        ok, _ = self._parse_and_subscribe_from_itaot(info, hostname)
+        ok, _ = self._parse_and_subscribe_from_http_meta(info, hostname)
         if ok and DEBUG:
             printDM(f"[force_refresh] updated metadata for {hostname}", location=MODULE)
         return ok
@@ -2726,11 +3415,11 @@ class saiMQTTIngest:
         except Exception:
             return False
         
-    def publish_text(self, topic: str, payload: str, *, qos: int = 0, retain: bool = False) -> bool:
+    def publish_text(self, topic: str, payload: str, *, qos: int = 0, retain: bool = False, use_ha_client: bool = True) -> bool:
         try:
             if not topic:
                 return False
-            client = self.ha_client or self.client
+            client = (self.ha_client or self.client) if use_ha_client else self.client
             info = client.publish(topic, payload, qos=qos, retain=retain)
             rc = getattr(info, "rc", 0) if info is not None else 0
             return rc == 0
@@ -2738,9 +3427,15 @@ class saiMQTTIngest:
             printDM(f"[publish_text] {topic} error: {e}", location=MODULE)
             return False
 
-    def publish_json(self, topic: str, obj: dict, *, qos: int = 0, retain: bool = False) -> bool:
+    def publish_json(self, topic: str, obj: dict, *, qos: int = 0, retain: bool = False, use_ha_client: bool = True) -> bool:
         try:
-            return self.publish_text(topic, json.dumps(obj, separators=(",", ":")), qos=qos, retain=retain)
+            return self.publish_text(
+                topic,
+                json.dumps(obj, separators=(",", ":")),
+                qos=qos,
+                retain=retain,
+                use_ha_client=use_ha_client,
+            )
         except Exception:
             return False
 
@@ -2964,13 +3659,13 @@ class saiMQTTIngest:
                     self._feed_watchdog("MQTT Discovery Loop")
 
 
-        async def _probe_itaot(client: httpx.AsyncClient, hostname: str) -> bool:
+        async def _probe_http_meta(client: httpx.AsyncClient, hostname: str) -> bool:
             """
             Return True if a valid payload was received and parsed (even if no new subs).
 
             Behavior:
               - Use hostname first for discovery (2-3 attempts).
-              - If hostname fails, resolve mDNS IPv4 and verify against /itaot ipv4addr cache.
+              - If hostname fails, resolve mDNS IPv4 and verify against cached ipv4addr.
               - If mDNS IP matches, try it once; if it fails, try cached ipv4addr once.
             """
             async with self._disc_sem:
@@ -3005,12 +3700,12 @@ class saiMQTTIngest:
                 # mDNS host (used for resolution and as secondary URL candidate)
                 mdns_host = primary_host if str(primary_host).endswith(".local") else f"{primary_host}.local"
 
-                async def _fetch_itaot(target_host: str, retries: int) -> tuple[bool, str]:
+                async def _fetch_meta(target_host: str, retries: int) -> tuple[bool, str]:
                     """
                     Returns (ok, err_type) where err_type is '' on ok,
                     otherwise a short string for debug context.
                     """
-                    url = f"http://{target_host}:{PORT}/itaot"
+                    url = f"http://{target_host}:{PORT}/itaot-meta"
                     max_tries = max(1, int(retries))
                     last_err = "NoValidPayload"
                     for attempt in range(max_tries):
@@ -3023,7 +3718,7 @@ class saiMQTTIngest:
                             took = time.monotonic() - t0
                             if DEBUG:
                                 printDM(
-                                    f"→ {target_host}/itaot took {took:.2f}s (try {attempt+1}/{max_tries})",
+                                    f"→ {target_host}/itaot-meta took {took:.2f}s (try {attempt+1}/{max_tries})",
                                     location=MODULE,
                                 )
 
@@ -3044,17 +3739,14 @@ class saiMQTTIngest:
                                     await asyncio.sleep(0)
                                     continue
 
-                            # Minimal shape check
-                            looks_valid = bool(payload) and any(k in payload for k in ("endpoints", "settings", "sensor"))
-
                             try:
-                                ok_from_parser, _new = self._parse_and_subscribe_from_itaot(payload, hostname)
+                                ok_from_parser, _new = self._parse_and_subscribe_from_http_meta(payload, hostname)
                             except Exception as e:
                                 ok_from_parser = False
                                 if DEBUG:
-                                    printDM(f"[mqtt_discovery_loop] /itaot parse error: {e}", location=MODULE)
+                                    printDM(f"[mqtt_discovery_loop] /itaot-meta parse error: {e}", location=MODULE)
 
-                            if looks_valid or ok_from_parser:
+                            if ok_from_parser:
                                 self._feed_watchdog("MQTT Discovery Loop")
                                 return True, ""
 
@@ -3065,7 +3757,7 @@ class saiMQTTIngest:
                             took = time.monotonic() - t0
                             if DEBUG:
                                 printDM(
-                                    f"[mqtt_discovery_loop] /itaot failed for {target_host}: {type(e).__name__}: {e} took {took:.2f}s",
+                                    f"[mqtt_discovery_loop] /itaot-meta failed for {target_host}: {type(e).__name__}: {e} took {took:.2f}s",
                                     location=MODULE,
                                 )
                             last_err = type(e).__name__
@@ -3074,7 +3766,7 @@ class saiMQTTIngest:
                         except Exception as e:
                             if DEBUG:
                                 printDM(
-                                    f"[mqtt_discovery_loop] /itaot unexpected for {target_host}: {type(e).__name__}: {e}",
+                                    f"[mqtt_discovery_loop] /itaot-meta unexpected for {target_host}: {type(e).__name__}: {e}",
                                     location=MODULE,
                                 )
                             last_err = type(e).__name__
@@ -3087,7 +3779,7 @@ class saiMQTTIngest:
 
                 try:
                     # 1) Preferred hostname first (mDNS for bare ids)
-                    ok, _err = await _fetch_itaot(primary_host, retries=3)
+                    ok, _err = await _fetch_meta(primary_host, retries=3)
                     if ok:
                         return True
 
@@ -3098,37 +3790,37 @@ class saiMQTTIngest:
                         host_alt = (host_alt or "").strip()
                         if not host_alt or host_alt == primary_host:
                             continue
-                        ok_local, _err_local = await _fetch_itaot(host_alt, retries=2)
+                        ok_local, _err_local = await _fetch_meta(host_alt, retries=2)
                         if ok_local:
                             return True
 
-                    # 2) Resolve mDNS IP and verify it matches /itaot ipv4addr cache
+                    # 2) Resolve mDNS IP and verify it matches cached ipv4addr.
                     mdns_ip = await _ipv4_first_maybe_async(mdns_host, PORT)
-                    itaot_ipv4 = None
+                    cached_ipv4 = None
                     try:
-                        itaot_ipv4 = self._host_ipv4addr.get(base)
+                        cached_ipv4 = self._host_ipv4addr.get(base)
                     except Exception:
-                        itaot_ipv4 = None
+                        cached_ipv4 = None
 
-                    mdns_ok_to_try = bool(mdns_ip and itaot_ipv4 and mdns_ip == itaot_ipv4)
+                    mdns_ok_to_try = bool(mdns_ip and cached_ipv4 and mdns_ip == cached_ipv4)
                     if mdns_ok_to_try:
                         self._feed_watchdog("MQTT Discovery Loop")
-                        ok2, _err2 = await _fetch_itaot(mdns_ip, retries=2)
+                        ok2, _err2 = await _fetch_meta(mdns_ip, retries=2)
                         if ok2:
                             self._host_ip_cache[base] = mdns_ip
                             return True
-                    elif DEBUG and mdns_ip and itaot_ipv4 and mdns_ip != itaot_ipv4:
+                    elif DEBUG and mdns_ip and cached_ipv4 and mdns_ip != cached_ipv4:
                         printDM(
-                            f"[mqtt_discovery_loop] mdns ip {mdns_ip} != itaot ipv4addr {itaot_ipv4} for {base}",
+                            f"[mqtt_discovery_loop] mdns ip {mdns_ip} != cached ipv4addr {cached_ipv4} for {base}",
                             location=MODULE,
                         )
 
-                    # 3) Final fallback: cached ipv4addr from /itaot
-                    if itaot_ipv4:
+                    # 3) Final fallback: cached ipv4addr.
+                    if cached_ipv4:
                         self._feed_watchdog("MQTT Discovery Loop")
-                        ok3, _err3 = await _fetch_itaot(itaot_ipv4, retries=2)
+                        ok3, _err3 = await _fetch_meta(cached_ipv4, retries=2)
                         if ok3:
-                            self._host_ip_cache[base] = itaot_ipv4
+                            self._host_ip_cache[base] = cached_ipv4
                             return True
 
                     return False
@@ -3167,6 +3859,22 @@ class saiMQTTIngest:
                                     continue
                                 self.last_check_time[base] = now_mono
 
+                                now_ts = time.time()
+                                legacy_mode = self._use_legacy_pollers_for(base)
+                                if (base in self._legacy_firmware_hosts) and (not self._legacy_pollers_allowed()):
+                                    self._mark_host_status(base, "migration_required")
+                                    continue
+
+                                # New default path: heartbeat/availability/data-derived liveness; no /hayd or /itaot polling.
+                                if not legacy_mode:
+                                    derived = self._apply_heartbeat_timeout_state(base, now_ts=now_ts)
+                                    if (not self.nodus_debug_data_only) and self.heartbeat_stale.get(base) and derived == "online":
+                                        # Fresh data/availability recovery without fresh heartbeat stays degraded until heartbeat catches up.
+                                        derived = "degraded"
+                                    self._mark_host_status(base, derived)
+                                    continue
+
+                                # Legacy compatibility path (explicitly marked hosts only, pre-sunset).
                                 # 1) Prefer MQTT /availability; fallback to /hayd if unseen
                                 avail = self._get_nodus_availability(base)
                                 if avail is None:
@@ -3189,11 +3897,10 @@ class saiMQTTIngest:
                                         first_hayd_done[base] = True
                                         onboarding_done.setdefault(base, False)
                                         itaot_due_at[base] = time.monotonic() + 5.0
-                                        self._mark_host_status(base, "pending")
+                                        self._mark_host_status(base, "unknown")
                                     else:
                                         # still before first hayd success; rely on MQTT grace for status
                                         pids = self.host_to_peer_ids.get(base, [])
-                                        now_ts = time.time()
                                         recent = any((now_ts - self.last_mqtt_seen.get(pid, 0.0)) < MQTT_GRACE_S for pid in pids)
                                         # If /hayd is unavailable but MQTT data is clearly flowing,
                                         # bootstrap onboarding from MQTT liveness and schedule /itaot.
@@ -3204,19 +3911,15 @@ class saiMQTTIngest:
                                                 itaot_due_at.setdefault(base, time.monotonic() + 5.0)
                                             self._mark_host_status(base, "online")
                                         else:
-                                            self._mark_host_status(base, "pending")
+                                            self._mark_host_status(base, "unknown")
                                     continue  # next host
 
                                 # 3) Post-startup steady state
-
                                 if hayd_ok:
-                                    # Mark online on success (but you may keep "pending" until itaot completes; your call)
                                     if self.device_status.get(base) != "online":
                                         self._mark_host_status(base, "online")
                                         self.device_offline_count[base] = 0
 
-                                    # ---- THE MISSING PIECE ----
-                                    # If an /itaot is scheduled and the time is due, run it once.
                                     due = itaot_due_at.get(base)
                                     now_probe = time.monotonic()
                                     if due and now_probe >= due:
@@ -3225,23 +3928,20 @@ class saiMQTTIngest:
                                             continue
                                         itaot_due_at.pop(base, None)
                                         next_itaot_slot_at = now_probe + ITAOT_HOST_SPACING_S
-                                        if await _probe_itaot(client, hostname):
+                                        if await _probe_http_meta(client, hostname):
                                             onboarding_done[base] = True
                                             self._mark_host_status(base, "online")
                                             self.device_offline_count[base] = 0
                                         else:
-                                            # keep pending; do not re-schedule unless we recover again or restart
-                                            self._mark_host_status(base, "pending")
+                                            self._mark_host_status(base, "unknown")
 
                                 else:
                                     # Offline or unknown — decide using MQTT grace + retries
                                     pids = self.host_to_peer_ids.get(base, [])
-                                    now_ts = time.time()
                                     recent = any((now_ts - self.last_mqtt_seen.get(pid, 0.0)) < MQTT_GRACE_S for pid in pids)
 
                                     if recent:
-                                        # Node is still talking via MQTT → treat as PENDING (degraded)
-                                        self._mark_host_status(base, "pending")
+                                        self._mark_host_status(base, "degraded")
                                         # Also honor scheduled /itaot onboarding using MQTT liveness
                                         # when /hayd is unavailable on the device.
                                         due = itaot_due_at.get(base)
@@ -3251,12 +3951,12 @@ class saiMQTTIngest:
                                                 continue
                                             itaot_due_at.pop(base, None)
                                             next_itaot_slot_at = now_probe + ITAOT_HOST_SPACING_S
-                                            if await _probe_itaot(client, hostname):
+                                            if await _probe_http_meta(client, hostname):
                                                 onboarding_done[base] = True
                                                 self._mark_host_status(base, "online")
                                                 self.device_offline_count[base] = 0
                                             else:
-                                                self._mark_host_status(base, "pending")
+                                                self._mark_host_status(base, "degraded")
                                         # do NOT increment offline counter while MQTT is still flowing
                                     else:
                                         n = self.device_offline_count.get(base, 0) + 1
@@ -3264,9 +3964,9 @@ class saiMQTTIngest:
                                         self.discovery_failures[base] = now_mono
 
                                         if n < OFFLINE_RETRIES:
-                                            self._mark_host_status(base, "pending")
+                                            self._mark_host_status(base, "degraded")
                                             if DEBUG:
-                                                printDM(f"[{base}] /hayd failed → PENDING ({n}/{OFFLINE_RETRIES})", location=MODULE)
+                                                printDM(f"[{base}] /hayd failed → DEGRADED ({n}/{OFFLINE_RETRIES})", location=MODULE)
                                         else:
                                             self._mark_host_status(base, "offline")
                                             if DEBUG:
