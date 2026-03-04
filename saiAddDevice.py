@@ -733,6 +733,8 @@ def persist_system_settings_by_device_id(updates: list[Dict[str, Any]]) -> Optio
         _ensure_dir(system_dir)
 
         network_values: Dict[str, Any] = {}
+        profile_values: Dict[str, Any] = {}
+        mqtt_values: Dict[str, Any] = {}
         time_values: Dict[str, Any] = {}
         for item in updates:
             section = item.get("section")
@@ -742,6 +744,10 @@ def persist_system_settings_by_device_id(updates: list[Dict[str, Any]]) -> Optio
                 continue
             if section == "Network":
                 network_values[key] = value
+            elif section == "Profile":
+                profile_values[key] = value
+            elif section == "MQTT":
+                mqtt_values[key] = value
             elif section == "Time":
                 time_values[key] = value
 
@@ -765,6 +771,10 @@ def persist_system_settings_by_device_id(updates: list[Dict[str, Any]]) -> Optio
         lines_out: list[str] = []
         if network_values:
             lines_out.extend(_emit_table("Network", network_values))
+        if profile_values:
+            lines_out.extend(_emit_table("Profile", profile_values))
+        if mqtt_values:
+            lines_out.extend(_emit_table("MQTT", mqtt_values))
         if time_values:
             lines_out.extend(_emit_table("Time", time_values))
 
@@ -944,7 +954,8 @@ def build_picow_settings_updates(
         {"section": "Network", "key": "SSID",      "value": ssid_resolved},
         {"section": "Network", "key": "PASSWORD",  "value": psk_resolved},
         {"section": "Network", "key": "HOSTNAME",  "value": _hostname},
-        {"section": "Network", "key": "BROKER",    "value": broker_val},
+        {"section": "Profile", "key": "ACTIVE_PROFILE", "value": "sensorius"},
+        {"section": "MQTT", "key": "BROKER",       "value": broker_val},
 
         {"section": "Time", "key": "TZ",        "value": time_settings.get("TZ", "")},
         {"section": "Time", "key": "TZ_OFFSET", "value": time_settings.get("TZ_OFFSET", 0)},
