@@ -78,6 +78,7 @@ from saiFastStats import FastStats
 from saiSensorSettingsManager import SensorSettingsManager
 from saiSwitchSettingsManager import SwitchSettingsManager
 from saiBiodynamics import get_biodynamic_payload
+from saiDailySummary import DailySummaryService
 from saiAddDevice import HUB_SETTINGS_PATH, _SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR
 try:
     from __init__ import __version__ as SAI_APP_VERSION
@@ -3102,8 +3103,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         except Exception:
             return JSONResponse({"error": "invalid_month"}, status_code=400)
 
+        try:
+            today_local = datetime.now(getattr(data_logger, "local_tz", ZoneInfo("America/Denver"))).date()
+            if anchor.year == today_local.year and anchor.month == today_local.month:
+                DailySummaryService(settings=settings, data_logger=data_logger).ensure_summary_for_date(today_local)
+        except Exception as exc:
+            if DEBUG:
+                printDM(f"[api_biodynamic_calendar] daily summary backfill skipped: {exc}", location=MODULE)
+
         payload = get_biodynamic_payload(anchor)
         payload["notes"] = data_logger.get_biodynamic_notes_for_month(anchor)
+        payload["daily_summaries"] = data_logger.get_biodynamic_daily_summaries_for_month(anchor)
         return JSONResponse(payload)
 
     @router.post("/api/biodynamic-note", response_class=JSONResponse)

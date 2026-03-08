@@ -25,9 +25,8 @@ class saiStats:
     def _since_epoch_24h(self) -> float:
         return (datetime.now(timezone.utc) - timedelta(days=1)).timestamp()
 
-    def get_24hr_stats(self, sensor_id):
+    def get_stats_for_range(self, sensor_id, start_epoch: float, end_epoch: float):
         results = {}
-        since_epoch = self._since_epoch_24h()
 
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
@@ -39,6 +38,7 @@ class saiStats:
                     WHERE LOWER(sensor_id) = LOWER(?)
                       AND value IS NOT NULL
                       AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) >= ?
+                      AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) < ?
                 ),
                 ranked AS (
                     SELECT
@@ -66,7 +66,7 @@ class saiStats:
                 FROM ranked
                 GROUP BY metric
                 """,
-                (sensor_id, since_epoch),
+                (sensor_id, float(start_epoch), float(end_epoch)),
             )
             for metric, min_val, min_ts, avg_val, max_val, max_ts in cursor.fetchall():
                 results[metric] = {
@@ -78,6 +78,10 @@ class saiStats:
                 }
 
         return results
+
+    def get_24hr_stats(self, sensor_id):
+        since_epoch = self._since_epoch_24h()
+        return self.get_stats_for_range(sensor_id, since_epoch, datetime.now(timezone.utc).timestamp() + 1.0)
 
     def get_all_stats_fast(self):
         """Return 24h stats for all sensors in one DB pass for websocket broadcasting."""

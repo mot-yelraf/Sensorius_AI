@@ -269,6 +269,19 @@ class saiDataLogger:
                             CREATE INDEX IF NOT EXISTS idx_biodynamic_notes_date
                             ON biodynamic_notes(note_date DESC)
                         """)
+                        cur.execute("""
+                            CREATE TABLE IF NOT EXISTS biodynamic_daily_summaries (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                summary_date TEXT NOT NULL UNIQUE, -- YYYY-MM-DD
+                                summary_text TEXT NOT NULL DEFAULT '',
+                                created_at   TEXT NOT NULL,        -- ISO8601
+                                updated_at   TEXT NOT NULL         -- ISO8601
+                            )
+                        """)
+                        cur.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_biodynamic_daily_summaries_date
+                            ON biodynamic_daily_summaries(summary_date DESC)
+                        """)
 
                         # Backfill missing ts_epoch values incrementally.
                         cur.execute("UPDATE readings SET ts_epoch = strftime('%s', timestamp) WHERE ts_epoch IS NULL")
@@ -747,6 +760,55 @@ class saiDataLogger:
             printDM(f"[get_biodynamic_notes_for_month] error: {e}", location=MODULE)
             return {}
 
+    def get_biodynamic_daily_summaries_for_month(self, month_anchor) -> dict[str, str]:
+        try:
+            if isinstance(month_anchor, str):
+                month_anchor = datetime.fromisoformat(month_anchor).date()
+            month_start = month_anchor.replace(day=1)
+            if month_start.month == 12:
+                month_end = month_start.replace(year=month_start.year + 1, month=1, day=1)
+            else:
+                month_end = month_start.replace(month=month_start.month + 1, day=1)
+            with self._open_conn() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT summary_date, summary_text
+                    FROM biodynamic_daily_summaries
+                    WHERE summary_date >= ? AND summary_date < ?
+                    ORDER BY summary_date ASC
+                    """,
+                    (month_start.isoformat(), month_end.isoformat()),
+                )
+                return {
+                    str(row["summary_date"]): str(row["summary_text"] or "")
+                    for row in cur.fetchall()
+                    if row and row["summary_date"]
+                }
+        except Exception as e:
+            printDM(f"[get_biodynamic_daily_summaries_for_month] error: {e}", location=MODULE)
+            return {}
+
+    def get_biodynamic_daily_summary(self, summary_date: str) -> str:
+        try:
+            clean_date = datetime.fromisoformat(str(summary_date).strip()).date().isoformat()
+            with self._open_conn() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT summary_text
+                    FROM biodynamic_daily_summaries
+                    WHERE summary_date = ?
+                    LIMIT 1
+                    """,
+                    (clean_date,),
+                )
+                row = cur.fetchone()
+                return str(row["summary_text"] or "") if row else ""
+        except Exception as e:
+            printDM(f"[get_biodynamic_daily_summary] error for {summary_date}: {e}", location=MODULE)
+            return ""
+
     def save_biodynamic_note(self, note_date: str, note_text: str) -> bool:
         try:
             date_obj = datetime.fromisoformat(str(note_date).strip()).date()
@@ -773,6 +835,34 @@ class saiDataLogger:
             return True
         except Exception as e:
             printDM(f"[save_biodynamic_note] error for {note_date}: {e}", location=MODULE)
+            return False
+
+    def save_biodynamic_daily_summary(self, summary_date: str, summary_text: str) -> bool:
+        try:
+            date_obj = datetime.fromisoformat(str(summary_date).strip()).date()
+            clean_date = date_obj.isoformat()
+            clean_text = str(summary_text or "").strip()
+            now_iso = datetime.now(getattr(self, "local_tz", LOCAL_TIMEZONE)).isoformat()
+            with self._writer_lock:
+                self._ensure_writer()
+                cur = self._writer_conn.cursor()
+                if clean_text:
+                    cur.execute(
+                        """
+                        INSERT INTO biodynamic_daily_summaries(summary_date, summary_text, created_at, updated_at)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT(summary_date) DO UPDATE SET
+                            summary_text=excluded.summary_text,
+                            updated_at=excluded.updated_at
+                        """,
+                        (clean_date, clean_text, now_iso, now_iso),
+                    )
+                else:
+                    cur.execute("DELETE FROM biodynamic_daily_summaries WHERE summary_date = ?", (clean_date,))
+                self._writer_conn.commit()
+            return True
+        except Exception as e:
+            printDM(f"[save_biodynamic_daily_summary] error for {summary_date}: {e}", location=MODULE)
             return False
 
     # ------------------------------- SWITCH API ------------------

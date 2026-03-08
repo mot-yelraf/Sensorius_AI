@@ -74,3 +74,33 @@ def test_init_db_migrates_legacy_ts_epoch_columns(tmp_path, monkeypatch: pytest.
     assert "ts_epoch" in sw_events_cols
     assert "idx_readings_sid_metric_tse" in readings_indexes
     assert "idx_swe_key_tse" in sw_events_indexes
+
+
+def test_biodynamic_daily_summaries_round_trip(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    class _StubSettings:
+        def __init__(self, apply_live=False):
+            self.apply_live = apply_live
+
+        def get_setting(self, section, key):
+            if section == "Time" and key in ("TZ", "tz"):
+                return "America/Denver"
+            return None
+
+    monkeypatch.setattr(saiSettings, "saiSettings", _StubSettings)
+
+    db_path = tmp_path / "daily-summary.db"
+    saiDataLogger._schema_ready = False
+    logger = saiDataLogger(db_path=str(db_path))
+
+    try:
+        assert logger.save_biodynamic_daily_summary("2026-03-08", "24 hr Metrics for 2026-03-07")
+        assert logger.save_biodynamic_note("2026-03-08", "User note text")
+
+        summaries = logger.get_biodynamic_daily_summaries_for_month("2026-03-01")
+        notes = logger.get_biodynamic_notes_for_month("2026-03-01")
+
+        assert summaries == {"2026-03-08": "24 hr Metrics for 2026-03-07"}
+        assert notes == {"2026-03-08": "User note text"}
+    finally:
+        logger.close()
+        saiDataLogger._schema_ready = False

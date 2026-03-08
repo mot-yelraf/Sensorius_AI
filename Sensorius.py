@@ -10,6 +10,7 @@ hub on Raspberry Pi hardware.
 import asyncio
 from threading import Thread
 import socket
+from datetime import datetime
 from saiUtils import printDM, debug_enabled, configure_logging
 from saiSensor import SensorController
 from saiMQTTClient import saiMQTTClient, set_mqtt_client, get_all_mqtt_clients
@@ -19,6 +20,7 @@ from saiWebServer import WebServerController, launch_webview
 from saiWatchdog import WatchdogMonitor
 from saiMQTTIngest import saiMQTTIngest
 from saiFarmOSBridge import saiFarmOSBridge
+from saiDailySummary import DailySummaryService
 from saiSettings import saiSettings
 from saiSensorSettingsManager import SensorSettingsManager
 from saiUtils import SettingsWrapper
@@ -486,7 +488,13 @@ async def main():
 
     # --- Always-on supervisors ---
     farmos_bridge = saiFarmOSBridge(settings=settings, data_logger=data_logger, supervisor=supervisor)
+    daily_summary_service = DailySummaryService(settings=settings, data_logger=data_logger)
+    try:
+        daily_summary_service.ensure_summary_for_date(datetime.now(daily_summary_service.local_tz).date())
+    except Exception as e:
+        printDM(f"Daily summary bootstrap skipped: {e}", location=f"{MODULE}:main")
     supervisor.add(farmos_bridge.run, name="FarmOS Bridge")
+    supervisor.add(daily_summary_service.run, name="Daily Summary Writer")
     supervisor.add(WatchdogMonitor, supervisor, name="Watchdog Monitor")
     supervisor.add(gc_mgr.run, name="GC Manager")
     
