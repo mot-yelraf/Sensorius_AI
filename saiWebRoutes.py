@@ -39,7 +39,7 @@ import tomllib
 from urllib.parse import urlparse
 from collections import OrderedDict
 import shutil, httpx
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import math
 from zoneinfo import ZoneInfo, available_timezones
 try:
@@ -3087,6 +3087,45 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "expected_device_id": requested_device_id,
             }
         )
+
+    @router.get("/api/biodynamic-calendar", response_class=JSONResponse)
+    async def api_biodynamic_calendar(month: str = Query("", description="Month anchor in YYYY-MM or YYYY-MM-DD")):
+        anchor: date
+        try:
+            raw = str(month or "").strip()
+            if not raw:
+                anchor = datetime.now().date().replace(day=1)
+            elif len(raw) == 7:
+                anchor = datetime.strptime(raw, "%Y-%m").date().replace(day=1)
+            else:
+                anchor = datetime.fromisoformat(raw).date().replace(day=1)
+        except Exception:
+            return JSONResponse({"error": "invalid_month"}, status_code=400)
+
+        payload = get_biodynamic_payload(anchor)
+        payload["notes"] = data_logger.get_biodynamic_notes_for_month(anchor)
+        return JSONResponse(payload)
+
+    @router.post("/api/biodynamic-note", response_class=JSONResponse)
+    async def api_biodynamic_note(request: Request):
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid_json"}, status_code=400)
+
+        note_date = str((payload or {}).get("date", "") or "").strip()
+        note_text = str((payload or {}).get("note", "") or "")
+        if not note_date:
+            return JSONResponse({"error": "missing_date"}, status_code=400)
+        try:
+            normalized_date = datetime.fromisoformat(note_date).date().isoformat()
+        except Exception:
+            return JSONResponse({"error": "invalid_date"}, status_code=400)
+
+        ok = data_logger.save_biodynamic_note(normalized_date, note_text)
+        if not ok:
+            return JSONResponse({"error": "save_failed"}, status_code=500)
+        return JSONResponse({"ok": True, "date": normalized_date, "note": note_text.strip()})
 
     @router.get("/onboard-device/v2/session/{session_id}")
     async def onboard_session_v2(session_id: str):

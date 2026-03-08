@@ -255,6 +255,21 @@ class saiDataLogger:
                             ON sw_events(switch_key COLLATE NOCASE, ts_epoch DESC)
                         """)
 
+                        # ---- biodynamic calendar notes -----------------------
+                        cur.execute("""
+                            CREATE TABLE IF NOT EXISTS biodynamic_notes (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                note_date   TEXT NOT NULL UNIQUE, -- YYYY-MM-DD
+                                note_text   TEXT NOT NULL DEFAULT '',
+                                created_at  TEXT NOT NULL,        -- ISO8601
+                                updated_at  TEXT NOT NULL         -- ISO8601
+                            )
+                        """)
+                        cur.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_biodynamic_notes_date
+                            ON biodynamic_notes(note_date DESC)
+                        """)
+
                         # Backfill missing ts_epoch values incrementally.
                         cur.execute("UPDATE readings SET ts_epoch = strftime('%s', timestamp) WHERE ts_epoch IS NULL")
                         cur.execute("UPDATE sw_events SET ts_epoch = strftime('%s', timestamp) WHERE ts_epoch IS NULL")
@@ -700,6 +715,65 @@ class saiDataLogger:
             printDM("All sensor data cleared from database", location=MODULE)
         except Exception as e:
             printDM(f"Error clearing database: {e}", location=MODULE)
+
+    # ------------------------- BIODYNAMIC NOTES API -------------------------
+
+    def get_biodynamic_notes_for_month(self, month_anchor) -> dict[str, str]:
+        try:
+            if isinstance(month_anchor, str):
+                month_anchor = datetime.fromisoformat(month_anchor).date()
+            month_start = month_anchor.replace(day=1)
+            if month_start.month == 12:
+                month_end = month_start.replace(year=month_start.year + 1, month=1, day=1)
+            else:
+                month_end = month_start.replace(month=month_start.month + 1, day=1)
+            with self._open_conn() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT note_date, note_text
+                    FROM biodynamic_notes
+                    WHERE note_date >= ? AND note_date < ?
+                    ORDER BY note_date ASC
+                    """,
+                    (month_start.isoformat(), month_end.isoformat()),
+                )
+                return {
+                    str(row["note_date"]): str(row["note_text"] or "")
+                    for row in cur.fetchall()
+                    if row and row["note_date"]
+                }
+        except Exception as e:
+            printDM(f"[get_biodynamic_notes_for_month] error: {e}", location=MODULE)
+            return {}
+
+    def save_biodynamic_note(self, note_date: str, note_text: str) -> bool:
+        try:
+            date_obj = datetime.fromisoformat(str(note_date).strip()).date()
+            clean_date = date_obj.isoformat()
+            clean_text = str(note_text or "").strip()
+            now_iso = datetime.now(getattr(self, "local_tz", LOCAL_TIMEZONE)).isoformat()
+            with self._writer_lock:
+                self._ensure_writer()
+                cur = self._writer_conn.cursor()
+                if clean_text:
+                    cur.execute(
+                        """
+                        INSERT INTO biodynamic_notes(note_date, note_text, created_at, updated_at)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT(note_date) DO UPDATE SET
+                            note_text=excluded.note_text,
+                            updated_at=excluded.updated_at
+                        """,
+                        (clean_date, clean_text, now_iso, now_iso),
+                    )
+                else:
+                    cur.execute("DELETE FROM biodynamic_notes WHERE note_date = ?", (clean_date,))
+                self._writer_conn.commit()
+            return True
+        except Exception as e:
+            printDM(f"[save_biodynamic_note] error for {note_date}: {e}", location=MODULE)
+            return False
 
     # ------------------------------- SWITCH API ------------------
 

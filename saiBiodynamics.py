@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
+import math
 import threading
 import time as time_mod
 from zoneinfo import ZoneInfo
@@ -36,6 +37,10 @@ _EPHEMERIS_RETRY_COOLDOWN_SEC = 900.0
 _SKYFIELD_LOCK = threading.Lock()
 _ephemeris_last_error = ""
 _ephemeris_retry_after_monotonic = 0.0
+_OFF_PERIOD_COLOR = "#d7dbe0"
+_OFF_PERIOD_ACCENT = "#eef1f4"
+_MOON_NODE_WINDOW = timedelta(hours=2)
+_PERIGEE_WINDOW = timedelta(hours=12)
 
 
 @dataclass(frozen=True)
@@ -43,6 +48,13 @@ class _Segment:
     start_local: datetime
     end_local: datetime
     sign_index: int
+
+
+@dataclass(frozen=True)
+class _Interval:
+    start_local: datetime
+    end_local: datetime
+    kind: str
 
 
 def _empty_payload(month_date: date | None = None) -> dict[str, object]:
@@ -211,6 +223,153 @@ def _format_hm(dt_local: datetime) -> str:
     return dt_local.strftime("%H:%M")
 
 
+def _moon_latitude_deg(dt_local: datetime, ts, eph) -> float:
+    from skyfield.framelib import ecliptic_frame
+
+    moon = eph["moon"]
+    earth = eph["earth"]
+    t = ts.from_datetime(dt_local.astimezone(timezone.utc))
+    apparent = earth.at(t).observe(moon).apparent()
+    lat, _, _ = apparent.frame_latlon(ecliptic_frame)
+    return float(lat.degrees)
+
+
+def _moon_distance_km(dt_local: datetime, ts, eph) -> float:
+    moon = eph["moon"]
+    earth = eph["earth"]
+    t = ts.from_datetime(dt_local.astimezone(timezone.utc))
+    return float(earth.at(t).observe(moon).distance().km)
+
+
+def _refine_node_crossing(lo: datetime, hi: datetime, ts, eph) -> datetime:
+    lo_val = _moon_latitude_deg(lo, ts, eph)
+    hi_val = _moon_latitude_deg(hi, ts, eph)
+    for _ in range(24):
+        span = (hi - lo).total_seconds()
+        if span <= 60.0:
+            break
+        mid = lo + timedelta(seconds=span / 2.0)
+        mid_val = _moon_latitude_deg(mid, ts, eph)
+        if mid_val == 0.0:
+            return mid
+        if math.copysign(1.0, lo_val or 1.0) == math.copysign(1.0, mid_val or 1.0):
+            lo = mid
+            lo_val = mid_val
+        else:
+            hi = mid
+            hi_val = mid_val
+    return hi
+
+
+def _refine_perigee(center: datetime, ts, eph) -> datetime:
+    lo = center - timedelta(hours=6)
+    hi = center + timedelta(hours=6)
+    for _ in range(24):
+        if (hi - lo).total_seconds() <= 60.0:
+            break
+        third = (hi - lo) / 3
+        m1 = lo + third
+        m2 = hi - third
+        d1 = _moon_distance_km(m1, ts, eph)
+        d2 = _moon_distance_km(m2, ts, eph)
+        if d1 <= d2:
+            hi = m2
+        else:
+            lo = m1
+    return lo + ((hi - lo) / 2)
+
+
+def _build_off_intervals(start_local: datetime, end_local: datetime, ts, eph) -> list[_Interval]:
+    intervals: list[_Interval] = []
+    if start_local >= end_local:
+        return intervals
+
+    probe = start_local - timedelta(hours=24)
+    probe_end = end_local + timedelta(hours=24)
+    step = timedelta(hours=1)
+    prev = probe
+    prev_lat = _moon_latitude_deg(prev, ts, eph)
+    prev_prev_dist = None
+    prev_dist = _moon_distance_km(prev, ts, eph)
+    cur = prev + step
+
+    while cur <= probe_end:
+        cur_lat = _moon_latitude_deg(cur, ts, eph)
+        cur_dist = _moon_distance_km(cur, ts, eph)
+
+        if (prev_lat == 0.0) or (cur_lat == 0.0) or (prev_lat < 0.0 < cur_lat) or (prev_lat > 0.0 > cur_lat):
+            event = _refine_node_crossing(prev, cur, ts, eph)
+            intervals.append(_Interval(event - _MOON_NODE_WINDOW, event + _MOON_NODE_WINDOW, "off"))
+
+        if prev_prev_dist is not None and prev_dist <= prev_prev_dist and prev_dist <= cur_dist:
+            event = _refine_perigee(prev, ts, eph)
+            intervals.append(_Interval(event - _PERIGEE_WINDOW, event + _PERIGEE_WINDOW, "off"))
+
+        prev = cur
+        prev_lat = cur_lat
+        prev_prev_dist = prev_dist
+        prev_dist = cur_dist
+        cur = cur + step
+
+    filtered = [
+        _Interval(max(iv.start_local, start_local), min(iv.end_local, end_local), iv.kind)
+        for iv in intervals
+        if iv.end_local > start_local and iv.start_local < end_local
+    ]
+    filtered.sort(key=lambda iv: iv.start_local)
+
+    merged: list[_Interval] = []
+    for iv in filtered:
+        if not merged or iv.start_local > merged[-1].end_local or iv.kind != merged[-1].kind:
+            merged.append(iv)
+        else:
+            last = merged[-1]
+            merged[-1] = _Interval(last.start_local, max(last.end_local, iv.end_local), last.kind)
+    return merged
+
+
+def _apply_off_overlays(day_segments: list[dict[str, object]], day_start: datetime, day_end: datetime, off_intervals: list[_Interval]) -> list[dict[str, object]]:
+    segments = list(day_segments)
+    for off in off_intervals:
+        overlap_start = max(off.start_local, day_start)
+        overlap_end = min(off.end_local, day_end)
+        if overlap_end <= overlap_start:
+            continue
+        next_segments: list[dict[str, object]] = []
+        for seg in segments:
+            seg_start = datetime.combine(day_start.date(), time.min, tzinfo=day_start.tzinfo) + timedelta(minutes=int(str(seg.get("start", "00:00")).split(":")[0]) * 60 + int(str(seg.get("start", "00:00")).split(":")[1]))
+            seg_end_raw = str(seg.get("end", "24:00"))
+            if seg_end_raw == "24:00":
+                seg_end = day_end
+            else:
+                seg_end = datetime.combine(day_start.date(), time.min, tzinfo=day_start.tzinfo) + timedelta(minutes=int(seg_end_raw.split(":")[0]) * 60 + int(seg_end_raw.split(":")[1]))
+            if seg_end <= overlap_start or seg_start >= overlap_end:
+                next_segments.append(seg)
+                continue
+            if seg_start < overlap_start:
+                left = dict(seg)
+                left["start"] = _format_hm(seg_start)
+                left["end"] = _format_hm(overlap_start)
+                next_segments.append(left)
+            mid = dict(seg)
+            mid["start"] = _format_hm(max(seg_start, overlap_start))
+            mid["end"] = "24:00" if overlap_end >= day_end else _format_hm(overlap_end)
+            mid["kind"] = "off"
+            mid["sign"] = "Off"
+            mid["element"] = "Pause"
+            mid["plant_part"] = "Rest"
+            mid["color"] = _OFF_PERIOD_COLOR
+            mid["accent"] = _OFF_PERIOD_ACCENT
+            next_segments.append(mid)
+            if seg_end > overlap_end:
+                right = dict(seg)
+                right["start"] = _format_hm(overlap_end)
+                right["end"] = "24:00" if seg_end >= day_end else _format_hm(seg_end)
+                next_segments.append(right)
+        segments = next_segments
+    return segments
+
+
 def _build_calendar(month_anchor: date, tzinfo: ZoneInfo, ts, eph, constellation_at, now_local: datetime) -> tuple[list[dict[str, object]], list[_Segment]]:
     month_start = datetime.combine(month_anchor.replace(day=1), time.min, tzinfo=tzinfo)
     if month_anchor.month == 12:
@@ -224,6 +383,7 @@ def _build_calendar(month_anchor: date, tzinfo: ZoneInfo, ts, eph, constellation
     grid_end_dt = datetime.combine(grid_end, time.min, tzinfo=tzinfo)
 
     segments = _split_segments(grid_start, grid_end_dt, ts, eph, constellation_at)
+    off_intervals = _build_off_intervals(grid_start, grid_end_dt, ts, eph)
     days: list[dict[str, object]] = []
     today = now_local.date()
 
@@ -248,14 +408,17 @@ def _build_calendar(month_anchor: date, tzinfo: ZoneInfo, ts, eph, constellation
             day_segments.append(
                 {
                     "start": _format_hm(overlap_start),
-                    "end": _format_hm(overlap_end),
+                    "end": "24:00" if overlap_end >= day_end else _format_hm(overlap_end),
                     "sign": meta["name"],
                     "element": meta["element"],
                     "plant_part": meta["plant_part"],
                     "color": meta["color"],
                     "accent": meta["accent"],
+                    "kind": "sign",
                 }
             )
+
+        day_segments = _apply_off_overlays(day_segments, day_start, day_end, off_intervals)
 
         days.append(
             {
