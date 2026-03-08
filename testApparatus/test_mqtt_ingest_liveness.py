@@ -18,6 +18,9 @@ if "paho" not in sys.modules:
     sys.modules["paho.mqtt.client"] = mqtt_client_mod
 
 import saiMQTTIngest as ingest_mod
+import saiSensorSettingsManager
+import saiSettings
+import saiSwitchSettingsManager
 
 
 class _FakeClient:
@@ -73,8 +76,10 @@ class _Logger:
     def __init__(self):
         self.switch_identities = []
         self.sensors = set()
+        self.readings = []
 
-    def log_readings(self, *_args, **_kwargs):
+    def log_readings(self, *args, **kwargs):
+        self.readings.append((args, kwargs))
         return
 
     def register_sensor(self, sensor_id):
@@ -245,11 +250,13 @@ def test_nodus_meta_materializes_switch_mappings(monkeypatch):
     payload = json.dumps(
         {
             "schema": "nodus-meta/v1",
+            "serial": "abc123",
             "sensor": {
                 "sensor_id": "aqi-123",
                 "location": "Veg Tent",
                 "data_topic": "nodus/aqi-123/data",
                 "availability_topic": "nodus/aqi-123/availability",
+                "display_metrics": ["Temperature", "Rel-Humidity", "Temperature", "Ambient VPD"],
             },
             "switch": {
                 "switch_device_id": "switch-123",
@@ -280,6 +287,87 @@ def test_nodus_meta_materializes_switch_mappings(monkeypatch):
     assert ingest.nodus_switch_command_topics.get(("switch-123", "S1-123")) == "nodus/S1-123/set"
     assert ingest.device_location.get("nodus/S1-123/state") == "Veg Tent"
     assert "aqi-123" in ingest.host_to_peer_ids.get("aqi-123", [])
+    assert ingest.expected_gauge_map.get("aqi-123") == ["Temperature", "Rel-Humidity", "Ambient VPD"]
+
+
+def test_nodus_meta_uses_top_level_serial_and_sensor_id_prefix_for_shadow_identity(tmp_path, monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    switch_root.mkdir()
+    system_root.mkdir()
+
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    real_settings_cls = saiSettings.saiSettings
+
+    monkeypatch.setattr(
+        saiSensorSettingsManager,
+        "SensorSettingsManager",
+        lambda *_a, **_k: real_sensor_mgr(str(sensor_root)),
+    )
+    monkeypatch.setattr(
+        saiSwitchSettingsManager,
+        "SwitchSettingsManager",
+        lambda *_a, **_k: real_switch_mgr(str(switch_root)),
+    )
+    monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
+
+    shadow_dir = sensor_root / "avpd-j21vxj"
+    shadow_dir.mkdir()
+    shadow_path = shadow_dir / "sensor.toml"
+    shadow_path.write_text(
+        "\n".join(
+            [
+                "[Sensor]",
+                'TYPE = "nodus"',
+                'DEVICE = "nodus"',
+                'SERIAL_NUM = ""',
+                'SENSOR_ID = "avpd-j21vxj"',
+                'LOCATION = "Unknown"',
+                "",
+                "[Display]",
+                'METRIC_1 = ""',
+                'METRIC_2 = ""',
+                'METRIC_3 = ""',
+                'METRIC_4 = ""',
+                'METRIC_5 = ""',
+                'METRIC_6 = ""',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    payload = json.dumps(
+        {
+            "schema": "nodus-meta/v1",
+            "type": "nodus",
+            "hostname": "avpd-j21vxj",
+            "device_id": "avpd-j21vxj",
+            "serial": "j21vxj",
+            "sensor": {
+                "sensor_id": "avpd-j21vxj",
+                "location": "Unknown",
+                "display_metrics": ["Ambient VPD", "Temperature", "Rel-Humidity", "Baro-Pressure"],
+                "availability_topic": "nodus/avpd-j21vxj/availability",
+                "data_topic": "nodus/avpd-j21vxj/data",
+                "event_topic": "nodus/avpd-j21vxj/event",
+            },
+            "switch": {"device_id": "", "channels": [], "location": "Unknown"},
+            "location_group": {"location": "Unknown", "members": ["avpd-j21vxj"]},
+        }
+    )
+
+    ingest._on_message(ingest.client, None, _Msg("nodus/avpd-j21vxj/meta", payload, retain=True))
+
+    saved = shadow_path.read_text(encoding="utf-8")
+    assert 'DEVICE = "avpd"' in saved
+    assert 'SERIAL_NUM = "j21vxj"' in saved
+    assert 'METRIC_1 = "Ambient VPD"' in saved
 
 
 def test_debug_data_only_ignores_meta(monkeypatch):
@@ -438,6 +526,134 @@ def test_debug_data_only_data_path_does_not_mark_heartbeat_stale(monkeypatch):
 
     assert ingest.device_status.get("aqi-123") == "online"
     assert "aqi-123" not in ingest.heartbeat_stale
+
+
+def test_live_nodus_data_updates_expected_gauges_from_display_metrics(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    msg = _Msg(
+        "nodus/avpd-j21vxj/data",
+        json.dumps(
+            {
+                "values": {
+                    "Temperature": 21.2,
+                    "Rel-Humidity": 55.1,
+                    "Humidity": 10.5,
+                    "Dew-Point": 11.1,
+                    "Ambient VPD": 1.04,
+                    "Baro-Pressure": 850.4,
+                },
+                "display_metrics": [
+                    "Ambient VPD",
+                    "Temperature",
+                    "Rel-Humidity",
+                    "Baro-Pressure",
+                    "Ambient VPD",
+                    "Baro-Pressure",
+                ],
+                "bcc_fault": False,
+                "free_mem": 123456,
+            }
+        ),
+        retain=False,
+    )
+
+    ingest._on_message(ingest.client, None, msg)
+
+    assert ingest.expected_gauge_map.get("avpd-j21vxj") == [
+        "Ambient VPD",
+        "Temperature",
+        "Rel-Humidity",
+        "Baro-Pressure",
+    ]
+    assert ingest.latest_meta.get("avpd-j21vxj", {}).get("display_metrics") == [
+        "Ambient VPD",
+        "Temperature",
+        "Rel-Humidity",
+        "Baro-Pressure",
+    ]
+
+
+def test_existing_manual_nodus_shadow_settings_are_backfilled_from_remote_display_metrics(tmp_path, monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    switch_root.mkdir()
+    system_root.mkdir()
+
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    real_settings_cls = saiSettings.saiSettings
+
+    monkeypatch.setattr(
+        saiSensorSettingsManager,
+        "SensorSettingsManager",
+        lambda *_a, **_k: real_sensor_mgr(str(sensor_root)),
+    )
+    monkeypatch.setattr(
+        saiSwitchSettingsManager,
+        "SwitchSettingsManager",
+        lambda *_a, **_k: real_switch_mgr(str(switch_root)),
+    )
+    monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
+
+    shadow_dir = sensor_root / "avpd-j21vxj"
+    shadow_dir.mkdir()
+    shadow_path = shadow_dir / "sensor.toml"
+    shadow_path.write_text(
+        "\n".join(
+            [
+                "[Sensor]",
+                'TYPE = "nodus"',
+                'DEVICE = "nodus"',
+                'SERIAL_NUM = ""',
+                'SENSOR_ID = "avpd-j21vxj"',
+                'LOCATION = "Unknown"',
+                "",
+                "[Display]",
+                'METRIC_1 = ""',
+                'METRIC_2 = ""',
+                'METRIC_3 = ""',
+                'METRIC_4 = ""',
+                'METRIC_5 = ""',
+                'METRIC_6 = ""',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    ingest._ensure_settings_from_itaot(
+        {"HOSTNAME": "avpd-j21vxj"},
+        "avpd-j21vxj",
+        [
+            {
+                "sensor_id": "avpd-j21vxj",
+                "device_type": "nodus",
+                "device": "avpd",
+                "sensor_type": "nodus",
+                "location": "Unknown",
+                "serial": "j21vxj",
+                "display_metrics": [
+                    "Ambient VPD",
+                    "Temperature",
+                    "Rel-Humidity",
+                    "Baro-Pressure",
+                ],
+            }
+        ],
+        [],
+    )
+
+    saved = shadow_path.read_text(encoding="utf-8")
+    assert 'DEVICE = "avpd"' in saved
+    assert 'SERIAL_NUM = "j21vxj"' in saved
+    assert 'METRIC_1 = "Ambient VPD"' in saved
+    assert 'METRIC_2 = "Temperature"' in saved
+    assert 'METRIC_3 = "Rel-Humidity"' in saved
+    assert 'METRIC_4 = "Baro-Pressure"' in saved
 
 
 def test_legacy_poller_gate_and_sunset(monkeypatch):

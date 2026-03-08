@@ -1043,6 +1043,14 @@ class saiMQTTIngest:
                 if not isinstance(values, dict) or not values:
                     return
 
+                display_metrics = []
+                if isinstance(data, dict):
+                    display_metrics = self._normalize_display_metrics(
+                        data.get("display_metrics") or data.get("metrics")
+                    )
+                    if display_metrics:
+                        self.expected_gauge_map[sensor_id] = display_metrics
+
                 # Always use local "now" for stored timestamps; ignore device payload ts.
                 self.data_logger.log_readings(None, sensor_id, values)
     
@@ -1050,6 +1058,7 @@ class saiMQTTIngest:
                     "bcc_fault":    data.get("bcc_fault", "N/A"),
                     "bcc_charging": data.get("bcc_charging", "N/A"),
                     "free_mem":     data.get("free_mem", "N/A"),
+                    "display_metrics": display_metrics,
                 }
                 # update time of message received
                 try:
@@ -1338,6 +1347,65 @@ class saiMQTTIngest:
             except Exception:
                 out[key] = val
         return out or None
+
+    def _normalize_display_metrics(self, raw_metrics) -> list[str]:
+        """
+        Normalize display metric hints into an ordered de-duplicated list.
+        """
+        if isinstance(raw_metrics, dict):
+            values = [raw_metrics.get(f"METRIC_{idx}", "") for idx in range(1, 7)]
+        elif isinstance(raw_metrics, (list, tuple)):
+            values = list(raw_metrics)
+        else:
+            return []
+
+        ordered: list[str] = []
+        seen: set[str] = set()
+        for raw in values:
+            metric = str(raw or "").strip()
+            if not metric or metric in seen:
+                continue
+            seen.add(metric)
+            ordered.append(metric)
+            if len(ordered) >= 6:
+                break
+        return ordered
+
+    def _infer_sensor_device_name(self, raw_device, sensor_id: str | None = None) -> str:
+        """
+        Prefer an explicit device name; otherwise infer from <device>-<serial> sensor IDs.
+        """
+        device = str(raw_device or "").strip()
+        if device:
+            return device
+        sid = str(sensor_id or "").strip().lower()
+        if "-" in sid:
+            prefix = sid.split("-", 1)[0].strip()
+            if prefix and prefix not in {"sensor", "nodus", "remote", "mqtt"}:
+                return prefix
+        return ""
+
+    def _extract_sensor_serial(self, sensor_blob: dict | None, payload: dict | None) -> str:
+        """
+        Accept serial from sensor-level metadata first, then top-level metadata.
+        """
+        if isinstance(sensor_blob, dict):
+            serial = str(
+                sensor_blob.get("serial")
+                or sensor_blob.get("SERIAL_NUM")
+                or sensor_blob.get("device_serial_num")
+                or ""
+            ).strip()
+            if serial:
+                return serial
+        if isinstance(payload, dict):
+            return str(
+                payload.get("serial")
+                or payload.get("SERIAL_NUM")
+                or payload.get("device_serial_num")
+                or ""
+            ).strip()
+        return ""
 
     def _get_nodus_availability(self, host_like: str | None) -> str | None:
         base = self._normalize_host_key(host_like)
@@ -1698,6 +1766,13 @@ class saiMQTTIngest:
                 peer_ids_for_host.append(sensor_id)
             self.device_type[sensor_id] = "nodus"
             self.last_mqtt_seen[sensor_id] = now_t
+            sensor_device = self._infer_sensor_device_name(sensor_blob.get("device"), sensor_id)
+            sensor_serial = self._extract_sensor_serial(sensor_blob, meta)
+            display_metrics = self._normalize_display_metrics(
+                sensor_blob.get("display_metrics") or sensor_blob.get("metrics")
+            )
+            if display_metrics:
+                self.expected_gauge_map[sensor_id] = display_metrics
 
             register_sensor = getattr(self.data_logger, "register_sensor", None)
             if callable(register_sensor):
@@ -1727,10 +1802,11 @@ class saiMQTTIngest:
             discovered_sensors.append({
                 "sensor_id": sensor_id,
                 "device_type": "nodus",
-                "device": str(sensor_blob.get("device") or "").strip(),
+                "device": sensor_device,
                 "sensor_type": str(sensor_blob.get("type") or "nodus").strip(),
                 "location": sensor_loc,
-                "serial": str(sensor_blob.get("serial") or "").strip(),
+                "serial": sensor_serial,
+                "display_metrics": display_metrics,
             })
 
         # switch metadata
@@ -1927,10 +2003,15 @@ class saiMQTTIngest:
             "device_id": device_id,
             "sensor": {
                 "sensor_id": sensor_id,
+                "device": self._infer_sensor_device_name(sensor_blob.get("device"), sensor_id),
+                "serial": self._extract_sensor_serial(sensor_blob, payload),
                 "location": str(sensor_blob.get("location") or location).strip(),
                 "data_topic": f"nodus/{sensor_id}/data" if sensor_id else "",
                 "event_topic": f"nodus/{sensor_id}/event" if sensor_id else "",
                 "availability_topic": f"nodus/{sensor_id}/availability" if sensor_id else "",
+                "display_metrics": self._normalize_display_metrics(
+                    sensor_blob.get("display_metrics") or sensor_blob.get("metrics")
+                ),
             },
             "switch": {
                 "switch_device_id": switch_id,
@@ -2473,9 +2554,8 @@ class saiMQTTIngest:
                     topic        = entry.get("mqtt_sensor_topic")
                     location     = entry.get("LOCATION", "Unknown")
                     device_type  = entry.get("TYPE", "pi")
-                    display_list = entry.get("display_metrics", [])
-
-                    metrics = [m.strip() for m in display_list if isinstance(m, str) and m.strip()]
+                    display_list = entry.get("display_metrics", []) or entry.get("metrics", [])
+                    metrics = self._normalize_display_metrics(display_list)
                     if dev_id and metrics:
                         self.expected_gauge_map[dev_id] = metrics
 
@@ -2493,6 +2573,7 @@ class saiMQTTIngest:
                             "sensor_type": entry.get("TYPE") or entry.get("type") or device_type,
                             "location": location,
                             "serial": entry.get("SERIAL_NUM", ""),
+                            "display_metrics": metrics,
                         })
                         if topic not in self.registered_topics:
                             self.registered_topics.add(topic)
@@ -2654,8 +2735,7 @@ class saiMQTTIngest:
                 location     = info.get("LOCATION", "Unknown")
                 device_type  = info.get("TYPE", "picow")
                 display_list = info.get("display_metrics", []) or info.get("metrics", [])
-
-                metrics = [m.strip() for m in display_list if isinstance(m, str) and m.strip()]
+                metrics = self._normalize_display_metrics(display_list)
                 if dev_id and metrics:
                     self.expected_gauge_map[dev_id] = metrics
 
@@ -2673,6 +2753,7 @@ class saiMQTTIngest:
                         "sensor_type": info.get("TYPE") or info.get("type") or device_type,
                         "location": location,
                         "serial": info.get("SERIAL_NUM", ""),
+                        "display_metrics": metrics,
                     })
                     if topic not in self.registered_topics:
                         self.registered_topics.add(topic)
@@ -2822,6 +2903,11 @@ class saiMQTTIngest:
             }
             return mapping.get(base_device, ["", "", "", "", "", ""])
 
+        def _display_block_is_blank(display: dict | None) -> bool:
+            if not isinstance(display, dict):
+                return True
+            return not any(str(display.get(f"METRIC_{idx}", "")).strip() for idx in range(1, 7))
+
         # ---- system_settings/<HOSTNAME>/settings.toml ----
         system_id = _strip_local(str((info or {}).get("HOSTNAME") or hostname or ""))
         if system_id:
@@ -2863,13 +2949,52 @@ class saiMQTTIngest:
                 sensor_id = str(s.get("sensor_id") or "").strip()
                 if not sensor_id:
                     continue
-                new_path, legacy_path = sensor_mgr.get_candidate_paths(sensor_id)
-                if new_path.exists() or legacy_path.exists():
-                    continue
                 device_type = (s.get("device_type") or "picow")
-                device_name = (s.get("device") or s.get("sensor_type") or "").strip()
+                device_name = self._infer_sensor_device_name(
+                    s.get("device") or s.get("sensor_type"),
+                    sensor_id,
+                )
                 location = (s.get("location") or "Unknown")
                 serial = (s.get("serial") or "")
+                remote_display_metrics = self._normalize_display_metrics(
+                    s.get("display_metrics") or s.get("metrics")
+                )
+                new_path, legacy_path = sensor_mgr.get_candidate_paths(sensor_id)
+
+                existing_path = new_path if new_path.exists() else (legacy_path if legacy_path.exists() else None)
+                if existing_path:
+                    try:
+                        data = sensor_mgr.load(sensor_id)
+                    except Exception:
+                        data = OrderedDict()
+                    changed = False
+
+                    if "Sensor" not in data or not isinstance(data["Sensor"], dict):
+                        data["Sensor"] = OrderedDict()
+                    sb = data["Sensor"]
+                    if device_name and str(sb.get("DEVICE", "") or "").strip().lower() in {"", "nodus", "unknown"}:
+                        sb["DEVICE"] = device_name
+                        changed = True
+                    if serial and not str(sb.get("SERIAL_NUM", "") or "").strip():
+                        sb["SERIAL_NUM"] = serial
+                        changed = True
+                    if location and location.strip().lower() != "unknown" and str(sb.get("LOCATION", "") or "").strip().lower() in {"", "unknown"}:
+                        sb["LOCATION"] = location
+                        changed = True
+
+                    if "Display" not in data or not isinstance(data["Display"], dict):
+                        data["Display"] = OrderedDict()
+                    display = data["Display"]
+                    if remote_display_metrics and _display_block_is_blank(display):
+                        for idx in range(6):
+                            display[f"METRIC_{idx + 1}"] = remote_display_metrics[idx] if idx < len(remote_display_metrics) else ""
+                        changed = True
+
+                    if changed:
+                        sensor_mgr.save(sensor_id, data)
+                        if DEBUG:
+                            printDM(f"[itaot-settings] updated existing sensor settings for {sensor_id}", location=MODULE)
+                    continue
 
                 nodus_dir = sensor_mgr.base_dir / "factory_nodus"
                 tpl_soil = nodus_dir / "sensor_soil.toml.def"
@@ -2894,11 +3019,9 @@ class saiMQTTIngest:
                     if "Display" not in data or not isinstance(data["Display"], dict):
                         data["Display"] = OrderedDict()
                     display = data["Display"]
-                    metrics_present = any(str(display.get(f"METRIC_{i}", "")).strip() for i in range(1, 7))
-                    if not metrics_present:
-                        defaults = _display_defaults_for_device(device_name or device_type)
-                        for idx in range(6):
-                            display[f"METRIC_{idx + 1}"] = defaults[idx]
+                    chosen_metrics = remote_display_metrics or _display_defaults_for_device(device_name or device_type)
+                    for idx in range(6):
+                        display[f"METRIC_{idx + 1}"] = chosen_metrics[idx] if idx < len(chosen_metrics) else ""
 
                     sensor_mgr.save(sensor_id, data)
                 else:
