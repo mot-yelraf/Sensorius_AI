@@ -52,6 +52,7 @@ class _FakeStats:
             "Temperature": {"avg": 23.59, "min": 22.81, "max": 23.63},
             "Rel-Humidity": {"avg": 32.78, "min": 32.40, "max": 33.31},
             "Baro-Pressure": {"avg": 822.4, "min": 822.0, "max": 823.0},
+            "DewVPD Risk": {"avg": 48.0, "min": 0.0, "max": 70.0},
         }
 
 
@@ -92,6 +93,9 @@ def test_build_summary_text_includes_metrics_and_biodynamic(monkeypatch):
     assert "Astral location unavailable." in text
     assert "Biodynamic: Leo Moon | Fire / Fruit" in text
     assert "Zodiac: Leo" in text
+    assert "Biodynamic Hints" in text
+    assert "Suggestion: favor fruiting, seed-setting, and ripening observations." in text
+    assert "higher VPD suggests avoiding unnecessary stress" in text
 
 
 def test_ensure_summary_for_date_writes_once(monkeypatch):
@@ -122,3 +126,4 @@ def test_ensure_summary_for_date_repairs_incomplete_existing_row(monkeypatch):
 
     assert service.ensure_summary_for_date(date(2026, 3, 8)) is True
     assert "Astral & Biodynamic for 2026-03-08" in logger.saved["2026-03-08"]
+    assert "Biodynamic Hints" in logger.saved["2026-03-08"]

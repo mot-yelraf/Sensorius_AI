@@ -66,6 +66,12 @@ class DailySummaryService:
         self.gauge_config = get_gauge_config()
         self.local_tz = self._resolve_tz()
 
+    def _previous_day_window(self, summary_date: date) -> tuple[date, float, float]:
+        target_day = summary_date - timedelta(days=1)
+        start_dt = datetime.combine(target_day, dtime.min, self.local_tz)
+        end_dt = datetime.combine(summary_date, dtime.min, self.local_tz)
+        return target_day, start_dt.timestamp(), end_dt.timestamp()
+
     def _resolve_tz(self) -> ZoneInfo:
         tz_name = (
             self.settings.get_setting("Time", "TZ")
@@ -106,11 +112,7 @@ class DailySummaryService:
         return f"{num:.2f}"
 
     def _build_metrics_section(self, summary_date: date) -> list[str]:
-        target_day = summary_date - timedelta(days=1)
-        start_dt = datetime.combine(target_day, dtime.min, self.local_tz)
-        end_dt = datetime.combine(summary_date, dtime.min, self.local_tz)
-        start_epoch = start_dt.timestamp()
-        end_epoch = end_dt.timestamp()
+        target_day, start_epoch, end_epoch = self._previous_day_window(summary_date)
 
         lines = [f"24 hr Metrics for {target_day.isoformat()}"]
         appended = False
@@ -146,6 +148,90 @@ class DailySummaryService:
             lines.append("No display-metric data found for the previous day.")
         return lines
 
+    def _collect_previous_day_display_stats(self, summary_date: date) -> dict[str, dict[str, dict]]:
+        _, start_epoch, end_epoch = self._previous_day_window(summary_date)
+        out: dict[str, dict[str, dict]] = {}
+        for sensor_id in self._available_sensor_ids():
+            try:
+                metrics = self.sensor_mgr.get_display_metrics(sensor_id) or []
+            except Exception:
+                metrics = []
+            if not metrics:
+                continue
+            stats = self.statter.get_stats_for_range(sensor_id, start_epoch, end_epoch)
+            if not stats:
+                continue
+            sensor_stats = {}
+            for metric in metrics:
+                if metric in stats:
+                    sensor_stats[metric] = stats[metric]
+            if sensor_stats:
+                out[sensor_id] = sensor_stats
+        return out
+
+    def _derive_hint_context(self, summary_date: date) -> dict[str, float]:
+        context: dict[str, float] = {}
+        for sensor_stats in self._collect_previous_day_display_stats(summary_date).values():
+            for metric in ("Rel-Humidity", "DewVPD Risk", "Ambient VPD", "Dewpoint Depression"):
+                stat = sensor_stats.get(metric)
+                if not stat:
+                    continue
+                avg_val = stat.get("avg")
+                try:
+                    context.setdefault(metric, float(avg_val))
+                except Exception:
+                    continue
+        return context
+
+    def _build_hint_lines(self, summary_date: date, biodynamic_day: dict | None) -> list[str]:
+        lines = ["Biodynamic Hints"]
+        if not isinstance(biodynamic_day, dict):
+            lines.append("Suggestion: no biodynamic hint available for this day.")
+            return lines
+
+        part = str(biodynamic_day.get("dominant_plant_part") or "").strip().lower()
+        sign = str(biodynamic_day.get("dominant_sign") or "--").strip()
+        ctx = self._derive_hint_context(summary_date)
+
+        part_hints = {
+            "root": [
+                "Suggestion: favor root-zone work, transplant settling, and soil-building tasks.",
+                "Consider: prep 500 for soil/root vitality when field conditions fit your program.",
+            ],
+            "leaf": [
+                "Suggestion: favor irrigation timing, canopy recovery, and leafy-growth observations.",
+                "Consider: compost-focused work or gentle moisture-balancing tasks before pushing growth.",
+            ],
+            "flower": [
+                "Suggestion: favor blossom, herb, and aroma-focused crop work.",
+                "Consider: prep 501 only when light conditions and crop stage support a light/canopy emphasis.",
+            ],
+            "fruit": [
+                "Suggestion: favor fruiting, seed-setting, and ripening observations.",
+                "Consider: prep 501 only when crop maturity, weather, and canopy condition align.",
+            ],
+        }
+
+        lines.extend(part_hints.get(part, [f"Suggestion: use {sign} Moon as a planning cue rather than a rigid rule."]))
+
+        dew_risk = ctx.get("DewVPD Risk")
+        rh = ctx.get("Rel-Humidity")
+        vpd = ctx.get("Ambient VPD")
+        depression = ctx.get("Dewpoint Depression")
+
+        if dew_risk is not None and dew_risk >= 40.0:
+            lines.append("If conditions fit: elevated dew risk suggests watching fungal pressure; some growers would consider 508 support.")
+        elif rh is not None and rh >= 75.0:
+            lines.append("If conditions fit: high humidity suggests prioritizing airflow and leaf-dryness management.")
+        elif vpd is not None and vpd >= 1.6:
+            lines.append("If conditions fit: higher VPD suggests avoiding unnecessary stress while monitoring water demand.")
+        elif depression is not None and depression <= 3.0:
+            lines.append("If conditions fit: low dewpoint depression suggests paying close attention to condensation windows.")
+        else:
+            lines.append("Suggestion: use the biodynamic window as a planning hint and let actual plant/environment conditions decide execution.")
+
+        return lines
+
     def _pick_nearest_event(self, fn, target_date: date, observer, tzinfo) -> str:
         if not callable(fn):
             return ""
@@ -169,8 +255,9 @@ class DailySummaryService:
         best = min(candidates, key=lambda item: abs((item - center).total_seconds()))
         return best.strftime("%H:%M")
 
-    def _astral_summary_lines(self, summary_date: date) -> list[str]:
+    def _astral_summary_lines(self, summary_date: date) -> tuple[list[str], dict | None]:
         lines = [f"Astral & Biodynamic for {summary_date.isoformat()}"]
+        biodynamic_day: dict | None = None
         astral_ok = (
             LocationInfo is not None
             and _astral_sun is not None
@@ -218,20 +305,20 @@ class DailySummaryService:
             if not payload.get("ok"):
                 reason = str(payload.get("reason") or "unavailable")
                 lines.append(f"Biodynamic: unavailable ({reason})")
-                return lines
-            day = next(
+                return lines, None
+            biodynamic_day = next(
                 (row for row in (payload.get("calendar") or []) if row and row.get("date") == summary_date.isoformat()),
                 None,
             )
-            if not day:
+            if not biodynamic_day:
                 lines.append("Biodynamic: unavailable for selected date.")
-                return lines
-            sign = str(day.get("dominant_sign") or "--")
-            element = str(day.get("dominant_element") or "--")
-            part = str(day.get("dominant_plant_part") or "--")
+                return lines, None
+            sign = str(biodynamic_day.get("dominant_sign") or "--")
+            element = str(biodynamic_day.get("dominant_element") or "--")
+            part = str(biodynamic_day.get("dominant_plant_part") or "--")
             lines.append(f"Biodynamic: {sign} Moon | {element} / {part}")
             lines.append(f"Zodiac: {sign}")
-            segments = day.get("segments") or []
+            segments = biodynamic_day.get("segments") or []
             if segments:
                 first = segments[0]
                 start = str(first.get("start") or "--")
@@ -242,12 +329,14 @@ class DailySummaryService:
                     lines.append(f"Transitions: {' | '.join(transitions)}")
         except Exception as exc:
             lines.append(f"Biodynamic: unavailable ({exc})")
-        return lines
+        return lines, biodynamic_day
 
     def build_summary_text(self, summary_date: date) -> str:
+        astral_lines, biodynamic_day = self._astral_summary_lines(summary_date)
         parts = [
             "\n".join(self._build_metrics_section(summary_date)),
-            "\n".join(self._astral_summary_lines(summary_date)),
+            "\n".join(astral_lines),
+            "\n".join(self._build_hint_lines(summary_date, biodynamic_day)),
         ]
         return "\n\n".join(part.strip() for part in parts if part and part.strip())
 
@@ -258,7 +347,12 @@ class DailySummaryService:
         prev_day = (summary_date - timedelta(days=1)).isoformat()
         expected_metrics_header = f"24 hr Metrics for {prev_day}"
         expected_astral_header = f"Astral & Biodynamic for {summary_date.isoformat()}"
-        return expected_metrics_header in body and expected_astral_header in body
+        expected_hints_header = "Biodynamic Hints"
+        return (
+            expected_metrics_header in body
+            and expected_astral_header in body
+            and expected_hints_header in body
+        )
 
     def ensure_summary_for_date(self, summary_date: date) -> bool:
         summary_iso = summary_date.isoformat()
