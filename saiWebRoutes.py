@@ -77,6 +77,7 @@ from saiHtml import render_dashboard, get_gauge_config
 from saiFastStats import FastStats
 from saiSensorSettingsManager import SensorSettingsManager
 from saiSwitchSettingsManager import SwitchSettingsManager
+from saiBiodynamics import get_biodynamic_payload
 from saiAddDevice import HUB_SETTINGS_PATH, _SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR
 try:
     from __init__ import __version__ as SAI_APP_VERSION
@@ -1470,6 +1471,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "renderable_switches_view": renderable_switches_view,
                 "statuses": statuses,
                 "astro": _build_astro_payload(),
+                "biodynamic": get_biodynamic_payload(),
             })
 
 
