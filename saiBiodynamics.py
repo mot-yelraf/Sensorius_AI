@@ -17,18 +17,18 @@ MODULE = "saiBiodynamics"
 DEBUG = debug_enabled(MODULE)
 
 _SIGNS: tuple[dict[str, str], ...] = (
-    {"name": "Aries", "element": "Fire", "plant_part": "Fruit", "color": "#d64b3b", "accent": "#ffe1dd"},
-    {"name": "Taurus", "element": "Earth", "plant_part": "Root", "color": "#b58a57", "accent": "#f4ead9"},
-    {"name": "Gemini", "element": "Air", "plant_part": "Flower", "color": "#d7b400", "accent": "#fff7cc"},
-    {"name": "Cancer", "element": "Water", "plant_part": "Leaf", "color": "#3f82d6", "accent": "#dfeeff"},
-    {"name": "Leo", "element": "Fire", "plant_part": "Fruit", "color": "#d64b3b", "accent": "#ffe1dd"},
-    {"name": "Virgo", "element": "Earth", "plant_part": "Root", "color": "#b58a57", "accent": "#f4ead9"},
-    {"name": "Libra", "element": "Air", "plant_part": "Flower", "color": "#d7b400", "accent": "#fff7cc"},
-    {"name": "Scorpio", "element": "Water", "plant_part": "Leaf", "color": "#3f82d6", "accent": "#dfeeff"},
-    {"name": "Sagittarius", "element": "Fire", "plant_part": "Fruit", "color": "#d64b3b", "accent": "#ffe1dd"},
-    {"name": "Capricorn", "element": "Earth", "plant_part": "Root", "color": "#b58a57", "accent": "#f4ead9"},
-    {"name": "Aquarius", "element": "Air", "plant_part": "Flower", "color": "#d7b400", "accent": "#fff7cc"},
-    {"name": "Pisces", "element": "Water", "plant_part": "Leaf", "color": "#3f82d6", "accent": "#dfeeff"},
+    {"abbr": "Ari", "name": "Aries", "element": "Fire", "plant_part": "Fruit", "color": "#d64b3b", "accent": "#ffe1dd"},
+    {"abbr": "Tau", "name": "Taurus", "element": "Earth", "plant_part": "Root", "color": "#b58a57", "accent": "#f4ead9"},
+    {"abbr": "Gem", "name": "Gemini", "element": "Air", "plant_part": "Flower", "color": "#d7b400", "accent": "#fff7cc"},
+    {"abbr": "Cnc", "name": "Cancer", "element": "Water", "plant_part": "Leaf", "color": "#3f82d6", "accent": "#dfeeff"},
+    {"abbr": "Leo", "name": "Leo", "element": "Fire", "plant_part": "Fruit", "color": "#d64b3b", "accent": "#ffe1dd"},
+    {"abbr": "Vir", "name": "Virgo", "element": "Earth", "plant_part": "Root", "color": "#b58a57", "accent": "#f4ead9"},
+    {"abbr": "Lib", "name": "Libra", "element": "Air", "plant_part": "Flower", "color": "#d7b400", "accent": "#fff7cc"},
+    {"abbr": "Sco", "name": "Scorpio", "element": "Water", "plant_part": "Leaf", "color": "#3f82d6", "accent": "#dfeeff"},
+    {"abbr": "Sgr", "name": "Sagittarius", "element": "Fire", "plant_part": "Fruit", "color": "#d64b3b", "accent": "#ffe1dd"},
+    {"abbr": "Cap", "name": "Capricorn", "element": "Earth", "plant_part": "Root", "color": "#b58a57", "accent": "#f4ead9"},
+    {"abbr": "Aqr", "name": "Aquarius", "element": "Air", "plant_part": "Flower", "color": "#d7b400", "accent": "#fff7cc"},
+    {"abbr": "Psc", "name": "Pisces", "element": "Water", "plant_part": "Leaf", "color": "#3f82d6", "accent": "#dfeeff"},
 )
 _WEEKDAYS: tuple[str, ...] = ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
 _EPHEMERIS_NAME = "de421.bsp"
@@ -69,6 +69,19 @@ def _sign_meta(sign_index: int) -> dict[str, object]:
     return meta
 
 
+_SIGN_INDEX_BY_ABBR: dict[str, int] = {
+    str(item["abbr"]): idx for idx, item in enumerate(_SIGNS)
+}
+_CONSTELLATION_ALIASES: dict[str, str] = {
+    # Maria Thun-style biodynamic calendars use a 12-constellation zodiac.
+    # IAU boundaries can place the Moon briefly in adjacent edge constellations.
+    "Oph": "Sco",
+    "Cet": "Psc",
+    "Aur": "Tau",
+    "Ori": "Tau",
+}
+
+
 def _resolve_location() -> tuple[float | None, float | None, str]:
     try:
         settings = saiSettings(apply_live=False)
@@ -104,10 +117,10 @@ def _ephemeris_status() -> dict[str, object]:
 
 
 @lru_cache(maxsize=1)
-def _skyfield_runtime() -> tuple[object, object, object]:
+def _skyfield_runtime() -> tuple[object, object, object, object]:
     global _ephemeris_last_error, _ephemeris_retry_after_monotonic
     try:
-        from skyfield.api import Loader
+        from skyfield.api import Loader, load_constellation_map
     except Exception as exc:  # pragma: no cover - import error depends on env
         raise RuntimeError("skyfield_not_installed") from exc
 
@@ -126,33 +139,36 @@ def _skyfield_runtime() -> tuple[object, object, object]:
                 if DEBUG:
                     printDM(f"Downloading {_EPHEMERIS_NAME} to {ephemeris_path}", location=MODULE)
                 eph = loader(_EPHEMERIS_NAME)
+                constellation_at = load_constellation_map()
                 _ephemeris_last_error = ""
                 _ephemeris_retry_after_monotonic = 0.0
-                return loader, ts, eph
+                return loader, ts, eph, constellation_at
             except Exception as exc:
                 _ephemeris_last_error = exc.__class__.__name__
                 _ephemeris_retry_after_monotonic = now_mono + _EPHEMERIS_RETRY_COOLDOWN_SEC
                 raise RuntimeError(f"ephemeris_download_failed:{_ephemeris_last_error}") from exc
 
         eph = loader(_EPHEMERIS_NAME)
+        constellation_at = load_constellation_map()
         _ephemeris_last_error = ""
         _ephemeris_retry_after_monotonic = 0.0
-        return loader, ts, eph
+        return loader, ts, eph, constellation_at
 
 
-def _moon_sign_index(dt_local: datetime, ts, eph) -> int:
-    from skyfield.framelib import ecliptic_frame
-
+def _moon_sign_index(dt_local: datetime, ts, eph, constellation_at) -> int:
     moon = eph["moon"]
     earth = eph["earth"]
     t = ts.from_datetime(dt_local.astimezone(timezone.utc))
     apparent = earth.at(t).observe(moon).apparent()
-    _, lon, _ = apparent.frame_latlon(ecliptic_frame)
-    lon_deg = float(lon.degrees) % 360.0
-    return int(lon_deg // 30.0) % 12
+    abbr = str(constellation_at(apparent))
+    abbr = _CONSTELLATION_ALIASES.get(abbr, abbr)
+    idx = _SIGN_INDEX_BY_ABBR.get(abbr)
+    if idx is None:
+        raise RuntimeError(f"unsupported_constellation:{abbr}")
+    return idx
 
 
-def _refine_transition(start_local: datetime, end_local: datetime, start_sign: int, ts, eph) -> datetime:
+def _refine_transition(start_local: datetime, end_local: datetime, start_sign: int, ts, eph, constellation_at) -> datetime:
     lo = start_local
     hi = end_local
     for _ in range(20):
@@ -160,30 +176,30 @@ def _refine_transition(start_local: datetime, end_local: datetime, start_sign: i
         if span <= 60.0:
             break
         mid = lo + timedelta(seconds=span / 2.0)
-        if _moon_sign_index(mid, ts, eph) == start_sign:
+        if _moon_sign_index(mid, ts, eph, constellation_at) == start_sign:
             lo = mid
         else:
             hi = mid
     return hi
 
 
-def _split_segments(start_local: datetime, end_local: datetime, ts, eph) -> list[_Segment]:
+def _split_segments(start_local: datetime, end_local: datetime, ts, eph, constellation_at) -> list[_Segment]:
     segments: list[_Segment] = []
     if start_local >= end_local:
         return segments
 
     current_start = start_local
-    current_sign = _moon_sign_index(current_start, ts, eph)
+    current_sign = _moon_sign_index(current_start, ts, eph, constellation_at)
     probe_prev = current_start
     probe = current_start + timedelta(hours=1)
 
     while probe < end_local:
-        probe_sign = _moon_sign_index(probe, ts, eph)
+        probe_sign = _moon_sign_index(probe, ts, eph, constellation_at)
         if probe_sign != current_sign:
-            transition = _refine_transition(probe_prev, probe, current_sign, ts, eph)
+            transition = _refine_transition(probe_prev, probe, current_sign, ts, eph, constellation_at)
             segments.append(_Segment(current_start, transition, current_sign))
             current_start = transition
-            current_sign = _moon_sign_index(transition + timedelta(minutes=1), ts, eph)
+            current_sign = _moon_sign_index(transition + timedelta(minutes=1), ts, eph, constellation_at)
         probe_prev = probe
         probe = probe + timedelta(hours=1)
 
@@ -195,7 +211,7 @@ def _format_hm(dt_local: datetime) -> str:
     return dt_local.strftime("%H:%M")
 
 
-def _build_calendar(month_anchor: date, tzinfo: ZoneInfo, ts, eph, now_local: datetime) -> tuple[list[dict[str, object]], list[_Segment]]:
+def _build_calendar(month_anchor: date, tzinfo: ZoneInfo, ts, eph, constellation_at, now_local: datetime) -> tuple[list[dict[str, object]], list[_Segment]]:
     month_start = datetime.combine(month_anchor.replace(day=1), time.min, tzinfo=tzinfo)
     if month_anchor.month == 12:
         next_month = month_anchor.replace(year=month_anchor.year + 1, month=1, day=1)
@@ -207,7 +223,7 @@ def _build_calendar(month_anchor: date, tzinfo: ZoneInfo, ts, eph, now_local: da
     grid_end = grid_start + timedelta(days=42)
     grid_end_dt = datetime.combine(grid_end, time.min, tzinfo=tzinfo)
 
-    segments = _split_segments(grid_start, grid_end_dt, ts, eph)
+    segments = _split_segments(grid_start, grid_end_dt, ts, eph, constellation_at)
     days: list[dict[str, object]] = []
     today = now_local.date()
 
@@ -271,7 +287,7 @@ def get_biodynamic_payload(target_date: date | None = None) -> dict[str, object]
         return payload
 
     try:
-        _, ts, eph = _skyfield_runtime()
+        _, ts, eph, constellation_at = _skyfield_runtime()
     except Exception as exc:
         reason = str(exc) or exc.__class__.__name__
         payload["reason"] = reason
@@ -282,7 +298,7 @@ def get_biodynamic_payload(target_date: date | None = None) -> dict[str, object]
     try:
         tzinfo = ZoneInfo(tz_name)
         now_local = datetime.now(tzinfo)
-        month_days, month_segments = _build_calendar(month_anchor, tzinfo, ts, eph, now_local)
+        month_days, month_segments = _build_calendar(month_anchor, tzinfo, ts, eph, constellation_at, now_local)
         current_segment = next(
             (segment for segment in month_segments if segment.start_local <= now_local < segment.end_local),
             month_segments[-1] if month_segments else None,
@@ -325,7 +341,7 @@ def get_biodynamic_payload(target_date: date | None = None) -> dict[str, object]
                     "window_end": current_segment.end_local.isoformat() if current_segment else "",
                     "window_start_hm": _format_hm(current_segment.start_local) if current_segment else "",
                     "window_end_hm": _format_hm(current_segment.end_local) if current_segment else "",
-                    "calendar_basis": "moon ecliptic longitude segmented into twelve zodiac signs",
+                    "calendar_basis": "moon apparent position classified against fixed-star constellation boundaries",
                 },
                 "upcoming": upcoming,
                 "calendar": month_days,
@@ -335,7 +351,7 @@ def get_biodynamic_payload(target_date: date | None = None) -> dict[str, object]
         )
         return payload
     except Exception as exc:  # pragma: no cover - depends on installed ephemeris/runtime
-        payload["reason"] = exc.__class__.__name__
+        payload["reason"] = str(exc) or exc.__class__.__name__
         if DEBUG:
             printDM(f"Biodynamics calculation failed: {exc}", location=MODULE)
         return payload
