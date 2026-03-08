@@ -5115,6 +5115,110 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 printDM(f"forward_calibration_to_nodus error for {url}: {exc}", location=MODULE)
             return False
 
+    def _is_remote_nodus_type(sensor_type: str | None) -> bool:
+        return str(sensor_type or "").strip().lower() in ("picow", "pico2w", "nodus", "remote")
+
+    def _apply_device_offsets_shadow(sensor_id: str, device_kind: str, offsets: list[dict]) -> list[str]:
+        from collections import OrderedDict
+        from collections import OrderedDict as _OD
+
+        mgr = SensorSettingsManager("sensor_settings")
+        try:
+            doc = mgr.load(sensor_id) or OrderedDict()
+        except FileNotFoundError:
+            doc = OrderedDict()
+
+        calib = doc.get("Calibration")
+        if not isinstance(calib, dict):
+            calib = _OD()
+            doc["Calibration"] = calib
+
+        def _set_path(path: str, value: float) -> None:
+            parts = [p for p in path.split(".") if p]
+            if not parts:
+                return
+            cur = doc
+            for seg in parts[:-1]:
+                sub = cur.get(seg)
+                if not isinstance(sub, dict):
+                    sub = _OD()
+                    cur[seg] = sub
+                cur = sub
+            cur[parts[-1]] = value
+
+        applied_keys: list[str] = []
+        for item in offsets or []:
+            key = str(item.get("key") or "").strip()
+            raw_val = item.get("value", 0)
+            try:
+                val = float(raw_val)
+            except Exception:
+                continue
+
+            if device_kind == "apvpd" and key in ("ambient_temp_offset", "ambient_rh_offset"):
+                if key == "ambient_temp_offset":
+                    calib["APVPD_TEMP_CAL_VAL"] = val
+                    applied_keys.append("Calibration.APVPD_TEMP_CAL_VAL")
+                elif key == "ambient_rh_offset":
+                    calib["APVPD_RH_CAL_VAL"] = val
+                    applied_keys.append("Calibration.APVPD_RH_CAL_VAL")
+                continue
+
+            if device_kind == "soil" and key in (
+                "soil_moisture_offset",
+                "soil_temp_offset",
+                "soil_ph_offset",
+                "soil_ec_offset",
+            ):
+                dev = calib.get("Device")
+                if not isinstance(dev, dict):
+                    dev = _OD()
+                    calib["Device"] = dev
+
+                if key == "soil_moisture_offset":
+                    dev["SOIL_TEMP_MOIST_VAL"] = val
+                    applied_keys.append("Calibration.Device.SOIL_TEMP_MOIST_VAL")
+                elif key == "soil_temp_offset":
+                    dev["SOIL_TEMP_CAL_VAL"] = val
+                    applied_keys.append("Calibration.Device.SOIL_TEMP_CAL_VAL")
+                elif key == "soil_ph_offset":
+                    dev["SOIL_PH_CAL_VAL"] = val
+                    applied_keys.append("Calibration.Device.SOIL_PH_CAL_VAL")
+                elif key == "soil_ec_offset":
+                    dev["SOIL_EC_CAL_VAL"] = val
+                    applied_keys.append("Calibration.Device.SOIL_EC_CAL_VAL")
+                continue
+
+            if not key:
+                continue
+            _set_path(key, val)
+            applied_keys.append(key)
+
+        mgr.save(sensor_id, doc)
+        return applied_keys
+
+    def _mqtt_calibration_payload_from_offsets(offsets: list[dict]) -> dict:
+        return {"offsets": [dict(item) for item in (offsets or [])]}
+
+    async def _publish_remote_calibration_command(sensor_id: str, *, action: str, payload: dict | None = None, ack_timeout: float = 3.0, result_timeout: float = 8.0) -> tuple[bool, str, dict | None, dict | None]:
+        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        if not ingest or not hasattr(ingest, "publish_nodus_calibration"):
+            return False, "MQTT ingest unavailable", None, None
+
+        publish_result = ingest.publish_nodus_calibration(sensor_id, action=action, payload=payload)
+        if not bool(publish_result.get("ok", False)):
+            return False, "Failed to publish calibration command", None, None
+
+        message_id = str(publish_result.get("message_id") or "").strip()
+        ack = await ingest.wait_for_calibration_ack(message_id, timeout=ack_timeout)
+        if not ack or not bool(ack.get("accepted", False)):
+            return False, "Calibration command was not acknowledged", ack, None
+
+        result = await ingest.wait_for_calibration_result(message_id, timeout=result_timeout)
+        if result is None:
+            return False, "Timed out waiting for calibration result", ack, None
+        return True, "", ack, result
+
 
     # --- Edit Sensor (modal / template) ---
     @router.get("/edit-sensor", response_class=HTMLResponse)
@@ -5532,7 +5636,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     async def calibrate_sensor(sensor_id: str = Query(...)):
         from saiUtils import normalize_sensor_id, printDM
         from saiSensorSettingsManager import SensorSettingsManager
-        import asyncio, functools, socket, httpx  # asyncio/functools/socket for IPv4 resolve
+        import asyncio
 
         def _get_sensor_map():
             sm = getattr(app.state, "sensor_map", None)
@@ -5592,71 +5696,37 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 printDM(f"[calibrate_sensor] local exception: {e}", location="saiWebRoutes")
                 return JSONResponse({"status": "error", "message": "Failed to start calibration"}, status_code=500)
 
-        # ---------- 2) Remote Nodus (Pico2 W) proxy ----------
+        # ---------- 2) Remote Nodus over MQTT ----------
         try:
             mgr = SensorSettingsManager("sensor_settings")
             sid_norm = normalize_sensor_id(sensor_id)
             settings_dict = mgr.load(sid_norm) or {}
             sensor_block = (settings_dict.get("Sensor") or settings_dict.get("sensor") or {})
             dev_type = str(sensor_block.get("TYPE", sensor_block.get("type", ""))).strip().lower()
+            if _is_remote_nodus_type(dev_type):
+                ok, err, _ack, result = await _publish_remote_calibration_command(
+                    sid_norm,
+                    action="start",
+                    payload=None,
+                    ack_timeout=3.0,
+                    result_timeout=6.0,
+                )
+                if not ok:
+                    return JSONResponse({"status": "error", "message": err}, status_code=502)
 
-            # Prefer explicit HOSTNAME; else fallback to FULL SENSOR_ID (NOT the prefix)
-            hostname = (sensor_block.get("HOSTNAME") or sensor_block.get("hostname") or "").strip()
-            if not hostname:
-                hostname = str(sensor_block.get("SENSOR_ID", sensor_block.get("sensor_id", "") or sid_norm)).strip()
-
-            if dev_type in ("picow", "pico2w") and hostname:
-                # Resolve IPv4 for .local (mDNS often flaky); try IP first
-                async def _ipv4_first(host: str, port: int, timeout: float = 2.0):
-                    loop = asyncio.get_running_loop()
-                    try:
-                        infos = await asyncio.wait_for(
-                            loop.run_in_executor(
-                                None,
-                                functools.partial(socket.getaddrinfo, host, port,
-                                                  family=socket.AF_INET, type=socket.SOCK_STREAM)
-                            ),
-                            timeout=timeout
-                        )
-                        if infos:
-                            return infos[0][4][0]
-                    except Exception:
-                        return None
-                    return None
-
-                tried = []
-                targets = []
-
-                ip = await _ipv4_first(mdns_hostname(hostname), 8000, timeout=2.0)
-                if ip:
-                    targets.append(f"http://{ip}:8000")
-                targets.extend((
-                    f"http://{mdns_hostname(hostname)}:8000",
-                    f"http://{hostname}:8000",
-                ))
-
-                last_err = None
-                for base in targets:
-                    url = f"{base}/start-calibration"
-                    tried.append(url)
-                    try:
-                        async with httpx.AsyncClient(timeout=5.0) as client:
-                            resp = await client.post(url, json={"sensor_id": sensor_id})
-                        if resp.status_code == 200:
-                            # Treat any 200 as a “started” signal for the UI
-                            printDM(f"[calibrate_sensor] proxied OK -> {url}", location="saiWebRoutes")
-                            return JSONResponse({"status": "started", "source": "remote", "url": url})
-                        last_err = f"{resp.status_code} {resp.text}"
-                    except Exception as e:
-                        last_err = str(e)
+                if bool(result.get("started", False)) or bool(result.get("applied", False)):
+                    return JSONResponse({"status": "started", "source": "mqtt", "message_id": result.get("message_id")})
 
                 return JSONResponse(
-                    {"status": "error", "message": f"Could not reach Nodus for {sensor_id}"},
-                    status_code=502,
+                    {
+                        "status": "error",
+                        "message": str(result.get("error") or "Calibration did not start"),
+                    },
+                    status_code=400,
                 )
 
         except Exception as e:
-            printDM(f"[calibrate_sensor] proxy lookup exception: {e}", location="saiWebRoutes")
+            printDM(f"[calibrate_sensor] mqtt lookup exception: {e}", location="saiWebRoutes")
 
         # ---------- 3) Unknown ----------
         return JSONResponse({"status": "error", "message": f"Unknown or unsupported sensor_id: {sensor_id}"}, status_code=404)
@@ -5665,7 +5735,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     async def get_calibration_status(sensor_id: str = Query(...)):
         from saiUtils import normalize_sensor_id, printDM
         from saiSensorSettingsManager import SensorSettingsManager
-        import httpx
 
         try:
             sid_norm = normalize_sensor_id(sensor_id)
@@ -5726,6 +5795,53 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     )
 
             # ───────────────── Nodus / remote sensors ─────────────────
+            ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+            mqtt_state = None
+            if ingest and hasattr(ingest, "get_nodus_calibration_state"):
+                mqtt_state = ingest.get_nodus_calibration_state(sid_norm)
+            if mqtt_state:
+                progress_state = mqtt_state.get("progress") if isinstance(mqtt_state.get("progress"), dict) else None
+                status_state = mqtt_state.get("status") if isinstance(mqtt_state.get("status"), dict) else None
+                result_state = mqtt_state.get("result") if isinstance(mqtt_state.get("result"), dict) else None
+                live = progress_state or status_state or result_state or {}
+
+                temp_offset = live.get("temp_offset")
+                rh_offset = live.get("rh_offset")
+                if temp_offset is None or rh_offset is None:
+                    temp_offset, rh_offset = _extract_offsets()
+
+                status_text = str(live.get("status") or "").strip().lower()
+                calibrated_raw = live.get("calibrated")
+                if status_text == "in_progress":
+                    body = {
+                        "status": "ok",
+                        "calibrated": "Calibrating",
+                        "temp_offset": temp_offset,
+                        "rh_offset": rh_offset,
+                    }
+                    if live.get("sample_index") is not None and live.get("sample_total") is not None:
+                        body["sample_index"] = live.get("sample_index")
+                        body["sample_total"] = live.get("sample_total")
+                    return JSONResponse(body)
+
+                if isinstance(calibrated_raw, bool):
+                    calibrated_label = "Calibrated" if calibrated_raw else "Not Calibrated"
+                elif status_text in {"calibrated", "not_calibrated", "idle", "unavailable"}:
+                    calibrated_label = "Calibrated" if status_text == "calibrated" else "Not Calibrated"
+                else:
+                    calibrated_label = "Not Calibrated"
+
+                response = {
+                    "status": "ok",
+                    "calibrated": calibrated_label,
+                    "temp_offset": temp_offset,
+                    "rh_offset": rh_offset,
+                }
+                err_text = str((result_state or {}).get("error") or live.get("error") or "").strip()
+                if err_text:
+                    response["error"] = err_text
+                return JSONResponse(response)
+
             # 1) Prefer in-memory state; it carries phase + sample counts.
             state = _calibration_progress_cache.get(sid_norm)
             if state:
@@ -5798,20 +5914,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         "rh_offset": rh_offset,
                     }
                 )
-
-            # 3) Fallback: proxy directly to Nodus (legacy behavior)
-            if hostname:
-                for url in (
-                    f"http://{mdns_hostname(hostname)}:8000/calibration-status",
-                    f"http://{hostname}:8000/calibration-status",
-                ):
-                    try:
-                        async with httpx.AsyncClient(timeout=5.0) as client:
-                            resp = await client.get(url)
-                        if resp.status_code == 200:
-                            return JSONResponse(resp.json())
-                    except Exception:
-                        continue
 
             return JSONResponse(
                 {"status": "error", "message": "Unable to determine calibration status"},
@@ -6063,8 +6165,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
           - soil_ph_offset       -> Calibration.Device.SOIL_PH_CAL_VAL
           - soil_ec_offset       -> Calibration.Device.SOIL_EC_CAL_VAL
         """
-        from collections import OrderedDict
-        from saiSensorSettingsManager import SensorSettingsManager
         from saiUtils import printDM
         from saiCalibration import notify_sensor_runtime_of_calibration
 
@@ -6093,98 +6193,34 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         mgr = SensorSettingsManager("sensor_settings")
         try:
-            doc = mgr.load(sensor_id) or OrderedDict()
+            doc = mgr.load(sensor_id) or {}
         except FileNotFoundError:
-            doc = OrderedDict()
+            doc = {}
 
-        # Ensure top-level [Calibration] exists
-        from collections import OrderedDict as _OD
+        sensor_blk = doc.get("Sensor", {}) if isinstance(doc, dict) else {}
+        sensor_type = str(sensor_blk.get("TYPE") or sensor_blk.get("type") or "").strip().lower()
 
-        calib = doc.get("Calibration")
-        if not isinstance(calib, dict):
-            calib = _OD()
-            doc["Calibration"] = calib
-
-        def _set_path(path: str, value: float) -> None:
-            """
-            Generic dotted-path setter:
-
-              "Calibration.Device.CO2_OFFSET" ->
-                  doc["Calibration"]["Device"]["CO2_OFFSET"] = value
-
-            Creates intermediate dicts as needed.
-            """
-            parts = [p for p in path.split(".") if p]
-            if not parts:
-                return
-
-            cur = doc
-            for seg in parts[:-1]:
-                sub = cur.get(seg)
-                if not isinstance(sub, dict):
-                    sub = _OD()
-                    cur[seg] = sub
-                cur = sub
-            cur[parts[-1]] = value
-
-        applied_keys: list[str] = []
-
-        for item in offsets:
-            key = str(item.get("key") or "").strip()
-            raw_val = item.get("value", 0)
-
-            try:
-                val = float(raw_val)
-            except Exception:
-                # Skip non-numeric entries
-                continue
-
-            # ---- APVPD special-case keys from the left-side pane ----
-            if device_kind == "apvpd" and key in ("ambient_temp_offset", "ambient_rh_offset"):
-                if key == "ambient_temp_offset":
-                    calib["APVPD_TEMP_CAL_VAL"] = val
-                    applied_keys.append("Calibration.APVPD_TEMP_CAL_VAL")
-                elif key == "ambient_rh_offset":
-                    calib["APVPD_RH_CAL_VAL"] = val
-                    applied_keys.append("Calibration.APVPD_RH_CAL_VAL")
-                continue
-
-            # ---- SoilModbusSensor: soil-specific short keys -> [Calibration.Device] ----
-            if device_kind == "soil" and key in (
-                "soil_moisture_offset",
-                "soil_temp_offset",
-                "soil_ph_offset",
-                "soil_ec_offset",
-            ):
-                dev = calib.get("Device")
-                if not isinstance(dev, dict):
-                    dev = _OD()
-                    calib["Device"] = dev
-
-                if key == "soil_moisture_offset":
-                    dev["SOIL_TEMP_MOIST_VAL"] = val
-                    applied_keys.append("Calibration.Device.SOIL_TEMP_MOIST_VAL")
-                elif key == "soil_temp_offset":
-                    dev["SOIL_TEMP_CAL_VAL"] = val
-                    applied_keys.append("Calibration.Device.SOIL_TEMP_CAL_VAL")
-                elif key == "soil_ph_offset":
-                    dev["SOIL_PH_CAL_VAL"] = val
-                    applied_keys.append("Calibration.Device.SOIL_PH_CAL_VAL")
-                elif key == "soil_ec_offset":
-                    dev["SOIL_EC_CAL_VAL"] = val
-                    applied_keys.append("Calibration.Device.SOIL_EC_CAL_VAL")
-
-                continue
-
-            # ---- Generic dotted keys from device_offsets (co2 / aqi / veml / vpd / etc.) ----
-            if not key:
-                continue
-
-            _set_path(key, val)
-            applied_keys.append(key)
+        if _is_remote_nodus_type(sensor_type):
+            ok, err, _ack, result = await _publish_remote_calibration_command(
+                sensor_id,
+                action="apply",
+                payload=_mqtt_calibration_payload_from_offsets(offsets),
+                ack_timeout=3.0,
+                result_timeout=8.0,
+            )
+            if not ok:
+                return JSONResponse({"status": "error", "message": err}, status_code=502)
+            if not bool(result.get("applied", False)):
+                return JSONResponse(
+                    {
+                        "status": "error",
+                        "message": str(result.get("error") or "Calibration update was rejected."),
+                    },
+                    status_code=400,
+                )
 
         try:
-            mgr.save(sensor_id, doc)
+            applied_keys = _apply_device_offsets_shadow(sensor_id, device_kind, offsets)
         except Exception as exc:
             printDM(f"[{MODULE}] device_calibration_apply save error: {exc}", location=MODULE)
             return JSONResponse(
@@ -6195,40 +6231,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 status_code=500,
             )
 
-        # 1) Ask local runtime to reload calibration for this sensor_id
-        try:
-            supervisor = getattr(request.app.state, "supervisor", None)
-            notify_sensor_runtime_of_calibration(supervisor, sensor_id)
-        except Exception as exc:
-            printDM(
-                f"[{MODULE}] device_calibration_apply reload error for {sensor_id}: {exc}",
-                location=MODULE,
-            )
-
-        # 2) If this is a Nodus sensor, also forward device offsets to its own
-        #    /update-calibration-values endpoint so it can apply at the device.
-        try:
-            # Inspect Sensor.TYPE from the same doc we just saved
-            sensor_blk = doc.get("Sensor", {}) if isinstance(doc, dict) else {}
-            sensor_type = str(
-                sensor_blk.get("TYPE") or sensor_blk.get("type") or ""
-            ).strip().lower()
-
-            if sensor_type in ("picow", "pico2w", "nodus", "remote"):
-                base_url = resolve_nodus_base_url(sensor_id)
-                if base_url:
-                    # Reuse a subset of the original payload; Nodus-side route
-                    # expects sensor_id + offsets; is_remote is just a hint.
-                    nodus_payload = {
-                        "sensor_id": sensor_id,
-                        "offsets": offsets,
-                        "is_remote": True,
-                    }
-                    await forward_calibration_to_nodus(base_url, nodus_payload)
-        except Exception as exc:
-            if DEBUG:
+        if not _is_remote_nodus_type(sensor_type):
+            try:
+                supervisor = getattr(request.app.state, "supervisor", None)
+                notify_sensor_runtime_of_calibration(supervisor, sensor_id)
+            except Exception as exc:
                 printDM(
-                    f"[{MODULE}] device_calibration_apply Nodus forward error for {sensor_id}: {exc}",
+                    f"[{MODULE}] device_calibration_apply reload error for {sensor_id}: {exc}",
                     location=MODULE,
                 )
 
@@ -6545,7 +6554,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
           ]
         }
         """
-        import asyncio
         from saiCalibration import CalibrationManager, SystemCalResult
 
         try:
@@ -6587,9 +6595,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         applied: list[str] = []
         failures: list[dict] = []
-
-        # We'll collect Nodus pushes separately so we can run them concurrently.
-        nodus_jobs: list[tuple[str, dict, SystemCalResult]] = []
 
         for entry in sensors_data:
             sensor_id = str(entry.get("sensor_id") or "").strip()
@@ -6633,11 +6638,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             )
 
             try:
-                # 1) Update the Pi-side sensor_settings/<sensor_id>/sensor.toml
-                cal_mgr.apply_system_calibration(sensor_id, result)
-                applied.append(sensor_id)
-
-                # 2) If this is a Nodus (picow/pico2w) sensor, schedule push of same values
                 doc = sensor_mgr.load(sensor_id) or {}
                 sensor_blk = doc.get("Sensor", {}) if isinstance(doc, dict) else {}
                 sensor_type = (
@@ -6646,8 +6646,39 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     or ""
                 )
                 sensor_type = str(sensor_type).strip().lower()
-                if sensor_type in ("picow", "pico2w"):
-                    nodus_jobs.append((sensor_id, doc, result))
+                if _is_remote_nodus_type(sensor_type):
+                    ok, err, _ack, mqtt_result = await _publish_remote_calibration_command(
+                        sensor_id,
+                        action="apply",
+                        payload={
+                            "calibration": {
+                                "system": {
+                                    "TEMP_OFFSET": round(temp_offset, 3),
+                                    "RH_OFFSET": round(rh_offset, 3),
+                                    "REF_SENSOR_ID": reference_id,
+                                    "REF_RANGE_HOURS": int((end_ts - start_ts) / 3600.0),
+                                    "REF_START_TS": int(start_ts),
+                                    "REF_END_TS": int(end_ts),
+                                }
+                            }
+                        },
+                        ack_timeout=3.0,
+                        result_timeout=8.0,
+                    )
+                    if not ok:
+                        failures.append({"sensor_id": sensor_id, "error": err})
+                        continue
+                    if not bool(mqtt_result.get("applied", False)):
+                        failures.append(
+                            {
+                                "sensor_id": sensor_id,
+                                "error": str(mqtt_result.get("error") or "Calibration update was rejected."),
+                            }
+                        )
+                        continue
+
+                cal_mgr.apply_system_calibration(sensor_id, result)
+                applied.append(sensor_id)
 
             except Exception as exc:
                 failures.append(
@@ -6657,78 +6688,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     }
                 )
                 continue
-
-        async def _push_system_cal_to_nodus(
-            sensor_id: str,
-            doc: dict,
-            result: SystemCalResult,
-        ) -> bool:
-            """
-            Push the *system* calibration into the Nodus sensor's sensor*.toml
-            via /set-nodus-setting. We keep this best-effort and log failures.
-            """
-            from math import isnan
-
-            # Heuristic: choose which sensor*.toml to touch
-            sensor_blk = doc.get("Sensor", {}) if isinstance(doc, dict) else {}
-            sensor_file_name = "sensor.toml"
-            i2c_keys = ("I2C_SCL", "I2C_SDA", "I2C_BUS", "I2C_ADDR")
-            uart_keys = ("UART_TX", "UART_RX", "UART_BUS", "RS485_DIR_PIN", "MODBUS_ADDR")
-            if any(k in sensor_blk for k in i2c_keys):
-                sensor_file_name = "sensor_i2c.toml"
-            elif any(k in sensor_blk for k in uart_keys):
-                sensor_file_name = "sensor_soil.toml"
-
-            # Normalize values for remote write
-            temp_off = 0.0 if result.temp_offset is None or isnan(result.temp_offset) else float(result.temp_offset)
-            rh_off = 0.0 if result.rh_offset is None or isnan(result.rh_offset) else float(result.rh_offset)
-            range_hours = int((result.end_ts - result.start_ts) / 3600.0)
-
-            # Keys to push. We mirror what apply_system_calibration wrote locally.
-            items = [
-                ("Calibration", "CALIBRATED", True),
-                ("Calibration", "CALIB_STATUS", "Calibrated (system)"),
-                ("Calibration.System", "TEMP_OFFSET", round(temp_off, 3)),
-                ("Calibration.System", "RH_OFFSET", round(rh_off, 3)),
-                ("Calibration.System", "REF_SENSOR_ID", result.ref_sensor_id),
-                ("Calibration.System", "REF_RANGE_HOURS", range_hours),
-                ("Calibration.System", "REF_START_TS", int(result.start_ts)),
-                ("Calibration.System", "REF_END_TS", int(result.end_ts)),
-            ]
-
-            ok_all = True
-            for section, key, value in items:
-                try:
-                    await push_nodus_setting_simple(
-                        device_id=sensor_id,
-                        device_type="sensor",
-                        setting_file_key="sensor",
-                        section=section,
-                        key=key,
-                        value=value,
-                        sensor_file_name=sensor_file_name,
-                        system_mgr=None,
-                        system_root=None,
-                        ip_hint=None,
-                        sys_host_index=None,
-                    )
-                except Exception as exc:
-                    ok_all = False
-                    if DEBUG:
-                        printDM(
-                            f"[{MODULE}] system_calibration_apply: Nodus push failed "
-                            f"for {sensor_id} {section}.{key}: {exc}",
-                            location=MODULE,
-                        )
-            return ok_all
-
-        # Kick off Nodus pushes, if any
-        if nodus_jobs:
-            tasks = [
-                _push_system_cal_to_nodus(sid, doc, res)
-                for (sid, doc, res) in nodus_jobs
-            ]
-            await asyncio.gather(*tasks, return_exceptions=True)
 
         return JSONResponse(
             {
@@ -6759,7 +6718,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         offsets = payload.get("offsets")
         calib   = payload.get("calibration")
-        meta    = payload.get("meta", {})
         if DEBUG:
             printDM(f"/update-calibration-values called with payload={payload}", location=MODULE)
     
@@ -6774,18 +6732,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # 2) notify local runtime (if this is a local Pi sensor)
         supervisor = request.app.state.supervisor if hasattr(request.app.state, "supervisor") else None
         notify_sensor_runtime_of_calibration(supervisor, sensor_id)
-
-        # 3) if this sensor is a Nodus device, forward update to its /update-calibration-values
-        try:
-            from saiSettings import saiSettings
-            sys_settings = saiSettings()
-            # Use SensorSettingsManager or a 'device_map' to resolve host/URL for this sensor_id
-            # Example: device_map[sensor_id] -> "http://nodus-1234.local:8000"
-            base_url = resolve_nodus_base_url(sensor_id)
-            if base_url:
-                await forward_calibration_to_nodus(base_url, payload)
-        except Exception:
-            pass
 
         return JSONResponse({"ok": True})
 

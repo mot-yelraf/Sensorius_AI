@@ -184,6 +184,13 @@ class saiMQTTIngest:
         self._callback_lock = threading.RLock()
         self._callback_filters: set[str] = set()
         self._connected_evt = asyncio.Event()
+        self._calibration_lock = threading.RLock()
+        self.calibration_ack_by_message: dict[str, dict] = {}
+        self.calibration_result_by_message: dict[str, dict] = {}
+        self.calibration_status_by_sensor: dict[str, dict] = {}
+        self.calibration_progress_by_sensor: dict[str, dict] = {}
+        self.calibration_event_result_by_sensor: dict[str, dict] = {}
+        self.calibration_message_device: dict[str, str] = {}
 
         unique_id = f"{socket.gethostname()}-ingest"
         self.client = mqtt.Client(client_id=unique_id)
@@ -244,6 +251,11 @@ class saiMQTTIngest:
                 "nodus/+/availability",
                 "nodus/+/status/heartbeat",
                 "nodus/+/meta",
+                "nodus/+/calibration/ack",
+                "nodus/+/calibration/result",
+                "nodus/+/event/calibration_status",
+                "nodus/+/event/calibration_progress",
+                "nodus/+/event/calibration_result",
                 "nodus/+/onboard/hello",
                 "nodus/+/config/ack",
                 "nodus/+/config/result",
@@ -258,6 +270,11 @@ class saiMQTTIngest:
                 prefixed_topics.update({
                     f"{self.base_topic}/nodus/+/availability",
                     f"{self.base_topic}/nodus/+/status/heartbeat",
+                    f"{self.base_topic}/nodus/+/calibration/ack",
+                    f"{self.base_topic}/nodus/+/calibration/result",
+                    f"{self.base_topic}/nodus/+/event/calibration_status",
+                    f"{self.base_topic}/nodus/+/event/calibration_progress",
+                    f"{self.base_topic}/nodus/+/event/calibration_result",
                     f"{self.base_topic}/nodus/+/meta",
                     f"{self.base_topic}/nodus/+/onboard/hello",
                     f"{self.base_topic}/nodus/+/config/ack",
@@ -471,6 +488,181 @@ class saiMQTTIngest:
         Handler signature: fn(event_dict) -> None
         """
         self.onboarding_event_handler = handler
+
+    def _normalize_calibration_payload(self, sensor_id: str, payload: dict | None, *, topic: str, retain: bool, kind: str) -> dict:
+        body = dict(payload or {})
+        normalized = {
+            "sensor_id": str(body.get("sensor_id") or sensor_id or "").strip(),
+            "status": str(body.get("status") or "").strip().lower(),
+            "calibrated": body.get("calibrated"),
+            "timestamp": body.get("timestamp"),
+            "temp_offset": body.get("temp_offset"),
+            "rh_offset": body.get("rh_offset"),
+            "device_temp_offset": body.get("device_temp_offset"),
+            "device_rh_offset": body.get("device_rh_offset"),
+            "system_temp_offset": body.get("system_temp_offset"),
+            "system_rh_offset": body.get("system_rh_offset"),
+            "sample_index": body.get("sample_index"),
+            "sample_total": body.get("sample_total"),
+            "error": str(body.get("error") or "").strip(),
+            "topic": topic,
+            "retain": bool(retain),
+            "kind": kind,
+            "received_at": time.time(),
+        }
+        if normalized["sensor_id"]:
+            return normalized
+        return {}
+
+    def _maybe_handle_calibration_topics(self, topic: str, payload_text: str, data: dict | None, *, retain: bool) -> bool:
+        try:
+            parts = topic.split("/")
+            root_idx = -1
+            if len(parts) >= 4 and parts[0] == "nodus":
+                root_idx = 0
+            elif (
+                self.base_topic
+                and len(parts) >= 5
+                and parts[0] == self.base_topic
+                and parts[1] == "nodus"
+            ):
+                root_idx = 1
+            if root_idx < 0:
+                return False
+
+            device_id = str(parts[root_idx + 1] or "").strip()
+            family = str(parts[root_idx + 2] or "").strip()
+            leaf = str(parts[root_idx + 3] or "").strip()
+            if not device_id:
+                return False
+
+            body = data if isinstance(data, dict) else {}
+            now = time.time()
+            with self._calibration_lock:
+                if family == "calibration" and leaf == "ack":
+                    message_id = str(body.get("message_id") or "").strip()
+                    if not message_id:
+                        return True
+                    self.calibration_ack_by_message[message_id] = {
+                        "message_id": message_id,
+                        "device_id": device_id,
+                        "accepted": bool(body.get("accepted", False)),
+                        "topic": topic,
+                        "retain": bool(retain),
+                        "received_at": now,
+                    }
+                    return True
+
+                if family == "calibration" and leaf == "result":
+                    message_id = str(body.get("message_id") or "").strip()
+                    status_payload = body.get("status") if isinstance(body.get("status"), dict) else {}
+                    sensor_id = str(status_payload.get("sensor_id") or device_id).strip()
+                    result = {
+                        "message_id": message_id,
+                        "device_id": device_id,
+                        "applied": bool(body.get("applied", False)),
+                        "started": bool(body.get("started", False)),
+                        "updated": body.get("updated"),
+                        "error": str(body.get("error") or "").strip(),
+                        "status": self._normalize_calibration_payload(
+                            sensor_id,
+                            status_payload,
+                            topic=topic,
+                            retain=retain,
+                            kind="result_status",
+                        ),
+                        "topic": topic,
+                        "retain": bool(retain),
+                        "received_at": now,
+                    }
+                    if message_id:
+                        self.calibration_result_by_message[message_id] = result
+                    if result["status"]:
+                        self.calibration_status_by_sensor[sensor_id] = dict(result["status"])
+                    return True
+
+                if family == "event" and leaf in {"calibration_status", "calibration_progress", "calibration_result"}:
+                    normalized = self._normalize_calibration_payload(
+                        device_id,
+                        body,
+                        topic=topic,
+                        retain=retain,
+                        kind=leaf,
+                    )
+                    if not normalized:
+                        return True
+                    sensor_id = str(normalized.get("sensor_id") or device_id).strip()
+                    self.calibration_status_by_sensor[sensor_id] = dict(normalized)
+                    if leaf == "calibration_progress":
+                        self.calibration_progress_by_sensor[sensor_id] = dict(normalized)
+                    elif leaf == "calibration_result":
+                        self.calibration_event_result_by_sensor[sensor_id] = dict(normalized)
+                    return True
+
+            return False
+        except Exception as e:
+            if DEBUG:
+                printDM(f"[calibration] parse error: {e}", location=MODULE)
+            return False
+
+    def publish_nodus_calibration(self, device_id: str, *, action: str, payload: dict | None = None, message_id: str | None = None, qos: int = 1) -> dict:
+        device = str(device_id or "").strip()
+        action_name = str(action or "").strip().lower()
+        if not device or not action_name:
+            return {"ok": False, "message_id": "", "topic": ""}
+        if not message_id:
+            message_id = f"cal-{int(time.time())}-{action_name}-{device[:24]}"
+        envelope = {
+            "message_id": message_id,
+            "action": action_name,
+        }
+        if payload is not None or action_name in {"apply", "set", "update"}:
+            envelope["payload"] = payload or {}
+        topic = f"nodus/{device}/calibration/set"
+        ok = bool(self.publish_json(topic, envelope, qos=qos, retain=False, use_ha_client=False))
+        if ok:
+            with self._calibration_lock:
+                self.calibration_message_device[message_id] = device
+        return {"ok": ok, "message_id": message_id, "topic": topic, "payload": envelope}
+
+    async def wait_for_calibration_ack(self, message_id: str, timeout: float = 3.0) -> dict | None:
+        deadline = time.time() + max(float(timeout), 0.0)
+        while time.time() < deadline:
+            with self._calibration_lock:
+                hit = self.calibration_ack_by_message.get(message_id)
+                if hit is not None:
+                    return dict(hit)
+            await asyncio.sleep(0.05)
+        return None
+
+    async def wait_for_calibration_result(self, message_id: str, timeout: float = 8.0) -> dict | None:
+        deadline = time.time() + max(float(timeout), 0.0)
+        while time.time() < deadline:
+            with self._calibration_lock:
+                hit = self.calibration_result_by_message.get(message_id)
+                if hit is not None:
+                    return dict(hit)
+            await asyncio.sleep(0.05)
+        return None
+
+    def get_nodus_calibration_state(self, sensor_id: str) -> dict | None:
+        sid = str(sensor_id or "").strip()
+        if not sid:
+            return None
+        with self._calibration_lock:
+            status = self.calibration_status_by_sensor.get(sid)
+            progress = self.calibration_progress_by_sensor.get(sid)
+            final_result = self.calibration_event_result_by_sensor.get(sid)
+            if not any((status, progress, final_result)):
+                return None
+            out = {}
+            if status:
+                out["status"] = dict(status)
+            if progress:
+                out["progress"] = dict(progress)
+            if final_result:
+                out["result"] = dict(final_result)
+            return out
 
     def _maybe_handle_onboarding_topics(self, topic: str, payload_text: str, data: dict | None) -> bool:
         """
@@ -716,6 +908,12 @@ class saiMQTTIngest:
             except Exception as e:
                 if DEBUG:
                     printDM(f"[on_message] onboarding parser skipped: {e}", location=MODULE)
+            try:
+                if self._maybe_handle_calibration_topics(topic, payload_text, data, retain=retain):
+                    return
+            except Exception as e:
+                if DEBUG:
+                    printDM(f"[on_message] calibration parser skipped: {e}", location=MODULE)
 
         try:
             parts = topic.split("/")

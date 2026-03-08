@@ -51,6 +51,10 @@ class _FakeIngest:
         self.added: list[str] = []
         self.refreshed: list[str] = []
         self.mqtt_clients: list[str] = []
+        self.calibration_commands: list[dict] = []
+        self.calibration_state: dict[str, dict] = {}
+        self.next_calibration_ack: dict | None = {"accepted": True}
+        self.next_calibration_result: dict | None = {"applied": True, "status": {"status": "calibrated", "calibrated": True}}
 
     def set_onboarding_event_handler(self, handler):
         self.handler = handler
@@ -66,6 +70,35 @@ class _FakeIngest:
 
     def publish_json(self, *_args, **_kwargs):
         return True
+
+    def publish_nodus_calibration(self, device_id: str, *, action: str, payload=None, message_id=None, qos=1):
+        message = {
+            "device_id": device_id,
+            "action": action,
+            "payload": payload,
+            "message_id": message_id or f"test-{len(self.calibration_commands) + 1}",
+            "qos": qos,
+        }
+        self.calibration_commands.append(message)
+        return {"ok": True, "message_id": message["message_id"], "topic": f"nodus/{device_id}/calibration/set"}
+
+    async def wait_for_calibration_ack(self, message_id: str, timeout: float = 0):
+        if self.next_calibration_ack is None:
+            return None
+        out = dict(self.next_calibration_ack)
+        out.setdefault("message_id", message_id)
+        return out
+
+    async def wait_for_calibration_result(self, message_id: str, timeout: float = 0):
+        if self.next_calibration_result is None:
+            return None
+        out = dict(self.next_calibration_result)
+        out.setdefault("message_id", message_id)
+        return out
+
+    def get_nodus_calibration_state(self, sensor_id: str):
+        state = self.calibration_state.get(sensor_id)
+        return dict(state) if isinstance(state, dict) else state
 
 
 class _FakeSaiSettings:
@@ -235,6 +268,128 @@ async def test_submit_sensor_settings_pushes_sensor_and_display_updates_for_nodu
     assert any(p["section"] == "Display" and p["key"] == "METRIC_1" and p["value"] == "Temperature" for p in posted)
     assert any(p.get("name") == "sensor_i2c.toml" for p in posted)
     assert ingest.refreshed == ["aqi-123"]
+
+
+@pytest.mark.asyncio
+async def test_device_calibration_apply_for_remote_nodus_uses_mqtt_and_updates_shadow_on_success(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "aqi-123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "aqi-123",
+            }
+        },
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/calibration/device/apply",
+            json={
+                "sensor_id": "aqi-123",
+                "device_kind": "aqi",
+                "offsets": [{"key": "Calibration.Device.TEMP_OFFSET", "value": 1.5}],
+            },
+        )
+
+    assert res.status_code == 200
+    assert ingest.calibration_commands[-1]["action"] == "apply"
+    assert ingest.calibration_commands[-1]["payload"]["offsets"][0]["key"] == "Calibration.Device.TEMP_OFFSET"
+    saved = sensor_mgr.load("aqi-123")
+    assert saved["Calibration"]["Device"]["TEMP_OFFSET"] == 1.5
+
+
+@pytest.mark.asyncio
+async def test_device_calibration_apply_for_remote_nodus_does_not_update_shadow_on_failure(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    ingest.next_calibration_result = {"applied": False, "error": "bad_payload", "status": {"status": "idle", "calibrated": False}}
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "aqi-123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "aqi-123",
+            }
+        },
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/calibration/device/apply",
+            json={
+                "sensor_id": "aqi-123",
+                "device_kind": "aqi",
+                "offsets": [{"key": "Calibration.Device.TEMP_OFFSET", "value": 1.5}],
+            },
+        )
+
+    assert res.status_code == 400
+    saved = sensor_mgr.load("aqi-123")
+    assert "Calibration" not in saved
+
+
+@pytest.mark.asyncio
+async def test_calibration_status_prefers_mqtt_state_for_remote_nodus(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "aqi-123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "aqi-123",
+            },
+        },
+    )
+    ingest.calibration_state["aqi-123"] = {
+        "status": {
+            "sensor_id": "aqi-123",
+            "status": "in_progress",
+            "calibrated": False,
+            "sample_index": 2,
+            "sample_total": 5,
+            "temp_offset": 1.25,
+            "rh_offset": -2.5,
+        }
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/calibration-status", params={"sensor_id": "aqi-123"})
+
+    body = res.json()
+    assert res.status_code == 200
+    assert body["calibrated"] == "Calibrating"
+    assert body["sample_index"] == 2
+
+
+@pytest.mark.asyncio
+async def test_calibrate_remote_nodus_uses_mqtt_start(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "aqi-123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "apvpd",
+                "SENSOR_ID": "aqi-123",
+            }
+        },
+    )
+    ingest.next_calibration_result = {"applied": True, "started": True, "status": {"status": "in_progress", "calibrated": False}}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/calibrate", params={"sensor_id": "aqi-123"})
+
+    assert res.status_code == 200
+    assert res.json()["status"] == "started"
+    assert ingest.calibration_commands[-1]["action"] == "start"
 
 
 @pytest.mark.asyncio

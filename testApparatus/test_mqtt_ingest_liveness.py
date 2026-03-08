@@ -120,10 +120,14 @@ def test_registered_topics_include_heartbeat(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     assert "nodus/+/status/heartbeat" in ingest.registered_topics
     assert "nodus/+/meta" in ingest.registered_topics
+    assert "nodus/+/calibration/ack" in ingest.registered_topics
+    assert "nodus/+/calibration/result" in ingest.registered_topics
+    assert "nodus/+/event/calibration_status" in ingest.registered_topics
     assert "sensorius/nodus/+/onboard/hello" in ingest.registered_topics
     assert "sensorius/nodus/+/meta" in ingest.registered_topics
     assert "sensorius/nodus/+/config/ack" in ingest.registered_topics
     assert "sensorius/nodus/+/config/result" in ingest.registered_topics
+    assert "sensorius/nodus/+/event/calibration_result" in ingest.registered_topics
 
 
 def test_debug_data_only_registered_topics(monkeypatch):
@@ -135,7 +139,105 @@ def test_debug_data_only_registered_topics(monkeypatch):
     assert "sensorius/nodus/+/data" in ingest.registered_topics
     assert "nodus/+/status/heartbeat" not in ingest.registered_topics
     assert "nodus/+/meta" not in ingest.registered_topics
+    assert "nodus/+/calibration/ack" not in ingest.registered_topics
     assert "sensorius/nodus/+/onboard/hello" not in ingest.registered_topics
+
+
+def test_publish_nodus_calibration_uses_mqtt_command_topic(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    result = ingest.publish_nodus_calibration("aqi-123", action="apply", payload={"offsets": [{"key": "Calibration.Device.TEMP_OFFSET", "value": 1.5}]})
+    assert result["ok"] is True
+    assert result["topic"] == "nodus/aqi-123/calibration/set"
+    topic, payload, qos, retain = ingest.client.pubs[-1]
+    assert topic == "nodus/aqi-123/calibration/set"
+    body = json.loads(payload)
+    assert body["action"] == "apply"
+    assert body["payload"]["offsets"][0]["key"] == "Calibration.Device.TEMP_OFFSET"
+    assert qos == 1
+    assert retain is False
+
+
+def test_calibration_topics_update_state_caches(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    ingest._on_message(
+        ingest.client,
+        None,
+        _Msg("nodus/aqi-123/calibration/ack", json.dumps({"message_id": "cal-1", "accepted": True}), retain=False),
+    )
+    ack = ingest.calibration_ack_by_message.get("cal-1")
+    assert ack is not None
+    assert ack["accepted"] is True
+
+    ingest._on_message(
+        ingest.client,
+        None,
+        _Msg(
+            "nodus/aqi-123/calibration/result",
+            json.dumps(
+                {
+                    "message_id": "cal-1",
+                    "applied": True,
+                    "updated": 2,
+                    "status": {
+                        "sensor_id": "aqi-123",
+                        "status": "calibrated",
+                        "calibrated": True,
+                        "temp_offset": 1.25,
+                        "rh_offset": -2.5,
+                    },
+                    "error": "",
+                }
+            ),
+            retain=False,
+        ),
+    )
+    result = ingest.calibration_result_by_message.get("cal-1")
+    assert result is not None
+    assert result["applied"] is True
+    assert result["status"]["sensor_id"] == "aqi-123"
+    assert ingest.calibration_status_by_sensor["aqi-123"]["status"] == "calibrated"
+
+    ingest._on_message(
+        ingest.client,
+        None,
+        _Msg(
+            "nodus/aqi-123/event/calibration_progress",
+            json.dumps(
+                {
+                    "sensor_id": "aqi-123",
+                    "status": "in_progress",
+                    "sample_index": 2,
+                    "sample_total": 5,
+                }
+            ),
+            retain=False,
+        ),
+    )
+    snapshot = ingest.get_nodus_calibration_state("aqi-123")
+    assert snapshot is not None
+    assert snapshot["progress"]["sample_index"] == 2
+
+    ingest._on_message(
+        ingest.client,
+        None,
+        _Msg(
+            "nodus/aqi-123/event/calibration_result",
+            json.dumps(
+                {
+                    "sensor_id": "aqi-123",
+                    "status": "success",
+                    "calibrated": True,
+                    "temp_offset": 1.25,
+                    "rh_offset": -2.5,
+                }
+            ),
+            retain=True,
+        ),
+    )
+    snapshot = ingest.get_nodus_calibration_state("aqi-123")
+    assert snapshot is not None
+    assert snapshot["result"]["calibrated"] is True
 
 
 def test_nodus_meta_materializes_switch_mappings(monkeypatch):
