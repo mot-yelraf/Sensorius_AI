@@ -1068,6 +1068,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "</select>"
     yield "</form>"
     yield "</div>"
+    yield "</div>"
     
     # Per-sensor gauge blocks
     for sid, sensor_metrics in expected_gauge_map.items():
@@ -1081,8 +1082,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         _meas_status = _resolve_meas_status(sid)
         _dot_color   = _status_color_hex(_meas_status)
 
+        yield f"<div class='sensor-group' id='group_{sid}' style='width:100%; flex:0 0 100%; display:block;'>"
         yield f"<div style='text-align:center; width:100%; margin-top:1rem;'>"
-  
         yield f"<h3 id='{sid}_header'>"      
         yield (            
             f" <span class='sensor-status-dot' id='{sid}_statusdot' data-sid='{sid}'"
@@ -1111,15 +1112,13 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         yield "    </svg>"
         yield "  </a>"
         yield (f"{location}")
-
         yield "</h3>"
         yield "</div>"
+        render_metrics = [metric for metric in sensor_metrics if metric in gauge_config]
         yield f"<div class='sensor-row' id='row_{sid}'>"
 
         # build out the gauges for this sensor based on its configured display metrics; if none, show all available gauges
-        for metric in sensor_metrics:
-            if metric not in gauge_config:
-                continue
+        for metric in render_metrics:
             config = gauge_config[metric]
             val = values.get(metric)
             if val is None:
@@ -1402,6 +1401,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             yield "</div>"  # .switch-metric-container
 
         yield "</div>"  # sensor-row
+        yield "</div>"  # sensor-group
 
     # --- z-index so toasts always appear above stacked modals ---
     yield "<style>"
@@ -1941,7 +1941,21 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ""  
     yield " const existingRow = document.querySelector('.sensor-row');" 
     yield " const byGraphModal = document.getElementById('graphModal')?.parentElement || null;" 
-    yield " const parent = (existingRow && existingRow.parentElement) || byGraphModal || document.body;" 
+    yield " const dashboard = document.querySelector('.dashboard');"
+    yield " const parent = dashboard || (existingRow && existingRow.parentElement) || byGraphModal || document.body;" 
+    yield ""
+
+    yield "  const groupId = `group_${sid}`;"
+    yield "  let group = document.getElementById(groupId);"
+    yield "  if (!group) {"
+    yield "    group = document.createElement('div');"
+    yield "    group.id = groupId;"
+    yield "    group.className = 'sensor-group';"
+    yield "    group.style.width = '100%';"
+    yield "    group.style.flex = '0 0 100%';"
+    yield "    group.style.display = 'block';"
+    yield "    parent.appendChild(group);"
+    yield "  }"
     yield ""
 
     #  Create header if missing        
@@ -1950,8 +1964,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const headerWrap = document.createElement('div');"
     yield "    headerWrap.style.textAlign = 'center';"
     yield "    headerWrap.style.width = '100%';"
-    yield "    headerWrap.style.marginTop = '-1.5rem';"
-    yield "    headerWrap.style.marginBottom = '-1.0rem';"
+    yield "    headerWrap.style.marginTop = '1rem';"
     yield "    const locText = (locationText || sid);"
     yield "    const sidUpper = (sid || '').toUpperCase();"
     yield "    const sidLower = (sid || '').toLowerCase();"
@@ -1980,7 +1993,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "        </a>"
     yield "        ${locText}"
     yield "      </h3>`;"
-    yield "    parent.appendChild(headerWrap);"
+    yield "    group.appendChild(headerWrap);"
     yield "  } else {"
     yield "    const hdr = document.getElementById(headerId);"
     yield "    if (hdr && !document.getElementById(`${sid}_statusdot`)) {"
@@ -1996,6 +2009,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      hdr.insertBefore(dot, hdr.firstChild);"
     yield "    }"
     yield "  }"
+    yield ""
     
     #  Create row wrapper if missing
     yield "  const rowId = `row_${sid}`;"
@@ -2004,7 +2018,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    row = document.createElement('div');"
     yield "    row.id = rowId;"
     yield "    row.className = 'sensor-row';"
-    yield "    parent.appendChild(row);"
+    yield "    group.appendChild(row);"
     yield "  }"
     yield ""
     #  Ensure metric containers exist
