@@ -54,11 +54,13 @@ class DailySummaryService:
         *,
         settings,
         data_logger,
+        supervisor=None,
         sensor_mgr: SensorSettingsManager | None = None,
         statter: saiStats | None = None,
     ):
         self.settings = settings
         self.data_logger = data_logger
+        self.supervisor = supervisor
         self.sensor_mgr = sensor_mgr or SensorSettingsManager("sensor_settings")
         self.statter = statter or saiStats()
         self.gauge_config = get_gauge_config()
@@ -273,14 +275,29 @@ class DailySummaryService:
             printDM(f"[daily-summary] wrote summary for {summary_iso}", location=MODULE)
         return bool(ok)
 
+    def _feed_watchdog(self, *, error: bool = False) -> None:
+        sup = getattr(self, "supervisor", None)
+        if sup and hasattr(sup, "feedthedogs"):
+            sup.feedthedogs("Daily Summary Writer", error=error)
+
+    async def _sleep_with_heartbeat(self, total_sleep_s: float, heartbeat_every_s: float = 20.0) -> None:
+        remaining = max(float(total_sleep_s), 0.0)
+        while remaining > 0.0:
+            self._feed_watchdog()
+            chunk = min(heartbeat_every_s, remaining)
+            await asyncio.sleep(chunk)
+            remaining -= chunk
+
     async def run(self):
         while True:
             try:
+                self._feed_watchdog()
                 now_local = datetime.now(self.local_tz)
                 self.ensure_summary_for_date(now_local.date())
                 next_run = datetime.combine(now_local.date() + timedelta(days=1), dtime(0, 0, 1), self.local_tz)
                 sleep_s = max((next_run - now_local).total_seconds(), 1.0)
             except Exception as exc:
+                self._feed_watchdog(error=True)
                 printDM(f"[daily-summary] loop error: {exc}", location=MODULE)
                 sleep_s = 60.0
-            await asyncio.sleep(sleep_s)
+            await self._sleep_with_heartbeat(sleep_s)

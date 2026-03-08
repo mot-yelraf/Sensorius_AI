@@ -488,7 +488,7 @@ async def main():
 
     # --- Always-on supervisors ---
     farmos_bridge = saiFarmOSBridge(settings=settings, data_logger=data_logger, supervisor=supervisor)
-    daily_summary_service = DailySummaryService(settings=settings, data_logger=data_logger)
+    daily_summary_service = DailySummaryService(settings=settings, data_logger=data_logger, supervisor=supervisor)
     try:
         daily_summary_service.ensure_summary_for_date(datetime.now(daily_summary_service.local_tz).date())
     except Exception as e:
