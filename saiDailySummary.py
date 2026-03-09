@@ -256,7 +256,7 @@ class DailySummaryService:
         return best.strftime("%H:%M")
 
     def _astral_summary_lines(self, summary_date: date) -> tuple[list[str], dict | None]:
-        lines = [f"Astral & Biodynamic for {summary_date.isoformat()}"]
+        lines = [f"Astral for {summary_date.isoformat()}"]
         biodynamic_day: dict | None = None
         astral_ok = (
             LocationInfo is not None
@@ -346,7 +346,7 @@ class DailySummaryService:
             return False
         prev_day = (summary_date - timedelta(days=1)).isoformat()
         expected_metrics_header = f"24 hr Metrics for {prev_day}"
-        expected_astral_header = f"Astral & Biodynamic for {summary_date.isoformat()}"
+        expected_astral_header = f"Astral for {summary_date.isoformat()}"
         expected_hints_header = "Biodynamic Hints"
         return (
             expected_metrics_header in body
