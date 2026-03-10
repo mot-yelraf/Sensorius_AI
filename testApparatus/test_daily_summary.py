@@ -56,7 +56,7 @@ class _FakeStats:
         }
 
 
-def test_build_summary_text_includes_metrics_and_biodynamic(monkeypatch):
+def test_build_summary_text_includes_hints_then_astral(monkeypatch):
     monkeypatch.setattr(
         saiDailySummary,
         "get_biodynamic_payload",
@@ -86,16 +86,15 @@ def test_build_summary_text_includes_metrics_and_biodynamic(monkeypatch):
 
     text = service.build_summary_text(date(2026, 3, 8))
 
-    assert "24 hr Metrics for 2026-03-07" in text
-    assert "AVPD-J21VXJ | Ambient VPD (kPa): avg 1.957 | min 1.901 | max 2.003" in text
-    assert "AVPD-J21VXJ | Temperature (°C): avg 23.59 | min 22.81 | max 23.63" in text
-    assert "Astral & Biodynamic for 2026-03-08" in text
-    assert "Astral location unavailable." in text
-    assert "Biodynamic: Leo Moon | Fire / Fruit" in text
-    assert "Zodiac: Leo" in text
     assert "Biodynamic Hints" in text
     assert "Suggestion: favor fruiting, seed-setting, and ripening observations." in text
     assert "higher VPD suggests avoiding unnecessary stress" in text
+    assert "Astral" in text
+    assert "Astral location unavailable." in text
+    assert "Biodynamic: Leo Moon | Fire / Fruit" in text
+    assert "Zodiac: Leo" in text
+    assert "24 hr Metrics for 2026-03-07" not in text
+    assert text.index("Biodynamic Hints") < text.index("Astral")
 
 
 def test_ensure_summary_for_date_writes_once(monkeypatch):
@@ -116,7 +115,7 @@ def test_ensure_summary_for_date_writes_once(monkeypatch):
 def test_ensure_summary_for_date_repairs_incomplete_existing_row(monkeypatch):
     monkeypatch.setattr(saiDailySummary, "get_biodynamic_payload", lambda anchor: {"ok": False, "reason": "unavailable"})
     logger = _FakeLogger()
-    logger.saved["2026-03-08"] = "24 hr Metrics for 2026-03-07\nNo display-metric data found for the previous day."
+    logger.saved["2026-03-08"] = "Astral\nAstral location unavailable."
     service = saiDailySummary.DailySummaryService(
         settings=_FakeSettings(),
         data_logger=logger,
@@ -125,5 +124,5 @@ def test_ensure_summary_for_date_repairs_incomplete_existing_row(monkeypatch):
     )
 
     assert service.ensure_summary_for_date(date(2026, 3, 8)) is True
-    assert "Astral & Biodynamic for 2026-03-08" in logger.saved["2026-03-08"]
     assert "Biodynamic Hints" in logger.saved["2026-03-08"]
+    assert "Astral" in logger.saved["2026-03-08"]

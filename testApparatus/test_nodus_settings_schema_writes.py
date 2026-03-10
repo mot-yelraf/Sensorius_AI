@@ -224,6 +224,19 @@ def test_build_picow_settings_updates_uses_profile_and_mqtt(monkeypatch):
     assert not any(item["section"] == "Network" and item["key"] == "BROKER" for item in updates)
 
 
+def test_build_picow_settings_updates_rewrites_ip_broker_to_hub_hostname(monkeypatch):
+    monkeypatch.setattr(saiAddDevice, "resolve_pi_wifi_credentials", lambda: ("MyWiFi", "secret"))
+    monkeypatch.setattr(saiAddDevice, "PI_HOSTNAME", "sensoria-hub-0")
+
+    updates = saiAddDevice.build_picow_settings_updates(
+        {"broker": "192.168.4.17"},
+        {"TZ": "America/Denver", "TZ_OFFSET": -25200, "TZ_NAME": "MST"},
+        "aqi-test",
+    )
+
+    assert {"section": "MQTT", "key": "BROKER", "value": "sensoria-hub-0.local"} in updates
+
+
 @pytest.mark.asyncio
 async def test_submit_sensor_settings_pushes_sensor_and_display_updates_for_nodus(tmp_path, monkeypatch):
     app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)

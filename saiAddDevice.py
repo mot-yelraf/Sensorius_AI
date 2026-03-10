@@ -17,13 +17,16 @@ PICOW_IFNAME       = "wlan0"
 PICOW_ADDR         = "192.168.4.1"
 HTTPPORT           = 8000
 ITAOT_INIT_URL     = f"http://{PICOW_ADDR}:{HTTPPORT}/itaot-init"
+ITAOT_META_URL     = f"http://{PICOW_ADDR}:{HTTPPORT}/itaot-meta"
 DEFAULT_ENCODING   = "base64"
 
 import os
 import re
+import json
 import time
 import asyncio
 import socket
+import ipaddress
 import base64
 import logging
 import platform
@@ -236,17 +239,78 @@ def _ssid_visible_linux(ssid: str, iface: str) -> bool:
             printDM(f"SSID scan failed: {e}", location=f"{MODULE}._ssid_visible_linux")
         return False
 
+def _mac_join_and_verify(ssid: str, password: str, iface: str) -> bool:
+    def _run(cmd: list[str], timeout: float = 12.0) -> subprocess.CompletedProcess:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+
+    def _connected_to_target() -> bool:
+        return _get_current_ssid().strip() == ssid.strip()
+
+    def _attempt_join() -> tuple[bool, str]:
+        cmd = ["networksetup", "-setairportnetwork", iface, ssid]
+        if password:
+            cmd.append(password)
+        proc = _run(cmd)
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout or "").strip()
+            return False, detail or f"returncode={proc.returncode}"
+        for _ in range(5):
+            if _connected_to_target():
+                return True, "connected"
+            time.sleep(1)
+        return False, "join issued but SSID did not become active"
+
+    if _connected_to_target():
+        return True
+
+    ok, detail = _attempt_join()
+    if ok:
+        return True
+
+    if DEBUG:
+        printDM(f"Primary macOS Wi-Fi join failed for {ssid}: {detail}", location=f"{MODULE}._mac_join_and_verify")
+
+    # Tahoe can expose ad-hoc setup SSIDs under "Other Networks"; adding a
+    # temporary preferred entry gives macOS a stronger hint before retrying.
+    security_modes = [("OPEN", "")]
+    if password:
+        security_modes = [("WPA2", password), ("WPA", password)]
+
+    for security, secret in security_modes:
+        try:
+            _run(["networksetup", "-removepreferredwirelessnetwork", iface, ssid], timeout=5.0)
+        except Exception:
+            pass
+
+        add_cmd = ["networksetup", "-addpreferredwirelessnetworkatindex", iface, ssid, "0", security]
+        if secret:
+            add_cmd.append(secret)
+        proc_add = _run(add_cmd, timeout=8.0)
+        if proc_add.returncode != 0 and DEBUG:
+            detail_add = (proc_add.stderr or proc_add.stdout or "").strip()
+            printDM(
+                f"Preferred network add failed for {ssid} [{security}]: {detail_add or proc_add.returncode}",
+                location=f"{MODULE}._mac_join_and_verify",
+            )
+
+        ok, detail = _attempt_join()
+        if ok:
+            return True
+        if DEBUG:
+            printDM(
+                f"macOS Wi-Fi retry failed for {ssid} [{security}]: {detail}",
+                location=f"{MODULE}._mac_join_and_verify",
+            )
+
+    return False
+
 def _connect_wifi(ssid: str, password: str, iface: str) -> bool:
     sys_name = _current_platform()
     if sys_name == "windows":
         return _windows_add_profile_and_connect(ssid, password, iface)
     if sys_name == "darwin":
-        cmd = ["networksetup", "-setairportnetwork", iface, ssid]
-        if password:
-            cmd.append(password)
         try:
-            subprocess.run(cmd, check=True, timeout=12)
-            return True
+            return _mac_join_and_verify(ssid, password, iface)
         except Exception as e:
             if DEBUG:
                 printDM(f"macOS Wi-Fi connect failed: {e}", location=f"{MODULE}._connect_wifi")
@@ -632,6 +696,11 @@ def reconnect_to_pi(max_attempts: int = 3, delay_sec: float = 3.0) -> tuple[bool
     current_info = get_pi_network_info()
     ssid_saved   = (current_info.get("ssid", "") or "").strip()
     psk_saved    = current_info.get("password", "") or ""
+    return reconnect_to_network(ssid_saved, psk_saved, max_attempts=max_attempts, delay_sec=delay_sec)
+
+def reconnect_to_network(ssid: str, password: str = "", max_attempts: int = 3, delay_sec: float = 3.0) -> tuple[bool, str]:
+    ssid_saved   = (ssid or "").strip()
+    psk_saved    = password or ""
     iface        = _wifi_interface_name()
     sys_name     = _current_platform()
 
@@ -639,43 +708,43 @@ def reconnect_to_pi(max_attempts: int = 3, delay_sec: float = 3.0) -> tuple[bool
         ssid_saved = _get_current_ssid()
 
     if DEBUG:
-        printDM(f"Reconnecting to Pi network: {ssid_saved}...", location=f"{MODULE}.reconnect_to_pi")
+        printDM(f"Reconnecting to network: {ssid_saved}...", location=f"{MODULE}.reconnect_to_network")
 
     if not ssid_saved:
-        printDM("No saved SSID to reconnect to.", location=f"{MODULE}.reconnect_to_pi")
+        printDM("No saved SSID to reconnect to.", location=f"{MODULE}.reconnect_to_network")
         return False, ""
 
     for attempt in range(1, max_attempts + 1):
         if DEBUG:
-            printDM(f"Attempt {attempt} to find {ssid_saved}...", location=f"{MODULE}.reconnect_to_pi")
+            printDM(f"Attempt {attempt} to find {ssid_saved}...", location=f"{MODULE}.reconnect_to_network")
 
         if sys_name == "linux":
             for _ in range(5):
                 if _ssid_visible_linux(ssid_saved, iface):
                     break
                 if DEBUG:
-                    printDM(f"Waiting for {ssid_saved} SSID to appear...", location=f"{MODULE}.reconnect_to_pi")
+                    printDM(f"Waiting for {ssid_saved} SSID to appear...", location=f"{MODULE}.reconnect_to_network")
                 time.sleep(1)
             else:
                 if DEBUG:
-                    printDM(f"SSID {ssid_saved} not visible after scan attempts.", location=f"{MODULE}.reconnect_to_pi")
+                    printDM(f"SSID {ssid_saved} not visible after scan attempts.", location=f"{MODULE}.reconnect_to_network")
                 continue
 
         if _connect_wifi(ssid_saved, "", iface):
             if DEBUG:
-                printDM(f"Reconnected to {ssid_saved} network successfully.", location=f"{MODULE}.reconnect_to_pi")
+                printDM(f"Reconnected to {ssid_saved} network successfully.", location=f"{MODULE}.reconnect_to_network")
             return True, ssid_saved
 
         if psk_saved and not _is_placeholder_psk(psk_saved) and _connect_wifi(ssid_saved, psk_saved, iface):
             if DEBUG:
-                printDM(f"Reconnected to {ssid_saved} network successfully.", location=f"{MODULE}.reconnect_to_pi")
+                printDM(f"Reconnected to {ssid_saved} network successfully.", location=f"{MODULE}.reconnect_to_network")
             return True, ssid_saved
 
         if DEBUG:
-            printDM(f"Reconnect attempt {attempt} failed.", location=f"{MODULE}.reconnect_to_pi")
+            printDM(f"Reconnect attempt {attempt} failed.", location=f"{MODULE}.reconnect_to_network")
         time.sleep(delay_sec)
 
-    printDM(f"Failed to reconnect to Pi network '{ssid_saved}' after {max_attempts} attempts.", location=f"{MODULE}.reconnect_to_pi")
+    printDM(f"Failed to reconnect to network '{ssid_saved}' after {max_attempts} attempts.", location=f"{MODULE}.reconnect_to_network")
     return False, ssid_saved
 
 # Keep alias so existing code doesn’t break
@@ -854,17 +923,26 @@ def _build_itaot_init_payload(
         "mqtt": {
             "broker_host": broker_host,
             "broker_port": broker_port,
-            "username": "",
-            "password": "",
-            "use_tls": False,
-            "active_profile": "sensorius",
-        },
-        "sensorius": {
-            "instance_id": PI_HOSTNAME or "sensorius",
-            "base_topic": "nodus",
-            "reply_topic": f"sensorius/{PI_HOSTNAME or 'sensorius'}/onboard/reply",
         },
     }
+
+
+def _hub_broker_hostname(preferred_broker: str = "", hub_hostname: str = "") -> str:
+    raw_broker = str(preferred_broker or "").strip()
+    raw_host = str(hub_hostname or "").strip() or PI_HOSTNAME
+    fallback_broker = mdns_hostname(raw_host)
+    if not raw_broker:
+        return fallback_broker
+
+    lowered = raw_broker.lower()
+    if lowered in {"localhost", "127.0.0.1", "::1", "[::1]"}:
+        return fallback_broker
+
+    try:
+        ipaddress.ip_address(raw_broker.strip("[]"))
+        return fallback_broker
+    except ValueError:
+        return raw_broker
 
 def _extract_device_id_from_init_result(result: Dict[str, Any], fallback_hostname: str) -> str:
     body = result.get("body") if isinstance(result, dict) else None
@@ -875,6 +953,50 @@ def _extract_device_id_from_init_result(result: Dict[str, Any], fallback_hostnam
         if val:
             return val
     return str(fallback_hostname or "").strip()
+
+def _extract_device_id_from_meta(payload: Dict[str, Any], fallback_hostname: str = "") -> str:
+    if not isinstance(payload, dict):
+        return str(fallback_hostname or "").strip()
+    for key in ("device_id", "hostname"):
+        val = str(payload.get(key) or "").strip()
+        if val:
+            return val
+    sensor_blob = payload.get("sensor") if isinstance(payload.get("sensor"), dict) else {}
+    for key in ("sensor_id", "hostname"):
+        val = str(sensor_blob.get(key) or "").strip()
+        if val:
+            return val
+    switch_blob = payload.get("switch") if isinstance(payload.get("switch"), dict) else {}
+    for key in ("switch_device_id", "device_id", "hostname"):
+        val = str(switch_blob.get(key) or "").strip()
+        if val:
+            return val
+    return str(fallback_hostname or "").strip()
+
+def get_itaot_meta(timeout_sec: float = 5.0) -> Dict[str, Any]:
+    """
+    Query AP-mode metadata before /itaot-init so Sensorius can use the
+    device-provided identity instead of inventing one from hub form fields.
+    """
+    try:
+        resp = requests.get(ITAOT_META_URL, timeout=timeout_sec)
+        status = int(getattr(resp, "status_code", 0) or 0)
+        body = None
+        try:
+            parsed = resp.json()
+            if isinstance(parsed, dict):
+                body = parsed
+        except Exception:
+            body = None
+        if DEBUG:
+            printDM(f"/itaot-meta response={resp}", location=f"{MODULE}.get_itaot_meta")
+        if status != 200:
+            return {"ok": False, "status_code": status, "body": body, "error": "non_200_response"}
+        if not isinstance(body, dict):
+            return {"ok": False, "status_code": status, "body": None, "error": "malformed_response"}
+        return {"ok": True, "status_code": status, "body": body, "error": ""}
+    except Exception as e:
+        return {"ok": False, "status_code": 0, "body": None, "error": str(e)}
 
 def post_itaot_init(payload: Dict[str, Any], timeout_sec: float = 8.0) -> Dict[str, Any]:
     """
@@ -888,8 +1010,17 @@ def post_itaot_init(payload: Dict[str, Any], timeout_sec: float = 8.0) -> Dict[s
         if not isinstance(payload, dict):
             return {"ok": False, "status_code": 0, "body": None, "error": "invalid_payload_type"}
 
-        resp = requests.post(ITAOT_INIT_URL, json=payload, timeout=timeout_sec)
+        raw_payload = json.dumps(payload, separators=(",", ":"))
+        resp = requests.post(
+            ITAOT_INIT_URL,
+            data=raw_payload,
+            headers={"Content-Type": "application/json"},
+            timeout=timeout_sec,
+        )
         status = int(getattr(resp, "status_code", 0) or 0)
+        if DEBUG:
+            printDM(f"/itaot-init payload={raw_payload } response={resp}", location=f"{MODULE}.post_itaot_init")
+
         body: Optional[Dict[str, Any]] = None
         try:
             body_obj = resp.json()
@@ -948,7 +1079,7 @@ def build_picow_settings_updates(
 ) -> list[Dict[str, Any]]:
     _hostname   = host
     ssid_resolved, psk_resolved = resolve_pi_wifi_credentials()
-    broker_val = pi_info.get("broker", "") or mdns_hostname(PI_HOSTNAME)
+    broker_val = _hub_broker_hostname(pi_info.get("broker", ""), PI_HOSTNAME)
 
     return [
         {"section": "Network", "key": "SSID",      "value": ssid_resolved},

@@ -161,15 +161,25 @@
   min-width: 0;
 }
 #setupPiModal .adv-debug-row {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: .3rem;
-  white-space: nowrap;
   margin: 0;
 }
 #setupPiModal .adv-debug-row input[type="checkbox"] {
   width: auto;
   margin: 0;
+}
+#setupPiModal .adv-debug-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+  max-height: 11.5rem;
+  overflow-y: auto;
+  padding: .55rem .65rem;
+  border: 1px solid #d6dfd8;
+  border-radius: 8px;
+  background: #fafdfb;
 }
 #setupPiModal .subhead {
   margin: 1rem 0 .5rem 0;
@@ -551,25 +561,26 @@
           <div class="settings-pane" id="pane-add" hidden>
             <h3 class="pane-title">Add Device</h3>
             <div class="status-text">Click <strong>Add</strong> to start onboarding a device.</div>
+            <div id="add-mac-hint" class="detail" hidden style="margin:.35rem 0 .8rem 0; padding:.6rem .8rem; border:1px solid #c9d7cf; border-radius:10px; background:#f4faf6;"></div>
             <ul class="onboard-steps">
               <li id="step-1" class="step pending">
                 <span class="icon">•</span>
-                <span class="label">Adding Device, this can take up to 30 seconds</span>
+                <span class="label">Connected to Nodus setup AP</span>
                 <div class="detail" id="step-1-detail"></div>
               </li>
               <li id="step-2" class="step pending">
                 <span class="icon">•</span>
-                <span class="label">Nodus setup connection established</span>
+                <span class="label">Bootstrap sent to Nodus</span>
                 <div class="detail" id="step-2-detail"></div>
               </li>
               <li id="step-3" class="step pending">
                 <span class="icon">•</span>
-                <span class="label"><span id="step-3-sensor">...</span> configured and rebooting</span>
+                <span class="label">Sensorius rejoined <span id="step-3-ssid">your Wi-Fi</span></span>
                 <div class="detail" id="step-3-detail"></div>
               </li>
               <li id="step-4" class="step pending">
                 <span class="icon">•</span>
-                <span class="label">Applying configuration and finalizing</span>
+                <span class="label">Waiting for Nodus to reboot and connect</span>
                 <div class="detail" id="step-4-detail"></div>
               </li>
             </ul>
@@ -582,7 +593,6 @@
                 <button type="button" class="button blue" id="btn-onboard-restart">Restart</button>
               </div>
               <div class="inline-actions">
-                <span id="add-scan-status" class="status-text" style="min-height:unset; margin:0;">Scanning for Nodus_Setup...</span>
                 <button type="button" class="button green" id="btn-onboard-add" disabled>Add</button>
               </div>
             </div>
@@ -643,7 +653,7 @@
 
               <div class="field-stack">
                 <label>SENSORIUS_DEBUG_MODULES</label>
-                <div id="adv-debug-modules" style="display:flex; flex-direction:row; flex-wrap:wrap; gap:.35rem .85rem; align-items:center;"></div>
+                <div id="adv-debug-modules" class="adv-debug-scroll"></div>
               </div>
 
               <div class="field-stack adv-span-all adv-center">
@@ -682,11 +692,14 @@
   let onboardWs = null;
   let onboardSessionId = "";
   let onboardPollTimer = null;
+  let onboardCountdownTimer = null;
+  let onboardCountdownDeadlineMs = 0;
   let addScanTimer = null;
   let addScanActive = false;
   let addScanAttempt = 0;
   const addScanMax = 5;
   const addScanDelayMs = 60000;
+  let addManualJoinRequired = false;
 
   function openSetupModal() {
     root.style.display = "flex";
@@ -702,6 +715,7 @@
       clearTimeout(onboardPollTimer);
       onboardPollTimer = null;
     }
+    stopOnboardCountdown();
   }
 
   window.openSetupModal = openSetupModal;
@@ -740,7 +754,10 @@
     if (paneId === "pane-locations" && !locationsLoaded) loadLocations();
     if (paneId === "pane-remove") loadRemovableDevices();
     if (paneId === "pane-advanced") loadAdvancedSettings();
-    if (paneId === "pane-add") startAddScan();
+    if (paneId === "pane-add") {
+      resetAddDevicePaneState();
+      startAddScan();
+    }
     if (paneId !== "pane-add") stopAddScan();
   }
 
@@ -1149,7 +1166,7 @@
     const ic = li.querySelector(".icon");
     if (ic) ic.textContent = ok ? "\u2713" : "\u2715";
 
-    if (label && step !== 3 && step !== 4) {
+    if (label && step !== 3) {
       const lab = li.querySelector(".label");
       if (lab) lab.textContent = label;
     }
@@ -1159,13 +1176,65 @@
     }
 
     if (step === 3 && label) {
-      const seg = label.split(" configured")[0];
-      const tgt = document.getElementById("step-3-sensor");
-      if (tgt) tgt.textContent = seg || "...";
+      const tgt = document.getElementById("step-3-ssid");
+      if (tgt) tgt.textContent = label || "your Wi-Fi";
     }
   }
 
+  function formatOnboardCountdown(totalSeconds) {
+    const safe = Math.max(0, Number(totalSeconds) || 0);
+    const mins = Math.floor(safe / 60);
+    const secs = safe % 60;
+    return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  }
+
+  function setOnboardCountdownLabel(totalSeconds) {
+    const li = document.getElementById("step-4");
+    if (!li) return;
+    const lab = li.querySelector(".label");
+    if (!lab) return;
+    lab.textContent = `Onboarding, waiting for Nodus "Hello"...${formatOnboardCountdown(totalSeconds)}`;
+  }
+
+  function stopOnboardCountdown() {
+    onboardCountdownDeadlineMs = 0;
+    if (onboardCountdownTimer) {
+      clearInterval(onboardCountdownTimer);
+      onboardCountdownTimer = null;
+    }
+  }
+
+  function restoreOnboardStepLabels() {
+    const step1 = document.querySelector("#step-1 .label");
+    if (step1) step1.textContent = "Connected to Nodus setup AP";
+    const step2 = document.querySelector("#step-2 .label");
+    if (step2) step2.textContent = "Bootstrap sent to Nodus";
+    const step3 = document.getElementById("step-3-ssid");
+    if (step3) step3.textContent = "your Wi-Fi";
+    const step4 = document.querySelector("#step-4 .label");
+    if (step4) step4.textContent = "Waiting for Nodus to reboot and connect";
+  }
+
+  function startOnboardCountdown(deadlineAtSec) {
+    const deadlineMs = Math.round(Number(deadlineAtSec || 0) * 1000);
+    if (!deadlineMs || deadlineMs <= 0) {
+      stopOnboardCountdown();
+      return;
+    }
+    onboardCountdownDeadlineMs = deadlineMs;
+    const tick = () => {
+      const remainingSec = Math.max(0, Math.ceil((onboardCountdownDeadlineMs - Date.now()) / 1000));
+      setOnboardCountdownLabel(remainingSec);
+      if (remainingSec <= 0) stopOnboardCountdown();
+    };
+    tick();
+    if (onboardCountdownTimer) clearInterval(onboardCountdownTimer);
+    onboardCountdownTimer = setInterval(tick, 1000);
+  }
+
   function resetOnboardUI() {
+    stopOnboardCountdown();
+    restoreOnboardStepLabels();
     for (let i = 1; i <= 4; i++) {
       const li = document.getElementById(`step-${i}`);
       if (li) {
@@ -1183,6 +1252,21 @@
       badge.textContent = "";
       badge.classList.remove("fail", "ok");
     }
+  }
+
+  function resetAddDevicePaneState() {
+    resetOnboardUI();
+    onboardSessionId = "";
+    if (onboardWs) {
+      try { onboardWs.close(); } catch (_e) {}
+      onboardWs = null;
+    }
+    if (onboardPollTimer) {
+      clearTimeout(onboardPollTimer);
+      onboardPollTimer = null;
+    }
+    setAddMacHint(null);
+    setAddScanStatus("Scanning for Nodus_Setup...");
   }
 
   function setOnboardBadge(text, kind) {
@@ -1220,48 +1304,86 @@
   function renderV2SessionState(session) {
     const state = String(session?.state || "");
     const reason = String(session?.failure_reason || "");
+    const localSsid = String(session?.local_ssid || "your Wi-Fi");
     const addBtn = document.getElementById("btn-onboard-add");
-    if (state === "AP_DISCOVERED" || state === "INIT_SENDING" || state === "INIT_SENT" || state === "WAITING_REBOOT") {
-      markOnboardStep(1, true, "Adding Device, this can take up to 30 seconds", state);
-      markPendingStep(2, "Nodus setup connection established", "Waiting for MQTT hello");
+    if (state === "AP_DISCOVERED") {
+      markPendingStep(1, "Connected to Nodus setup AP", "Connecting to Nodus setup network");
+      markPendingStep(2, "Bootstrap sent to Nodus", "");
+      markPendingStep(3, "your Wi-Fi", "");
+      markPendingStep(4, "Waiting for Nodus to reboot and connect", "");
+      stopOnboardCountdown();
+      return;
+    }
+    if (state === "INIT_SENDING") {
+      markOnboardStep(1, true, "Connected to Nodus setup AP", "Connected to Nodus setup network");
+      markPendingStep(2, "Bootstrap sent to Nodus", "Sending bootstrap");
+      markPendingStep(3, localSsid, "");
+      markPendingStep(4, "Waiting for Nodus to reboot and connect", "");
+      stopOnboardCountdown();
+      return;
+    }
+    if (state === "INIT_SENT") {
+      markOnboardStep(1, true, "Connected to Nodus setup AP", "Connected to Nodus setup network");
+      markOnboardStep(2, true, "Bootstrap sent to Nodus", "Bootstrap accepted");
+      markPendingStep(3, localSsid, "Rejoining local Wi-Fi");
+      markPendingStep(4, "Waiting for Nodus to reboot and connect", "");
+      stopOnboardCountdown();
+      return;
+    }
+    if (state === "WAITING_REBOOT") {
+      markOnboardStep(1, true, "Connected to Nodus setup AP", "Connected to Nodus setup network");
+      markOnboardStep(2, true, "Bootstrap sent to Nodus", "Bootstrap accepted");
+      markOnboardStep(3, localSsid, `Sensorius rejoined ${localSsid}`);
+      markPendingStep(4, "Waiting for Nodus to reboot and connect", "Waiting for Nodus reboot");
+      startOnboardCountdown(session?.hello_deadline_at || ((Date.now() / 1000) + 240));
       return;
     }
     if (state === "WAITING_MQTT_HELLO") {
-      markOnboardStep(1, true, "Adding Device, this can take up to 30 seconds", "Bootstrap sent");
-      markPendingStep(2, "Nodus setup connection established", "Waiting for hello");
+      markOnboardStep(1, true, "Connected to Nodus setup AP", "Connected to Nodus setup network");
+      markOnboardStep(2, true, "Bootstrap sent to Nodus", "Bootstrap accepted");
+      markOnboardStep(3, localSsid, `Sensorius rejoined ${localSsid}`);
+      markPendingStep(4, "Waiting for Nodus to reboot and connect", "Waiting for MQTT hello");
+      startOnboardCountdown(session?.hello_deadline_at || ((Date.now() / 1000) + 240));
       return;
     }
     if (state === "CONFIG_SENDING" || state === "WAITING_CONFIG_ACK") {
-      markOnboardStep(1, true, "Adding Device, this can take up to 30 seconds", "Bootstrap accepted");
-      markOnboardStep(2, true, "Nodus setup connection established", "MQTT hello received");
-      markPendingStep(3, "Device configured and rebooting", "Sending config");
+      markOnboardStep(1, true, "Connected to Nodus setup AP", "Connected to Nodus setup network");
+      markOnboardStep(2, true, "Bootstrap sent to Nodus", "Bootstrap accepted");
+      markOnboardStep(3, localSsid, `Sensorius rejoined ${localSsid}`);
+      markPendingStep(4, "Waiting for Nodus to reboot and connect", "MQTT hello received, sending config");
+      startOnboardCountdown(session?.hello_deadline_at || ((Date.now() / 1000) + 240));
       return;
     }
     if (state === "WAITING_CONFIG_RESULT") {
-      markOnboardStep(1, true, "Adding Device, this can take up to 30 seconds", "Bootstrap accepted");
-      markOnboardStep(2, true, "Nodus setup connection established", "Config ACK received");
-      markOnboardStep(3, true, "Device configured and rebooting", "Config accepted");
-      markPendingStep(4, "Applying configuration and finalizing", "Waiting for apply result");
+      markOnboardStep(1, true, "Connected to Nodus setup AP", "Connected to Nodus setup network");
+      markOnboardStep(2, true, "Bootstrap sent to Nodus", "Bootstrap accepted");
+      markOnboardStep(3, localSsid, `Sensorius rejoined ${localSsid}`);
+      markPendingStep(4, "Waiting for Nodus to reboot and connect", "Config ACK received, waiting for apply result");
+      startOnboardCountdown(session?.hello_deadline_at || ((Date.now() / 1000) + 240));
       return;
     }
     if (state === "ONLINE") {
-      markOnboardStep(1, true, "Adding Device, this can take up to 30 seconds", "Bootstrap accepted");
-      markOnboardStep(2, true, "Nodus setup connection established", "MQTT hello received");
-      markOnboardStep(3, true, "Device configured and rebooting", "Config sent");
-      markOnboardStep(4, true, "Applying configuration and finalizing", "Device online");
+      markOnboardStep(1, true, "Connected to Nodus setup AP", "Connected to Nodus setup network");
+      markOnboardStep(2, true, "Bootstrap sent to Nodus", "Bootstrap accepted");
+      markOnboardStep(3, localSsid, `Sensorius rejoined ${localSsid}`);
+      markOnboardStep(4, true, "Waiting for Nodus to reboot and connect", "Device online");
+      stopOnboardCountdown();
       setOnboardBadge("Device onboarded successfully.", "ok");
       if (addBtn && !addScanActive) addBtn.disabled = false;
       return;
     }
     if (state === "FAILED") {
       let failStep = 1;
-      if (reason.includes("hello")) failStep = 2;
-      if (reason.includes("config")) failStep = 4;
+      if (reason.includes("INIT_FAILED")) failStep = 2;
+      if (reason.includes("local_wifi_restore")) failStep = 3;
+      if (reason.includes("hello") || reason.includes("config")) failStep = 4;
       markOnboardStep(failStep, false, "Onboarding failed", reason || "failed");
+      stopOnboardCountdown();
       setOnboardBadge(`Onboarding failed: ${reason || "unknown error"}`, "fail");
       if (addBtn && !addScanActive) addBtn.disabled = false;
       return;
     }
+    stopOnboardCountdown();
     setOnboardBadge("", "");
   }
 
@@ -1341,7 +1463,10 @@
       const res = await fetch("/onboard-device/v2/start", { method: "POST", body: fd });
 
       if (!res.ok) {
-        markOnboardStep(1, false, "Failed to start onboarding", "HTTP " + res.status);
+        const jsErr = await res.json().catch(() => ({}));
+        const reason = String(jsErr?.detail || jsErr?.error || ("HTTP " + res.status));
+        if (jsErr?.session_id) onboardSessionId = String(jsErr.session_id || "");
+        markOnboardStep(1, false, "Failed to start onboarding", reason);
         if (addBtn) addBtn.disabled = false;
         return;
       }
@@ -1417,6 +1542,24 @@
     }
   }
 
+  function setAddMacHint(js) {
+    const el = document.getElementById("add-mac-hint");
+    if (!el) return;
+    const targetSsid = (js && js.ssid) ? String(js.ssid) : "Nodus_Setup";
+    const password = (js && js.password) ? String(js.password) : "";
+    const currentSsid = (js && js.current_ssid) ? String(js.current_ssid) : "";
+    const manual = !!(js && js.manual_join_required);
+    addManualJoinRequired = manual;
+    if (!manual) {
+      el.hidden = true;
+      el.textContent = "";
+      return;
+    }
+    el.hidden = false;
+    const currentText = currentSsid ? `Current Wi-Fi: ${currentSsid}. ` : "";
+    el.textContent = `${currentText}On macOS, join ${targetSsid} manually from Other Networks, then return here and click Add. Password: ${password || "(none)"}`;
+  }
+
   function setAddScanStatus(msg) {
     const el = document.getElementById("add-scan-status");
     if (el) el.textContent = msg || "";
@@ -1434,21 +1577,29 @@
     if (!addScanActive) return;
     const addBtn = document.getElementById("btn-onboard-add");
     if (addBtn) addBtn.disabled = true;
-    addScanAttempt += 1;
-    setAddScanStatus(`Scanning for Nodus_Setup (${addScanAttempt}/${addScanMax})...`);
 
     try {
       const resp = await fetch("/scan-nodus-setup", { cache: "no-store" });
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       const js = await resp.json();
       const targetSsid = (js && js.ssid) ? js.ssid : "Nodus_Setup";
+      const platformName = (js && js.platform) ? String(js.platform) : "";
       const detailMsg = (js && js.message) ? String(js.message) : "no scan details";
+      setAddMacHint(js);
       if (js && js.found) {
-        setAddScanStatus(`${targetSsid} found`);
+        setAddScanStatus(platformName === "Darwin" ? `${targetSsid} connected. Click Add.` : `${targetSsid} found`);
         if (addBtn) addBtn.disabled = false;
         stopAddScan();
         return;
       }
+      if (platformName === "Darwin") {
+        setAddScanStatus(detailMsg);
+        if (addBtn) addBtn.disabled = true;
+        addScanTimer = setTimeout(scanAddAttempt, 3000);
+        return;
+      }
+      addScanAttempt += 1;
+      setAddScanStatus(`Scanning for ${targetSsid} (${addScanAttempt}/${addScanMax})...`);
       if (addScanAttempt >= addScanMax) {
         // Do not hard-block onboarding: macOS scan visibility can fail even when connect works.
         setAddScanStatus(`${targetSsid} not found by scanner (${detailMsg}). You can still click Add.`);
@@ -1479,6 +1630,7 @@
     addScanAttempt = 0;
     const addBtn = document.getElementById("btn-onboard-add");
     if (addBtn) addBtn.disabled = true;
+    setAddMacHint(null);
     setAddScanStatus("Scanning for Nodus_Setup...");
     scanAddAttempt();
   }
@@ -1629,12 +1781,7 @@
       restartOnboardSession();
     }
     if (ev.target && ev.target.id === "btn-onboard-reset") {
-      resetOnboardUI();
-      onboardSessionId = "";
-      if (onboardPollTimer) {
-        clearTimeout(onboardPollTimer);
-        onboardPollTimer = null;
-      }
+      resetAddDevicePaneState();
       if (!addScanActive) startAddScan();
     }
     if (ev.target && ev.target.id === "remove-device-run") {

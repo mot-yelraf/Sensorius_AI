@@ -136,6 +136,155 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
         return dt >= (now - window)
 
+    _METRIC_POSITION_SECTION = "MetricPosition"
+
+    def _strip_local_suffix(name: str) -> str:
+        return normalize_hostname_base(name)
+
+    def _is_switch_id(name: str) -> bool:
+        s = (name or "").strip()
+        n = s.lower()
+        if n.startswith("switch_") or n.startswith("switch-"):
+            return True
+        return bool(re.match(r"^S\d+-[A-Za-z0-9][A-Za-z0-9._-]*$", s))
+
+    def _is_valid_sensor_id(name: str) -> bool:
+        s = (name or "").strip()
+        if not s:
+            return False
+        if _is_switch_id(s):
+            return False
+        return bool(re.match(r"^[A-Za-z0-9._-]+$", s))
+
+    def _normalize_available_sensor_ids(sensor_ids_local: list[str], discovered: list[str]) -> list[str]:
+        order_preserve: list[str] = []
+        seen_local: set[str] = set()
+
+        def _add(x: str):
+            if x not in seen_local:
+                seen_local.add(x)
+                order_preserve.append(x)
+
+        for sid in sensor_ids_local:
+            if _is_valid_sensor_id(sid):
+                _add(sid)
+
+        for host in discovered or []:
+            base = _strip_local_suffix(host)
+            if _is_valid_sensor_id(base):
+                _add(base)
+
+        return sorted(order_preserve)
+
+    def _get_dashboard_sensor_map():
+        sm = getattr(app.state, "sensor_map", None)
+        if sm is None:
+            import saiWebRoutes as routes
+            sm = getattr(routes, "sensor_map", None)
+        return sm
+
+    def _get_local_sensor_ids() -> list[str]:
+        from collections.abc import Iterable
+
+        sm = _get_dashboard_sensor_map()
+        if isinstance(sm, dict):
+            return [k for k in sm.keys() if isinstance(k, str) and k.strip()]
+        if isinstance(sm, Iterable):
+            ids = []
+            for s in sm:
+                sid = getattr(s, "sensor_id", None)
+                if isinstance(sid, str) and sid.strip():
+                    ids.append(sid)
+            return ids
+        return []
+
+    def _current_dashboard_sensor_ids() -> list[str]:
+        sensors_from_logger = data_logger.get_available_sensors()
+        mqtt_discovered = mqtt_ingest.get_known_devices() if mqtt_ingest else []
+        merged_local = list(_get_local_sensor_ids() or [])
+        for sid in (sensors_from_logger or []):
+            if sid and sid not in merged_local:
+                merged_local.append(sid)
+        available = _normalize_available_sensor_ids(merged_local, list(mqtt_discovered or []))
+        return [sid for sid in available if _is_recent_sensor(sid)]
+
+    def _load_metric_position_section() -> OrderedDict[str, int]:
+        fresh_settings = saiSettings(apply_live=False)
+        raw = fresh_settings.get_section(_METRIC_POSITION_SECTION, reload_if_changed=True)
+        out: OrderedDict[str, int] = OrderedDict()
+        if not isinstance(raw, dict):
+            return out
+        for sensor_id, pos_raw in raw.items():
+            sid = str(sensor_id or "").strip()
+            if not sid:
+                continue
+            try:
+                pos = int(pos_raw)
+            except Exception:
+                continue
+            if pos < 1:
+                continue
+            out[sid] = pos
+        return out
+
+    def _save_metric_positions(sensor_ids: list[str]) -> bool:
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for raw in sensor_ids or []:
+            sid = str(raw or "").strip()
+            if not sid or sid in seen:
+                continue
+            seen.add(sid)
+            deduped.append(sid)
+
+        desired = OrderedDict((sid, idx + 1) for idx, sid in enumerate(deduped))
+        fresh_settings = saiSettings(apply_live=False)
+        current = fresh_settings.get_section(_METRIC_POSITION_SECTION, reload_if_changed=True)
+        current_items = list(current.items()) if isinstance(current, dict) else []
+        desired_items = list(desired.items())
+        if current_items == desired_items:
+            return False
+
+        if desired:
+            fresh_settings.settings[_METRIC_POSITION_SECTION] = desired
+        else:
+            fresh_settings.settings.pop(_METRIC_POSITION_SECTION, None)
+        fresh_settings._dirty = True
+        fresh_settings.save_settings()
+        return True
+
+    def _persist_visible_metric_order(sensor_ids: list[str]) -> bool:
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for raw in sensor_ids or []:
+            sid = str(raw or "").strip()
+            if not sid or sid in seen:
+                continue
+            seen.add(sid)
+            deduped.append(sid)
+
+        stored = _load_metric_position_section()
+        hidden = [sid for sid in stored.keys() if sid not in seen]
+        return _save_metric_positions(deduped + hidden)
+
+    def _order_sensor_ids_by_metric_position(sensor_ids: list[str]) -> list[str]:
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for raw in sensor_ids or []:
+            sid = str(raw or "").strip()
+            if not sid or sid in seen:
+                continue
+            seen.add(sid)
+            deduped.append(sid)
+
+        stored = _load_metric_position_section()
+        with_saved = [sid for sid in deduped if sid in stored]
+        with_saved.sort(key=lambda sid: (stored.get(sid, 10**9), sid.lower()))
+        new_ids = [sid for sid in deduped if sid not in stored]
+        ordered = with_saved + new_ids
+        _persist_visible_metric_order(ordered)
+        return ordered
+
     def _moon_phase_name(phase_val: float) -> str:
         p = phase_val % 28.0
 
@@ -512,6 +661,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         "saiHtml",
         "saiSwitch",
         "saiWebRoutes",
+        "saiAddDevice",
+        "saiSettings",
+        "saiCalibration",
     ]
 
     def _read_env_pairs(path: Path) -> list[tuple[str, str]]:
@@ -1101,6 +1253,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     if (loc or "").strip().lower() == selected_location
                 ]
 
+            available = _order_sensor_ids_by_metric_position(available)
+
             if DEBUG:
                 now_mono = time.monotonic()
                 if (now_mono - _cdp_debug_last_log) >= _CDP_DEBUG_MIN_INTERVAL_SEC:
@@ -1493,6 +1647,38 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             ),
             media_type="text/html"
         )
+
+    @router.post("/dashboard/metric-position")
+    async def dashboard_metric_position(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+
+        sensor_id = str(body.get("sensor_id", "") or "").strip()
+        direction = str(body.get("direction", "") or "").strip().lower()
+        if not sensor_id:
+            return JSONResponse({"error": "missing_sensor_id"}, status_code=400)
+        if direction not in {"up", "down"}:
+            return JSONResponse({"error": "invalid_direction"}, status_code=400)
+
+        ordered = _order_sensor_ids_by_metric_position(_current_dashboard_sensor_ids())
+        if sensor_id not in ordered:
+            return JSONResponse({"error": "sensor_not_found"}, status_code=404)
+
+        idx = ordered.index(sensor_id)
+        if direction == "up":
+            if idx <= 0:
+                return JSONResponse({"status": "ok", "sensor_id": sensor_id, "moved": False, "order": ordered})
+            swap_idx = idx - 1
+        else:
+            if idx >= (len(ordered) - 1):
+                return JSONResponse({"status": "ok", "sensor_id": sensor_id, "moved": False, "order": ordered})
+            swap_idx = idx + 1
+
+        ordered[idx], ordered[swap_idx] = ordered[swap_idx], ordered[idx]
+        _persist_visible_metric_order(ordered)
+        return JSONResponse({"status": "ok", "sensor_id": sensor_id, "moved": True, "order": ordered})
 
     # graph data full screen with upto three y-axis or the small single y-axis graph overly on top of the gauge
     @router.get("/graph-data", response_class=JSONResponse)
@@ -2623,17 +2809,30 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         ssid: str,
         password: str,
         hostname: str,
+        broker_host_override: str | None = None,
     ) -> Dict[str, Any]:
-        broker_host = str(settings.get_setting("SensorNetwork", "BROKER", "") or "").strip()
-        broker_port_raw = settings.get_setting("MQTT", "PORT", 1883)
+        def _normalize_broker_host(raw_host: str, fallback_host: str) -> str:
+            import saiAddDevice
+
+            return saiAddDevice._hub_broker_hostname(raw_host, fallback_host)
+
+        instance_id = (
+            str(settings.get_setting("Network", "HOSTNAME", "") or "").strip()
+            or socket.gethostname().strip()
+            or "sensorius"
+        )
+        fallback_broker_host = instance_id
+        broker_host = _normalize_broker_host(
+            broker_host_override if broker_host_override is not None else settings.get_setting("SensorNetwork", "BROKER", ""),
+            fallback_broker_host,
+        )
+        broker_port_raw = settings.get_setting("SensorNetwork", "MQTTPORT", 1883)
         try:
             broker_port = int(broker_port_raw)
         except Exception:
             broker_port = 1883
-        mqtt_user = str(settings.get_setting("MQTT", "USERNAME", "") or "").strip()
-        mqtt_password = str(settings.get_setting("MQTT", "PASSWORD", "") or "")
-        use_tls = bool(settings.get_setting("MQTT", "USE_TLS", False))
-        instance_id = socket.gethostname().strip() or "sensorius"
+        if broker_port <= 0:
+            broker_port = 1883
         payload: Dict[str, Any] = {
             "onboard_token": onboard_token,
             "ssid": ssid,
@@ -2642,15 +2841,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "mqtt": {
                 "broker_host": broker_host,
                 "broker_port": broker_port,
-                "username": mqtt_user,
-                "password": mqtt_password,
-                "use_tls": use_tls,
-                "active_profile": "sensorius",
-            },
-            "sensorius": {
-                "instance_id": instance_id,
-                "base_topic": "nodus",
-                "reply_topic": f"sensorius/{instance_id}/onboard/reply",
             },
         }
         return payload
@@ -2669,7 +2859,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return True
 
     def _onboarding_timeouts() -> Dict[str, float]:
-        hello_timeout = float(settings.get_setting("Onboarding", "HELLO_TIMEOUT_SEC", 60) or 60)
+        hello_timeout = float(settings.get_setting("Onboarding", "HELLO_TIMEOUT_SEC", 240) or 240)
         ack_timeout = float(settings.get_setting("Onboarding", "ACK_TIMEOUT_SEC", 10) or 10)
         result_timeout = float(settings.get_setting("Onboarding", "RESULT_TIMEOUT_SEC", 30) or 30)
         retry_backoff = float(settings.get_setting("Onboarding", "CONFIG_SET_BACKOFF_MS", 1500) or 1500) / 1000.0
@@ -2996,7 +3186,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         local_ssid = str(form.get("local_ssid", "") or "").strip()
         local_password = str(form.get("local_password", "") or "")
         requested_device_id = str(form.get("device_id", "") or "").strip()
-        hostname = requested_device_id or str(form.get("hostname", "") or "").strip() or f"nodus-{uuid4().hex[:8]}"
+        hostname = requested_device_id or f"nodus-{uuid4().hex[:8]}"
 
         session_id = uuid4().hex
         issued = onboarding_tokens.issue_token(
@@ -3006,26 +3196,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         )
         token = issued["token"]
         onboarding_store.set_state(session_id, OnboardingStates.AP_DISCOVERED)
-
-        ok_ap = False
-        try:
-            ok_ap = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: saiAddDevice.connect_to_sensor_ap(target_ap, target_ap_password, attempts=3),
-            )
-        except Exception as e:
-            onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason=f"ap_connect_error:{e}")
-            return JSONResponse(
-                {"ok": False, "session_id": session_id, "state": OnboardingStates.FAILED, "error": "ap_connect_error"},
-                status_code=502,
-            )
-
-        if not ok_ap:
-            onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="ap_connect_failed")
-            return JSONResponse(
-                {"ok": False, "session_id": session_id, "state": OnboardingStates.FAILED, "error": "ap_connect_failed"},
-                status_code=502,
-            )
 
         if not local_ssid:
             try:
@@ -3039,13 +3209,113 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             except Exception:
                 pass
 
+        async def _restore_local_wifi_on_failure() -> None:
+            restore_ssid = (local_ssid or "").strip()
+            if not restore_ssid:
+                return
+            try:
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: saiAddDevice.reconnect_to_network(restore_ssid, local_password, max_attempts=3, delay_sec=1.5),
+                )
+            except Exception as e:
+                printDM(f"[onboard-v2] failed to restore Wi-Fi '{restore_ssid}': {e}", location="saiWebRoutes")
+
+        async def _restore_local_wifi_on_success() -> tuple[bool, str]:
+            restore_ssid = (local_ssid or "").strip()
+            if not restore_ssid:
+                return False, ""
+            try:
+                ok_restore, resolved_ssid = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: saiAddDevice.reconnect_to_network(restore_ssid, local_password, max_attempts=5, delay_sec=2.0),
+                )
+                return bool(ok_restore), str(resolved_ssid or restore_ssid).strip()
+            except Exception as e:
+                printDM(f"[onboard-v2] failed to restore Wi-Fi '{restore_ssid}' after bootstrap: {e}", location="saiWebRoutes")
+                return False, restore_ssid
+
+        ok_ap = False
+        current_ap_ssid = ""
+        try:
+            current_ap_ssid = await asyncio.get_event_loop().run_in_executor(
+                None,
+                getattr(saiAddDevice, "_get_current_ssid"),
+            )
+        except Exception:
+            current_ap_ssid = ""
+
+        if platform.system().lower() == "darwin":
+            ok_ap = (current_ap_ssid or "").strip() == target_ap
+            if not ok_ap:
+                onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="manual_join_required")
+                _emit_onboarding_event("onboarding_failed", session_id=session_id, detail="manual_join_required")
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "session_id": session_id,
+                        "state": OnboardingStates.FAILED,
+                        "error": "manual_join_required",
+                        "detail": f"Join {target_ap} manually from Other Networks using password '{target_ap_password or saiAddDevice.PICOW_AP_PASSWORD}'",
+                    },
+                    status_code=400,
+                )
+        else:
+            try:
+                ok_ap = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: saiAddDevice.connect_to_sensor_ap(target_ap, target_ap_password, attempts=3),
+                )
+            except Exception as e:
+                onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason=f"ap_connect_error:{e}")
+                _emit_onboarding_event("onboarding_failed", session_id=session_id, detail=f"ap_connect_error:{e}")
+                return JSONResponse(
+                    {"ok": False, "session_id": session_id, "state": OnboardingStates.FAILED, "error": "ap_connect_error"},
+                    status_code=502,
+                )
+
+        if not ok_ap:
+            onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="ap_connect_failed")
+            _emit_onboarding_event("onboarding_failed", session_id=session_id, detail="ap_connect_failed")
+            return JSONResponse(
+                {"ok": False, "session_id": session_id, "state": OnboardingStates.FAILED, "error": "ap_connect_failed"},
+                status_code=502,
+            )
+
         if not local_ssid:
+            await _restore_local_wifi_on_failure()
             onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="missing_local_ssid")
             _emit_onboarding_event("onboarding_failed", session_id=session_id, detail="missing_local_ssid")
             return JSONResponse(
                 {"ok": False, "session_id": session_id, "state": OnboardingStates.FAILED, "error": "missing_local_ssid"},
                 status_code=400,
             )
+
+        meta_result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: saiAddDevice.get_itaot_meta(timeout_sec=5.0),
+        )
+        meta_body = meta_result.get("body") if isinstance(meta_result, dict) else None
+        if not bool(meta_result.get("ok", False)):
+            await _restore_local_wifi_on_failure()
+            onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="meta_fetch_failed")
+            _emit_onboarding_event("onboarding_failed", session_id=session_id, detail=f"meta_fetch_failed:{meta_result.get('error', '')}")
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "session_id": session_id,
+                    "state": OnboardingStates.FAILED,
+                    "error": "meta_fetch_failed",
+                    "detail": str(meta_result.get("error", "")),
+                },
+                status_code=502,
+            )
+
+        meta_device_id = saiAddDevice._extract_device_id_from_meta(meta_body or {}, requested_device_id or hostname)
+        if meta_device_id:
+            hostname = meta_device_id
+        if not requested_device_id:
+            requested_device_id = meta_device_id
 
         onboarding_store.set_state(session_id, OnboardingStates.INIT_SENDING)
         _emit_onboarding_event("onboarding_init_sent", session_id=session_id, detail=hostname)
@@ -3060,6 +3330,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             lambda: saiAddDevice.post_itaot_init(init_payload, timeout_sec=11.0),
         )
         if not bool(init_result.get("ok", False)):
+            await _restore_local_wifi_on_failure()
             onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="INIT_FAILED")
             _emit_onboarding_event("onboarding_failed", session_id=session_id, detail=f"INIT_FAILED:{init_result.get('error', '')}")
             return JSONResponse(
@@ -3073,9 +3344,30 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 status_code=502,
             )
 
+        onboarding_store.update_session(session_id, local_ssid=local_ssid)
         onboarding_store.set_state(session_id, OnboardingStates.INIT_SENT)
         _emit_onboarding_event("onboarding_init_ack", session_id=session_id, detail=hostname)
-        onboarding_store.set_state(session_id, OnboardingStates.WAITING_REBOOT)
+        ok_restore, restored_ssid = await _restore_local_wifi_on_success()
+        if not ok_restore:
+            onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="local_wifi_restore_failed")
+            _emit_onboarding_event("onboarding_failed", session_id=session_id, detail=f"local_wifi_restore_failed:{restored_ssid or local_ssid}")
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "session_id": session_id,
+                    "state": OnboardingStates.FAILED,
+                    "error": "local_wifi_restore_failed",
+                    "detail": str(restored_ssid or local_ssid or ""),
+                },
+                status_code=502,
+            )
+
+        onboarding_store.update_session(
+            session_id,
+            state=OnboardingStates.WAITING_REBOOT,
+            local_ssid=str(restored_ssid or local_ssid or "").strip(),
+            local_wifi_restored_at=time.time(),
+        )
         hello_deadline = time.time() + float(_onboarding_timeouts()["hello_timeout_sec"])
         onboarding_store.update_session(session_id, state=OnboardingStates.WAITING_MQTT_HELLO, hello_deadline_at=hello_deadline)
         _ensure_v2_session_monitor(session_id)
@@ -3086,6 +3378,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "state": OnboardingStates.WAITING_MQTT_HELLO,
                 "token_expires_at": issued.get("expires_at"),
                 "expected_device_id": requested_device_id,
+                "local_ssid": str(restored_ssid or local_ssid or "").strip(),
             }
         )
 
@@ -4899,19 +5192,35 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     @router.get("/scan-nodus-setup")
     async def scan_nodus_setup(ssid: str = Query(None)):
         target_ssid = (ssid or "").strip()
+        ap_password = ""
+        current_ssid = ""
         if not target_ssid:
             try:
                 import saiAddDevice
                 target_ssid = (getattr(saiAddDevice, "PICOW_AP_SSID", "") or "").strip()
+                ap_password = str(getattr(saiAddDevice, "PICOW_AP_PASSWORD", "") or "")
+                current_ssid = await asyncio.to_thread(getattr(saiAddDevice, "_get_current_ssid", lambda: ""))
             except Exception:
                 target_ssid = ""
         if not target_ssid:
             target_ssid = "Nodus_Setup"
         found, msg = await asyncio.to_thread(_scan_for_ssid, target_ssid)
+        sys_name = platform.system()
+        manual_join_required = False
+        if sys_name.lower() == "darwin":
+            manual_join_required = True
+            found = (current_ssid or "").strip() == target_ssid
+            if found:
+                msg = "macOS connected to Nodus_Setup"
+            else:
+                msg = "Join Nodus_Setup manually from Other Networks, then return to Sensorius and click Add"
         return JSONResponse({
             "ssid": target_ssid,
+            "password": ap_password,
             "found": bool(found),
-            "platform": platform.system(),
+            "platform": sys_name,
+            "current_ssid": str(current_ssid or "").strip(),
+            "manual_join_required": manual_join_required,
             "message": msg,
         })
 

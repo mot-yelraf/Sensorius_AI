@@ -29,16 +29,7 @@ Do **not** add new persistent keys to Nodus `settings.toml` for onboarding state
   "hostname": "aqi-x943fm",
   "mqtt": {
     "broker_host": "sensorius-broker.local",
-    "broker_port": 1883,
-    "username": "",
-    "password": "",
-    "use_tls": false,
-    "active_profile": "sensorius"
-  },
-  "sensorius": {
-    "instance_id": "sensorius-main",
-    "base_topic": "nodus",
-    "reply_topic": "sensorius/onboard/reply"
+    "broker_port": 1883
   }
 }
 ```

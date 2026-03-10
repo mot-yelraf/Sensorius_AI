@@ -19,6 +19,11 @@ body{
   color:var(--text);
 }
 
+.modal-busy-cursor,
+.modal-busy-cursor *{
+  cursor: wait !important;
+}
+
 /* Utility & minor effects */
 #update_time { transition: color 0.6s ease; }
 .flash-green { color: green !important; }
@@ -71,6 +76,111 @@ body{
   align-items:flex-start;
   gap:1rem;
   width:100%;
+}
+
+.sensor-group-header{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:.55rem;
+  width:100%;
+  margin-top:1rem;
+}
+
+.sensor-group-title{
+  margin:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-wrap:wrap;
+  gap:.15rem;
+  text-align:center;
+}
+
+.sensor-group.moving{
+  opacity:.7;
+  transition:opacity 120ms ease;
+}
+
+.sensor-order-wrap{
+  position:relative;
+  display:flex;
+  align-items:center;
+}
+
+.sensor-order-btn{
+  width:32px;
+  height:32px;
+  border:0;
+  border-radius:8px;
+  background:transparent;
+  color:#334155;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  padding:0;
+  outline:none;
+  box-shadow:none;
+}
+
+.sensor-order-btn:hover,
+.sensor-order-wrap.open .sensor-order-btn{
+  background:#eef4ff;
+}
+
+.sensor-order-btn:focus,
+.sensor-order-btn:focus-visible{
+  outline:none;
+  box-shadow:none;
+}
+
+.sensor-order-bars{
+  display:inline-flex;
+  flex-direction:column;
+  gap:3px;
+}
+
+.sensor-order-bars span{
+  display:block;
+  width:14px;
+  height:2px;
+  border-radius:999px;
+  background:currentColor;
+}
+
+.sensor-order-menu{
+  position:absolute;
+  top:calc(100% + 6px);
+  right:0;
+  display:none;
+  flex-direction:column;
+  min-width:120px;
+  padding:6px;
+  border:1px solid #cbd5e1;
+  border-radius:10px;
+  background:#fff;
+  box-shadow:0 10px 24px rgba(15, 23, 42, 0.16);
+  z-index:25;
+}
+
+.sensor-order-wrap.open .sensor-order-menu{
+  display:flex;
+}
+
+.sensor-order-item{
+  border:0;
+  background:transparent;
+  color:#111827;
+  padding:.45rem .55rem;
+  border-radius:8px;
+  text-align:left;
+  cursor:pointer;
+  font:inherit;
+}
+
+.sensor-order-item:hover{
+  background:#eef4ff;
 }
 
 /* Metric card */

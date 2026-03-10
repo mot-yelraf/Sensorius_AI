@@ -17,6 +17,12 @@ body{
   justify-content:center;
   gap:2rem;
 }
+
+.modal-busy-cursor,
+.modal-busy-cursor *{
+  cursor: wait !important;
+}
+
 #update_time{ transition: color 0.6s ease; }
 .flash-green{ color: green !important; }
 .flash-red{ color: red !important; }

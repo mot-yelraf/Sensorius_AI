@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+import subprocess
 
 import pytest
 from fastapi import FastAPI
@@ -69,6 +70,58 @@ class _FakeGcMgr:
     pass
 
 
+@pytest.fixture(autouse=True)
+def _default_platform_linux(monkeypatch):
+    monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(
+        "saiAddDevice.get_itaot_meta",
+        lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-123"}, "error": ""},
+    )
+    monkeypatch.setattr(saiWebRoutes.subprocess, "run", lambda *a, **k: _cp(stdout="10.0.0.246"))
+
+
+def _cp(returncode: int = 0, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
+    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
+
+
+@pytest.mark.asyncio
+async def test_scan_nodus_setup_marks_macos_miss_inconclusive(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    class _TmpStore(OnboardingSessionStore):
+        def __init__(self, base_dir: str = "system_settings"):
+            super().__init__(base_dir=str(tmp_path))
+
+    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr("saiAddDevice.PICOW_AP_SSID", "Nodus_Setup")
+    monkeypatch.setattr("saiAddDevice.PICOW_AP_PASSWORD", "password")
+    monkeypatch.setattr("saiAddDevice._get_current_ssid", lambda: "ExampleWiFi")
+
+    async def _fake_to_thread(func, *args, **kwargs):
+        if not args and not kwargs:
+            return func(*args, **kwargs)
+        return False, "ok"
+
+    monkeypatch.setattr(saiWebRoutes.asyncio, "to_thread", _fake_to_thread)
+
+    app = FastAPI()
+    settings = _FakeSettings()
+    ingest = _FakeIngest()
+    await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/scan-nodus-setup")
+        assert res.status_code == 200
+        body = res.json()
+        assert body.get("found") is False
+        assert body.get("platform") == "Darwin"
+        assert body.get("password") == "password"
+        assert body.get("current_ssid") == "ExampleWiFi"
+        assert body.get("manual_join_required") is True
+        assert "Other Networks" in body.get("message", "")
+
+
 @pytest.mark.asyncio
 async def test_v2_start_and_session_and_retry(tmp_path, monkeypatch):
     monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
@@ -88,8 +141,11 @@ async def test_v2_start_and_session_and_retry(tmp_path, monkeypatch):
 
     monkeypatch.setattr(OnboardingTokenManager, "issue_token", _issue_known)
     monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-test-1"}, "error": ""})
     monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
     monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
+    monkeypatch.setattr(saiWebRoutes.subprocess, "run", lambda *a, **k: _cp(stdout="10.0.0.246 192.168.4.1"))
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -108,10 +164,185 @@ async def test_v2_start_and_session_and_retry(tmp_path, monkeypatch):
         assert sess.status_code == 200
         sess_doc = sess.json()
         assert sess_doc.get("state") == "WAITING_MQTT_HELLO"
+        assert sess_doc.get("local_ssid") == "MyWiFi"
 
         retry = await client.post(f"/onboard-device/v2/retry/{sid}")
         assert retry.status_code == 200
         assert retry.json().get("ok") is True
+
+
+@pytest.mark.asyncio
+async def test_v2_start_resolves_local_wifi_before_ap_connect(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    class _TmpStore(OnboardingSessionStore):
+        def __init__(self, base_dir: str = "system_settings"):
+            super().__init__(base_dir=str(tmp_path))
+
+    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+
+    calls: list[str] = []
+
+    def _resolve():
+        calls.append("resolve")
+        return "MyWiFi", "my-password"
+
+    def _connect(*_args, **_kwargs):
+        calls.append("connect")
+        return True
+
+    def _reconnect(ssid: str, password: str = "", **_kwargs):
+        calls.append(f"reconnect:{ssid}")
+        return True, ssid
+
+    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", _resolve)
+    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", _connect)
+    monkeypatch.setattr("saiAddDevice.reconnect_to_network", _reconnect)
+    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-test-order"}, "error": ""})
+    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr(saiWebRoutes.subprocess, "run", lambda *a, **k: _cp(stdout="10.0.0.246"))
+
+    app = FastAPI()
+    settings = _FakeSettings()
+    ingest = _FakeIngest()
+    await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/onboard-device/v2/start", data={"hostname": "aqi-test-order"})
+        assert res.status_code == 200
+
+    assert calls[:3] == ["resolve", "connect", "reconnect:MyWiFi"]
+
+
+@pytest.mark.asyncio
+async def test_v2_start_prefers_itaot_meta_device_id_and_hub_mdns_broker(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    class _TmpStore(OnboardingSessionStore):
+        def __init__(self, base_dir: str = "system_settings"):
+            super().__init__(base_dir=str(tmp_path))
+
+    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr(saiWebRoutes.socket, "gethostname", lambda: "sensoria-hub-0")
+    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "my-password"))
+    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-meta-123"}, "error": ""})
+    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
+    init_payloads: list[dict] = []
+
+    def _post(payload, **_kwargs):
+        init_payloads.append(dict(payload))
+        return {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""}
+
+    monkeypatch.setattr("saiAddDevice.post_itaot_init", _post)
+
+    app = FastAPI()
+    settings = _FakeSettings()
+    settings._vals[("SensorNetwork", "BROKER")] = "localhost"
+    ingest = _FakeIngest()
+    await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/onboard-device/v2/start", data={"hostname": "sensoria-hub-0"})
+        assert res.status_code == 200
+
+    assert init_payloads
+    assert init_payloads[0]["hostname"] == "aqi-meta-123"
+    assert init_payloads[0]["mqtt"]["broker_host"] == "sensoria-hub-0.local"
+
+
+@pytest.mark.asyncio
+async def test_v2_start_rewrites_ip_broker_to_hub_mdns(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    class _TmpStore(OnboardingSessionStore):
+        def __init__(self, base_dir: str = "system_settings"):
+            super().__init__(base_dir=str(tmp_path))
+
+    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr(saiWebRoutes.socket, "gethostname", lambda: "sensoria-hub-0")
+    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "my-password"))
+    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-meta-123"}, "error": ""})
+    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
+
+    init_payloads: list[dict] = []
+
+    def _post(payload, **_kwargs):
+        init_payloads.append(dict(payload))
+        return {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""}
+
+    monkeypatch.setattr("saiAddDevice.post_itaot_init", _post)
+
+    app = FastAPI()
+    settings = _FakeSettings()
+    settings._vals[("SensorNetwork", "BROKER")] = "192.168.4.17"
+    ingest = _FakeIngest()
+    await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/onboard-device/v2/start", data={"hostname": "sensoria-hub-0"})
+        assert res.status_code == 200
+
+    assert init_payloads
+    assert init_payloads[0]["mqtt"]["broker_host"] == "sensoria-hub-0.local"
+
+
+@pytest.mark.asyncio
+async def test_v2_start_on_macos_requires_manual_join_when_not_on_target_ap(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    class _TmpStore(OnboardingSessionStore):
+        def __init__(self, base_dir: str = "system_settings"):
+            super().__init__(base_dir=str(tmp_path))
+
+    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
+    monkeypatch.setattr("saiAddDevice._get_current_ssid", lambda: "ExampleWiFi")
+    monkeypatch.setattr("saiAddDevice.PICOW_AP_SSID", "Nodus_Setup")
+    monkeypatch.setattr("saiAddDevice.PICOW_AP_PASSWORD", "password")
+
+    app = FastAPI()
+    settings = _FakeSettings()
+    ingest = _FakeIngest()
+    await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/onboard-device/v2/start", data={"hostname": "aqi-manual-join"})
+        assert res.status_code == 400
+        body = res.json()
+        assert body.get("error") == "manual_join_required"
+        assert "Nodus_Setup" in body.get("detail", "")
+
+
+@pytest.mark.asyncio
+async def test_v2_start_on_macos_uses_existing_manual_join(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    class _TmpStore(OnboardingSessionStore):
+        def __init__(self, base_dir: str = "system_settings"):
+            super().__init__(base_dir=str(tmp_path))
+
+    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
+    monkeypatch.setattr("saiAddDevice._get_current_ssid", lambda: "Nodus_Setup")
+    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not connect on macOS")))
+    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-manual-join-ok"}, "error": ""})
+    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
+    monkeypatch.setattr(saiWebRoutes.subprocess, "run", lambda *a, **k: _cp(stdout="10.0.0.246"))
+
+    app = FastAPI()
+    settings = _FakeSettings()
+    ingest = _FakeIngest()
+    await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/onboard-device/v2/start", data={"hostname": "aqi-manual-join-ok"})
+        assert res.status_code == 200
+        assert res.json().get("ok") is True
 
 
 @pytest.mark.asyncio
@@ -124,8 +355,11 @@ async def test_v2_restart_creates_new_session(tmp_path, monkeypatch):
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-123"}, "error": ""})
     monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
     monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
+    monkeypatch.setattr(saiWebRoutes.subprocess, "run", lambda *a, **k: _cp(stdout="10.0.0.246"))
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -170,6 +404,199 @@ async def test_v2_start_init_failed_marks_failed(tmp_path, monkeypatch):
         assert res.status_code == 502
         body = res.json()
         assert body.get("error") == "INIT_FAILED"
+        sid = body.get("session_id")
+        assert sid
+
+        sess = await client.get(f"/onboard-device/v2/session/{sid}")
+        assert sess.status_code == 200
+        assert sess.json().get("state") == "FAILED"
+
+
+@pytest.mark.asyncio
+async def test_v2_start_meta_fetch_failed_marks_failed(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    class _TmpStore(OnboardingSessionStore):
+        def __init__(self, base_dir: str = "system_settings"):
+            super().__init__(base_dir=str(tmp_path))
+
+    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
+    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": False, "status_code": 500, "body": None, "error": "boom"})
+
+    app = FastAPI()
+    settings = _FakeSettings()
+    ingest = _FakeIngest()
+    await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/onboard-device/v2/start", data={"hostname": "aqi-test-fail"})
+        assert res.status_code == 502
+        body = res.json()
+        assert body.get("error") == "meta_fetch_failed"
+        sid = body.get("session_id")
+        assert sid
+
+        sess = await client.get(f"/onboard-device/v2/session/{sid}")
+        assert sess.status_code == 200
+        assert sess.json().get("state") == "FAILED"
+
+
+@pytest.mark.asyncio
+async def test_v2_start_init_failed_restores_previous_ssid(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    class _TmpStore(OnboardingSessionStore):
+        def __init__(self, base_dir: str = "system_settings"):
+            super().__init__(base_dir=str(tmp_path))
+
+    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "my-password"))
+    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": False, "status_code": 500, "body": None, "error": "boom"})
+
+    reconnect_calls: list[tuple[str, str]] = []
+
+    def _reconnect(ssid: str, password: str = "", **_kwargs):
+        reconnect_calls.append((ssid, password))
+        return True, ssid
+
+    monkeypatch.setattr("saiAddDevice.reconnect_to_network", _reconnect)
+
+    app = FastAPI()
+    settings = _FakeSettings()
+    ingest = _FakeIngest()
+    await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/onboard-device/v2/start", data={"hostname": "aqi-test-fail"})
+        assert res.status_code == 502
+
+    assert reconnect_calls == [("ExampleWiFi", "my-password")]
+
+
+@pytest.mark.asyncio
+async def test_v2_start_on_macos_init_failed_restores_previous_ssid(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    class _TmpStore(OnboardingSessionStore):
+        def __init__(self, base_dir: str = "system_settings"):
+            super().__init__(base_dir=str(tmp_path))
+
+    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
+    monkeypatch.setattr("saiAddDevice._get_current_ssid", lambda: "Nodus_Setup")
+    monkeypatch.setattr("saiAddDevice.PICOW_AP_SSID", "Nodus_Setup")
+    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": False, "status_code": 500, "body": None, "error": "boom"})
+
+    reconnect_calls: list[tuple[str, str]] = []
+
+    def _reconnect(ssid: str, password: str = "", **_kwargs):
+        reconnect_calls.append((ssid, password))
+        return True, ssid
+
+    monkeypatch.setattr("saiAddDevice.reconnect_to_network", _reconnect)
+
+    app = FastAPI()
+    settings = _FakeSettings()
+    ingest = _FakeIngest()
+    await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/onboard-device/v2/start", data={"hostname": "aqi-manual-join-fail"})
+        assert res.status_code == 502
+
+    assert reconnect_calls == [("ExampleWiFi", "pw")]
+
+
+@pytest.mark.asyncio
+async def test_v2_start_success_restores_previous_ssid_before_waiting_for_hello(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    class _TmpStore(OnboardingSessionStore):
+        def __init__(self, base_dir: str = "system_settings"):
+            super().__init__(base_dir=str(tmp_path))
+
+    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
+    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-waiting"}, "error": ""})
+    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+
+    reconnect_calls: list[tuple[str, str]] = []
+
+    def _reconnect(ssid: str, password: str = "", **_kwargs):
+        reconnect_calls.append((ssid, password))
+        return True, ssid
+
+    monkeypatch.setattr("saiAddDevice.reconnect_to_network", _reconnect)
+
+    app = FastAPI()
+    settings = _FakeSettings()
+    ingest = _FakeIngest()
+    await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/onboard-device/v2/start", data={"hostname": "aqi-waiting"})
+        assert res.status_code == 200
+        body = res.json()
+        assert body.get("state") == "WAITING_MQTT_HELLO"
+        assert body.get("local_ssid") == "ExampleWiFi"
+
+    assert reconnect_calls == [("ExampleWiFi", "pw")]
+
+
+@pytest.mark.asyncio
+async def test_v2_start_success_fails_when_local_wifi_restore_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    class _TmpStore(OnboardingSessionStore):
+        def __init__(self, base_dir: str = "system_settings"):
+            super().__init__(base_dir=str(tmp_path))
+
+    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
+    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-restore-fail"}, "error": ""})
+    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (False, ssid))
+
+    app = FastAPI()
+    settings = _FakeSettings()
+    ingest = _FakeIngest()
+    await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/onboard-device/v2/start", data={"hostname": "aqi-restore-fail"})
+        assert res.status_code == 502
+        body = res.json()
+        assert body.get("error") == "local_wifi_restore_failed"
+
+
+@pytest.mark.asyncio
+async def test_v2_start_ap_connect_failed_marks_failed_session(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    class _TmpStore(OnboardingSessionStore):
+        def __init__(self, base_dir: str = "system_settings"):
+            super().__init__(base_dir=str(tmp_path))
+
+    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: False)
+    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
+
+    app = FastAPI()
+    settings = _FakeSettings()
+    ingest = _FakeIngest()
+    await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/onboard-device/v2/start", data={"hostname": "aqi-ap-fail"})
+        assert res.status_code == 502
+        body = res.json()
+        assert body.get("error") == "ap_connect_failed"
         sid = body.get("session_id")
         assert sid
 
