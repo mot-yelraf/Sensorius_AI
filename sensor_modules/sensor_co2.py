@@ -10,8 +10,6 @@ DEBUG = debug_enabled("saiSensorFactory")
 class CO2Sensor(BaseSensor):
     def __init__(self, settings, supervisor, i2c_0=None):
         super().__init__(settings, supervisor)
-        import board  # noqa: F401  (kept for future pin overrides)
-        import busio  # noqa: F401
         try:
             import adafruit_scd30
         except Exception:

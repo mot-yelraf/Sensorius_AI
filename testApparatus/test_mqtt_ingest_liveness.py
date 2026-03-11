@@ -835,6 +835,185 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
     assert 'SWITCH_1_LAST_STATE = false' in switch_saved
 
 
+def test_nodus_meta_preserves_manual_switch_wiring_and_prunes_stale_channels(tmp_path, monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    switch_root.mkdir()
+    system_root.mkdir()
+
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    real_settings_cls = saiSettings.saiSettings
+
+    monkeypatch.setattr(
+        saiSensorSettingsManager,
+        "SensorSettingsManager",
+        lambda *_a, **_k: real_sensor_mgr(str(sensor_root)),
+    )
+    monkeypatch.setattr(
+        saiSwitchSettingsManager,
+        "SwitchSettingsManager",
+        lambda *_a, **_k: real_switch_mgr(str(switch_root)),
+    )
+    monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
+
+    switch_dir = switch_root / "switch-ykdvea"
+    switch_dir.mkdir()
+    (switch_dir / "switch.toml").write_text(
+        "\n".join(
+            [
+                "[Switch]",
+                'TYPE = "nodus"',
+                'DEVICE = "switch"',
+                'DEVICE_SERIAL_NUM = "ykdvea"',
+                'SWITCH_DEVICE_ID = "switch-ykdvea"',
+                'SWITCH_LOCATION = "Unknown"',
+                'SWITCH_1_LABEL = "Fan"',
+                'SWITCH_1_CHANNEL_ID = "S1-ykdvea"',
+                'SWITCH_1_ENABLE_PIN = "GP5"',
+                'SWITCH_1_PIN = "GP28"',
+                "SWITCH_1_LAST_STATE = false",
+                "SWITCH_1_OVERRIDE_SCRIPT = false",
+                'SWITCH_1_EN = "1"',
+                'SWITCH_2_LABEL = "Light"',
+                'SWITCH_2_CHANNEL_ID = "S2-ykdvea"',
+                'SWITCH_2_ENABLE_PIN = "GP10"',
+                'SWITCH_2_PIN = "GP21"',
+                "SWITCH_2_LAST_STATE = false",
+                "SWITCH_2_OVERRIDE_SCRIPT = false",
+                'SWITCH_2_EN = "1"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    payload = json.dumps(
+        {
+            "schema": "nodus-meta/v1",
+            "device_id": "co2-ykdvea",
+            "hostname": "co2-ykdvea",
+            "serial": "ykdvea",
+            "type": "nodus",
+            "capabilities": {"sensor": True, "switch": True},
+            "network": {"hostname": "co2-ykdvea"},
+            "profile": {"active_profile": "sensorius"},
+            "mqtt": {"broker": "samhain.local", "port": 1883, "use_tls": False, "base_topic": "nodus"},
+            "sensor": {
+                "sensor_id": "co2-ykdvea",
+                "location": "Lab",
+                "display_metrics": ["CO2", "Temperature", "Rel-Humidity"],
+                "data_topic": "nodus/co2-ykdvea/data",
+                "event_topic": "nodus/co2-ykdvea/event",
+                "availability_topic": "nodus/co2-ykdvea/availability",
+            },
+            "switch": {
+                "device_id": "switch-ykdvea",
+                "serial": "ykdvea",
+                "location": "Lab",
+                "channels": [
+                    {
+                        "index": 1,
+                        "label": "Fan",
+                        "channel_id": "S1-ykdvea",
+                        "state": False,
+                        "event_topic": "nodus/S1-ykdvea/event",
+                        "state_topic": "nodus/S1-ykdvea/state",
+                        "set_topic": "nodus/S1-ykdvea/set",
+                        "availability_topic": "nodus/S1-ykdvea/availability",
+                    }
+                ],
+            },
+            "location_group": {"location": "Lab", "members": ["co2-ykdvea", "S1-ykdvea"]},
+            "timestamp": 1763859546,
+        }
+    )
+
+    ingest._on_message(ingest.client, None, _Msg("nodus/co2-ykdvea/meta", payload, retain=True))
+
+    switch_saved = (switch_dir / "switch.toml").read_text(encoding="utf-8")
+    assert 'SWITCH_LOCATION = "Lab"' in switch_saved
+    assert 'SWITCH_1_ENABLE_PIN = "GP5"' in switch_saved
+    assert 'SWITCH_1_PIN = "GP28"' in switch_saved
+    assert 'SWITCH_1_CHANNEL_ID = "S1-ykdvea"' in switch_saved
+    assert "SWITCH_2_LABEL" not in switch_saved
+    assert "SWITCH_2_CHANNEL_ID" not in switch_saved
+
+
+def test_ensure_settings_from_itaot_parses_existing_system_toml_with_inline_comments(tmp_path, monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    switch_root.mkdir()
+    system_root.mkdir()
+
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    real_settings_cls = saiSettings.saiSettings
+
+    monkeypatch.setattr(
+        saiSensorSettingsManager,
+        "SensorSettingsManager",
+        lambda *_a, **_k: real_sensor_mgr(str(sensor_root)),
+    )
+    monkeypatch.setattr(
+        saiSwitchSettingsManager,
+        "SwitchSettingsManager",
+        lambda *_a, **_k: real_switch_mgr(str(switch_root)),
+    )
+    monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
+
+    system_dir = system_root / "co2-ykdvea"
+    system_dir.mkdir()
+    (system_dir / "settings.toml").write_text(
+        "\n".join(
+            [
+                "[Network]",
+                'SSID = "ExampleWiFi"',
+                'PASSWORD = "obf1:old"',
+                'HOSTNAME = "co2-ykdvea"',
+                "HTTPPORT = 8000",
+                "",
+                "[Profile]",
+                'ACTIVE_PROFILE = "nodusweb"   # nodusweb | sensorius | weewx | homeassistant',
+                "",
+                "[MQTT]",
+                'BROKER = "old-broker"',
+                "PORT = 1883",
+                "USE_TLS = false",
+                'BASE_TOPIC = "nodus"',
+                'USERNAME = ""',
+                'PASSWORD = ""',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    ingest._ensure_settings_from_itaot(
+        {
+            "HOSTNAME": "co2-ykdvea",
+            "Profile": {"ACTIVE_PROFILE": "sensorius"},
+            "MQTT": {"BROKER": "samhain.local", "PORT": 1883, "USE_TLS": False, "BASE_TOPIC": "nodus"},
+        },
+        "co2-ykdvea",
+        [],
+        [],
+    )
+
+    saved = (system_dir / "settings.toml").read_text(encoding="utf-8")
+    assert 'ACTIVE_PROFILE = "sensorius"' in saved
+    assert '\\"nodusweb\\"' not in saved
+    assert "# nodusweb" not in saved
+
+
 def test_legacy_poller_gate_and_sunset(monkeypatch):
     ingest_live = _build_ingest(
         monkeypatch,

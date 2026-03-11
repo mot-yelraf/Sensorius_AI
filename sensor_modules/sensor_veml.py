@@ -29,8 +29,6 @@ class VEML7700Sensor(BaseSensor):
 
     def __init__(self, settings, supervisor, i2c_0=None):
         super().__init__(settings, supervisor)
-        import board  # noqa: F401  (kept for future pin overrides)
-        import busio  # noqa: F401
         import adafruit_veml7700
 
         # ---- calibration offsets (lux, µmol/m²/s) ----

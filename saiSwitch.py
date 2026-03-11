@@ -11,7 +11,6 @@ import json
 import time
 import random
 import asyncio
-import board
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo

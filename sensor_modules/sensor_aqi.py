@@ -10,8 +10,6 @@ DEBUG = debug_enabled("saiSensorFactory")
 class AQISensor(BaseSensor):
     def __init__(self, settings, supervisor, i2c_0=None):
         super().__init__(settings, supervisor)
-        import board  # noqa: F401  (kept for future pin overrides)
-        import busio  # noqa: F401
         from adafruit_bme680 import Adafruit_BME680_I2C
 
         # ---- calibration offsets (°C, %RH, AQI units, gas Ohms) ----

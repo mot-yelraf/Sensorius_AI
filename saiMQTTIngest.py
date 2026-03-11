@@ -14,6 +14,10 @@ import re
 import socket
 import time
 import threading
+try:
+    import tomllib
+except Exception:
+    tomllib = None
 import httpx
 import paho.mqtt.client as mqtt
 from collections import defaultdict, OrderedDict
@@ -2859,6 +2863,13 @@ class saiMQTTIngest:
             return dn.startswith("soil") or dn in {"soil", "soil4in1", "rs485", "modbus"}
 
         def _parse_simple_toml(path: Path) -> OrderedDict:
+            if tomllib:
+                try:
+                    with path.open("rb") as f:
+                        data = tomllib.load(f) or {}
+                    return SensorSettingsManager._to_ordered(data)
+                except Exception:
+                    pass
             settings = OrderedDict()
             section = None
             try:
@@ -3145,11 +3156,43 @@ class saiMQTTIngest:
                     if isinstance(switch_payload, dict):
                         src = switch_payload.get("Switch") if isinstance(switch_payload.get("Switch"), dict) else switch_payload
                     if isinstance(src, dict):
+                        incoming_indices: set[int] = set()
                         for k, v in src.items():
                             ks = str(k or "")
-                            if ks.startswith("SWITCH_") and ks != "SWITCH_DEVICE_ID" and sb.get(ks) != v:
+                            match = re.fullmatch(r"SWITCH_(\d+)_(.+)", ks)
+                            if match:
+                                incoming_indices.add(int(match.group(1)))
+                            if not ks.startswith("SWITCH_") or ks == "SWITCH_DEVICE_ID":
+                                continue
+
+                            existing_val = sb.get(ks)
+                            incoming_text = str(v or "").strip()
+                            existing_text = str(existing_val or "").strip()
+
+                            # Preserve real Nodus hardware wiring when metadata only
+                            # provides shadow MQTT install markers or blank pins.
+                            if ks.endswith("_PIN") and incoming_text == "":
+                                continue
+                            if (
+                                ks.endswith("_ENABLE_PIN")
+                                and incoming_text.lower() == "mqtt"
+                                and existing_text
+                                and existing_text.lower() != "mqtt"
+                            ):
+                                continue
+
+                            if existing_val != v:
                                 sb[ks] = v
                                 changed = True
+
+                        if incoming_indices:
+                            for existing_key in list(sb.keys()):
+                                match = re.fullmatch(r"SWITCH_(\d+)_(.+)", str(existing_key or ""))
+                                if not match:
+                                    continue
+                                if int(match.group(1)) not in incoming_indices:
+                                    sb.pop(existing_key, None)
+                                    changed = True
                 except Exception:
                     pass
                 try:

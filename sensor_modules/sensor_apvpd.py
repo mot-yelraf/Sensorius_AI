@@ -16,8 +16,6 @@ class VPDPlantSensor(BaseSensor):
 
     def __init__(self, settings, supervisor):
         super().__init__(settings, supervisor)
-        import board  # noqa: F401  (kept for future pin overrides)
-        import busio  # noqa: F401
         from adafruit_bme280.advanced import Adafruit_BME280_I2C, IIR_FILTER_X4
 
         # -------- user-defined “top” variables (easy to tweak) --------

@@ -8,6 +8,7 @@ hub on Raspberry Pi hardware.
 """
 
 import asyncio
+import importlib.util
 from threading import Thread
 import socket
 from datetime import datetime
@@ -29,6 +30,11 @@ from saiSwitchFactory import detect_relay_board
 
 MODULE = "Sensorius"
 DEBUG = debug_enabled(MODULE)
+
+
+def local_sensor_runtime_available() -> bool:
+    """Return True when the local host has the Pi sensor runtime available."""
+    return importlib.util.find_spec("board") is not None
 
 def is_self_broker(broker: str | None, *, hostnames: set[str] | None = None) -> bool:
     """Return True when broker points at this host or is unset."""
@@ -69,6 +75,14 @@ async def ensure_local_sensor_configs(settings) -> list[str]:
       - For each detected descriptor, ensure sensor_settings/<sensor_id>/sensor.toml exists.
       - If nothing is detected, return the existing configured IDs.
     """
+    if not local_sensor_runtime_available():
+        if DEBUG:
+            printDM(
+                "Pi sensor runtime unavailable; skipping local sensor discovery/config materialization.",
+                location="ensure_local_sensor_configs",
+            )
+        return []
+
     sensor_mgr = SensorSettingsManager("sensor_settings")
     existing_ids = sensor_mgr.list_ids()
     existing_ids = [str(sid).strip() for sid in existing_ids if str(sid).strip()]
@@ -148,7 +162,11 @@ async def build_sensor_controllers(sensor_ids, supervisor, gc_mgr, data_logger):
         config = SettingsWrapper(config_dict)
         if DEBUG:
             printDM(f"sid {sid}, config: {config_dict}", location=f"{MODULE}:bsc")
-        sensor = SensorController(config, supervisor, gc_mgr, data_logger=data_logger)
+        try:
+            sensor = SensorController(config, supervisor, gc_mgr, data_logger=data_logger)
+        except Exception as e:
+            printDM(f"Sensor init skipped for '{sid}': {e}", location=f"{MODULE}:bsc")
+            continue
         sensors.append(sensor)
     if DEBUG:
         printDM(f"sensor_id: {sensors}", location=f"{MODULE}:bsc")
