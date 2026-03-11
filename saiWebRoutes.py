@@ -1179,7 +1179,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
                 return "Unknown"
 
-            sensors_from_logger = data_logger.get_available_sensors()
+            sensors_from_logger = await asyncio.to_thread(data_logger.get_available_sensors)
             mqtt_discovered = mqtt_ingest.get_known_devices()
 
             local_ids = _get_local_sensor_ids()
@@ -1201,7 +1201,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 try:
                     from saiSwitchSettingsManager import SwitchSettingsManager
                     switch_mgr = SwitchSettingsManager("switch_settings")
-                    switch_ids_local = switch_mgr.list_switches() or []
+                    switch_ids_local = await asyncio.to_thread(switch_mgr.list_switches)
+                    switch_ids_local = switch_ids_local or []
                 except Exception:
                     switch_ids_local = []
                 switch_ids_live = _get_local_switch_ids()
@@ -1221,7 +1222,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
                 switch_ids_db = []
                 try:
-                    for row in (data_logger.get_switch_identities() or []):
+                    switch_identity_rows = await asyncio.to_thread(data_logger.get_switch_identities)
+                    for row in (switch_identity_rows or []):
                         ch_id = str(row.get("channel_id", "")).strip()
                         if ch_id:
                             switch_ids_db.append(_canonical_channel_id(ch_id))
@@ -1242,7 +1244,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 renderable_switch_controllers = []
 
             # ---- Build a fresh location map for all 'available' sensors ----
-            sensor_locations_map = { sid: resolve_location_for_sid(sid) for sid in available }
+            sensor_locations_map = await asyncio.to_thread(
+                lambda: {sid: resolve_location_for_sid(sid) for sid in available}
+            )
 
             # ---- Optional location filter via sensor_id='loc:<Location>' ----
             selected_location = None
@@ -1325,7 +1329,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 # If display metrics are blank, prefer per-sensor stored metrics
                 # rather than rendering every gauge_config metric.
                 try:
-                    stored_metrics = data_logger.get_available_metrics(sid) or []
+                    stored_metrics = await asyncio.to_thread(data_logger.get_available_metrics, sid)
+                    stored_metrics = stored_metrics or []
                 except Exception:
                     stored_metrics = []
                 if stored_metrics:
@@ -1584,10 +1589,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return "unknown"
          
         if json_only:
-            timestamps = {
-                sid: data_logger.get_latest_timestamp(sid) or ""
-                for sid in all_values
-            }
+            timestamps = await asyncio.to_thread(
+                lambda: {
+                    sid: data_logger.get_latest_timestamp(sid) or ""
+                    for sid in all_values
+                }
+            )
             statuses = { sid: _resolve_meas_status_for_sid(sid) for sid in available }
             renderable_switches = [
                 sid for sid in (renderable_switch_controllers or [])
@@ -1611,7 +1618,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     ]
             except Exception:
                 renderable_switches_view = list(renderable_switches)
-            
+
+            astro_payload, biodynamic_payload = await asyncio.gather(
+                asyncio.to_thread(_build_astro_payload),
+                asyncio.to_thread(get_biodynamic_payload),
+            )
+
             return JSONResponse({
                 "available": available,
                 "values": all_values,
@@ -1625,13 +1637,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "renderable_switches": renderable_switches,
                 "renderable_switches_view": renderable_switches_view,
                 "statuses": statuses,
-                "astro": _build_astro_payload(),
-                "biodynamic": get_biodynamic_payload(),
+                "astro": astro_payload,
+                "biodynamic": biodynamic_payload,
             })
 
-
-        return StreamingResponse(
-            render_dashboard(
+        rendered_dashboard = await asyncio.to_thread(
+            lambda: "".join(render_dashboard(
                 sensor_id, 
                 sensor, 
                 available,
@@ -1644,9 +1655,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 gauge_size = gaugeSize,
                 expected_gauge_map = expected_gauge_map,
                 display_style = displayStyle,
-            ),
-            media_type="text/html"
+            ))
         )
+        return HTMLResponse(content=rendered_dashboard)
 
     @router.post("/dashboard/metric-position")
     async def dashboard_metric_position(request: Request):
