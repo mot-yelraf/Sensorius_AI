@@ -656,6 +656,185 @@ def test_existing_manual_nodus_shadow_settings_are_backfilled_from_remote_displa
     assert 'METRIC_4 = "Baro-Pressure"' in saved
 
 
+def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_path, monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    switch_root.mkdir()
+    system_root.mkdir()
+
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    real_settings_cls = saiSettings.saiSettings
+
+    monkeypatch.setattr(
+        saiSensorSettingsManager,
+        "SensorSettingsManager",
+        lambda *_a, **_k: real_sensor_mgr(str(sensor_root)),
+    )
+    monkeypatch.setattr(
+        saiSwitchSettingsManager,
+        "SwitchSettingsManager",
+        lambda *_a, **_k: real_switch_mgr(str(switch_root)),
+    )
+    monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
+
+    system_dir = system_root / "co2-ykdvea"
+    system_dir.mkdir()
+    (system_dir / "settings.toml").write_text(
+        "\n".join(
+            [
+                "[Network]",
+                'SSID = "OldWifi"',
+                'PASSWORD = "old-pass"',
+                'HOSTNAME = "co2-ykdvea"',
+                "",
+                "[Profile]",
+                'ACTIVE_PROFILE = "nodusweb"',
+                "",
+                "[MQTT]",
+                'BROKER = "old-broker"',
+                "PORT = 1883",
+                "USE_TLS = true",
+                'BASE_TOPIC = "old-topic"',
+                'USERNAME = "old-user"',
+                'PASSWORD = "old-mqtt-pass"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    sensor_dir = sensor_root / "co2-ykdvea"
+    sensor_dir.mkdir()
+    (sensor_dir / "sensor.toml").write_text(
+        "\n".join(
+            [
+                "[Sensor]",
+                'TYPE = "nodus"',
+                'DEVICE = "nodus"',
+                'SERIAL_NUM = ""',
+                'SENSOR_ID = "co2-ykdvea"',
+                'LOCATION = "Unknown"',
+                "",
+                "[Display]",
+                'METRIC_1 = "Old 1"',
+                'METRIC_2 = "Old 2"',
+                'METRIC_3 = ""',
+                'METRIC_4 = ""',
+                'METRIC_5 = ""',
+                'METRIC_6 = ""',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    switch_dir = switch_root / "switch-ykdvea"
+    switch_dir.mkdir()
+    (switch_dir / "switch.toml").write_text(
+        "\n".join(
+            [
+                "[Switch]",
+                'TYPE = "nodus"',
+                'DEVICE = "switch"',
+                'DEVICE_SERIAL_NUM = ""',
+                'SWITCH_DEVICE_ID = "switch-ykdvea"',
+                'SWITCH_LOCATION = "Unknown"',
+                'SWITCH_1_LABEL = "Relay 1"',
+                'SWITCH_1_CHANNEL_ID = "S1-old"',
+                'SWITCH_1_ENABLE_PIN = ""',
+                "SWITCH_1_LAST_STATE = true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    payload = json.dumps(
+        {
+            "schema": "nodus-meta/v1",
+            "device_id": "co2-ykdvea",
+            "hostname": "co2-ykdvea",
+            "serial": "ykdvea",
+            "type": "nodus",
+            "capabilities": {"sensor": True, "switch": True},
+            "network": {
+                "ssid": "ExampleWiFi",
+                "password": "obf1:BASE64NONCE:BASE64CIPHER",
+                "hostname": "co2-ykdvea",
+            },
+            "profile": {"active_profile": "sensorius"},
+            "mqtt": {
+                "broker": "sensorius.local",
+                "port": 1883,
+                "use_tls": False,
+                "username": "",
+                "password": "obf1:BASE64NONCE:BASE64CIPHER",
+                "base_topic": "nodus",
+            },
+            "sensor": {
+                "sensor_id": "co2-ykdvea",
+                "location": "Lab",
+                "display_metrics": ["CO2", "Temperature", "Rel-Humidity"],
+                "data_topic": "nodus/co2-ykdvea/data",
+                "event_topic": "nodus/co2-ykdvea/event",
+                "availability_topic": "nodus/co2-ykdvea/availability",
+            },
+            "status": {"heartbeat_topic": "nodus/co2-ykdvea/status/heartbeat"},
+            "switch": {
+                "device_id": "switch-ykdvea",
+                "serial": "ykdvea",
+                "location": "Lab",
+                "channels": [
+                    {
+                        "index": 1,
+                        "label": "Fan",
+                        "channel_id": "S1-ykdvea",
+                        "state": False,
+                        "event_topic": "nodus/S1-ykdvea/event",
+                        "state_topic": "nodus/S1-ykdvea/state",
+                        "set_topic": "nodus/S1-ykdvea/set",
+                        "availability_topic": "nodus/S1-ykdvea/availability",
+                    }
+                ],
+            },
+            "location_group": {"location": "Lab", "members": ["co2-ykdvea", "S1-ykdvea"]},
+            "timestamp": 1763859546,
+        }
+    )
+
+    ingest._on_message(ingest.client, None, _Msg("nodus/co2-ykdvea/meta", payload, retain=True))
+
+    settings_saved = (system_dir / "settings.toml").read_text(encoding="utf-8")
+    assert 'SSID = "ExampleWiFi"' in settings_saved
+    assert 'PASSWORD = "obf1:BASE64NONCE:BASE64CIPHER"' in settings_saved
+    assert 'ACTIVE_PROFILE = "sensorius"' in settings_saved
+    assert 'BROKER = "sensorius.local"' in settings_saved
+    assert 'USE_TLS = false' in settings_saved
+    assert 'BASE_TOPIC = "nodus"' in settings_saved
+
+    sensor_saved = (sensor_dir / "sensor.toml").read_text(encoding="utf-8")
+    assert 'DEVICE = "co2"' in sensor_saved
+    assert 'SERIAL_NUM = "ykdvea"' in sensor_saved
+    assert 'LOCATION = "Lab"' in sensor_saved
+    assert 'METRIC_1 = "CO2"' in sensor_saved
+    assert 'METRIC_2 = "Temperature"' in sensor_saved
+    assert 'METRIC_3 = "Rel-Humidity"' in sensor_saved
+    assert 'METRIC_4 = ""' in sensor_saved
+
+    switch_saved = (switch_dir / "switch.toml").read_text(encoding="utf-8")
+    assert 'DEVICE_SERIAL_NUM = "ykdvea"' in switch_saved
+    assert 'SWITCH_LOCATION = "Lab"' in switch_saved
+    assert 'SWITCH_1_LABEL = "Fan"' in switch_saved
+    assert 'SWITCH_1_CHANNEL_ID = "S1-ykdvea"' in switch_saved
+    assert 'SWITCH_1_ENABLE_PIN = "mqtt"' in switch_saved
+    assert 'SWITCH_1_LAST_STATE = false' in switch_saved
+
+
 def test_legacy_poller_gate_and_sunset(monkeypatch):
     ingest_live = _build_ingest(
         monkeypatch,

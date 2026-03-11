@@ -483,14 +483,24 @@ def get_time_settings():
 
 
 # tools/loop_lag_monitor.py
-async def loop_lag_monitor(name="loop_lag", period=0.5, warn_over=1.25):
+async def loop_lag_monitor(name="loop_lag", period=0.5, warn_over=1.25, min_log_interval=10.0):
     last = time.perf_counter()
+    last_log = 0.0
+    last_logged_drift = 0.0
     while True:
         await asyncio.sleep(period)
         now = time.perf_counter()
         drift = (now - last) - period   # <-- per-interval drift (what you want)
         last = now
+        should_log = False
         if drift > warn_over:
+            if (now - last_log) >= float(min_log_interval):
+                should_log = True
+            elif drift >= max(last_logged_drift + 5.0, warn_over * 4.0):
+                should_log = True
+        if should_log:
+            last_log = now
+            last_logged_drift = drift
             printDM(f"[{name}] drift={drift:.3f}s (period={period:.2f}s)", location="loop_lag_monitor")
 
 def get_pi_network_info(interface: str = "wlan0", force_refresh: bool = False) -> dict:

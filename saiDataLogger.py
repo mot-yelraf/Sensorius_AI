@@ -590,6 +590,7 @@ class saiDataLogger:
 
     def log_readings(self, timestamp, sensor_id, values: dict):
         """Fast writer using a dedicated WAL connection + in-RAM snapshot."""
+        t0 = time.monotonic()
         self._ensure_writer()
         timestamp, ts_epoch = _normalize_timestamp_input(
             timestamp, getattr(self, "local_tz", LOCAL_TIMEZONE)
@@ -597,6 +598,7 @@ class saiDataLogger:
 
         try:
             rows = [(timestamp, ts_epoch, sensor_id, metric, value) for metric, value in values.items()]
+            write_start = time.monotonic()
             with self._writer_lock:
                 self._writer_conn.executemany(
                     "INSERT INTO readings (timestamp, ts_epoch, sensor_id, metric, value) VALUES (?, ?, ?, ?, ?)",
@@ -604,6 +606,7 @@ class saiDataLogger:
                 )
                 self._writer_conn.commit()
                 self._maybe_prune_old_rows_locked()
+            write_elapsed = time.monotonic() - write_start
 
             snap = self.sensor_values.get(sensor_id) or {}
             snap.update(values)
@@ -612,6 +615,7 @@ class saiDataLogger:
             # Notify post-write listeners (non-blocking; do not break writer path)
             listeners = list(getattr(self, "_on_readings_written", []) or [])
             if listeners:
+                listener_start = time.monotonic()
                 for fn in listeners:
                     try:
                         fn(sensor_id, timestamp, dict(values))
@@ -620,6 +624,20 @@ class saiDataLogger:
                             f"[log_readings] listener error for {sensor_id}: {exc}",
                             location=MODULE,
                         )
+                listener_elapsed = time.monotonic() - listener_start
+            else:
+                listener_elapsed = 0.0
+
+            total_elapsed = time.monotonic() - t0
+            if total_elapsed >= 1.5:
+                printDM(
+                    (
+                        f"[log_readings] slow write for {sensor_id}: total={total_elapsed:.2f}s "
+                        f"db={write_elapsed:.2f}s listeners={listener_elapsed:.2f}s rows={len(rows)}"
+                    ),
+                    location=MODULE,
+                    level="warning",
+                )
 
             if DEBUG:
                 printDM(f"Logged {len(values)} values for {sensor_id}", location=MODULE)

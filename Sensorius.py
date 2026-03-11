@@ -30,6 +30,30 @@ from saiSwitchFactory import detect_relay_board
 MODULE = "Sensorius"
 DEBUG = debug_enabled(MODULE)
 
+def is_self_broker(broker: str | None, *, hostnames: set[str] | None = None) -> bool:
+    """Return True when broker points at this host or is unset."""
+    b = str(broker or "").strip().lower()
+    if not b or b in {"localhost", "127.0.0.1", "::1", "[::1]"}:
+        return True
+
+    names = {str(name or "").strip().lower() for name in (hostnames or set()) if str(name or "").strip()}
+    try:
+        sock_host = (socket.gethostname() or "").strip().lower()
+        if sock_host:
+            names.add(sock_host)
+            names.add(f"{sock_host}.local")
+    except Exception:
+        pass
+    try:
+        from saiNet import rPiNetManager
+        hn = str(getattr(rPiNetManager(), "hostname", "") or "").strip().lower()
+        if hn:
+            names.add(hn)
+            names.add(f"{hn}.local")
+    except Exception:
+        pass
+    return b in names
+
 # helpers for determining all (directly and/or remote mqtt clients) devices
 async def ensure_local_sensor_ids(settings) -> list[str]:
     """
@@ -134,7 +158,7 @@ async def build_sensor_controllers(sensor_ids, supervisor, gc_mgr, data_logger):
         printDM(f"sensor_id: {sensors}", location=f"{MODULE}:bsc")
     return sensors
 
-async def build_switch_controllers(sensors, supervisor):
+async def build_switch_controllers(sensors, supervisor, data_logger):
     switch_controllers = {}
 
     from saiSwitchSettingsManager import SwitchSettingsManager
@@ -171,6 +195,7 @@ async def build_switch_controllers(sensors, supervisor):
             switch_settings=sw_config,
             supervisor=supervisor,
             sensor=match_sensor,
+            data_logger=data_logger,
         )
         if switch_ctrl_temp.is_present:
             switch_controllers[switch_id] = switch_ctrl_temp
@@ -273,28 +298,6 @@ async def ensure_mqtt_ready(client, retries=3):
 async def main():
     printDM("Sensorius startup...", location=f"{MODULE}:main")
 
-    import socket
-    def _is_self_broker(broker: str) -> bool:
-        """Return True if broker is this device (or unset)."""
-        if not broker:
-            return True
-        b = broker.strip().lower()
-        if b in {"localhost", "127.0.0.1"}:
-            return True
-        # compare against hostname forms
-        names = {socket.gethostname().lower()}
-        names.add(f"{socket.gethostname().lower()}.local")
-        try:
-            # optional: if you have a net manager exposing hostname
-            from saiNet import rPiNetManager
-            hn = rPiNetManager().hostname
-            if hn:
-                names.add(hn.lower())
-                names.add(f"{hn.lower()}.local")
-        except Exception:
-            pass
-        return b in names
-
     supervisor = TaskSupervisor()
     gc_mgr = GCManager(interval_sec=31, supervisor=supervisor)
     settings = saiSettings()
@@ -349,7 +352,7 @@ async def main():
 
     try:
         # Build once (some implementations rely on sensors)
-        switch_controllers = await build_switch_controllers(sensor_map, supervisor)
+        switch_controllers = await build_switch_controllers(sensor_map, supervisor, data_logger)
         if DEBUG:
             printDM(f"switch_controllers: {switch_controllers}", location=f"{MODULE}:main")
     except Exception as e:
@@ -400,25 +403,24 @@ async def main():
 
     # Configure MQTT publishers only for locally connected sensors (optional)
     broker = settings.get_setting("SensorNetwork", "BROKER") or ""
-    publish_to_mqtt = bool(broker)  # publish even if broker is local/self
+    publish_to_mqtt = bool(broker) and not is_self_broker(broker)
     if sensor_map:
         mqtt_clients = await configure_mqtt_clients(sensor_map, settings, supervisor)
 
         from saiUtils import supervised_task
         for client in mqtt_clients:
+            if not publish_to_mqtt:
+                if DEBUG:
+                    printDM(
+                        f"Skipping MQTT publisher for {client.sensor.sensor_id} "
+                        f"(broker='{broker or ''}' treated as self/unset)",
+                        location=f"{MODULE}:main",
+                    )
+                client.broker = ""
+                continue
             await ensure_mqtt_ready(client)
             await asyncio.sleep(3)
 
-            """
-            # Disable local publishing if broker is self/localhost/unset
-            if not publish_to_mqtt:
-                if DEBUG:
-                    printDM(f"Skipping MQTT publisher for {client.sensor.sensor_id} (self broker: '{broker}')", location=f"{MODULE}:main")
-                # optional: hard-disable the client so its internals no-op
-                client.broker = ""
-                continue
-            """
-        
             if client.broker:
                 supervisor.add(
                     lambda c=client: supervised_task(f"{c.sensor.sensor_id} MQTT Publisher", c.mqtt_publish_data, supervisor),

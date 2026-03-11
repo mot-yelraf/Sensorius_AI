@@ -235,8 +235,9 @@ class SensorController:
             try:
                 values, units, ts = await asyncio.to_thread(self.sensor.read_sensor_data)
 
-                # keeping your current pattern (data_logger per-iteration) for drop-in safety
-                self.data_logger.log_readings(ts, self.sensor_id, values)
+                # Keep DB writes off the event loop so storage latency does not
+                # stall unrelated coroutines and trip the watchdog.
+                await asyncio.to_thread(self.data_logger.log_readings, ts, self.sensor_id, values)
    
                 self.sensor.meas_status = "online"
 

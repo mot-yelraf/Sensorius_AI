@@ -109,7 +109,7 @@ _switch_status_cache_until: float = 0.0
 _dynamic_switch_monitor_tasks: dict[str, asyncio.Task] = {}
 _SWITCH_STATUS_CACHE_TTL_SEC: float = 1.5
 _cdp_debug_last_log: float = 0.0
-_CDP_DEBUG_MIN_INTERVAL_SEC: float = 5.0
+_CDP_DEBUG_MIN_INTERVAL_SEC: float = 30.0
 
 async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     router = APIRouter()
@@ -8060,6 +8060,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                             switch_settings=sw_doc,
                             supervisor=None,
                             sensor=sensor_match,
+                            data_logger=data_logger,
                         )
                         if bool(getattr(ctrl, "is_present", False)):
                             sc[str(switch_id)] = ctrl

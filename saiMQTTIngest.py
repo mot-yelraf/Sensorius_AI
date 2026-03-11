@@ -1872,7 +1872,7 @@ class saiMQTTIngest:
 
                 state_bool = _coerce_switch_state(row.get("state"))
                 if state_bool is not None:
-                    switch_payload[f"SWITCH_{idx}_LAST_STATE"] = "ON" if state_bool else "OFF"
+                    switch_payload[f"SWITCH_{idx}_LAST_STATE"] = state_bool
                     cache = self._switch_state_cache.setdefault(switch_id, {})
                     cache[channel_id] = "on" if state_bool else "off"
                     cache[label] = "on" if state_bool else "off"
@@ -1925,8 +1925,34 @@ class saiMQTTIngest:
 
         try:
             if discovered_sensors or discovered_switches:
+                network_meta = meta.get("network") if isinstance(meta.get("network"), dict) else {}
+                profile_meta = meta.get("profile") if isinstance(meta.get("profile"), dict) else {}
+                mqtt_meta = meta.get("mqtt") if isinstance(meta.get("mqtt"), dict) else {}
+                settings_info = {
+                    "HOSTNAME": base,
+                    "Network": {
+                        "HOSTNAME": str(
+                            network_meta.get("hostname")
+                            or meta.get("hostname")
+                            or base
+                        ).strip() or base,
+                        "SSID": str(network_meta.get("ssid") or "").strip(),
+                        "PASSWORD": str(network_meta.get("password") or ""),
+                    },
+                    "Profile": {
+                        "ACTIVE_PROFILE": str(profile_meta.get("active_profile") or "").strip(),
+                    },
+                    "MQTT": {
+                        "BROKER": str(mqtt_meta.get("broker") or "").strip(),
+                        "PORT": mqtt_meta.get("port"),
+                        "USE_TLS": mqtt_meta.get("use_tls"),
+                        "BASE_TOPIC": str(mqtt_meta.get("base_topic") or "").strip(),
+                        "USERNAME": str(mqtt_meta.get("username") or ""),
+                        "PASSWORD": str(mqtt_meta.get("password") or ""),
+                    },
+                }
                 self._ensure_settings_from_itaot(
-                    {"HOSTNAME": base, "Network": {"HOSTNAME": base}},
+                    settings_info,
                     base,
                     discovered_sensors,
                     discovered_switches,
@@ -2811,8 +2837,8 @@ class saiMQTTIngest:
         switches: list[dict],
     ) -> None:
         """
-        Ensure sensor/switch/system settings files exist for devices described in /itaot.
-        Creates missing files from factory templates without overwriting existing files.
+        Ensure sensor/switch/system settings files exist and reflect metadata
+        for devices described in /itaot or retained nodus meta.
         """
         from pathlib import Path
         try:
@@ -2908,39 +2934,67 @@ class saiMQTTIngest:
                 return True
             return not any(str(display.get(f"METRIC_{idx}", "")).strip() for idx in range(1, 7))
 
+        def _set_if_present(section: OrderedDict, key: str, value, *, allow_blank: bool = False) -> bool:
+            if not isinstance(section, dict):
+                return False
+            if value is None:
+                return False
+            if isinstance(value, str):
+                if not allow_blank and not value.strip():
+                    return False
+                value = value.strip() if not allow_blank else value
+            if section.get(key) == value:
+                return False
+            section[key] = value
+            return True
+
         # ---- system_settings/<HOSTNAME>/settings.toml ----
         system_id = _strip_local(str((info or {}).get("HOSTNAME") or hostname or ""))
         if system_id:
             sys_path = Path(saiSettings.DEFAULT_BASE_DIR) / system_id / saiSettings.STANDARD_FILENAME
-            if not sys_path.exists():
-                nodus_tpl = Path(saiSettings.DEFAULT_BASE_DIR) / "factory_nodus" / f"{saiSettings.STANDARD_FILENAME}.def"
-                fallback_tpl = Path(saiSettings.DEFAULT_BASE_DIR) / "factory" / saiSettings.STANDARD_FILENAME
-                tpl_path = nodus_tpl if nodus_tpl.exists() else (fallback_tpl if fallback_tpl.exists() else None)
+            existed_before = sys_path.exists()
+            nodus_tpl = Path(saiSettings.DEFAULT_BASE_DIR) / "factory_nodus" / f"{saiSettings.STANDARD_FILENAME}.def"
+            fallback_tpl = Path(saiSettings.DEFAULT_BASE_DIR) / "factory" / saiSettings.STANDARD_FILENAME
+            tpl_path = nodus_tpl if nodus_tpl.exists() else (fallback_tpl if fallback_tpl.exists() else None)
 
-                settings_doc = _parse_simple_toml(tpl_path) if tpl_path else OrderedDict()
-                if "Network" not in settings_doc:
-                    settings_doc["Network"] = OrderedDict()
-                if "Time" not in settings_doc:
-                    settings_doc["Time"] = OrderedDict()
+            settings_doc = _parse_simple_toml(sys_path) if existed_before else (_parse_simple_toml(tpl_path) if tpl_path else OrderedDict())
+            changed = not existed_before
+            for block_name in ("Network", "Profile", "MQTT", "HomeAssistant", "Time"):
+                if block_name not in settings_doc or not isinstance(settings_doc.get(block_name), dict):
+                    settings_doc[block_name] = OrderedDict()
+                    changed = True
 
-                net_block = info.get("Network") if isinstance(info, dict) else None
-                if isinstance(net_block, dict):
-                    for k, v in net_block.items():
-                        if settings_doc["Network"].get(k) in (None, "", []):
-                            settings_doc["Network"][k] = v
-                if settings_doc["Network"].get("HOSTNAME") in (None, "", []):
-                    settings_doc["Network"]["HOSTNAME"] = system_id
+            net_block = info.get("Network") if isinstance(info, dict) else None
+            if isinstance(net_block, dict):
+                for k, v in net_block.items():
+                    changed = _set_if_present(settings_doc["Network"], str(k), v, allow_blank=str(k).upper() in {"PASSWORD"}) or changed
+            changed = _set_if_present(settings_doc["Network"], "HOSTNAME", system_id) or changed
 
-                time_block = info.get("Time") if isinstance(info, dict) else None
-                if isinstance(time_block, dict):
-                    for k, v in time_block.items():
-                        if settings_doc["Time"].get(k) in (None, "", []):
-                            settings_doc["Time"][k] = v
+            profile_block = info.get("Profile") if isinstance(info, dict) else None
+            if isinstance(profile_block, dict):
+                for k, v in profile_block.items():
+                    changed = _set_if_present(settings_doc["Profile"], str(k), v) or changed
 
+            mqtt_block = info.get("MQTT") if isinstance(info, dict) else None
+            if isinstance(mqtt_block, dict):
+                for k, v in mqtt_block.items():
+                    changed = _set_if_present(settings_doc["MQTT"], str(k), v, allow_blank=str(k).upper() in {"USERNAME", "PASSWORD"}) or changed
+
+            ha_block = info.get("HomeAssistant") if isinstance(info, dict) else None
+            if isinstance(ha_block, dict):
+                for k, v in ha_block.items():
+                    changed = _set_if_present(settings_doc["HomeAssistant"], str(k), v) or changed
+
+            time_block = info.get("Time") if isinstance(info, dict) else None
+            if isinstance(time_block, dict):
+                for k, v in time_block.items():
+                    changed = _set_if_present(settings_doc["Time"], str(k), v) or changed
+
+            if changed:
                 _emit_simple_toml(sys_path, settings_doc)
-
                 if DEBUG:
-                    printDM(f"[itaot-settings] created system settings for {system_id}", location=MODULE)
+                    verb = "updated" if existed_before else "created"
+                    printDM(f"[itaot-settings] {verb} system settings for {system_id}", location=MODULE)
 
         # ---- sensor_settings/<SENSOR_ID>/sensor.toml ----
         try:
@@ -2972,23 +3026,32 @@ class saiMQTTIngest:
                     if "Sensor" not in data or not isinstance(data["Sensor"], dict):
                         data["Sensor"] = OrderedDict()
                     sb = data["Sensor"]
-                    if device_name and str(sb.get("DEVICE", "") or "").strip().lower() in {"", "nodus", "unknown"}:
+                    if device_name and str(sb.get("DEVICE", "") or "").strip() != device_name:
                         sb["DEVICE"] = device_name
                         changed = True
-                    if serial and not str(sb.get("SERIAL_NUM", "") or "").strip():
+                    if serial and str(sb.get("SERIAL_NUM", "") or "").strip() != serial:
                         sb["SERIAL_NUM"] = serial
                         changed = True
-                    if location and location.strip().lower() != "unknown" and str(sb.get("LOCATION", "") or "").strip().lower() in {"", "unknown"}:
+                    if location and location.strip() and str(sb.get("LOCATION", "") or "").strip() != location:
                         sb["LOCATION"] = location
+                        changed = True
+                    if sensor_id and str(sb.get("SENSOR_ID", "") or "").strip() != sensor_id:
+                        sb["SENSOR_ID"] = sensor_id
+                        changed = True
+                    if device_type and str(sb.get("TYPE", "") or "").strip() != device_type:
+                        sb["TYPE"] = device_type
                         changed = True
 
                     if "Display" not in data or not isinstance(data["Display"], dict):
                         data["Display"] = OrderedDict()
                     display = data["Display"]
-                    if remote_display_metrics and _display_block_is_blank(display):
+                    if remote_display_metrics:
                         for idx in range(6):
-                            display[f"METRIC_{idx + 1}"] = remote_display_metrics[idx] if idx < len(remote_display_metrics) else ""
-                        changed = True
+                            metric_key = f"METRIC_{idx + 1}"
+                            metric_val = remote_display_metrics[idx] if idx < len(remote_display_metrics) else ""
+                            if str(display.get(metric_key, "") or "") != metric_val:
+                                display[metric_key] = metric_val
+                                changed = True
 
                     if changed:
                         sensor_mgr.save(sensor_id, data)
@@ -3040,8 +3103,6 @@ class saiMQTTIngest:
                 if not switch_id:
                     continue
                 sw_path = switch_mgr.get_path(switch_id)
-                if sw_path.exists():
-                    continue
                 switch_loc = sw.get("switch_location") or "Unknown"
                 switch_type = (sw.get("switch_type") or "").strip()
                 switch_serial = (sw.get("serial") or "").strip()
@@ -3049,41 +3110,58 @@ class saiMQTTIngest:
 
                 nodus_dir = switch_mgr.base_dir / "factory_nodus"
                 tpl_path = nodus_dir / "switch.toml.def"
-                if tpl_path.exists():
+                if sw_path.exists():
+                    doc = switch_mgr.load(switch_id)
+                elif tpl_path.exists():
                     doc = switch_mgr._parse_toml_from_disk(tpl_path)
-                    if "Switch" not in doc or not isinstance(doc["Switch"], dict):
-                        doc["Switch"] = OrderedDict()
-                    sb = doc["Switch"]
-                    sb["DEVICE"] = "switch"
-                    sb["SWITCH_DEVICE_ID"] = switch_id
-                    sb["SWITCH_LOCATION"] = switch_loc
-                    if switch_type:
-                        sb["TYPE"] = switch_type
-                    if switch_serial:
-                        sb["DEVICE_SERIAL_NUM"] = switch_serial
-                    # Overlay indexed switch fields from /itaot so rendering does
-                    # not fall back to generic "Relay N" labels after onboarding.
-                    try:
-                        src = {}
-                        if isinstance(switch_payload, dict):
-                            src = switch_payload.get("Switch") if isinstance(switch_payload.get("Switch"), dict) else switch_payload
-                        if isinstance(src, dict):
-                            for k, v in src.items():
-                                ks = str(k or "")
-                                if ks.startswith("SWITCH_") and ks != "SWITCH_DEVICE_ID":
-                                    sb[ks] = v
-                    except Exception:
-                        pass
-                    try:
-                        switch_mgr._ensure_channel_ids(sb)
-                    except Exception:
-                        pass
-                    switch_mgr.save(switch_id, doc)
                 else:
                     switch_mgr.ensure_host_switch(switch_id, switch_loc=switch_loc)
+                    doc = switch_mgr.load(switch_id)
+
+                changed = False
+                if "Switch" not in doc or not isinstance(doc["Switch"], dict):
+                    doc["Switch"] = OrderedDict()
+                    changed = True
+                sb = doc["Switch"]
+                if str(sb.get("DEVICE", "") or "").strip() != "switch":
+                    sb["DEVICE"] = "switch"
+                    changed = True
+                if str(sb.get("SWITCH_DEVICE_ID", "") or "").strip() != switch_id:
+                    sb["SWITCH_DEVICE_ID"] = switch_id
+                    changed = True
+                if switch_loc and str(sb.get("SWITCH_LOCATION", "") or "").strip() != switch_loc:
+                    sb["SWITCH_LOCATION"] = switch_loc
+                    changed = True
+                if switch_type and str(sb.get("TYPE", "") or "").strip() != switch_type:
+                    sb["TYPE"] = switch_type
+                    changed = True
+                if switch_serial and str(sb.get("DEVICE_SERIAL_NUM", "") or "").strip() != switch_serial:
+                    sb["DEVICE_SERIAL_NUM"] = switch_serial
+                    changed = True
+                # Overlay indexed switch fields from metadata so rendering tracks
+                # authoritative channel IDs, labels, last state, and mqtt wiring.
+                try:
+                    src = {}
+                    if isinstance(switch_payload, dict):
+                        src = switch_payload.get("Switch") if isinstance(switch_payload.get("Switch"), dict) else switch_payload
+                    if isinstance(src, dict):
+                        for k, v in src.items():
+                            ks = str(k or "")
+                            if ks.startswith("SWITCH_") and ks != "SWITCH_DEVICE_ID" and sb.get(ks) != v:
+                                sb[ks] = v
+                                changed = True
+                except Exception:
+                    pass
+                try:
+                    switch_mgr._ensure_channel_ids(sb)
+                except Exception:
+                    pass
+                if changed:
+                    switch_mgr.save(switch_id, doc)
 
                 if DEBUG:
-                    printDM(f"[itaot-settings] seeded switch settings for {switch_id}", location=MODULE)
+                    action = "updated" if sw_path.exists() else "seeded"
+                    printDM(f"[itaot-settings] {action} switch settings for {switch_id}", location=MODULE)
         except Exception as exc:
             if DEBUG:
                 printDM(f"[itaot-settings] switch seed error: {exc}", location=MODULE)

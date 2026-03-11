@@ -60,12 +60,12 @@ def is_remote_switch_settings(switch_settings) -> bool:
     return _switch_type_from_settings(switch_settings) in REMOTE_SWITCH_TYPES
 
 class SwitchController:
-    def __init__(self, switch_settings=None, supervisor=None, sensor=None):
+    def __init__(self, switch_settings=None, supervisor=None, sensor=None, data_logger=None):
         self.supervisor = supervisor
         self.sensor = sensor
         self.settings = switch_settings or {}
         self.is_present = False
-        self.data_logger = saiDataLogger()
+        self.data_logger = data_logger or saiDataLogger()
 
         # State & policy
         self.last_state = {}
@@ -447,13 +447,11 @@ class SwitchController:
     def _log(self, name, on: bool):
         # Persist as a SWITCH EVENT (not a generic reading) so /switch-status-update
         # can fetch the latest “On”/“Off” and recent event list.
-        from saiDataLogger import saiDataLogger
         from saiUtils import get_timestamp
-        logger = saiDataLogger()
         switch_key = self._switch_key(name)
         sensor_lineage = f"Switch_{self.switch_id}" if getattr(self, "switch_id", None) else None
         # Use your dedicated API (present in saiDataLogger) for switch events:
-        logger.log_switch_event(
+        self.data_logger.log_switch_event(
             switch_key=switch_key,
             is_on=bool(on),
             timestamp=get_timestamp(),
@@ -1288,6 +1286,18 @@ class SwitchController:
         - If a bound sensor is present and healthy, include its current dataset.
           Otherwise, we evaluate with the last known values (if any) or {}.
         """
+        heartbeat_every_s = 10.0
+
+        async def _sleep_with_heartbeat(total_sleep_s: float) -> None:
+            remaining = max(float(total_sleep_s), 0.0)
+            while remaining > 0.0:
+                if getattr(self, "supervisor", None) and hasattr(self.supervisor, "feedthedogs"):
+                    self.supervisor.feedthedogs(f"{self.switch_id} Controladora Monitor")
+                chunk = min(heartbeat_every_s, remaining)
+                await asyncio.sleep(chunk)
+                remaining -= chunk
+                await asyncio.sleep(0)
+
         while True:
             try:
                 # Decide if we should do any work this tick
@@ -1335,17 +1345,16 @@ class SwitchController:
             if getattr(self, "supervisor", None) and hasattr(self.supervisor, "feedthedogs"):
                 self.supervisor.feedthedogs(f"{self.switch_id} Controladora Monitor")
 
-            await asyncio.sleep(interval + random.uniform(-0.8, 0.8))
-            await asyncio.sleep(0)  # REPL hook
+            await _sleep_with_heartbeat(interval + random.uniform(-0.8, 0.8))
 
 
 class RemoteSwitchController(SwitchController):
     """MQTT-backed switch controller for remote Nodus/Pico devices."""
 
-    def __init__(self, switch_settings=None, supervisor=None, sensor=None, mqtt_ingest=None):
+    def __init__(self, switch_settings=None, supervisor=None, sensor=None, mqtt_ingest=None, data_logger=None):
         self.is_remote = True
         self.mqtt_ingest = mqtt_ingest
-        super().__init__(switch_settings=switch_settings, supervisor=supervisor, sensor=sensor)
+        super().__init__(switch_settings=switch_settings, supervisor=supervisor, sensor=sensor, data_logger=data_logger)
 
     def _refresh_state_from_ingest(self) -> None:
         try:
@@ -1386,16 +1395,18 @@ class RemoteSwitchController(SwitchController):
         return super().get_state(name)
 
 
-def build_switch_controller(*, switch_settings=None, supervisor=None, sensor=None, mqtt_ingest=None):
+def build_switch_controller(*, switch_settings=None, supervisor=None, sensor=None, mqtt_ingest=None, data_logger=None):
     if is_remote_switch_settings(switch_settings):
         return RemoteSwitchController(
             switch_settings=switch_settings,
             supervisor=supervisor,
             sensor=sensor,
             mqtt_ingest=mqtt_ingest,
+            data_logger=data_logger,
         )
     return SwitchController(
         switch_settings=switch_settings,
         supervisor=supervisor,
         sensor=sensor,
+        data_logger=data_logger,
     )

@@ -492,11 +492,6 @@ class saiSettings:
             # Do nothing.
             pass
 
-        # Default broker if missing
-        broker = self.get_setting("SensorNetwork", "BROKER", "")
-        if not broker:
-            updates.append(("SensorNetwork", "BROKER", "localhost"))
-
         if updates:
             self.set_many_in_memory(updates)
             self.save_settings()
