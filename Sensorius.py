@@ -55,25 +55,22 @@ def is_self_broker(broker: str | None, *, hostnames: set[str] | None = None) -> 
     return b in names
 
 # helpers for determining all (directly and/or remote mqtt clients) devices
-async def ensure_local_sensor_ids(settings) -> list[str]:
+async def ensure_local_sensor_configs(settings) -> list[str]:
     """
     Probe hardware via find_sensors(), ensure per-sensor TOMLs exist,
-    and merge discovered IDs into [SensorNetwork].PISENSOR.
+    and return the configured local sensor IDs.
 
     ID format: <kind>-<bus>-<hostname>
       e.g., avpd-i2c-1-sensoria-hub-0
 
     Behavior:
-      - Start from existing PISENSOR (may be empty).
+      - Start from any existing sensor_settings entries.
       - Scan I2C busses for known sensor types.
-      - For each detected descriptor:
-          * ensure sensor_settings/<sensor_id>/sensor.toml exists
-          * if sensor_id not in PISENSOR, append it
-      - Persist updated PISENSOR if it changed.
-      - If nothing is detected, return existing list (which may be empty).
+      - For each detected descriptor, ensure sensor_settings/<sensor_id>/sensor.toml exists.
+      - If nothing is detected, return the existing configured IDs.
     """
-    # Normalize existing PISENSOR to a clean list[str]
-    existing_ids = settings.get_all_sensor_ids() or []
+    sensor_mgr = SensorSettingsManager("sensor_settings")
+    existing_ids = sensor_mgr.list_ids()
     existing_ids = [str(sid).strip() for sid in existing_ids if str(sid).strip()]
     seen_ids: set[str] = set(existing_ids)
 
@@ -88,27 +85,26 @@ async def ensure_local_sensor_ids(settings) -> list[str]:
     try:
         descriptors = find_sensors(known_used)  # -> list[DeviceDescriptor]
     except Exception as e:
-        printDM(f"find_sensors failed: {e}", location="ensure_local_sensor_ids")
+        printDM(f"find_sensors failed: {e}", location="ensure_local_sensor_configs")
         # fall back to whatever we already had
         return existing_ids
 
     if not descriptors:
         if not existing_ids:
             printDM(
-                "No local sensors detected; leaving PISENSOR empty.",
-                location="ensure_local_sensor_ids",
+                "No local sensors detected; no local sensor configs present.",
+                location="ensure_local_sensor_configs",
             )
         else:
             printDM(
-                "No new local sensors detected; keeping existing PISENSOR.",
-                location="ensure_local_sensor_ids",
+                "No new local sensors detected; keeping existing local sensor configs.",
+                location="ensure_local_sensor_configs",
             )
         return existing_ids
 
     # Deterministic order (nice for diffs)
     descriptors.sort(key=lambda d: (d.kind or "", d.bus or ""))
 
-    mgr = SensorSettingsManager("sensor_settings")
     updated_ids: list[str] = list(existing_ids)
 
     for desc in descriptors:
@@ -116,13 +112,13 @@ async def ensure_local_sensor_ids(settings) -> list[str]:
         bus = (desc.bus or "").strip().lower()
         if not bus:
             # Defensive fallback: skip malformed descriptors instead of generating bad IDs.
-            printDM(f"Skipping descriptor with empty bus: kind={kind}", location="ensure_local_sensor_ids")
+            printDM(f"Skipping descriptor with empty bus: kind={kind}", location="ensure_local_sensor_configs")
             continue
         sid = f"{kind}-{bus}-{host}"
 
         # Always ensure sensor.toml exists (idempotent if already present)
         try:
-            mgr.seed_from_factory(
+            sensor_mgr.seed_from_factory(
                 sensor_id=sid,
                 device=kind,        # -> [Sensor].DEVICE
                 location="Unknown", # UI can edit later
@@ -130,7 +126,7 @@ async def ensure_local_sensor_ids(settings) -> list[str]:
         except Exception as e:
             printDM(
                 f"seed_from_factory failed for {sid}: {e}",
-                location="ensure_local_sensor_ids",
+                location="ensure_local_sensor_configs",
             )
             # keep going for other sensors
             continue
@@ -318,20 +314,14 @@ async def main():
     data_logger = saiDataLogger()
 
     # Build local sensors only if we actually have any
-    sensor_ids = await ensure_local_sensor_ids(settings)
+    sensor_ids = await ensure_local_sensor_configs(settings)
     sensor_map = []
     if sensor_ids:
         sensor_map = await build_sensor_controllers(sensor_ids, supervisor, gc_mgr, data_logger)
         if DEBUG:
             printDM(f"sensor_map: {sensor_map}", location=f"{MODULE}:main")
     else:
-        printDM("No directly connected sensors defined (PISENSOR empty) — skipping local sensor build.", location=f"{MODULE}:main")
-        
-    # --- Sanitize sensor_ids from settings (allow empty PISENSOR) ---
-    raw_ids = settings.get_all_sensor_ids()  # may be None, [], or contain empty strings
-    sensor_ids = [sid for sid in (raw_ids or []) if str(sid).strip()]
-    if DEBUG:
-        printDM(f"Sensor IDs: {sensor_ids}", location=f"{MODULE}:main")
+        printDM("No directly connected sensors detected or configured; skipping local sensor build.", location=f"{MODULE}:main")
 
     sensor_map: Dict[str, SensorController] | list[SensorController]
 

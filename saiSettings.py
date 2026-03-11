@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 from collections import OrderedDict
 from saiUtils import debug_enabled, printDM, get_pi_network_info, get_time_settings
+from saiSensorSettingsManager import SensorSettingsManager
 
 MODULE = "saiSettings"
 DEBUG = debug_enabled(MODULE)
@@ -614,10 +615,13 @@ class saiSettings:
         pass
 
     def get_all_sensor_ids(self):
-        value = self.settings.get("SensorNetwork", {}).get("PISENSOR", [])
-        if isinstance(value, str):
-            return [value]
-        return value
+        try:
+            mgr = SensorSettingsManager("sensor_settings")
+            return mgr.list_ids()
+        except Exception as e:
+            if DEBUG:
+                printDM(f"Failed listing sensor settings IDs: {e}", location=MODULE)
+            return []
 
     def get_gaugeSize(self):
         return self.get_setting("Display", "gauge_size", "Large")

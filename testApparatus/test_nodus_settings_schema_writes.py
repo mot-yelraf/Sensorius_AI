@@ -198,6 +198,7 @@ async def _build_app(tmp_path, monkeypatch):
     monkeypatch.setattr(saiWebRoutes, "saiSettings", _FakeSaiSettings)
     monkeypatch.setattr(saiWebRoutes, "SystemSettingsManager", _FakeSystemSettingsManager, raising=False)
     monkeypatch.setattr(saiWebRoutes, "SensorSettingsManager", lambda *_a, **_k: _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root)))
+    monkeypatch.setattr(saiWebRoutes, "SwitchSettingsManager", lambda *_a, **_k: _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root)))
     monkeypatch.setattr(saiSwitchSettingsManager, "SwitchSettingsManager", lambda *_a, **_k: _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root)))
     monkeypatch.setattr(saiWebRoutes.httpx, "AsyncClient", _RecordingAsyncClient)
 
