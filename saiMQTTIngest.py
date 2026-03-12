@@ -227,6 +227,7 @@ class saiMQTTIngest:
 
         self._known_switch_ids: set[str] = set()
         self._switch_state_cache: dict[str, dict] = {}  # switch_id -> {channel: "on"/"off"}
+        self._last_persisted_switch_state: dict[tuple[str, str], str] = {}  # (switch_id, channel_id) -> "on"/"off"
 
         self.switch_channel_map: dict[tuple[str, str], str] = {}  # (switch_id, "SWITCH_n") -> label
         self.event_topic_to_label: dict[str, str] = {}  # "switch/<id>-<pin>/event"   -> "Label"
@@ -367,6 +368,21 @@ class saiMQTTIngest:
         if not base:
             return False
         return (base in self._legacy_firmware_hosts) and self._legacy_pollers_allowed()
+
+    def _allow_background_http_meta_discovery(self) -> bool:
+        """
+        Normal startup discovery should be MQTT-meta-first.
+        HTTP /itaot-meta remains available for Add Device and explicit refreshes.
+        """
+        try:
+            raw = self.settings.get_setting(
+                "SensorNetwork",
+                "BACKGROUND_HTTP_META_DISCOVERY",
+                False,
+            ) if self.settings else False
+        except Exception:
+            raw = False
+        return _to_bool(raw, default=False)
 
     @staticmethod
     def _normalize_liveness_state(status: str | None) -> str:
@@ -3402,6 +3418,26 @@ class saiMQTTIngest:
             ok = (rc == 0)
             if ok:
                 self._pending_set[(str(switch_id), str(channel_label))] = time.time()
+                try:
+                    switch_id_str = str(switch_id)
+                    channel_id_str = str(channel_id)
+                    state_txt = "on" if new_state else "off"
+                    cache = self._switch_state_cache.setdefault(switch_id_str, {})
+                    cache[channel_id_str] = state_txt
+                    cache[str(channel_label)] = state_txt
+                    try:
+                        target_sid = switch_id_str.strip().lower()
+                        target_ch = channel_id_str.strip().lower()
+                        for row in (self.data_logger.get_switch_identities() or []):
+                            rsid = str(row.get("switch_id", "") or "").strip().lower()
+                            rch = str(row.get("channel_id", "") or "").strip().lower()
+                            rlab = str(row.get("label", "") or "").strip()
+                            if rsid == target_sid and rch == target_ch and rlab:
+                                cache[rlab] = state_txt
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
                 if DEBUG:
                     printDM(f"[set_switch] → {topic} {payload}", location=MODULE)
             else:
@@ -3447,8 +3483,33 @@ class saiMQTTIngest:
             channel_id_str = str(channel_id)
 
             last_cache = self._switch_state_cache.setdefault(switch_id_str, {})
-            last_state = str(last_cache.get(channel_id_str, "")).lower()  # "on"/"off"
             new_state  = "on" if is_on else "off"
+            state_key = (switch_id_str, channel_id_str)
+
+            last_state = str(self._last_persisted_switch_state.get(state_key, "")).lower()
+            if last_state not in ("on", "off"):
+                label_resolved = None
+                try:
+                    for row in (self.data_logger.get_switch_identities() or []):
+                        rsid = str(row.get("switch_id", "") or "").strip()
+                        rch = str(row.get("channel_id", "") or "").strip()
+                        rlab = str(row.get("label", "") or "").strip()
+                        if rsid == switch_id_str and rch == channel_id_str and rlab:
+                            label_resolved = rlab
+                            break
+                except Exception:
+                    label_resolved = None
+                if not label_resolved:
+                    label_resolved = channel_id_str
+                try:
+                    latest = self.data_logger.get_latest_switch_state(
+                        build_switch_key(channel_id_str, label_resolved),
+                        sensor_id=(sensor_lineage or switch_id_str),
+                    )
+                    if latest is not None:
+                        last_state = "on" if str(latest).strip().lower() == "on" else "off"
+                except Exception:
+                    pass
 
             if (not force_write) and last_state == new_state:
                 if DEBUG:
@@ -3499,6 +3560,8 @@ class saiMQTTIngest:
                     sensor_id=(sensor_lineage or switch_id_str),
                     values={channel_id_str: 1 if is_on else 0},
                 )
+
+            self._last_persisted_switch_state[state_key] = new_state
 
             if DEBUG:
                 printDM(
@@ -3706,7 +3769,11 @@ class saiMQTTIngest:
                     if not label_resolved:
                         label_resolved = label or str(channel_id)
                     db_key = build_switch_key(str(channel_id), str(label_resolved))
-                    latest = self.data_logger.get_latest_switch_state(db_key)
+                    getter = getattr(self.data_logger, "get_latest_switch_state_by_source_prefix", None)
+                    if callable(getter):
+                        latest = getter(db_key, source_prefix="mqtt", sensor_id=f"Switch_{switch_id}")
+                    else:
+                        latest = self.data_logger.get_latest_switch_state(db_key)
                     if latest is not None:
                         latest_on = str(latest).strip().lower() == "on"
                         force_write = (latest_on != bool(is_on))
@@ -3924,10 +3991,10 @@ class saiMQTTIngest:
         
     async def mqtt_discovery_loop(self):
         """
-        Discovery + liveness loop (STRICT policy):
-          1) At startup: after the first /availability online → call /itaot once (onboarding).
-          2) After startup: use /availability for liveness (fallback /hayd if no availability seen).
-          3) If /availability flips offline→online: call /itaot once immediately after recovery.
+        Discovery + liveness loop.
+          Typical startup is MQTT-meta-first and avoids background /itaot-meta probes.
+          HTTP /itaot-meta is reserved for Add Device, explicit refreshes, and
+          optional legacy fallback when BACKGROUND_HTTP_META_DISCOVERY is enabled.
         Implementation details:
           - Single host target per tick (cached IP preferred).
           - No HTTP keep-alive; small connection pool.
@@ -3971,15 +4038,15 @@ class saiMQTTIngest:
         if not hasattr(self, "_host_ip_cache"):       self._host_ip_cache = {}
         if not hasattr(self, "_host_ipv4addr"):      self._host_ipv4addr = {}
 
-        # Per-host state to enforce your policy:
+        allow_http_meta_discovery = self._allow_background_http_meta_discovery()
+
+        # Per-host state for optional legacy HTTP fallback:
         # - first_hayd_done: set True after the first successful /hayd since process start
         # - onboarding_done: set True after the first /itaot post-startup hayd
         # - last_hayd_ok: tracks last tick result to detect recovery edges
-        # - need_itaot_after_recovery: set True when hayd transitions from fail->ok
         first_hayd_done:   dict[str, bool]  = {}
         onboarding_done:   dict[str, bool]  = {}
         last_hayd_ok:      dict[str, bool]  = {}
-        need_itaot_after_recovery: dict[str, bool] = {}
         if not hasattr(self, "_disc_sem"):
             self._disc_sem = asyncio.Semaphore(1)
 
@@ -4337,27 +4404,29 @@ class saiMQTTIngest:
                                 last_hayd_ok[base] = hayd_ok
                                 recovered = bool(hayd_ok and not prev_ok)
 
-                                # If we were previously onboarded and just recovered, schedule exactly one /itaot
-                                if recovered and onboarding_done.get(base, False):
+                                # Optional legacy behavior: after recovery, allow one
+                                # background /itaot-meta refresh if explicitly enabled.
+                                if allow_http_meta_discovery and recovered and onboarding_done.get(base, False):
                                     itaot_due_at[base] = time.monotonic() + 5.0
 
-                                # 2) Startup path: first successful /hayd schedules one /itaot (onboarding)
+                                # 2) Startup path for legacy HTTP fallback
                                 if not first_hayd_done.get(base, False):
                                     if hayd_ok:
                                         first_hayd_done[base] = True
-                                        onboarding_done.setdefault(base, False)
-                                        itaot_due_at[base] = time.monotonic() + 5.0
+                                        if allow_http_meta_discovery:
+                                            onboarding_done.setdefault(base, False)
+                                            itaot_due_at[base] = time.monotonic() + 5.0
                                         self._mark_host_status(base, "unknown")
                                     else:
                                         # still before first hayd success; rely on MQTT grace for status
                                         pids = self.host_to_peer_ids.get(base, [])
                                         recent = any((now_ts - self.last_mqtt_seen.get(pid, 0.0)) < MQTT_GRACE_S for pid in pids)
                                         # If /hayd is unavailable but MQTT data is clearly flowing,
-                                        # bootstrap onboarding from MQTT liveness and schedule /itaot.
+                                        # bootstrap status from MQTT liveness only.
                                         if recent:
                                             first_hayd_done[base] = True
-                                            onboarding_done.setdefault(base, False)
-                                            if not onboarding_done.get(base, False):
+                                            if allow_http_meta_discovery:
+                                                onboarding_done.setdefault(base, False)
                                                 itaot_due_at.setdefault(base, time.monotonic() + 5.0)
                                             self._mark_host_status(base, "online")
                                         else:
@@ -4370,33 +4439,11 @@ class saiMQTTIngest:
                                         self._mark_host_status(base, "online")
                                         self.device_offline_count[base] = 0
 
-                                    due = itaot_due_at.get(base)
-                                    now_probe = time.monotonic()
-                                    if due and now_probe >= due:
-                                        # Enforce global /itaot spacing so hosts are onboarded in sequence.
-                                        if now_probe < next_itaot_slot_at:
-                                            continue
-                                        itaot_due_at.pop(base, None)
-                                        next_itaot_slot_at = now_probe + ITAOT_HOST_SPACING_S
-                                        if await _probe_http_meta(client, hostname):
-                                            onboarding_done[base] = True
-                                            self._mark_host_status(base, "online")
-                                            self.device_offline_count[base] = 0
-                                        else:
-                                            self._mark_host_status(base, "unknown")
-
-                                else:
-                                    # Offline or unknown — decide using MQTT grace + retries
-                                    pids = self.host_to_peer_ids.get(base, [])
-                                    recent = any((now_ts - self.last_mqtt_seen.get(pid, 0.0)) < MQTT_GRACE_S for pid in pids)
-
-                                    if recent:
-                                        self._mark_host_status(base, "degraded")
-                                        # Also honor scheduled /itaot onboarding using MQTT liveness
-                                        # when /hayd is unavailable on the device.
+                                    if allow_http_meta_discovery:
                                         due = itaot_due_at.get(base)
                                         now_probe = time.monotonic()
                                         if due and now_probe >= due:
+                                            # Enforce global /itaot spacing so hosts are onboarded in sequence.
                                             if now_probe < next_itaot_slot_at:
                                                 continue
                                             itaot_due_at.pop(base, None)
@@ -4406,7 +4453,31 @@ class saiMQTTIngest:
                                                 self._mark_host_status(base, "online")
                                                 self.device_offline_count[base] = 0
                                             else:
-                                                self._mark_host_status(base, "degraded")
+                                                self._mark_host_status(base, "unknown")
+
+                                else:
+                                    # Offline or unknown — decide using MQTT grace + retries
+                                    pids = self.host_to_peer_ids.get(base, [])
+                                    recent = any((now_ts - self.last_mqtt_seen.get(pid, 0.0)) < MQTT_GRACE_S for pid in pids)
+
+                                    if recent:
+                                        self._mark_host_status(base, "degraded")
+                                        if allow_http_meta_discovery:
+                                            # Also honor scheduled /itaot onboarding using MQTT liveness
+                                            # when /hayd is unavailable on the device.
+                                            due = itaot_due_at.get(base)
+                                            now_probe = time.monotonic()
+                                            if due and now_probe >= due:
+                                                if now_probe < next_itaot_slot_at:
+                                                    continue
+                                                itaot_due_at.pop(base, None)
+                                                next_itaot_slot_at = now_probe + ITAOT_HOST_SPACING_S
+                                                if await _probe_http_meta(client, hostname):
+                                                    onboarding_done[base] = True
+                                                    self._mark_host_status(base, "online")
+                                                    self.device_offline_count[base] = 0
+                                                else:
+                                                    self._mark_host_status(base, "degraded")
                                         # do NOT increment offline counter while MQTT is still flowing
                                     else:
                                         n = self.device_offline_count.get(base, 0) + 1

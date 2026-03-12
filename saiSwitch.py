@@ -603,6 +603,7 @@ class SwitchController:
 
     def set_state(self, name, on: bool, *, force: bool = False):
         now = time.monotonic()
+        prev_on = self.get_state(name)
         if self.override_script.get(name, False):
             printDM(f"Override active: {name} forced to {on}", location=MODULE)
             ok = self._set_switch_state(name, on)
@@ -610,10 +611,9 @@ class SwitchController:
                 self.last_state[name] = on                     # <-- keep RAM state in sync
                 self._log(name, on)
                 self.last_set_time[name] = now
-                self._sync_auto_off_state(name, bool(on), restart=bool(on))
+                self._sync_auto_off_state(name, bool(on), restart=bool(on and not prev_on))
             return bool(ok)
 
-        prev_on = self.get_state(name)
         elapsed = now - self.last_set_time.get(name, 0)
         if not force and on == prev_on:
             return False
@@ -628,7 +628,7 @@ class SwitchController:
             self.last_state[name] = on                         # <-- keep RAM state in sync
             self._log(name, on)
             self.last_set_time[name] = now
-            self._sync_auto_off_state(name, bool(on), restart=bool(on))
+            self._sync_auto_off_state(name, bool(on), restart=bool(on and not prev_on))
 
         # Only publish this telemetry for local backend; MQTTSwitch already sent a command.
         # Prefer ID-based topics using SWITCH_n_CHANNEL_ID.
@@ -1272,7 +1272,7 @@ class SwitchController:
             if self._set_switch_state(name, result):
                 self.last_state[name] = result
                 self.last_set_time[name] = now
-                self._sync_auto_off_state(name, bool(result), restart=bool(result))
+                self._sync_auto_off_state(name, bool(result), restart=bool(result and not current_state))
 
     def _evaluate_script(self, rule, sensor_data, current_state: bool):
         """
@@ -1458,7 +1458,7 @@ class RemoteSwitchController(SwitchController):
                 prev_state = bool(self.last_state.get(label, False))
                 self.last_state[label] = new_state
                 if new_state != prev_state:
-                    self._sync_auto_off_state(label, new_state, restart=new_state)
+                    self._sync_auto_off_state(label, new_state, restart=False)
         except Exception:
             return
 

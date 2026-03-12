@@ -60,6 +60,16 @@ def is_self_broker(broker: str | None, *, hostnames: set[str] | None = None) -> 
         pass
     return b in names
 
+
+def is_remote_sensor_settings(config_dict: dict | None) -> bool:
+    """Return True when the sensor settings describe an MQTT-backed remote device."""
+    try:
+        sensor_block = config_dict.get("Sensor", {}) if isinstance(config_dict, dict) else {}
+        sensor_type = str(sensor_block.get("TYPE", "") or "").strip().lower()
+        return sensor_type in {"nodus", "picow", "pico2w", "remote", "mqtt"}
+    except Exception:
+        return False
+
 # helpers for determining all (directly and/or remote mqtt clients) devices
 async def ensure_local_sensor_configs(settings) -> list[str]:
     """
@@ -158,6 +168,10 @@ async def build_sensor_controllers(sensor_ids, supervisor, gc_mgr, data_logger):
         config_dict = sensor_mgr.load(sid)
         if not config_dict:
             printDM(f"Sensor config for '{sid}' not found", location=f"{MODULE}:bsc")
+            continue
+        if is_remote_sensor_settings(config_dict):
+            if DEBUG:
+                printDM(f"Skipping remote sensor runtime for '{sid}'", location=f"{MODULE}:bsc")
             continue
         config = SettingsWrapper(config_dict)
         if DEBUG:

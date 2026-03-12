@@ -77,9 +77,22 @@ class _Logger:
         self.switch_identities = []
         self.sensors = set()
         self.readings = []
+        self.switch_events = []
 
     def log_readings(self, *args, **kwargs):
         self.readings.append((args, kwargs))
+        return
+
+    def log_switch_event(self, *, switch_key, is_on, timestamp=None, source=None, sensor_id=None):
+        self.switch_events.append(
+            {
+                "switch_key": switch_key,
+                "is_on": bool(is_on),
+                "timestamp": timestamp,
+                "source": source,
+                "sensor_id": sensor_id,
+            }
+        )
         return
 
     def register_sensor(self, sensor_id):
@@ -94,6 +107,54 @@ class _Logger:
                 "location": location,
             }
         )
+
+    def get_switch_channel_id(self, switch_id, label):
+        want_sid = str(switch_id or "").strip().lower()
+        want_label = str(label or "").strip().lower()
+        for row in self.switch_identities:
+            rsid = str(row.get("switch_id", "") or "").strip().lower()
+            rlabel = str(row.get("label", "") or "").strip().lower()
+            if rsid == want_sid and rlabel == want_label:
+                channel_id = str(row.get("channel_id", "") or "").strip()
+                if channel_id:
+                    return channel_id
+                switch_key = str(row.get("switch_key", "") or "").strip()
+                if "::" in switch_key:
+                    return switch_key.split("::", 1)[0].strip()
+        return None
+
+    def get_switch_identities(self):
+        return list(self.switch_identities)
+
+    def get_latest_switch_state(self, switch_key: str, sensor_id: str | None = None):
+        want_key = str(switch_key or "").strip().lower()
+        want_sensor = None if sensor_id is None else str(sensor_id).strip().lower()
+        for row in reversed(self.switch_events):
+            row_key = str(row.get("switch_key", "") or "").strip().lower()
+            row_sensor = None if row.get("sensor_id") is None else str(row.get("sensor_id")).strip().lower()
+            if row_key != want_key:
+                continue
+            if want_sensor is not None and row_sensor != want_sensor:
+                continue
+            return "On" if row.get("is_on") else "Off"
+        return None
+
+    def get_latest_switch_state_by_source_prefix(self, switch_key: str, *, source_prefix: str, sensor_id: str | None = None):
+        want_key = str(switch_key or "").strip().lower()
+        want_prefix = str(source_prefix or "").strip().lower()
+        want_sensor = None if sensor_id is None else str(sensor_id).strip().lower()
+        for row in reversed(self.switch_events):
+            row_key = str(row.get("switch_key", "") or "").strip().lower()
+            row_source = str(row.get("source", "") or "").strip().lower()
+            row_sensor = None if row.get("sensor_id") is None else str(row.get("sensor_id")).strip().lower()
+            if row_key != want_key:
+                continue
+            if want_sensor is not None and row_sensor != want_sensor:
+                continue
+            if not row_source.startswith(want_prefix):
+                continue
+            return "On" if row.get("is_on") else "Off"
+        return None
 
 
 class _Msg:
@@ -119,6 +180,19 @@ def _build_ingest(monkeypatch, *, sections=None, values=None):
         settings=settings,
         data_logger=_Logger(),
     )
+
+
+def test_background_http_meta_discovery_defaults_off(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    assert ingest._allow_background_http_meta_discovery() is False
+
+
+def test_background_http_meta_discovery_can_be_enabled(monkeypatch):
+    ingest = _build_ingest(
+        monkeypatch,
+        values={("SensorNetwork", "BACKGROUND_HTTP_META_DISCOVERY"): True},
+    )
+    assert ingest._allow_background_http_meta_discovery() is True
 
 
 def test_registered_topics_include_heartbeat(monkeypatch):
@@ -160,6 +234,94 @@ def test_publish_nodus_calibration_uses_mqtt_command_topic(monkeypatch):
     assert body["payload"]["offsets"][0]["key"] == "Calibration.Device.TEMP_OFFSET"
     assert qos == 1
     assert retain is False
+
+
+def test_set_switch_updates_remote_cache_optimistically(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.data_logger.switch_identities = [
+        {
+            "switch_key": "S1-sw1::Fan",
+            "switch_id": "sw1",
+            "label": "Fan",
+            "channel_id": "S1-sw1",
+            "location": "lab",
+        }
+    ]
+    ingest.nodus_switch_command_topics[("sw1", "S1-sw1")] = "nodus/S1-sw1/set"
+
+    ok = ingest.set_switch("sw1", "Fan", False)
+
+    assert ok is True
+    assert ingest._switch_state_cache["sw1"]["S1-sw1"] == "off"
+    assert ingest._switch_state_cache["sw1"]["Fan"] == "off"
+
+
+def test_confirmed_nodus_event_persists_after_optimistic_cache_update(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.data_logger.switch_identities = [
+        {
+            "switch_key": "S1-sw1::Fan",
+            "switch_id": "sw1",
+            "label": "Fan",
+            "channel_id": "S1-sw1",
+            "location": "lab",
+        }
+    ]
+    ingest.nodus_switch_command_topics[("sw1", "S1-sw1")] = "nodus/S1-sw1/set"
+    ingest.nodus_switch_topic_map["nodus/S1-sw1/event"] = {
+        "switch_id": "sw1",
+        "channel_id": "S1-sw1",
+        "label": "Fan",
+        "kind": "event",
+    }
+
+    assert ingest.set_switch("sw1", "Fan", False) is True
+
+    ingest.handle_nodus_switch_topic(
+        "nodus/S1-sw1/event",
+        json.dumps({"event": {"SWITCH_1": "off"}, "source": "mqtt", "timestamp": 1773318167}),
+    )
+
+    assert ingest.data_logger.switch_events[-1]["switch_key"] == "S1-sw1::Fan"
+    assert ingest.data_logger.switch_events[-1]["is_on"] is False
+    assert ingest.data_logger.switch_events[-1]["source"] == "mqtt"
+
+
+def test_confirmed_nodus_state_persists_even_after_manual_ui_off(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.data_logger.switch_identities = [
+        {
+            "switch_key": "S1-sw1::Fan",
+            "switch_id": "sw1",
+            "label": "Fan",
+            "channel_id": "S1-sw1",
+            "location": "lab",
+        }
+    ]
+    ingest.data_logger.log_switch_event(
+        switch_key="S1-sw1::Fan",
+        is_on=True,
+        source="mqtt-nodus-state",
+        sensor_id="Switch_sw1",
+    )
+    ingest.data_logger.log_switch_event(
+        switch_key="S1-sw1::Fan",
+        is_on=False,
+        source="manual/ui",
+        sensor_id="Switch_sw1",
+    )
+    ingest.nodus_switch_topic_map["nodus/S1-sw1/state"] = {
+        "switch_id": "sw1",
+        "channel_id": "S1-sw1",
+        "label": "Fan",
+        "kind": "state",
+    }
+
+    ingest.handle_nodus_switch_topic("nodus/S1-sw1/state", "OFF")
+
+    assert ingest.data_logger.switch_events[-1]["switch_key"] == "S1-sw1::Fan"
+    assert ingest.data_logger.switch_events[-1]["is_on"] is False
+    assert ingest.data_logger.switch_events[-1]["source"] == "mqtt-nodus-state"
 
 
 def test_calibration_topics_update_state_caches(monkeypatch):

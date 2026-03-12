@@ -1062,6 +1062,56 @@ class saiDataLogger:
             printDM(f"[get_latest_switch_state] query failed: {e}", location=MODULE)
             return None
 
+    def get_latest_switch_state_by_source_prefix(
+        self,
+        switch_key: str,
+        *,
+        source_prefix: str,
+        sensor_id: str | None = None,
+    ) -> str | None:
+        """
+        Returns "On"/"Off"/None using the newest sw_events row for the switch_key
+        whose source starts with source_prefix (case-insensitive).
+        """
+        try:
+            with self._open_conn() as conn:
+                cur = conn.cursor()
+                if sensor_id:
+                    cur.execute(
+                        """
+                        SELECT state FROM sw_events
+                        WHERE switch_key = ? COLLATE NOCASE
+                          AND LOWER(COALESCE(source, '')) LIKE LOWER(?)
+                          AND LOWER(sensor_id)=LOWER(?)
+                        ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC
+                        LIMIT 1
+                        """,
+                        (switch_key, f"{source_prefix}%", sensor_id)
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT state FROM sw_events
+                        WHERE switch_key = ? COLLATE NOCASE
+                          AND LOWER(COALESCE(source, '')) LIKE LOWER(?)
+                        ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC
+                        LIMIT 1
+                        """,
+                        (switch_key, f"{source_prefix}%")
+                    )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                val = row[0]
+                try:
+                    is_on = bool(int(val))
+                except Exception:
+                    is_on = str(val).lower() in ("1","true","on")
+                return "On" if is_on else "Off"
+        except Exception as e:
+            printDM(f"[get_latest_switch_state_by_source_prefix] query failed: {e}", location=MODULE)
+            return None
+
     #  convenience query
     def get_known_switches(self) -> list[str]:
         """Return list of registered switch_key values ('<channel_id>::<label>'), sorted."""

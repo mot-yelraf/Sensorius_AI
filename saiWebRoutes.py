@@ -8789,7 +8789,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                             ctrl.last_state[matched_label] = bool(new_state)
                         sync_timer = getattr(ctrl, "_sync_auto_off_state", None)
                         if callable(sync_timer):
-                            sync_timer(matched_label, bool(new_state), restart=bool(new_state))
+                            sync_timer(matched_label, bool(new_state), restart=bool(new_state and not current))
                     except Exception:
                         pass
 

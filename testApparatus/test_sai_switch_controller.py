@@ -25,6 +25,8 @@ if "paho" not in sys.modules:
     sys.modules["paho"] = paho_mod
     sys.modules["paho.mqtt"] = mqtt_pkg
     sys.modules["paho.mqtt.client"] = mqtt_client_mod
+if not hasattr(sys.modules["paho.mqtt.client"], "Client"):
+    sys.modules["paho.mqtt.client"].Client = object
 
 import saiSwitch
 from saiSwitch import (
@@ -91,6 +93,48 @@ def test_process_auto_off_timers_turns_channel_off(monkeypatch: pytest.MonkeyPat
     assert calls == [("Fan", False, True)]
     assert ctrl.last_state["Fan"] is False
     assert ctrl.auto_off_deadline["Fan"] is None
+
+
+def test_set_state_restarts_auto_off_only_on_new_on_transition(monkeypatch: pytest.MonkeyPatch):
+    ctrl = _make_controller()
+    ctrl.last_state["Fan"] = True
+    ctrl.auto_off_seconds["Fan"] = 30
+    ctrl.auto_off_deadline["Fan"] = 150.0
+    ctrl.get_state = lambda label: ctrl.last_state[label]
+    ctrl._set_switch_state = lambda _name, _on: True
+    ctrl._log = lambda _name, _on: None
+
+    monkeypatch.setattr(saiSwitch.time, "monotonic", lambda: 50.0)
+
+    assert SwitchController.set_state(ctrl, "Fan", True, force=True) is True
+    assert ctrl.auto_off_deadline["Fan"] == 150.0
+
+
+def test_remote_ingest_refresh_does_not_restart_active_auto_off(monkeypatch: pytest.MonkeyPatch):
+    ctrl = RemoteSwitchController.__new__(RemoteSwitchController)
+    ctrl.mqtt_ingest = types.SimpleNamespace(_switch_state_cache={"sw1": {"CH1": "on"}})
+    ctrl.switch_id = "sw1"
+    ctrl.channel_id_for_label = {"Fan": "CH1"}
+    ctrl.last_state = {"Fan": False}
+    ctrl.auto_off_seconds = {"Fan": 30}
+    ctrl.auto_off_deadline = {"Fan": 150.0}
+    ctrl.get_switch_names = lambda: ["Fan"]
+
+    called = []
+
+    def _fake_sync(label, is_on, *, restart=False):
+        called.append((label, is_on, restart))
+        SwitchController._sync_auto_off_state(ctrl, label, is_on, restart=restart)
+
+    ctrl._sync_auto_off_state = _fake_sync
+
+    monkeypatch.setattr(saiSwitch.time, "time", lambda: 120.0)
+
+    RemoteSwitchController._refresh_state_from_ingest(ctrl)
+
+    assert ctrl.last_state["Fan"] is True
+    assert called == [("Fan", True, False)]
+    assert ctrl.auto_off_deadline["Fan"] == 150.0
 
 
 def test_set_state_does_not_publish_or_log_on_backend_failure():
