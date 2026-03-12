@@ -794,6 +794,8 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
                         "index": 1,
                         "label": "Fan",
                         "channel_id": "S1-ykdvea",
+                        "enable_pin": "GP5",
+                        "pin": "GP28",
                         "state": False,
                         "event_topic": "nodus/S1-ykdvea/event",
                         "state_topic": "nodus/S1-ykdvea/state",
@@ -831,8 +833,10 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
     assert 'SWITCH_LOCATION = "Lab"' in switch_saved
     assert 'SWITCH_1_LABEL = "Fan"' in switch_saved
     assert 'SWITCH_1_CHANNEL_ID = "S1-ykdvea"' in switch_saved
-    assert 'SWITCH_1_ENABLE_PIN = "mqtt"' in switch_saved
+    assert 'SWITCH_1_ENABLE_PIN = "GP5"' in switch_saved
+    assert 'SWITCH_1_PIN = "GP28"' in switch_saved
     assert 'SWITCH_1_LAST_STATE = false' in switch_saved
+    assert 'SWITCH_1_EN = "1"' not in switch_saved
 
 
 def test_nodus_meta_preserves_manual_switch_wiring_and_prunes_stale_channels(tmp_path, monkeypatch):
@@ -920,6 +924,8 @@ def test_nodus_meta_preserves_manual_switch_wiring_and_prunes_stale_channels(tmp
                         "index": 1,
                         "label": "Fan",
                         "channel_id": "S1-ykdvea",
+                        "enable_pin": "GP5",
+                        "pin": "GP28",
                         "state": False,
                         "event_topic": "nodus/S1-ykdvea/event",
                         "state_topic": "nodus/S1-ykdvea/state",
@@ -940,6 +946,8 @@ def test_nodus_meta_preserves_manual_switch_wiring_and_prunes_stale_channels(tmp
     assert 'SWITCH_1_ENABLE_PIN = "GP5"' in switch_saved
     assert 'SWITCH_1_PIN = "GP28"' in switch_saved
     assert 'SWITCH_1_CHANNEL_ID = "S1-ykdvea"' in switch_saved
+    assert 'SWITCH_1_EN = "1"' not in switch_saved
+    assert 'SWITCH_2_EN = "1"' not in switch_saved
     assert "SWITCH_2_LABEL" not in switch_saved
     assert "SWITCH_2_CHANNEL_ID" not in switch_saved
 

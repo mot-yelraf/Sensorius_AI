@@ -1394,10 +1394,26 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                     rule_enabled = False
 
                 enabled = bool(rule_enabled)
+                try:
+                    timer_state = dict(getattr(switch_ctrl, "get_auto_off_status")(label_norm) or {})
+                except Exception:
+                    timer_state = {}
+                timer_seconds = int(timer_state.get("timer_seconds", 0) or 0)
+                timer_remaining = int(timer_state.get("timer_remaining_s", 0) or 0)
+                timer_ui_key = f"{getattr(switch_ctrl, 'switch_id', '')}::{label_norm}" if getattr(switch_ctrl, "switch_id", "") else f"::{label_norm}"
+                timer_input_id = f"{safe_key}_timer_input"
+                timer_status_id = f"{safe_key}_timer_status"
+                if timer_seconds <= 0:
+                    timer_status_text = "Timer disabled"
+                elif is_on and timer_remaining > 0:
+                    timer_status_text = f"Countdown: {timer_remaining}s"
+                else:
+                    timer_status_text = f"Timer set: {timer_seconds}s"
 
 
                 # Button shows Enabled/Disabled and uses our existing .button .green/.black styles
                 yield "<td>"
+                yield "<div class='switch-automation-cell'>"
                 yield (
                     f'<button '
                     f'  id="{safe_key}_btn" '
@@ -1409,6 +1425,14 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                     f'{"Enabled" if enabled else "Disabled"}'
                     f'</button>'
                 )
+                yield (
+                    f"<div class='switch-timer-panel' data-switch-ui-key='{timer_ui_key}' data-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' data-label='{label_norm}'>"
+                    f"  <input id='{timer_input_id}' class='switch-timer-input' type='number' min='0' max='9999' step='30' inputmode='numeric' "
+                    f"    data-switch-ui-key='{timer_ui_key}' data-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' data-label='{label_norm}' value='{timer_seconds}' />"
+                    f"  <div id='{timer_status_id}' class='switch-timer-status' data-switch-ui-key='{timer_ui_key}'>{timer_status_text}</div>"
+                    f"</div>"
+                )
+                yield "</div>"
                 yield "</td>"
 
                 yield "<td>"
@@ -3125,6 +3149,88 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
 
     yield "const _switchEventsCache = new Map();  "
     yield "const _switchRefreshBlockUntil = new Map();"
+    yield "const _switchTimerState = new Map();"
+
+    yield "function _timerStateKey(key, fallbackName){"
+    yield "  const k = String(key || '').trim();"
+    yield "  if (k) return k;"
+    yield "  return String(fallbackName || '').trim();"
+    yield "}"
+
+    yield "function _findTimerPanel(key){"
+    yield "  const k = String(key || '').trim();"
+    yield "  if (k) {"
+    yield "    const exact = document.querySelector(`.switch-timer-panel[data-switch-ui-key=\"${_cssEsc(k)}\"]`);"
+    yield "    if (exact) return exact;"
+    yield "    const { label } = _splitKey(k);"
+    yield "    const suffix = document.querySelector(`.switch-timer-panel[data-switch-ui-key$=\"::${_cssEsc(label)}\"]`);"
+    yield "    if (suffix) return suffix;"
+    yield "  }"
+    yield "  return null;"
+    yield "}"
+
+    yield "function _renderSwitchTimer(key, fallbackName){"
+    yield "  const stateKey = _timerStateKey(key, fallbackName);"
+    yield "  const panel = _findTimerPanel(stateKey);"
+    yield "  if (!panel) return;"
+    yield "  const input = panel.querySelector('.switch-timer-input');"
+    yield "  const status = panel.querySelector('.switch-timer-status');"
+    yield "  const model = _switchTimerState.get(stateKey) || {};"
+    yield "  const seconds = Number(model.timer_seconds || 0);"
+    yield "  const deadline = Number(model.timer_deadline_epoch || 0);"
+    yield "  const isOn = !!model.state;"
+    yield "  if (input && document.activeElement !== input) {"
+    yield "    input.value = String(seconds);"
+    yield "    input.dataset.lastGoodValue = String(seconds);"
+    yield "  }"
+    yield "  if (!status) return;"
+    yield "  if (seconds <= 0) {"
+    yield "    status.textContent = 'Timer disabled';"
+    yield "    return;"
+    yield "  }"
+    yield "  if (!isOn || !deadline) {"
+    yield "    status.textContent = `Timer set: ${seconds}s`;"
+    yield "    return;"
+    yield "  }"
+    yield "  const remaining = Math.max(0, Math.ceil(deadline - (Date.now() / 1000)));"
+    yield "  status.textContent = remaining > 0 ? `Countdown: ${remaining}s` : 'Turning off...';"
+    yield "}"
+
+    yield "function updateSwitchTimerUi(key, stateData, fallbackName){"
+    yield "  const stateKey = _timerStateKey((stateData && stateData.ui_key) || key, fallbackName);"
+    yield "  const prev = _switchTimerState.get(stateKey) || {};"
+    yield "  const next = Object.assign({}, prev);"
+    yield "  if (stateData && Object.prototype.hasOwnProperty.call(stateData, 'state')) next.state = !!stateData.state;"
+    yield "  if (stateData && Object.prototype.hasOwnProperty.call(stateData, 'timer_seconds')) next.timer_seconds = Number(stateData.timer_seconds || 0);"
+    yield "  if (stateData && Object.prototype.hasOwnProperty.call(stateData, 'timer_deadline_epoch')) next.timer_deadline_epoch = stateData.timer_deadline_epoch ? Number(stateData.timer_deadline_epoch) : 0;"
+    yield "  if (stateData && Object.prototype.hasOwnProperty.call(stateData, 'timer_remaining_s') && !Object.prototype.hasOwnProperty.call(stateData, 'timer_deadline_epoch')) {"
+    yield "    const rem = Number(stateData.timer_remaining_s || 0);"
+    yield "    next.timer_deadline_epoch = rem > 0 ? ((Date.now() / 1000) + rem) : 0;"
+    yield "  }"
+    yield "  if (next.timer_seconds > 0 && next.state && !next.timer_deadline_epoch) {"
+    yield "    next.timer_deadline_epoch = (Date.now() / 1000) + next.timer_seconds;"
+    yield "  }"
+    yield "  if (!next.state) next.timer_deadline_epoch = 0;"
+    yield "  _switchTimerState.set(stateKey, next);"
+    yield "  _renderSwitchTimer(stateKey, fallbackName);"
+    yield "}"
+
+    yield "function tickSwitchCountdowns(){"
+    yield "  for (const key of _switchTimerState.keys()) {"
+    yield "    _renderSwitchTimer(key, '');"
+    yield "  }"
+    yield "}"
+
+    yield "function initSwitchTimersFromDom(){"
+    yield "  document.querySelectorAll('.switch-timer-panel').forEach((panel) => {"
+    yield "    const key = panel.dataset.switchUiKey || '';"
+    yield "    const input = panel.querySelector('.switch-timer-input');"
+    yield "    const initial = Number((input && input.value) || 0);"
+    yield "    _switchTimerState.set(key, { timer_seconds: initial, timer_deadline_epoch: 0, timer_remaining_s: 0, state: false });"
+    yield "    if (input) input.dataset.lastGoodValue = String(initial);"
+    yield "    _renderSwitchTimer(key, panel.dataset.label || '');"
+    yield "  });"
+    yield "}"
     
     yield "function _findEventsListElem(key){"
     yield "  const {switchId,label}=_splitKey(key);"
@@ -3546,6 +3652,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  const isOn = !!(stateData && (stateData.state===true || String(stateData.state).toLowerCase()==='on'));"
     yield "  const lastTime = stateData && stateData.time ? stateData.time : '';"
     yield "  setSwitchBoxState(box, isOn);"
+    yield "  updateSwitchTimerUi(key, Object.assign({}, stateData || {}, { state: isOn }), name);"
     yield "  if (labelEl) {"
     yield "    labelEl.textContent = isOn ? ' ON' : 'OFF';"
     yield "    labelEl.style.color = isOn ? '#080' : '#666';"
@@ -3567,9 +3674,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "        const msg = JSON.parse(ev.data);"
     yield "        if (msg.type === 'switch_event'){"
     yield "          const key = msg.key || '';"
+    yield "          const uiKey = msg.ui_key || key;"
     yield "          const hasKeyedBoxes = !!document.querySelector('.switch-box[data-switch-key]');"
     yield "          const label = key.includes('::') ? key.split('::')[1] : key;"
-    yield "          const data  = { state: !!msg.state, time: [] };"
+    yield "          const data  = { state: !!msg.state, time: [], timer_seconds: msg.timer_seconds, timer_deadline_epoch: msg.timer_deadline_epoch, timer_remaining_s: msg.timer_remaining_s, ui_key: uiKey };"
     yield "          updateSwitchVisuals(label, data, key);"
     yield "          if (typeof appendSwitchEventLine === 'function'){"
     yield "            const line = `${msg.state ? 'On' : 'Off'} ${msg.timestamp || ''}`;"
@@ -3821,6 +3929,46 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  }"
     yield "};"
 
+    yield "async function saveSwitchTimer(inputEl){"
+    yield "  if (!inputEl) return;"
+    yield "  const switchId = inputEl.dataset.switchId || '';"
+    yield "  const label = inputEl.dataset.label || '';"
+    yield "  const uiKey = inputEl.dataset.switchUiKey || `${switchId}::${label}`;"
+    yield "  const raw = String(inputEl.value || '').trim();"
+    yield "  let parsed = Number(raw);"
+    yield "  const prior = String(inputEl.dataset.lastGoodValue || '0');"
+    yield "  if (Number.isInteger(parsed) && parsed > 0 && parsed < 30) parsed = 30;"
+    yield "  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 9999) {"
+    yield "    inputEl.value = prior;"
+    yield "    alert('Timer must be 0 or between 30 and 9999 seconds.');"
+    yield "    return;"
+    yield "  }"
+    yield "  if (parsed !== 0 && parsed % 30 !== 0) {"
+    yield "    parsed = Math.min(9990, Math.max(30, Math.round(parsed / 30) * 30));"
+    yield "  }"
+    yield "  inputEl.value = String(parsed);"
+    yield "  inputEl.disabled = true;"
+    yield "  try {"
+    yield "    const res = await fetch(`/switch/timer?switch_id=${encodeURIComponent(switchId)}&switch_name=${encodeURIComponent(label)}`, {"
+    yield "      method: 'POST',"
+    yield "      headers: { 'Content-Type': 'application/json' },"
+    yield "      body: JSON.stringify({ seconds: parsed })"
+    yield "    });"
+    yield "    const data = await res.json().catch(() => ({}));"
+    yield "    if (!res.ok) {"
+    yield "      inputEl.value = prior;"
+    yield "      throw new Error(data.error || `HTTP ${res.status}`);"
+    yield "    }"
+    yield "    inputEl.dataset.lastGoodValue = String(data.timer_seconds || 0);"
+    yield "    updateSwitchTimerUi((data && data.ui_key) || uiKey, data || {}, label);"
+    yield "  } catch (err) {"
+    yield "    console.error('saveSwitchTimer failed', err);"
+    yield "    alert('Failed to update timer.');"
+    yield "  } finally {"
+    yield "    inputEl.disabled = false;"
+    yield "  }"
+    yield "}"
+
     yield "document.addEventListener('click', async (ev) => {"
     yield "  const btn = ev.target.closest('.switch-toggle');"
     yield "  if (!btn) return;"
@@ -3860,6 +4008,20 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  } catch (e) {"
     yield "    console.error('Toggle failed', e);"
     yield "  }"
+    yield "});"
+
+    yield "document.addEventListener('change', function(ev){"
+    yield "  const input = ev.target.closest('.switch-timer-input');"
+    yield "  if (!input) return;"
+    yield "  saveSwitchTimer(input);"
+    yield "});"
+
+    yield "document.addEventListener('keydown', function(ev){"
+    yield "  const input = ev.target.closest('.switch-timer-input');"
+    yield "  if (!input) return;"
+    yield "  if (ev.key !== 'Enter') return;"
+    yield "  ev.preventDefault();"
+    yield "  saveSwitchTimer(input);"
     yield "});"
     
     yield "function _currentSwitchIdFromSettings(){"
@@ -4060,6 +4222,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  setTimeout(checkAndRetryIfNoGauges, 1000);"
 
     yield "  initGauge();"
+    yield "  initSwitchTimersFromDom();"
     yield "  refreshAndApplySwitchStatus();"
     yield "  setTimeout(updateGauges, 600);"
 
@@ -4073,6 +4236,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  }"
 
     yield "  setInterval(updateLocalTime, 1000);"
+    yield "  setInterval(tickSwitchCountdowns, 1000);"
     yield "  setInterval(function(){ if (typeof drawSunPath === 'function') drawSunPath(astroData); }, 60000);"
     yield "  setInterval(function(){ if (typeof drawMoonPhase === 'function') drawMoonPhase(astroData); }, 3600000);"
     yield "  setInterval(function(){ if (typeof drawBiodynamic === 'function') drawBiodynamic(biodynamicData); }, 60000);"

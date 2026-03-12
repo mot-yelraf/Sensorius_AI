@@ -70,6 +70,8 @@ class SwitchController:
         self.last_state = {}
         self.override_script = {}
         self.last_set_time = {}
+        self.auto_off_seconds = {}
+        self.auto_off_deadline = {}
         self.min_on_time = 5
         self.min_off_time = 5
         self._advanced_delay_due = {}
@@ -164,6 +166,8 @@ class SwitchController:
             self.last_state[label] = bool(sw.get(state_key, False))
             self.override_script[label] = bool(sw.get(override_key, False))
             self.last_set_time.setdefault(label, 0.0)
+            self.auto_off_seconds.setdefault(label, 0)
+            self.auto_off_deadline.setdefault(label, None)
 
             # channel ID from new schema (may be empty → None)
             chan_id_key = f"SWITCH_{n}_CHANNEL_ID"
@@ -469,10 +473,12 @@ class SwitchController:
                 payload = {
                     "type": "switch_event",
                     "key": switch_key,      # "switch-id::Label"
+                    "ui_key": f"{self.switch_id}::{name}" if getattr(self, "switch_id", None) else switch_key,
                     "state": bool(on),      # True / False
                     "timestamp": get_timestamp(),
                     "source": "manual/ui",
                 }
+                payload.update(self.get_auto_off_status(name))
                 asyncio.create_task(switch_broadcast(payload))
         except Exception:
             pass
@@ -507,6 +513,65 @@ class SwitchController:
             if str(sw.get(f"SWITCH_{n}_LABEL", "")).strip().lower() == label.strip().lower():
                 return n
         return None
+
+    def set_auto_off_seconds(self, name: str, seconds: int) -> int:
+        try:
+            value = int(seconds)
+        except Exception:
+            value = 0
+        value = max(0, min(value, 9999))
+        self.auto_off_seconds[name] = value
+        if value <= 0:
+            self.auto_off_deadline[name] = None
+        elif bool(self.get_state(name)):
+            self._sync_auto_off_state(name, True, restart=True)
+        else:
+            self.auto_off_deadline[name] = None
+        return value
+
+    def get_auto_off_status(self, name: str) -> dict:
+        seconds = int(self.auto_off_seconds.get(name, 0) or 0)
+        deadline = self.auto_off_deadline.get(name)
+        is_on = bool(self.get_state(name))
+        remaining = 0
+        if seconds > 0 and is_on and deadline:
+            remaining = max(0, int(deadline - time.time() + 0.999))
+            if remaining <= 0:
+                deadline = None
+        return {
+            "timer_seconds": seconds,
+            "timer_enabled": bool(seconds > 0),
+            "timer_deadline_epoch": float(deadline) if deadline else None,
+            "timer_remaining_s": remaining,
+        }
+
+    def _sync_auto_off_state(self, name: str, is_on: bool, *, restart: bool = False) -> None:
+        seconds = int(self.auto_off_seconds.get(name, 0) or 0)
+        if not is_on or seconds <= 0:
+            self.auto_off_deadline[name] = None
+            return
+        if restart or not self.auto_off_deadline.get(name):
+            self.auto_off_deadline[name] = time.time() + seconds
+
+    def _process_auto_off_timers(self) -> None:
+        now = time.time()
+        for name, seconds in list((self.auto_off_seconds or {}).items()):
+            try:
+                seconds = int(seconds or 0)
+            except Exception:
+                seconds = 0
+            if seconds <= 0:
+                self.auto_off_deadline[name] = None
+                continue
+            deadline = self.auto_off_deadline.get(name)
+            if not deadline or deadline > now:
+                continue
+            if not bool(self.get_state(name)):
+                self.auto_off_deadline[name] = None
+                continue
+            ok = bool(self.set_state(name, False, force=True))
+            if not ok and bool(self.get_state(name)):
+                self.auto_off_deadline[name] = time.time() + 1.0
 
     def label_for_channel_id(self, channel_id: str) -> str:
         chan = (channel_id or "").strip().lower()
@@ -545,6 +610,7 @@ class SwitchController:
                 self.last_state[name] = on                     # <-- keep RAM state in sync
                 self._log(name, on)
                 self.last_set_time[name] = now
+                self._sync_auto_off_state(name, bool(on), restart=bool(on))
             return bool(ok)
 
         prev_on = self.get_state(name)
@@ -562,6 +628,7 @@ class SwitchController:
             self.last_state[name] = on                         # <-- keep RAM state in sync
             self._log(name, on)
             self.last_set_time[name] = now
+            self._sync_auto_off_state(name, bool(on), restart=bool(on))
 
         # Only publish this telemetry for local backend; MQTTSwitch already sent a command.
         # Prefer ID-based topics using SWITCH_n_CHANNEL_ID.
@@ -1205,6 +1272,7 @@ class SwitchController:
             if self._set_switch_state(name, result):
                 self.last_state[name] = result
                 self.last_set_time[name] = now
+                self._sync_auto_off_state(name, bool(result), restart=bool(result))
 
     def _evaluate_script(self, rule, sensor_data, current_state: bool):
         """
@@ -1290,9 +1358,10 @@ class SwitchController:
         async def _sleep_with_heartbeat(total_sleep_s: float) -> None:
             remaining = max(float(total_sleep_s), 0.0)
             while remaining > 0.0:
+                self._process_auto_off_timers()
                 if getattr(self, "supervisor", None) and hasattr(self.supervisor, "feedthedogs"):
                     self.supervisor.feedthedogs(f"{self.switch_id} Controladora Monitor")
-                chunk = min(heartbeat_every_s, remaining)
+                chunk = min(1.0, remaining)
                 await asyncio.sleep(chunk)
                 remaining -= chunk
                 await asyncio.sleep(0)
@@ -1385,7 +1454,11 @@ class RemoteSwitchController(SwitchController):
                     raw = ch_map.get(str(label).lower())
                 if raw is None:
                     continue
-                self.last_state[label] = str(raw).strip().lower() in ("on", "true", "1")
+                new_state = str(raw).strip().lower() in ("on", "true", "1")
+                prev_state = bool(self.last_state.get(label, False))
+                self.last_state[label] = new_state
+                if new_state != prev_state:
+                    self._sync_auto_off_state(label, new_state, restart=new_state)
         except Exception:
             return
 

@@ -1871,8 +1871,10 @@ class saiMQTTIngest:
 
                 switch_payload[f"SWITCH_{idx}_LABEL"] = label
                 switch_payload[f"SWITCH_{idx}_CHANNEL_ID"] = channel_id
-                switch_payload[f"SWITCH_{idx}_EN"] = "1"
-                switch_payload[f"SWITCH_{idx}_ENABLE_PIN"] = "mqtt"
+                enable_pin = str(row.get("enable_pin") or "").strip()
+                pin = str(row.get("pin") or "").strip()
+                switch_payload[f"SWITCH_{idx}_ENABLE_PIN"] = enable_pin
+                switch_payload[f"SWITCH_{idx}_PIN"] = pin
 
                 state_bool = _coerce_switch_state(row.get("state"))
                 if state_bool is not None:
@@ -3190,7 +3192,13 @@ class saiMQTTIngest:
                                 match = re.fullmatch(r"SWITCH_(\d+)_(.+)", str(existing_key or ""))
                                 if not match:
                                     continue
-                                if int(match.group(1)) not in incoming_indices:
+                                existing_idx = int(match.group(1))
+                                existing_suffix = match.group(2)
+                                if existing_idx not in incoming_indices:
+                                    sb.pop(existing_key, None)
+                                    changed = True
+                                    continue
+                                if existing_suffix == "EN" and f"SWITCH_{existing_idx}_EN" not in src:
                                     sb.pop(existing_key, None)
                                     changed = True
                 except Exception:

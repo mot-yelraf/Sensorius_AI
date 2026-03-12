@@ -41,6 +41,8 @@ def _make_controller() -> SwitchController:
     ctrl.override_script = {}
     ctrl.last_state = {"Fan": False}
     ctrl.last_set_time = {"Fan": 0.0}
+    ctrl.auto_off_seconds = {"Fan": 0}
+    ctrl.auto_off_deadline = {"Fan": None}
     ctrl.min_on_time = 0
     ctrl.min_off_time = 0
     ctrl.switch_id = "sw1"
@@ -49,6 +51,46 @@ def _make_controller() -> SwitchController:
     ctrl.mqtt = None
     ctrl.switch = types.SimpleNamespace()
     return ctrl
+
+
+def test_set_auto_off_seconds_tracks_runtime_only_deadline(monkeypatch: pytest.MonkeyPatch):
+    ctrl = _make_controller()
+    ctrl.last_state["Fan"] = True
+
+    monkeypatch.setattr(saiSwitch.time, "time", lambda: 100.0)
+
+    applied = SwitchController.set_auto_off_seconds(ctrl, "Fan", 45)
+
+    assert applied == 45
+    assert ctrl.auto_off_seconds["Fan"] == 45
+    assert ctrl.auto_off_deadline["Fan"] == pytest.approx(145.0)
+
+    applied = SwitchController.set_auto_off_seconds(ctrl, "Fan", 0)
+    assert applied == 0
+    assert ctrl.auto_off_deadline["Fan"] is None
+
+
+def test_process_auto_off_timers_turns_channel_off(monkeypatch: pytest.MonkeyPatch):
+    ctrl = _make_controller()
+    ctrl.last_state["Fan"] = True
+    ctrl.auto_off_seconds["Fan"] = 30
+    ctrl.auto_off_deadline["Fan"] = 100.0
+    calls = []
+
+    def _fake_set_state(label, state, force=False):
+        calls.append((label, state, force))
+        ctrl.last_state[label] = state
+        SwitchController._sync_auto_off_state(ctrl, label, state, restart=state)
+        return True
+
+    ctrl.set_state = _fake_set_state
+    monkeypatch.setattr(saiSwitch.time, "time", lambda: 100.5)
+
+    SwitchController._process_auto_off_timers(ctrl)
+
+    assert calls == [("Fan", False, True)]
+    assert ctrl.last_state["Fan"] is False
+    assert ctrl.auto_off_deadline["Fan"] is None
 
 
 def test_set_state_does_not_publish_or_log_on_backend_failure():

@@ -8222,6 +8222,31 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         states: dict[str, dict] = {}
 
+        ctrl_by_switch_id: dict[str, object] = {}
+        try:
+            if switch_controllers and isinstance(switch_controllers, dict):
+                for ctrl in switch_controllers.values():
+                    sid = str(getattr(ctrl, "switch_id", "") or "").strip()
+                    if sid:
+                        ctrl_by_switch_id[sid] = ctrl
+        except Exception:
+            ctrl_by_switch_id = {}
+
+        def _timer_snapshot(sid: str, label: str) -> dict:
+            try:
+                ctrl = ctrl_by_switch_id.get(str(sid or "").strip())
+                getter = getattr(ctrl, "get_auto_off_status", None)
+                if callable(getter):
+                    return dict(getter(label) or {})
+            except Exception:
+                pass
+            return {
+                "timer_seconds": 0,
+                "timer_enabled": False,
+                "timer_deadline_epoch": None,
+                "timer_remaining_s": 0,
+            }
+
         def _format_events(switch_key: str, sensor_id: str | None, limit: int = 5) -> list[str]:
             evs = data_logger.get_last_switch_events(switch_key, sensor_id=sensor_id, limit=limit)
             out: list[str] = []
@@ -8287,7 +8312,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         latest = data_logger.get_latest_switch_state(db_key, sensor_id=sensor_lineage)
                         latest_bool = (latest == "On") if latest is not None else bool(is_on)
                         events = _format_events(db_key, sensor_lineage, limit=5)
-                        states[ui_key] = {"state": latest_bool, "time": events}
+                        payload = {"state": latest_bool, "time": events}
+                        payload.update(_timer_snapshot(switch_id, label))
+                        states[ui_key] = payload
 
             # --- B) Remote Pico2 W / Nodus switches ---
             # Prefer DB identities (authoritative mapping), then fall back to MQTT cache.
@@ -8368,7 +8395,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         latest_bool = (latest == "On") if latest is not None else False
 
                     events = _format_events_remote(db_key, limit=5) or _format_events(db_key, None, limit=5)
-                    states[ui_key] = {"state": latest_bool, "time": events}
+                    payload = {"state": latest_bool, "time": events}
+                    payload.update(_timer_snapshot(sid, label))
+                    states[ui_key] = payload
                     seen_ui_keys.add(ui_key)
                     # Also expose alias key keyed by channel_id for UI payload sync.
                     try:
@@ -8376,7 +8405,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                             ch_id = db_key.split("::", 1)[0].strip()
                             alias_key = f"{ch_id}::{label}" if ch_id else ""
                             if alias_key and alias_key not in states:
-                                states[alias_key] = {"state": latest_bool, "time": events}
+                                states[alias_key] = dict(payload)
                                 seen_ui_keys.add(alias_key)
                     except Exception:
                         pass
@@ -8407,7 +8436,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         latest = data_logger.get_latest_switch_state(db_key)
                         latest_bool = (latest == "On") if latest is not None else (str(human_state).lower() == "on")
                     events = _format_events_remote(db_key, limit=5) or _format_events(db_key, None, limit=5)
-                    states[ui_key] = {"state": latest_bool, "time": events}
+                    payload = {"state": latest_bool, "time": events}
+                    payload.update(_timer_snapshot(remote_switch_id, channel_label))
+                    states[ui_key] = payload
 
             _switch_status_cache_payload = states
             _switch_status_cache_until = time.monotonic() + _SWITCH_STATUS_CACHE_TTL_SEC
@@ -8714,6 +8745,24 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             remote = _looks_remote(ctrl)
             ok = False
 
+            def _timer_response_payload(state_value: bool, ts_value, *, note: str | None = None) -> dict:
+                payload = {
+                    "state": bool(state_value),
+                    "time": ts_value,
+                    "switch_id": sid or "",
+                    "label": matched_label,
+                    "ui_key": f"{sid}::{matched_label}" if sid else "",
+                }
+                try:
+                    getter = getattr(ctrl, "get_auto_off_status", None)
+                    if callable(getter):
+                        payload.update(dict(getter(matched_label) or {}))
+                except Exception:
+                    pass
+                if note:
+                    payload["note"] = note
+                return payload
+
             if not remote:
                 # Direct GPIO on this Pi
                 try:
@@ -8734,6 +8783,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         ok = bool(mqtt_ingest.set_switch(sid, matched_label, new_state))
                     except Exception as e:
                         printDM(f"[toggle_switch] ingest.set_switch error: {e}", location=MODULE)
+                if ok:
+                    try:
+                        if isinstance(getattr(ctrl, "last_state", None), dict):
+                            ctrl.last_state[matched_label] = bool(new_state)
+                        sync_timer = getattr(ctrl, "_sync_auto_off_state", None)
+                        if callable(sync_timer):
+                            sync_timer(matched_label, bool(new_state), restart=bool(new_state))
+                    except Exception:
+                        pass
 
             # ...after we've tried to set the state (ok = ctrl.set_state(...) or MQTT path)...
             if not ok:
@@ -8752,7 +8810,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     # Return 200 so the UI treats this as handled (no error toast).
                     ts_map = getattr(ctrl, "last_set_time", {}) or {}
                     ts = ts_map.get(matched_label, time.time())
-                    return JSONResponse({"state": effective, "time": ts, "note": note}, status_code=200)
+                    return JSONResponse(_timer_response_payload(effective, ts, note=note), status_code=200)
 
                 # Otherwise, this really did fail (hardware/driver issue)
                 reason = "mqtt_not_ready" if remote else "failed_to_toggle"
@@ -8812,11 +8870,85 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             _switch_status_cache_payload = None
             _switch_status_cache_until = 0.0
 
-            return {"state": bool(new_state), "time": ts}
+            return _timer_response_payload(new_state, ts)
 
         except Exception as e:
             printDM(f"[toggle_switch] ERROR for '{switch_name}': {e}", location=MODULE)
             return JSONResponse({"error": "internal_error"}, status_code=500)
+
+    @router.post("/switch/timer")
+    async def set_switch_timer(
+        request: Request,
+        switch_id: str = Query(...),
+        switch_name: str = Query(...),
+    ):
+        global _switch_status_cache_payload, _switch_status_cache_until
+        try:
+            _require_protected_access(request, require_csrf=True)
+            data = await request.json()
+        except Exception:
+            data = {}
+
+        try:
+            seconds = int(data.get("seconds", 0) or 0)
+        except Exception:
+            return JSONResponse({"error": "invalid_seconds"}, status_code=400)
+
+        if seconds != 0 and not (30 <= seconds <= 9999):
+            return JSONResponse({"error": "invalid_seconds", "detail": "Use 0 or 30-9999 seconds."}, status_code=400)
+
+        sid = str(switch_id or "").strip()
+        label_raw = str(switch_name or "").strip()
+        if not sid or not label_raw:
+            return JSONResponse({"error": "bad_request"}, status_code=400)
+
+        sc_map = switch_controllers if isinstance(switch_controllers, dict) else {}
+        match_ctrl = None
+        match_label = ""
+        for ctrl in sc_map.values():
+            ctrl_sid = str(getattr(ctrl, "switch_id", "") or "").strip()
+            if ctrl_sid != sid:
+                continue
+            try:
+                labels = list(ctrl.get_switch_names() or [])
+            except Exception:
+                labels = list(getattr(ctrl, "switches", []) or [])
+            found = next((lbl for lbl in labels if str(lbl or "").strip().lower() == label_raw.lower()), None)
+            if found:
+                match_ctrl = ctrl
+                match_label = str(found).strip()
+                break
+
+        if not match_ctrl or not match_label:
+            return JSONResponse({"error": "switch_not_found"}, status_code=404)
+
+        setter = getattr(match_ctrl, "set_auto_off_seconds", None)
+        getter = getattr(match_ctrl, "get_auto_off_status", None)
+        if not callable(setter) or not callable(getter):
+            return JSONResponse({"error": "timer_not_supported"}, status_code=400)
+
+        applied = int(setter(match_label, seconds))
+        try:
+            current_state = bool(match_ctrl.get_state(match_label))
+        except Exception:
+            current_state = bool((getattr(match_ctrl, "last_state", {}) or {}).get(match_label, False))
+
+        payload = {
+            "ok": True,
+            "switch_id": sid,
+            "label": match_label,
+            "ui_key": f"{sid}::{match_label}",
+            "state": current_state,
+            "timer_seconds": applied,
+        }
+        try:
+            payload.update(dict(getter(match_label) or {}))
+        except Exception:
+            pass
+
+        _switch_status_cache_payload = None
+        _switch_status_cache_until = 0.0
+        return JSONResponse(payload)
 
     @router.post("/switch/override")
     async def override_switch(
