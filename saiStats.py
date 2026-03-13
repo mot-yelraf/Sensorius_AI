@@ -9,6 +9,7 @@ This module provides:
 import asyncio
 from datetime import datetime, timedelta, timezone
 import sqlite3
+import time
 
 from fastapi import Query
 from fastapi.responses import JSONResponse
@@ -21,6 +22,9 @@ DEBUG = debug_enabled(MODULE)
 class saiStats:
     def __init__(self, db_path="sensorius_data.db"):
         self.db_path = db_path
+        self._stats_cache_ttl_sec = 5.0
+        self._stats_cache: dict[str, tuple[float, dict]] = {}
+        self._all_stats_cache: tuple[float, dict] | None = None
 
     def _since_epoch_24h(self) -> float:
         return (datetime.now(timezone.utc) - timedelta(days=1)).timestamp()
@@ -80,11 +84,24 @@ class saiStats:
         return results
 
     def get_24hr_stats(self, sensor_id):
+        sid = str(sensor_id or "").strip()
+        now_mono = time.monotonic()
+        cached = self._stats_cache.get(sid)
+        if cached and cached[0] > now_mono:
+            return dict(cached[1])
         since_epoch = self._since_epoch_24h()
-        return self.get_stats_for_range(sensor_id, since_epoch, datetime.now(timezone.utc).timestamp() + 1.0)
+        result = self.get_stats_for_range(sensor_id, since_epoch, datetime.now(timezone.utc).timestamp() + 1.0)
+        self._stats_cache[sid] = (now_mono + self._stats_cache_ttl_sec, dict(result))
+        return result
 
     def get_all_stats_fast(self):
         """Return 24h stats for all sensors in one DB pass for websocket broadcasting."""
+        now_mono = time.monotonic()
+        if self._all_stats_cache and self._all_stats_cache[0] > now_mono:
+            return {
+                sensor_id: dict(metrics)
+                for sensor_id, metrics in self._all_stats_cache[1].items()
+            }
         results = {}
         since_epoch = self._since_epoch_24h()
 
@@ -143,6 +160,7 @@ class saiStats:
                     "max_ts": max_ts,
                 }
 
+        self._all_stats_cache = (now_mono + self._stats_cache_ttl_sec, dict(results))
         return results
 
 def create_stats_router(settings, gc_mgr):

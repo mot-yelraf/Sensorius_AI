@@ -28,6 +28,9 @@ window.initSystemCalibrationModal = async function(modalEl) {
   const devCalRows       = modalEl.querySelectorAll("[data-dev-cal-row]");
   const devCalApplyBtn   = modalEl.querySelector("#devCalApplyBtn");
   const devCalStatus     = modalEl.querySelector("#devCalStatus");
+  const soilPhBufferBtns = modalEl.querySelectorAll(".soilPhBufferBtn");
+  const soilPhCalStatus  = modalEl.querySelector("#soilPhCalStatus");
+  const soilPhOffsetInput = modalEl.querySelector("#soilPhOffsetInput");
 
   // ---- APVPD plant calibration controls ----
   const plantCalBtn     = modalEl.querySelector("#plantCalBtn");
@@ -118,6 +121,63 @@ window.initSystemCalibrationModal = async function(modalEl) {
       } finally {
         devCalApplyBtn.disabled = false;
       }
+    });
+  }
+
+  async function calibrateSoilPhBuffer(bufferPh) {
+    if (!sensorId) {
+      alert("Sensor ID not available for pH calibration.");
+      return;
+    }
+
+    soilPhBufferBtns.forEach((btn) => { btn.disabled = true; });
+    if (soilPhCalStatus) {
+      soilPhCalStatus.textContent = `Calibrating against pH ${Number(bufferPh).toFixed(1)}…`;
+    }
+
+    try {
+      const resp = await fetch("/calibration/soil/ph-buffer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sensor_id: sensorId,
+          buffer_ph: Number(bufferPh),
+        }),
+      });
+
+      const result = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(result.message || ("HTTP " + resp.status));
+      }
+
+      if (soilPhOffsetInput && Number.isFinite(Number(result.soil_ph_offset))) {
+        soilPhOffsetInput.value = String(result.soil_ph_offset);
+      }
+      if (devCalStatus && Number.isFinite(Number(result.soil_ph_offset))) {
+        devCalStatus.textContent = `Soil pH offset set to ${Number(result.soil_ph_offset).toFixed(4)}.`;
+      }
+      if (soilPhCalStatus) {
+        const measured = Number(result.measured_ph);
+        const offset = Number(result.soil_ph_offset);
+        soilPhCalStatus.textContent =
+          `Measured ${Number.isFinite(measured) ? measured.toFixed(3) : "?"}, offset ${Number.isFinite(offset) ? offset.toFixed(4) : "?"}.`;
+      }
+    } catch (err) {
+      console.error("Soil pH buffer calibration error", err);
+      if (soilPhCalStatus) {
+        soilPhCalStatus.textContent = err && err.message ? err.message : "Error applying pH calibration.";
+      }
+    } finally {
+      soilPhBufferBtns.forEach((btn) => { btn.disabled = false; });
+    }
+  }
+
+  if (deviceKind === "soil" && soilPhBufferBtns.length) {
+    soilPhBufferBtns.forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const bufferPh = btn.dataset.bufferPh;
+        await calibrateSoilPhBuffer(bufferPh);
+      });
     });
   }
 

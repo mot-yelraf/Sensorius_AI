@@ -57,7 +57,7 @@ def get_gauge_config():
     }
     return gauge_config
 
-def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, display_style=None):
+def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, display_style=None, astro_payload=None, biodynamic_payload=None):
 
     import json
     import os
@@ -353,8 +353,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         except Exception:
             return out
 
-    astro_payload = _build_astro_payload()
-    biodynamic_payload = get_biodynamic_payload()
+    if astro_payload is None:
+        astro_payload = _build_astro_payload()
+    if biodynamic_payload is None:
+        biodynamic_payload = get_biodynamic_payload()
     
     def _safe(s: str) -> str:
         return re.sub(r"[^A-Za-z0-9_-]", "_", s)
@@ -754,34 +756,29 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
       f"--canvas-height:{layout['canvas_height']};'>"
     )    
     # Sensor settings resolution and lookup map
-    mgr = SensorSettingsManager("sensor_settings")
-    sensor_lookup = {s.lower(): s for s in mgr.list_ids()}
-    for sid in available:
-        normalized = sid.lower()
-        if normalized not in sensor_lookup:
-            sensor_lookup[normalized] = sid  # include MQTT-only sensors
-
-    if sensor_id:
-        normalized_sensor_id = sensor_id.lower()
-        actual_sensor_id = sensor_lookup.get(normalized_sensor_id)
-        has_sensor_toml = actual_sensor_id is not None
-    else:
-        actual_sensor_id = None
-        has_sensor_toml = False
-
     sensor_display_map = {}
-    for sid in all_values:
-        try:
-            normalized_id = sid.lower()
-            actual_id = sensor_lookup.get(normalized_id)
-            if actual_id:
-                try:
-                    metrics = mgr.get_display_metrics(actual_id)
-                except Exception:
-                    metrics = list(gauge_config.keys())  # fallback to default gauges
-                sensor_display_map[sid] = metrics
-        except Exception as e:
-            printDM(f"Error getting display metrics for {sid}: {e}", location=f"{MODULE}.render_dashboard")
+    if isinstance(expected_gauge_map, dict) and expected_gauge_map:
+        for sid in all_values:
+            sensor_display_map[sid] = list(expected_gauge_map.get(sid) or [])
+    else:
+        mgr = SensorSettingsManager("sensor_settings")
+        sensor_lookup = {s.lower(): s for s in mgr.list_ids()}
+        for sid in available:
+            normalized = sid.lower()
+            if normalized not in sensor_lookup:
+                sensor_lookup[normalized] = sid
+        for sid in all_values:
+            try:
+                normalized_id = sid.lower()
+                actual_id = sensor_lookup.get(normalized_id)
+                if actual_id:
+                    try:
+                        metrics = mgr.get_display_metrics(actual_id)
+                    except Exception:
+                        metrics = list(gauge_config.keys())
+                    sensor_display_map[sid] = metrics
+            except Exception as e:
+                printDM(f"Error getting display metrics for {sid}: {e}", location=f"{MODULE}.render_dashboard")
 
     # --- Location filter dropdown  ---
     # Build the union of known locations from sensors and switches
@@ -1359,11 +1356,29 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 box_id  = f"{sw_id}-{safe_label}_box" if sw_id else f"{safe_label}_box"
                 state_id= f"{sw_id}-{safe_label}_state" if sw_id else f"{safe_label}_state"
                 time_id = f"{sw_id}-{safe_label}_time"  if sw_id else f"{safe_label}_time"
+                label_norm = (label or "").strip()
+                try:
+                    timer_state = dict(getattr(switch_ctrl, "get_auto_off_status")(label_norm) or {})
+                except Exception:
+                    timer_state = {}
+                timer_seconds = int(timer_state.get("timer_seconds", 0) or 0)
+                timer_remaining = int(timer_state.get("timer_remaining_s", 0) or 0)
+                timer_ui_key = f"{getattr(switch_ctrl, 'switch_id', '')}::{label_norm}" if getattr(switch_ctrl, "switch_id", "") else f"::{label_norm}"
+                timer_safe_key = _safe(f"{getattr(switch_ctrl,'switch_id','')}_{label_norm}_automation")
+                timer_input_id = f"{timer_safe_key}_timer_input"
+                timer_status_id = f"{timer_safe_key}_timer_status"
+                if timer_seconds <= 0:
+                    timer_status_text = "Timer disabled"
+                elif is_on and timer_remaining > 0:
+                    timer_status_text = f"Countdown: {timer_remaining}s"
+                else:
+                    timer_status_text = f"Timer set: {timer_seconds}s"
                 
                 yield "<tr>"
                 yield f"<td>{label}</td>"
                 # Switch cell
                 yield "<td>"
+                yield "<div class='switch-state-cell'>"
                 yield (
                     f"<button "
                     f"  id='{box_id}_btn' "
@@ -1377,12 +1392,19 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                     f"{'On' if is_on else 'Off'}"
                     f"</button>"
                 )
+                yield (
+                    f"<div class='switch-timer-panel' data-switch-ui-key='{timer_ui_key}' data-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' data-label='{label_norm}'>"
+                    f"  <input id='{timer_input_id}' class='switch-timer-input' type='number' min='0' max='9999' step='30' inputmode='numeric' "
+                    f"    data-switch-ui-key='{timer_ui_key}' data-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' data-label='{label_norm}' value='{timer_seconds}' />"
+                    f"  <div id='{timer_status_id}' class='switch-timer-status' data-switch-ui-key='{timer_ui_key}'>{timer_status_text}</div>"
+                    f"</div>"
+                )
+                yield "</div>"
                 yield "</td>"
 
                 # Override checkbox cell
                 # --- Automation button cell (replaces previous checkbox) ---
-                label_norm = (label or "").strip()
-                safe_key   = _safe(f"{getattr(switch_ctrl,'switch_id','')}_{label_norm}_automation")
+                safe_key = timer_safe_key
 
                 try:
                     from saiAutomationManager import AutomationManager
@@ -1394,23 +1416,6 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                     rule_enabled = False
 
                 enabled = bool(rule_enabled)
-                try:
-                    timer_state = dict(getattr(switch_ctrl, "get_auto_off_status")(label_norm) or {})
-                except Exception:
-                    timer_state = {}
-                timer_seconds = int(timer_state.get("timer_seconds", 0) or 0)
-                timer_remaining = int(timer_state.get("timer_remaining_s", 0) or 0)
-                timer_ui_key = f"{getattr(switch_ctrl, 'switch_id', '')}::{label_norm}" if getattr(switch_ctrl, "switch_id", "") else f"::{label_norm}"
-                timer_input_id = f"{safe_key}_timer_input"
-                timer_status_id = f"{safe_key}_timer_status"
-                if timer_seconds <= 0:
-                    timer_status_text = "Timer disabled"
-                elif is_on and timer_remaining > 0:
-                    timer_status_text = f"Countdown: {timer_remaining}s"
-                else:
-                    timer_status_text = f"Timer set: {timer_seconds}s"
-
-
                 # Button shows Enabled/Disabled and uses our existing .button .green/.black styles
                 yield "<td>"
                 yield "<div class='switch-automation-cell'>"
@@ -1424,13 +1429,6 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                     f'  onclick="toggleAutomation(this, {json.dumps(getattr(switch_ctrl, "switch_id", ""))!s}, {json.dumps(label_norm)!s}); return false;">'
                     f'{"Enabled" if enabled else "Disabled"}'
                     f'</button>'
-                )
-                yield (
-                    f"<div class='switch-timer-panel' data-switch-ui-key='{timer_ui_key}' data-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' data-label='{label_norm}'>"
-                    f"  <input id='{timer_input_id}' class='switch-timer-input' type='number' min='0' max='9999' step='30' inputmode='numeric' "
-                    f"    data-switch-ui-key='{timer_ui_key}' data-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' data-label='{label_norm}' value='{timer_seconds}' />"
-                    f"  <div id='{timer_status_id}' class='switch-timer-status' data-switch-ui-key='{timer_ui_key}'>{timer_status_text}</div>"
-                    f"</div>"
                 )
                 yield "</div>"
                 yield "</td>"
@@ -4197,16 +4195,19 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  try {"
     yield "    const now = Date.now();"
     yield "    let data = null;"
-    yield "    if (__lastJsonOnly && (now - __lastJsonOnlyAtMs) < 20000) {"
+    yield "    const wantExtras = !window.__lastExtrasRefreshAtMs || ((now - window.__lastExtrasRefreshAtMs) >= 60000);"
+    yield "    if (__lastJsonOnly && (now - __lastJsonOnlyAtMs) < 20000 && !wantExtras) {"
     yield "      data = __lastJsonOnly;"
     yield "    } else {"
     yield "      const url = new URL(window.location.href);"
     yield "      url.searchParams.set('json_only','true');"
+    yield "      if (wantExtras) url.searchParams.set('include_extras','true');"
     yield "      const resp = await fetch(url.toString(), { cache:'no-store' });"
     yield "      if (!resp.ok) return;"
     yield "      data = await resp.json();"
     yield "      __lastJsonOnly = data;"
     yield "      __lastJsonOnlyAtMs = now;"
+    yield "      if (wantExtras) window.__lastExtrasRefreshAtMs = now;"
     yield "    }"
     yield "    const statuses = data && data.statuses ? data.statuses : {};"
     yield "    Object.entries(statuses).forEach(([sid,st]) => {"

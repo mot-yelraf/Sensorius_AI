@@ -110,6 +110,14 @@ _dynamic_switch_monitor_tasks: dict[str, asyncio.Task] = {}
 _SWITCH_STATUS_CACHE_TTL_SEC: float = 1.5
 _cdp_debug_last_log: float = 0.0
 _CDP_DEBUG_MIN_INTERVAL_SEC: float = 30.0
+_DASHBOARD_JSON_CACHE_TTL_SEC: float = 2.0
+_DASHBOARD_JSON_CACHE: dict[tuple[str, int], tuple[float, dict[str, object]]] = {}
+_BIODYNAMIC_PAYLOAD_CACHE_TTL_SEC: float = 60.0
+_BIODYNAMIC_PAYLOAD_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
+_ASTRO_PAYLOAD_CACHE_TTL_SEC: float = 60.0
+_ASTRO_PAYLOAD_CACHE: tuple[float, dict[str, object]] | None = None
+_SENSOR_LOCATION_CACHE_TTL_SEC: float = 5.0
+_SENSOR_LOCATION_CACHE: dict[str, tuple[float, str]] = {}
 
 async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     router = APIRouter()
@@ -124,6 +132,36 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     if not getattr(app.state, "_faststats_shutdown_registered", False):
         app.add_event_handler("shutdown", fastStats.stop)
         app.state._faststats_shutdown_registered = True
+
+    def _ui_profile_log(route_name: str, started_mono: float, **fields) -> None:
+        if not DEBUG:
+            return
+        elapsed_ms = (time.monotonic() - started_mono) * 1000.0
+        extras = [f"{key}={value}" for key, value in fields.items() if value not in (None, "")]
+        detail = f" {' '.join(extras)}" if extras else ""
+        printDM(f"[webui-profile] {route_name} took {elapsed_ms:.1f}ms{detail}", location=MODULE)
+
+    def _get_cached_biodynamic_payload(anchor: date) -> dict[str, object]:
+        cache_key = anchor.isoformat()
+        now_mono = time.monotonic()
+        cached = _BIODYNAMIC_PAYLOAD_CACHE.get(cache_key)
+        if cached and cached[0] > now_mono:
+            return cached[1]
+        payload = get_biodynamic_payload(anchor)
+        _BIODYNAMIC_PAYLOAD_CACHE[cache_key] = (
+            now_mono + _BIODYNAMIC_PAYLOAD_CACHE_TTL_SEC,
+            payload,
+        )
+        return payload
+
+    def _get_cached_astro_payload() -> dict[str, object]:
+        global _ASTRO_PAYLOAD_CACHE
+        now_mono = time.monotonic()
+        if _ASTRO_PAYLOAD_CACHE and _ASTRO_PAYLOAD_CACHE[0] > now_mono:
+            return _ASTRO_PAYLOAD_CACHE[1]
+        payload = _build_astro_payload()
+        _ASTRO_PAYLOAD_CACHE = (now_mono + _ASTRO_PAYLOAD_CACHE_TTL_SEC, payload)
+        return payload
 
     def _is_recent_sensor(sid: str, window: timedelta = timedelta(minutes=10)) -> bool:
         ts = data_logger.get_latest_timestamp(sid)
@@ -975,7 +1013,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return False, f"unsupported platform: {platform.system()}"
 
     @router.get("/", response_class=HTMLResponse)
-    async def current_data_page(request: Request, sensor_id: str = Query(None), json_only: bool = Query(False)):
+    async def current_data_page(
+        request: Request,
+        sensor_id: str = Query(None),
+        json_only: bool = Query(False),
+        include_extras: bool = Query(False),
+    ):
+        _route_started = time.monotonic()
+        phase_ms: dict[str, float] = {}
+        _phase_started = time.monotonic()
         global _cdp_debug_last_log
         try:
             seen = set()
@@ -1102,17 +1148,25 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 3) in-memory sensor_map
                 4) 'Unknown'
                 """
+                sid_clean = str(sid or "").strip()
+                now_mono = time.monotonic()
+                cached_loc = _SENSOR_LOCATION_CACHE.get(sid_clean)
+                if cached_loc and cached_loc[0] > now_mono:
+                    return cached_loc[1]
+
                 topic = f"sensor/{sid}/data"
                 loc = mqtt_ingest.device_location.get(topic) or mqtt_ingest.device_location.get(sid)
                 if isinstance(loc, str) and loc.strip():
-                    return loc.strip()
+                    resolved = loc.strip()
+                    _SENSOR_LOCATION_CACHE[sid_clean] = (now_mono + _SENSOR_LOCATION_CACHE_TTL_SEC, resolved)
+                    return resolved
 
                 try:
-                    from saiSensorSettingsManager import SensorSettingsManager
-                    mgr = SensorSettingsManager("sensor_settings")
-                    loc = mgr.get_setting(sid, "Sensor.LOCATION", None)
+                    loc = sensor_settings_mgr.get_setting(sid, "Sensor.LOCATION", None) if sensor_settings_mgr else None
                     if isinstance(loc, str) and loc.strip():
-                        return loc.strip()
+                        resolved = loc.strip()
+                        _SENSOR_LOCATION_CACHE[sid_clean] = (now_mono + _SENSOR_LOCATION_CACHE_TTL_SEC, resolved)
+                        return resolved
                 except Exception:
                     pass
 
@@ -1122,15 +1176,20 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     if sensor_obj and getattr(sensor_obj, "location", None):
                         loc = sensor_obj.location
                         if isinstance(loc, str) and loc.strip():
-                            return loc.strip()
+                            resolved = loc.strip()
+                            _SENSOR_LOCATION_CACHE[sid_clean] = (now_mono + _SENSOR_LOCATION_CACHE_TTL_SEC, resolved)
+                            return resolved
                 elif isinstance(sm, Iterable):
                     for s in sm:
                         sid_attr = getattr(s, "sensor_id", None)
                         if isinstance(sid_attr, str) and sid_attr.lower() == (sid or "").lower():
                             loc = getattr(s, "location", None)
                             if isinstance(loc, str) and loc.strip():
-                                return loc.strip()
+                                resolved = loc.strip()
+                                _SENSOR_LOCATION_CACHE[sid_clean] = (now_mono + _SENSOR_LOCATION_CACHE_TTL_SEC, resolved)
+                                return resolved
 
+                _SENSOR_LOCATION_CACHE[sid_clean] = (now_mono + _SENSOR_LOCATION_CACHE_TTL_SEC, "Unknown")
                 return "Unknown"
 
             def resolve_location_for_switch_id(sw_id: str) -> str:
@@ -1156,9 +1215,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     pass
 
                 try:
-                    from saiSwitchSettingsManager import SwitchSettingsManager
-                    mgr = SwitchSettingsManager("switch_settings")
-                    loc = mgr.get_setting(sw, "Switch.SWITCH_LOCATION", None)
+                    loc = switch_settings_mgr.get_setting(sw, "Switch.SWITCH_LOCATION", None) if switch_settings_mgr else None
                     if isinstance(loc, str) and loc.strip():
                         return loc.strip()
                 except Exception:
@@ -1181,6 +1238,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             sensors_from_logger = await asyncio.to_thread(data_logger.get_available_sensors)
             mqtt_discovered = mqtt_ingest.get_known_devices()
+            sensor_settings_mgr = None
+            try:
+                sensor_settings_mgr = SensorSettingsManager("sensor_settings")
+            except Exception:
+                sensor_settings_mgr = None
+            switch_settings_mgr = None
+            try:
+                switch_settings_mgr = SwitchSettingsManager("switch_settings")
+            except Exception:
+                switch_settings_mgr = None
 
             local_ids = _get_local_sensor_ids()
             # Include sensors that have logged data, even if discovery missed /itaot.
@@ -1199,9 +1266,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             try:
                 switch_ids_local = []
                 try:
-                    from saiSwitchSettingsManager import SwitchSettingsManager
-                    switch_mgr = SwitchSettingsManager("switch_settings")
-                    switch_ids_local = await asyncio.to_thread(switch_mgr.list_switches)
+                    switch_ids_local = await asyncio.to_thread(switch_settings_mgr.list_switches) if switch_settings_mgr else []
                     switch_ids_local = switch_ids_local or []
                 except Exception:
                     switch_ids_local = []
@@ -1267,6 +1332,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     printDM(f"available sensors: {available}", location=f"{MODULE}:cdp")
                     printDM(f"available switches: {available_switches}", location=f"{MODULE}:cdp")
 
+            phase_ms["inventory"] = (time.monotonic() - _phase_started) * 1000.0
+
         except Exception as e:
             printDM(f"Exception in current_data_page route definition: {e}", location=f"{MODULE}:cdp")
             raise
@@ -1292,21 +1359,21 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             v = await asyncio.to_thread(data_logger.get_latest_values, sid)
             return sid, (v or {})
 
-        async def _stats_for(sid: str):
-            s = await asyncio.to_thread(statter.get_24hr_stats, sid)
-            return sid, (s or {})
-
+        bulk_values: dict[str, dict] = {}
+        bulk_timestamps: dict[str, str] = {}
         if not sensor_id or sensor_id == "All" or (isinstance(sensor_id, str) and sensor_id.startswith("loc:")):
-            vals = await asyncio.gather(*[_values_for(sid) for sid in available])
-            sts  = await asyncio.gather(*[_stats_for(sid)  for sid in available])
-            all_values = {sid: v for sid, v in vals}
-            all_stats  = {sid: s for sid, s in sts}
+            bulk_values, bulk_timestamps = await asyncio.to_thread(data_logger.get_latest_values_and_timestamps, available)
+            all_stats_fast = await asyncio.to_thread(statter.get_all_stats_fast)
+            all_values = {sid: (bulk_values.get(sid) or {}) for sid in available}
+            all_stats  = {sid: (all_stats_fast.get(sid) or {}) for sid in available}
         else:
             sid = sensor_id
-            v_sid, v = await _values_for(sid)
-            s_sid, s = await _stats_for(sid)
+            bulk_values, bulk_timestamps = await asyncio.to_thread(data_logger.get_latest_values_and_timestamps, [sid])
+            v_sid, v = sid, (bulk_values.get(sid) or {})
+            s = await asyncio.to_thread(statter.get_24hr_stats, sid)
             all_values = {v_sid: (v or {})}
-            all_stats  = {s_sid: (s or {})}
+            all_stats  = {sid: (s or {})}
+        phase_ms["values_stats"] = (time.monotonic() - _phase_started) * 1000.0 - phase_ms.get("inventory", 0.0)
 
         from saiSettings import saiSettings
         fresh_settings = saiSettings(apply_live=False)
@@ -1356,6 +1423,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if len(deduped) >= 6:
                     break
             expected_gauge_map[sid] = deduped
+        phase_ms["expected_metrics"] = (
+            (time.monotonic() - _phase_started) * 1000.0
+            - phase_ms.get("inventory", 0.0)
+            - phase_ms.get("values_stats", 0.0)
+        )
 
         # Keep a full location map for the location dropdown, even when a single
         # sensor_id view narrows all_values to one sensor.
@@ -1589,11 +1661,34 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return "unknown"
          
         if json_only:
+            cache_key = (str(sensor_id or "All"), 1 if include_extras else 0)
+            now_mono = time.monotonic()
+            cached_json = _DASHBOARD_JSON_CACHE.get(cache_key)
+            if cached_json and cached_json[0] > now_mono:
+                cached_payload = cached_json[1]
+                _ui_profile_log(
+                    "dashboard",
+                    _route_started,
+                    json_only=1,
+                    include_extras=int(bool(include_extras)),
+                    cache=1,
+                    sensor_id=(sensor_id or "All"),
+                    sensors=len(available),
+                    switches=len(available_switches),
+                )
+                return JSONResponse(cached_payload)
+
             timestamps = await asyncio.to_thread(
                 lambda: {
-                    sid: data_logger.get_latest_timestamp(sid) or ""
+                    sid: (bulk_timestamps.get(sid) or data_logger.get_latest_timestamp(sid) or "")
                     for sid in all_values
                 }
+            )
+            phase_ms["timestamps"] = (
+                (time.monotonic() - _phase_started) * 1000.0
+                - phase_ms.get("inventory", 0.0)
+                - phase_ms.get("values_stats", 0.0)
+                - phase_ms.get("expected_metrics", 0.0)
             )
             statuses = { sid: _resolve_meas_status_for_sid(sid) for sid in available }
             renderable_switches = [
@@ -1619,16 +1714,19 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             except Exception:
                 renderable_switches_view = list(renderable_switches)
 
-            astro_payload, biodynamic_payload = await asyncio.gather(
-                asyncio.to_thread(_build_astro_payload),
-                asyncio.to_thread(get_biodynamic_payload),
+            phase_ms["switch_view"] = (
+                (time.monotonic() - _phase_started) * 1000.0
+                - phase_ms.get("inventory", 0.0)
+                - phase_ms.get("values_stats", 0.0)
+                - phase_ms.get("expected_metrics", 0.0)
+                - phase_ms.get("timestamps", 0.0)
             )
 
-            return JSONResponse({
+            payload: dict[str, object] = {
                 "available": available,
                 "values": all_values,
                 "stats": all_stats,
-                "timestamps": timestamps, 
+                "timestamps": timestamps,
                 "sensor_id": sensor_id,
                 "timestamp": get_timestamp(),
                 "locations": sensor_locations,
@@ -1637,10 +1735,42 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "renderable_switches": renderable_switches,
                 "renderable_switches_view": renderable_switches_view,
                 "statuses": statuses,
-                "astro": astro_payload,
-                "biodynamic": biodynamic_payload,
-            })
+            }
 
+            if include_extras:
+                extras_started = time.monotonic()
+                astro_payload, biodynamic_payload = await asyncio.gather(
+                    asyncio.to_thread(_get_cached_astro_payload),
+                    asyncio.to_thread(_get_cached_biodynamic_payload, datetime.now().date().replace(day=1)),
+                )
+                payload["astro"] = astro_payload
+                payload["biodynamic"] = biodynamic_payload
+                phase_ms["extras"] = (time.monotonic() - extras_started) * 1000.0
+            else:
+                phase_ms["extras"] = 0.0
+
+            _DASHBOARD_JSON_CACHE[cache_key] = (
+                now_mono + _DASHBOARD_JSON_CACHE_TTL_SEC,
+                payload,
+            )
+            _ui_profile_log(
+                "dashboard",
+                _route_started,
+                json_only=1,
+                include_extras=int(bool(include_extras)),
+                sensor_id=(sensor_id or "All"),
+                sensors=len(available),
+                switches=len(available_switches),
+                inventory_ms=f"{phase_ms.get('inventory', 0.0):.1f}",
+                values_ms=f"{phase_ms.get('values_stats', 0.0):.1f}",
+                metrics_ms=f"{phase_ms.get('expected_metrics', 0.0):.1f}",
+                timestamps_ms=f"{phase_ms.get('timestamps', 0.0):.1f}",
+                switches_ms=f"{phase_ms.get('switch_view', 0.0):.1f}",
+                extras_ms=f"{phase_ms.get('extras', 0.0):.1f}",
+            )
+            return JSONResponse(payload)
+
+        render_started = time.monotonic()
         rendered_dashboard = await asyncio.to_thread(
             lambda: "".join(render_dashboard(
                 sensor_id, 
@@ -1655,7 +1785,23 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 gauge_size = gaugeSize,
                 expected_gauge_map = expected_gauge_map,
                 display_style = displayStyle,
+                astro_payload=_get_cached_astro_payload(),
+                biodynamic_payload=_get_cached_biodynamic_payload(datetime.now().date().replace(day=1)),
             ))
+        )
+        phase_ms["render"] = (time.monotonic() - render_started) * 1000.0
+        _ui_profile_log(
+            "dashboard",
+            _route_started,
+            json_only=int(bool(json_only)),
+            include_extras=int(bool(include_extras)),
+            sensor_id=(sensor_id or "All"),
+            sensors=len(available),
+            switches=len(available_switches),
+            inventory_ms=f"{phase_ms.get('inventory', 0.0):.1f}",
+            values_ms=f"{phase_ms.get('values_stats', 0.0):.1f}",
+            metrics_ms=f"{phase_ms.get('expected_metrics', 0.0):.1f}",
+            render_ms=f"{phase_ms.get('render', 0.0):.1f}",
         )
         return HTMLResponse(content=rendered_dashboard)
 
@@ -2199,6 +2345,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     @router.get("/edit-system", response_class=HTMLResponse)
     async def edit_pi_settings_page(request: Request):
+        _route_started = time.monotonic()
         from saiSettings import saiSettings
         from saiHtml import APP_NAME_LONG, APP_VERSION
 
@@ -2348,6 +2495,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         embed = str(request.query_params.get("embed", "")).strip().lower() in {"1", "true", "yes"}
         if embed:
+            _ui_profile_log("edit-system", _route_started, embed=1, clients=len(clients))
             return HTMLResponse(content=fragment_html)
 
         html_parts: list[str] = []
@@ -2356,6 +2504,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         html_parts.append("</head><body>")
         html_parts.append(fragment_html)
         html_parts.append("</body></html>")
+        _ui_profile_log("edit-system", _route_started, embed=0, clients=len(clients))
         return HTMLResponse(content="\n".join(html_parts))
 
     # /itaot helpers
@@ -3395,6 +3544,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     @router.get("/api/biodynamic-calendar", response_class=JSONResponse)
     async def api_biodynamic_calendar(month: str = Query("", description="Month anchor in YYYY-MM or YYYY-MM-DD")):
+        _route_started = time.monotonic()
         anchor: date
         try:
             raw = str(month or "").strip()
@@ -3407,6 +3557,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         except Exception:
             return JSONResponse({"error": "invalid_month"}, status_code=400)
 
+        summary_started = time.monotonic()
         try:
             today_local = datetime.now(getattr(data_logger, "local_tz", ZoneInfo("America/Denver"))).date()
             if anchor.year == today_local.year and anchor.month == today_local.month:
@@ -3414,10 +3565,23 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         except Exception as exc:
             if DEBUG:
                 printDM(f"[api_biodynamic_calendar] daily summary backfill skipped: {exc}", location=MODULE)
+        summary_ms = (time.monotonic() - summary_started) * 1000.0
 
+        payload_started = time.monotonic()
         payload = get_biodynamic_payload(anchor)
+        payload_ms = (time.monotonic() - payload_started) * 1000.0
+        notes_started = time.monotonic()
         payload["notes"] = data_logger.get_biodynamic_notes_for_month(anchor)
         payload["daily_summaries"] = data_logger.get_biodynamic_daily_summaries_for_month(anchor)
+        notes_ms = (time.monotonic() - notes_started) * 1000.0
+        _ui_profile_log(
+            "api-biodynamic-calendar",
+            _route_started,
+            anchor=anchor.isoformat(),
+            summary_ms=f"{summary_ms:.1f}",
+            payload_ms=f"{payload_ms:.1f}",
+            notes_ms=f"{notes_ms:.1f}",
+        )
         return JSONResponse(payload)
 
     @router.post("/api/biodynamic-note", response_class=JSONResponse)
@@ -5489,6 +5653,34 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     def _is_remote_nodus_type(sensor_type: str | None) -> bool:
         return str(sensor_type or "").strip().lower() in ("picow", "pico2w", "nodus", "remote")
 
+    def _soil_device_offsets(device_section: dict, _get_float) -> list[dict]:
+        return [
+            {
+                "key": "soil_moisture_offset",
+                "label": "Soil Moisture",
+                "unit": "%",
+                "value": _get_float(device_section, "SOIL_TEMP_MOIST_VAL", 0.0),
+            },
+            {
+                "key": "soil_temp_offset",
+                "label": "Soil Temperature",
+                "unit": "°C",
+                "value": _get_float(device_section, "SOIL_TEMP_CAL_VAL", 0.0),
+            },
+            {
+                "key": "soil_ph_offset",
+                "label": "Soil pH",
+                "unit": "pH",
+                "value": _get_float(device_section, "SOIL_PH_CAL_VAL", 0.0),
+            },
+            {
+                "key": "soil_ec_offset",
+                "label": "Soil EC",
+                "unit": "",
+                "value": _get_float(device_section, "SOIL_EC_CAL_VAL", 0.0),
+            },
+        ]
+
     def _apply_device_offsets_shadow(sensor_id: str, device_kind: str, offsets: list[dict]) -> list[str]:
         from collections import OrderedDict
         from collections import OrderedDict as _OD
@@ -5598,6 +5790,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         sensor_id: str = Query(...),
         embed: int = Query(0),
     ):
+        _route_started = time.monotonic()
         from saiSensorSettingsManager import SensorSettingsManager
         from saiCalibration import CalibrationManager
         from saiUtils import normalize_sensor_id, printDM, html_escape
@@ -5693,6 +5886,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             ambient_temp_offset = _get_float(calib_section, "APVPD_TEMP_CAL_VAL", 0.0)
             ambient_rh_offset = _get_float(calib_section, "APVPD_RH_CAL_VAL", 0.0)
+            soil_ph_offset = _get_float(device_section, "SOIL_PH_CAL_VAL", 0.0)
 
             device_offsets: list[dict] = []
 
@@ -5728,6 +5922,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             elif device_kind in ("vpd", "avpd"):
                 _add_offset("Calibration.Device.TEMP_OFFSET", "Temperature", "°C", "TEMP_OFFSET")
                 _add_offset("Calibration.Device.RH_OFFSET", "Rel-Humidity", "%", "RH_OFFSET")
+            elif device_kind in ("soil",):
+                device_offsets.extend(_soil_device_offsets(device_section, _get_float))
 
             cal_mgr = CalibrationManager(data_logger, manager)
             candidate_sensors = cal_mgr.get_calibratable_sensors() or []
@@ -5744,8 +5940,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 device_kind=device_kind,
                 device_label=device_label,
                 is_apvpd=is_apvpd,
+                is_soil=(device_kind == "soil"),
                 ambient_temp_offset=ambient_temp_offset,
                 ambient_rh_offset=ambient_rh_offset,
+                soil_ph_offset=soil_ph_offset,
                 device_offsets=device_offsets,
                 candidate_sensors=candidate_sensors,
                 default_range_hours=24,
@@ -5753,6 +5951,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             if embed:
                 # just return snippet for dashboard JS
+                _ui_profile_log("edit-sensor", _route_started, embed=1, sensor_id=normalized_id, candidates=len(candidate_sensors))
                 return HTMLResponse(modal_html)
 
             # Full-page fallback (used rarely)
@@ -5775,6 +5974,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             page.append("  })();")
             page.append("</script>")
             page.append("</body></html>")
+            _ui_profile_log("edit-sensor", _route_started, embed=0, sensor_id=normalized_id, candidates=len(candidate_sensors))
             return HTMLResponse(content="\n".join(page))
 
         except Exception as e:
@@ -6621,6 +6821,139 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "applied": applied_keys,
             }
         )
+
+    @router.post("/calibration/soil/ph-buffer", response_class=JSONResponse)
+    async def soil_ph_buffer_calibration(request: Request):
+        """
+        Calibrate a soil pH sensor against a known buffer solution by deriving
+        the required pH offset from the latest Soil-pH reading.
+        """
+        from saiCalibration import notify_sensor_runtime_of_calibration
+
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            return JSONResponse(
+                {"status": "error", "message": f"Invalid JSON payload: {exc}"},
+                status_code=400,
+            )
+
+        sensor_id = normalize_sensor_id(str(payload.get("sensor_id") or ""))
+        buffer_raw = payload.get("buffer_ph")
+
+        if not sensor_id:
+            return JSONResponse(
+                {"status": "error", "message": "Missing sensor_id."},
+                status_code=400,
+            )
+
+        try:
+            buffer_ph = float(buffer_raw)
+        except Exception:
+            return JSONResponse(
+                {"status": "error", "message": "buffer_ph must be numeric."},
+                status_code=400,
+            )
+
+        if buffer_ph not in (4.0, 7.0, 10.0):
+            return JSONResponse(
+                {"status": "error", "message": "buffer_ph must be one of 4.0, 7.0, or 10.0."},
+                status_code=400,
+            )
+
+        mgr = SensorSettingsManager("sensor_settings")
+        try:
+            doc = mgr.load(sensor_id) or {}
+        except FileNotFoundError:
+            return JSONResponse(
+                {"status": "error", "message": f"Unknown sensor_id '{sensor_id}'."},
+                status_code=404,
+            )
+
+        sensor_blk = doc.get("Sensor", {}) if isinstance(doc, dict) else {}
+        device_kind = str(sensor_blk.get("DEVICE") or sensor_blk.get("device") or "").strip().lower()
+        sensor_type = str(sensor_blk.get("TYPE") or sensor_blk.get("type") or "").strip().lower()
+        if device_kind != "soil":
+            return JSONResponse(
+                {"status": "error", "message": f"Sensor '{sensor_id}' is not a soil sensor."},
+                status_code=400,
+            )
+
+        try:
+            latest = data_logger.get_latest_values(sensor_id) or {}
+        except Exception as exc:
+            return JSONResponse(
+                {"status": "error", "message": f"Failed to read latest values for {sensor_id}: {exc}"},
+                status_code=500,
+            )
+
+        current_raw = latest.get("Soil-pH")
+        try:
+            current_ph = float(current_raw)
+        except Exception:
+            return JSONResponse(
+                {
+                    "status": "error",
+                    "message": f"No recent Soil-pH reading is available for {sensor_id}.",
+                },
+                status_code=409,
+            )
+
+        new_offset = round(buffer_ph - current_ph, 4)
+        offsets = [{"key": "soil_ph_offset", "value": new_offset}]
+
+        if _is_remote_nodus_type(sensor_type):
+            ok, err, _ack, result = await _publish_remote_calibration_command(
+                sensor_id,
+                action="apply",
+                payload=_mqtt_calibration_payload_from_offsets(offsets),
+                ack_timeout=3.0,
+                result_timeout=8.0,
+            )
+            if not ok:
+                return JSONResponse({"status": "error", "message": err}, status_code=502)
+            if not bool(result.get("applied", False)):
+                return JSONResponse(
+                    {
+                        "status": "error",
+                        "message": str(result.get("error") or "Calibration update was rejected."),
+                    },
+                    status_code=400,
+                )
+
+        try:
+            applied_keys = _apply_device_offsets_shadow(sensor_id, device_kind, offsets)
+        except Exception as exc:
+            printDM(f"[{MODULE}] soil_ph_buffer_calibration save error: {exc}", location=MODULE)
+            return JSONResponse(
+                {
+                    "status": "error",
+                    "message": f"Failed to save soil pH calibration for {sensor_id}.",
+                },
+                status_code=500,
+            )
+
+        if not _is_remote_nodus_type(sensor_type):
+            try:
+                supervisor = getattr(request.app.state, "supervisor", None)
+                notify_sensor_runtime_of_calibration(supervisor, sensor_id)
+            except Exception as exc:
+                printDM(
+                    f"[{MODULE}] soil_ph_buffer_calibration reload error for {sensor_id}: {exc}",
+                    location=MODULE,
+                )
+
+        return JSONResponse(
+            {
+                "status": "success",
+                "message": f"Calibrated {sensor_id} to pH {buffer_ph:.1f}.",
+                "sensor_id": sensor_id,
+                "buffer_ph": buffer_ph,
+                "measured_ph": current_ph,
+                "soil_ph_offset": new_offset,
+                "applied": applied_keys,
+            }
+        )
         
     @router.get("/ui/modal/system-calibration", response_class=HTMLResponse)
     async def modal_system_calibration(
@@ -6670,6 +7003,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # APVPD-specific ambient offsets, fallback to 0.0 if missing
         ambient_temp_offset = _get_float(calib_section, "APVPD_TEMP_CAL_VAL", 0.0)
         ambient_rh_offset   = _get_float(calib_section, "APVPD_RH_CAL_VAL", 0.0)
+        soil_ph_offset      = _get_float(device_section, "SOIL_PH_CAL_VAL", 0.0)
 
         # ---- Build per-device offsets for non-APVPD devices -----------------
         device_offsets: list[dict] = []
@@ -6720,6 +7054,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         elif device_kind in ("vpd", "avpd"):
             _add_offset("Calibration.Device.TEMP_OFFSET", "Temperature", "°C", "TEMP_OFFSET")
             _add_offset("Calibration.Device.RH_OFFSET",   "Rel-Humidity", "%", "RH_OFFSET")
+        elif device_kind in ("soil",):
+            device_offsets.extend(_soil_device_offsets(device_section, _get_float))
 
         # NOTE: APVPD still uses the dedicated is_apvpd branch in the template.
         # If you later want APVPD to also use generic device_offsets, you can
@@ -6736,8 +7072,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "device_kind": device_kind,
             "device_label": device_label,
             "is_apvpd": is_apvpd,
+            "is_soil": (device_kind == "soil"),
             "ambient_temp_offset": ambient_temp_offset,
             "ambient_rh_offset": ambient_rh_offset,
+            "soil_ph_offset": soil_ph_offset,
             "device_offsets": device_offsets,
             "candidate_sensors": candidate_sensors,
             "default_range_hours": 24,
@@ -7199,6 +7537,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         switch_id: str = Query(...),
         embed: int = Query(0),
     ):
+        _route_started = time.monotonic()
         from saiSwitchSettingsManager import SwitchSettingsManager
 
         manager = SwitchSettingsManager("switch_settings")
@@ -7274,6 +7613,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # ---- embed=1 → just the modal markup (used by dashboard JS) ----
         if embed:
+            _ui_profile_log("edit-switch", _route_started, embed=1, switch_id=switch_id, channels=len(channel_indices))
             return HTMLResponse(modal_html)
 
         # ---- full-page fallback (keeps existing behavior & JS wiring) ----
@@ -7301,6 +7641,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         page.append("</script>")
         page.append("</body></html>")
 
+        _ui_profile_log("edit-switch", _route_started, embed=0, switch_id=switch_id, channels=len(channel_indices))
         return HTMLResponse(content="\n".join(page))
 
     @router.post("/submit-switch-settings")

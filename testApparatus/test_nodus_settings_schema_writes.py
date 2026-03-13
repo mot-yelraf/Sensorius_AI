@@ -348,6 +348,71 @@ async def test_device_calibration_apply_for_remote_nodus_does_not_update_shadow_
 
 
 @pytest.mark.asyncio
+async def test_soil_ph_buffer_calibration_for_remote_nodus_uses_latest_reading_and_updates_shadow(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "soil-123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "soil",
+                "SENSOR_ID": "soil-123",
+            }
+        },
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_values", lambda sensor_id: {"Soil-pH": 6.42} if sensor_id == "soil-123" else {})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/calibration/soil/ph-buffer",
+            json={
+                "sensor_id": "soil-123",
+                "buffer_ph": 7.0,
+            },
+        )
+
+    body = res.json()
+    assert res.status_code == 200
+    assert body["soil_ph_offset"] == pytest.approx(0.58)
+    assert ingest.calibration_commands[-1]["action"] == "apply"
+    sent_offset = ingest.calibration_commands[-1]["payload"]["offsets"][0]
+    assert sent_offset["key"] == "soil_ph_offset"
+    assert sent_offset["value"] == pytest.approx(0.58)
+    saved = sensor_mgr.load("soil-123")
+    assert saved["Calibration"]["Device"]["SOIL_PH_CAL_VAL"] == pytest.approx(0.58)
+
+
+@pytest.mark.asyncio
+async def test_soil_ph_buffer_calibration_requires_recent_soil_ph_reading(tmp_path, monkeypatch):
+    app, _ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "soil-123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "soil",
+                "SENSOR_ID": "soil-123",
+            }
+        },
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_values", lambda _sensor_id: {})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/calibration/soil/ph-buffer",
+            json={
+                "sensor_id": "soil-123",
+                "buffer_ph": 4.0,
+            },
+        )
+
+    assert res.status_code == 409
+    assert "Soil-pH reading" in res.json()["message"]
+
+
+@pytest.mark.asyncio
 async def test_calibration_status_prefers_mqtt_state_for_remote_nodus(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))

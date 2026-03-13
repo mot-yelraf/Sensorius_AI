@@ -41,6 +41,8 @@ _OFF_PERIOD_COLOR = "#d7dbe0"
 _OFF_PERIOD_ACCENT = "#eef1f4"
 _MOON_NODE_WINDOW = timedelta(hours=2)
 _PERIGEE_WINDOW = timedelta(hours=12)
+_PAYLOAD_CACHE_TTL_SEC = 300.0
+_PAYLOAD_CACHE: dict[tuple[str, str, str], tuple[float, dict[str, object]]] = {}
 
 
 @dataclass(frozen=True)
@@ -449,6 +451,16 @@ def get_biodynamic_payload(target_date: date | None = None) -> dict[str, object]
         payload["reason"] = "location_unavailable"
         return payload
 
+    cache_key = (
+        month_anchor.replace(day=1).isoformat(),
+        str(round(float(lat), 4)),
+        str(round(float(lon), 4)),
+    )
+    now_mono = time_mod.monotonic()
+    cached = _PAYLOAD_CACHE.get(cache_key)
+    if cached and cached[0] > now_mono:
+        return dict(cached[1])
+
     try:
         _, ts, eph, constellation_at = _skyfield_runtime()
     except Exception as exc:
@@ -512,6 +524,7 @@ def get_biodynamic_payload(target_date: date | None = None) -> dict[str, object]
                 "generated_at": datetime.now(timezone.utc).isoformat(),
             }
         )
+        _PAYLOAD_CACHE[cache_key] = (now_mono + _PAYLOAD_CACHE_TTL_SEC, dict(payload))
         return payload
     except Exception as exc:  # pragma: no cover - depends on installed ephemeris/runtime
         payload["reason"] = str(exc) or exc.__class__.__name__

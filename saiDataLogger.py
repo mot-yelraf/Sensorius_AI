@@ -109,10 +109,13 @@ class saiDataLogger:
         self._next_retention_prune_mono = 0.0
 
         self.sensor_values = {}       # sensor_id → latest values
+        self.sensor_timestamps = {}   # sensor_id → latest timestamp
         self.sensor_stats = {}        # sensor_id → 24h stats
         self.sensor_metric_names = {} # sensor_id → list of expected metric names
         self._on_readings_written: list = []
         self._on_switch_event_written: list = []
+        self._available_sensors_cache: tuple[float, list[str]] | None = None
+        self._switch_identities_cache: tuple[float, list[dict]] | None = None
         
         from saiSettings import saiSettings
         _settings = saiSettings(apply_live=False)
@@ -611,6 +614,8 @@ class saiDataLogger:
             snap = self.sensor_values.get(sensor_id) or {}
             snap.update(values)
             self.sensor_values[sensor_id] = snap
+            self.sensor_timestamps[sensor_id] = timestamp
+            self._available_sensors_cache = None
 
             # Notify post-write listeners (non-blocking; do not break writer path)
             listeners = list(getattr(self, "_on_readings_written", []) or [])
@@ -684,10 +689,16 @@ class saiDataLogger:
             return {}
 
     def get_available_sensors(self):
+        now_mono = time.monotonic()
+        cached = self._available_sensors_cache
+        if cached and cached[0] > now_mono:
+            return list(cached[1])
         query = "SELECT DISTINCT sensor_id FROM readings ORDER BY sensor_id"
         try:
             with self._open_conn() as conn:
-                return [row[0] for row in conn.execute(query).fetchall()]
+                result = [row[0] for row in conn.execute(query).fetchall()]
+                self._available_sensors_cache = (now_mono + 5.0, list(result))
+                return result
         except Exception as e:
             printDM(f"Sensor ID query error: {e}", location=MODULE)
             return []
@@ -709,6 +720,9 @@ class saiDataLogger:
             return []
 
     def get_latest_timestamp(self, sensor_id):
+        cached = self.sensor_timestamps.get(sensor_id)
+        if cached:
+            return cached
         try:
             with self._open_conn() as conn:
                 cur = conn.cursor()
@@ -718,10 +732,85 @@ class saiDataLogger:
                     (sensor_id,)
                 )
                 row = cur.fetchone()
+                if row and row[0]:
+                    self.sensor_timestamps[sensor_id] = row[0]
                 return row[0] if row and row[0] else None
         except Exception as e:
             printDM(f"Error fetching latest timestamp for {sensor_id}: {e}", location="saiDataLogger")
             return None
+
+    def get_latest_values_and_timestamps(self, sensor_ids: list[str]) -> tuple[dict[str, dict], dict[str, str]]:
+        clean_ids = [str(sid or "").strip() for sid in (sensor_ids or []) if str(sid or "").strip()]
+        if not clean_ids:
+            return {}, {}
+
+        values_out: dict[str, dict] = {}
+        timestamps_out: dict[str, str] = {}
+        missing_ids: list[str] = []
+
+        for sid in clean_ids:
+            cached_values = self.sensor_values.get(sid)
+            cached_ts = self.sensor_timestamps.get(sid)
+            if cached_values:
+                values_out[sid] = dict(cached_values)
+            if cached_ts:
+                timestamps_out[sid] = cached_ts
+            if not cached_values or not cached_ts:
+                missing_ids.append(sid)
+
+        if not missing_ids:
+            return values_out, timestamps_out
+
+        sid_map = {sid.lower(): sid for sid in missing_ids}
+        placeholders = ",".join("?" for _ in sid_map)
+        try:
+            with self._open_conn() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    f"""
+                    WITH latest AS (
+                        SELECT LOWER(sensor_id) AS sid_l,
+                               MAX(COALESCE(ts_epoch, 0.0)) AS latest_ts_epoch
+                        FROM readings
+                        WHERE LOWER(sensor_id) IN ({placeholders})
+                        GROUP BY LOWER(sensor_id)
+                    )
+                    SELECT r.sensor_id, r.timestamp, r.metric, r.value
+                    FROM readings r
+                    JOIN latest l
+                      ON LOWER(r.sensor_id) = l.sid_l
+                     AND COALESCE(r.ts_epoch, 0.0) = l.latest_ts_epoch
+                    ORDER BY LOWER(r.sensor_id), r.metric
+                    """,
+                    tuple(sid_map.keys()),
+                )
+                rows = cur.fetchall()
+        except Exception as e:
+            printDM(f"[get_latest_values_and_timestamps] query error: {e}", location=MODULE)
+            rows = []
+
+        for row in rows:
+            sid_raw = row[0]
+            sid = sid_map.get(str(sid_raw or "").lower(), str(sid_raw or "").strip())
+            if not sid:
+                continue
+            ts = row[1]
+            metric = row[2]
+            value = row[3]
+            if sid not in values_out:
+                values_out[sid] = {}
+            if metric:
+                values_out[sid][metric] = value
+            if ts and sid not in timestamps_out:
+                timestamps_out[sid] = ts
+
+        for sid in missing_ids:
+            if sid in values_out and values_out[sid]:
+                self.sensor_values[sid] = dict(values_out[sid])
+            if sid in timestamps_out and timestamps_out[sid]:
+                self.sensor_timestamps[sid] = timestamps_out[sid]
+
+        return values_out, timestamps_out
 
     def register_sensor(self, dev_id: str):
         from collections import defaultdict
@@ -912,6 +1001,7 @@ class saiDataLogger:
                     (switch_key, switch_id, label, location)
                 )
                 conn.commit()
+                self._switch_identities_cache = None
         except Exception as e:
             printDM(f"[upsert_switch_identity] {switch_key} error: {e}", location=MODULE)
 
@@ -1128,6 +1218,10 @@ class saiDataLogger:
         Returns list of dicts:
         {"switch_key": "<channel_id>::<label>", "switch_id": "...", "channel_id": "...", "label": "...", "location": "..."}
         """
+        now_mono = time.monotonic()
+        cached = self._switch_identities_cache
+        if cached and cached[0] > now_mono:
+            return [dict(item) for item in cached[1]]
         try:
             with self._open_conn() as conn:
                 rows = conn.execute(
@@ -1152,6 +1246,7 @@ class saiDataLogger:
                     "label": label,
                     "location": location,
                 })
+            self._switch_identities_cache = (now_mono + 5.0, [dict(item) for item in results])
             return results
 
         except Exception as e:

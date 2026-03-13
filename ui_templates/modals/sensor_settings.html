@@ -199,6 +199,52 @@
                     <span id="plantCalStatus" class="muted" style="font-size:0.8rem;"></span>
                   </div>
 
+                {% elif is_soil %}
+                  <h4 class="section-title">Soil Offsets</h4>
+                  <p class="muted" style="font-size:0.85rem; margin-top:0;">
+                    Use a pH buffer solution to calibrate the pH channel, or edit offsets manually.
+                  </p>
+
+                  <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.75rem;">
+                    <button type="button" class="button green soilPhBufferBtn" data-buffer-ph="4.0">Calibrate pH 4.0</button>
+                    <button type="button" class="button green soilPhBufferBtn" data-buffer-ph="7.0">Calibrate pH 7.0</button>
+                    <button type="button" class="button green soilPhBufferBtn" data-buffer-ph="10.0">Calibrate pH 10.0</button>
+                  </div>
+                  <div style="min-height:1.25rem; margin-bottom:0.5rem;">
+                    <span id="soilPhCalStatus" class="muted" style="font-size:0.8rem;"></span>
+                  </div>
+
+                  <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+                    <tbody>
+                      {% for off in device_offsets %}
+                      <tr data-dev-cal-row="1">
+                        <td style="padding:0.25rem 0.5rem;">
+                          {{ off.label }}
+                          {% if off.unit %} ({{ off.unit }}){% endif %}
+                        </td>
+                        <td style="padding:0.25rem 0.5rem; text-align:right;">
+                          <input type="number"
+                                 step="any"
+                                 data-key="{{ off.key }}"
+                                 class="devCalInput"
+                                 {% if off.key == "soil_ph_offset" %}id="soilPhOffsetInput"{% endif %}
+                                 style="width:100%; text-align:right;"
+                                 value="{{ off.value | default(0) }}">
+                        </td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+
+                  <div style="margin-top:0.75rem; display:flex; justify-content:flex-end;">
+                    <button type="button" class="button blue" id="devCalApplyBtn">
+                      Apply Device Calibration
+                    </button>
+                  </div>
+                  <div style="display:flex; justify-content:flex-end; margin-top:0.25rem; min-height:1.25rem;">
+                    <span id="devCalStatus" class="muted" style="font-size:0.8rem;"></span>
+                  </div>
+
                 {% elif device_offsets %}
                   <h4 class="section-title">Offsets</h4>
                   <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">

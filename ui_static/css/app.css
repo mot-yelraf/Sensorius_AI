@@ -228,12 +228,20 @@ body{
   display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:2px;
 }
 
+.switch-state-cell{
+  display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:.05rem;
+}
+
+.switch-state-cell > .button{
+  margin:0;
+}
+
 .switch-automation-cell > .button{
   margin:0;
 }
 
 .switch-timer-panel{
-  width:100%; max-width:220px; display:flex; flex-direction:column; align-items:center; gap:.2rem;
+  width:100%; max-width:160px; display:flex; flex-direction:column; align-items:center; gap:.08rem;
 }
 
 .switch-timer-input{
