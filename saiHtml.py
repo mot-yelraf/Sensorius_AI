@@ -54,6 +54,8 @@ def get_gauge_config():
         "Auto Light": {"unit": "lux", "min": 0,  "max": 120000, "ticks": [0, 20000, 40000, 60000, 80000, 100000, 120000], "zones": [{"strokeStyle": "#ffff00", "min": 0, "max": 120000}]},
         "PPFD": {"unit": "µmol·m⁻²·s⁻¹", "min": 0, "max": 2000, "ticks": [0, 400, 800, 1200, 1600, 2000], "zones": [{"strokeStyle": "#ffff00", "min": 0, "max": 2000}]},
         "DLI": {"unit": "mol·m⁻²·day⁻¹", "min": 0, "max": 70, "ticks": [0, 10, 20, 30, 40, 50, 60, 70], "zones": [{"strokeStyle": "#ffff00", "min": 0, "max": 70}]},
+        "SMD": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#3399ff", "min": 0, "max": 20}, {"strokeStyle": "#03a603", "min": 20, "max": 60}, {"strokeStyle": "#bf9000", "min": 60, "max": 100}]},
+        "SSI": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#03a603", "min": 0, "max": 30}, {"strokeStyle": "#bf9000", "min": 30, "max": 60}, {"strokeStyle": "#cc7a00", "min": 60, "max": 80}, {"strokeStyle": "#d9534f", "min": 80, "max": 100}]},
     }
     return gauge_config
 

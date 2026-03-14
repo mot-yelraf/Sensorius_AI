@@ -80,4 +80,27 @@ Plant probe additions (I2C_0):
 - `Plant DewVPD Risk` - %
 - `Baro-Pressure Plant` - hPa
 
+## SoilSensor (UART/Modbus soil sensor)
+
+- Bus: UART / Modbus RTU
+- Metrics Stored:
+- `Soil-Moisture` - % volumetric water content after calibration/correction
+- `SMD` - % soil moisture deficit, derived from corrected `Soil-Moisture`
+- `SSI` - % soil stress index, derived from `SMD` and corrected `Soil-Temp`
+- `Soil-Temp` - C
+- `Soil-Temp_F` - F
+- `Soil-pH` - pH
+- `Soil-EC` - mS/cm
+
+Derived soil metrics:
+
+- `SMD` is a normalized dryness percentage, not an independent raw sensor register.
+- `SMD` maps moisture at or above the wet threshold to `0%` and moisture at or below the dry threshold to `100%`.
+- Values between the wet and dry thresholds scale linearly and are clamped to `0-100%`.
+- If the wet threshold is less than or equal to the dry threshold, `SMD` is not reported.
+- `SSI` is a normalized soil concern percentage that combines `SMD` with temperature-based stress from corrected `Soil-Temp`.
+- The temperature contribution is `0%` inside the configured OK band and scales toward `100%` at the configured low/high critical edges.
+- `SSI` uses configurable moisture and temperature weights to blend the two contributions into a single `0-100%` index.
+- If the configured temperature band is invalid or the total weight is zero, `SSI` is not reported.
+
 All timestamps are in UTC. `tz`, `tzOffset`, and `tzName` are pushed to the device and used in the UI to localize time.
