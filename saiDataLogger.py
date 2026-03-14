@@ -1005,6 +1005,40 @@ class saiDataLogger:
         except Exception as e:
             printDM(f"[upsert_switch_identity] {switch_key} error: {e}", location=MODULE)
 
+    def prune_switch_identities(self, *, switch_id: str, valid_channel_ids: list[str] | set[str] | tuple[str, ...]) -> int:
+        """
+        Remove stale switch_ids rows for a switch when the current configured
+        channel_id set is known.
+        """
+        sid = str(switch_id or "").strip()
+        valid = {str(cid or "").strip() for cid in (valid_channel_ids or []) if str(cid or "").strip()}
+        if not sid or not valid:
+            return 0
+        removed = 0
+        try:
+            with self._open_conn() as conn:
+                rows = conn.execute(
+                    "SELECT switch_key FROM switch_ids WHERE switch_id = ?",
+                    (sid,),
+                ).fetchall()
+                stale_keys = []
+                for row in rows or []:
+                    switch_key = str((row or [""])[0] or "").strip()
+                    if not switch_key:
+                        continue
+                    channel_id = switch_key.split(SW_KEY_DELIM, 1)[0].strip()
+                    if channel_id and channel_id not in valid:
+                        stale_keys.append((switch_key,))
+                if stale_keys:
+                    conn.executemany("DELETE FROM switch_ids WHERE switch_key = ?", stale_keys)
+                    conn.commit()
+                    removed = len(stale_keys)
+                self._switch_identities_cache = None
+        except Exception as e:
+            printDM(f"[prune_switch_identities] {sid} error: {e}", location=MODULE)
+            return 0
+        return removed
+
     def log_switch_event(
         self,
         switch_key: str,

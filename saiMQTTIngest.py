@@ -103,6 +103,28 @@ def split_switch_id_and_pin(sw_part: str) -> tuple[str, str | None]:
     except Exception:
         return (sw_part, None)
 
+def _mqtt_topic_matches(filter_text: str | None, topic: str | None) -> bool:
+    """
+    Minimal MQTT topic filter matcher for + and # wildcards.
+    Used to avoid redundant overlapping subscriptions on a single client.
+    """
+    flt = str(filter_text or "").strip()
+    top = str(topic or "").strip()
+    if not flt or not top:
+        return False
+    f_parts = flt.split("/")
+    t_parts = top.split("/")
+    for idx, part in enumerate(f_parts):
+        if part == "#":
+            return idx == len(f_parts) - 1
+        if idx >= len(t_parts):
+            return False
+        if part == "+":
+            continue
+        if part != t_parts[idx]:
+            return False
+    return len(t_parts) == len(f_parts)
+
 _current_ingest = None
 
 def set_current_ingest(inst):
@@ -193,6 +215,8 @@ class saiMQTTIngest:
         self.calibration_result_by_message: dict[str, dict] = {}
         self.calibration_status_by_sensor: dict[str, dict] = {}
         self.calibration_progress_by_sensor: dict[str, dict] = {}
+        self.calibration_sample_by_sensor: dict[str, dict] = {}
+        self.calibration_samples_by_message: dict[str, list[dict]] = {}
         self.calibration_event_result_by_sensor: dict[str, dict] = {}
         self.calibration_message_device: dict[str, str] = {}
 
@@ -260,6 +284,7 @@ class saiMQTTIngest:
                 "nodus/+/calibration/result",
                 "nodus/+/event/calibration_status",
                 "nodus/+/event/calibration_progress",
+                "nodus/+/event/calibration_sample",
                 "nodus/+/event/calibration_result",
                 "nodus/+/onboard/hello",
                 "nodus/+/config/ack",
@@ -279,6 +304,7 @@ class saiMQTTIngest:
                     f"{self.base_topic}/nodus/+/calibration/result",
                     f"{self.base_topic}/nodus/+/event/calibration_status",
                     f"{self.base_topic}/nodus/+/event/calibration_progress",
+                    f"{self.base_topic}/nodus/+/event/calibration_sample",
                     f"{self.base_topic}/nodus/+/event/calibration_result",
                     f"{self.base_topic}/nodus/+/meta",
                     f"{self.base_topic}/nodus/+/onboard/hello",
@@ -303,6 +329,17 @@ class saiMQTTIngest:
 
         self._ha_discovered_sensor_metrics: set[str] = set()   # f"{sensor_id}::{metric_slug}"
         self._ha_discovered_switch_channels: set[str] = set()  # f"{switch_id}::{channel_id}"
+
+    def _has_covering_subscription(self, topic_filter: str) -> bool:
+        candidate = str(topic_filter or "").strip()
+        if not candidate:
+            return False
+        if "+" in candidate or "#" in candidate:
+            return candidate in self.registered_topics
+        for existing in self.registered_topics:
+            if _mqtt_topic_matches(existing, candidate):
+                return True
+        return False
         
     # helpers
     def _apply_mqtt_auth(self, client: mqtt.Client, *, section: str, fallback_section: str | None = None) -> None:
@@ -534,6 +571,49 @@ class saiMQTTIngest:
             return normalized
         return {}
 
+    def _normalize_calibration_sample_payload(self, sensor_id: str, payload: dict | None, *, topic: str, retain: bool) -> dict:
+        body = dict(payload or {})
+
+        def _to_int(value):
+            try:
+                return None if value is None or value == "" else int(value)
+            except Exception:
+                return None
+
+        def _to_float(value):
+            try:
+                return None if value is None or value == "" else float(value)
+            except Exception:
+                return None
+
+        values = body.get("values") if isinstance(body.get("values"), dict) else {}
+        units = body.get("units") if isinstance(body.get("units"), dict) else {}
+        metrics = body.get("metrics") if isinstance(body.get("metrics"), list) else []
+        display_metrics = body.get("display_metrics") if isinstance(body.get("display_metrics"), list) else []
+        normalized = {
+            "message_id": str(body.get("message_id") or "").strip(),
+            "sensor_id": str(body.get("sensor_id") or sensor_id or "").strip(),
+            "status": str(body.get("status") or "").strip().lower(),
+            "timestamp": body.get("timestamp"),
+            "reference_ph": _to_float(body.get("reference_ph")),
+            "sample_index": _to_int(body.get("sample_index")),
+            "sample_count": _to_int(body.get("sample_count")),
+            "metrics": list(metrics),
+            "display_metrics": list(display_metrics),
+            "values": dict(values),
+            "units": dict(units),
+            "soil_ph_offset": _to_float(body.get("soil_ph_offset")),
+            "corrected_ph": _to_float(body.get("corrected_ph")),
+            "raw_ph": _to_float(body.get("raw_ph")),
+            "topic": topic,
+            "retain": bool(retain),
+            "kind": "calibration_sample",
+            "received_at": time.time(),
+        }
+        if normalized["sensor_id"]:
+            return normalized
+        return {}
+
     def _maybe_handle_calibration_topics(self, topic: str, payload_text: str, data: dict | None, *, retain: bool) -> bool:
         try:
             parts = topic.split("/")
@@ -601,6 +681,50 @@ class saiMQTTIngest:
                         self.calibration_status_by_sensor[sensor_id] = dict(result["status"])
                     return True
 
+                if family == "event" and leaf == "calibration_sample":
+                    normalized_sample = self._normalize_calibration_sample_payload(
+                        device_id,
+                        body,
+                        topic=topic,
+                        retain=retain,
+                    )
+                    if not normalized_sample:
+                        return True
+                    sensor_id = str(normalized_sample.get("sensor_id") or device_id).strip()
+                    self.calibration_sample_by_sensor[sensor_id] = dict(normalized_sample)
+
+                    message_id = str(normalized_sample.get("message_id") or "").strip()
+                    if message_id:
+                        bucket = self.calibration_samples_by_message.setdefault(message_id, [])
+                        sample_index = normalized_sample.get("sample_index")
+                        replaced = False
+                        if sample_index is not None:
+                            for idx, row in enumerate(bucket):
+                                if row.get("sample_index") == sample_index:
+                                    bucket[idx] = dict(normalized_sample)
+                                    replaced = True
+                                    break
+                        if not replaced:
+                            bucket.append(dict(normalized_sample))
+                            bucket.sort(key=lambda row: (row.get("sample_index") is None, row.get("sample_index") or 0))
+
+                    sample_index = normalized_sample.get("sample_index")
+                    sample_total = normalized_sample.get("sample_count")
+                    derived_progress = {
+                        "sensor_id": sensor_id,
+                        "status": "in_progress",
+                        "calibrated": False,
+                        "timestamp": normalized_sample.get("timestamp"),
+                        "sample_index": sample_index,
+                        "sample_total": sample_total,
+                        "topic": topic,
+                        "retain": bool(retain),
+                        "kind": "calibration_sample",
+                        "received_at": normalized_sample.get("received_at"),
+                    }
+                    self.calibration_progress_by_sensor[sensor_id] = derived_progress
+                    return True
+
                 if family == "event" and leaf in {"calibration_status", "calibration_progress", "calibration_result"}:
                     normalized = self._normalize_calibration_payload(
                         device_id,
@@ -665,6 +789,34 @@ class saiMQTTIngest:
             await asyncio.sleep(0.05)
         return None
 
+    async def wait_for_calibration_samples(self, message_id: str, expected_count: int | None = None, timeout: float = 30.0) -> list[dict]:
+        deadline = time.time() + max(float(timeout), 0.0)
+        target = None
+        try:
+            if expected_count is not None:
+                target = max(int(expected_count), 0)
+        except Exception:
+            target = None
+
+        last_seen: list[dict] = []
+        while time.time() < deadline:
+            with self._calibration_lock:
+                rows = [dict(item) for item in self.calibration_samples_by_message.get(message_id, [])]
+            last_seen = rows
+            if rows:
+                if target is None or target <= 0:
+                    return rows
+                if len(rows) >= target:
+                    return rows
+                highest_index = max(
+                    (int(row.get("sample_index")) for row in rows if row.get("sample_index") is not None),
+                    default=0,
+                )
+                if highest_index >= target:
+                    return rows
+            await asyncio.sleep(0.05)
+        return last_seen
+
     def get_nodus_calibration_state(self, sensor_id: str) -> dict | None:
         sid = str(sensor_id or "").strip()
         if not sid:
@@ -672,14 +824,17 @@ class saiMQTTIngest:
         with self._calibration_lock:
             status = self.calibration_status_by_sensor.get(sid)
             progress = self.calibration_progress_by_sensor.get(sid)
+            latest_sample = self.calibration_sample_by_sensor.get(sid)
             final_result = self.calibration_event_result_by_sensor.get(sid)
-            if not any((status, progress, final_result)):
+            if not any((status, progress, latest_sample, final_result)):
                 return None
             out = {}
             if status:
                 out["status"] = dict(status)
             if progress:
                 out["progress"] = dict(progress)
+            if latest_sample:
+                out["sample"] = dict(latest_sample)
             if final_result:
                 out["result"] = dict(final_result)
             return out
@@ -1669,7 +1824,7 @@ class saiMQTTIngest:
                 self.nodus_switch_availability_topics[(switch_id, ch_id)] = topic
 
             if kind in ("state", "event", "availability"):
-                if topic not in self.registered_topics:
+                if topic not in self.registered_topics and not self._has_covering_subscription(topic):
                     self.registered_topics.add(topic)
                     self.client.subscribe(topic)
                     any_new = True
@@ -1724,6 +1879,15 @@ class saiMQTTIngest:
                 loc = str(raw or "").strip()
                 if loc and not _is_unknown_loc(loc):
                     return loc
+            return "Unknown"
+
+        def _preserve_known_location(candidate: str, existing: str | None = None) -> str:
+            cand = str(candidate or "").strip()
+            prev = str(existing or "").strip()
+            if cand and not _is_unknown_loc(cand):
+                return cand
+            if prev and not _is_unknown_loc(prev):
+                return prev
             return "Unknown"
 
         def _coerce_switch_state(raw_state) -> bool | None:
@@ -1814,7 +1978,7 @@ class saiMQTTIngest:
                     continue
                 self.topic_dev_id_map[t] = sensor_id
                 self.device_location[t] = sensor_loc
-                if t not in self.registered_topics:
+                if t not in self.registered_topics and not self._has_covering_subscription(t):
                     self.registered_topics.add(t)
                     self.client.subscribe(t)
                     subscribed = True
@@ -2608,6 +2772,7 @@ class saiMQTTIngest:
                         self.expected_gauge_map[dev_id] = metrics
 
                     if topic and dev_id:
+                        location = _preserve_known_location(location, self.device_location.get(topic))
                         peer_ids_for_host.append(dev_id)
                         self.nodus_sensor_topics[dev_id] = topic
                         self.device_location[topic] = location
@@ -2623,7 +2788,7 @@ class saiMQTTIngest:
                             "serial": entry.get("SERIAL_NUM", ""),
                             "display_metrics": metrics,
                         })
-                        if topic not in self.registered_topics:
+                        if topic not in self.registered_topics and not self._has_covering_subscription(topic):
                             self.registered_topics.add(topic)
                             self.client.subscribe(topic)
                             subscribed = True
@@ -2788,6 +2953,7 @@ class saiMQTTIngest:
                     self.expected_gauge_map[dev_id] = metrics
 
                 if topic and dev_id:
+                    location = _preserve_known_location(location, self.device_location.get(topic))
                     peer_ids_for_host.append(dev_id)
                     self.nodus_sensor_topics[dev_id] = topic
                     self.device_location[topic] = location
@@ -2803,7 +2969,7 @@ class saiMQTTIngest:
                         "serial": info.get("SERIAL_NUM", ""),
                         "display_metrics": metrics,
                     })
-                    if topic not in self.registered_topics:
+                    if topic not in self.registered_topics and not self._has_covering_subscription(topic):
                         self.registered_topics.add(topic)
                         self.client.subscribe(topic)
                         subscribed = True
@@ -2977,6 +3143,19 @@ class saiMQTTIngest:
             section[key] = value
             return True
 
+        def _is_unknown_loc(val: str | None) -> bool:
+            v = str(val or "").strip().lower()
+            return v in ("", "unknown", "n/a", "na", "none", "-")
+
+        def _preserve_known_location(candidate: str, existing: str | None = None) -> str:
+            cand = str(candidate or "").strip()
+            prev = str(existing or "").strip()
+            if cand and not _is_unknown_loc(cand):
+                return cand
+            if prev and not _is_unknown_loc(prev):
+                return prev
+            return "Unknown"
+
         # ---- system_settings/<HOSTNAME>/settings.toml ----
         system_id = _strip_local(str((info or {}).get("HOSTNAME") or hostname or ""))
         if system_id:
@@ -3061,7 +3240,12 @@ class saiMQTTIngest:
                     if serial and str(sb.get("SERIAL_NUM", "") or "").strip() != serial:
                         sb["SERIAL_NUM"] = serial
                         changed = True
-                    if location and location.strip() and str(sb.get("LOCATION", "") or "").strip() != location:
+                    if (
+                        location
+                        and location.strip()
+                        and not _is_unknown_loc(location)
+                        and str(sb.get("LOCATION", "") or "").strip() != location
+                    ):
                         sb["LOCATION"] = location
                         changed = True
                     if sensor_id and str(sb.get("SENSOR_ID", "") or "").strip() != sensor_id:
@@ -3104,7 +3288,8 @@ class saiMQTTIngest:
                     if device_type:
                         sb["TYPE"] = device_type
                     sb["SENSOR_ID"] = sensor_id
-                    sb["LOCATION"] = location
+                    existing_loc = str(sb.get("LOCATION", "") or "").strip()
+                    sb["LOCATION"] = _preserve_known_location(location, existing_loc)
                     if serial:
                         sb["SERIAL_NUM"] = serial
 
@@ -3158,7 +3343,11 @@ class saiMQTTIngest:
                 if str(sb.get("SWITCH_DEVICE_ID", "") or "").strip() != switch_id:
                     sb["SWITCH_DEVICE_ID"] = switch_id
                     changed = True
-                if switch_loc and str(sb.get("SWITCH_LOCATION", "") or "").strip() != switch_loc:
+                if (
+                    switch_loc
+                    and not _is_unknown_loc(switch_loc)
+                    and str(sb.get("SWITCH_LOCATION", "") or "").strip() != switch_loc
+                ):
                     sb["SWITCH_LOCATION"] = switch_loc
                     changed = True
                 if switch_type and str(sb.get("TYPE", "") or "").strip() != switch_type:
@@ -3225,6 +3414,20 @@ class saiMQTTIngest:
                     pass
                 if changed:
                     switch_mgr.save(switch_id, doc)
+                try:
+                    valid_channel_ids: list[str] = []
+                    for idx in range(1, 33):
+                        label = str(sb.get(f"SWITCH_{idx}_LABEL", "") or "").strip()
+                        channel_id = str(sb.get(f"SWITCH_{idx}_CHANNEL_ID", "") or "").strip()
+                        if label and channel_id:
+                            valid_channel_ids.append(channel_id)
+                    if valid_channel_ids and getattr(self, "data_logger", None):
+                        self.data_logger.prune_switch_identities(
+                            switch_id=switch_id,
+                            valid_channel_ids=valid_channel_ids,
+                        )
+                except Exception:
+                    pass
 
                 if DEBUG:
                     action = "updated" if sw_path.exists() else "seeded"

@@ -119,6 +119,11 @@ _ASTRO_PAYLOAD_CACHE: tuple[float, dict[str, object]] | None = None
 _SENSOR_LOCATION_CACHE_TTL_SEC: float = 5.0
 _SENSOR_LOCATION_CACHE: dict[str, tuple[float, str]] = {}
 
+
+def _is_unknown_location_value(value: object) -> bool:
+    text = str(value or "").strip().lower()
+    return text in {"", "unknown", "n/a", "na", "none", "-"}
+
 async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     router = APIRouter()
     main_loop = asyncio.get_running_loop()
@@ -1143,10 +1148,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # --- define before first use
             def resolve_location_for_sid(sid: str) -> str:
                 """
-                1) live MQTT map
-                2) disk settings
-                3) in-memory sensor_map
-                4) 'Unknown'
+                1) disk settings
+                2) in-memory sensor_map
+                3) 'Unknown'
                 """
                 sid_clean = str(sid or "").strip()
                 now_mono = time.monotonic()
@@ -1154,16 +1158,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if cached_loc and cached_loc[0] > now_mono:
                     return cached_loc[1]
 
-                topic = f"sensor/{sid}/data"
-                loc = mqtt_ingest.device_location.get(topic) or mqtt_ingest.device_location.get(sid)
-                if isinstance(loc, str) and loc.strip():
-                    resolved = loc.strip()
-                    _SENSOR_LOCATION_CACHE[sid_clean] = (now_mono + _SENSOR_LOCATION_CACHE_TTL_SEC, resolved)
-                    return resolved
-
                 try:
                     loc = sensor_settings_mgr.get_setting(sid, "Sensor.LOCATION", None) if sensor_settings_mgr else None
-                    if isinstance(loc, str) and loc.strip():
+                    if isinstance(loc, str) and loc.strip() and not _is_unknown_location_value(loc):
                         resolved = loc.strip()
                         _SENSOR_LOCATION_CACHE[sid_clean] = (now_mono + _SENSOR_LOCATION_CACHE_TTL_SEC, resolved)
                         return resolved
@@ -1175,7 +1172,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     sensor_obj = sm.get(sid) or sm.get((sid or "").lower())
                     if sensor_obj and getattr(sensor_obj, "location", None):
                         loc = sensor_obj.location
-                        if isinstance(loc, str) and loc.strip():
+                        if isinstance(loc, str) and loc.strip() and not _is_unknown_location_value(loc):
                             resolved = loc.strip()
                             _SENSOR_LOCATION_CACHE[sid_clean] = (now_mono + _SENSOR_LOCATION_CACHE_TTL_SEC, resolved)
                             return resolved
@@ -1184,7 +1181,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         sid_attr = getattr(s, "sensor_id", None)
                         if isinstance(sid_attr, str) and sid_attr.lower() == (sid or "").lower():
                             loc = getattr(s, "location", None)
-                            if isinstance(loc, str) and loc.strip():
+                            if isinstance(loc, str) and loc.strip() and not _is_unknown_location_value(loc):
                                 resolved = loc.strip()
                                 _SENSOR_LOCATION_CACHE[sid_clean] = (now_mono + _SENSOR_LOCATION_CACHE_TTL_SEC, resolved)
                                 return resolved
@@ -1209,14 +1206,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         if str((meta or {}).get("switch_id", "") or "").strip().lower() != sw.lower():
                             continue
                         loc = mqtt_ingest.device_location.get(topic)
-                        if isinstance(loc, str) and loc.strip():
+                        if isinstance(loc, str) and loc.strip() and not _is_unknown_location_value(loc):
                             return loc.strip()
                 except Exception:
                     pass
 
                 try:
                     loc = switch_settings_mgr.get_setting(sw, "Switch.SWITCH_LOCATION", None) if switch_settings_mgr else None
-                    if isinstance(loc, str) and loc.strip():
+                    if isinstance(loc, str) and loc.strip() and not _is_unknown_location_value(loc):
                         return loc.strip()
                 except Exception:
                     pass
@@ -1229,7 +1226,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                             if sid.lower() != sw.lower():
                                 continue
                             loc = getattr(ctrl, "location", None)
-                            if isinstance(loc, str) and loc.strip():
+                            if isinstance(loc, str) and loc.strip() and not _is_unknown_location_value(loc):
                                 return loc.strip()
                 except Exception:
                     pass
@@ -1241,8 +1238,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             sensor_settings_mgr = None
             try:
                 sensor_settings_mgr = SensorSettingsManager("sensor_settings")
+            except TypeError:
+                try:
+                    sensor_settings_mgr = SensorSettingsManager()
+                except Exception:
+                    sensor_settings_mgr = None
             except Exception:
-                sensor_settings_mgr = None
+                try:
+                    sensor_settings_mgr = SensorSettingsManager()
+                except Exception:
+                    sensor_settings_mgr = None
             switch_settings_mgr = None
             try:
                 switch_settings_mgr = SwitchSettingsManager("switch_settings")
@@ -1381,7 +1386,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         gauge_config = get_gauge_config()
         displayStyle = fresh_settings.get_setting("Display", "display_style") or "Gauge"
 
-        from saiSensorSettingsManager import SensorSettingsManager
         from saiCalibration import CalibrationManager
         sensor_mgr = SensorSettingsManager()
         expected_gauge_map = {}
@@ -4014,14 +4018,47 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     
     def _build_post_targets(hostname: str | None, ip_hint: str | None = None) -> list[str]:
         """
-        Short, deterministic target list. mDNS → DNS → optional IP.
+        Build deterministic POST targets for a Nodus device.
+        Prefer the same candidates MQTT discovery already trusts:
+        cached IP → mDNS hostname → bare hostname → explicit IP hints.
         """
-        candidates = []
+        candidates: list[str] = []
+
+        def _append_host(raw_host: str | None) -> None:
+            host = str(raw_host or "").strip()
+            if not host:
+                return
+            candidates.append(f"http://{host}:8000/set-nodus-setting")
+
         if hostname:
-            candidates.append(f"http://{mdns_hostname(hostname)}:8000/set-nodus-setting")
-            candidates.append(f"http://{hostname}:8000/set-nodus-setting")
-        if ip_hint:
-            candidates.append(f"http://{ip_hint}:8000/set-nodus-setting")
+            ingest = mqtt_ingest
+            base = str(hostname).strip()
+
+            if ingest is not None:
+                try:
+                    ingest_candidates = list(getattr(ingest, "_host_candidates")(base))
+                except Exception:
+                    ingest_candidates = []
+                for host in ingest_candidates:
+                    _append_host(host)
+
+                try:
+                    normalize = getattr(ingest, "_normalize_host_key", None)
+                    base_key = normalize(base) if callable(normalize) else base.removesuffix(".local")
+                except Exception:
+                    base_key = base.removesuffix(".local")
+
+                for attr_name in ("_host_ip_cache", "_host_ipv4addr"):
+                    try:
+                        cached = getattr(ingest, attr_name, {}).get(base_key)
+                    except Exception:
+                        cached = None
+                    _append_host(cached)
+
+            _append_host(mdns_hostname(base))
+            _append_host(base)
+
+        _append_host(ip_hint)
 
         seen = set()
         return [u for u in candidates if (u not in seen and not seen.add(u))]
@@ -4095,7 +4132,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                                                 location=MODULE)
                             except httpx.HTTPError as e:
                                 if DEBUG:
-                                    printDM(f"[push_nodus_setting:{device_type}:{device_id}] error {url}: {e}", location=MODULE)
+                                    err_type = type(e).__name__
+                                    detail = str(e).strip() or repr(e)
+                                    printDM(
+                                        f"[push_nodus_setting:{device_type}:{device_id}] error {url}: {err_type}: {detail}",
+                                        location=MODULE,
+                                    )
                         # brief backoff between passes
                         await asyncio.sleep(0.35)
         except Exception as outer:
@@ -4345,6 +4387,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                                 mqtt_ingest.device_location[topic] = location or "Unknown"
                         except Exception:
                             pass
+                        _SENSOR_LOCATION_CACHE.pop(dev_id, None)
 
                     else:  # switch
                         doc = switch_mgr.load(dev_id) or {}
@@ -4416,6 +4459,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
                 except Exception as row_err:
                     printDM(f"[save_device_locations] row error: {row_err}", location=MODULE)
+
+            _DASHBOARD_JSON_CACHE.clear()
 
             # Run all remote pushes
             if nodus_tasks:
@@ -5782,6 +5827,98 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return False, "Timed out waiting for calibration result", ack, None
         return True, "", ack, result
 
+    def _extract_soil_ph_from_sample(sample: dict, fallback_offset: float = 0.0) -> float | None:
+        def _to_float(value):
+            try:
+                return None if value is None or value == "" else float(value)
+            except Exception:
+                return None
+
+        raw_ph = _to_float(sample.get("raw_ph"))
+        if raw_ph is not None:
+            return raw_ph
+
+        corrected_ph = _to_float(sample.get("corrected_ph"))
+        if corrected_ph is None:
+            values = sample.get("values") if isinstance(sample.get("values"), dict) else {}
+            corrected_ph = _to_float(values.get("Soil-pH"))
+        if corrected_ph is None:
+            return None
+
+        offset = _to_float(sample.get("soil_ph_offset"))
+        if offset is None:
+            offset = fallback_offset
+        return corrected_ph - float(offset or 0.0)
+
+    async def _run_remote_soil_ph_session(sensor_id: str, *, reference_ph: float, sample_count: int = 6, sample_interval_s: float = 10.0) -> tuple[bool, str, dict]:
+        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        if not ingest or not hasattr(ingest, "publish_nodus_calibration"):
+            return False, "MQTT ingest unavailable", {}
+        if not hasattr(ingest, "wait_for_calibration_samples"):
+            return False, "MQTT ingest does not support calibration sample collection", {}
+
+        session_payload = {
+            "reference_ph": float(reference_ph),
+            "sample_count": int(sample_count),
+            "sample_interval_s": float(sample_interval_s),
+        }
+        publish_result = ingest.publish_nodus_calibration(
+            sensor_id,
+            action="soil_ph_session_start",
+            payload=session_payload,
+        )
+        if not bool(publish_result.get("ok", False)):
+            return False, "Failed to publish soil pH session start", {}
+
+        message_id = str(publish_result.get("message_id") or "").strip()
+        ack = await ingest.wait_for_calibration_ack(message_id, timeout=3.0)
+        if not ack or not bool(ack.get("accepted", False)):
+            return False, "Calibration command was not acknowledged", {"ack": ack, "message_id": message_id}
+
+        start_result = await ingest.wait_for_calibration_result(message_id, timeout=8.0)
+        if start_result is None:
+            return False, "Timed out waiting for soil pH session start result", {"ack": ack, "message_id": message_id}
+        if not bool(start_result.get("applied", False)) or not bool(start_result.get("started", False)):
+            return False, str(start_result.get("error") or "Soil pH session was rejected."), {
+                "ack": ack,
+                "message_id": message_id,
+                "result": start_result,
+            }
+
+        expected_count_raw = start_result.get("sample_count", session_payload["sample_count"])
+        interval_raw = start_result.get("sample_interval_s", session_payload["sample_interval_s"])
+        try:
+            expected_count = max(int(expected_count_raw), 1)
+        except Exception:
+            expected_count = int(session_payload["sample_count"])
+        try:
+            sample_interval = max(float(interval_raw), 0.0)
+        except Exception:
+            sample_interval = float(session_payload["sample_interval_s"])
+
+        sample_timeout = max(15.0, (expected_count * sample_interval) + 10.0)
+        samples = await ingest.wait_for_calibration_samples(
+            message_id,
+            expected_count=expected_count,
+            timeout=sample_timeout,
+        )
+        if len(samples) < expected_count:
+            return False, f"Timed out waiting for soil pH samples ({len(samples)}/{expected_count})", {
+                "ack": ack,
+                "message_id": message_id,
+                "result": start_result,
+                "samples": samples,
+            }
+
+        return True, "", {
+            "ack": ack,
+            "message_id": message_id,
+            "result": start_result,
+            "samples": samples,
+            "sample_count": expected_count,
+            "sample_interval_s": sample_interval,
+        }
+
 
     # --- Edit Sensor (modal / template) ---
     @router.get("/edit-sensor", response_class=HTMLResponse)
@@ -6879,30 +7016,37 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 status_code=400,
             )
 
-        try:
-            latest = data_logger.get_latest_values(sensor_id) or {}
-        except Exception as exc:
-            return JSONResponse(
-                {"status": "error", "message": f"Failed to read latest values for {sensor_id}: {exc}"},
-                status_code=500,
-            )
-
-        current_raw = latest.get("Soil-pH")
-        try:
-            current_ph = float(current_raw)
-        except Exception:
-            return JSONResponse(
-                {
-                    "status": "error",
-                    "message": f"No recent Soil-pH reading is available for {sensor_id}.",
-                },
-                status_code=409,
-            )
-
-        new_offset = round(buffer_ph - current_ph, 4)
-        offsets = [{"key": "soil_ph_offset", "value": new_offset}]
-
         if _is_remote_nodus_type(sensor_type):
+            current_offset = 0.0
+            try:
+                current_offset = float(
+                    ((doc.get("Calibration") or {}).get("Device") or {}).get("SOIL_PH_CAL_VAL", 0.0) or 0.0
+                )
+            except Exception:
+                current_offset = 0.0
+
+            ok, err, session = await _run_remote_soil_ph_session(sensor_id, reference_ph=buffer_ph)
+            if not ok:
+                return JSONResponse({"status": "error", "message": err}, status_code=502)
+
+            samples = session.get("samples") if isinstance(session.get("samples"), list) else []
+            raw_values = [
+                value
+                for value in (_extract_soil_ph_from_sample(sample, fallback_offset=current_offset) for sample in samples)
+                if value is not None
+            ]
+            if not raw_values:
+                return JSONResponse(
+                    {
+                        "status": "error",
+                        "message": "No valid soil pH samples were collected.",
+                    },
+                    status_code=502,
+                )
+            current_ph = round(sum(raw_values) / len(raw_values), 4)
+            new_offset = round(buffer_ph - current_ph, 4)
+            offsets = [{"key": "soil_ph_offset", "value": new_offset}]
+
             ok, err, _ack, result = await _publish_remote_calibration_command(
                 sensor_id,
                 action="apply",
@@ -6920,6 +7064,29 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     },
                     status_code=400,
                 )
+        else:
+            try:
+                latest = data_logger.get_latest_values(sensor_id) or {}
+            except Exception as exc:
+                return JSONResponse(
+                    {"status": "error", "message": f"Failed to read latest values for {sensor_id}: {exc}"},
+                    status_code=500,
+                )
+
+            current_raw = latest.get("Soil-pH")
+            try:
+                current_ph = float(current_raw)
+            except Exception:
+                return JSONResponse(
+                    {
+                        "status": "error",
+                        "message": f"No recent Soil-pH reading is available for {sensor_id}.",
+                    },
+                    status_code=409,
+                )
+
+            new_offset = round(buffer_ph - current_ph, 4)
+            offsets = [{"key": "soil_ph_offset", "value": new_offset}]
 
         try:
             applied_keys = _apply_device_offsets_shadow(sensor_id, device_kind, offsets)

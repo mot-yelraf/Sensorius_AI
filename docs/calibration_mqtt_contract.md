@@ -7,6 +7,7 @@ Scope:
 - MQTT calibration writes
 - MQTT calibration status queries
 - MQTT-triggered local calibration start for sensors that support it
+- MQTT-triggered soil pH sampling sessions for offset calculation in Sensorius
 - MQTT progress/result events published by Nodus
 
 Non-goals:
@@ -24,7 +25,6 @@ This contract is available only when:
 
 Notes:
 
-- `nodusweb` is the web-enabled Nodus runtime profile and replaces the older `standalone` profile name.
 - `homeassistant` and `weewx` profiles do not start the normal-mode webserver, but MQTT calibration still works there if MQTT is connected.
 - `nodusweb` keeps the HTTP calibration routes for local/manual use.
 
@@ -56,6 +56,10 @@ Nodus publishes progress events to:
 
 - `nodus/aqi-x943fm/event/calibration_progress`
 
+Nodus publishes soil calibration samples to:
+
+- `nodus/aqi-x943fm/event/calibration_sample`
+
 Nodus publishes final calibration outcome events to:
 
 - `nodus/aqi-x943fm/event/calibration_result`
@@ -75,7 +79,7 @@ All calibration commands use the same top-level envelope:
 Required fields:
 
 - `message_id`: client-generated unique id for correlation
-- `action`: one of `apply`, `set`, `update`, `status`, `start`
+- `action`: one of `apply`, `set`, `update`, `status`, `start`, `soil_ph_session_start`, `soil_ph_session_cancel`
 
 `payload` is required for calibration writes and optional for `status` or `start`.
 
@@ -183,6 +187,66 @@ Important:
 - not all sensor types support local calibration start
 - system/device offset writes are broader than local calibration start support
 
+## Action: Soil pH Session Start
+
+Use this to request a short burst of soil measurements so Sensorius can calculate a pH offset.
+
+Example:
+
+```json
+{
+  "message_id": "soil-ph-20260313-1",
+  "action": "soil_ph_session_start",
+  "payload": {
+    "reference_ph": 7.0,
+    "sample_interval_s": 10,
+    "sample_count": 6
+  }
+}
+```
+
+Behavior:
+
+- Nodus marks calibration status as in progress for the soil session
+- Nodus publishes a sample payload to the normal sensor data topic on each sample
+- Nodus also publishes the same sample payload to `event/calibration_sample`
+- Nodus emits lightweight progress notifications on `event/calibration_progress`
+- this is intended for Sensorius-driven offset calculation, not on-device automatic offset persistence
+
+Contract note:
+
+- `event/calibration_sample` is the authoritative ingestion path for soil calibration samples
+- the mirrored publish on the normal sensor data topic is a compatibility side effect and should not be used by Sensorius as the discriminator for a calibration session
+- Sensorius should not assume the normal sensor topic has a calibration-specific schema marker in this implementation
+- after collecting the requested samples, Sensorius is responsible for calculating the final offset and issuing a separate `action = "apply"` write for `soil_ph_offset`
+
+Limits:
+
+- `sample_count` is clamped to `1..12`
+- `sample_interval_s` defaults to `10`
+
+Error cases:
+
+- `missing_reference_ph`
+- `soil_calibration_already_running`
+
+## Action: Soil pH Session Cancel
+
+Use this to stop an active soil pH sampling session.
+
+Example:
+
+```json
+{
+  "message_id": "soil-ph-20260313-cancel-1",
+  "action": "soil_ph_session_cancel"
+}
+```
+
+Error cases:
+
+- `soil_calibration_not_running`
+
 ## Acknowledgement Topic
 
 On accepted command parsing, Nodus publishes:
@@ -244,6 +308,32 @@ Successful start example:
 }
 ```
 
+Successful soil pH session start example:
+
+```json
+{
+  "message_id": "soil-ph-20260313-1",
+  "applied": true,
+  "started": true,
+  "sample_interval_s": 10.0,
+  "sample_count": 6,
+  "reference_ph": 7.0,
+  "status": {
+    "status": "in_progress",
+    "calibrated": false,
+    "sensor_id": "soil-x943fm",
+    "timestamp": 1773380000,
+    "soil_ph_offset": 0.0,
+    "soil_calibration_active": true,
+    "soil_calibration_message_id": "soil-ph-20260313-1",
+    "soil_calibration_reference_ph": 7.0,
+    "soil_calibration_sample_count": 6,
+    "soil_calibration_samples_collected": 0
+  },
+  "error": ""
+}
+```
+
 Failure example:
 
 ```json
@@ -259,6 +349,45 @@ Failure example:
   }
 }
 ```
+
+## Soil Sample Event Payload
+
+Topic:
+
+- `nodus/<sensor_id>/event/calibration_sample`
+
+Example:
+
+```json
+{
+  "message_id": "soil-ph-20260313-1",
+  "sample_index": 3,
+  "sample_count": 6,
+  "reference_ph": 7.0,
+  "timestamp": 1773380020,
+  "status": "ok",
+  "metrics": ["Soil-pH", "Soil-Temp"],
+  "display_metrics": ["Soil-pH", "Soil-Temp"],
+  "values": {
+    "Soil-pH": 6.8,
+    "Soil-Temp": 21.2
+  },
+  "units": {
+    "Soil-pH": "pH",
+    "Soil-Temp": "C"
+  },
+  "soil_ph_offset": 0.0,
+  "corrected_ph": 6.8,
+  "raw_ph": 6.8
+}
+```
+
+Notes:
+
+- the same payload is also published to the normal sensor data topic during the sampling session
+- this payload does not currently include an explicit event discriminator field such as `event = "calibration_sample"`
+- Sensorius should therefore treat the topic `nodus/<sensor_id>/event/calibration_sample` as the session discriminator and treat the mirrored normal-topic publish as non-authoritative
+- `raw_ph` is derived from `corrected_ph - soil_ph_offset` when the active soil offset is available
 
 ## Runtime Status Event
 
@@ -372,12 +501,25 @@ For local calibration start:
 4. Consume `event/calibration_progress`.
 5. Consume retained `event/calibration_result` and retained `event/calibration_status` for completion.
 
+For soil pH session flow:
+
+1. Publish `calibration/set` with `action = "soil_ph_session_start"`.
+2. Wait for `calibration/ack`.
+3. Consume `event/calibration_sample` for each sample in the session.
+4. Optionally ignore mirrored sample payloads on the normal sensor topic, since they are not explicitly tagged as calibration traffic.
+5. When `sample_index == sample_count`, compute the desired `soil_ph_offset` in Sensorius from the collected samples and the requested `reference_ph`.
+6. Publish a follow-up `calibration/set` with `action = "apply"` and `payload.calibration.soil.SOIL_PH_OFFSET = <computed_offset>` or the equivalent `offsets[]` form.
+7. Wait for `calibration/ack`.
+8. Wait for `calibration/result`.
+9. Refresh retained `event/calibration_status` and confirm the new `soil_ph_offset`.
+
 Recommended behavior:
 
 - treat `calibration/result` as the command-scoped response
 - treat `event/calibration_status` as the latest device state
 - treat `event/calibration_progress` as optional live progress telemetry
 - treat `event/calibration_result` as the latest completion outcome
+- treat `event/calibration_sample` as the only authoritative soil calibration sample stream
 
 ## Current Limitations
 

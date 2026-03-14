@@ -78,6 +78,7 @@ class _Logger:
         self.sensors = set()
         self.readings = []
         self.switch_events = []
+        self.pruned_switch_identity_calls = []
 
     def log_readings(self, *args, **kwargs):
         self.readings.append((args, kwargs))
@@ -125,6 +126,24 @@ class _Logger:
 
     def get_switch_identities(self):
         return list(self.switch_identities)
+
+    def prune_switch_identities(self, *, switch_id: str, valid_channel_ids):
+        valid = {str(cid or "").strip() for cid in (valid_channel_ids or []) if str(cid or "").strip()}
+        self.pruned_switch_identity_calls.append(
+            {"switch_id": switch_id, "valid_channel_ids": sorted(valid)}
+        )
+        kept = []
+        for row in self.switch_identities:
+            if str(row.get("switch_id", "") or "").strip() != str(switch_id or "").strip():
+                kept.append(row)
+                continue
+            switch_key = str(row.get("switch_key", "") or "").strip()
+            channel_id = switch_key.split("::", 1)[0].strip() if "::" in switch_key else ""
+            if channel_id in valid:
+                kept.append(row)
+        removed = len(self.switch_identities) - len(kept)
+        self.switch_identities = kept
+        return removed
 
     def get_latest_switch_state(self, switch_key: str, sensor_id: str | None = None):
         want_key = str(switch_key or "").strip().lower()
@@ -202,10 +221,12 @@ def test_registered_topics_include_heartbeat(monkeypatch):
     assert "nodus/+/calibration/ack" in ingest.registered_topics
     assert "nodus/+/calibration/result" in ingest.registered_topics
     assert "nodus/+/event/calibration_status" in ingest.registered_topics
+    assert "nodus/+/event/calibration_sample" in ingest.registered_topics
     assert "sensorius/nodus/+/onboard/hello" in ingest.registered_topics
     assert "sensorius/nodus/+/meta" in ingest.registered_topics
     assert "sensorius/nodus/+/config/ack" in ingest.registered_topics
     assert "sensorius/nodus/+/config/result" in ingest.registered_topics
+    assert "sensorius/nodus/+/event/calibration_sample" in ingest.registered_topics
     assert "sensorius/nodus/+/event/calibration_result" in ingest.registered_topics
 
 
@@ -222,6 +243,32 @@ def test_debug_data_only_registered_topics(monkeypatch):
     assert "sensorius/nodus/+/onboard/hello" not in ingest.registered_topics
 
 
+def test_meta_does_not_add_redundant_exact_data_subscription_when_wildcard_exists(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    meta = {
+        "serial": "ykdvea",
+        "sensor": {
+            "sensor_id": "co2-ykdvea",
+            "location": "Lab",
+            "data_topic": "nodus/co2-ykdvea/data",
+            "event_topic": "nodus/co2-ykdvea/event",
+            "availability_topic": "nodus/co2-ykdvea/availability",
+        },
+    }
+
+    meta_valid, subscribed = ingest._parse_and_subscribe_from_nodus_meta(
+        meta,
+        topic_device_id="co2-ykdvea",
+        retain=False,
+    )
+
+    assert meta_valid is True
+    assert subscribed is True
+    assert ("nodus/co2-ykdvea/data", 0) not in ingest.client.subs
+    assert "nodus/co2-ykdvea/data" not in ingest.registered_topics
+    assert ingest.nodus_sensor_topics["co2-ykdvea"] == "nodus/co2-ykdvea/data"
+
+
 def test_publish_nodus_calibration_uses_mqtt_command_topic(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     result = ingest.publish_nodus_calibration("aqi-123", action="apply", payload={"offsets": [{"key": "Calibration.Device.TEMP_OFFSET", "value": 1.5}]})
@@ -234,6 +281,41 @@ def test_publish_nodus_calibration_uses_mqtt_command_topic(monkeypatch):
     assert body["payload"]["offsets"][0]["key"] == "Calibration.Device.TEMP_OFFSET"
     assert qos == 1
     assert retain is False
+
+
+def test_calibration_sample_topics_are_tracked_by_sensor_and_message(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    ingest._on_message(
+        ingest.client,
+        None,
+        _Msg(
+            "nodus/soil-123/event/calibration_sample",
+            json.dumps(
+                {
+                    "message_id": "soil-ph-1",
+                    "sensor_id": "soil-123",
+                    "sample_index": 2,
+                    "sample_count": 4,
+                    "reference_ph": 7.0,
+                    "status": "ok",
+                    "values": {"Soil-pH": 6.81},
+                    "soil_ph_offset": 0.2,
+                    "corrected_ph": 7.01,
+                    "raw_ph": 6.81,
+                }
+            ),
+            retain=False,
+        ),
+    )
+
+    snapshot = ingest.get_nodus_calibration_state("soil-123")
+    assert snapshot is not None
+    assert snapshot["sample"]["message_id"] == "soil-ph-1"
+    assert snapshot["sample"]["raw_ph"] == 6.81
+    assert snapshot["progress"]["sample_index"] == 2
+    assert snapshot["progress"]["sample_total"] == 4
+    assert ingest.calibration_samples_by_message["soil-ph-1"][0]["sensor_id"] == "soil-123"
 
 
 def test_set_switch_updates_remote_cache_optimistically(monkeypatch):
@@ -1001,8 +1083,104 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
     assert 'SWITCH_1_EN = "1"' not in switch_saved
 
 
+def test_ensure_settings_from_itaot_preserves_known_locations_when_payload_is_unknown(tmp_path, monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    switch_root.mkdir()
+    system_root.mkdir()
+
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    real_settings_cls = saiSettings.saiSettings
+
+    monkeypatch.setattr(
+        saiSensorSettingsManager,
+        "SensorSettingsManager",
+        lambda *_a, **_k: real_sensor_mgr(str(sensor_root)),
+    )
+    monkeypatch.setattr(
+        saiSwitchSettingsManager,
+        "SwitchSettingsManager",
+        lambda *_a, **_k: real_switch_mgr(str(switch_root)),
+    )
+    monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
+
+    sensor_mgr = real_sensor_mgr(str(sensor_root))
+    switch_mgr = real_switch_mgr(str(switch_root))
+    sensor_mgr.save(
+        "co2-ykdvea",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "co2",
+                "SENSOR_ID": "co2-ykdvea",
+                "LOCATION": "Lab",
+            }
+        },
+    )
+    switch_mgr.save(
+        "switch-ykdvea",
+        {
+            "Switch": {
+                "TYPE": "nodus",
+                "DEVICE": "switch",
+                "SWITCH_DEVICE_ID": "switch-ykdvea",
+                "SWITCH_LOCATION": "Lab",
+            }
+        },
+    )
+
+    ingest._ensure_settings_from_itaot(
+        {"HOSTNAME": "co2-ykdvea"},
+        "co2-ykdvea",
+        [
+            {
+                "sensor_id": "co2-ykdvea",
+                "device_type": "nodus",
+                "device": "co2",
+                "sensor_type": "nodus",
+                "location": "Unknown",
+                "serial": "ykdvea",
+                "display_metrics": ["CO2", "Temperature"],
+            }
+        ],
+        [
+            {
+                "switch_id": "switch-ykdvea",
+                "switch_location": "Unknown",
+                "switch_type": "nodus",
+                "serial": "ykdvea",
+                "switch_payload": {"Switch": {}},
+            }
+        ],
+    )
+
+    sensor_saved = sensor_mgr.load("co2-ykdvea")
+    switch_saved = switch_mgr.load("switch-ykdvea")
+    assert sensor_saved["Sensor"]["LOCATION"] == "Lab"
+    assert switch_saved["Switch"]["SWITCH_LOCATION"] == "Lab"
+
+
 def test_nodus_meta_preserves_manual_switch_wiring_and_prunes_stale_channels(tmp_path, monkeypatch):
     ingest = _build_ingest(monkeypatch)
+    ingest.data_logger.switch_identities = [
+        {
+            "switch_key": "S1-ykdvea::Fan",
+            "switch_id": "switch-ykdvea",
+            "label": "Fan",
+            "location": "Lab",
+        },
+        {
+            "switch_key": "S2-ykdvea::Light",
+            "switch_id": "switch-ykdvea",
+            "label": "Light",
+            "location": "Lab",
+        },
+    ]
 
     sensor_root = tmp_path / "sensor_settings"
     switch_root = tmp_path / "switch_settings"
@@ -1112,6 +1290,11 @@ def test_nodus_meta_preserves_manual_switch_wiring_and_prunes_stale_channels(tmp
     assert 'SWITCH_2_EN = "1"' not in switch_saved
     assert "SWITCH_2_LABEL" not in switch_saved
     assert "SWITCH_2_CHANNEL_ID" not in switch_saved
+    assert ingest.data_logger.pruned_switch_identity_calls[-1] == {
+        "switch_id": "switch-ykdvea",
+        "valid_channel_ids": ["S1-ykdvea"],
+    }
+    assert {row["switch_key"] for row in ingest.data_logger.get_switch_identities()} == {"S1-ykdvea::Fan"}
 
 
 def test_ensure_settings_from_itaot_parses_existing_system_toml_with_inline_comments(tmp_path, monkeypatch):

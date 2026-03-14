@@ -92,6 +92,13 @@
                   <button
                     class="button black"
                     type="button"
+                    data-switch-pane-target="settings"
+                  >
+                    Back
+                  </button>
+                  <button
+                    class="button black"
+                    type="button"
                     onclick="window.closeSwitchSettingsModal && window.closeSwitchSettingsModal();"
                   >
                     Home
@@ -139,6 +146,7 @@
 
                 <div class="modal-footer" style="margin-top:.25rem;">
                   <div class="footer-buttons">
+                    <button class="button black" type="button" data-switch-pane-target="settings">Back</button>
                     <button class="button black" type="button" id="btnSavedAutomations">Saved Automations</button>
                     <button class="button green" type="button" id="btnNewAutomation">New</button>
                     <button class="button red" type="button" id="btnRemove">Remove</button>

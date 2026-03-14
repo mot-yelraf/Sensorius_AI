@@ -20,15 +20,13 @@ window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
     });
   }
 
-  if (menu) {
-    const items = menu.querySelectorAll("button[data-pane-target], .list-item[data-pane-target]");
-    items.forEach((item) => {
-      item.addEventListener("click", () => {
-        const target = item.getAttribute("data-pane-target") || "";
-        if (target) showPane(target);
-      });
+  const paneTriggers = modalEl.querySelectorAll("button[data-pane-target], .list-item[data-pane-target]");
+  paneTriggers.forEach((item) => {
+    item.addEventListener("click", () => {
+      const target = item.getAttribute("data-pane-target") || "";
+      if (target) showPane(target);
     });
-  }
+  });
 
   const form = modalEl.querySelector("#sensorSettingsForm");
   const saveBtn = modalEl.querySelector("#saveBtn");

@@ -3,10 +3,12 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -53,14 +55,46 @@ class _FakeIngest:
         self.mqtt_clients: list[str] = []
         self.calibration_commands: list[dict] = []
         self.calibration_state: dict[str, dict] = {}
+        self.sample_events_by_message: dict[str, list[dict]] = {}
         self.next_calibration_ack: dict | None = {"accepted": True}
         self.next_calibration_result: dict | None = {"applied": True, "status": {"status": "calibrated", "calibrated": True}}
+        self.next_calibration_result_by_action: dict[str, dict | None] = {}
+        self.device_location: dict[str, str] = {}
+        self.expected_gauge_map: dict[str, list[str]] = {}
+        self.device_status: dict[str, str] = {}
+        self.nodus_switch_topic_map: dict[str, dict] = {}
+        self._switch_state_cache: dict[str, dict] = {}
+        self._host_ip_cache: dict[str, str] = {}
+        self._host_ipv4addr: dict[str, str] = {}
 
     def set_onboarding_event_handler(self, handler):
         self.handler = handler
 
     def resolve_nodus_hostname(self, *_args, **_kwargs):
         return None
+
+    def _normalize_host_key(self, hostname: str | None) -> str | None:
+        host = str(hostname or "").strip()
+        if not host:
+            return None
+        return host[:-6] if host.endswith(".local") else host
+
+    def _host_candidates(self, hostname: str) -> list[str]:
+        base = self._normalize_host_key(hostname)
+        if not base:
+            return []
+        cached_ip = self._host_ip_cache.get(base)
+        mdns = f"{base}.local"
+        return [cached_ip, mdns] if cached_ip else [mdns]
+
+    def get_known_devices(self):
+        return list(self.mqtt_clients)
+
+    def get_known_switch_devices(self):
+        return []
+
+    def get_measure_status(self, _sid: str):
+        return "online"
 
     def add_client(self, host: str):
         self.added.append(host)
@@ -90,11 +124,26 @@ class _FakeIngest:
         return out
 
     async def wait_for_calibration_result(self, message_id: str, timeout: float = 0):
-        if self.next_calibration_result is None:
+        action = ""
+        for row in self.calibration_commands:
+            if row.get("message_id") == message_id:
+                action = str(row.get("action") or "")
+                break
+        if action in self.next_calibration_result_by_action:
+            payload = self.next_calibration_result_by_action.get(action)
+        else:
+            payload = self.next_calibration_result
+        if payload is None:
             return None
-        out = dict(self.next_calibration_result)
+        out = dict(payload)
         out.setdefault("message_id", message_id)
         return out
+
+    async def wait_for_calibration_samples(self, message_id: str, expected_count: int | None = None, timeout: float = 0):
+        rows = [dict(item) for item in self.sample_events_by_message.get(message_id, [])]
+        if expected_count is None or len(rows) >= int(expected_count):
+            return rows
+        return rows
 
     def get_nodus_calibration_state(self, sensor_id: str):
         state = self.calibration_state.get(sensor_id)
@@ -108,9 +157,17 @@ class _FakeSaiSettings:
     def __init__(self, *args, **_kwargs):
         self.settings_root = self.DEFAULT_BASE_DIR
         self.system_dir = self.DEFAULT_BASE_DIR
+        self.settings = {}
+        self._dirty = False
 
     def get_setting(self, _section, _key, default=None):
         return default
+
+    def get_section(self, _section, reload_if_changed=False):
+        return {}
+
+    def save_settings(self):
+        return
 
     @staticmethod
     def obfuscate_secret(value):
@@ -285,6 +342,49 @@ async def test_submit_sensor_settings_pushes_sensor_and_display_updates_for_nodu
 
 
 @pytest.mark.asyncio
+async def test_submit_sensor_settings_prefers_cached_ip_for_nodus_push(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "co2-ykdvea",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "co2",
+                "SENSOR_ID": "co2-ykdvea",
+                "LOCATION": "Lab",
+            },
+            "Display": {"METRIC_1": "CO2"},
+        },
+    )
+    _write_system_settings(system_root, "co2-ykdvea", "co2-ykdvea")
+    ingest._host_ip_cache["co2-ykdvea"] = "192.168.4.23"
+    ingest._host_ipv4addr["co2-ykdvea"] = "192.168.4.23"
+    _RecordingAsyncClient.calls.clear()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-sensor-settings",
+            data={
+                "sensor_id": "co2-ykdvea",
+                "sensor_id_field": "co2-ykdvea",
+                "device": "co2",
+                "location": "Lab",
+                "metric_1": "CO2",
+                "metric_2": "Temperature",
+                "metric_3": "",
+                "metric_4": "",
+                "metric_5": "",
+                "metric_6": "",
+            },
+        )
+
+    assert res.status_code == 303
+    assert _RecordingAsyncClient.calls
+    assert _RecordingAsyncClient.calls[0]["url"] == "http://192.168.4.23:8000/set-nodus-setting"
+
+
+@pytest.mark.asyncio
 async def test_device_calibration_apply_for_remote_nodus_uses_mqtt_and_updates_shadow_on_success(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
@@ -348,7 +448,7 @@ async def test_device_calibration_apply_for_remote_nodus_does_not_update_shadow_
 
 
 @pytest.mark.asyncio
-async def test_soil_ph_buffer_calibration_for_remote_nodus_uses_latest_reading_and_updates_shadow(tmp_path, monkeypatch):
+async def test_soil_ph_buffer_calibration_for_remote_nodus_uses_sample_session_and_updates_shadow(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
@@ -361,7 +461,55 @@ async def test_soil_ph_buffer_calibration_for_remote_nodus_uses_latest_reading_a
             }
         },
     )
-    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_values", lambda sensor_id: {"Soil-pH": 6.42} if sensor_id == "soil-123" else {})
+    ingest.next_calibration_result_by_action["soil_ph_session_start"] = {
+        "applied": True,
+        "started": True,
+        "sample_interval_s": 1.0,
+        "sample_count": 3,
+        "reference_ph": 7.0,
+        "status": {
+            "status": "in_progress",
+            "calibrated": False,
+            "sensor_id": "soil-123",
+        },
+    }
+    ingest.next_calibration_result_by_action["apply"] = {
+        "applied": True,
+        "status": {
+            "status": "calibrated",
+            "calibrated": True,
+            "sensor_id": "soil-123",
+        },
+    }
+    ingest.sample_events_by_message["test-1"] = [
+        {
+            "message_id": "test-1",
+            "sensor_id": "soil-123",
+            "sample_index": 1,
+            "sample_count": 3,
+            "raw_ph": 6.40,
+            "corrected_ph": 6.40,
+            "soil_ph_offset": 0.0,
+        },
+        {
+            "message_id": "test-1",
+            "sensor_id": "soil-123",
+            "sample_index": 2,
+            "sample_count": 3,
+            "raw_ph": 6.42,
+            "corrected_ph": 6.42,
+            "soil_ph_offset": 0.0,
+        },
+        {
+            "message_id": "test-1",
+            "sensor_id": "soil-123",
+            "sample_index": 3,
+            "sample_count": 3,
+            "raw_ph": 6.44,
+            "corrected_ph": 6.44,
+            "soil_ph_offset": 0.0,
+        },
+    ]
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
@@ -375,6 +523,7 @@ async def test_soil_ph_buffer_calibration_for_remote_nodus_uses_latest_reading_a
     body = res.json()
     assert res.status_code == 200
     assert body["soil_ph_offset"] == pytest.approx(0.58)
+    assert ingest.calibration_commands[0]["action"] == "soil_ph_session_start"
     assert ingest.calibration_commands[-1]["action"] == "apply"
     sent_offset = ingest.calibration_commands[-1]["payload"]["offsets"][0]
     assert sent_offset["key"] == "soil_ph_offset"
@@ -384,14 +533,14 @@ async def test_soil_ph_buffer_calibration_for_remote_nodus_uses_latest_reading_a
 
 
 @pytest.mark.asyncio
-async def test_soil_ph_buffer_calibration_requires_recent_soil_ph_reading(tmp_path, monkeypatch):
+async def test_local_soil_ph_buffer_calibration_requires_recent_soil_ph_reading(tmp_path, monkeypatch):
     app, _ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
         "soil-123",
         {
             "Sensor": {
-                "TYPE": "nodus",
+                "TYPE": "pi",
                 "DEVICE": "soil",
                 "SENSOR_ID": "soil-123",
             }
@@ -541,3 +690,48 @@ async def test_device_locations_pushes_for_nodus_sensor_and_switch(tmp_path, mon
     posted = [call["json"] for call in _RecordingAsyncClient.calls]
     assert any(p["section"] == "Sensor" and p["key"] == "LOCATION" and p["value"] == "Room A" for p in posted)
     assert any(p["section"] == "Switch" and p["key"] == "SWITCH_LOCATION" and p["value"] == "Room B" for p in posted)
+
+
+@pytest.mark.asyncio
+async def test_dashboard_sensor_locations_ignore_unknown_live_cache_and_use_toml(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    saiWebRoutes._SENSOR_LOCATION_CACHE.clear()
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    app.state.sensor_map = [SimpleNamespace(sensor_id="aqi-123", location="Grow Tent")]
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "aqi-123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "aqi-123",
+                "LOCATION": "Grow Tent",
+            },
+            "Display": {"METRIC_1": "Temperature"},
+        },
+    )
+
+    ingest.mqtt_clients = ["aqi-123"]
+    ingest.device_location["sensor/aqi-123/data"] = "Unknown"
+
+    now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["aqi-123"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso if sid == "aqi-123" else "")
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_latest_values_and_timestamps",
+        lambda ids: (
+            {"aqi-123": {"Temperature": 72.0}},
+            {"aqi-123": now_iso},
+        ),
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {"aqi-123": {}})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/", params={"json_only": "true"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["locations"]["aqi-123"] == "Grow Tent"
