@@ -5,6 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+import saiSensorSettingsManager
 import saiSettings
 
 
@@ -44,3 +45,35 @@ def test_apply_auto_values_does_not_default_sensornetwork_broker_to_localhost(tm
 
     assert settings.get_setting("SensorNetwork", "BROKER", None) == ""
 
+
+def test_sensor_factory_seed_uses_nodus_aligned_display_defaults(tmp_path):
+    sensor_root = tmp_path / "sensor_settings"
+    sensor_root.mkdir()
+    mgr = saiSensorSettingsManager.SensorSettingsManager(str(sensor_root))
+
+    mgr.seed_from_factory("aqi-123", "aqi")
+    mgr.seed_from_factory("lux-123", "lux")
+    mgr.seed_from_factory("soil-123", "soil")
+
+    assert mgr.get_display_metrics("aqi-123") == [
+        "Air Quality",
+        "Temperature",
+        "Rel-Humidity",
+        "Ambient VPD",
+        "Dewpoint Deficit",
+        "dewVPD Risk",
+    ]
+    assert mgr.get_display_metrics("lux-123") == [
+        "Light Intensity",
+        "Auto Light",
+        "Estimated PPFD",
+        "Visible Light Intensity",
+    ]
+    assert mgr.get_display_metrics("soil-123") == [
+        "Soil Moisture",
+        "Soil Moisture Deficit",
+        "Soil Stress Index",
+        "Soil Temp_C",
+        "Soil pH",
+        "Soil EC",
+    ]

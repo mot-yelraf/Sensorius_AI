@@ -122,8 +122,8 @@ class VEML7700Sensor(BaseSensor):
             self.measurements = [
                 ("Light Intensity", "lux",          lambda: self._safe_lux(corrected=True),  1),
                 ("Auto Light",      "lux",          lambda: self._safe_autolux(),             1),
-                ("PPFD",            "µmol/m²/s",    lambda: self._safe_ppfd(),                0),
-                ("DLI",             "mol/m²/day",   lambda: self._safe_dli(),                 2),
+                ("Estimated PPFD",            "µmol/m²/s",    lambda: self._safe_ppfd(),                0),
+                ("Visible Light Intensity",    "mol/m²/day",   lambda: self._safe_dli(),                 2),
             ]
 
         except Exception as e:
@@ -435,12 +435,12 @@ class VEML7700Sensor(BaseSensor):
 
     def _safe_ppfd(self):
         """
-        Return calibrated PPFD, derived from calibrated lux plus PPFD_OFFSET.
+        Return calibrated Estimated PPFD, derived from calibrated lux plus PPFD_OFFSET.
         """
         if not self._ensure_snapshot():
             return None
 
-        # Derive PPFD from *calibrated* lux
+        # Derive Estimated PPFD from calibrated lux
         lux_cal = self._safe_lux(corrected=True)
         if lux_cal is None:
             return None
@@ -453,8 +453,8 @@ class VEML7700Sensor(BaseSensor):
         if ppfd < 0.0:
             ppfd = 0.0
 
-        self.latest_raw["PPFD"] = base_ppfd
-        self.current_values["PPFD"] = ppfd
+        self.latest_raw["Estimated PPFD"] = base_ppfd
+        self.current_values["Estimated PPFD"] = ppfd
         return ppfd
 
     def _safe_dli(self):
@@ -464,7 +464,7 @@ class VEML7700Sensor(BaseSensor):
 
     # ---------- capability flags ----------
     def supports_calibration(self):
-        # We now expose device offsets for Light Intensity + PPFD
+        # We now expose device offsets for Light Intensity + Estimated PPFD
         return True
 
 

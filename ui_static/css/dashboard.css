@@ -75,7 +75,7 @@ body{
 }
 
 /* Metric content */
-.metric-title{ font-size:1.2rem; font-weight:bold; margin-bottom:.3rem; text-align:center; }
+.metric-title{ font-size:0.9rem; font-weight:bold; margin-bottom:.3rem; text-align:center; }
 .metric-current-value{ font-size:1.75rem; font-weight:bold; margin-top:-.4rem; margin-bottom:.4rem; text-align:center; }
 .metric-stats{
   display:flex; justify-content:space-between; width: var(--container-width);

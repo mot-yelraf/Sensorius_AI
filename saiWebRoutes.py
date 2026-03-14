@@ -73,7 +73,7 @@ try:
 except Exception:
     _build_switch_key = None
 from saiStats import saiStats
-from saiHtml import render_dashboard, get_gauge_config
+from saiHtml import render_dashboard, get_gauge_config, canonicalize_metric_name
 from saiFastStats import FastStats
 from saiSensorSettingsManager import SensorSettingsManager
 from saiSwitchSettingsManager import SwitchSettingsManager
@@ -1419,8 +1419,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             deduped: list[str] = []
             seen = set()
             for metric in (metrics or []):
-                m = str(metric).strip()
-                if not m or m in seen:
+                m = canonicalize_metric_name(metric, gauge_config)
+                if not m or m in seen or m not in gauge_config:
                     continue
                 seen.add(m)
                 deduped.append(m)
@@ -5969,7 +5969,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 )
 
             # --- Build metric options (from DB, fallback to Display block) ---
-            available_metrics = fetch_metrics_for_sensor_id(normalized_id)
+            gauge_config = get_gauge_config()
+            available_metrics = [
+                canonicalize_metric_name(metric, gauge_config)
+                for metric in fetch_metrics_for_sensor_id(normalized_id)
+            ]
 
             display_block = settings_dict.get("Display", {}) or {}
             current_metrics_any_case: list[str] = []
@@ -5979,6 +5983,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     or display_block.get(f"metric_{i}")
                     or ""
                 )
+                current = canonicalize_metric_name(current, gauge_config)
                 if current and current not in current_metrics_any_case:
                     current_metrics_any_case.append(current)
             if not available_metrics and current_metrics_any_case:
@@ -5997,6 +6002,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     or display_block.get(f"metric_{i}")
                     or ""
                 )
+                val = canonicalize_metric_name(val, gauge_config)
                 current_metrics.append(val)
 
             # location
@@ -6055,7 +6061,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 _add_offset("Calibration.Device.GAS_OFFSET", "Gas resistance", "kΩ", "GAS_OFFSET")
             elif device_kind in ("veml", "lux"):
                 _add_offset("Calibration.Device.LUX_OFFSET", "Light Intensity", "lux", "LUX_OFFSET")
-                _add_offset("Calibration.Device.PPFD_OFFSET", "PPFD", "µmol/m²/s", "PPFD_OFFSET")
+                _add_offset("Calibration.Device.PPFD_OFFSET", "Estimated PPFD", "µmol/m²/s", "PPFD_OFFSET")
             elif device_kind in ("vpd", "avpd"):
                 _add_offset("Calibration.Device.TEMP_OFFSET", "Temperature", "°C", "TEMP_OFFSET")
                 _add_offset("Calibration.Device.RH_OFFSET", "Rel-Humidity", "%", "RH_OFFSET")
@@ -6271,7 +6277,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         display_updates: dict = {}
         metric_list: list[str] = []
         if metric_keys_present:
-            metric_list = [(form.get(f"metric_{i}", "") or "").strip() for i in range(1, 7)]
+            gauge_config = get_gauge_config()
+            metric_list = [
+                canonicalize_metric_name((form.get(f"metric_{i}", "") or "").strip(), gauge_config)
+                for i in range(1, 7)
+            ]
             display_updates = {"Display": {f"METRIC_{i}": metric_list[i-1] for i in range(1, 7)}}
 
         # Deep-merge the changes into the existing doc
@@ -7203,7 +7213,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         elif device_kind in ("veml", "lux"):
             # User-visible metrics that should be adjustable:
             #   - "Light Intensity" (lux)  → LUX_OFFSET
-            #   - "PPFD" (µmol/m²/s)       → PPFD_OFFSET
+            #   - "Estimated PPFD" (µmol/m²/s) → PPFD_OFFSET
             _add_offset(
                 "Calibration.Device.LUX_OFFSET",
                 "Light Intensity",
@@ -7212,7 +7222,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             )
             _add_offset(
                 "Calibration.Device.PPFD_OFFSET",
-                "PPFD",
+                "Estimated PPFD",
                 "µmol/m²/s",
                 "PPFD_OFFSET",
             )

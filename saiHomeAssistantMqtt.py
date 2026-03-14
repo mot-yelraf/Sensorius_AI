@@ -626,12 +626,12 @@ METRIC_META = {
         "state_class": "measurement",
         "precision": 1,
     },
-    "PPFD": {
+    "Estimated PPFD": {
         "unit": "µmol/m²/s",
         "state_class": "measurement",
         "precision": 0,
     },
-    "DLI": {
+    "Visible Light Intensity": {
         "unit": "mol/m²/day",
         "state_class": "measurement",
         "precision": 2,

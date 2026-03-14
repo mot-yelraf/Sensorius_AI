@@ -88,9 +88,9 @@ class CO2Sensor(BaseSensor):
                     lambda: self._get_calibrated_abs_humidity(),
                     1,
                 ),
-                ("Dew-Point", "°C", lambda: self._get_calibrated_dewpoint_c(), 2),
-                ("Dew-Point_F", "°F", lambda: self._get_calibrated_dewpoint_f(), 1),
-                ("Dewpoint Depression", "°C", lambda: self._get_calibrated_dewpoint_depression(), 2),
+                ("Dew Point", "°C", lambda: self._get_calibrated_dewpoint_c(), 2),
+                ("Dew Point_F", "°F", lambda: self._get_calibrated_dewpoint_f(), 1),
+                ("Dew Point Deficit", "°C", lambda: self._get_calibrated_dewpoint_depression(), 2),
                 ("DewVPD Risk", "%", lambda: self._get_calibrated_dewvpd_risk(), 1),
                 (
                     "Ambient VPD",

@@ -3116,11 +3116,12 @@ class saiMQTTIngest:
             base_device = (device or "").split("_", 1)[0].lower()
             mapping: dict[str, list[str]] = {
                 "apvpd": ["Ambient VPD", "Temperature", "Rel-Humidity", "Plant VPD", "Plant Temperature", "Plant Rel-Humidity"],
-                "aqi":   ["Air Quality", "Gas", "Temperature", "Rel-Humidity", "Ambient VPD", "Baro-Pressure"],
-                "avpd":  ["Ambient VPD", "Temperature", "Rel-Humidity", "Baro-Pressure", "", ""],
-                "co2":   ["CO2", "Temperature", "Rel-Humidity", "Ambient VPD", "", ""],
-                "veml":  ["PPFD", "DLI", "Light Intensity", "Lux", "", ""],
-                "soil":  ["Soil-Moisture", "Soil-Temp", "Soil-pH", "Soil-EC", "", ""],
+                "aqi":   ["Air Quality", "Temperature", "Rel-Humidity", "Ambient VPD", "Dewpoint Deficit", "dewVPD Risk"],
+                "avpd":  ["Ambient VPD", "Temperature", "Rel-Humidity", "Baro-Pressure", "Dewpoint Deficit", "dewVPD Risk"],
+                "co2":   ["CO2", "Temperature", "Rel-Humidity", "Ambient VPD", "Dewpoint Deficit", "dewVPD Risk"],
+                "lux":   ["Light Intensity", "Auto Light", "Estimated PPFD", "Visible Light Intensity", "", ""],
+                "veml":  ["Light Intensity", "Auto Light", "Estimated PPFD", "Visible Light Intensity", "", ""],
+                "soil":  ["Soil Moisture", "Soil Moisture Deficit", "Soil Stress Index", "Soil Temp_C", "Soil pH", "Soil EC"],
             }
             return mapping.get(base_device, ["", "", "", "", "", ""])
 

@@ -900,6 +900,57 @@ def test_existing_manual_nodus_shadow_settings_are_backfilled_from_remote_displa
     assert 'METRIC_4 = "Baro-Pressure"' in saved
 
 
+def test_nodus_shadow_seed_uses_nodus_aligned_defaults_when_display_metrics_missing(tmp_path, monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    switch_root.mkdir()
+    system_root.mkdir()
+
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    real_settings_cls = saiSettings.saiSettings
+
+    monkeypatch.setattr(
+        saiSensorSettingsManager,
+        "SensorSettingsManager",
+        lambda *_a, **_k: real_sensor_mgr(str(sensor_root)),
+    )
+    monkeypatch.setattr(
+        saiSwitchSettingsManager,
+        "SwitchSettingsManager",
+        lambda *_a, **_k: real_switch_mgr(str(switch_root)),
+    )
+    monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
+
+    ingest._ensure_settings_from_itaot(
+        {"HOSTNAME": "aqi-123"},
+        "aqi-123",
+        [
+            {
+                "sensor_id": "aqi-123",
+                "device_type": "nodus",
+                "device": "aqi",
+                "sensor_type": "nodus",
+                "location": "Unknown",
+                "serial": "123",
+            }
+        ],
+        [],
+    )
+
+    saved = (sensor_root / "aqi-123" / "sensor.toml").read_text(encoding="utf-8")
+    assert 'METRIC_1 = "Air Quality"' in saved
+    assert 'METRIC_2 = "Temperature"' in saved
+    assert 'METRIC_3 = "Rel-Humidity"' in saved
+    assert 'METRIC_4 = "Ambient VPD"' in saved
+    assert 'METRIC_5 = "Dewpoint Deficit"' in saved
+    assert 'METRIC_6 = "dewVPD Risk"' in saved
+
+
 def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_path, monkeypatch):
     ingest = _build_ingest(monkeypatch)
 

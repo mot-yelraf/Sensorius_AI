@@ -17,6 +17,41 @@ APP_TITLE = "Sensorius"
 APP_NAME_SHORT = f"{APP_TITLE} AI"
 APP_NAME_LONG = f"{APP_TITLE} Automatio Instrumentorum"
 
+def canonicalize_metric_name(metric: str, gauge_config: dict | None = None) -> str:
+    """
+    Map display/storage metric aliases to the canonical gauge_config key.
+
+    This keeps dashboard rendering stable when settings, MQTT metadata, or DB
+    rows use older/spaced/cased variants of the same logical metric.
+    """
+    name = str(metric or "").strip()
+    if not name:
+        return ""
+
+    cfg = gauge_config or get_gauge_config()
+    if name in cfg:
+        return name
+
+    aliases = {
+        "PPFD": "Estimated PPFD",
+        "Dewpoint Deficit": "Dew Point Deficit",
+        "dewVPD Risk": "DewVPD Risk",
+        "Soil Moisture": "Soil-Moisture",
+    }
+    aliased = aliases.get(name)
+    if aliased in cfg:
+        return aliased
+
+    def _norm(value: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+    target = _norm(name)
+    for key in cfg.keys():
+        if _norm(key) == target:
+            return key
+
+    return name
+
 def get_gauge_config():
     gauge_config = {
         "Air Quality": {"unit": "AQI", "min": 0, "max": 500, "ticks": [0, 50, 100, 150, 200, 300, 400, 500], "zones": [{"strokeStyle": "#66cc66", "min": 0, "max": 50}, {"strokeStyle": "#ffcc00", "min": 50, "max": 100}, {"strokeStyle": "#ffa500", "min": 100, "max": 150}, {"strokeStyle": "#ff0000", "min": 150, "max": 200}, {"strokeStyle": "#800080", "min": 200, "max": 300}, {"strokeStyle": "#800000", "min": 300, "max": 500}]},
@@ -25,9 +60,9 @@ def get_gauge_config():
         "Temperature": {"unit": "°C", "min": -20, "max": 60, "ticks": [-20, 0, 10, 20, 30, 40, 60], "zones": [{"strokeStyle": "#00f", "min": -20, "max": 0}, {"strokeStyle": "#3399ff", "min": 0, "max": 10}, {"strokeStyle": "#66cc66", "min": 10, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 40}, {"strokeStyle": "#f00", "min": 40, "max": 60}]},
         "Rel-Humidity": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#bf9000", "min": 0, "max": 20}, {"strokeStyle": "#ffcc00", "min": 20, "max": 30}, {"strokeStyle": "#add8e6", "min": 30, "max": 70}, {"strokeStyle": "#66b2ff", "min": 70, "max": 80}, {"strokeStyle": "#0033cc", "min": 80, "max": 100}]},
         "Humidity": {"unit": "g/m³", "min": 0, "max": 130, "ticks": [0, 26, 52, 78, 104, 130], "zones": [{"strokeStyle": "#bf9000", "min": 0, "max": 26}, {"strokeStyle": "#ffcc00", "min": 26, "max": 52}, {"strokeStyle": "#add8e6", "min": 52, "max": 78}, {"strokeStyle": "#66b2ff", "min": 78, "max": 104}, {"strokeStyle": "#0033cc", "min": 104, "max": 130}]},
-        "Dew-Point": {"unit": "°C", "min": -20, "max": 60, "ticks": [-20, 0, 10, 20, 30, 40, 60], "zones": [{"strokeStyle": "#00f", "min": -20, "max": 0}, {"strokeStyle": "#3399ff", "min": 0, "max": 10}, {"strokeStyle": "#66cc66", "min": 10, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 40}, {"strokeStyle": "#f00", "min": 40, "max": 60}]},
-        "Dew-Point_F": {"unit": "°F", "min": 0, "max": 140, "ticks": [0, 32, 50, 70, 90, 110, 140], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 32}, {"strokeStyle": "#3399ff", "min": 32, "max": 50}, {"strokeStyle": "#66cc66", "min": 50, "max": 86}, {"strokeStyle": "#ffcc00", "min": 86, "max": 104}, {"strokeStyle": "#f00", "min": 104, "max": 140}]},
-        "Dewpoint Depression": {"unit": "°C", "min": 0, "max": 30, "ticks": [0, 5, 10, 15, 20, 25, 30], "zones": [{"strokeStyle": "#0033cc", "min": 0, "max": 2}, {"strokeStyle": "#66cc66", "min": 2, "max": 8}, {"strokeStyle": "#ffcc00", "min": 8, "max": 15}, {"strokeStyle": "#f00", "min": 15, "max": 30}]},
+        "Dew Point": {"unit": "°C", "min": -20, "max": 60, "ticks": [-20, 0, 10, 20, 30, 40, 60], "zones": [{"strokeStyle": "#00f", "min": -20, "max": 0}, {"strokeStyle": "#3399ff", "min": 0, "max": 10}, {"strokeStyle": "#66cc66", "min": 10, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 40}, {"strokeStyle": "#f00", "min": 40, "max": 60}]},
+        "Dew Point_F": {"unit": "°F", "min": 0, "max": 140, "ticks": [0, 32, 50, 70, 90, 110, 140], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 32}, {"strokeStyle": "#3399ff", "min": 32, "max": 50}, {"strokeStyle": "#66cc66", "min": 50, "max": 86}, {"strokeStyle": "#ffcc00", "min": 86, "max": 104}, {"strokeStyle": "#f00", "min": 104, "max": 140}]},
+        "Dew Point Deficit": {"unit": "°C", "min": 0, "max": 30, "ticks": [0, 5, 10, 15, 20, 25, 30], "zones": [{"strokeStyle": "#0033cc", "min": 0, "max": 2}, {"strokeStyle": "#66cc66", "min": 2, "max": 8}, {"strokeStyle": "#ffcc00", "min": 8, "max": 15}, {"strokeStyle": "#f00", "min": 15, "max": 30}]},
         "DewVPD Risk": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#66cc66", "min": 0, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 60}, {"strokeStyle": "#bf9000", "min": 60, "max": 100}]},
         "Ambient VPD": {"unit": "kPa", "min": 0.0, "max": 5.0, "ticks": [0, 0.4, 0.8, 1.2, 1.6, 2, 3, 4, 5], "zones": [{"strokeStyle": "#0033cc", "min": 0.0, "max": 0.4}, {"strokeStyle": "#66cc66", "min": 0.4, "max": 0.8}, {"strokeStyle": "#03a603", "min": 0.8, "max": 1.2}, {"strokeStyle": "#3e803e", "min": 1.2, "max": 1.6}, {"strokeStyle": "#bf9000", "min": 1.6, "max": 5.0}]},
         "Baro-Pressure": {"unit": "hPa", "min": 700, "max": 1100, "ticks": [700, 750, 800, 850, 900, 950, 1000, 1050, 1100], "zones": [{"strokeStyle": "#add8e6", "min": 700, "max": 1100}]},
@@ -35,27 +70,27 @@ def get_gauge_config():
         "Plant Temperature": {"unit": "°C", "min": -20, "max": 60, "ticks": [-20, 0, 10, 20, 30, 40, 60], "zones": [{"strokeStyle": "#00f", "min": -20, "max": 0}, {"strokeStyle": "#3399ff", "min": 0, "max": 10}, {"strokeStyle": "#66cc66", "min": 10, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 40}, {"strokeStyle": "#f00", "min": 40, "max": 60}]},
         "Plant Rel-Humidity": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#bf9000", "min": 0, "max": 20}, {"strokeStyle": "#ffcc00", "min": 20, "max": 30}, {"strokeStyle": "#add8e6", "min": 30, "max": 70}, {"strokeStyle": "#66b2ff", "min": 70, "max": 80}, {"strokeStyle": "#0033cc", "min": 80, "max": 100}]},
         "Plant Humidity": {"unit": "g/m³", "min": 0, "max": 130, "ticks": [0, 26, 52, 78, 104, 130], "zones": [{"strokeStyle": "#bf9000", "min": 0, "max": 26}, {"strokeStyle": "#ffcc00", "min": 26, "max": 52}, {"strokeStyle": "#add8e6", "min": 52, "max": 78}, {"strokeStyle": "#66b2ff", "min": 78, "max": 104}, {"strokeStyle": "#0033cc", "min": 104, "max": 130}]},
-        "Plant Dew-Point": {"unit": "°C", "min": -20, "max": 60, "ticks": [-20, 0, 10, 20, 30, 40, 60], "zones": [{"strokeStyle": "#00f", "min": -20, "max": 0}, {"strokeStyle": "#3399ff", "min": 0, "max": 10}, {"strokeStyle": "#66cc66", "min": 10, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 40}, {"strokeStyle": "#f00", "min": 40, "max": 60}]},
-        "Plant Dew-Point_F": {"unit": "°F", "min": 0, "max": 140, "ticks": [0, 32, 50, 70, 90, 110, 140], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 32}, {"strokeStyle": "#3399ff", "min": 32, "max": 50}, {"strokeStyle": "#66cc66", "min": 50, "max": 86}, {"strokeStyle": "#ffcc00", "min": 86, "max": 104}, {"strokeStyle": "#f00", "min": 104, "max": 140}]},
-        "Plant Dewpoint Depression": {"unit": "°C", "min": 0, "max": 30, "ticks": [0, 5, 10, 15, 20, 25, 30], "zones": [{"strokeStyle": "#0033cc", "min": 0, "max": 2}, {"strokeStyle": "#66cc66", "min": 2, "max": 8}, {"strokeStyle": "#ffcc00", "min": 8, "max": 15}, {"strokeStyle": "#f00", "min": 15, "max": 30}]},
+        "Plant Dew Point": {"unit": "°C", "min": -20, "max": 60, "ticks": [-20, 0, 10, 20, 30, 40, 60], "zones": [{"strokeStyle": "#00f", "min": -20, "max": 0}, {"strokeStyle": "#3399ff", "min": 0, "max": 10}, {"strokeStyle": "#66cc66", "min": 10, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 40}, {"strokeStyle": "#f00", "min": 40, "max": 60}]},
+        "Plant Dew Point_F": {"unit": "°F", "min": 0, "max": 140, "ticks": [0, 32, 50, 70, 90, 110, 140], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 32}, {"strokeStyle": "#3399ff", "min": 32, "max": 50}, {"strokeStyle": "#66cc66", "min": 50, "max": 86}, {"strokeStyle": "#ffcc00", "min": 86, "max": 104}, {"strokeStyle": "#f00", "min": 104, "max": 140}]},
+        "Plant Dew Point Deficit": {"unit": "°C", "min": 0, "max": 30, "ticks": [0, 5, 10, 15, 20, 25, 30], "zones": [{"strokeStyle": "#0033cc", "min": 0, "max": 2}, {"strokeStyle": "#66cc66", "min": 2, "max": 8}, {"strokeStyle": "#ffcc00", "min": 8, "max": 15}, {"strokeStyle": "#f00", "min": 15, "max": 30}]},
         "Plant DewVPD Risk": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#66cc66", "min": 0, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 60}, {"strokeStyle": "#bf9000", "min": 60, "max": 100}]},
         "Plant VPD": {"unit": "kPa", "min": 0.0, "max": 5.0, "ticks": [0, 0.4, 0.8, 1.2, 1.6, 2, 3, 4, 5], "zones": [{"strokeStyle": "#0033cc", "min": 0.0, "max": 0.4}, {"strokeStyle": "#66cc66", "min": 0.4, "max": 0.8}, {"strokeStyle": "#03a603", "min": 0.8, "max": 1.2}, {"strokeStyle": "#3e803e", "min": 1.2, "max": 1.6}, {"strokeStyle": "#bf9000", "min": 1.6, "max": 5.0}]},
         "Plant Baro-Pressure": {"unit": "hPa", "min": 700, "max": 1100, "ticks": [700, 750, 800, 850, 900, 950, 1000, 1050, 1100], "zones": [{"strokeStyle": "#add8e6", "min": 700, "max": 1100}]},
         "Plant Temperature_F": {"unit": "°F", "min": 0, "max": 140, "ticks": [0, 32, 50, 70, 90, 110, 140], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 32}, {"strokeStyle": "#3399ff", "min": 32, "max": 50}, {"strokeStyle": "#66cc66", "min": 50, "max": 86}, {"strokeStyle": "#ffcc00", "min": 86, "max": 104}, {"strokeStyle": "#f00", "min": 104, "max": 140}]},
         "Soil-Moisture": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#bf9000", "min": 0, "max": 20}, {"strokeStyle": "#ffcc00", "min": 20, "max": 50}, {"strokeStyle": "#add8e6", "min": 50, "max": 70}, {"strokeStyle": "#66b2ff", "min": 70, "max": 80}, {"strokeStyle": "#0033cc", "min": 80, "max": 100}]},
-        "Soil-Temp": {"unit": "°C", "min": -20, "max": 60, "ticks": [-20, 0, 10, 20, 30, 40, 60], "zones": [{"strokeStyle": "#00f", "min": -20, "max": 0}, {"strokeStyle": "#3399ff", "min": 0, "max": 10}, {"strokeStyle": "#66cc66", "min": 10, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 40}, {"strokeStyle": "#f00", "min": 40, "max": 60}]},
-        "Soil-Temp_F": {"unit": "°F", "min": 0, "max": 140, "ticks": [0, 32, 50, 70, 90, 110, 140], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 32}, {"strokeStyle": "#3399ff", "min": 32, "max": 50}, {"strokeStyle": "#66cc66", "min": 50, "max": 86}, {"strokeStyle": "#ffcc00", "min": 86, "max": 104}, {"strokeStyle": "#f00", "min": 104, "max": 140}]},
-        "Soil-pH": {"unit": "pH", "min": 0, "max": 10, "ticks": [1, 3, 5, 7, 9], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 4.5}, {"strokeStyle": "#3399ff", "min": 4.5, "max": 5.5}, {"strokeStyle": "#66cc66", "min": 5.5, "max": 6.5}, {"strokeStyle": "#ffcc00", "min": 6.5, "max": 7.5}, {"strokeStyle": "#f00", "min": 7.5, "max": 8.5}, {"strokeStyle": "#800000", "min": 8.5, "max": 10}]},
-        "Soil-EC": {"unit": "mS/cm", "min": 0, "max": 10, "ticks": [0, 2, 4, 6, 8, 10], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 0.8}, {"strokeStyle": "#3399ff", "min": 0.8, "max": 1.8}, {"strokeStyle": "#66cc66", "min": 1.8, "max": 2.5}, {"strokeStyle": "#ffcc00", "min": 2.5, "max": 4.0}, {"strokeStyle": "#800000", "min": 4.0, "max": 10}]},
-        "Soil-N": {"unit": "mg/kg", "min": 0, "max": 150, "ticks": [0, 25, 50, 75, 100, 125, 150], "zones": [{"strokeStyle": "#f00", "min": 0, "max": 25}, {"strokeStyle": "#ffcc00", "min": 25, "max": 50}, {"strokeStyle": "#66cc66", "min": 50, "max": 125}, {"strokeStyle": "#3399ff", "min": 125, "max": 150}]},
-        "Soil-P": {"unit": "mg/kg", "min": 0, "max": 60, "ticks": [0, 20, 30, 40, 50, 60], "zones": [{"strokeStyle": "#f00", "min": 0, "max": 20}, {"strokeStyle": "#ffcc00", "min": 20, "max": 36}, {"strokeStyle": "#66cc66", "min": 36, "max": 50}, {"strokeStyle": "#3399ff", "min": 50, "max": 60}]},
-        "Soil-K": {"unit": "mg/kg", "min": 0, "max": 200, "ticks": [0, 60, 100, 130, 150, 175, 200], "zones": [{"strokeStyle": "#f00", "min": 0, "max": 60}, {"strokeStyle": "#ffcc00", "min": 60, "max": 131}, {"strokeStyle": "#66cc66", "min": 131, "max": 175}, {"strokeStyle": "#3399ff", "min": 175, "max": 200}]},
+        "Soil Temp_C": {"unit": "°C", "min": -20, "max": 60, "ticks": [-20, 0, 10, 20, 30, 40, 60], "zones": [{"strokeStyle": "#00f", "min": -20, "max": 0}, {"strokeStyle": "#3399ff", "min": 0, "max": 10}, {"strokeStyle": "#66cc66", "min": 10, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 40}, {"strokeStyle": "#f00", "min": 40, "max": 60}]},
+        "Soil Temp_F": {"unit": "°F", "min": 0, "max": 140, "ticks": [0, 32, 50, 70, 90, 110, 140], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 32}, {"strokeStyle": "#3399ff", "min": 32, "max": 50}, {"strokeStyle": "#66cc66", "min": 50, "max": 86}, {"strokeStyle": "#ffcc00", "min": 86, "max": 104}, {"strokeStyle": "#f00", "min": 104, "max": 140}]},
+        "Soil pH": {"unit": "pH", "min": 0, "max": 10, "ticks": [1, 3, 5, 7, 9], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 4.5}, {"strokeStyle": "#3399ff", "min": 4.5, "max": 5.5}, {"strokeStyle": "#66cc66", "min": 5.5, "max": 6.5}, {"strokeStyle": "#ffcc00", "min": 6.5, "max": 7.5}, {"strokeStyle": "#f00", "min": 7.5, "max": 8.5}, {"strokeStyle": "#800000", "min": 8.5, "max": 10}]},
+        "Soil EC": {"unit": "mS/cm", "min": 0, "max": 10, "ticks": [0, 2, 4, 6, 8, 10], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 0.8}, {"strokeStyle": "#3399ff", "min": 0.8, "max": 1.8}, {"strokeStyle": "#66cc66", "min": 1.8, "max": 2.5}, {"strokeStyle": "#ffcc00", "min": 2.5, "max": 4.0}, {"strokeStyle": "#800000", "min": 4.0, "max": 10}]},
+        "Soil Nitrogen": {"unit": "mg/kg", "min": 0, "max": 150, "ticks": [0, 25, 50, 75, 100, 125, 150], "zones": [{"strokeStyle": "#f00", "min": 0, "max": 25}, {"strokeStyle": "#ffcc00", "min": 25, "max": 50}, {"strokeStyle": "#66cc66", "min": 50, "max": 125}, {"strokeStyle": "#3399ff", "min": 125, "max": 150}]},
+        "Soil Phosphorus": {"unit": "mg/kg", "min": 0, "max": 60, "ticks": [0, 20, 30, 40, 50, 60], "zones": [{"strokeStyle": "#f00", "min": 0, "max": 20}, {"strokeStyle": "#ffcc00", "min": 20, "max": 36}, {"strokeStyle": "#66cc66", "min": 36, "max": 50}, {"strokeStyle": "#3399ff", "min": 50, "max": 60}]},
+        "Soil Potasium": {"unit": "mg/kg", "min": 0, "max": 200, "ticks": [0, 60, 100, 130, 150, 175, 200], "zones": [{"strokeStyle": "#f00", "min": 0, "max": 60}, {"strokeStyle": "#ffcc00", "min": 60, "max": 131}, {"strokeStyle": "#66cc66", "min": 131, "max": 175}, {"strokeStyle": "#3399ff", "min": 175, "max": 200}]},
+        "Soil Moisture Deficit": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#3399ff", "min": 0, "max": 20}, {"strokeStyle": "#03a603", "min": 20, "max": 60}, {"strokeStyle": "#bf9000", "min": 60, "max": 100}]},
+        "Soil Stress Index": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#03a603", "min": 0, "max": 30}, {"strokeStyle": "#bf9000", "min": 30, "max": 60}, {"strokeStyle": "#cc7a00", "min": 60, "max": 80}, {"strokeStyle": "#d9534f", "min": 80, "max": 100}]},
         "Light Intensity": {"unit": "lux", "min": 0,  "max": 120000, "ticks": [0, 20000, 40000, 60000, 80000, 100000, 120000], "zones": [{"strokeStyle": "#ffff00", "min": 0, "max": 120000}]},
         "Auto Light": {"unit": "lux", "min": 0,  "max": 120000, "ticks": [0, 20000, 40000, 60000, 80000, 100000, 120000], "zones": [{"strokeStyle": "#ffff00", "min": 0, "max": 120000}]},
-        "PPFD": {"unit": "µmol·m⁻²·s⁻¹", "min": 0, "max": 2000, "ticks": [0, 400, 800, 1200, 1600, 2000], "zones": [{"strokeStyle": "#ffff00", "min": 0, "max": 2000}]},
-        "DLI": {"unit": "mol·m⁻²·day⁻¹", "min": 0, "max": 70, "ticks": [0, 10, 20, 30, 40, 50, 60, 70], "zones": [{"strokeStyle": "#ffff00", "min": 0, "max": 70}]},
-        "SMD": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#3399ff", "min": 0, "max": 20}, {"strokeStyle": "#03a603", "min": 20, "max": 60}, {"strokeStyle": "#bf9000", "min": 60, "max": 100}]},
-        "SSI": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#03a603", "min": 0, "max": 30}, {"strokeStyle": "#bf9000", "min": 30, "max": 60}, {"strokeStyle": "#cc7a00", "min": 60, "max": 80}, {"strokeStyle": "#d9534f", "min": 80, "max": 100}]},
+        "Estimated PPFD": {"unit": "µmol·m⁻²·s⁻¹", "min": 0, "max": 2000, "ticks": [0, 400, 800, 1200, 1600, 2000], "zones": [{"strokeStyle": "#ffff00", "min": 0, "max": 2000}]},
+        "Visible Light Intensity": {"unit": "mol·m⁻²·day⁻¹", "min": 0, "max": 70, "ticks": [0, 10, 20, 30, 40, 50, 60, 70], "zones": [{"strokeStyle": "#ffff00", "min": 0, "max": 70}]},
     }
     return gauge_config
 
@@ -1165,7 +1200,13 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             f"</div>"
         )
         yield "</div>"
-        render_metrics = [metric for metric in sensor_metrics if metric in gauge_config]
+        render_metrics = []
+        seen_render_metrics = set()
+        for metric in (sensor_metrics or []):
+            canonical_metric = canonicalize_metric_name(metric, gauge_config)
+            if canonical_metric in gauge_config and canonical_metric not in seen_render_metrics:
+                seen_render_metrics.add(canonical_metric)
+                render_metrics.append(canonical_metric)
         yield f"<div class='sensor-row' id='row_{sid}'>"
 
         # build out the gauges for this sensor based on its configured display metrics; if none, show all available gauges

@@ -298,12 +298,12 @@ class SensorSettingsManager:
         untouched and its path is returned.
 
         Also ensures [Display].METRIC_1..METRIC_6 defaults based on device type:
-          apvpd -> ["Ambient VPD","Temperature","Rel-Humidity", "Plant VPD","DewVPD Risk",""]
-          aqi   -> ["Air Quality","Temperature","Rel-Humidity","Ambient VPD","DewVPD Risk","Baro-Pressure"]
-          avpd  -> ["Ambient VPD","Temperature","Rel-Humidity","DewVPD Risk","Baro-Pressure",""]
-          co2   -> ["CO2","Temperature","Rel-Humidity","Ambient VPD","DewVPD Risk",""]
-          veml  -> ["Light Intensity","Lux",","","",""]
-          soil  -> ["Soil-Moisture","Soil-Temp","Soil-pH","Soil-EC","",""]
+          apvpd -> ["Ambient VPD","Temperature","Rel-Humidity","Plant VPD","Plant Temperature","Plant Rel-Humidity"]
+          aqi   -> ["Air Quality","Temperature","Rel-Humidity","Ambient VPD","Dewpoint Deficit","dewVPD Risk"]
+          avpd  -> ["Ambient VPD","Temperature","Rel-Humidity","Baro-Pressure","Dewpoint Deficit","dewVPD Risk"]
+          co2   -> ["CO2","Temperature","Rel-Humidity","Ambient VPD","Dewpoint Deficit","dewVPD Risk"]
+          lux   -> ["Light Intensity","Auto Light","Estimated PPFD","Visible Light Intensity","",""]
+          soil  -> ["Soil Moisture","Soil Moisture Deficit","Soil Stress Index","Soil Temp_C","Soil pH","Soil EC"]
         """
         dst = self._resolve_write_path(sensor_id)  # ensures parent dir
         if dst.exists():
@@ -332,12 +332,13 @@ class SensorSettingsManager:
 
         # --- Correct mapping ---
         metric_defaults_by_device: dict[str, list[str]] = {
-            "apvpd": ["Ambient VPD", "Temperature", "Rel-Humidity", "Plant VPD", "DewVPD Risk", ""],
-            "aqi":   ["Air Quality", "Temperature", "Rel-Humidity", "Ambient VPD", "DewVPD Risk", "Baro-Pressure"],
-            "avpd":  ["Ambient VPD", "Temperature", "Rel-Humidity", "DewVPD Risk", "Baro-Pressure", ""],
-            "co2":   ["CO2", "Temperature", "Rel-Humidity", "Ambient VPD", "DewVPD Risk", ""],
-            "veml":  [ "PPFD", "DLI", "Light Intensity", "", "", ""],
-            "soil":  ["Soil-Moisture", "Soil-Temp", "Soil-pH", "Soil-EC", "", ""],
+            "apvpd": ["Ambient VPD", "Temperature", "Rel-Humidity", "Plant VPD", "Plant Temperature", "Plant Rel-Humidity"],
+            "aqi":   ["Air Quality", "Temperature", "Rel-Humidity", "Ambient VPD", "Dew Point Deficit", "dewVPD Risk"],
+            "avpd":  ["Ambient VPD", "Temperature", "Rel-Humidity", "Baro-Pressure", "Dew Point Deficit", "dewVPD Risk"],
+            "co2":   ["CO2", "Temperature", "Rel-Humidity", "Ambient VPD", "Dew Point Deficit", "dewVPD Risk"],
+            "lux":   ["Light Intensity", "Auto Light", "Estimated PPFD", "Visible Light Intensity", "", ""],
+            "veml":  ["Light Intensity", "Auto Light", "Estimated PPFD", "Visible Light Intensity", "", ""],
+            "soil":  ["Soil Moisture", "Soil Moisture Deficit", "Soil Stress Index", "Soil Temp_C", "Soil pH", "Soil EC"],
         }
         metric_fallback: list[str] = ["", "", "", "", "", ""]
         chosen_metrics = metric_defaults_by_device.get(base_device, metric_fallback)
