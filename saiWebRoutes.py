@@ -19,6 +19,7 @@ except ImportError:
     # fallback to Starlette directly
     from starlette.websockets import WebSocket, WebSocketDisconnect
 import sqlite3
+import copy
 from pathlib import Path
 from typing import Dict, Any, Set
 from uuid import uuid4
@@ -4016,53 +4017,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         return None
     
-    def _build_post_targets(hostname: str | None, ip_hint: str | None = None) -> list[str]:
-        """
-        Build deterministic POST targets for a Nodus device.
-        Prefer the same candidates MQTT discovery already trusts:
-        cached IP → mDNS hostname → bare hostname → explicit IP hints.
-        """
-        candidates: list[str] = []
-
-        def _append_host(raw_host: str | None) -> None:
-            host = str(raw_host or "").strip()
-            if not host:
-                return
-            candidates.append(f"http://{host}:8000/set-nodus-setting")
-
-        if hostname:
-            ingest = mqtt_ingest
-            base = str(hostname).strip()
-
-            if ingest is not None:
-                try:
-                    ingest_candidates = list(getattr(ingest, "_host_candidates")(base))
-                except Exception:
-                    ingest_candidates = []
-                for host in ingest_candidates:
-                    _append_host(host)
-
-                try:
-                    normalize = getattr(ingest, "_normalize_host_key", None)
-                    base_key = normalize(base) if callable(normalize) else base.removesuffix(".local")
-                except Exception:
-                    base_key = base.removesuffix(".local")
-
-                for attr_name in ("_host_ip_cache", "_host_ipv4addr"):
-                    try:
-                        cached = getattr(ingest, attr_name, {}).get(base_key)
-                    except Exception:
-                        cached = None
-                    _append_host(cached)
-
-            _append_host(mdns_hostname(base))
-            _append_host(base)
-
-        _append_host(ip_hint)
-
-        seen = set()
-        return [u for u in candidates if (u not in seen and not seen.add(u))]
-
     async def push_nodus_setting_simple(
         *,
         device_id: str,
@@ -4077,74 +4031,88 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         ip_hint: str | None = None,
         sys_host_index: dict[str, str] | None = None,
     ) -> bool:
-        import httpx
-
-        hostname = _read_hostname_from_system_settings(
-            device_id, system_mgr, system_root,
-            device_type=device_type, sys_host_index=sys_host_index
+        update = {"section": section, "key": key, "value": value}
+        if setting_file_key == "sensor" and sensor_file_name:
+            update["name"] = sensor_file_name
+        elif setting_file_key == "switch":
+            update["name"] = "switch.toml"
+        return await push_nodus_settings_batch(
+            device_id=device_id,
+            device_type=device_type,
+            setting_file_key=setting_file_key,
+            updates=[(section, key, value)],
+            sensor_file_name=sensor_file_name,
+            system_mgr=system_mgr,
+            system_root=system_root,
+            ip_hint=ip_hint,
+            sys_host_index=sys_host_index,
         )
-        if not hostname:
+
+    async def _publish_nodus_config_update(
+        *,
+        target_device: str,
+        device_id: str,
+        device_type: str,
+        update_payload: dict[str, Any],
+    ) -> bool:
+        def _config_result_applied(result_payload: dict[str, Any] | None) -> bool:
+            # Gate the next queued update on Nodus confirming the apply completed.
+            return isinstance(result_payload, dict) and result_payload.get("applied") is True
+
+        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        if not ingest or not hasattr(ingest, "publish_nodus_config"):
             if DEBUG:
-                printDM(f"[push_nodus_setting:{device_type}:{device_id}] no HOSTNAME in system settings; skipping POST",
-                        location=MODULE)
+                printDM(
+                    f"[push_nodus_setting:{device_type}:{device_id}] mqtt_ingest unavailable; skipping publish",
+                    location=MODULE,
+                )
             return False
 
-        targets = _build_post_targets(hostname, ip_hint)
-        if DEBUG:
-            printDM(f"[push_nodus_setting:{device_type}:{device_id}] host candidates: {targets}", location=MODULE)
-
-        body = {"file": setting_file_key, "section": section, "key": key, "value": value}
-        if sensor_file_name and setting_file_key == "sensor":
-            body["name"] = sensor_file_name
-        if setting_file_key == "switch" and "name" not in body:
-            body["name"] = "switch.toml"
-
-        timeout = httpx.Timeout(9.0, connect=2.5, read=7.0, write=2.0, pool=2.5)
-        headers = {"Content-Type": "application/json"}
-
-        primary_host = hostname  # bare host like 'aqi-nz6g89'
-        host_lock = _get_host_lock(primary_host)
-
-        try:
-            async with host_lock:  # <-- serialize per host
-                async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
-                    # small stagger helps right after a sensor write triggers nodus to reload
-                    if setting_file_key == "switch":
-                        await asyncio.sleep(0.4)
-                    # simple two-pass retry over the same targets
-                    for attempt in range(2):
-                        for url in targets:
-                            try:
-                                resp = await client.post(url, json=body)
-                                try:
-                                    j = resp.json()
-                                except Exception:
-                                    j = {}
-                                if resp.status_code == 200 and bool(j.get("success", True)):
-                                    if DEBUG:
-                                        printDM(f"[push_nodus_setting:{device_type}:{device_id}] OK via {url}: {body}",
-                                                location=MODULE)
-                                    return True
-                                else:
-                                    if DEBUG:
-                                        detail = (j or resp.text or "").strip()
-                                        printDM(f"[push_nodus_setting:{device_type}:{device_id}] HTTP {resp.status_code} via {url}; detail={detail[:160]}",
-                                                location=MODULE)
-                            except httpx.HTTPError as e:
-                                if DEBUG:
-                                    err_type = type(e).__name__
-                                    detail = str(e).strip() or repr(e)
-                                    printDM(
-                                        f"[push_nodus_setting:{device_type}:{device_id}] error {url}: {err_type}: {detail}",
-                                        location=MODULE,
-                                    )
-                        # brief backoff between passes
-                        await asyncio.sleep(0.35)
-        except Exception as outer:
+        publish_result = ingest.publish_nodus_config(
+            target_device,
+            payload={"updates": [update_payload]},
+            restart=False,
+        )
+        if not bool(publish_result.get("ok", False)):
             if DEBUG:
-                printDM(f"[push_nodus_setting:{device_type}:{device_id}] AsyncClient init/use error: {outer}", location=MODULE)
+                printDM(
+                    f"[push_nodus_setting:{device_type}:{device_id}] failed to publish config/set to nodus/{target_device}/config/set",
+                    location=MODULE,
+                )
+            return False
 
-        return False
+        message_id = str(publish_result.get("message_id") or "").strip()
+        ack = await ingest.wait_for_config_ack(message_id, timeout=3.0)
+        if not ack or not bool(ack.get("accepted", False)):
+            if DEBUG:
+                printDM(
+                    f"[push_nodus_setting:{device_type}:{device_id}] config ack failed for nodus/{target_device}/config/set: {ack}",
+                    location=MODULE,
+                )
+            return False
+
+        result = await ingest.wait_for_config_result(message_id, timeout=8.0)
+        if result is None:
+            if DEBUG:
+                printDM(
+                    f"[push_nodus_setting:{device_type}:{device_id}] config result timeout for nodus/{target_device}/config/set",
+                    location=MODULE,
+                )
+            return False
+        if not _config_result_applied(result):
+            if DEBUG:
+                printDM(
+                    f"[push_nodus_setting:{device_type}:{device_id}] config apply failed for nodus/{target_device}/config/set: {result}",
+                    location=MODULE,
+                )
+            return False
+
+        if DEBUG:
+            printDM(
+                f"[push_nodus_setting:{device_type}:{device_id}] OK via MQTT nodus/{target_device}/config/set: {update_payload}",
+                location=MODULE,
+            )
+        return True
 
     async def push_nodus_settings_batch(
         *,
@@ -4158,23 +4126,48 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         ip_hint: str | None = None,
         sys_host_index: dict[str, str] | None = None,
     ) -> bool:
-        ok_all = True
+        hostname = _read_hostname_from_system_settings(
+            device_id, system_mgr, system_root,
+            device_type=device_type, sys_host_index=sys_host_index
+        )
+        target_device = str(hostname or device_id or "").strip()
+        if not target_device:
+            if DEBUG:
+                printDM(
+                    f"[push_nodus_setting:{device_type}:{device_id}] no MQTT target device resolved; skipping publish",
+                    location=MODULE,
+                )
+            return False
+
+        updates_payload: list[dict[str, Any]] = []
         for section, key, value in (updates or []):
-            ok = await push_nodus_setting_simple(
+            item = {"section": section, "key": key, "value": value}
+            if setting_file_key == "sensor" and sensor_file_name:
+                item["name"] = sensor_file_name
+            elif setting_file_key == "switch":
+                item["name"] = "switch.toml"
+            updates_payload.append(item)
+        if not updates_payload:
+            return True
+        for update_payload in updates_payload:
+            ok = await _publish_nodus_config_update(
+                target_device=target_device,
                 device_id=device_id,
                 device_type=device_type,
-                setting_file_key=setting_file_key,
-                section=section,
-                key=key,
-                value=value,
-                sensor_file_name=sensor_file_name,
-                system_mgr=system_mgr,
-                system_root=system_root,
-                ip_hint=ip_hint,
-                sys_host_index=sys_host_index,
+                update_payload=update_payload,
             )
-            ok_all = bool(ok) and ok_all
-        return ok_all
+            if not ok:
+                return False
+        return True
+
+    def _nodus_values_match(previous: Any, current: Any) -> bool:
+        if previous == current:
+            return True
+        if previous is None and current in (None, ""):
+            return True
+        if current is None and previous in (None, ""):
+            return True
+        return False
 
 
     # ---------- user-defined constants ----------
@@ -4261,8 +4254,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         Accepts: [{"id": "...", "type": "sensor"|"switch", "location": "..."}]
         (Also tolerates {"switch_location": "..."} for switches.)
         Saves LOCATION/SWITCH_LOCATION locally and updates live objects in memory.
-        NEW: If the device is a remote Nodus (TYPE == "picow", "pico2w", or "nodus"), also POSTs the update
-             to the device's socketserver at /set-nodus-setting.
+        For remote Nodus devices, publishes MQTT config updates and waits for ack/result.
         """
         try:
             payload = await request.json()
@@ -4463,11 +4455,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             _DASHBOARD_JSON_CACHE.clear()
 
             # Run all remote pushes
+            remote_failures = 0
             if nodus_tasks:
                 try:
                     results = await asyncio.gather(*nodus_tasks, return_exceptions=True)
                     pushed = sum(1 for r in results if (r is True))
                     updated["nodus_pushed"] = pushed
+                    remote_failures = max(len(results) - pushed, 0)
                     # Optional: log failures individually if DEBUG
                     if DEBUG:
                         failures = [str(r) for r in results if r is not True]
@@ -4476,7 +4470,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 except Exception as e:
                     if DEBUG:
                         printDM(f"[save_device_locations] nodus push gather error: {e}", location=MODULE)
+                    remote_failures = len(nodus_tasks)
 
+            if remote_failures:
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": "nodus_remote_apply_failed",
+                        "updated": updated,
+                    },
+                    status_code=502,
+                )
             return JSONResponse({"ok": True, "updated": updated})
 
         except Exception as e:
@@ -5601,100 +5605,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     #     lines.append("</body></html>")
     #     return "\n".join(lines)
     
-    def resolve_nodus_base_url(sensor_id: str) -> str | None:
-        """
-        Resolve the base URL for a Nodus (Pico 2W) device that owns this sensor_id.
-
-        Reads sensor_settings/<sensor_id>/sensor.toml via SensorSettingsManager and
-        expects something like:
-
-        [Sensor]
-        TYPE = "pico2w"   # (or "picow" for backward compatibility)
-        ...
-
-        [Network]
-        HOSTNAME = "nodus-xyz"
-
-        Returns:
-        "http://nodus-xyz.local:8000" or None if this is not a Nodus sensor
-        or we can't derive a hostname.
-        """
-        try:
-            from saiSensorSettingsManager import SensorSettingsManager
-        except Exception as exc:
-            if DEBUG:
-                printDM(f"resolve_nodus_base_url import failed: {exc}", location=MODULE)
-            return None
-
-        try:
-            mgr = SensorSettingsManager("sensor_settings")
-            cfg = mgr.load(sensor_id) or {}
-        except Exception as exc:
-            if DEBUG:
-                printDM(f"resolve_nodus_base_url failed to load settings for {sensor_id}: {exc}", location=MODULE)
-            return None
-
-        sensor_block = (cfg.get("Sensor") or {}) if isinstance(cfg, dict) else {}
-        sensor_type  = str(sensor_block.get("TYPE", "") or "").strip().lower()
-
-        # Only treat this as Nodus if TYPE explicitly indicates a Pico/Nodus type
-        if sensor_type not in ("picow", "pico2w", "nodus", "remote"):
-            # Local Pi sensor or unknown type → no Nodus base URL
-            return None
-
-        net_block = (cfg.get("Network") or {}) if isinstance(cfg, dict) else {}
-        hostname  = str(net_block.get("HOSTNAME", "") or "").strip()
-        if not hostname:
-            if DEBUG:
-                printDM(f"resolve_nodus_base_url: no Network.HOSTNAME for {sensor_id}", location=MODULE)
-            return None
-
-        # Normalize to something resolvable via mDNS
-        hostname = mdns_hostname(hostname)
-
-        base_url = f"http://{hostname}:8000"
-        if DEBUG:
-            printDM(f"resolve_nodus_base_url: {sensor_id} → {base_url}", location=MODULE)
-        return base_url
-            
-    async def forward_calibration_to_nodus(base_url: str, payload: dict) -> bool:
-        """
-        Forward the calibration payload to the Nodus (Pico 2W) device at base_url.
-
-        base_url: e.g. "http://nodus-xyz.local:8000"
-        payload:  same JSON object we received on /update-calibration-values
-
-        Returns True on HTTP < 400, False otherwise.
-        """
-        import httpx  
-        if DEBUG:
-            printDM(
-                f"forward_calibration_to_nodus called)",
-                location=MODULE,
-            )
-                
-        url = f"{base_url.rstrip('/')}/update-calibration-values"
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(url, json=payload, timeout=8.0)
-            if resp.status_code >= 400:
-                if DEBUG:
-                    printDM(
-                        f"forward_calibration_to_nodus: {url} → {resp.status_code} {resp.reason_phrase}",
-                        location=MODULE,
-                    )
-                return False
-            if DEBUG:
-                printDM(
-                    f"forward_calibration_to_nodus: {url} success ({resp.status_code})",
-                    location=MODULE,
-                )
-            return True
-        except Exception as exc:
-            if DEBUG:
-                printDM(f"forward_calibration_to_nodus error for {url}: {exc}", location=MODULE)
-            return False
-
     def _is_remote_nodus_type(sensor_type: str | None) -> bool:
         return str(sensor_type or "").strip().lower() in ("picow", "pico2w", "nodus", "remote")
 
@@ -5804,6 +5714,61 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         mgr.save(sensor_id, doc)
         return applied_keys
+
+    def _get_current_device_offset_value(doc: dict, device_kind: str, key: str) -> float | None:
+        def _to_float(value):
+            try:
+                return None if value is None or value == "" else float(value)
+            except Exception:
+                return None
+
+        calib = doc.get("Calibration") if isinstance(doc, dict) else {}
+        if not isinstance(calib, dict):
+            calib = {}
+
+        if device_kind == "apvpd" and key in ("ambient_temp_offset", "ambient_rh_offset"):
+            if key == "ambient_temp_offset":
+                return _to_float(calib.get("APVPD_TEMP_CAL_VAL"))
+            if key == "ambient_rh_offset":
+                return _to_float(calib.get("APVPD_RH_CAL_VAL"))
+
+        device_cal = calib.get("Device") if isinstance(calib.get("Device"), dict) else {}
+        if device_kind == "soil" and key in (
+            "soil_moisture_offset",
+            "soil_temp_offset",
+            "soil_ph_offset",
+            "soil_ec_offset",
+        ):
+            soil_key_map = {
+                "soil_moisture_offset": "SOIL_TEMP_MOIST_VAL",
+                "soil_temp_offset": "SOIL_TEMP_CAL_VAL",
+                "soil_ph_offset": "SOIL_PH_CAL_VAL",
+                "soil_ec_offset": "SOIL_EC_CAL_VAL",
+            }
+            return _to_float(device_cal.get(soil_key_map[key]))
+
+        cur = doc if isinstance(doc, dict) else {}
+        for seg in [p for p in str(key or "").split(".") if p]:
+            if not isinstance(cur, dict):
+                return None
+            cur = cur.get(seg)
+        return _to_float(cur)
+
+    def _filter_changed_device_offsets(doc: dict, device_kind: str, offsets: list[dict]) -> list[dict]:
+        changed: list[dict] = []
+        for item in offsets or []:
+            key = str(item.get("key") or "").strip()
+            if not key:
+                continue
+            try:
+                new_val = float(item.get("value", 0))
+            except Exception:
+                continue
+            current = _get_current_device_offset_value(doc, device_kind, key)
+            if current is not None and abs(new_val - current) < 1e-9:
+                continue
+            changed.append({"key": key, "value": new_val})
+        return changed
 
     def _mqtt_calibration_payload_from_offsets(offsets: list[dict]) -> dict:
         return {"offsets": [dict(item) for item in (offsets or [])]}
@@ -6176,32 +6141,48 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 host = (local_doc.get("Sensor", {}).get("HOSTNAME") or "").strip()
             if not host:
                 host = sensor_id_norm
-            return f"http://{mdns_hostname(host)}:8000"
+            return mdns_hostname(host)
 
-        def _sensor_updates_for_nodus(merged_doc: OrderedDict, metric_list: list[str]) -> list[tuple[str, str, Any]]:
+        def _sensor_updates_for_nodus(
+            existing_doc: OrderedDict,
+            merged_doc: OrderedDict,
+            metric_list: list[str],
+        ) -> list[tuple[str, str, Any]]:
             updates: list[tuple[str, str, Any]] = []
+            existing_sensor_block = existing_doc.get("Sensor", {}) if isinstance(existing_doc, dict) else {}
             sensor_block = merged_doc.get("Sensor", {}) if isinstance(merged_doc, dict) else {}
             if isinstance(sensor_block, dict):
-                for key in ("DEVICE", "SENSOR_ID", "LOCATION"):
-                    if key in sensor_block:
+                for key in ("LOCATION",):
+                    if key in sensor_block and not _nodus_values_match(
+                        existing_sensor_block.get(key) if isinstance(existing_sensor_block, dict) else None,
+                        sensor_block.get(key, ""),
+                    ):
                         updates.append(("Sensor", key, sensor_block.get(key, "")))
 
             if metric_list:
+                existing_display_block = existing_doc.get("Display", {}) if isinstance(existing_doc, dict) else {}
                 for idx in range(1, 7):
                     value = metric_list[idx - 1] if idx - 1 < len(metric_list) else ""
-                    updates.append(("Display", f"METRIC_{idx}", value))
+                    key = f"METRIC_{idx}"
+                    if not _nodus_values_match(
+                        existing_display_block.get(key) if isinstance(existing_display_block, dict) else None,
+                        value,
+                    ):
+                        updates.append(("Display", key, value))
             return updates
 
         async def push_updates_to_picow(base_dir: Path, sensor_id_norm: str, device_file: str,
                                         merged_doc: OrderedDict, metric_list: list[str],
                                         *,
+                                        previous_doc: OrderedDict | dict | None = None,
                                         lookup_device_id: str,
                                         system_mgr=None,
                                         system_root: str | None = None,
                                         sys_host_index: dict[str, str] | None = None) -> None:
             mgr = SensorSettingsManager(str(base_dir))
             live_doc = mgr.load(sensor_id_norm) or {}
-            updates = _sensor_updates_for_nodus(merged_doc, metric_list)
+            prior_doc = previous_doc if isinstance(previous_doc, dict) else live_doc
+            updates = _sensor_updates_for_nodus(prior_doc, merged_doc, metric_list)
             if not updates:
                 return
 
@@ -6223,7 +6204,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 try:
                     host = resolve_hostname(sensor_id_norm, live_doc)
                     mqtt_ingest.add_client(host)   # marks 'pending' and forces an expedited check
-                    await mqtt_ingest.force_refresh_device_metadata(lookup_device_id)
                 except Exception:
                     pass
                 printDM(f"[{MODULE}] Pushed sensor updates to {device_file} for Nodus {lookup_device_id}",
@@ -6248,10 +6228,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             system_root = "system_settings"
         sys_host_index = _build_system_hostname_index(system_root)
 
-        device_value   = (form.get("device", "") or "").strip()
-        new_id_field   = (form.get("sensor_id_field", old_id) or "").strip()
         location_value = (form.get("location", "") or "").strip()
-        new_id = normalize_sensor_id(new_id_field)
+        new_id = old_id
 
         # ---------- Load full current doc & build merged update ----------
         existing_doc = manager.load(old_id) or OrderedDict()
@@ -6259,15 +6237,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # Ensure top-level section order; if missing, seed them
         if not isinstance(existing_doc, OrderedDict):
             existing_doc = OrderedDict(existing_doc)
+        previous_doc = copy.deepcopy(existing_doc)
         for section in ("Sensor", "Calibration", "Display"):
             existing_doc.setdefault(section, OrderedDict())
 
         # Prepare updates for [Sensor]
         sensor_updates = {
             "Sensor": OrderedDict({
-                # Keep existing TYPE/SERIAL_NUM if present; only update specific fields
-                "DEVICE": device_value or existing_doc["Sensor"].get("DEVICE", ""),
-                "SENSOR_ID": new_id or existing_doc["Sensor"].get("SENSOR_ID", old_id),
                 "LOCATION": location_value or existing_doc["Sensor"].get("LOCATION", "Unknown"),
             })
         }
@@ -6303,29 +6279,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 for section_name, section_map in merged_doc.items():
                     manager.save(old_id, OrderedDict([(section_name, section_map)]))
 
-        # ---------- Rename folder if SENSOR_ID actually changed ----------
         base_dir = Path(getattr(manager, "base_dir", "sensor_settings"))
         old_dir = base_dir / old_id
         new_dir = base_dir / new_id
-        if new_id != old_id:
-            try:
-                if old_dir.exists():
-                    new_dir.parent.mkdir(parents=True, exist_ok=True)
-                    if new_dir.exists():
-                        for item in old_dir.iterdir():
-                            dest = new_dir / item.name
-                            if dest.exists():
-                                if dest.is_file():
-                                    dest.unlink()
-                                else:
-                                    shutil.rmtree(dest)
-                            shutil.move(str(item), str(dest))
-                        shutil.rmtree(old_dir)
-                    else:
-                        shutil.move(str(old_dir), str(new_dir))
-                printDM(f"[{MODULE}] Renamed settings directory: {old_id} → {new_id}", location="saiWebRoutes")
-            except Exception as e:
-                printDM(f"[{MODULE}] Failed to rename {old_id}→{new_id}: {e}", location="saiWebRoutes")
 
         # ---------- If Pico2 W-backed, push only the relevant blocks ----------
         live_dir = new_dir if new_id != old_id else old_dir
@@ -6335,13 +6291,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             sensor_type = None
 
         if sensor_type in ("picow", "pico2w", "nodus"):
-            device_toml = guess_device_toml(device_value)
+            sensor_device = str((merged_doc.get("Sensor", {}) or {}).get("DEVICE", "") or "")
+            device_toml = guess_device_toml(sensor_device)
             await push_updates_to_picow(
                 base_dir,
                 new_id,
                 device_toml,
                 merged_doc,
                 metric_list,
+                previous_doc=previous_doc,
                 lookup_device_id=old_id,
                 system_mgr=system_mgr,
                 system_root=system_root,
@@ -6914,6 +6872,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             doc = mgr.load(sensor_id) or {}
         except FileNotFoundError:
             doc = {}
+
+        offsets = _filter_changed_device_offsets(doc, device_kind, offsets)
+        if not offsets:
+            return JSONResponse(
+                {"status": "error", "message": "No calibration changes detected."},
+                status_code=400,
+            )
 
         sensor_blk = doc.get("Sensor", {}) if isinstance(doc, dict) else {}
         sensor_type = str(sensor_blk.get("TYPE") or sensor_blk.get("type") or "").strip().lower()
@@ -7860,45 +7825,39 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             system_root = "system_settings"
         sys_host_index = _build_system_hostname_index(system_root)
 
-        device_value   = (form.get("device", "") or "").strip()
-        new_id_field   = (form.get("switch_id_field", old_id) or "").strip()
         location_value = (form.get("location", "") or "").strip()
-        broker_value   = (form.get("broker", "") or "").strip()  # optional/legacy
-
-        new_id = normalize_switch_id(new_id_field)
+        new_id = old_id
 
         existing_doc = manager.load(old_id) or OrderedDict()
         if not isinstance(existing_doc, OrderedDict):
             existing_doc = OrderedDict(existing_doc)
+        previous_doc = copy.deepcopy(existing_doc)
         existing_doc.setdefault("Switch", OrderedDict())
 
-        # --- dynamically collect channel indices from the form
+        # --- dynamically collect editable channel indices from the form
         idxs = set()
-        pat = re.compile(r"^SWITCH_(\d+)_(?:LABEL|Trigger)$")
+        pat = re.compile(r"^SWITCH_(\d+)_(?:LABEL|LAST_STATE|OVERRIDE_SCRIPT)$")
         for key in form.keys():
             m = pat.match(key)
             if m:
                 idxs.add(int(m.group(1)))
-        channel_indices = sorted(idxs) or [1]
+        channel_indices = sorted(idxs)
 
-        # Optional: store CHANNELS
         sw_block = OrderedDict({
-            "DEVICE":          device_value or existing_doc["Switch"].get("DEVICE", ""),
-            "SWITCH_DEVICE_ID": new_id or existing_doc["Switch"].get("SWITCH_DEVICE_ID", old_id),
             "SWITCH_LOCATION": location_value or existing_doc["Switch"].get("SWITCH_LOCATION", "Unknown"),
-            "CHANNELS":        len(channel_indices),
         })
-        if "BROKER" in existing_doc.get("Switch", {}) or broker_value:
-            sw_block["BROKER"] = broker_value or existing_doc["Switch"].get("BROKER", "")
 
         # Merge per-channel updates
         for i in channel_indices:
             label_key   = f"SWITCH_{i}_LABEL"
-            trigger_key = f"SWITCH_{i}_Trigger"
+            last_state_key = f"SWITCH_{i}_LAST_STATE"
+            override_key = f"SWITCH_{i}_OVERRIDE_SCRIPT"
             if label_key in form:
                 sw_block[label_key] = (form.get(label_key, "") or "").strip()
-            if trigger_key in form:
-                sw_block[trigger_key] = (form.get(trigger_key, "") or "").strip()
+            if last_state_key in form:
+                sw_block[last_state_key] = str(form.get(last_state_key, "") or "").strip().lower() in {"1", "true", "on", "yes"}
+            if override_key in form:
+                sw_block[override_key] = str(form.get(override_key, "") or "").strip().lower() in {"1", "true", "on", "yes"}
 
         merged_doc = deep_merge_ordered(OrderedDict(existing_doc), OrderedDict({"Switch": sw_block}))
 
@@ -7914,43 +7873,32 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 for section_name, section_map in merged_doc.items():
                     manager.save(old_id, OrderedDict([(section_name, section_map)]))
 
-        # ---- handle directory rename if SWITCH_DEVICE_ID changed ----
         base_dir = Path(getattr(manager, "base_dir", "switch_settings"))
         old_dir = base_dir / old_id
         new_dir = base_dir / new_id
-        if new_id != old_id:
-            try:
-                if old_dir.exists():
-                    new_dir.parent.mkdir(parents=True, exist_ok=True)
-                    if new_dir.exists():
-                        for item in old_dir.iterdir():
-                            dest = new_dir / item.name
-                            if dest.exists():
-                                if dest.is_file():
-                                    dest.unlink()
-                                else:
-                                    shutil.rmtree(dest)
-                            shutil.move(str(item), str(dest))
-                        shutil.rmtree(old_dir)
-                    else:
-                        shutil.move(str(old_dir), str(new_dir))
-                printDM(f"[{MODULE}] Renamed switch settings directory: {old_id} → {new_id}", location=MODULE)
-            except Exception as e:
-                printDM(f"[{MODULE}] Failed to rename {old_id}→{new_id}: {e}", location=MODULE)
 
         switch_type = str((merged_doc.get("Switch", {}) or {}).get("TYPE", "") or "").strip().lower()
         if switch_type in ("picow", "pico2w", "nodus"):
-            remote_updates = [("Switch", key, value) for key, value in sw_block.items()]
-            await push_nodus_settings_batch(
-                device_id=old_id,
-                device_type="switch",
-                setting_file_key="switch",
-                updates=remote_updates,
-                sensor_file_name=None,
-                system_mgr=system_mgr,
-                system_root=system_root,
-                sys_host_index=sys_host_index,
-            )
+            existing_switch_block = previous_doc.get("Switch", {}) if isinstance(previous_doc, dict) else {}
+            remote_updates = [
+                ("Switch", key, value)
+                for key, value in sw_block.items()
+                if not _nodus_values_match(
+                    existing_switch_block.get(key) if isinstance(existing_switch_block, dict) else None,
+                    value,
+                )
+            ]
+            if remote_updates:
+                await push_nodus_settings_batch(
+                    device_id=old_id,
+                    device_type="switch",
+                    setting_file_key="switch",
+                    updates=remote_updates,
+                    sensor_file_name=None,
+                    system_mgr=system_mgr,
+                    system_root=system_root,
+                    sys_host_index=sys_host_index,
+                )
 
         return RedirectResponse(url="/", status_code=303)
 

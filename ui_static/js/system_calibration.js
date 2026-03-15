@@ -64,6 +64,9 @@ window.initSystemCalibrationModal = async function(modalEl) {
       const raw = input.value;
       const value = raw === "" ? 0 : Number(raw);
       if (!Number.isFinite(value)) return;
+      const initialRaw = Object.prototype.hasOwnProperty.call(input.dataset, "initial") ? input.dataset.initial : input.defaultValue;
+      const initial = initialRaw === "" ? 0 : Number(initialRaw);
+      if (Number.isFinite(initial) && Math.abs(value - initial) < 1e-9) return;
       results.push({ key, value });
     });
     return results;
@@ -95,11 +98,10 @@ window.initSystemCalibrationModal = async function(modalEl) {
           }),
         });
 
-        if (!resp.ok) {
-          throw new Error("HTTP " + resp.status);
-        }
-
         const result = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          throw new Error(result.message || ("HTTP " + resp.status));
+        }
         const status = String(result.status || "").toLowerCase();
 
         if (status === "success" || status === "ok") {
@@ -116,7 +118,7 @@ window.initSystemCalibrationModal = async function(modalEl) {
       } catch (err) {
         console.error("Device calibration apply error", err);
         if (devCalStatus) {
-          devCalStatus.textContent = "Error applying device calibration.";
+          devCalStatus.textContent = err && err.message ? err.message : "Error applying device calibration.";
         }
       } finally {
         devCalApplyBtn.disabled = false;

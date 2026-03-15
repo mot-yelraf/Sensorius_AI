@@ -36,7 +36,7 @@ def canonicalize_metric_name(metric: str, gauge_config: dict | None = None) -> s
         "PPFD": "Estimated PPFD",
         "Dewpoint Deficit": "Dew Point Deficit",
         "dewVPD Risk": "DewVPD Risk",
-        "Soil Moisture": "Soil-Moisture",
+        "Soil-Moisture": "Soil Moisture",
     }
     aliased = aliases.get(name)
     if aliased in cfg:
@@ -3506,18 +3506,6 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  });"
     yield "}"
     
-    yield "if (typeof window.postNodusSetting !== 'function') {"
-    yield "  window.postNodusSetting = async function(host, filename, section, key, value){"
-    yield "    const url = `http://${host}:8000/set-nodus-setting`;"
-    yield "    const res = await fetch(url, {"
-    yield "      method: 'POST',"
-    yield "      headers: {'Content-Type':'application/json'},"
-    yield "      body: JSON.stringify({ filename, section, key, value })"
-    yield "    });"
-    yield "    if (!res.ok) throw new Error(await res.text());"
-    yield "    return true;"
-    yield "  };"
-    yield "}"
 
     # --- Switch Settings modal section switching + lazy automation init ---
     yield "window.initSwitchSettingsModal = function(modalEl){"
@@ -4465,18 +4453,6 @@ def core_helpers_html() -> str:
         "      if (!c){ c = document.createElement('div'); c.className='toast-container'; document.body.appendChild(c); }"
         "      var t = document.createElement('div'); t.className = 'toast ' + (type||''); t.textContent = text||'';"
         "      c.appendChild(t); setTimeout(function(){ t.remove(); if(!c.children.length) c.remove(); }, 2500);"
-        "    };"
-        "  }"
-        "  if (typeof window.postNodusSetting !== 'function') {"
-        "    window.postNodusSetting = async function(host, filename, section, key, value){"
-        "      var url = 'http://' + host + ':8000/set-nodus-setting';"
-        "      var res = await fetch(url, {"
-        "        method: 'POST',"
-        "        headers: {'Content-Type':'application/json'},"
-        "        body: JSON.stringify({ filename: filename, section: section, key: key, value: value })"
-        "      });"
-        "      if (!res.ok) throw new Error(await res.text());"
-        "      return true;"
         "    };"
         "  }"
         "})();"

@@ -14,6 +14,7 @@ import re
 import socket
 import time
 import threading
+import uuid
 try:
     import tomllib
 except Exception:
@@ -210,6 +211,10 @@ class saiMQTTIngest:
         self._callback_lock = threading.RLock()
         self._callback_filters: set[str] = set()
         self._connected_evt = asyncio.Event()
+        self._config_lock = threading.RLock()
+        self.config_ack_by_message: dict[str, dict] = {}
+        self.config_result_by_message: dict[str, dict] = {}
+        self.config_message_device: dict[str, str] = {}
         self._calibration_lock = threading.RLock()
         self.calibration_ack_by_message: dict[str, dict] = {}
         self.calibration_result_by_message: dict[str, dict] = {}
@@ -401,25 +406,14 @@ class saiMQTTIngest:
             return False
 
     def _use_legacy_pollers_for(self, host_like: str | None) -> bool:
-        base = self._normalize_host_key(host_like)
-        if not base:
-            return False
-        return (base in self._legacy_firmware_hosts) and self._legacy_pollers_allowed()
+        return False
 
     def _allow_background_http_meta_discovery(self) -> bool:
         """
-        Normal startup discovery should be MQTT-meta-first.
-        HTTP /itaot-meta remains available for Add Device and explicit refreshes.
+        Runtime Nodus discovery/settings must stay on MQTT.
+        AP-mode onboarding uses /itaot-meta and /itaot-init outside this ingest loop.
         """
-        try:
-            raw = self.settings.get_setting(
-                "SensorNetwork",
-                "BACKGROUND_HTTP_META_DISCOVERY",
-                False,
-            ) if self.settings else False
-        except Exception:
-            raw = False
-        return _to_bool(raw, default=False)
+        return False
 
     @staticmethod
     def _normalize_liveness_state(status: str | None) -> str:
@@ -769,6 +763,56 @@ class saiMQTTIngest:
                 self.calibration_message_device[message_id] = device
         return {"ok": ok, "message_id": message_id, "topic": topic, "payload": envelope}
 
+    def publish_nodus_config(
+        self,
+        device_id: str,
+        *,
+        payload: dict,
+        message_id: str | None = None,
+        qos: int = 1,
+        restart: bool = False,
+        onboard_token: str = "",
+    ) -> dict:
+        device = str(device_id or "").strip()
+        if not device or not isinstance(payload, dict):
+            return {"ok": False, "message_id": "", "topic": ""}
+        if not message_id:
+            message_id = f"cfg-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+        envelope = {
+            "message_id": message_id,
+            "payload": dict(payload),
+            "restart": bool(restart),
+        }
+        token = str(onboard_token or "").strip()
+        if token:
+            envelope["onboard_token"] = token
+        topic = f"nodus/{device}/config/set"
+        ok = bool(self.publish_json(topic, envelope, qos=qos, retain=False, use_ha_client=False))
+        if ok:
+            with self._config_lock:
+                self.config_message_device[message_id] = device
+        return {"ok": ok, "message_id": message_id, "topic": topic, "payload": envelope}
+
+    async def wait_for_config_ack(self, message_id: str, timeout: float = 3.0) -> dict | None:
+        deadline = time.time() + max(float(timeout), 0.0)
+        while time.time() < deadline:
+            with self._config_lock:
+                hit = self.config_ack_by_message.get(message_id)
+                if hit is not None:
+                    return dict(hit)
+            await asyncio.sleep(0.05)
+        return None
+
+    async def wait_for_config_result(self, message_id: str, timeout: float = 8.0) -> dict | None:
+        deadline = time.time() + max(float(timeout), 0.0)
+        while time.time() < deadline:
+            with self._config_lock:
+                hit = self.config_result_by_message.get(message_id)
+                if hit is not None:
+                    return dict(hit)
+            await asyncio.sleep(0.05)
+        return None
+
     async def wait_for_calibration_ack(self, message_id: str, timeout: float = 3.0) -> dict | None:
         deadline = time.time() + max(float(timeout), 0.0)
         while time.time() < deadline:
@@ -879,6 +923,32 @@ class saiMQTTIngest:
                 return False
 
             payload = data if isinstance(data, dict) else {}
+            now = time.time()
+            with self._config_lock:
+                if family == "config" and leaf == "ack":
+                    message_id = str(payload.get("message_id") or "").strip()
+                    if message_id:
+                        self.config_ack_by_message[message_id] = {
+                            "message_id": message_id,
+                            "device_id": device_id,
+                            "accepted": bool(payload.get("accepted", False)),
+                            "duplicate": bool(payload.get("duplicate", False)),
+                            "error": str(payload.get("error") or "").strip(),
+                            "topic": topic,
+                            "received_at": now,
+                        }
+                elif family == "config" and leaf == "result":
+                    message_id = str(payload.get("message_id") or "").strip()
+                    if message_id:
+                        self.config_result_by_message[message_id] = {
+                            "message_id": message_id,
+                            "device_id": device_id,
+                            "applied": bool(payload.get("applied", False)),
+                            "updated": payload.get("updated"),
+                            "error": str(payload.get("error") or "").strip(),
+                            "topic": topic,
+                            "received_at": now,
+                        }
             event = {
                 "event_type": event_type,
                 "topic": topic,
@@ -1615,7 +1685,7 @@ class saiMQTTIngest:
         """
         Handle retained MQTT messages without immediately re-enrolling stale hosts.
         Policy:
-          - retained availability must pass /hayd once before auto-enroll
+          - retained availability alone does not auto-enroll a host
           - retained data/state can promote a host after 2 sightings
         """
         base = self._normalize_host_key(host_like)
@@ -1650,69 +1720,16 @@ class saiMQTTIngest:
 
     async def _validate_retained_availability_and_add(self, base: str) -> None:
         """
-        For retained availability, only enroll after a quick /hayd validation.
-        This blocks stale retained ghosts while letting real devices onboard.
+        Retained availability alone is not enough to verify a host via HTTP.
+        Treat it as a lightweight MQTT discovery hint and enroll without
+        contacting the device over the network.
         """
         try:
             if not base or base in (self.mqtt_clients or set()):
                 return
-
-            def _parse_hayd_ok(data: object) -> bool:
-                if not isinstance(data, dict):
-                    return False
-                status = str((data or {}).get("STATUS", "")).strip().lower()
-                return status in {"ok", "online", "ready"}
-
-            targets: list[str] = []
-            mdns = mdns_hostname(base)
-            if mdns:
-                targets.append(mdns)
-            if base and base != mdns:
-                targets.append(base)
-            try:
-                ip_cached = (self._host_ip_cache or {}).get(base)
-                if ip_cached:
-                    targets.append(ip_cached)
-            except Exception:
-                pass
-            try:
-                ip_itaot = (self._host_ipv4addr or {}).get(base)
-                if ip_itaot:
-                    targets.append(ip_itaot)
-            except Exception:
-                pass
-
-            seen = set()
-            ordered_targets = []
-            for t in targets:
-                tt = str(t or "").strip()
-                if tt and tt not in seen:
-                    seen.add(tt)
-                    ordered_targets.append(tt)
-
-            timeout_cfg = httpx.Timeout(connect=1.5, read=1.5, write=1.5, pool=1.0)
-            async with httpx.AsyncClient(timeout=timeout_cfg, http2=False) as client:
-                for target in ordered_targets:
-                    try:
-                        resp = await client.get(f"http://{target}:8000/hayd", headers={"Connection": "close"})
-                        if resp.status_code != 200:
-                            continue
-                        try:
-                            data = resp.json()
-                        except Exception:
-                            continue
-                        if _parse_hayd_ok(data):
-                            if target.replace(".", "").isdigit():
-                                self._host_ip_cache[base] = target
-                            self._maybe_add_mqtt_client(base)
-                            if DEBUG:
-                                printDM(f"[retained] availability validated via /hayd: {base} ({target})", location=MODULE)
-                            return
-                    except Exception:
-                        continue
-
+            self._maybe_add_mqtt_client(base)
             if DEBUG:
-                printDM(f"[retained] availability validation failed: {base}", location=MODULE)
+                printDM(f"[retained] availability promoted via MQTT hint: {base}", location=MODULE)
         finally:
             self._retained_avail_probe_inflight.discard(base)
 
@@ -3439,40 +3456,22 @@ class saiMQTTIngest:
 
     async def force_refresh_device_metadata(self, sensor_or_host: str, *, port: int = 8000, timeout_sec: float = 6.0) -> bool:
         """
-        Immediately GET /itaot-meta from the given device (sensor_id or hostname),
-        update expected_gauge_map, topics, and host status using the same path as discovery.
-        Returns True if refreshed OK.
+        Runtime refreshes are MQTT-only.
+        This compatibility shim keeps existing callers from failing but does not
+        perform HTTP requests against Nodus devices.
         """
-        hostname = self._resolve_hostname_for(sensor_or_host)
-        if not hostname:
-            if DEBUG:
-                printDM("[force_refresh] could not resolve hostname", location=MODULE)
-            return False
-
-        url = f"http://{hostname}:{port}/itaot-meta?t={int(time.time())}"
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(connect=2.0, read=timeout_sec, write=2.0, pool=2.0)) as client:
-                resp = await client.get(url, headers={"Accept": "application/json"})
-                if resp.status_code != 200:
-                    if DEBUG:
-                        printDM(f"[force_refresh] {hostname} returned {resp.status_code}: {resp.text[:200]}", location=MODULE)
-                    return False
-                try:
-                    info = resp.json()
-                except Exception:
-                    # salvage once if needed
-                    txt = resp.text
-                    s = txt.find("{"); e = txt.rfind("}")
-                    info = json.loads(txt[s:e+1]) if (s != -1 and e > s) else {}
+            hostname = self._resolve_hostname_for(sensor_or_host)
+            if not hostname:
+                if DEBUG:
+                    printDM("[force_refresh] could not resolve hostname", location=MODULE)
+                return False
+            self.add_client(hostname)
         except Exception as exc:
             if DEBUG:
-                printDM(f"[force_refresh] error for {hostname}: {exc}", location=MODULE)
+                printDM(f"[force_refresh] mqtt-only refresh shim failed for {sensor_or_host}: {exc}", location=MODULE)
             return False
-
-        ok, _ = self._parse_and_subscribe_from_http_meta(info, hostname)
-        if ok and DEBUG:
-            printDM(f"[force_refresh] updated metadata for {hostname}", location=MODULE)
-        return ok
+        return False
 
     def _ensure_ha_switch_channel(self, switch_id: str, channel_id: str, *, label_override: str | None = None) -> None:
         if not self.topic_map or not switch_id or not channel_id:
@@ -4196,520 +4195,90 @@ class saiMQTTIngest:
     async def mqtt_discovery_loop(self):
         """
         Discovery + liveness loop.
-          Typical startup is MQTT-meta-first and avoids background /itaot-meta probes.
-          HTTP /itaot-meta is reserved for Add Device, explicit refreshes, and
-          optional legacy fallback when BACKGROUND_HTTP_META_DISCOVERY is enabled.
-        Implementation details:
-          - Single host target per tick (cached IP preferred).
-          - No HTTP keep-alive; small connection pool.
-          - Close every connection; short timeouts.
-          - Gentle pacing (≈29.33s per host).
+          Runtime behavior is MQTT-only.
+          AP-mode onboarding uses HTTP outside this ingest loop.
         """
-        from datetime import datetime
-        import logging, random, time, json, asyncio, inspect, httpx
+        import random
 
-        logging.getLogger("httpx").setLevel(logging.WARNING)
-
-        # ───────────── User-tunable constants (top) ─────────────
-        PORT = 8000
-        TICK_INTERVAL_S = 29.33               # per-host cadence
-        HAYD_TIMEOUT_S  = 7.0
-        ITAOT_TIMEOUT_S = 7.0
-        MAX_ITAOT_RETRIES = 1                 # single try keeps bursts down
+        TICK_INTERVAL_S = 29.33
         OFFLINE_RETRIES = 5
-        MQTT_GRACE_S   = 120.0                # if /hayd fails but we saw recent MQTT, keep ONLINE
-        # Global spacing between /itaot onboarding parses across hosts.
-        # Keeps startup/add-device bursts from starving the event loop.
-        try:
-            cfg_spacing = self.settings.get_setting("SensorNetwork", "DISCOVERY_ONBOARD_SPACING_SEC", 12.0) if self.settings else 12.0
-            ITAOT_HOST_SPACING_S = float(cfg_spacing or 12.0)
-        except Exception:
-            ITAOT_HOST_SPACING_S = 12.0
-        if ITAOT_HOST_SPACING_S < 0.0:
-            ITAOT_HOST_SPACING_S = 0.0
-        # ───────────── Internal defaults / guards ─────────────
-        REQUEST_HEADERS = {
-            "Accept": "application/json",
-            "Connection": "close",
-            "User-Agent": "Sensorius/1.0",
-        }
-        if not hasattr(self, "last_mqtt_seen"):       self.last_mqtt_seen = {}
-        if not hasattr(self, "host_to_peer_ids"):     self.host_to_peer_ids = {}
-        if not hasattr(self, "device_status"):        self.device_status = {}
-        if not hasattr(self, "discovery_failures"):   self.discovery_failures = {}
-        if not hasattr(self, "last_check_time"):      self.last_check_time = {}
-        if not hasattr(self, "device_offline_count"): self.device_offline_count = {}
-        if not hasattr(self, "_host_ip_cache"):       self._host_ip_cache = {}
-        if not hasattr(self, "_host_ipv4addr"):      self._host_ipv4addr = {}
+        MQTT_GRACE_S = 120.0
 
-        allow_http_meta_discovery = self._allow_background_http_meta_discovery()
+        if not hasattr(self, "last_mqtt_seen"):
+            self.last_mqtt_seen = {}
+        if not hasattr(self, "host_to_peer_ids"):
+            self.host_to_peer_ids = {}
+        if not hasattr(self, "device_status"):
+            self.device_status = {}
+        if not hasattr(self, "discovery_failures"):
+            self.discovery_failures = {}
+        if not hasattr(self, "last_check_time"):
+            self.last_check_time = {}
+        if not hasattr(self, "device_offline_count"):
+            self.device_offline_count = {}
 
-        # Per-host state for optional legacy HTTP fallback:
-        # - first_hayd_done: set True after the first successful /hayd since process start
-        # - onboarding_done: set True after the first /itaot post-startup hayd
-        # - last_hayd_ok: tracks last tick result to detect recovery edges
-        first_hayd_done:   dict[str, bool]  = {}
-        onboarding_done:   dict[str, bool]  = {}
-        last_hayd_ok:      dict[str, bool]  = {}
-        if not hasattr(self, "_disc_sem"):
-            self._disc_sem = asyncio.Semaphore(1)
-
-        itaot_due_at: dict[str, float] = {}
-        next_itaot_slot_at: float = 0.0
-        # ───────────── host helpers ─────────────
-        async def _ipv4_first_maybe_async(host_in: str, port_num: int) -> str | None:
-            try:
-                res = self._ipv4_first(host_in, port_num)
-                if inspect.isawaitable(res):
-                    return await res
-                return res
-            except Exception:
-                return None
-
-        async def _pick_host_for(hostname: str, port_num: int) -> tuple[str, str]:
-            """
-            Returns (host_to_use, base_key)
-            base_key is canonical and should be used for cache/status dicts.
-            """
-            base = self._normalize_host_key(hostname)  # canonical: no .local
-            cached = self._host_ip_cache.get(base)
-            if cached:
-                return cached, base
-
-            # candidates/resolve
-            try:
-                candidates = list(self._host_candidates(hostname))
-            except Exception:
-                candidates = [hostname]
-            base_candidate = candidates[0] if candidates else hostname
-            ip = await _ipv4_first_maybe_async(base_candidate, port_num)
-            return (ip or base_candidate), base
-
-        async def _probe_hayd(client: httpx.AsyncClient, hostname: str) -> bool:
-            async with self._disc_sem:
-                host, base = await _pick_host_for(hostname, PORT)
-
-                def _is_ip(h: str | None) -> bool:
-                    try:
-                        return bool(h) and h.replace(".", "").isdigit()
-                    except Exception:
-                        return False
-
-                is_ip = _is_ip(host)
-
-                # Determine if this IP came from cache (so we only invalidate cache on failures of cached IPs)
-                cached_ip = None
-                try:
-                    cached_ip = self._host_ip_cache.get(base)
-                except Exception:
-                    cached_ip = None
-                host_was_cached = bool(cached_ip) and (cached_ip == host)
-
-                # One-shot fallback hostname target (deterministic)
-                fallback_host = hostname if str(hostname).endswith(".local") else f"{hostname}.local"
-
-                t0 = time.monotonic()
-                try:
-                    r = await client.get(
-                        f"http://{host}:{PORT}/hayd",
-                        timeout=HAYD_TIMEOUT_S,
-                        headers=REQUEST_HEADERS,
-                    )
-                    took = time.monotonic() - t0
-                    if DEBUG:
-                        printDM(f"→ {host}/hayd | {r} took {took:.2f}s", location=MODULE)
-
-                    if r.status_code != 200:
-                        # treat non-200 as failure without throwing a synthetic RequestError
-                        return False
-
-                    try:
-                        data = r.json()
-                    except Exception:
-                        return False
-
-                    status_text = str((data or {}).get("STATUS", "")).strip().lower()
-                    ok = status_text in {"ok", "online", "ready"}
-
-                    # Cache IP only on confirmed success
-                    if ok and is_ip:
-                        self._host_ip_cache[base] = host
-
-                    return ok
-
-                except (httpx.TimeoutException, httpx.RequestError) as e:
-                    took = time.monotonic() - t0
-                    if DEBUG:
-                        printDM(
-                            f"[mqtt_discovery_loop] /hayd error for {host}: {type(e).__name__}: {e} took {took:.2f}s",
-                            location=MODULE,
-                        )
-
-                    # If a cached IP failed, invalidate cache; then still try .local fallback once.
-                    if is_ip and host_was_cached:
-                        self._host_ip_cache.pop(base, None)
-
-                    # One-shot fallback to hostname (.local), even when the primary target was not an IP.
-                    t1 = time.monotonic()
-                    try:
-                        r2 = await client.get(
-                            f"http://{fallback_host}:{PORT}/hayd",
-                            timeout=HAYD_TIMEOUT_S,
-                            headers=REQUEST_HEADERS,
-                        )
-                        took2 = time.monotonic() - t1
-                        if DEBUG:
-                            printDM(f"→ {fallback_host}/hayd | {r2} took {took2:.2f}s (fallback)", location=MODULE)
-
-                        if r2.status_code != 200:
-                            return False
-
-                        try:
-                            data2 = r2.json()
-                        except Exception:
-                            return False
-
-                        status2 = str((data2 or {}).get("STATUS", "")).strip().lower()
-                        return status2 in {"ok", "online", "ready"}
-                    except Exception:
-                        return False
-
-                    return False
-
-                finally:
-                    self._feed_watchdog("MQTT Discovery Loop")
-
-
-        async def _probe_http_meta(client: httpx.AsyncClient, hostname: str) -> bool:
-            """
-            Return True if a valid payload was received and parsed (even if no new subs).
-
-            Behavior:
-              - Use hostname first for discovery (2-3 attempts).
-              - If hostname fails, resolve mDNS IPv4 and verify against cached ipv4addr.
-              - If mDNS IP matches, try it once; if it fails, try cached ipv4addr once.
-            """
-            async with self._disc_sem:
-                # Canonical identity used for status/cache dicts
-                base = self._normalize_host_key(hostname)  # e.g. "apvpd-luvk44" (no .local)
-
-                def _is_ip(h: str | None) -> bool:
-                    try:
-                        return bool(h) and h.replace(".", "").isdigit()
-                    except Exception:
-                        return False
-
-                # Prefer mDNS hostname first for bare Nodus ids like "apvpd-xxxxxx".
-                # On many LANs the bare hostname is not resolvable, but "<host>.local" is.
-                try:
-                    requested_host = (hostname or base or "").strip()
-                except Exception:
-                    requested_host = str(hostname or "").strip()
-                if not requested_host:
-                    requested_host = base
-
-                if _is_ip(requested_host):
-                    primary_host = requested_host
-                    secondary_host = ""
-                elif requested_host.endswith(".local"):
-                    primary_host = requested_host
-                    secondary_host = requested_host[:-6].strip()
-                else:
-                    primary_host = f"{requested_host}.local"
-                    secondary_host = requested_host
-
-                # mDNS host (used for resolution and as secondary URL candidate)
-                mdns_host = primary_host if str(primary_host).endswith(".local") else f"{primary_host}.local"
-
-                async def _fetch_meta(target_host: str, retries: int) -> tuple[bool, str]:
-                    """
-                    Returns (ok, err_type) where err_type is '' on ok,
-                    otherwise a short string for debug context.
-                    """
-                    url = f"http://{target_host}:{PORT}/itaot-meta"
-                    max_tries = max(1, int(retries))
-                    last_err = "NoValidPayload"
-                    for attempt in range(max_tries):
-                        # Feed before each network attempt so long retry chains don't trip watchdog.
-                        self._feed_watchdog("MQTT Discovery Loop")
-                        await asyncio.sleep(0)
-                        t0 = time.monotonic()
-                        try:
-                            resp = await client.get(url, timeout=ITAOT_TIMEOUT_S, headers=REQUEST_HEADERS)
-                            took = time.monotonic() - t0
-                            if DEBUG:
-                                printDM(
-                                    f"→ {target_host}/itaot-meta took {took:.2f}s (try {attempt+1}/{max_tries})",
-                                    location=MODULE,
-                                )
-
-                            if resp.status_code != 200:
-                                await asyncio.sleep(0)
-                                continue
-
-                            # Parse JSON (tolerate stray text)
-                            try:
-                                payload = resp.json()
-                            except Exception:
-                                txt = resp.text or ""
-                                s = txt.find("{")
-                                eidx = txt.rfind("}")
-                                if s != -1 and eidx > s:
-                                    payload = json.loads(txt[s : eidx + 1])
-                                else:
-                                    await asyncio.sleep(0)
-                                    continue
-
-                            try:
-                                ok_from_parser, _new = self._parse_and_subscribe_from_http_meta(payload, hostname)
-                            except Exception as e:
-                                ok_from_parser = False
-                                if DEBUG:
-                                    printDM(f"[mqtt_discovery_loop] /itaot-meta parse error: {e}", location=MODULE)
-
-                            if ok_from_parser:
-                                self._feed_watchdog("MQTT Discovery Loop")
-                                return True, ""
-
-                            last_err = "NoValidPayload"
-                            await asyncio.sleep(0)
-
-                        except (httpx.TimeoutException, httpx.RequestError) as e:
-                            took = time.monotonic() - t0
-                            if DEBUG:
-                                printDM(
-                                    f"[mqtt_discovery_loop] /itaot-meta failed for {target_host}: {type(e).__name__}: {e} took {took:.2f}s",
-                                    location=MODULE,
-                                )
-                            last_err = type(e).__name__
-                            await asyncio.sleep(0)
-                            continue
-                        except Exception as e:
-                            if DEBUG:
-                                printDM(
-                                    f"[mqtt_discovery_loop] /itaot-meta unexpected for {target_host}: {type(e).__name__}: {e}",
-                                    location=MODULE,
-                                )
-                            last_err = type(e).__name__
-                            await asyncio.sleep(0)
-                            return False, type(e).__name__
-                        finally:
-                            self._feed_watchdog("MQTT Discovery Loop")
-
-                    return False, last_err
-
-                try:
-                    # 1) Preferred hostname first (mDNS for bare ids)
-                    ok, _err = await _fetch_meta(primary_host, retries=3)
-                    if ok:
-                        return True
-
-                    # 1b) Secondary hostname fallback before any IP checks.
-                    # For primary ".local", secondary is bare host. For primary bare host, secondary may be ".local".
-                    for host_alt in (secondary_host, mdns_host):
-                        self._feed_watchdog("MQTT Discovery Loop")
-                        host_alt = (host_alt or "").strip()
-                        if not host_alt or host_alt == primary_host:
-                            continue
-                        ok_local, _err_local = await _fetch_meta(host_alt, retries=2)
-                        if ok_local:
-                            return True
-
-                    # 2) Resolve mDNS IP and verify it matches cached ipv4addr.
-                    mdns_ip = await _ipv4_first_maybe_async(mdns_host, PORT)
-                    cached_ipv4 = None
-                    try:
-                        cached_ipv4 = self._host_ipv4addr.get(base)
-                    except Exception:
-                        cached_ipv4 = None
-
-                    mdns_ok_to_try = bool(mdns_ip and cached_ipv4 and mdns_ip == cached_ipv4)
-                    if mdns_ok_to_try:
-                        self._feed_watchdog("MQTT Discovery Loop")
-                        ok2, _err2 = await _fetch_meta(mdns_ip, retries=2)
-                        if ok2:
-                            self._host_ip_cache[base] = mdns_ip
-                            return True
-                    elif DEBUG and mdns_ip and cached_ipv4 and mdns_ip != cached_ipv4:
-                        printDM(
-                            f"[mqtt_discovery_loop] mdns ip {mdns_ip} != cached ipv4addr {cached_ipv4} for {base}",
-                            location=MODULE,
-                        )
-
-                    # 3) Final fallback: cached ipv4addr.
-                    if cached_ipv4:
-                        self._feed_watchdog("MQTT Discovery Loop")
-                        ok3, _err3 = await _fetch_meta(cached_ipv4, retries=2)
-                        if ok3:
-                            self._host_ip_cache[base] = cached_ipv4
-                            return True
-
-                    return False
-
-                finally:
-                    self._feed_watchdog("MQTT Discovery Loop")
-
-
-        # ───────────── main loop ─────────────
         try:
             await asyncio.sleep(1.0)
-            timeout_cfg = httpx.Timeout(connect=2.0, read=4.0, write=4.0, pool=2.0)
-            limits_cfg  = httpx.Limits(max_keepalive_connections=0, max_connections=6)
+            while True:
+                if not getattr(self, "mqtt_clients", None):
+                    if DEBUG:
+                        printDM("[mqtt_discovery_loop] No clients found, skipping tick", location=MODULE)
+                else:
+                    for hostname in list(self.mqtt_clients):
+                        now_mono = time.monotonic()
+                        base = self._normalize_host_key(hostname) or str(hostname)
+                        try:
+                            if _looks_like_channel_id(hostname):
+                                self.mqtt_clients.discard(hostname)
+                                continue
 
-            async with httpx.AsyncClient(timeout=timeout_cfg, limits=limits_cfg, http2=False) as client:
-            #async with httpx.AsyncClient(limits=limits_cfg, http2=False) as client:
-                while True:
-                    if not getattr(self, "mqtt_clients", None):
-                        if DEBUG:
-                            printDM("[mqtt_discovery_loop] No clients found, skipping tick", location=MODULE)
-                    else:
-                        for hostname in list(self.mqtt_clients):
-                            now_mono = time.monotonic()
-                            base = self._normalize_host_key(hostname) or str(hostname)
-                            try:
-                                if _looks_like_channel_id(hostname):
-                                    # Defensive cleanup: old runtimes may have channel ids in mqtt_clients.
-                                    self.mqtt_clients.discard(hostname)
-                                    continue
-                                self._feed_watchdog("MQTT Discovery Loop")
-                                await asyncio.sleep(0)
-                                base = self._normalize_host_key(hostname)
+                            self._feed_watchdog("MQTT Discovery Loop")
+                            await asyncio.sleep(0)
+                            base = self._normalize_host_key(hostname)
+                            if not base:
+                                continue
 
-                                # per-host cadence
-                                if (now_mono - self.last_check_time.get(base, 0.0)) < TICK_INTERVAL_S:
-                                    continue
-                                self.last_check_time[base] = now_mono
+                            if (now_mono - self.last_check_time.get(base, 0.0)) < TICK_INTERVAL_S:
+                                continue
+                            self.last_check_time[base] = now_mono
 
-                                now_ts = time.time()
-                                legacy_mode = self._use_legacy_pollers_for(base)
-                                if (base in self._legacy_firmware_hosts) and (not self._legacy_pollers_allowed()):
-                                    self._mark_host_status(base, "migration_required")
-                                    continue
+                            now_ts = time.time()
+                            derived = self._apply_heartbeat_timeout_state(base, now_ts=now_ts)
+                            if (not self.nodus_debug_data_only) and self.heartbeat_stale.get(base) and derived == "online":
+                                derived = "degraded"
 
-                                # New default path: heartbeat/availability/data-derived liveness; no /hayd or /itaot polling.
-                                if not legacy_mode:
-                                    derived = self._apply_heartbeat_timeout_state(base, now_ts=now_ts)
-                                    if (not self.nodus_debug_data_only) and self.heartbeat_stale.get(base) and derived == "online":
-                                        # Fresh data/availability recovery without fresh heartbeat stays degraded until heartbeat catches up.
-                                        derived = "degraded"
-                                    self._mark_host_status(base, derived)
+                            if derived in {"offline", "unknown"}:
+                                peers = self.host_to_peer_ids.get(base, [])
+                                recent = any((now_ts - self.last_mqtt_seen.get(pid, 0.0)) < MQTT_GRACE_S for pid in peers)
+                                if recent:
+                                    self.device_offline_count[base] = 0
+                                    self._mark_host_status(base, "degraded")
                                     continue
 
-                                # Legacy compatibility path (explicitly marked hosts only, pre-sunset).
-                                # 1) Prefer MQTT /availability; fallback to /hayd if unseen
-                                avail = self._get_nodus_availability(base)
-                                if avail is None:
-                                    hayd_ok = await _probe_hayd(client, hostname)
+                                n = self.device_offline_count.get(base, 0) + 1
+                                self.device_offline_count[base] = n
+                                self.discovery_failures[base] = now_mono
+                                if n < OFFLINE_RETRIES:
+                                    self._mark_host_status(base, "degraded")
                                 else:
-                                    hayd_ok = (avail == "online")
+                                    self._mark_host_status(base, "offline")
+                                continue
 
-                                # Track recovery edges (FAIL -> OK)
-                                prev_ok = last_hayd_ok.get(base, False)
-                                last_hayd_ok[base] = hayd_ok
-                                recovered = bool(hayd_ok and not prev_ok)
+                            self.device_offline_count[base] = 0
+                            self._mark_host_status(base, derived)
 
-                                # Optional legacy behavior: after recovery, allow one
-                                # background /itaot-meta refresh if explicitly enabled.
-                                if allow_http_meta_discovery and recovered and onboarding_done.get(base, False):
-                                    itaot_due_at[base] = time.monotonic() + 5.0
+                        except Exception as host_loop_err:
+                            self._feed_watchdog("MQTT Discovery Loop")
+                            printDM(
+                                f"[mqtt_discovery_loop] Unexpected error while probing {base}: {host_loop_err}",
+                                location=MODULE,
+                            )
 
-                                # 2) Startup path for legacy HTTP fallback
-                                if not first_hayd_done.get(base, False):
-                                    if hayd_ok:
-                                        first_hayd_done[base] = True
-                                        if allow_http_meta_discovery:
-                                            onboarding_done.setdefault(base, False)
-                                            itaot_due_at[base] = time.monotonic() + 5.0
-                                        self._mark_host_status(base, "unknown")
-                                    else:
-                                        # still before first hayd success; rely on MQTT grace for status
-                                        pids = self.host_to_peer_ids.get(base, [])
-                                        recent = any((now_ts - self.last_mqtt_seen.get(pid, 0.0)) < MQTT_GRACE_S for pid in pids)
-                                        # If /hayd is unavailable but MQTT data is clearly flowing,
-                                        # bootstrap status from MQTT liveness only.
-                                        if recent:
-                                            first_hayd_done[base] = True
-                                            if allow_http_meta_discovery:
-                                                onboarding_done.setdefault(base, False)
-                                                itaot_due_at.setdefault(base, time.monotonic() + 5.0)
-                                            self._mark_host_status(base, "online")
-                                        else:
-                                            self._mark_host_status(base, "unknown")
-                                    continue  # next host
-
-                                # 3) Post-startup steady state
-                                if hayd_ok:
-                                    if self.device_status.get(base) != "online":
-                                        self._mark_host_status(base, "online")
-                                        self.device_offline_count[base] = 0
-
-                                    if allow_http_meta_discovery:
-                                        due = itaot_due_at.get(base)
-                                        now_probe = time.monotonic()
-                                        if due and now_probe >= due:
-                                            # Enforce global /itaot spacing so hosts are onboarded in sequence.
-                                            if now_probe < next_itaot_slot_at:
-                                                continue
-                                            itaot_due_at.pop(base, None)
-                                            next_itaot_slot_at = now_probe + ITAOT_HOST_SPACING_S
-                                            if await _probe_http_meta(client, hostname):
-                                                onboarding_done[base] = True
-                                                self._mark_host_status(base, "online")
-                                                self.device_offline_count[base] = 0
-                                            else:
-                                                self._mark_host_status(base, "unknown")
-
-                                else:
-                                    # Offline or unknown — decide using MQTT grace + retries
-                                    pids = self.host_to_peer_ids.get(base, [])
-                                    recent = any((now_ts - self.last_mqtt_seen.get(pid, 0.0)) < MQTT_GRACE_S for pid in pids)
-
-                                    if recent:
-                                        self._mark_host_status(base, "degraded")
-                                        if allow_http_meta_discovery:
-                                            # Also honor scheduled /itaot onboarding using MQTT liveness
-                                            # when /hayd is unavailable on the device.
-                                            due = itaot_due_at.get(base)
-                                            now_probe = time.monotonic()
-                                            if due and now_probe >= due:
-                                                if now_probe < next_itaot_slot_at:
-                                                    continue
-                                                itaot_due_at.pop(base, None)
-                                                next_itaot_slot_at = now_probe + ITAOT_HOST_SPACING_S
-                                                if await _probe_http_meta(client, hostname):
-                                                    onboarding_done[base] = True
-                                                    self._mark_host_status(base, "online")
-                                                    self.device_offline_count[base] = 0
-                                                else:
-                                                    self._mark_host_status(base, "degraded")
-                                        # do NOT increment offline counter while MQTT is still flowing
-                                    else:
-                                        n = self.device_offline_count.get(base, 0) + 1
-                                        self.device_offline_count[base] = n
-                                        self.discovery_failures[base] = now_mono
-
-                                        if n < OFFLINE_RETRIES:
-                                            self._mark_host_status(base, "degraded")
-                                            if DEBUG:
-                                                printDM(f"[{base}] /hayd failed → DEGRADED ({n}/{OFFLINE_RETRIES})", location=MODULE)
-                                        else:
-                                            self._mark_host_status(base, "offline")
-                                            if DEBUG:
-                                                printDM(f"[{base}] /hayd failed → OFFLINE (retries={n})", location=MODULE)
-
-                            except Exception as host_loop_err:
-                                self._feed_watchdog("MQTT Discovery Loop")
-                                printDM(
-                                    f"[mqtt_discovery_loop] Unexpected error while probing {base}: {host_loop_err}",
-                                    location=MODULE,
-                                )
-
-                    # global pacing
-                    end_at = time.monotonic() + (TICK_INTERVAL_S + random.uniform(-0.5, 0.5))
-                    while time.monotonic() < end_at:
-                        await asyncio.sleep(0.5)
-                        self._feed_watchdog("MQTT Discovery Loop")
-                    await asyncio.sleep(0)
+                end_at = time.monotonic() + (TICK_INTERVAL_S + random.uniform(-0.5, 0.5))
+                while time.monotonic() < end_at:
+                    await asyncio.sleep(0.5)
+                    self._feed_watchdog("MQTT Discovery Loop")
+                await asyncio.sleep(0)
 
         except Exception as outer_e:
             printDM(f"[mqtt_discovery_loop] fatal exception: {outer_e}", location=MODULE)

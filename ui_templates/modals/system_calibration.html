@@ -52,6 +52,7 @@
                       <input type="number"
                              step="any"
                              data-key="ambient_temp_offset"
+                             data-initial="{{ ambient_temp_offset | default(0) }}"
                              class="devCalInput"
                              style="width:100%; text-align:right;"
                              value="{{ ambient_temp_offset | default(0) }}">
@@ -65,6 +66,7 @@
                       <input type="number"
                              step="any"
                              data-key="ambient_rh_offset"
+                             data-initial="{{ ambient_rh_offset | default(0) }}"
                              class="devCalInput"
                              style="width:100%; text-align:right;"
                              value="{{ ambient_rh_offset | default(0) }}">
@@ -132,6 +134,7 @@
                       <input type="number"
                              step="any"
                              data-key="{{ off.key }}"
+                             data-initial="{{ off.value | default(0) }}"
                              class="devCalInput"
                              {% if off.key == "soil_ph_offset" %}id="soilPhOffsetInput"{% endif %}
                              style="width:100%; text-align:right;"
@@ -170,6 +173,7 @@
                       <input type="number"
                              step="any"
                              data-key="{{ off.key }}"
+                             data-initial="{{ off.value | default(0) }}"
                              class="devCalInput"
                              style="width:100%; text-align:right;"
                              value="{{ off.value | default(0) }}">

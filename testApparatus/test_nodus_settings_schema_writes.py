@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -52,6 +53,7 @@ class _FakeIngest:
     def __init__(self):
         self.added: list[str] = []
         self.refreshed: list[str] = []
+        self.published_json: list[dict] = []
         self.mqtt_clients: list[str] = []
         self.calibration_commands: list[dict] = []
         self.calibration_state: dict[str, dict] = {}
@@ -66,6 +68,8 @@ class _FakeIngest:
         self._switch_state_cache: dict[str, dict] = {}
         self._host_ip_cache: dict[str, str] = {}
         self._host_ipv4addr: dict[str, str] = {}
+        self.next_config_ack: dict | None = {"accepted": True}
+        self.next_config_result: dict | None = {"applied": True, "updated": 1, "error": ""}
 
     def set_onboarding_event_handler(self, handler):
         self.handler = handler
@@ -102,8 +106,44 @@ class _FakeIngest:
     async def force_refresh_device_metadata(self, device_id: str):
         self.refreshed.append(device_id)
 
-    def publish_json(self, *_args, **_kwargs):
+    def publish_json(self, topic: str, obj: dict, *, qos: int = 0, retain: bool = False, use_ha_client: bool = True):
+        self.published_json.append(
+            {
+                "topic": topic,
+                "payload": dict(obj or {}),
+                "qos": qos,
+                "retain": retain,
+                "use_ha_client": use_ha_client,
+            }
+        )
         return True
+
+    def publish_nodus_config(self, device_id: str, *, payload: dict, message_id: str | None = None, qos: int = 1, restart: bool = False, onboard_token: str = ""):
+        mid = message_id or f"cfg-{len(self.published_json) + 1}"
+        envelope = {
+            "message_id": mid,
+            "payload": dict(payload or {}),
+            "restart": bool(restart),
+        }
+        if onboard_token:
+            envelope["onboard_token"] = onboard_token
+        topic = f"nodus/{device_id}/config/set"
+        ok = self.publish_json(topic, envelope, qos=qos, retain=False, use_ha_client=False)
+        return {"ok": ok, "message_id": mid, "topic": topic, "payload": envelope}
+
+    async def wait_for_config_ack(self, message_id: str, timeout: float = 0):
+        if self.next_config_ack is None:
+            return None
+        out = dict(self.next_config_ack)
+        out.setdefault("message_id", message_id)
+        return out
+
+    async def wait_for_config_result(self, message_id: str, timeout: float = 0):
+        if self.next_config_result is None:
+            return None
+        out = dict(self.next_config_result)
+        out.setdefault("message_id", message_id)
+        return out
 
     def publish_nodus_calibration(self, device_id: str, *, action: str, payload=None, message_id=None, qos=1):
         message = {
@@ -257,8 +297,6 @@ async def _build_app(tmp_path, monkeypatch):
     monkeypatch.setattr(saiWebRoutes, "SensorSettingsManager", lambda *_a, **_k: _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root)))
     monkeypatch.setattr(saiWebRoutes, "SwitchSettingsManager", lambda *_a, **_k: _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root)))
     monkeypatch.setattr(saiSwitchSettingsManager, "SwitchSettingsManager", lambda *_a, **_k: _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root)))
-    monkeypatch.setattr(saiWebRoutes.httpx, "AsyncClient", _RecordingAsyncClient)
-
     app = FastAPI()
     ingest = _FakeIngest()
     await saiWebRoutes.register_routes(app, _HubSettings(), _FakeNetMgr(), _FakeGcMgr(), ingest)
@@ -312,7 +350,7 @@ async def test_submit_sensor_settings_pushes_sensor_and_display_updates_for_nodu
         },
     )
     _write_system_settings(system_root, "aqi-123", "aqi-123")
-    _RecordingAsyncClient.calls.clear()
+    ingest.published_json.clear()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
@@ -332,13 +370,24 @@ async def test_submit_sensor_settings_pushes_sensor_and_display_updates_for_nodu
         )
 
     assert res.status_code == 303
-    posted = [call["json"] for call in _RecordingAsyncClient.calls]
-    assert any(p["section"] == "Sensor" and p["key"] == "DEVICE" and p["value"] == "aqi" for p in posted)
-    assert any(p["section"] == "Sensor" and p["key"] == "SENSOR_ID" and p["value"] == "aqi-123" for p in posted)
+    assert len(ingest.published_json) == 4
+    assert all(len((((row.get("payload") or {}).get("payload") or {}).get("updates") or [])) == 1 for row in ingest.published_json)
+    posted = [
+        update
+        for row in ingest.published_json
+        for update in (((row.get("payload") or {}).get("payload") or {}).get("updates") or [])
+    ]
     assert any(p["section"] == "Sensor" and p["key"] == "LOCATION" and p["value"] == "Grow Tent" for p in posted)
     assert any(p["section"] == "Display" and p["key"] == "METRIC_1" and p["value"] == "Temperature" for p in posted)
+    assert any(p["section"] == "Display" and p["key"] == "METRIC_2" and p["value"] == "Humidity" for p in posted)
+    assert any(p["section"] == "Display" and p["key"] == "METRIC_3" and p["value"] == "PM2.5" for p in posted)
+    assert not any(p["section"] == "Sensor" and p["key"] == "DEVICE" for p in posted)
+    assert not any(p["section"] == "Sensor" and p["key"] == "SENSOR_ID" for p in posted)
     assert any(p.get("name") == "sensor_i2c.toml" for p in posted)
-    assert ingest.refreshed == ["aqi-123"]
+    assert ingest.refreshed == []
+    saved = sensor_mgr.load("aqi-123")
+    assert saved["Sensor"]["DEVICE"] == "aqi"
+    assert saved["Sensor"]["SENSOR_ID"] == "aqi-123"
 
 
 @pytest.mark.asyncio
@@ -360,7 +409,7 @@ async def test_submit_sensor_settings_prefers_cached_ip_for_nodus_push(tmp_path,
     _write_system_settings(system_root, "co2-ykdvea", "co2-ykdvea")
     ingest._host_ip_cache["co2-ykdvea"] = "192.168.4.23"
     ingest._host_ipv4addr["co2-ykdvea"] = "192.168.4.23"
-    _RecordingAsyncClient.calls.clear()
+    ingest.published_json.clear()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
@@ -380,8 +429,9 @@ async def test_submit_sensor_settings_prefers_cached_ip_for_nodus_push(tmp_path,
         )
 
     assert res.status_code == 303
-    assert _RecordingAsyncClient.calls
-    assert _RecordingAsyncClient.calls[0]["url"] == "http://192.168.4.23:8000/set-nodus-setting"
+    assert ingest.published_json
+    assert ingest.published_json[0]["topic"] == "nodus/co2-ykdvea/config/set"
+    assert all(len((((row.get("payload") or {}).get("payload") or {}).get("updates") or [])) == 1 for row in ingest.published_json)
 
 
 @pytest.mark.asyncio
@@ -414,6 +464,95 @@ async def test_device_calibration_apply_for_remote_nodus_uses_mqtt_and_updates_s
     assert ingest.calibration_commands[-1]["payload"]["offsets"][0]["key"] == "Calibration.Device.TEMP_OFFSET"
     saved = sensor_mgr.load("aqi-123")
     assert saved["Calibration"]["Device"]["TEMP_OFFSET"] == 1.5
+
+
+@pytest.mark.asyncio
+async def test_device_calibration_apply_for_remote_nodus_can_update_same_offset_multiple_times(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "co2-ykdvea",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "co2",
+                "SENSOR_ID": "co2-ykdvea",
+            },
+            "Calibration": {
+                "Device": {
+                    "CO2_OFFSET": 0.0,
+                }
+            },
+        },
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        first = await client.post(
+            "/calibration/device/apply",
+            json={
+                "sensor_id": "co2-ykdvea",
+                "device_kind": "co2",
+                "offsets": [{"key": "Calibration.Device.CO2_OFFSET", "value": -750.0}],
+            },
+        )
+        second = await client.post(
+            "/calibration/device/apply",
+            json={
+                "sensor_id": "co2-ykdvea",
+                "device_kind": "co2",
+                "offsets": [{"key": "Calibration.Device.CO2_OFFSET", "value": -250.0}],
+            },
+        )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert sensor_mgr.load("co2-ykdvea")["Calibration"]["Device"]["CO2_OFFSET"] == -250.0
+    assert [cmd["payload"]["offsets"][0]["value"] for cmd in ingest.calibration_commands[-2:]] == [-750.0, -250.0]
+
+
+@pytest.mark.asyncio
+async def test_device_calibration_apply_for_remote_nodus_filters_unchanged_offsets_before_mqtt(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "aqi-123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "aqi-123",
+            },
+            "Calibration": {
+                "Device": {
+                    "TEMP_OFFSET": 0.0,
+                    "RH_OFFSET": 0.0,
+                    "AQI_OFFSET": 0.0,
+                    "GAS_OFFSET": 0.0,
+                }
+            },
+        },
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/calibration/device/apply",
+            json={
+                "sensor_id": "aqi-123",
+                "device_kind": "aqi",
+                "offsets": [
+                    {"key": "Calibration.Device.TEMP_OFFSET", "value": 0},
+                    {"key": "Calibration.Device.RH_OFFSET", "value": 0.4},
+                    {"key": "Calibration.Device.AQI_OFFSET", "value": 0},
+                    {"key": "Calibration.Device.GAS_OFFSET", "value": 0},
+                ],
+            },
+        )
+
+    assert res.status_code == 200
+    sent_offsets = ingest.calibration_commands[-1]["payload"]["offsets"]
+    assert sent_offsets == [{"key": "Calibration.Device.RH_OFFSET", "value": 0.4}]
+    saved = sensor_mgr.load("aqi-123")
+    assert saved["Calibration"]["Device"]["RH_OFFSET"] == 0.4
 
 
 @pytest.mark.asyncio
@@ -622,7 +761,7 @@ async def test_calibrate_remote_nodus_uses_mqtt_start(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_submit_switch_settings_pushes_remote_updates_for_nodus(tmp_path, monkeypatch):
-    app, _ingest, system_root, _sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    app, ingest, system_root, _sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
     switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
     switch_mgr.save(
         "switch-123",
@@ -637,32 +776,95 @@ async def test_submit_switch_settings_pushes_remote_updates_for_nodus(tmp_path, 
         },
     )
     _write_system_settings(system_root, "switch-123", "switch-123")
-    _RecordingAsyncClient.calls.clear()
+    ingest.published_json.clear()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
             "/submit-switch-settings",
             data={
                 "switch_id": "switch-123",
-                "switch_id_field": "switch-123",
-                "device": "switch",
                 "location": "Veg Rack",
                 "SWITCH_1_LABEL": "Lights",
-                "SWITCH_1_Trigger": "auto",
             },
         )
 
     assert res.status_code == 303
-    posted = [call["json"] for call in _RecordingAsyncClient.calls]
+    assert len(ingest.published_json) == 2
+    assert all(len((((row.get("payload") or {}).get("payload") or {}).get("updates") or [])) == 1 for row in ingest.published_json)
+    posted = [
+        update
+        for row in ingest.published_json
+        for update in (((row.get("payload") or {}).get("payload") or {}).get("updates") or [])
+    ]
     assert any(p["section"] == "Switch" and p["key"] == "SWITCH_LOCATION" and p["value"] == "Veg Rack" for p in posted)
     assert any(p["section"] == "Switch" and p["key"] == "SWITCH_1_LABEL" and p["value"] == "Lights" for p in posted)
-    assert any(p["section"] == "Switch" and p["key"] == "SWITCH_1_Trigger" and p["value"] == "auto" for p in posted)
+    assert not any(p["section"] == "Switch" and p["key"] == "DEVICE" for p in posted)
+    assert not any(p["section"] == "Switch" and p["key"] == "SWITCH_DEVICE_ID" for p in posted)
     assert all(p.get("name") == "switch.toml" for p in posted)
+    saved = switch_mgr.load("switch-123")
+    assert saved["Switch"]["DEVICE"] == "switch"
+    assert saved["Switch"]["SWITCH_DEVICE_ID"] == "switch-123"
+
+
+@pytest.mark.asyncio
+async def test_submit_switch_settings_waits_for_config_result_before_next_remote_update(tmp_path, monkeypatch):
+    app, ingest, system_root, _sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
+    switch_mgr.save(
+        "switch-123",
+        {
+            "Switch": {
+                "TYPE": "nodus",
+                "DEVICE": "switch",
+                "SWITCH_DEVICE_ID": "switch-123",
+                "SWITCH_LOCATION": "Old Rack",
+                "SWITCH_1_LABEL": "Relay 1",
+            }
+        },
+    )
+    _write_system_settings(system_root, "switch-123", "switch-123")
+    ingest.published_json.clear()
+
+    first_result_released = asyncio.Event()
+    second_result_released = asyncio.Event()
+
+    async def _wait_for_config_result(message_id: str, timeout: float = 0):
+        if message_id == "cfg-1":
+            await first_result_released.wait()
+        elif message_id == "cfg-2":
+            await second_result_released.wait()
+        return {"message_id": message_id, "applied": True, "updated": 1, "error": ""}
+
+    ingest.wait_for_config_result = _wait_for_config_result
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        submit_task = asyncio.create_task(
+            client.post(
+                "/submit-switch-settings",
+                data={
+                    "switch_id": "switch-123",
+                    "location": "Veg Rack",
+                    "SWITCH_1_LABEL": "Lights",
+                },
+            )
+        )
+
+        await asyncio.sleep(0.05)
+        assert len(ingest.published_json) == 1
+
+        first_result_released.set()
+        await asyncio.sleep(0.05)
+        assert len(ingest.published_json) == 2
+
+        second_result_released.set()
+        res = await submit_task
+
+    assert res.status_code == 303
 
 
 @pytest.mark.asyncio
 async def test_device_locations_pushes_for_nodus_sensor_and_switch(tmp_path, monkeypatch):
-    app, _ingest, system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    app, ingest, system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
     sensor_mgr.save(
@@ -675,7 +877,7 @@ async def test_device_locations_pushes_for_nodus_sensor_and_switch(tmp_path, mon
     )
     _write_system_settings(system_root, "aqi-123", "aqi-123")
     _write_system_settings(system_root, "switch-123", "switch-123")
-    _RecordingAsyncClient.calls.clear()
+    ingest.published_json.clear()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
@@ -687,9 +889,39 @@ async def test_device_locations_pushes_for_nodus_sensor_and_switch(tmp_path, mon
         )
 
     assert res.status_code == 200
-    posted = [call["json"] for call in _RecordingAsyncClient.calls]
+    assert len(ingest.published_json) == 2
+    assert all(len((((row.get("payload") or {}).get("payload") or {}).get("updates") or [])) == 1 for row in ingest.published_json)
+    posted = [
+        update
+        for row in ingest.published_json
+        for update in (((row.get("payload") or {}).get("payload") or {}).get("updates") or [])
+    ]
     assert any(p["section"] == "Sensor" and p["key"] == "LOCATION" and p["value"] == "Room A" for p in posted)
     assert any(p["section"] == "Switch" and p["key"] == "SWITCH_LOCATION" and p["value"] == "Room B" for p in posted)
+
+
+@pytest.mark.asyncio
+async def test_device_locations_returns_502_when_nodus_config_apply_fails(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "aqi-123",
+        {"Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "aqi-123", "LOCATION": "Old"}},
+    )
+    _write_system_settings(system_root, "aqi-123", "aqi-123")
+    ingest.next_config_result = {"applied": False, "error": "apply_failed"}
+    ingest.published_json.clear()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/device-locations",
+            json=[{"id": "aqi-123", "type": "sensor", "location": "Room A"}],
+        )
+
+    assert res.status_code == 502
+    body = res.json()
+    assert body["ok"] is False
+    assert body["error"] == "nodus_remote_apply_failed"
 
 
 @pytest.mark.asyncio
