@@ -901,6 +901,61 @@ async def test_device_locations_pushes_for_nodus_sensor_and_switch(tmp_path, mon
 
 
 @pytest.mark.asyncio
+async def test_device_locations_serializes_shared_host_nodus_updates(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
+    sensor_mgr.save(
+        "aqi-123",
+        {"Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "aqi-123", "LOCATION": "Old"}},
+    )
+    switch_mgr.save(
+        "switch-123",
+        {"Switch": {"TYPE": "nodus", "DEVICE": "switch", "SWITCH_DEVICE_ID": "switch-123", "SWITCH_LOCATION": "Old"}},
+    )
+    _write_system_settings(system_root, "aqi-123", "aqi-123")
+    _write_system_settings(system_root, "switch-123", "aqi-123")
+    ingest.published_json.clear()
+
+    first_result_released = asyncio.Event()
+    second_result_released = asyncio.Event()
+
+    async def _wait_for_config_result(message_id: str, timeout: float = 0):
+        if message_id == "cfg-1":
+            await first_result_released.wait()
+        elif message_id == "cfg-2":
+            await second_result_released.wait()
+        return {"message_id": message_id, "applied": True, "updated": 1, "error": ""}
+
+    ingest.wait_for_config_result = _wait_for_config_result
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        save_task = asyncio.create_task(
+            client.post(
+                "/device-locations",
+                json=[
+                    {"id": "aqi-123", "type": "sensor", "location": "Room A"},
+                    {"id": "switch-123", "type": "switch", "location": "Room B"},
+                ],
+            )
+        )
+
+        await asyncio.sleep(0.05)
+        assert len(ingest.published_json) == 1
+        assert ingest.published_json[0]["topic"] == "nodus/aqi-123/config/set"
+
+        first_result_released.set()
+        await asyncio.sleep(0.05)
+        assert len(ingest.published_json) == 2
+        assert all(row["topic"] == "nodus/aqi-123/config/set" for row in ingest.published_json)
+
+        second_result_released.set()
+        res = await save_task
+
+    assert res.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_device_locations_returns_502_when_nodus_config_apply_fails(tmp_path, monkeypatch):
     app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))

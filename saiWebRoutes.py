@@ -4149,15 +4149,19 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             updates_payload.append(item)
         if not updates_payload:
             return True
-        for update_payload in updates_payload:
-            ok = await _publish_nodus_config_update(
-                target_device=target_device,
-                device_id=device_id,
-                device_type=device_type,
-                update_payload=update_payload,
-            )
-            if not ok:
-                return False
+        # Serialize config writes per physical Nodus host. This preserves the
+        # one-key-at-a-time behavior even when multiple routes/tasks target the
+        # same device concurrently (for example paired sensor + switch updates).
+        async with _get_host_lock(target_device):
+            for update_payload in updates_payload:
+                ok = await _publish_nodus_config_update(
+                    target_device=target_device,
+                    device_id=device_id,
+                    device_type=device_type,
+                    update_payload=update_payload,
+                )
+                if not ok:
+                    return False
         return True
 
     def _nodus_values_match(previous: Any, current: Any) -> bool:
