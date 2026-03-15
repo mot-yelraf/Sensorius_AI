@@ -494,6 +494,7 @@ def test_nodus_meta_materializes_switch_mappings(monkeypatch):
     payload = json.dumps(
         {
             "schema": "nodus-meta/v1",
+            "version": "v1.2.3",
             "serial": "abc123",
             "sensor": {
                 "sensor_id": "aqi-123",
@@ -532,6 +533,15 @@ def test_nodus_meta_materializes_switch_mappings(monkeypatch):
     assert ingest.device_location.get("nodus/S1-123/state") == "Veg Tent"
     assert "aqi-123" in ingest.host_to_peer_ids.get("aqi-123", [])
     assert ingest.expected_gauge_map.get("aqi-123") == ["Temperature", "Rel-Humidity", "Ambient VPD"]
+    assert ingest.get_nodus_firmware_version("aqi-123", device_type="sensor") == "v1.2.3"
+    assert ingest.get_nodus_firmware_version("switch-123", device_type="switch") == "v1.2.3"
+
+
+def test_switch_firmware_version_falls_back_to_combo_host_suffix(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.nodus_firmware_versions["aqi-ykdvea"] = "v2.0.1"
+
+    assert ingest.get_nodus_firmware_version("switch-ykdvea", device_type="switch") == "v2.0.1"
 
 
 def test_nodus_meta_uses_top_level_serial_and_sensor_id_prefix_for_shadow_identity(tmp_path, monkeypatch):

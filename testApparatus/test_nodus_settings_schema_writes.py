@@ -10,6 +10,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from datetime import datetime, timedelta
+from jinja2 import Environment, FileSystemLoader
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -65,6 +66,7 @@ class _FakeIngest:
         self.expected_gauge_map: dict[str, list[str]] = {}
         self.device_status: dict[str, str] = {}
         self.nodus_switch_topic_map: dict[str, dict] = {}
+        self.nodus_firmware_versions: dict[str, str] = {}
         self._switch_state_cache: dict[str, dict] = {}
         self._host_ip_cache: dict[str, str] = {}
         self._host_ipv4addr: dict[str, str] = {}
@@ -188,6 +190,12 @@ class _FakeIngest:
     def get_nodus_calibration_state(self, sensor_id: str):
         state = self.calibration_state.get(sensor_id)
         return dict(state) if isinstance(state, dict) else state
+
+    def get_nodus_firmware_version(self, device_id: str | None, device_type: str | None = None):
+        dev = str(device_id or "").strip()
+        if not dev:
+            return ""
+        return str(self.nodus_firmware_versions.get(dev) or "")
 
 
 class _FakeSaiSettings:
@@ -432,6 +440,48 @@ async def test_submit_sensor_settings_prefers_cached_ip_for_nodus_push(tmp_path,
     assert ingest.published_json
     assert ingest.published_json[0]["topic"] == "nodus/co2-ykdvea/config/set"
     assert all(len((((row.get("payload") or {}).get("payload") or {}).get("updates") or [])) == 1 for row in ingest.published_json)
+
+
+@pytest.mark.asyncio
+async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pane_title(tmp_path, monkeypatch):
+    env = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
+    template = env.get_template("modals/sensor_settings.html")
+
+    html = template.render(
+        sensor_id="aqi-123",
+        settings={"Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "aqi-123", "LOCATION": "Veg Tent"}},
+        metric_options=["", "Temperature", "Rel-Humidity", "Ambient VPD"],
+        current_metrics=["Temperature", "Rel-Humidity", "Ambient VPD", "", "", ""],
+        location="Veg Tent",
+        device_kind="aqi",
+        device_label="aqi",
+        is_apvpd=False,
+        is_soil=False,
+        ambient_temp_offset=0.0,
+        ambient_rh_offset=0.0,
+        nodus_firmware_version="v1.2.3",
+        soil_ph_offset=0.0,
+        device_offsets=[],
+        candidate_sensors=[],
+        default_range_hours=24,
+    )
+
+    assert "Sensor Settings v1.2.3" in html
+
+
+def test_switch_settings_modal_shows_nodus_firmware_version_in_settings_pane_title():
+    env = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
+    template = env.get_template("modals/switch_settings.html")
+
+    html = template.render(
+        switch_id="switch-123",
+        settings={"Switch": {"TYPE": "nodus", "SWITCH_LOCATION": "Veg Tent"}},
+        channel_indices=[1],
+        channels=[{"index": 1, "label": "Fan"}],
+        nodus_firmware_version="v1.2.3",
+    )
+
+    assert "Switch Settings v1.2.3" in html
 
 
 @pytest.mark.asyncio

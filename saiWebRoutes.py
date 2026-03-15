@@ -6037,6 +6037,21 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             elif device_kind in ("soil",):
                 device_offsets.extend(_soil_device_offsets(device_section, _get_float))
 
+            ingest = getattr(request.app.state, "mqtt_ingest", None) or mqtt_ingest
+            nodus_firmware_version = ""
+            sensor_type = str(sensor_section.get("TYPE", "") or "").strip().lower()
+            if (
+                ingest
+                and sensor_type in ("picow", "pico2w", "nodus", "remote")
+                and hasattr(ingest, "get_nodus_firmware_version")
+            ):
+                try:
+                    nodus_firmware_version = str(
+                        ingest.get_nodus_firmware_version(normalized_id, device_type="sensor")
+                    ).strip()
+                except Exception:
+                    nodus_firmware_version = ""
+
             cal_mgr = CalibrationManager(data_logger, manager)
             candidate_sensors = cal_mgr.get_calibratable_sensors() or []
 
@@ -6055,6 +6070,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 is_soil=(device_kind == "soil"),
                 ambient_temp_offset=ambient_temp_offset,
                 ambient_rh_offset=ambient_rh_offset,
+                nodus_firmware_version=nodus_firmware_version,
                 soil_ph_offset=soil_ph_offset,
                 device_offsets=device_offsets,
                 candidate_sensors=candidate_sensors,
@@ -7747,6 +7763,21 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             for idx in channel_indices
         ]
 
+        ingest = getattr(request.app.state, "mqtt_ingest", None) or mqtt_ingest
+        nodus_firmware_version = ""
+        switch_type = str(sw.get("TYPE", "") or "").strip().lower()
+        if (
+            ingest
+            and switch_type in ("picow", "pico2w", "nodus", "remote", "mqtt")
+            and hasattr(ingest, "get_nodus_firmware_version")
+        ):
+            try:
+                nodus_firmware_version = str(
+                    ingest.get_nodus_firmware_version(switch_id, device_type="switch")
+                ).strip()
+            except Exception:
+                nodus_firmware_version = ""
+
         # ---- render Jinja template to an HTML snippet ----
         templates = request.app.state.templates
         template = templates.get_template("modals/switch_settings.html")
@@ -7755,6 +7786,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             settings=settings_dict,
             channel_indices=channel_indices,
             channels=channels,
+            nodus_firmware_version=nodus_firmware_version,
         )
 
         # ---- embed=1 → just the modal markup (used by dashboard JS) ----

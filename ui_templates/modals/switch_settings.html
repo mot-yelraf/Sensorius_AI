@@ -29,6 +29,9 @@
 
         <section class="panel switch-dialog-content">
           <div id="switchSettingsPane" class="switch-pane">
+            <div class="list-header">
+              <span>Switch Settings{% if nodus_firmware_version %} {{ nodus_firmware_version }}{% endif %}</span>
+            </div>
             <form method="POST" action="/submit-switch-settings">
               <input type="hidden" name="switch_id" value="{{ switch_id }}" />
 

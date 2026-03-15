@@ -196,6 +196,7 @@ class saiMQTTIngest:
         self.nodus_availability: dict[str, str] = {}  # host -> "online"|"offline" (from MQTT /availability)
         self.last_heartbeat_ts: dict[str, float] = {}  # host -> unix epoch seconds from heartbeat payload
         self.last_heartbeat_payload: dict[str, dict] = {}  # host -> last heartbeat payload object
+        self.nodus_firmware_versions: dict[str, str] = {}  # host/peer id -> firmware version from nodus meta
         self.heartbeat_interval_s_by_host: dict[str, float] = {}  # host -> advertised interval
         self.heartbeat_stale: dict[str, bool] = {}  # host -> heartbeat freshness diagnostic
         # Retained startup replays can include stale hosts. Track repeated retained traffic and
@@ -1922,6 +1923,7 @@ class saiMQTTIngest:
             return False, False
         base = self._normalize_host_key(device_id) or device_id
         now_t = time.time()
+        firmware_version = str(meta.get("version") or "").strip()
 
         sensor_blob = meta.get("sensor") if isinstance(meta.get("sensor"), dict) else {}
         switch_blob = meta.get("switch") if isinstance(meta.get("switch"), dict) else {}
@@ -1960,11 +1962,18 @@ class saiMQTTIngest:
         if device_id and device_id not in peer_ids_for_host:
             peer_ids_for_host.append(device_id)
 
+        if firmware_version:
+            self.nodus_firmware_versions[base] = firmware_version
+            self.nodus_firmware_versions[f"{base}.local"] = firmware_version
+            self.nodus_firmware_versions[device_id] = firmware_version
+
         # sensor metadata
         if sensor_id:
             touched = True
             if sensor_id not in peer_ids_for_host:
                 peer_ids_for_host.append(sensor_id)
+            if firmware_version:
+                self.nodus_firmware_versions[sensor_id] = firmware_version
             self.device_type[sensor_id] = "nodus"
             self.last_mqtt_seen[sensor_id] = now_t
             sensor_device = self._infer_sensor_device_name(sensor_blob.get("device"), sensor_id)
@@ -2016,6 +2025,8 @@ class saiMQTTIngest:
             touched = True
             if switch_id not in peer_ids_for_host:
                 peer_ids_for_host.append(switch_id)
+            if firmware_version:
+                self.nodus_firmware_versions[switch_id] = firmware_version
 
             switch_loc = _pick_location(switch_location, resolved_location)
             self.device_type[switch_id] = "nodus"
@@ -2526,6 +2537,56 @@ class saiMQTTIngest:
             return dev or None
         except Exception:
             return None
+
+    def get_nodus_firmware_version(self, device_id: str | None, device_type: str | None = None) -> str:
+        """
+        Resolve a firmware version captured from nodus meta for a sensor, switch, or host id.
+        """
+        dev = str(device_id or "").strip()
+        if not dev:
+            return ""
+
+        candidates: list[str] = []
+
+        def _add_candidate(value: str | None) -> None:
+            raw = str(value or "").strip()
+            if not raw:
+                return
+            options = [raw]
+            if raw.endswith(".local"):
+                options.append(raw[:-6])
+            for item in options:
+                key = str(item or "").strip()
+                if key and key not in candidates:
+                    candidates.append(key)
+
+        _add_candidate(dev)
+        _add_candidate(self.resolve_nodus_hostname(dev, device_type=device_type))
+
+        for host, peers in (self.host_to_peer_ids or {}).items():
+            try:
+                if dev in (peers or []):
+                    _add_candidate(host)
+                    for peer in (peers or []):
+                        _add_candidate(peer)
+            except Exception:
+                continue
+
+        if (device_type or "").lower() == "switch" or dev.startswith("switch-"):
+            serial = dev.rsplit("-", 1)[-1] if "-" in dev else dev
+            suffix = f"-{serial}"
+            for key in (self.nodus_firmware_versions or {}).keys():
+                text = str(key or "").strip()
+                if not text or text == dev or text.startswith("switch-"):
+                    continue
+                if text.endswith(suffix):
+                    _add_candidate(text)
+
+        for key in candidates:
+            version = str((self.nodus_firmware_versions or {}).get(key) or "").strip()
+            if version:
+                return version
+        return ""
 
     async def _send_nodus_restart(self, hostname: str, restart: str = "hard", *, port: int = 8000, timeout_sec: float = 4.0) -> bool:
         """

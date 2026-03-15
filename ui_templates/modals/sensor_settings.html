@@ -34,7 +34,7 @@
         <section class="panel">
           <div class="sensor-pane-view" id="sensor-settings-pane" style="display:flex; flex:1; flex-direction:column; min-height:0;">
             <div class="list-header">
-              <span>Sensor Settings</span>
+              <span>Sensor Settings{% if nodus_firmware_version %} {{ nodus_firmware_version }}{% endif %}</span>
             </div>
             <form method="POST" action="/submit-sensor-settings" class="form" id="sensorSettingsForm" style="padding-bottom:0; flex:1; min-height:0; overflow:auto;">
               <input type="hidden" name="sensor_id" value="{{ sensor_id }}" />
