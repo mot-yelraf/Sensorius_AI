@@ -60,7 +60,7 @@ def test_sensor_factory_seed_uses_nodus_aligned_display_defaults(tmp_path):
         "Temperature",
         "Rel-Humidity",
         "Ambient VPD",
-        "Dewpoint Deficit",
+        "Dew Point Deficit",
         "dewVPD Risk",
     ]
     assert mgr.get_display_metrics("lux-123") == [
@@ -77,3 +77,5 @@ def test_sensor_factory_seed_uses_nodus_aligned_display_defaults(tmp_path):
         "Soil pH",
         "Soil EC",
     ]
+    assert mgr.load("aqi-123")["Display"]["Style"]["METRIC_1"] == ""
+    assert mgr.load("aqi-123")["Display"]["Style"]["METRIC_6"] == ""

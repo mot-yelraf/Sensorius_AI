@@ -219,6 +219,11 @@ body{
 .switch-table{
   width:100%; border-collapse:collapse; margin-top:.5rem; font-size:.95rem; background-color:#ffffe0;
 }
+.switch-table th:nth-child(2),
+.switch-table td:nth-child(2){
+  padding-left:.2rem;
+  padding-right:.2rem;
+}
 .switch-table th, .switch-table td{
   border:1px solid #ccc; padding:.4rem .6rem; text-align:center; vertical-align:middle; background-color:#ffffe0;
 }
@@ -241,7 +246,16 @@ body{
 }
 
 .switch-timer-panel{
-  width:100%; max-width:160px; display:flex; flex-direction:column; align-items:center; gap:.08rem;
+  width:auto; max-width:none; display:flex; flex-direction:column; align-items:center; gap:.08rem;
+}
+
+.switch-timer-summary{
+  width:auto;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:.18rem;
+  min-height:1.5rem;
 }
 
 .switch-timer-input{
@@ -254,7 +268,40 @@ body{
 }
 
 .switch-timer-status{
-  min-height:1.2rem; font-size:.78rem; color:#444; text-align:center;
+  min-height:1.2rem; font-size:.78rem; color:#444; text-align:center; white-space:nowrap;
+}
+
+.switch-timer-edit-btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:18px;
+  height:18px;
+  padding:0;
+  border:1px solid transparent;
+  border-radius:0;
+  background:transparent;
+  color:#333;
+  cursor:pointer;
+  flex:0 0 auto;
+  line-height:1;
+}
+
+.switch-timer-edit-btn:hover{
+  background:transparent;
+}
+
+.switch-timer-editor{
+  width:100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:.35rem;
+  margin-top:.1rem;
+}
+
+.switch-timer-editor .button{
+  min-width:52px;
 }
 
 /* Switch state block */

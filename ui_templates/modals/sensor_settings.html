@@ -69,6 +69,16 @@
                       </option>
                       {% endfor %}
                     </select>
+                    <select name="display_style_{{ i }}" id="display_style_{{ i }}" aria-label="Metric {{ i }} display style">
+                      {% for style in display_style_options %}
+                      <option
+                        value="{{ style }}"
+                        {% if style == current_metric_styles[i-1] %}selected{% endif %}
+                      >
+                        {{ style }}
+                      </option>
+                      {% endfor %}
+                    </select>
                   </div>
                   {% endfor %}
                 </div>
@@ -86,6 +96,16 @@
                         {% if val == current_metrics[i-1] %}selected{% endif %}
                       >
                         {{ label | e }}
+                      </option>
+                      {% endfor %}
+                    </select>
+                    <select name="display_style_{{ i }}" id="display_style_{{ i }}" aria-label="Metric {{ i }} display style">
+                      {% for style in display_style_options %}
+                      <option
+                        value="{{ style }}"
+                        {% if style == current_metric_styles[i-1] %}selected{% endif %}
+                      >
+                        {{ style }}
                       </option>
                       {% endfor %}
                     </select>

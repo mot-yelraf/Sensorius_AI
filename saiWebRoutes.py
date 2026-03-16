@@ -1390,6 +1390,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         from saiCalibration import CalibrationManager
         sensor_mgr = SensorSettingsManager()
         expected_gauge_map = {}
+        expected_display_style_map = {}
         for sid in all_values:
             metrics = mqtt_ingest.expected_gauge_map.get(sid)
             if not metrics:
@@ -1428,6 +1429,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if len(deduped) >= 6:
                     break
             expected_gauge_map[sid] = deduped
+            try:
+                raw_styles = sensor_mgr.get_display_styles(sid, default_style=displayStyle)
+            except Exception:
+                raw_styles = [displayStyle] * 6
+            expected_display_style_map[sid] = {
+                f"METRIC_{idx + 1}": str(raw_styles[idx] or displayStyle)
+                for idx in range(6)
+            }
         phase_ms["expected_metrics"] = (
             (time.monotonic() - _phase_started) * 1000.0
             - phase_ms.get("inventory", 0.0)
@@ -1736,6 +1745,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "timestamp": get_timestamp(),
                 "locations": sensor_locations,
                 "expected_gauge_map": expected_gauge_map,
+                "expected_display_style_map": expected_display_style_map,
                 "available_switches": available_switches,
                 "renderable_switches": renderable_switches,
                 "renderable_switches_view": renderable_switches_view,
@@ -1789,6 +1799,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 gauge_config=gauge_config, 
                 gauge_size = gaugeSize,
                 expected_gauge_map = expected_gauge_map,
+                expected_display_style_map = expected_display_style_map,
                 display_style = displayStyle,
                 astro_payload=_get_cached_astro_payload(),
                 biodynamic_payload=_get_cached_biodynamic_payload(datetime.now().date().replace(day=1)),
@@ -5974,6 +5985,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 val = canonicalize_metric_name(val, gauge_config)
                 current_metrics.append(val)
 
+            global_display_style = "Gauge"
+            try:
+                app_settings = saiSettings(apply_live=False)
+                global_display_style = str(
+                    app_settings.get_setting("Display", "display_style", "Gauge") or "Gauge"
+                ).strip() or "Gauge"
+            except Exception:
+                global_display_style = "Gauge"
+
+            display_style_options = ["Gauge", "Graph6hr", "Graph24hr"]
+            current_metric_styles = manager.get_display_styles(normalized_id, default_style=global_display_style)
+
             # location
             sensor_section = settings_dict.get("Sensor", {}) or {}
             location = (
@@ -6063,6 +6086,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 settings=settings_dict,
                 metric_options=metric_options,
                 current_metrics=current_metrics,
+                display_style_options=display_style_options,
+                current_metric_styles=current_metric_styles,
                 location=location,
                 device_kind=device_kind,
                 device_label=device_label,
@@ -6167,6 +6192,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             existing_doc: OrderedDict,
             merged_doc: OrderedDict,
             metric_list: list[str],
+            metric_style_list: list[str],
         ) -> list[tuple[str, str, Any]]:
             updates: list[tuple[str, str, Any]] = []
             existing_sensor_block = existing_doc.get("Sensor", {}) if isinstance(existing_doc, dict) else {}
@@ -6189,10 +6215,27 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         value,
                     ):
                         updates.append(("Display", key, value))
+
+            if metric_style_list:
+                existing_display_block = existing_doc.get("Display", {}) if isinstance(existing_doc, dict) else {}
+                existing_style_block = existing_display_block.get("Style", {}) if isinstance(existing_display_block, dict) else {}
+                merged_display_block = merged_doc.get("Display", {}) if isinstance(merged_doc, dict) else {}
+                merged_style_block = merged_display_block.get("Style", {}) if isinstance(merged_display_block, dict) else {}
+                for idx in range(1, 7):
+                    key = f"METRIC_{idx}"
+                    value = metric_style_list[idx - 1] if idx - 1 < len(metric_style_list) else ""
+                    merged_value = (
+                        merged_style_block.get(key) if isinstance(merged_style_block, dict) else value
+                    )
+                    if not _nodus_values_match(
+                        existing_style_block.get(key) if isinstance(existing_style_block, dict) else None,
+                        merged_value,
+                    ):
+                        updates.append(("Display.Style", key, merged_value))
             return updates
 
         async def push_updates_to_picow(base_dir: Path, sensor_id_norm: str, device_file: str,
-                                        merged_doc: OrderedDict, metric_list: list[str],
+                                        merged_doc: OrderedDict, metric_list: list[str], metric_style_list: list[str],
                                         *,
                                         previous_doc: OrderedDict | dict | None = None,
                                         lookup_device_id: str,
@@ -6202,7 +6245,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             mgr = SensorSettingsManager(str(base_dir))
             live_doc = mgr.load(sensor_id_norm) or {}
             prior_doc = previous_doc if isinstance(previous_doc, dict) else live_doc
-            updates = _sensor_updates_for_nodus(prior_doc, merged_doc, metric_list)
+            updates = _sensor_updates_for_nodus(prior_doc, merged_doc, metric_list, metric_style_list)
             if not updates:
                 return
 
@@ -6270,8 +6313,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # Only modify [Display] if at least one metric_* is present in the form
         metric_keys_present = any(f"metric_{i}" in form for i in range(1, 7))
+        style_keys_present = any(f"display_style_{i}" in form for i in range(1, 7))
         display_updates: dict = {}
         metric_list: list[str] = []
+        metric_style_list: list[str] = []
         if metric_keys_present:
             gauge_config = get_gauge_config()
             metric_list = [
@@ -6279,6 +6324,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 for i in range(1, 7)
             ]
             display_updates = {"Display": {f"METRIC_{i}": metric_list[i-1] for i in range(1, 7)}}
+        if style_keys_present:
+            allowed_styles = {"Gauge", "Graph6hr", "Graph24hr"}
+            metric_style_list = []
+            for i in range(1, 7):
+                raw_style = str(form.get(f"display_style_{i}", "") or "").strip()
+                style_value = raw_style if raw_style in allowed_styles else "Gauge"
+                metric_style_list.append(style_value)
+            display_updates.setdefault("Display", {})
+            display_updates["Display"]["Style"] = {
+                f"METRIC_{i}": metric_style_list[i - 1] for i in range(1, 7)
+            }
 
         # Deep-merge the changes into the existing doc
         merged_doc = deep_merge_ordered(OrderedDict(existing_doc), sensor_updates)
@@ -6319,6 +6375,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 device_toml,
                 merged_doc,
                 metric_list,
+                metric_style_list,
                 previous_doc=previous_doc,
                 lookup_device_id=old_id,
                 system_mgr=system_mgr,

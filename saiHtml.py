@@ -94,7 +94,7 @@ def get_gauge_config():
     }
     return gauge_config
 
-def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, display_style=None, astro_payload=None, biodynamic_payload=None):
+def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None):
 
     import json
     import os
@@ -798,9 +798,14 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     )    
     # Sensor settings resolution and lookup map
     sensor_display_map = {}
+    sensor_style_map = {}
     if isinstance(expected_gauge_map, dict) and expected_gauge_map:
         for sid in all_values:
             sensor_display_map[sid] = list(expected_gauge_map.get(sid) or [])
+            style_block = {}
+            if isinstance(expected_display_style_map, dict):
+                style_block = expected_display_style_map.get(sid) or {}
+            sensor_style_map[sid] = dict(style_block or {})
     else:
         mgr = SensorSettingsManager("sensor_settings")
         sensor_lookup = {s.lower(): s for s in mgr.list_ids()}
@@ -818,6 +823,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                     except Exception:
                         metrics = list(gauge_config.keys())
                     sensor_display_map[sid] = metrics
+                    styles = mgr.get_display_styles(actual_id, default_style=display_style)
+                    sensor_style_map[sid] = {
+                        f"METRIC_{idx + 1}": styles[idx] if idx < len(styles) else display_style
+                        for idx in range(6)
+                    }
             except Exception as e:
                 printDM(f"Error getting display metrics for {sid}: {e}", location=f"{MODULE}.render_dashboard")
 
@@ -1210,7 +1220,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         yield f"<div class='sensor-row' id='row_{sid}'>"
 
         # build out the gauges for this sensor based on its configured display metrics; if none, show all available gauges
-        for metric in render_metrics:
+        for metric_pos, metric in enumerate(render_metrics, start=1):
             config = gauge_config[metric]
             val = values.get(metric)
             if val is None:
@@ -1255,8 +1265,12 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
 
             safe_metric = _safe(metric)
             safe_id = f"{sid}_{safe_metric}"
+            metric_display_style = (
+                (sensor_style_map.get(sid) or {}).get(f"METRIC_{metric_pos}")
+                or display_style
+            )
 
-            yield f"<div class='metric-container' id='{safe_id}_container' data-sensor='{sid}' data-metric='{metric}'>"
+            yield f"<div class='metric-container' id='{safe_id}_container' data-sensor='{sid}' data-metric='{metric}' data-display-style='{metric_display_style}'>"
             yield f"<div class='metric-title'>{metric} ({config['unit']})</div>"
 
             yield "<div class='gauge-container'>"
@@ -1438,6 +1452,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 timer_safe_key = _safe(f"{getattr(switch_ctrl,'switch_id','')}_{label_norm}_automation")
                 timer_input_id = f"{timer_safe_key}_timer_input"
                 timer_status_id = f"{timer_safe_key}_timer_status"
+                timer_editor_id = f"{timer_safe_key}_timer_editor"
                 if timer_seconds <= 0:
                     timer_status_text = "Timer disabled"
                 elif is_on and timer_remaining > 0:
@@ -1465,9 +1480,22 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 )
                 yield (
                     f"<div class='switch-timer-panel' data-switch-ui-key='{timer_ui_key}' data-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' data-label='{label_norm}'>"
-                    f"  <input id='{timer_input_id}' class='switch-timer-input' type='number' min='0' max='9999' step='30' inputmode='numeric' "
-                    f"    data-switch-ui-key='{timer_ui_key}' data-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' data-label='{label_norm}' value='{timer_seconds}' />"
-                    f"  <div id='{timer_status_id}' class='switch-timer-status' data-switch-ui-key='{timer_ui_key}'>{timer_status_text}</div>"
+                    f"  <div class='switch-timer-summary'>"
+                    f"    <div id='{timer_status_id}' class='switch-timer-status' data-switch-ui-key='{timer_ui_key}'>{timer_status_text}</div>"
+                    f"    <button type='button' class='switch-timer-edit-btn' title='Edit timer for {label_norm}' aria-label='Edit timer for {label_norm}' "
+                    f"      data-switch-ui-key='{timer_ui_key}' data-editor-id='{timer_editor_id}'>"
+                    f"      <svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' role='img' aria-hidden='true' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
+                    f"        <circle cx='12' cy='12' r='3'></circle>"
+                    f"        <path d='M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.33 1V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-.33-1 1.65 1.65 0 0 0-1-.6 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1-.33H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1-.33 1.65 1.65 0 0 0 .6-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6 1.65 1.65 0 0 0 .33-1V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 .33 1 1.65 1.65 0 0 0 1 .6 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.26.3.46.65.6 1 .08.32.08.66 0 1-.14.35-.34.7-.6 1z'></path>"
+                    f"      </svg>"
+                    f"    </button>"
+                    f"  </div>"
+                    f"  <div id='{timer_editor_id}' class='switch-timer-editor' style='display:none;'>"
+                    f"    <input id='{timer_input_id}' class='switch-timer-input' type='number' min='0' max='9999' step='30' inputmode='numeric' "
+                    f"      data-switch-ui-key='{timer_ui_key}' data-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' data-label='{label_norm}' value='{timer_seconds}' />"
+                    f"    <button type='button' class='button blue switch-timer-confirm-btn' data-input-id='{timer_input_id}'>Ok</button>"
+                    f"    <button type='button' class='button black switch-timer-cancel-btn' data-input-id='{timer_input_id}' data-editor-id='{timer_editor_id}'>Cancel</button>"
+                    f"  </div>"
                     f"</div>"
                 )
                 yield "</div>"
@@ -1539,6 +1567,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield f"const currentValues = {json.dumps(all_values)};"
     yield f"const sensorStats = {json.dumps(all_stats)};"
     yield f"const expectedGaugeMap = {json.dumps(expected_gauge_map)};"
+    yield f"const expectedDisplayStyleMap = {json.dumps(expected_display_style_map or {})};"
     yield f"const astroData = {json.dumps(astro_payload)};"
     yield f"const biodynamicData = {json.dumps(biodynamic_payload)};"
     yield f"const isPiPlatform = {str(is_pi_platform).lower()};"
@@ -2183,7 +2212,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const locText = (locationText || sid);"
     yield "    const sidUpper = (sid || '').toUpperCase();"
     yield "    const sidLower = (sid || '').toLowerCase();"
-    yield "    const pendingColor = '#ffc107';"  # default unknown; poller will repaint
+    yield "    const pendingColor = '#ffc107';"  
     yield "    headerWrap.innerHTML = `"
     yield "      <h3 id='${sid}_header'>"
     yield "        <span class='sensor-status-dot' id='${sid}_statusdot' data-sid='${sid}'"
@@ -2237,7 +2266,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  }"
     yield ""
     #  Ensure metric containers exist
-    yield "  (metricList || []).forEach(metric => {"
+    yield "  const styleMap = (expectedDisplayStyleMap && expectedDisplayStyleMap[sid]) || {};"
+    yield "  (metricList || []).forEach((metric, idx) => {"
     yield "    const safeMetric = toSafeMetric(metric);"
     yield "    const containerId = `${sid}_${safeMetric}_container`;"
     yield "    if (document.getElementById(containerId)) return;"
@@ -2247,6 +2277,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    container.id = containerId;"
     yield "    container.dataset.sensor = sid;"
     yield "    container.dataset.metric = metric;"
+    yield "    const styleKey = `METRIC_${idx + 1}`;"
+    yield "    container.dataset.displayStyle = window.normalizeDisplayStyle(styleMap[styleKey] || window.displayStyle || 'Gauge');"
     yield ""
     yield "    const safe = `${sid}_${safeMetric}`;"
     yield "    container.innerHTML = "
@@ -2350,7 +2382,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const labelId = `${safe}_val`;"
     yield "    const canvas = document.getElementById(canvasId);"
     yield "    const label = document.getElementById(labelId);"
-    yield "    if (!canvas || !label) return;"  # only skip if structure truly broken
+    yield "    if (!canvas || !label) return;"  
     yield "    const config = gaugeConfig?.[metric];"
     yield "    if (!config) return;"
     yield "    let value = currentValues?.[sensor]?.[metric];"
@@ -2541,6 +2573,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     
     yield "  const available = Array.isArray(d.available) ? d.available : [];"
     yield "  const nextExpMap = d.expected_gauge_map || {};"
+    yield "  const nextStyleMap = d.expected_display_style_map || {};"
     yield "  const renderableSwitches = Array.isArray(d.renderable_switches_view) ? d.renderable_switches_view : (Array.isArray(d.renderable_switches) ? d.renderable_switches : []);"
     yield "  const locations  = d.locations || {};"
     yield "  const layoutDrift = shouldRefreshForLayoutDrift(available, nextExpMap, renderableSwitches, sensorId);"
@@ -2572,6 +2605,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    if (!knownSensors.has(sid)) {"
     yield "      ensureSensorInSelector(sid);"
     yield "      expectedGaugeMap[sid] = metrics;"
+    yield "      expectedDisplayStyleMap[sid] = nextStyleMap[sid] || expectedDisplayStyleMap[sid] || {};"
     yield "      ensureSensorUI(sid, metrics, locations[sid]);"
     yield "      try { initGauge(); }"
     yield "      catch (e) { console.error('initGauge() failed for new sensor', sid, e); }"
@@ -2584,10 +2618,22 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      });"
     yield "      if (needsNewUI) {"
     yield "        expectedGaugeMap[sid] = metrics;"
+    yield "        expectedDisplayStyleMap[sid] = nextStyleMap[sid] || expectedDisplayStyleMap[sid] || {};"
     yield "        ensureSensorUI(sid, metrics, locations[sid]);"
     yield "        try { initGauge(); }"
     yield "        catch (e) { console.error('initGauge() failed while extending metrics', sid, e); }"
     yield "      }"
+    yield "      const styleMap = nextStyleMap[sid] || {};"
+    yield "      metrics.forEach((metric, idx) => {"
+    yield "        const safeM = (typeof toSafe === 'function') ? toSafe(metric) : metric.replace(/[^a-zA-Z0-9_\\-]/g,'_');"
+    yield "        const container = document.getElementById(`${sid}_${safeM}_container`);"
+    yield "        if (!container) return;"
+    yield "        const nextStyle = window.normalizeDisplayStyle(styleMap[`METRIC_${idx + 1}`] || container.dataset.displayStyle || window.displayStyle || 'Gauge');"
+    yield "        container.dataset.displayStyle = nextStyle;"
+    yield "        if (typeof window.registerContainerStyle === 'function') {"
+    yield "          window.registerContainerStyle(container, nextStyle);"
+    yield "        }"
+    yield "      });"
     yield "    }"
     yield "  }"  # close for sid of available
     yield ""
@@ -2960,21 +3006,18 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "});"
 
     yield "(function() {"
-    yield "  const ds = (typeof window.displayStyle !== 'undefined' && window.displayStyle != null)"
-    yield "    ? String(window.displayStyle)"
-    yield "    : '';"
-    yield "  const normalized = ds.toLowerCase();"
-
-    yield "  if (normalized === 'graph6hr' || normalized === 'graph24hr') {"
-    yield "    const all = document.querySelectorAll('.metric-container');"
-    yield "    all.forEach(container => {"
-    yield "      const targetStyle = (normalized === 'graph6hr') ? 'Graph6hr' : 'Graph24hr';"
+    yield "  const all = document.querySelectorAll('.metric-container');"
+    yield "  all.forEach(container => {"
+    yield "    const style = (typeof window.getContainerStyle === 'function')"
+    yield "      ? window.getContainerStyle(container)"
+    yield "      : window.normalizeDisplayStyle(container.dataset.displayStyle || window.displayStyle || 'Gauge');"
+    yield "    if (style === 'Graph6hr' || style === 'Graph24hr') {"
     yield "      if (typeof window.registerContainerStyle === 'function') {"
-    yield "        window.registerContainerStyle(container, targetStyle);"
+    yield "        window.registerContainerStyle(container, style);"
     yield "      }"
     yield "      showMicrographForContainer(container);"
-    yield "    });"
-    yield "  }"
+    yield "    }"
+    yield "  });"
     yield "})();"
        
     yield "(function() {"
@@ -3013,8 +3056,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ""
     yield "  document.addEventListener('DOMContentLoaded', function() {"
     yield "    try {"
-    yield "      const style = (window.displayStyle || 'Gauge').toString().toLowerCase();"
-    yield "      if (style === 'graph6hr' || style === 'graph24hr') {"
+    yield "      const hasGraphContainer = Array.from(document.querySelectorAll('.metric-container')).some((container) => {"
+    yield "        const style = (typeof window.getContainerStyle === 'function') ? window.getContainerStyle(container) : 'Gauge';"
+    yield "        return style === 'Graph6hr' || style === 'Graph24hr';"
+    yield "      });"
+    yield "      if (hasGraphContainer) {"
     yield "        setTimeout(() => refreshAllMicrographs(true), 500);"
     yield "      }"
     yield "    } catch (e) {"
@@ -3050,7 +3096,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ""
     yield "window.ensureContainerDisplayStyle = function(container) {"
     yield "  if (!container) return;"
-    yield "  const raw = (window.displayStyle || 'Gauge').toString().toLowerCase();"
+    yield "  const raw = String(container.dataset.displayStyle || window.displayStyle || 'Gauge').toLowerCase();"
     yield "  if (raw === 'graph' || raw === 'graph6hr' || raw === 'graph24hr') {"
     yield "    updateContainerDisplayStyle(container);"
     yield "    if (typeof window.registerContainerStyle === 'function') {"
@@ -3062,12 +3108,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ""
     yield "document.addEventListener('DOMContentLoaded', function() {"
     yield "  try {"
-    yield "    const style = (window.displayStyle || 'Gauge').toString().toLowerCase();"
-    yield "    if (style === 'graph' || style === 'graph6hr' || style === 'graph24hr') {"
-    yield "      const all = document.querySelectorAll('.metric-container');"
-    yield "      for (const c of all) {"
-    yield "        window.ensureContainerDisplayStyle(c);"
-    yield "      }"
+    yield "    const all = document.querySelectorAll('.metric-container');"
+    yield "    for (const c of all) {"
+    yield "      window.ensureContainerDisplayStyle(c);"
     yield "    }"
     yield "  } catch (e) {"
     yield "    console.warn('ensureContainerDisplayStyle DOMContentLoaded error', e);"
@@ -3292,6 +3335,18 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  return null;"
     yield "}"
 
+    yield "function _setTimerEditorOpen(panel, open){"
+    yield "  if (!panel) return;"
+    yield "  const editor = panel.querySelector('.switch-timer-editor');"
+    yield "  const btn = panel.querySelector('.switch-timer-edit-btn');"
+    yield "  if (editor) editor.style.display = open ? 'flex' : 'none';"
+    yield "  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');"
+    yield "}"
+
+    yield "function _closeAllTimerEditors(){"
+    yield "  document.querySelectorAll('.switch-timer-panel').forEach((panel) => _setTimerEditorOpen(panel, false));"
+    yield "}"
+
     yield "function _renderSwitchTimer(key, fallbackName){"
     yield "  const stateKey = _timerStateKey(key, fallbackName);"
     yield "  const panel = _findTimerPanel(stateKey);"
@@ -3348,6 +3403,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const initial = Number((input && input.value) || 0);"
     yield "    _switchTimerState.set(key, { timer_seconds: initial, timer_deadline_epoch: 0, timer_remaining_s: 0, state: false });"
     yield "    if (input) input.dataset.lastGoodValue = String(initial);"
+    yield "    _setTimerEditorOpen(panel, false);"
     yield "    _renderSwitchTimer(key, panel.dataset.label || '');"
     yield "  });"
     yield "}"
@@ -4113,6 +4169,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    }"
     yield "    inputEl.dataset.lastGoodValue = String(data.timer_seconds || 0);"
     yield "    updateSwitchTimerUi((data && data.ui_key) || uiKey, data || {}, label);"
+    yield "    const panel = _findTimerPanel((data && data.ui_key) || uiKey);"
+    yield "    _setTimerEditorOpen(panel, false);"
     yield "  } catch (err) {"
     yield "    console.error('saveSwitchTimer failed', err);"
     yield "    alert('Failed to update timer.');"
@@ -4162,18 +4220,54 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  }"
     yield "});"
 
-    yield "document.addEventListener('change', function(ev){"
-    yield "  const input = ev.target.closest('.switch-timer-input');"
-    yield "  if (!input) return;"
-    yield "  saveSwitchTimer(input);"
-    yield "});"
-
     yield "document.addEventListener('keydown', function(ev){"
     yield "  const input = ev.target.closest('.switch-timer-input');"
     yield "  if (!input) return;"
     yield "  if (ev.key !== 'Enter') return;"
     yield "  ev.preventDefault();"
     yield "  saveSwitchTimer(input);"
+    yield "});"
+
+    yield "document.addEventListener('click', function(ev){"
+    yield "  const editBtn = ev.target.closest('.switch-timer-edit-btn');"
+    yield "  if (editBtn) {"
+    yield "    ev.preventDefault();"
+    yield "    ev.stopPropagation();"
+    yield "    const panel = editBtn.closest('.switch-timer-panel');"
+    yield "    if (!panel) return;"
+    yield "    const editor = panel.querySelector('.switch-timer-editor');"
+    yield "    const willOpen = !editor || editor.style.display === 'none';"
+    yield "    _closeAllTimerEditors();"
+    yield "    _setTimerEditorOpen(panel, willOpen);"
+    yield "    if (willOpen) {"
+    yield "      const input = panel.querySelector('.switch-timer-input');"
+    yield "      if (input) { input.focus(); input.select(); }"
+    yield "    }"
+    yield "    return;"
+    yield "  }"
+    yield "  const confirmBtn = ev.target.closest('.switch-timer-confirm-btn');"
+    yield "  if (confirmBtn) {"
+    yield "    ev.preventDefault();"
+    yield "    ev.stopPropagation();"
+    yield "    const inputId = confirmBtn.dataset.inputId || '';"
+    yield "    const input = inputId ? document.getElementById(inputId) : null;"
+    yield "    if (input) saveSwitchTimer(input);"
+    yield "    return;"
+    yield "  }"
+    yield "  const cancelBtn = ev.target.closest('.switch-timer-cancel-btn');"
+    yield "  if (cancelBtn) {"
+    yield "    ev.preventDefault();"
+    yield "    ev.stopPropagation();"
+    yield "    const inputId = cancelBtn.dataset.inputId || '';"
+    yield "    const input = inputId ? document.getElementById(inputId) : null;"
+    yield "    if (input) input.value = String(input.dataset.lastGoodValue || '0');"
+    yield "    const editorId = cancelBtn.dataset.editorId || '';"
+    yield "    const editor = editorId ? document.getElementById(editorId) : null;"
+    yield "    const panel = editor ? editor.closest('.switch-timer-panel') : null;"
+    yield "    _setTimerEditorOpen(panel, false);"
+    yield "    return;"
+    yield "  }"
+    yield "  if (!ev.target.closest('.switch-timer-panel')) _closeAllTimerEditors();"
     yield "});"
     
     yield "function _currentSwitchIdFromSettings(){"

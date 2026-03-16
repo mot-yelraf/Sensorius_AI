@@ -374,11 +374,17 @@ async def test_submit_sensor_settings_pushes_sensor_and_display_updates_for_nodu
                 "metric_4": "",
                 "metric_5": "",
                 "metric_6": "",
+                "display_style_1": "Graph24hr",
+                "display_style_2": "Gauge",
+                "display_style_3": "Graph6hr",
+                "display_style_4": "Gauge",
+                "display_style_5": "Gauge",
+                "display_style_6": "Gauge",
             },
         )
 
     assert res.status_code == 303
-    assert len(ingest.published_json) == 4
+    assert len(ingest.published_json) == 10
     assert all(len((((row.get("payload") or {}).get("payload") or {}).get("updates") or [])) == 1 for row in ingest.published_json)
     posted = [
         update
@@ -389,6 +395,8 @@ async def test_submit_sensor_settings_pushes_sensor_and_display_updates_for_nodu
     assert any(p["section"] == "Display" and p["key"] == "METRIC_1" and p["value"] == "Temperature" for p in posted)
     assert any(p["section"] == "Display" and p["key"] == "METRIC_2" and p["value"] == "Humidity" for p in posted)
     assert any(p["section"] == "Display" and p["key"] == "METRIC_3" and p["value"] == "PM2.5" for p in posted)
+    assert any(p["section"] == "Display.Style" and p["key"] == "METRIC_1" and p["value"] == "Graph24hr" for p in posted)
+    assert any(p["section"] == "Display.Style" and p["key"] == "METRIC_3" and p["value"] == "Graph6hr" for p in posted)
     assert not any(p["section"] == "Sensor" and p["key"] == "DEVICE" for p in posted)
     assert not any(p["section"] == "Sensor" and p["key"] == "SENSOR_ID" for p in posted)
     assert any(p.get("name") == "sensor_i2c.toml" for p in posted)
@@ -396,6 +404,8 @@ async def test_submit_sensor_settings_pushes_sensor_and_display_updates_for_nodu
     saved = sensor_mgr.load("aqi-123")
     assert saved["Sensor"]["DEVICE"] == "aqi"
     assert saved["Sensor"]["SENSOR_ID"] == "aqi-123"
+    assert saved["Display"]["Style"]["METRIC_1"] == "Graph24hr"
+    assert saved["Display"]["Style"]["METRIC_3"] == "Graph6hr"
 
 
 @pytest.mark.asyncio
@@ -433,6 +443,12 @@ async def test_submit_sensor_settings_prefers_cached_ip_for_nodus_push(tmp_path,
                 "metric_4": "",
                 "metric_5": "",
                 "metric_6": "",
+                "display_style_1": "Graph6hr",
+                "display_style_2": "Gauge",
+                "display_style_3": "Gauge",
+                "display_style_4": "Gauge",
+                "display_style_5": "Gauge",
+                "display_style_6": "Gauge",
             },
         )
 
@@ -452,6 +468,8 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
         settings={"Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "aqi-123", "LOCATION": "Veg Tent"}},
         metric_options=["", "Temperature", "Rel-Humidity", "Ambient VPD"],
         current_metrics=["Temperature", "Rel-Humidity", "Ambient VPD", "", "", ""],
+        display_style_options=["Gauge", "Graph6hr", "Graph24hr"],
+        current_metric_styles=["Gauge", "Graph6hr", "Graph24hr", "Gauge", "Gauge", "Gauge"],
         location="Veg Tent",
         device_kind="aqi",
         device_label="aqi",
@@ -467,6 +485,8 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
     )
 
     assert "Sensor Settings v1.2.3" in html
+    assert 'name="display_style_1"' in html
+    assert 'name="display_style_3"' in html
 
 
 def test_switch_settings_modal_shows_nodus_firmware_version_in_settings_pane_title():

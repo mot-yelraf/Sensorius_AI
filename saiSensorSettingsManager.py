@@ -265,6 +265,28 @@ class SensorSettingsManager:
                 ordered_metrics.append(raw_val.strip())
         return ordered_metrics
 
+    def get_display_styles(self, sensor_id: str, default_style: str = "Gauge") -> list[str]:
+        try:
+            settings = self.load(sensor_id)
+        except FileNotFoundError:
+            return [default_style] * 6
+
+        display_block = settings.get("Display", {}) if isinstance(settings, dict) else {}
+        style_block = {}
+        if isinstance(display_block, dict):
+            style_block = display_block.get("Style", {}) or display_block.get("style", {}) or {}
+
+        ordered_styles: list[str] = []
+        for ordinal in range(1, 7):
+            key_u = f"METRIC_{ordinal}"
+            key_l = f"metric_{ordinal}"
+            raw_val = default_style
+            if isinstance(style_block, dict):
+                raw_val = style_block.get(key_u, style_block.get(key_l, default_style))
+            raw_str = str(raw_val or "").strip() or default_style
+            ordered_styles.append(raw_str)
+        return ordered_styles
+
     def set_display_metrics(self, sensor_id: str, metrics: list[str]):
         """
         Set display metrics for a sensor. Accepts a list of up to 6 items.
@@ -355,6 +377,14 @@ class SensorSettingsManager:
         for idx in range(6):
             key = f"METRIC_{idx + 1}"
             display[key] = chosen_metrics[idx]
+
+        style_block = display.get("Style")
+        if not isinstance(style_block, dict):
+            style_block = OrderedDict()
+            display["Style"] = style_block
+        for idx in range(6):
+            key = f"METRIC_{idx + 1}"
+            style_block.setdefault(key, "")
 
         # write & cache
         self._emit_toml_to_disk(dst, data)
