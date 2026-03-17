@@ -15,6 +15,7 @@ from jinja2 import Environment, FileSystemLoader
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import saiAddDevice
+import saiMQTTIngest
 import saiSensorSettingsManager
 import saiSettings as saiSettingsModule
 import saiSwitchSettingsManager
@@ -1215,3 +1216,82 @@ async def test_dashboard_metric_position_reorder_preserves_hidden_sensor_slots(t
         "aqi-b": 2,
         "aqi-a": 3,
     }
+
+
+@pytest.mark.asyncio
+async def test_remove_device_list_merges_settings_db_and_ingest_ids(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
+    monkeypatch.setenv("SAI_WEB_API_KEY", "test-key")
+    monkeypatch.setattr(saiWebRoutes, "_SYS_BASE_DIR", str(system_root))
+    monkeypatch.setattr(saiMQTTIngest, "get_current_ingest", lambda: ingest)
+
+    sensor_mgr.save(
+        "aqi-settings",
+        {
+            "Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "aqi-settings", "LOCATION": "Room A"},
+            "Display": {"METRIC_1": "Temperature"},
+        },
+    )
+    switch_mgr.save(
+        "switch-settings",
+        {
+            "Switch": {"DEVICE": "nodus", "SWITCH_DEVICE_ID": "switch-settings", "SWITCH_LOCATION": "Room B"},
+        },
+    )
+
+    ingest.mqtt_clients = ["aqi-settings", "aqi-live.local"]
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["aqi-db", "aqi-settings"])
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_switch_identities",
+        lambda: [{"switch_id": "switch-db", "switch_key": "switch-db::Fan", "label": "Fan", "location": "Room C"}],
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"x-api-key": "test-key"},
+    ) as client:
+        res = await client.get("/remove-device-list")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["devices"] == [
+        "aqi-db",
+        "aqi-live",
+        "aqi-settings",
+        "switch-db",
+        "switch-settings",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_remove_device_list_allows_same_origin_browser_request_without_api_key_header(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    monkeypatch.setenv("SAI_WEB_API_KEY", "test-key")
+    monkeypatch.setattr(saiWebRoutes, "_SYS_BASE_DIR", str(system_root))
+    monkeypatch.setattr(saiMQTTIngest, "get_current_ingest", lambda: ingest)
+
+    sensor_mgr.save(
+        "aqi-settings",
+        {
+            "Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "aqi-settings", "LOCATION": "Room A"},
+            "Display": {"METRIC_1": "Temperature"},
+        },
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"referer": "http://test/"},
+    ) as client:
+        res = await client.get("/remove-device-list")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert "aqi-settings" in body["devices"]

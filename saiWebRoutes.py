@@ -2628,6 +2628,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return ""
 
     def _is_same_origin(request: Request) -> bool:
+        sec_fetch_site = (request.headers.get("sec-fetch-site") or "").strip().lower()
+        if sec_fetch_site == "same-origin":
+            return True
         host = (request.url.hostname or "").strip().lower()
         if not host:
             return False
@@ -4585,11 +4588,61 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         except Exception:
             return []
 
+    def _collect_settings_ids() -> list[str]:
+        ids: set[str] = set()
+        try:
+            sensor_mgr = SensorSettingsManager("sensor_settings")
+            ids.update(sensor_mgr.list_ids() or [])
+        except Exception:
+            pass
+        try:
+            switch_mgr = SwitchSettingsManager("switch_settings")
+            ids.update(switch_mgr.list_switches() or [])
+        except Exception:
+            pass
+        try:
+            ids.update(_enumerate_dirs(_SYS_BASE_DIR))
+        except Exception:
+            pass
+
+        out: list[str] = []
+        seen: set[str] = set()
+        for raw in ids:
+            norm = _normalize_dev_id(raw)
+            if norm and norm not in seen:
+                seen.add(norm)
+                out.append(norm)
+        return out
+
+    def _collect_db_ids() -> list[str]:
+        ids: set[str] = set()
+        try:
+            ids.update(data_logger.get_available_sensors() or [])
+        except Exception:
+            pass
+        try:
+            for row in (data_logger.get_switch_identities() or []):
+                switch_id = str((row or {}).get("switch_id") or "").strip()
+                if switch_id:
+                    ids.add(switch_id)
+        except Exception:
+            pass
+
+        out: list[str] = []
+        seen: set[str] = set()
+        for raw in ids:
+            norm = _normalize_dev_id(raw)
+            if norm and norm not in seen:
+                seen.add(norm)
+                out.append(norm)
+        return out
+
     def _collect_removable_ids() -> list[str]:
         """
         Aggregate IDs that are candidates for removal from:
           - MQTT discovery (in-memory)
-          - sensor, switch, and system settings directories.
+          - sensor, switch, and system settings
+          - database-backed sensor and switch identities
 
         Excludes:
           - our own hub host folder
@@ -4597,17 +4650,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
           - 'factory' metadata folders
         """
         ids: set[str] = set(_collect_ingest_ids())
-
-        for base_dir in (_SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR):
-            for name in _enumerate_dirs(base_dir):
-                if name:
-                    ids.add(name)
+        ids.update(_collect_settings_ids())
+        ids.update(_collect_db_ids())
 
         # do not list hub host folder (our own hostname)
         try:
             hub_name = Path(HUB_SETTINGS_PATH).parent.name
             if hub_name:
                 ids.discard(hub_name)
+                ids.discard(_normalize_dev_id(hub_name) or hub_name)
         except Exception:
             pass
 
@@ -4616,7 +4667,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         filtered_ids = [
             dev_id
             for dev_id in ids
-            if dev_id and dev_id.lower() not in banned
+            if dev_id
+            and dev_id.lower() not in banned
+            and not dev_id.lower().startswith("factory")
+            and not dev_id.lower().startswith("template")
         ]
 
         return sorted(filtered_ids)
@@ -5121,7 +5175,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     #remove device routes
     @router.get("/remove-device-list")
     async def remove_device_list(request: Request):
-        _require_protected_access(request)
+        _require_protected_access(request, require_csrf=True)
         devices = await asyncio.to_thread(_collect_removable_ids)
         return JSONResponse({"devices": devices})
 
@@ -5131,7 +5185,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         Kept for compatibility in case someone navigates to /remove-device.
         We just return a tiny page that instructs to use the modal button.
         """
-        _require_protected_access(request)
+        _require_protected_access(request, require_csrf=True)
         return HTMLResponse("<html><body><p>Use the Remove Device button to open the modal.</p></body></html>")
 
     @router.post("/remove-device")
