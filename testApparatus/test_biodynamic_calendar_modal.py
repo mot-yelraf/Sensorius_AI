@@ -63,9 +63,10 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "function bioTodayIso(){ return new Date().toISOString().slice(0,10); }" not in text
     assert "await loadBiodynamicMonth(monthKey, preferredDate);" in text
     assert ".bio-day.today:not(.selected){box-shadow:inset 0 0 0 1px rgba(39,49,58,.45);}" in text
+    assert ".bio-day.out{opacity:.62;filter:saturate(.42) brightness(1.02);}" in text
     assert "function renderBiodynamicPrintView(){" in text
     assert ".bio-print-block{font-size:9pt;line-height:1.35;color:#27313a;white-space:pre-wrap;overflow-wrap:anywhere;min-height:1.2em;text-align:left;}" in text
-    assert ".bio-summary-card .bio-summary-output{height:236px;max-height:236px;}" in text
+    assert ".bio-summary-card .bio-summary-output{height:78px;max-height:78px;}" in text
     assert "document.body.classList.add('bio-printing');" in text
     assert "document.body.classList.add(mode === 'calendar' ? 'bio-print-calendar-mode' : 'bio-print-notes-mode');" in text
     assert "window.print();" in text
@@ -83,6 +84,13 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "@page bio-notes{size:portrait;margin:.35in}" in text
     assert "body.bio-print-calendar-mode #bioPrintCalendarSheet{display:block !important;page:bio-calendar}" in text
     assert "body.bio-print-notes-mode #bioPrintNotesSheet{display:block !important;page:bio-notes}" in text
+    assert "function hasOpenBackdropModal() {" in text
+    assert "if (hasOpenBackdropModal()) {" in text
+    assert "setTimeout(() => scheduleLayoutRefresh(reason, sig), 1000);" in text
+    assert "function bioDayBackground(day){" in text
+    assert "dividerStops.push(`transparent ${startPct.toFixed(2)}%`, `rgba(39,49,58,.14) ${startPct.toFixed(2)}%`, `rgba(39,49,58,.14) ${lineEnd.toFixed(2)}%`, `transparent ${lineEnd.toFixed(2)}%`);" in text
+    assert "return `${overlay}, ${base}`;" in text
+    assert "const style = `background:${bioDayBackground(day)};border-color:${bioEsc(day.dominant_color || '#d7d0bf')};`;" in text
 
 
 @pytest.mark.asyncio

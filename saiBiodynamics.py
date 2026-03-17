@@ -37,8 +37,8 @@ _EPHEMERIS_RETRY_COOLDOWN_SEC = 900.0
 _SKYFIELD_LOCK = threading.Lock()
 _ephemeris_last_error = ""
 _ephemeris_retry_after_monotonic = 0.0
-_OFF_PERIOD_COLOR = "#d7dbe0"
-_OFF_PERIOD_ACCENT = "#eef1f4"
+_OFF_PERIOD_COLOR = "#c7ced6"
+_OFF_PERIOD_ACCENT = "#e5e9ee"
 _MOON_NODE_WINDOW = timedelta(hours=2)
 _PERIGEE_WINDOW = timedelta(hours=12)
 _PAYLOAD_CACHE_TTL_SEC = 300.0
