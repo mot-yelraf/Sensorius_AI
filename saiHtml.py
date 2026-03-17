@@ -1896,7 +1896,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "window.__bioModalState = window.__bioModalState || { month: '', data: null, selectedDate: '' };"
     yield "window.__bioNoteDraft = '';"
     yield "function bioEsc(s){ return String(s == null ? '' : s).replace(/[&<>\"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[ch] || ch)); }"
-    yield "function bioTodayIso(){ return new Date().toISOString().slice(0,10); }"
+    yield "function bioTodayIso(){ const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }"
     yield "function bioMonthKeyFromDate(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }"
     yield "function bioShiftMonth(monthKey, delta){ const m = String(monthKey || '').match(/^(\\d{4})-(\\d{2})$/); if (!m) return bioMonthKeyFromDate(new Date()); const d = new Date(parseInt(m[1],10), parseInt(m[2],10)-1 + delta, 1); return bioMonthKeyFromDate(d); }"
     yield "function bioFmtDateLabel(iso){ const d = new Date(`${iso}T00:00:00`); if (!Number.isFinite(d.getTime())) return iso || '--'; return d.toLocaleDateString([], { weekday:'short', month:'short', day:'numeric', year:'numeric' }); }"

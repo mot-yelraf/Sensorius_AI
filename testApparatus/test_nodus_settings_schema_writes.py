@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import saiAddDevice
 import saiSensorSettingsManager
+import saiSettings as saiSettingsModule
 import saiSwitchSettingsManager
 import saiWebRoutes
 
@@ -224,6 +225,30 @@ class _FakeSaiSettings:
     @staticmethod
     def deobfuscate_secret(value):
         return value
+
+
+class _PersistentFakeSaiSettings(_FakeSaiSettings):
+    STORED_SETTINGS: dict = {}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.settings = {
+            section: dict(values or {})
+            for section, values in self.__class__.STORED_SETTINGS.items()
+        }
+
+    def get_section(self, section, reload_if_changed=False):
+        data = self.settings.get(section, {})
+        if isinstance(data, dict):
+            return dict(data)
+        return data
+
+    def save_settings(self):
+        self.__class__.STORED_SETTINGS = {
+            section: dict(values or {})
+            for section, values in self.settings.items()
+        }
+        self._dirty = False
 
 
 class _FakeSystemSettingsManager:
@@ -1092,3 +1117,101 @@ async def test_dashboard_sensor_locations_ignore_unknown_live_cache_and_use_toml
     assert res.status_code == 200
     body = res.json()
     assert body["locations"]["aqi-123"] == "Grow Tent"
+
+
+@pytest.mark.asyncio
+async def test_dashboard_read_does_not_rewrite_metric_positions_for_offline_sensors(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    for sid in ("aqi-a", "aqi-b", "aqi-c"):
+        sensor_mgr.save(
+            sid,
+            {
+                "Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": sid, "LOCATION": sid},
+                "Display": {"METRIC_1": "Temperature"},
+            },
+        )
+
+    _PersistentFakeSaiSettings.STORED_SETTINGS = {
+        "MetricPosition": {"aqi-a": 1, "aqi-b": 2, "aqi-c": 3},
+    }
+    monkeypatch.setattr(saiWebRoutes, "saiSettings", _PersistentFakeSaiSettings)
+    monkeypatch.setattr(saiSettingsModule, "saiSettings", _PersistentFakeSaiSettings)
+
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["aqi-a", "aqi-c"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso if sid in {"aqi-a", "aqi-c"} else "")
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_latest_values_and_timestamps",
+        lambda ids: (
+            {sid: {"Temperature": 72.0} for sid in ids},
+            {sid: now_iso for sid in ids},
+        ),
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_metrics", lambda sid: ["Temperature"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {"aqi-a": {}, "aqi-c": {}})
+    ingest.mqtt_clients = []
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/", params={"json_only": "true"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["available"] == ["aqi-a", "aqi-c"]
+    assert _PersistentFakeSaiSettings.STORED_SETTINGS["MetricPosition"] == {
+        "aqi-a": 1,
+        "aqi-b": 2,
+        "aqi-c": 3,
+    }
+
+
+@pytest.mark.asyncio
+async def test_dashboard_metric_position_reorder_preserves_hidden_sensor_slots(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    for sid in ("aqi-a", "aqi-b", "aqi-c"):
+        sensor_mgr.save(
+            sid,
+            {
+                "Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": sid, "LOCATION": sid},
+                "Display": {"METRIC_1": "Temperature"},
+            },
+        )
+
+    _PersistentFakeSaiSettings.STORED_SETTINGS = {
+        "MetricPosition": {"aqi-a": 1, "aqi-b": 2, "aqi-c": 3},
+    }
+    monkeypatch.setattr(saiWebRoutes, "saiSettings", _PersistentFakeSaiSettings)
+    monkeypatch.setattr(saiSettingsModule, "saiSettings", _PersistentFakeSaiSettings)
+
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["aqi-a", "aqi-c"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso if sid in {"aqi-a", "aqi-c"} else "")
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_latest_values_and_timestamps",
+        lambda ids: (
+            {sid: {"Temperature": 72.0} for sid in ids},
+            {sid: now_iso for sid in ids},
+        ),
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_metrics", lambda sid: ["Temperature"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {"aqi-a": {}, "aqi-c": {}})
+    ingest.mqtt_clients = []
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/dashboard/metric-position", json={"sensor_id": "aqi-c", "direction": "up"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["order"] == ["aqi-c", "aqi-a"]
+    assert _PersistentFakeSaiSettings.STORED_SETTINGS["MetricPosition"] == {
+        "aqi-c": 1,
+        "aqi-b": 2,
+        "aqi-a": 3,
+    }

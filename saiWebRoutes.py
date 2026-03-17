@@ -78,7 +78,7 @@ from saiHtml import render_dashboard, get_gauge_config, canonicalize_metric_name
 from saiFastStats import FastStats
 from saiSensorSettingsManager import SensorSettingsManager
 from saiSwitchSettingsManager import SwitchSettingsManager
-from saiBiodynamics import get_biodynamic_payload
+from saiBiodynamics import get_biodynamic_payload, get_biodynamic_local_now
 from saiDailySummary import DailySummaryService
 from saiAddDevice import HUB_SETTINGS_PATH, _SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR
 try:
@@ -271,17 +271,24 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             out[sid] = pos
         return out
 
-    def _save_metric_positions(sensor_ids: list[str]) -> bool:
-        deduped: list[str] = []
+    def _save_metric_position_map(position_map: OrderedDict[str, int]) -> bool:
+        desired: OrderedDict[str, int] = OrderedDict()
         seen: set[str] = set()
-        for raw in sensor_ids or []:
-            sid = str(raw or "").strip()
+        used_positions: set[int] = set()
+        for raw_sid, raw_pos in (position_map or {}).items():
+            sid = str(raw_sid or "").strip()
             if not sid or sid in seen:
                 continue
+            try:
+                pos = int(raw_pos)
+            except Exception:
+                continue
+            if pos < 1 or pos in used_positions:
+                continue
             seen.add(sid)
-            deduped.append(sid)
+            used_positions.add(pos)
+            desired[sid] = pos
 
-        desired = OrderedDict((sid, idx + 1) for idx, sid in enumerate(deduped))
         fresh_settings = saiSettings(apply_live=False)
         current = fresh_settings.get_section(_METRIC_POSITION_SECTION, reload_if_changed=True)
         current_items = list(current.items()) if isinstance(current, dict) else []
@@ -295,6 +302,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             fresh_settings.settings.pop(_METRIC_POSITION_SECTION, None)
         fresh_settings._dirty = True
         fresh_settings.save_settings()
+        _DASHBOARD_JSON_CACHE.clear()
         return True
 
     def _persist_visible_metric_order(sensor_ids: list[str]) -> bool:
@@ -308,8 +316,28 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             deduped.append(sid)
 
         stored = _load_metric_position_section()
-        hidden = [sid for sid in stored.keys() if sid not in seen]
-        return _save_metric_positions(deduped + hidden)
+        hidden_by_pos: dict[int, str] = {}
+        taken_positions: set[int] = set()
+        for sid, pos in stored.items():
+            if sid in seen:
+                continue
+            hidden_by_pos[pos] = sid
+            taken_positions.add(pos)
+
+        next_pos = 1
+        desired: dict[str, int] = {}
+        for sid in deduped:
+            while next_pos in taken_positions:
+                next_pos += 1
+            desired[sid] = next_pos
+            taken_positions.add(next_pos)
+            next_pos += 1
+
+        merged: list[tuple[str, int]] = list(desired.items()) + [
+            (sid, pos) for pos, sid in hidden_by_pos.items()
+        ]
+        merged.sort(key=lambda item: (item[1], item[0].lower()))
+        return _save_metric_position_map(OrderedDict(merged))
 
     def _order_sensor_ids_by_metric_position(sensor_ids: list[str]) -> list[str]:
         deduped: list[str] = []
@@ -325,9 +353,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         with_saved = [sid for sid in deduped if sid in stored]
         with_saved.sort(key=lambda sid: (stored.get(sid, 10**9), sid.lower()))
         new_ids = [sid for sid in deduped if sid not in stored]
-        ordered = with_saved + new_ids
-        _persist_visible_metric_order(ordered)
-        return ordered
+        return with_saved + new_ids
 
     def _moon_phase_name(phase_val: float) -> str:
         p = phase_val % 28.0
@@ -3565,7 +3591,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         try:
             raw = str(month or "").strip()
             if not raw:
-                anchor = datetime.now().date().replace(day=1)
+                anchor = get_biodynamic_local_now().date().replace(day=1)
             elif len(raw) == 7:
                 anchor = datetime.strptime(raw, "%Y-%m").date().replace(day=1)
             else:

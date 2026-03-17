@@ -1,4 +1,54 @@
+import os
+import sys
 from pathlib import Path
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+import saiWebRoutes
+
+
+class _DummyFastStats:
+    def __init__(self, *_args, **_kwargs):
+        pass
+
+    async def start(self):
+        return
+
+    def stop(self):
+        return
+
+
+class _HubSettings:
+    def get_all_sensor_ids(self):
+        return []
+
+    def get_setting(self, _section, _key, default=None):
+        return default
+
+
+class _FakeNetMgr:
+    pass
+
+
+class _FakeGcMgr:
+    pass
+
+
+class _FakeIngest:
+    def set_onboarding_event_handler(self, handler):
+        self.handler = handler
+
+    def get_known_devices(self):
+        return []
+
+    def get_known_switch_devices(self):
+        return []
 
 
 def test_biodynamic_calendar_modal_defaults_to_today_when_present():
@@ -8,8 +58,9 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "const hasSelectedDay = !!(st.selectedDate && days.some((d) => d && d.date === st.selectedDate));" in text
     assert "const today = days.find((d) => d && d.in_month && d.is_today) || null;" in text
     assert "const defaultDay = today || firstInMonth || null;" in text
-    assert "function bioTodayIso(){ return new Date().toISOString().slice(0,10); }" in text
+    assert "function bioTodayIso(){ const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }" in text
     assert "const preferredDate = monthKey === bioMonthKeyFromDate(new Date(`${todayIso}T00:00:00`)) ? todayIso : '';" in text
+    assert "function bioTodayIso(){ return new Date().toISOString().slice(0,10); }" not in text
     assert "await loadBiodynamicMonth(monthKey, preferredDate);" in text
     assert ".bio-day.today:not(.selected){box-shadow:inset 0 0 0 1px rgba(39,49,58,.45);}" in text
     assert "function renderBiodynamicPrintView(){" in text
@@ -32,3 +83,32 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "@page bio-notes{size:portrait;margin:.35in}" in text
     assert "body.bio-print-calendar-mode #bioPrintCalendarSheet{display:block !important;page:bio-calendar}" in text
     assert "body.bio-print-notes-mode #bioPrintNotesSheet{display:block !important;page:bio-notes}" in text
+
+
+@pytest.mark.asyncio
+async def test_biodynamic_calendar_api_default_month_uses_biodynamic_local_time(monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    captured = {}
+
+    def _fake_payload(anchor):
+        captured["anchor"] = anchor
+        return {"ok": True, "calendar": [], "month_label": "", "notes": {}, "daily_summaries": {}}
+
+    monkeypatch.setattr(
+        saiWebRoutes,
+        "get_biodynamic_local_now",
+        lambda: datetime(2026, 3, 31, 23, 30, tzinfo=ZoneInfo("America/Denver")),
+    )
+    monkeypatch.setattr(saiWebRoutes, "get_biodynamic_payload", _fake_payload)
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_notes_for_month", lambda anchor: {})
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_daily_summaries_for_month", lambda anchor: {})
+
+    app = FastAPI()
+    await saiWebRoutes.register_routes(app, _HubSettings(), _FakeNetMgr(), _FakeGcMgr(), _FakeIngest())
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/api/biodynamic-calendar")
+
+    assert res.status_code == 200
+    assert captured["anchor"].isoformat() == "2026-03-01"

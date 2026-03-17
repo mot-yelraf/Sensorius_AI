@@ -108,6 +108,15 @@ def _resolve_location() -> tuple[float | None, float | None, str]:
         return None, None, ""
 
 
+def get_biodynamic_local_now() -> datetime:
+    _lat, _lon, tz_name = _resolve_location()
+    try:
+        tzinfo = ZoneInfo(str(tz_name or "").strip() or "America/Denver")
+    except Exception:
+        tzinfo = ZoneInfo("America/Denver")
+    return datetime.now(tzinfo)
+
+
 def _skyfield_data_dir() -> Path:
     data_dir = Path(__file__).resolve().parent / "data" / "skyfield"
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -442,7 +451,7 @@ def _build_calendar(month_anchor: date, tzinfo: ZoneInfo, ts, eph, constellation
 
 
 def get_biodynamic_payload(target_date: date | None = None) -> dict[str, object]:
-    month_anchor = target_date or datetime.now().date()
+    month_anchor = target_date or get_biodynamic_local_now().date()
     payload = _empty_payload(month_anchor)
     payload["ephemeris"] = _ephemeris_status()
 
