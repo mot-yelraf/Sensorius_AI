@@ -46,6 +46,21 @@ python3 Sensorius.py
 
 Default UI URL: `http://127.0.0.1:8000`
 
+## Raspberry Pi Wi-Fi Notes
+
+For Raspberry Pi deployments that will onboard Nodus devices over Wi-Fi, best practice is to have the Raspberry Pi use a 2.4 GHz network path.
+
+- Best practice: configure the Raspberry Pi to use a 2.4 GHz Wi-Fi network before running Sensorius setup or onboarding Nodus devices.
+- If your router provides separate SSIDs for 2.4 GHz and 5 GHz, connect the Raspberry Pi to the 2.4 GHz SSID.
+- If the Raspberry Pi is not headless, you can configure Wi-Fi locally on the Pi before starting Sensorius setup.
+
+Some routers use one SSID for both 2.4 GHz and 5 GHz bands. In that case, a headless Raspberry Pi may join the 5 GHz band, while Nodus devices remain limited to 2.4 GHz.
+
+- On single-SSID multi-frequency routers, the recommended Sensorius setup is to connect the Raspberry Pi to the router by ethernet.
+- With ethernet connected, the Raspberry Pi can still communicate with Nodus devices on the router's 2.4 GHz Wi-Fi network.
+- If ethernet is not available, configure the Raspberry Pi locally so its Wi-Fi connection uses the router's 2.4 GHz radio before running headless.
+- Router-specific band steering, isolation, or roaming behavior is outside the scope of Sensorius setup.
+
 ## Architecture (High-Level)
 
 Home Assistant option:

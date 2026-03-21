@@ -17,6 +17,41 @@ APP_TITLE = "Sensorius"
 APP_NAME_SHORT = f"{APP_TITLE} AI"
 APP_NAME_LONG = f"{APP_TITLE} Automatio Instrumentorum"
 
+
+def _settings_gear_svg_lines(*, indent: str = "", aria_label: str | None = "Settings", aria_hidden: bool = False):
+    attrs = [
+        "xmlns='http://www.w3.org/2000/svg'",
+        "width='14'",
+        "height='14'",
+        "viewBox='0 0 24 24'",
+        "role='img'",
+    ]
+    if aria_hidden:
+        attrs.append("aria-hidden='true'")
+    elif aria_label:
+        attrs.append(f"aria-label='{html_escape(aria_label)}'")
+    attrs.extend([
+        "fill='none'",
+        "stroke='currentColor'",
+        "stroke-width='2'",
+        "stroke-linecap='round'",
+        "stroke-linejoin='round'",
+    ])
+    return (
+        f"{indent}<svg {' '.join(attrs)}>",
+        f"{indent}  <circle cx='12' cy='12' r='7'></circle>",
+        f"{indent}  <rect x='11' y='1' width='2' height='4' rx='1' fill='currentColor' stroke='none'></rect>",
+        f"{indent}  <rect x='11' y='19' width='2' height='4' rx='1' fill='currentColor' stroke='none'></rect>",
+        f"{indent}  <rect x='1' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none'></rect>",
+        f"{indent}  <rect x='19' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none'></rect>",
+        f"{indent}  <rect x='11' y='1' width='2' height='4' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'></rect>",
+        f"{indent}  <rect x='11' y='19' width='2' height='4' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'></rect>",
+        f"{indent}  <rect x='1' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'></rect>",
+        f"{indent}  <rect x='19' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'></rect>",
+        f"{indent}  <circle cx='12' cy='12' r='2.25'></circle>",
+        f"{indent}</svg>",
+    )
+
 def canonicalize_metric_name(metric: str, gauge_config: dict | None = None) -> str:
     """
     Map display/storage metric aliases to the canonical gauge_config key.
@@ -967,21 +1002,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "</a>"
     yield f" {APP_NAME_SHORT} "
     yield "<a href='#' onclick='window.editSystemSettings && window.editSystemSettings(); return false;' title='Open System Settings' style='margin-left:8px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
-    yield "    <svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' role='img' aria-label='Settings' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
-    yield "      <!-- outer ring -->"
-    yield "      <circle cx='12' cy='12' r='7'/>"
-    yield "      <!-- teeth (flat) -->"
-    yield "      <rect x='11' y='1'  width='2' height='4' rx='1' fill='currentColor' stroke='none'/>"
-    yield "      <rect x='11' y='19' width='2' height='4' rx='1' fill='currentColor' stroke='none'/>"
-    yield "      <rect x='1'  y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none'/>"
-    yield "      <rect x='19' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none'/>"
-    yield "      <rect x='11' y='1'  width='2' height='4' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
-    yield "      <rect x='11' y='19' width='2' height='4' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
-    yield "      <rect x='1'  y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
-    yield "      <rect x='19' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
-    yield "      <!-- hub -->"
-    yield "      <circle cx='12' cy='12' r='2.25'/>"
-    yield "    </svg>"
+    yield from _settings_gear_svg_lines(indent="    ")
     yield "</a>"
     yield "</h2>"
   
@@ -1180,21 +1201,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             f" {sidUpper} "
         )        
         yield f"  <a href='#' onclick=\"window.editSensorSettings && window.editSensorSettings('{sidLower}'); return false;\" title='Open {sid} Settings' style='margin-left:2px; margin-right:8px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
-        yield "    <svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' role='img' aria-label='Settings' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
-        yield "      <!-- outer ring -->"
-        yield "      <circle cx='12' cy='12' r='7'/>"
-        yield "      <!-- teeth (flat) -->"
-        yield "      <rect x='11' y='1'  width='2' height='4' rx='1' fill='currentColor' stroke='none'/>"
-        yield "      <rect x='11' y='19' width='2' height='4' rx='1' fill='currentColor' stroke='none'/>"
-        yield "      <rect x='1'  y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none'/>"
-        yield "      <rect x='19' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none'/>"
-        yield "      <rect x='11' y='1'  width='2' height='4' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
-        yield "      <rect x='11' y='19' width='2' height='4' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
-        yield "      <rect x='1'  y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
-        yield "      <rect x='19' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
-        yield "      <!-- hub -->"
-        yield "      <circle cx='12' cy='12' r='2.25'/>"
-        yield "    </svg>"
+        yield from _settings_gear_svg_lines(indent="    ")
         yield "  </a>"
         yield (f"{location}")
         yield "</h3>"
@@ -1392,18 +1399,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             yield f"<div style='text-align:center; width:100%; margin-top:-1.5rem; margin-bottom:-1.0rem;'>"
             yield f"<h3 id='{sw_id}_header'>{sw_id.upper()} "
             yield f"  <a href='javascript:void(0)' onclick='editSwitchSettings(\"{sw_id}\")' title='Open {sw_id} Settings' style='margin-left:2px; margin-right:8px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
-            yield "    <svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' role='img' aria-label='Settings' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
-            yield "      <circle cx='12' cy='12' r='7'/>"
-            yield "      <rect x='11' y='1'  width='2' height='4' rx='1' fill='currentColor' stroke='none'/>"
-            yield "      <rect x='11' y='19' width='2' height='4' rx='1' fill='currentColor' stroke='none'/>"
-            yield "      <rect x='1'  y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none'/>"
-            yield "      <rect x='19' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none'/>"
-            yield "      <rect x='11' y='1'  width='2' height='4' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
-            yield "      <rect x='11' y='19' width='2' height='4' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
-            yield "      <rect x='1'  y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
-            yield "      <rect x='19' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
-            yield "      <circle cx='12' cy='12' r='2.25'/>"
-            yield "    </svg>"
+            yield from _settings_gear_svg_lines(indent="    ")
             yield "  </a>"
             yield f"{switch_ctrl.location}</h3>"
             yield "</div>"
@@ -1478,26 +1474,23 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                     f"{'On' if is_on else 'Off'}"
                     f"</button>"
                 )
-                yield (
-                    f"<div class='switch-timer-panel' data-switch-ui-key='{timer_ui_key}' data-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' data-label='{label_norm}'>"
-                    f"  <div class='switch-timer-summary'>"
-                    f"    <div id='{timer_status_id}' class='switch-timer-status' data-switch-ui-key='{timer_ui_key}'>{timer_status_text}</div>"
-                    f"    <button type='button' class='switch-timer-edit-btn' title='Edit timer for {label_norm}' aria-label='Edit timer for {label_norm}' "
-                    f"      data-switch-ui-key='{timer_ui_key}' data-editor-id='{timer_editor_id}'>"
-                    f"      <svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' role='img' aria-hidden='true' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
-                    f"        <circle cx='12' cy='12' r='3'></circle>"
-                    f"        <path d='M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.33 1V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-.33-1 1.65 1.65 0 0 0-1-.6 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1-.33H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1-.33 1.65 1.65 0 0 0 .6-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6 1.65 1.65 0 0 0 .33-1V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 .33 1 1.65 1.65 0 0 0 1 .6 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.26.3.46.65.6 1 .08.32.08.66 0 1-.14.35-.34.7-.6 1z'></path>"
-                    f"      </svg>"
-                    f"    </button>"
-                    f"  </div>"
-                    f"  <div id='{timer_editor_id}' class='switch-timer-editor' style='display:none;'>"
-                    f"    <input id='{timer_input_id}' class='switch-timer-input' type='number' min='0' max='9999' step='30' inputmode='numeric' "
-                    f"      data-switch-ui-key='{timer_ui_key}' data-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' data-label='{label_norm}' value='{timer_seconds}' />"
-                    f"    <button type='button' class='button blue switch-timer-confirm-btn' data-input-id='{timer_input_id}'>Ok</button>"
-                    f"    <button type='button' class='button black switch-timer-cancel-btn' data-input-id='{timer_input_id}' data-editor-id='{timer_editor_id}'>Cancel</button>"
-                    f"  </div>"
-                    f"</div>"
-                )
+                yield "".join((
+                    f"<div class='switch-timer-panel' data-switch-ui-key='{timer_ui_key}' data-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' data-label='{label_norm}'>",
+                    f"  <div class='switch-timer-summary'>",
+                    f"    <div id='{timer_status_id}' class='switch-timer-status' data-switch-ui-key='{timer_ui_key}'>{timer_status_text}</div>",
+                    f"    <button type='button' class='switch-timer-edit-btn' title='Edit timer for {label_norm}' aria-label='Edit timer for {label_norm}' ",
+                    f"      data-switch-ui-key='{timer_ui_key}' data-editor-id='{timer_editor_id}'>",
+                    "".join(_settings_gear_svg_lines(indent="      ", aria_hidden=True)),
+                    f"    </button>",
+                    f"  </div>",
+                    f"  <div id='{timer_editor_id}' class='switch-timer-editor' style='display:none;'>",
+                    f"    <input id='{timer_input_id}' class='switch-timer-input' type='number' min='0' max='9999' step='30' inputmode='numeric' ",
+                    f"      data-switch-ui-key='{timer_ui_key}' data-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' data-label='{label_norm}' value='{timer_seconds}' />",
+                    f"    <button type='button' class='button blue switch-timer-confirm-btn' data-input-id='{timer_input_id}'>Ok</button>",
+                    f"    <button type='button' class='button black switch-timer-cancel-btn' data-input-id='{timer_input_id}' data-editor-id='{timer_editor_id}'>Cancel</button>",
+                    f"  </div>",
+                    f"</div>",
+                ))
                 yield "</div>"
                 yield "</td>"
 
@@ -2255,18 +2248,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "                     background:${pendingColor};border:1px solid #666;'></span>"
     yield "        ${sidUpper}"
     yield "       <a href='#' onclick=\"window.editSensorSettings && window.editSensorSettings(sidLower); return false;\" title='Open settings' style='margin-left:2px; margin-right:8px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
-    yield "          <svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' role='img' aria-label='Settings' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
-    yield "            <circle cx='12' cy='12' r='7'/>"
-    yield "            <rect x='11' y='1'  width='2' height='4' rx='1' fill='currentColor' stroke='none'/>"
-    yield "            <rect x='11' y='19' width='2' height='4' rx='1' fill='currentColor' stroke='none'/>"
-    yield "            <rect x='1'  y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none'/>"
-    yield "            <rect x='19' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none'/>"
-    yield "            <rect x='11' y='1'  width='2' height='4' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
-    yield "            <rect x='11' y='19' width='2' height='4' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
-    yield "            <rect x='1'  y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
-    yield "            <rect x='19' y='11' width='4' height='2' rx='1' fill='currentColor' stroke='none' transform='rotate(45 12 12)'/>"
-    yield "            <circle cx='12' cy='12' r='2.25'/>"
-    yield "          </svg>"
+    yield from _settings_gear_svg_lines(indent="          ")
     yield "        </a>"
     yield "        ${locText}"
     yield "      </h3>`;"
@@ -3380,8 +3362,14 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  if (!panel) return;"
     yield "  const editor = panel.querySelector('.switch-timer-editor');"
     yield "  const btn = panel.querySelector('.switch-timer-edit-btn');"
+    yield "  const container = panel.closest('.switch-metric-container');"
     yield "  if (editor) editor.style.display = open ? 'flex' : 'none';"
     yield "  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');"
+    yield "  panel.classList.toggle('timer-editor-open', !!open);"
+    yield "  if (container) {"
+    yield "    const anyOpen = !!container.querySelector('.switch-timer-panel.timer-editor-open');"
+    yield "    container.classList.toggle('timer-editor-open', anyOpen);"
+    yield "  }"
     yield "}"
 
     yield "function _closeAllTimerEditors(){"
@@ -3928,6 +3916,18 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  }"
     yield "}"
     yield "document.addEventListener('DOMContentLoaded', startSwitchWS);"
+    yield "const _switchStatusRefreshTimers = new Set();"
+    yield "function scheduleSwitchStatusRefreshes(delays){"
+    yield "  const msList = Array.isArray(delays) ? delays : [0];"
+    yield "  for (const raw of msList) {"
+    yield "    const delay = Math.max(0, Number(raw) || 0);"
+    yield "    const timer = window.setTimeout(async () => {"
+    yield "      _switchStatusRefreshTimers.delete(timer);"
+    yield "      try { await refreshAndApplySwitchStatus(); } catch (_) { /* silent */ }"
+    yield "    }, delay);"
+    yield "    _switchStatusRefreshTimers.add(timer);"
+    yield "  }"
+    yield "}"
 
     # keep for backup
     yield "async function refreshAndApplySwitchStatus() {"
@@ -4146,7 +4146,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    .catch(e => console.warn('toggleSwitchInline failed', e))"
     yield "    .finally(() => {"
     yield "      el.classList.remove('switch-pending');"
-    yield "      setTimeout(() => refreshAndApplySwitchStatus(), 30000);"
+    yield "      scheduleSwitchStatusRefreshes([1500, 6000, 12000]);"
     yield "    });"
     yield "};"
 
@@ -4255,6 +4255,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      if (keyEff) {"
     yield "        updateSwitchEventsFromStatus({ [keyEff]: data });"
     yield "      }"
+    yield "      scheduleSwitchStatusRefreshes([1500, 6000, 12000]);"
     yield "    }"
     yield "  } catch (e) {"
     yield "    console.error('Toggle failed', e);"

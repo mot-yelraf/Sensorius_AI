@@ -35,6 +35,16 @@ Bookworm scripts:
 - Installs and enables a systemd service (`sensorius.service`)
 - Configures the hostname and timezone
 
+Raspberry Pi Wi-Fi guidance for Nodus:
+
+- Best practice: configure the Raspberry Pi to use a 2.4 GHz network path before onboarding Nodus devices with Sensorius.
+- If your router provides separate 2.4 GHz and 5 GHz SSIDs, connect the Raspberry Pi to the 2.4 GHz SSID.
+- If the Raspberry Pi is not headless, configure Wi-Fi locally on the Pi before running Sensorius setup or onboarding.
+- If your router uses a single SSID for both 2.4 GHz and 5 GHz, the preferred setup is to connect the Raspberry Pi to the router by ethernet.
+- With ethernet connected, the Raspberry Pi can still route to Nodus devices that are on the router's 2.4 GHz Wi-Fi network.
+- If ethernet is not available on a single-SSID router, configure the Raspberry Pi locally so its Wi-Fi connection is using the router's 2.4 GHz radio before running the Pi headless.
+- Router-specific band steering, AP isolation, and roaming behavior are outside the scope of Sensorius setup.
+
 ### Raspberry Pi OS Trixie
 
 Use one of these scripts:

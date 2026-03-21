@@ -97,6 +97,12 @@ body{
   display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start;
   width:530px; padding:1rem; border:1px solid #ccc; border-radius:12px; background-color:#ffffe0;
   margin-bottom:1.5rem; box-sizing:border-box;
+  transition:width 160ms ease, padding 160ms ease;
+}
+
+.switch-metric-container.timer-editor-open{
+  width:600px;
+  padding-bottom:1.25rem;
 }
 
 .switch-table{
@@ -125,11 +131,16 @@ body{
 
 .switch-timer-panel{
   width:100%; max-width:160px; display:flex; flex-direction:column; align-items:center; gap:.08rem;
+  transition:min-width 160ms ease;
+}
+
+.switch-timer-panel.timer-editor-open{
+  min-width:190px;
 }
 
 .switch-timer-input{
-  width:100%; max-width:140px; padding:.28rem .45rem; border:1px solid #b9b9a8; border-radius:8px;
-  background:#fffef0; color:#222; text-align:center; font-size:.9rem;
+  width:100%; max-width:70px; padding:.14rem .22rem; border:1px solid #b9b9a8; border-radius:8px;
+  background:#fffef0; color:#222; text-align:center; font-size:.72rem;
 }
 
 .switch-timer-input:disabled{
@@ -138,6 +149,24 @@ body{
 
 .switch-timer-status{
   min-height:1.2rem; font-size:.78rem; color:#444; text-align:center;
+}
+
+.switch-timer-editor{
+  width:100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:.18rem;
+  margin-top:.15rem;
+}
+
+.switch-timer-editor .button{
+  min-width:26px;
+  margin:0;
+  padding:5px 10px;
+  font-size:.8rem;
+  line-height:1.1;
+  border-radius:5px;
 }
 
 .switch-box{
