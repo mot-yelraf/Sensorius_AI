@@ -113,16 +113,12 @@ body{
 }
 .switch-table th{ font-weight:bold; }
 
-.switch-automation-cell{
-  display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:2px;
-}
-
-.switch-automation-cell > .button{
-  margin:0;
-}
-
 .switch-state-cell{
   display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:.05rem;
+}
+
+.switch-state-td.automation-enabled{
+  background-color:#dff4d7;
 }
 
 .switch-state-cell > .button{

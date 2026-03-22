@@ -24,6 +24,7 @@ class BaseSensor:
         self.current_values = {}
         self.current_ts = None
         self.meas_status = ""
+        self.no_filter_metrics = set()
 
         # filters & timing
         self.FILTER_SIZE = 7
@@ -268,6 +269,9 @@ class BaseSensor:
             return None
 
     def iir_filter(self, key, new_val):
+        if key in self.no_filter_metrics:
+            self.filtered_data[key] = new_val
+            return
         prev = self.filtered_data.get(key)
         # If sensor data is temporarily unavailable, keep the previous filtered
         # value instead of feeding None into numeric filter math.

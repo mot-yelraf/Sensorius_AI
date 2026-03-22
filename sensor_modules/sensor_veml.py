@@ -123,8 +123,9 @@ class VEML7700Sensor(BaseSensor):
                 ("Light Intensity", "lux",          lambda: self._safe_lux(corrected=True),  1),
                 ("Auto Light",      "lux",          lambda: self._safe_autolux(),             1),
                 ("Estimated PPFD",            "µmol/m²/s",    lambda: self._safe_ppfd(),                0),
-                ("Visible Light Intensity",    "mol/m²/day",   lambda: self._safe_dli(),                 2),
+                ("Visible Light Intensity",    "mol/m²/day",   lambda: self._safe_dli(),                 3),
             ]
+            self.no_filter_metrics = {"Visible Light Intensity"}
 
         except Exception as e:
             self.present = False
@@ -459,8 +460,11 @@ class VEML7700Sensor(BaseSensor):
 
     def _safe_dli(self):
         # DLI in mol·m⁻²·day⁻¹ (since local midnight)
-        # Uses *pre-calibration* accumulation for stability
-        return round(self._dli_umol_accum / 1_000_000.0, 3)
+        # Uses *pre-calibration* accumulation for stability and skips IIR smoothing
+        # because this value is already a monotonic day-total accumulator.
+        if not self._ensure_snapshot():
+            return None
+        return self._dli_umol_accum / 1_000_000.0
 
     # ---------- capability flags ----------
     def supports_calibration(self):

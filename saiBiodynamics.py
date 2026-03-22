@@ -37,8 +37,8 @@ _EPHEMERIS_RETRY_COOLDOWN_SEC = 900.0
 _SKYFIELD_LOCK = threading.Lock()
 _ephemeris_last_error = ""
 _ephemeris_retry_after_monotonic = 0.0
-_OFF_PERIOD_COLOR = "#c7ced6"
-_OFF_PERIOD_ACCENT = "#e5e9ee"
+_OFF_PERIOD_COLOR = "#5f6770"
+_OFF_PERIOD_ACCENT = "#d7dbe0"
 _MOON_NODE_WINDOW = timedelta(hours=2)
 _PERIGEE_WINDOW = timedelta(hours=12)
 _PAYLOAD_CACHE_TTL_SEC = 300.0
@@ -366,7 +366,7 @@ def _apply_off_overlays(day_segments: list[dict[str, object]], day_start: dateti
             mid["start"] = _format_hm(max(seg_start, overlap_start))
             mid["end"] = "24:00" if overlap_end >= day_end else _format_hm(overlap_end)
             mid["kind"] = "off"
-            mid["sign"] = "Off"
+            mid["sign"] = "Rest"
             mid["element"] = "Pause"
             mid["plant_part"] = "Rest"
             mid["color"] = _OFF_PERIOD_COLOR
@@ -379,6 +379,54 @@ def _apply_off_overlays(day_segments: list[dict[str, object]], day_start: dateti
                 next_segments.append(right)
         segments = next_segments
     return segments
+
+
+def _segment_bounds_for_day(day_date: date, seg: dict[str, object], tzinfo: ZoneInfo) -> tuple[datetime, datetime] | None:
+    start_raw = str(seg.get("start", "00:00"))
+    end_raw = str(seg.get("end", "24:00"))
+    try:
+        start_h, start_m = [int(x) for x in start_raw.split(":", 1)]
+        start_dt = datetime.combine(day_date, time.min, tzinfo=tzinfo) + timedelta(hours=start_h, minutes=start_m)
+        if end_raw == "24:00":
+            end_dt = datetime.combine(day_date, time.min, tzinfo=tzinfo) + timedelta(days=1)
+        else:
+            end_h, end_m = [int(x) for x in end_raw.split(":", 1)]
+            end_dt = datetime.combine(day_date, time.min, tzinfo=tzinfo) + timedelta(hours=end_h, minutes=end_m)
+        if end_dt <= start_dt:
+            return None
+        return start_dt, end_dt
+    except Exception:
+        return None
+
+
+def _build_segment_timeline(days: list[dict[str, object]], tzinfo: ZoneInfo) -> list[dict[str, object]]:
+    timeline: list[dict[str, object]] = []
+    for day in days:
+        try:
+            day_date = date.fromisoformat(str(day.get("date") or ""))
+        except Exception:
+            continue
+        for seg in list(day.get("segments") or []):
+            bounds = _segment_bounds_for_day(day_date, seg, tzinfo)
+            if not bounds:
+                continue
+            start_dt, end_dt = bounds
+            timeline.append(
+                {
+                    "start_local": start_dt,
+                    "end_local": end_dt,
+                    "start_hm": _format_hm(start_dt),
+                    "end_hm": _format_hm(end_dt) if end_dt.date() == day_date else "24:00",
+                    "sign": str(seg.get("sign") or ""),
+                    "element": str(seg.get("element") or ""),
+                    "plant_part": str(seg.get("plant_part") or ""),
+                    "color": str(seg.get("color") or ""),
+                    "accent": str(seg.get("accent") or ""),
+                    "kind": str(seg.get("kind") or "sign"),
+                }
+            )
+    timeline.sort(key=lambda item: item["start_local"])
+    return timeline
 
 
 def _build_calendar(month_anchor: date, tzinfo: ZoneInfo, ts, eph, constellation_at, now_local: datetime) -> tuple[list[dict[str, object]], list[_Segment]]:
@@ -482,25 +530,25 @@ def get_biodynamic_payload(target_date: date | None = None) -> dict[str, object]
     try:
         tzinfo = ZoneInfo(tz_name)
         now_local = datetime.now(tzinfo)
-        month_days, month_segments = _build_calendar(month_anchor, tzinfo, ts, eph, constellation_at, now_local)
+        month_days, _month_segments = _build_calendar(month_anchor, tzinfo, ts, eph, constellation_at, now_local)
+        timeline = _build_segment_timeline(month_days, tzinfo)
         current_segment = next(
-            (segment for segment in month_segments if segment.start_local <= now_local < segment.end_local),
-            month_segments[-1] if month_segments else None,
+            (segment for segment in timeline if segment["start_local"] <= now_local < segment["end_local"]),
+            timeline[-1] if timeline else None,
         )
-        current_meta = _sign_meta(current_segment.sign_index) if current_segment else {}
         upcoming: list[dict[str, object]] = []
-        for segment in month_segments:
-            if segment.start_local <= now_local:
+        for segment in timeline:
+            if segment["start_local"] <= now_local:
                 continue
-            meta = _sign_meta(segment.sign_index)
             upcoming.append(
                 {
-                    "starts_at": segment.start_local.isoformat(),
-                    "start_hm": _format_hm(segment.start_local),
-                    "sign": meta["name"],
-                    "element": meta["element"],
-                    "plant_part": meta["plant_part"],
-                    "color": meta["color"],
+                    "starts_at": segment["start_local"].isoformat(),
+                    "start_hm": segment["start_hm"],
+                    "sign": segment["sign"],
+                    "element": segment["element"],
+                    "plant_part": segment["plant_part"],
+                    "color": segment["color"],
+                    "accent": segment["accent"],
                 }
             )
             if len(upcoming) >= 3:
@@ -516,15 +564,15 @@ def get_biodynamic_payload(target_date: date | None = None) -> dict[str, object]
                 "month_label": month_anchor.strftime("%B %Y"),
                 "current": {
                     "timestamp": now_local.isoformat(),
-                    "sign": current_meta.get("name", ""),
-                    "element": current_meta.get("element", ""),
-                    "plant_part": current_meta.get("plant_part", ""),
-                    "color": current_meta.get("color", ""),
-                    "accent": current_meta.get("accent", ""),
-                    "window_start": current_segment.start_local.isoformat() if current_segment else "",
-                    "window_end": current_segment.end_local.isoformat() if current_segment else "",
-                    "window_start_hm": _format_hm(current_segment.start_local) if current_segment else "",
-                    "window_end_hm": _format_hm(current_segment.end_local) if current_segment else "",
+                    "sign": str(current_segment.get("sign") or "") if current_segment else "",
+                    "element": str(current_segment.get("element") or "") if current_segment else "",
+                    "plant_part": str(current_segment.get("plant_part") or "") if current_segment else "",
+                    "color": str(current_segment.get("color") or "") if current_segment else "",
+                    "accent": str(current_segment.get("accent") or "") if current_segment else "",
+                    "window_start": current_segment["start_local"].isoformat() if current_segment else "",
+                    "window_end": current_segment["end_local"].isoformat() if current_segment else "",
+                    "window_start_hm": str(current_segment.get("start_hm") or "") if current_segment else "",
+                    "window_end_hm": str(current_segment.get("end_hm") or "") if current_segment else "",
                     "calendar_basis": "moon apparent position classified against fixed-star constellation boundaries",
                 },
                 "upcoming": upcoming,

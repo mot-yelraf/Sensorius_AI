@@ -810,6 +810,12 @@ async function saveCurrent(modal){
   if (!res.ok) throw new Error("Save failed");
   await loadAutomationsListInto(modal, { preserveSelection: true, openEditor: true });
   showPreview(modal, doc);
+  if (typeof window.refreshAndApplySwitchStatus === "function") {
+    window.setTimeout(() => window.refreshAndApplySwitchStatus().catch?.(() => {}), 0);
+  }
+  if (typeof window.scheduleSwitchStatusRefreshes === "function") {
+    window.scheduleSwitchStatusRefreshes([1500, 6000, 12000]);
+  }
 }
 
 async function deleteSelected(modal){

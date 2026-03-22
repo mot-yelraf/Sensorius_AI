@@ -8437,6 +8437,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
           - script_json     (required) JSON string built in the Advanced modal
           - enabled         (optional; default: true)
         """
+        global _switch_status_cache_payload, _switch_status_cache_until
         from saiSwitchSettingsManager import SwitchSettingsManager
         from saiAutomationManager import AutomationManager
 
@@ -8733,6 +8734,42 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             except Exception as _ensure_exc:
                 if DEBUG:
                     printDM(f"[{MODULE}] dynamic monitor ensure failed for {switch_id}: {_ensure_exc}", location=MODULE)
+
+            # Run one immediate evaluation pass so newly saved rules don't wait for the next monitor tick.
+            try:
+                eval_ctrl = found_ctrl if "found_ctrl" in locals() else None
+                if eval_ctrl is not None:
+                    bound_sensor = getattr(eval_ctrl, "sensor", None)
+                    current_values_map = None
+                    if bound_sensor is not None and hasattr(bound_sensor, "current_data_set"):
+                        if getattr(bound_sensor, "present", True) is not False:
+                            try:
+                                raw_values, *_ = bound_sensor.current_data_set()
+                                sensor_key = (
+                                    getattr(bound_sensor, "sensor_id", None)
+                                    or getattr(bound_sensor, "devID", None)
+                                )
+                                if sensor_key:
+                                    current_values_map = {sensor_key: raw_values}
+                                    eval_ctrl.values = current_values_map
+                            except Exception:
+                                current_values_map = None
+
+                    if current_values_map is None:
+                        current_values_map = getattr(eval_ctrl, "values", {}) or {}
+
+                    _switch_status_cache_payload = None
+                    _switch_status_cache_until = 0.0
+
+                    eval_scripts = getattr(eval_ctrl, "evaluate_and_apply_scripts", None)
+                    if callable(eval_scripts):
+                        eval_scripts(current_values_map)
+                    eval_advanced = getattr(eval_ctrl, "_evaluate_and_apply_advanced", None)
+                    if callable(eval_advanced):
+                        eval_advanced(current_values_map)
+            except Exception as _eval_exc:
+                if DEBUG:
+                    printDM(f"[{MODULE}] immediate evaluation failed for {switch_id}: {_eval_exc}", location=MODULE)
 
             # If enabled, ensure override_script is cleared for targeted channels.
             try:
@@ -9378,6 +9415,29 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 current = bool(ctrl.get_state(matched_label))
             except Exception:
                 current = bool((getattr(ctrl, "last_state", {}) or {}).get(matched_label, False))
+
+            # Manual toggles are blocked while any Advanced automation for this switch is enabled.
+            try:
+                from saiAutomationManager import AutomationManager
+                am = AutomationManager("switch_settings")
+                automation_switch_id = _ctrl_switch_id(ctrl) or sid or ""
+                automation_switch_key = (
+                    f"{automation_switch_id}::{matched_label}" if automation_switch_id else f"::{matched_label}"
+                )
+                automation_state = am.get_advanced_state_for_switch_key(automation_switch_id, automation_switch_key)
+                if bool(automation_state.get("enabled_any", False)):
+                    return JSONResponse(
+                        {
+                            "error": "automation_enabled",
+                            "message": "Automation is enabled for this switch. Disable automation before toggling manually.",
+                            "switch_id": automation_switch_id,
+                            "label": matched_label,
+                        },
+                        status_code=423,
+                    )
+            except Exception:
+                pass
+
             new_state = _desired_toggle_from_db(data_logger, sid, matched_label, ctrl)
 
             # Decide path: direct GPIO vs remote/MQTT

@@ -1115,9 +1115,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      </div>"
     yield "      <div id='bioCurrentBadge'>--</div>"
     yield "    </div>"
+    yield "    <div class='bio-window' id='bioDateLine'>Loading biodynamic date...</div>"
     yield "    <div class='bio-window' id='bioWindow'>Loading biodynamic window...</div>"
     yield "    <div id='bioUpcoming'>Loading transitions...</div>"
-    yield "    <div class='bio-hint'>Open the full monthly biodynamic view</div>"
     yield "    <div class='bio-card-actions'>"
     yield "      <button type='button' class='bio-open-btn' id='bioOpenBtn' aria-label='Open biodynamic calendar'>"
     yield "        <span class='spinner' aria-hidden='true'></span>"
@@ -1409,13 +1409,13 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
 
             yield "<table class='switch-table'>"
             yield "<thead><tr>"
-            yield "<th>Switch</th><th>State</th><th>Automation</th><th>Events</th>"
+            yield "<th>Switch</th><th>State</th><th>Events</th>"
             yield "</tr></thead>"
             yield "<tbody>"
 
             # if nothing is enabled for a Pico2 W, show a friendly row
             if not render_labels:
-                yield "<tr><td colspan='4' style='opacity:0.7;'>No enabled switch channels</td></tr>"
+                yield "<tr><td colspan='3' style='opacity:0.7;'>No enabled switch channels</td></tr>"
 
             for label in render_labels:
                 safe_label = label.lower().replace(" ", "_")
@@ -1456,19 +1456,41 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 else:
                     timer_status_text = f"Timer set: {timer_seconds}s"
                 
+                try:
+                    from saiAutomationManager import AutomationManager
+                    am = AutomationManager()
+                    sid = getattr(switch_ctrl, "switch_id", "") or ""
+                    switch_key_full = f"{sid}::{label_norm}" if sid else f"::{label_norm}"
+                    rule_enabled = am.get_advanced_enabled_for_switch_key(sid, switch_key_full)
+                except Exception:
+                    rule_enabled = False
+
+                automation_enabled = bool(rule_enabled)
+                state_cell_classes = "switch-state-td"
+                if automation_enabled:
+                    state_cell_classes += " automation-enabled"
+
                 yield "<tr>"
                 yield f"<td>{label}</td>"
                 # Switch cell
-                yield "<td>"
+                yield (
+                    f"<td class='{state_cell_classes}' "
+                    f"data-automation-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' "
+                    f"data-automation-label='{label_norm}' "
+                    f"data-automation-enabled='{'1' if automation_enabled else '0'}'>"
+                )
                 yield "<div class='switch-state-cell'>"
                 yield (
                     f"<button "
                     f"  id='{box_id}_btn' "
                     f"  class='button {'green' if is_on else 'black'}' "
-                    f"  title='Toggle state for {label}' "
+                    f"  title='{'Automation enabled. Disable automation to toggle manually.' if automation_enabled else f'Toggle state for {label}'}' "
                     f"  data-switch-name='{label}' "
                     f"  data-switch-key='{switch_key}' "
                     f"  data-switch-id='{action_sid}' "
+                    f"  data-automation-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' "
+                    f"  data-automation-label='{label_norm}' "
+                    f"  data-automation-enabled='{'1' if automation_enabled else '0'}' "
                     f"  data-state='{state_str}' "
                     f"  onclick='toggleSwitchInline(this)'>"
                     f"{'On' if is_on else 'Off'}"
@@ -1491,37 +1513,6 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                     f"  </div>",
                     f"</div>",
                 ))
-                yield "</div>"
-                yield "</td>"
-
-                # Override checkbox cell
-                # --- Automation button cell (replaces previous checkbox) ---
-                safe_key = timer_safe_key
-
-                try:
-                    from saiAutomationManager import AutomationManager
-                    am  = AutomationManager()
-                    sid = getattr(switch_ctrl, "switch_id", "") or ""
-                    switch_key_full = f"{sid}::{label_norm}" if sid else f"::{label_norm}"
-                    rule_enabled = am.get_advanced_enabled_for_switch_key(sid, switch_key_full)
-                except Exception:
-                    rule_enabled = False
-
-                enabled = bool(rule_enabled)
-                # Button shows Enabled/Disabled and uses our existing .button .green/.black styles
-                yield "<td>"
-                yield "<div class='switch-automation-cell'>"
-                yield (
-                    f'<button '
-                    f'  id="{safe_key}_btn" '
-                    f'  class="button automation-enabled-btn {"green" if enabled else "black"}" '
-                    f'  data-switch-id="{getattr(switch_ctrl, "switch_id", "")}" '
-                    f'  data-label="{label_norm}" '
-                    f'  title="Enable/Disable automation for {label_norm}" '
-                    f'  onclick="toggleAutomation(this, {json.dumps(getattr(switch_ctrl, "switch_id", ""))!s}, {json.dumps(label_norm)!s}); return false;">'
-                    f'{"Enabled" if enabled else "Disabled"}'
-                    f'</button>'
-                )
                 yield "</div>"
                 yield "</td>"
 
@@ -1781,14 +1772,50 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  const badgeEl = document.getElementById('bioCurrentBadge');"
     yield "  const boxEl = document.getElementById('bioBox');"
     yield "  const panelEl = document.getElementById('bioCurrentPanel');"
+    yield "  const dateEl = document.getElementById('bioDateLine');"
     yield "  const windowEl = document.getElementById('bioWindow');"
     yield "  const upcomingEl = document.getElementById('bioUpcoming');"
-    yield "  if (!signEl || !elementEl || !badgeEl || !boxEl || !panelEl || !windowEl || !upcomingEl) return;"
+    yield "  if (!signEl || !elementEl || !badgeEl || !boxEl || !panelEl || !dateEl || !windowEl || !upcomingEl) return;"
+    yield "  const tzName = String((data && data.tz) || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');"
+    yield "  const fmtParts = (iso) => {"
+    yield "    if (!iso) return null;"
+    yield "    const d = new Date(iso);"
+    yield "    if (!Number.isFinite(d.getTime())) return null;"
+    yield "    const dtf = new Intl.DateTimeFormat('en-CA', {"
+    yield "      timeZone: tzName,"
+    yield "      year: 'numeric',"
+    yield "      month: '2-digit',"
+    yield "      day: '2-digit',"
+    yield "      hour: 'numeric',"
+    yield "      minute: '2-digit',"
+    yield "      hour12: false,"
+    yield "    });"
+    yield "    const parts = dtf.formatToParts(d);"
+    yield "    const out = {};"
+    yield "    for (const part of parts) {"
+    yield "      if (part.type !== 'literal') out[part.type] = part.value;"
+    yield "    }"
+    yield "    return out;"
+    yield "  };"
     yield "  const fmtIsoHm = (iso) => {"
+    yield "    const parts = fmtParts(iso);"
+    yield "    if (!parts || !parts.hour || !parts.minute) return '--';"
+    yield "    const hour24 = parseInt(parts.hour, 10);"
+    yield "    if (!Number.isFinite(hour24)) return '--';"
+    yield "    const hour12 = ((hour24 + 11) % 12) + 1;"
+    yield "    const suffix = hour24 >= 12 ? 'PM' : 'AM';"
+    yield "    return `${hour12}:${parts.minute} ${suffix}`;"
+    yield "  };"
+    yield "  const fmtIsoDate = (iso) => {"
     yield "    if (!iso) return '--';"
     yield "    const d = new Date(iso);"
     yield "    if (!Number.isFinite(d.getTime())) return '--';"
-    yield "    return d.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' });"
+    yield "    return d.toLocaleDateString([], { timeZone: tzName, year:'numeric', month:'2-digit', day:'2-digit' });"
+    yield "  };"
+    yield "  const isoDayKey = (iso) => {"
+    yield "    const parts = fmtParts(iso);"
+    yield "    if (!parts || !parts.year || !parts.month || !parts.day) return '';"
+    yield "    return `${parts.year}-${parts.month}-${parts.day}`;"
     yield "  };"
     yield "  const toMinutes = (hhmm) => {"
     yield "    const m = String(hhmm || '').match(/^(\\d{1,2}):(\\d{2})$/);"
@@ -1796,47 +1823,40 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const out = (parseInt(m[1], 10) * 60) + parseInt(m[2], 10);"
     yield "    return Math.max(0, Math.min(1440, out));"
     yield "  };"
+    yield "  const lightenHex = (hex, factor) => {"
+    yield "    const m = String(hex || '').trim().match(/^#?([0-9a-f]{6})$/i);"
+    yield "    if (!m) return String(hex || '#fffdf6');"
+    yield "    const raw = m[1];"
+    yield "    const mix = (v) => {"
+    yield "      const n = parseInt(v, 16);"
+    yield "      return Math.max(0, Math.min(255, Math.round(n + ((255 - n) * factor))));"
+    yield "    };"
+    yield "    const r = mix(raw.slice(0, 2));"
+    yield "    const g = mix(raw.slice(2, 4));"
+    yield "    const b = mix(raw.slice(4, 6));"
+    yield "    return `#${[r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('')}`;"
+    yield "  };"
     yield "  const buildRollingGradient = (data, currentIso) => {"
     yield "    if (!currentIso) return '#ffffe0';"
-    yield "    const now = new Date(currentIso);"
-    yield "    if (!Number.isFinite(now.getTime())) return '#ffffe0';"
-    yield "    const dayKey = now.toISOString().slice(0,10);"
+    yield "    const dayKey = isoDayKey(currentIso);"
     yield "    const days = Array.isArray(data && data.calendar) ? data.calendar : [];"
     yield "    const today = days.find((d) => d && d.date === dayKey);"
-    yield "    if (!today || !Array.isArray(today.segments) || !today.segments.length) return '#ffffe0';"
-    yield "    const tomorrowDt = new Date(now.getTime());"
-    yield "    tomorrowDt.setUTCDate(tomorrowDt.getUTCDate() + 1);"
-    yield "    const tomorrowKey = tomorrowDt.toISOString().slice(0,10);"
-    yield "    const tomorrow = days.find((d) => d && d.date === tomorrowKey);"
-    yield "    const currentMin = (now.getHours() * 60) + now.getMinutes();"
+    yield "    const segments = Array.isArray(today && today.segments) ? today.segments : [];"
+    yield "    const fallback = String((today && today.dominant_accent) || '#ffffe0');"
+    yield "    if (!segments.length) return fallback;"
     yield "    const slices = [];"
     yield "    const pushSlice = (startMin, endMin, accent) => {"
     yield "      if (!Number.isFinite(startMin) || !Number.isFinite(endMin) || endMin <= startMin) return;"
-    yield "      slices.push({ start: startMin, end: endMin, color: String(accent || '#fffdf6') });"
+    yield "      slices.push({ start: startMin, end: endMin, color: String(accent || fallback) });"
     yield "    };"
-    yield "    for (const seg of today.segments) {"
-    yield "      let startMin = toMinutes(seg.start);"
-    yield "      let endMin = toMinutes(seg.end);"
+    yield "    for (const seg of segments) {"
+    yield "      let startMin = toMinutes(seg && seg.start);"
+    yield "      let endMin = toMinutes(seg && seg.end);"
     yield "      if (!Number.isFinite(startMin)) startMin = 0;"
     yield "      if (!Number.isFinite(endMin)) endMin = 1440;"
     yield "      if (endMin <= startMin) endMin = 1440;"
-    yield "      pushSlice(Math.max(startMin, currentMin) - currentMin, endMin - currentMin, seg.accent);"
-    yield "    }"
-    yield "    const carryLimit = currentMin;"
-    yield "    const nextSegs = Array.isArray(tomorrow && tomorrow.segments) ? tomorrow.segments : [];"
-    yield "    if (nextSegs.length) {"
-    yield "      for (const seg of nextSegs) {"
-    yield "        let startMin = toMinutes(seg.start);"
-    yield "        let endMin = toMinutes(seg.end);"
-    yield "        if (!Number.isFinite(startMin)) startMin = 0;"
-    yield "        if (!Number.isFinite(endMin)) endMin = 1440;"
-    yield "        if (endMin <= startMin) endMin = 1440;"
-    yield "        if (startMin >= carryLimit) continue;"
-    yield "        pushSlice((1440 - currentMin) + startMin, (1440 - currentMin) + Math.min(endMin, carryLimit), seg.accent);"
-    yield "      }"
-    yield "    } else {"
-    yield "      const fallback = today.segments[today.segments.length - 1];"
-    yield "      if (fallback) pushSlice(1440 - currentMin, 1440, fallback.accent);"
+    yield "      const accent = String((seg && (seg.accent || lightenHex(seg.color || '#d8d8d8', 0.78))) || fallback);"
+    yield "      pushSlice(startMin, endMin, accent);"
     yield "    }"
     yield "    if (!slices.length) return '#ffffe0';"
     yield "    const stops = [];"
@@ -1865,6 +1885,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    badgeEl.style.borderColor = '#6f7880';"
     yield "    boxEl.style.background = '#ffffe0';"
     yield "    panelEl.style.background = '#f6f7f8';"
+    yield "    dateEl.textContent = '';"
     yield "    windowEl.textContent = buildUnavailableMessage(data);"
     yield "    upcomingEl.textContent = '';"
     yield "    return;"
@@ -1881,6 +1902,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  boxEl.style.background = buildRollingGradient(data, cur.timestamp);"
     yield "  panelEl.style.background = accent;"
     yield "  panelEl.style.borderColor = color;"
+    yield "  dateEl.textContent = `Current date: ${fmtIsoDate(cur.timestamp)}`;"
     yield "  windowEl.textContent = `Current window: ${fmtIsoHm(cur.window_start)} to ${fmtIsoHm(cur.window_end)}`;"
     yield "  const upcoming = Array.isArray(data.upcoming) ? data.upcoming.slice(0, 2) : [];"
     yield "  upcomingEl.textContent = upcoming.length ? upcoming.map((item) => `${item.start_hm || '--'} ${item.sign || '--'}`).join('  |  ') : 'No upcoming transitions in this view.';"
@@ -3886,16 +3908,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "        } else if (msg.type === 'automation_toggle'){"
     yield "          const swId  = msg.switch_id || '';"
     yield "          const label = msg.label || '';"
-    yield "          const q = label"
-    yield "            ? `.automation-enabled-btn[data-switch-id=\"${swId}\"][data-label=\"${label}\"]`"
-    yield "            : `.automation-enabled-btn[data-switch-id=\"${swId}\"]`;"
-    yield "          const btn = document.querySelector(q);"
-    yield "          if (btn) {"
-    yield "            const ruleEnabled = !!msg.enabled;"
-    yield "            btn.textContent = ruleEnabled ? 'Enabled' : 'Disabled';"
-    yield "            btn.classList.toggle('green', ruleEnabled);"
-    yield "            btn.classList.toggle('black', !ruleEnabled);"
-    yield "          }"
+    yield "          applyAutomationStateToSwitch(swId, label, !!msg.enabled);"
     yield "        } else if (msg.type === 'switch_inventory_changed'){"
     yield "          const now = Date.now();"
     yield "          if ((now - __switchInventoryRefreshAt) > 1500) {"
@@ -3965,6 +3978,23 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    box.style.background = isOn ? 'green' : '#aaa';"
     yield "    box.style.border     = isOn ? '2px solid #080' : '1px solid #666';"
     yield "  }"
+    yield "}"
+
+    yield "function applyAutomationStateToSwitch(switchId, label, isEnabled) {"
+    yield "  const selector = label"
+    yield "    ? `[data-automation-switch-id=\"${switchId}\"][data-automation-label=\"${label}\"]`"
+    yield "    : `[data-automation-switch-id=\"${switchId}\"]`;"
+    yield "  const nodes = document.querySelectorAll(selector);"
+    yield "  nodes.forEach(node => {"
+    yield "    node.dataset.automationEnabled = isEnabled ? '1' : '0';"
+    yield "    node.classList.toggle('automation-enabled', !!isEnabled);"
+    yield "    if (node.tagName === 'BUTTON') {"
+    yield "      node.title = isEnabled"
+    yield "        ? 'Automation enabled. Disable automation to toggle manually.'"
+    yield "        : `Toggle state for ${node.dataset.switchName || label || 'switch'}`;"
+    yield "      node.setAttribute('aria-disabled', isEnabled ? 'true' : 'false');"
+    yield "    }"
+    yield "  });"
     yield "}"
 
     # --- JS: Update switch events listbox ---
@@ -4112,6 +4142,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  }"
     yield ""
     yield "  if (!el) { console.warn('[toggleSwitchInline] no element for', elOrLabel); return; }"
+    yield "  if ((el.dataset.automationEnabled || '') === '1') {"
+    yield "    alert('Automation is enabled for this switch. Disable automation before toggling manually.');"
+    yield "    return;"
+    yield "  }"
     yield "  el.classList.add('switch-pending');"
     yield ""
     yield "  const key = el.dataset.switchKey || '';"
@@ -4129,6 +4163,12 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "        console.warn('Ambiguous switch label', info && info.options);"
     yield "        alert(msg);"
     yield "        throw new Error('Ambiguous');"
+    yield "      }"
+    yield "      if (r.status === 423) {"
+    yield "        const info = await r.json().catch(() => null);"
+    yield "        const msg = (info && info.message) || 'Automation is enabled for this switch. Disable automation before toggling manually.';"
+    yield "        alert(msg);"
+    yield "        throw new Error('Automation enabled');"
     yield "      }"
     yield "      if (key) _switchRefreshBlockUntil.set(key, Date.now() + 1200);"
     yield "      if (!r.ok) {"
@@ -4223,6 +4263,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "document.addEventListener('click', async (ev) => {"
     yield "  const btn = ev.target.closest('.switch-toggle');"
     yield "  if (!btn) return;"
+    yield "  if ((btn.dataset.automationEnabled || '') === '1') {"
+    yield "    alert('Automation is enabled for this switch. Disable automation before toggling manually.');"
+    yield "    return;"
+    yield "  }"
     yield "  const key        = btn.dataset.switchKey || '';"
     yield "  const _switch_id = btn.dataset.switchId  || '';"
     yield "  const label      = btn.dataset.switchLabel || '';"
@@ -4235,6 +4279,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    if (res.status === 409) {"
     yield "      const info = await res.json();"
     yield "      console.warn('Ambiguous switch name. Options:', info.options);"
+    yield "      return;"
+    yield "    }"
+    yield "    if (res.status === 423) {"
+    yield "      const info = await res.json().catch(() => null);"
+    yield "      alert((info && info.message) || 'Automation is enabled for this switch. Disable automation before toggling manually.');"
     yield "      return;"
     yield "    }"
     yield "    const data = await res.json();"

@@ -105,6 +105,10 @@ body{
 }
 .switch-table th{ font-weight:bold; }
 
+.switch-state-td.automation-enabled{
+  background-color:#dff4d7;
+}
+
 /* Switch state block */
 .switch-box{
   width:20px; height:40px; border:1px solid #666; background:#aaa; cursor:pointer;
