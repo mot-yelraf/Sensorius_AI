@@ -162,18 +162,27 @@ def test_set_state_does_not_publish_or_log_on_backend_failure():
     assert ctrl.mqtt.publishes == []
 
 
-def test_evaluate_scripts_updates_memory_only_after_success():
+def test_advanced_rule_does_nothing_when_conditions_are_false():
     ctrl = _make_controller()
-    ctrl.script_rules = {"Fan": {"conditions": [{"type": "time"}]}}
-    ctrl._evaluate_script = lambda _rule, _values, _state: True
-    ctrl._set_switch_state = lambda _name, _on: False
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "rule1": {
+                "enabled": True,
+                "script_json": {
+                    "enabled": True,
+                    "conditions": [{"type": "time", "start": "00:00", "end": "00:01"}],
+                    "actions": [{"switch_key": "sw1::Fan", "set": True, "delay_s": 0}],
+                },
+            }
+        }
+    }
+    calls = []
+    ctrl.set_state = lambda label, desired: calls.append((label, desired))
+    ctrl.get_state = lambda _label: True
 
-    SwitchController.evaluate_and_apply_scripts(ctrl, {})
-    assert ctrl.last_state["Fan"] is False
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
 
-    ctrl._set_switch_state = lambda _name, _on: True
-    SwitchController.evaluate_and_apply_scripts(ctrl, {})
-    assert ctrl.last_state["Fan"] is True
+    assert calls == []
 
 
 def test_rules_enabled_parses_string_false_and_maps_channel_id(monkeypatch: pytest.MonkeyPatch):
@@ -200,7 +209,6 @@ def test_rules_enabled_parses_string_false_and_maps_channel_id(monkeypatch: pyte
     ctrl = _make_controller()
     ctrl.settings = {"Switch": {"SWITCH_1": "Fan"}}
     ctrl.switch = types.SimpleNamespace(get_switch_names=lambda: ["Fan"])
-    ctrl.script_rules = {}
     ctrl.override_script = {"Fan": False}
     ctrl._get_triggers_path = lambda: FakePath()
     ctrl._load_triggers_dict = lambda: {
@@ -288,6 +296,29 @@ def test_eval_astral_condition_threshold_logic(monkeypatch: pytest.MonkeyPatch):
         ctrl,
         {"type": "astral", "astral_event": "sunrise", "offset_min": 0},
     ) is False
+
+
+def test_resolve_astral_location_delegates_to_settings(monkeypatch: pytest.MonkeyPatch):
+    ctrl = _make_controller()
+    ctrl._astral_location_cache = {"value": None, "expires_at": 0.0}
+
+    class FakeSettings:
+        def __init__(self, apply_live=False):
+            assert apply_live is False
+
+        def resolve_astral_location(self, *, persist_if_auto=False, timeout_sec=0):
+            assert persist_if_auto is True
+            assert timeout_sec == 2.5
+            return {"lat": 40.0, "lon": -105.0, "tz": "America/Denver", "source": "manual"}
+
+    import sys
+
+    monkeypatch.setitem(sys.modules, "saiSettings", types.SimpleNamespace(saiSettings=FakeSettings))
+
+    resolved = SwitchController._resolve_astral_location(ctrl)
+
+    assert resolved == {"lat": 40.0, "lon": -105.0, "tz": "America/Denver", "source": "manual"}
+    assert ctrl._astral_location_cache["value"] == resolved
 
 
 def test_advanced_rule_supports_astral_condition(monkeypatch: pytest.MonkeyPatch):

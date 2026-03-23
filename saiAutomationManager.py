@@ -177,6 +177,7 @@ class AutomationManager:
             }
 
         try:
+            key_aliases = self._expand_switch_key_aliases(hostname, key)
             data = self.load(hostname) or {}
             adv = (data.get(SECTION_ADV) or {})
             import json as _json
@@ -201,7 +202,7 @@ class AutomationManager:
                         sk = (act.get("switch_key") or "").strip()
                     except AttributeError:
                         continue
-                    if sk == key:
+                    if sk in key_aliases:
                         found_here = True
                         break
 
@@ -254,6 +255,7 @@ class AutomationManager:
         key = (switch_key or "").strip()
         if not key:
             return False
+        key_aliases = self._expand_switch_key_aliases(hostname, key)
 
         def _mutate(data: Dict[str, Any]) -> bool:
             adv = data.get(SECTION_ADV, {}) or {}
@@ -277,7 +279,7 @@ class AutomationManager:
                         sk = (act.get("switch_key") or "").strip()
                     except AttributeError:
                         continue
-                    if sk == key:
+                    if sk in key_aliases:
                         found_here = True
                         break
 
@@ -303,6 +305,41 @@ class AutomationManager:
             return changed
 
         return self._atomic_update(hostname, _mutate)
+
+    def _expand_switch_key_aliases(self, hostname: str, switch_key: str) -> set[str]:
+        aliases = {str(switch_key or "").strip()}
+        key = str(switch_key or "").strip()
+        if "::" not in key:
+            return aliases
+
+        sid, suffix = key.split("::", 1)
+        sid = sid.strip()
+        suffix = suffix.strip()
+        if not sid or not suffix:
+            return aliases
+
+        try:
+            from saiSwitchSettingsManager import SwitchSettingsManager
+
+            doc = SwitchSettingsManager("switch_settings").load(hostname) or {}
+            sw = (doc.get("Switch") or {})
+            if not isinstance(sw, dict):
+                return aliases
+
+            for n in range(1, 33):
+                label = str(sw.get(f"SWITCH_{n}_LABEL", "") or "").strip()
+                channel_id = str(sw.get(f"SWITCH_{n}_CHANNEL_ID", "") or "").strip()
+                if not label:
+                    continue
+                if suffix.lower() == label.lower() or (channel_id and suffix.lower() == channel_id.lower()):
+                    aliases.add(f"{sid}::{label}")
+                    if channel_id:
+                        aliases.add(f"{sid}::{channel_id}")
+                    break
+        except Exception:
+            pass
+
+        return aliases
     
     def load(self, hostname: str) -> Dict[str, Any]:
         """

@@ -95,3 +95,27 @@ def test_enable_and_delete_work_across_switch_contexts(tmp_path: Path, adapter):
 
     assert mgr.delete_rule("sw-gamma", "Advanced", "rule_shared") is True
     assert "rule_shared" not in mgr.load("sw-alpha")["Advanced"]
+
+
+@pytest.mark.parametrize("adapter", adapters(), ids=lambda a: a.name)
+def test_upsert_same_rule_id_updates_in_place(tmp_path: Path, adapter):
+    mgr = make_manager(adapter, tmp_path)
+    host = "sw-edit"
+
+    mgr.upsert_advanced_rule(
+        host,
+        "pump_on",
+        enabled=True,
+        script={"name": "Pump On", "enabled": True, "actions": [{"switch_key": "sw-edit::Pump", "set": True}]},
+    )
+    mgr.upsert_advanced_rule(
+        host,
+        "pump_on",
+        enabled=False,
+        script={"name": "Pump On Updated", "enabled": False, "actions": [{"switch_key": "sw-edit::Pump", "set": False}]},
+    )
+
+    data = mgr.load(host)
+    assert sorted(data["Advanced"].keys()) == ["pump_on"]
+    assert data["Advanced"]["pump_on"]["enabled"] is False
+    assert "Pump On Updated" in data["Advanced"]["pump_on"]["script_json"]

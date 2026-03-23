@@ -70,8 +70,7 @@ Identity strategy:
 
 Switch automation is evaluated inside each switch controller monitor:
 
-- TriggerScript rules from switch settings.
-- Advanced rules from `switch_settings/<switch_id>/automations.toml`.
+- Advanced rules from the shared `switch_settings/automations/automations.toml`.
 
 Evaluation uses:
 

@@ -96,6 +96,11 @@ async def ensure_local_sensor_configs(settings) -> list[str]:
     sensor_mgr = SensorSettingsManager("sensor_settings")
     existing_ids = sensor_mgr.list_ids()
     existing_ids = [str(sid).strip() for sid in existing_ids if str(sid).strip()]
+    for sid in existing_ids:
+        try:
+            sensor_mgr.ensure_local_serial_num(sid)
+        except Exception:
+            pass
     seen_ids: set[str] = set(existing_ids)
 
     host = (
@@ -158,6 +163,14 @@ async def ensure_local_sensor_configs(settings) -> list[str]:
         if sid not in seen_ids:
             seen_ids.add(sid)
             updated_ids.append(sid)
+
+        try:
+            sensor_mgr.ensure_local_serial_num(sid)
+        except Exception as e:
+            printDM(
+                f"ensure_local_serial_num failed for {sid}: {e}",
+                location="ensure_local_sensor_configs",
+            )
 
     return updated_ids
     
@@ -238,6 +251,33 @@ async def build_switch_controllers(sensors, supervisor, data_logger):
             
     if DEBUG:
         printDM(f"switch controllers built: {switch_controllers}", location=f"{MODULE}:bswc")
+
+    try:
+        key_migrations: dict[str, str] = {}
+        for ctrl in (switch_controllers or {}).values():
+            sid = str(getattr(ctrl, "switch_id", "") or "").strip()
+            if not sid:
+                continue
+            channel_map = dict(getattr(ctrl, "channel_id_for_label", {}) or {})
+            for label, channel_id in channel_map.items():
+                label_text = str(label or "").strip()
+                channel_text = str(channel_id or "").strip()
+                if not label_text or not channel_text:
+                    continue
+                idx = None
+                try:
+                    idx = ctrl.get_channel_index(label_text)
+                except Exception:
+                    idx = None
+                if idx:
+                    key_migrations[f"S{idx}-::{label_text}"] = f"{channel_text}::{label_text}"
+                key_migrations[f"{sid}::{label_text}"] = f"{channel_text}::{label_text}"
+        if key_migrations:
+            migrated = int(data_logger.migrate_switch_keys(key_migrations) or 0)
+            if DEBUG and migrated:
+                printDM(f"migrated {migrated} local switch event row(s) forward", location=f"{MODULE}:bswc")
+    except Exception as e:
+        printDM(f"switch key migration failed: {e}", location=f"{MODULE}:bswc")
 
     return switch_controllers
 

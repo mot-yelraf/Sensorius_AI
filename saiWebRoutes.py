@@ -8542,13 +8542,45 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 raw_actions = [raw_actions]
 
             normalized_actions = []
+            label_to_channel_id: dict[str, str] = {}
+            channel_num_to_label: dict[int, str] = {}
+            try:
+                for n in range(1, 33):
+                    label = str((switch_map or {}).get(f"SWITCH_{n}_LABEL", "") or "").strip()
+                    channel_id = str((switch_map or {}).get(f"SWITCH_{n}_CHANNEL_ID", "") or "").strip()
+                    if label:
+                        channel_num_to_label[n] = label
+                        if channel_id:
+                            label_to_channel_id[label.lower()] = channel_id
+            except Exception:
+                pass
+
+            def _automation_action_key(raw_key: str) -> str:
+                text = str(raw_key or "").strip()
+                if not text:
+                    return ""
+                if "::" in text:
+                    sid_part, suffix_part = text.split("::", 1)
+                    sid_part = str(sid_part or switch_id).strip() or switch_id
+                    suffix_part = str(suffix_part or "").strip()
+                else:
+                    sid_part = switch_id
+                    suffix_part = text
+
+                m = re.fullmatch(r"CH(\d+)", suffix_part, flags=re.IGNORECASE)
+                if m:
+                    label = channel_num_to_label.get(int(m.group(1)), "")
+                    suffix_part = label or suffix_part
+
+                channel_id = label_to_channel_id.get(suffix_part.lower(), "")
+                suffix_final = channel_id or suffix_part
+                return f"{sid_part}::{suffix_final}" if sid_part and suffix_final else ""
+
             for a in (raw_actions or []):
                 raw_set = a.get("set", a.get("state", "off"))
                 set_on = str(raw_set).strip().lower() in {"on", "true", "1"}
                 switch_key = str(a.get("switch_key", a.get("switch_label", ""))).strip()
-                # (A) If UI gave a bare label (e.g., "Fan"), prefix with switch_id::
-                if switch_key and "::" not in switch_key:
-                    switch_key = f"{switch_id}::{switch_key}"
+                switch_key = _automation_action_key(switch_key)
 
                 normalized_actions.append({
                     "switch_key": switch_key,
@@ -8558,31 +8590,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 })
 
             try:
-                # Build channel->label map from settings
-                ch_to_label: dict[int, str] = {}
-                for k, v in (switch_map or {}).items():
-                    m = re.fullmatch(r"SWITCH_(\d+)", str(k))
-                    if m and str(v).strip():
-                        ch_to_label[int(m.group(1))] = str(v).strip()
-
-                # Rewrite any action switch_key that references CHn → <Label>
+                # Rewrite any action switch_key that references CHn or labels -> canonical switch_id::channel_id
                 for a in normalized_actions:
-                    key = a.get("switch_key") or ""
-                    # (B1) Handle ...::CHn
-                    m = re.search(r"::CH(\d+)$", key, flags=re.IGNORECASE)
-                    if m:
-                        idx = int(m.group(1))
-                        label = ch_to_label.get(idx)
-                        if label:
-                            a["switch_key"] = f"{switch_id}::{label}"
-                        continue
-                    # (B2) Handle bare CHn (no ::) just in case
-                    m2 = re.fullmatch(r"CH(\d+)", key, flags=re.IGNORECASE)
-                    if m2:
-                        idx = int(m2.group(1))
-                        label = ch_to_label.get(idx)
-                        if label:
-                            a["switch_key"] = f"{switch_id}::{label}"
+                    a["switch_key"] = _automation_action_key(a.get("switch_key") or "")
             except Exception:
                 pass
 
@@ -8633,10 +8643,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             printDM(f"[{MODULE}] Adjusted channel to {channel} for {switch_id}", location=MODULE)
 
         # ---------- rule_id handling ----------
+        incoming_rule_id = rule_id
         if not rule_id:
             rule_id = f"SWITCH_{channel}_Advanced"
 
-        # ensure uniqueness if the id exists already
+        # only auto-generated ids should be uniquified; explicit ids from the UI
+        # represent an edit-in-place of an existing automation.
         def _unique_rule_id(existing_ids: set[str], base: str) -> str:
             if base not in existing_ids:
                 return base
@@ -8651,7 +8663,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             trig_mgr = AutomationManager("switch_settings")
             existing = trig_mgr.load(switch_id) or {}
             existing_ids = set((existing or {}).get("Advanced", {}).keys())
-            final_rule_id = _unique_rule_id(existing_ids, rule_id)
+            final_rule_id = rule_id if incoming_rule_id else _unique_rule_id(existing_ids, rule_id)
             trig_mgr.upsert_advanced_rule(
                 hostname=switch_id,
                 rule_id=final_rule_id,
@@ -8760,9 +8772,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     _switch_status_cache_payload = None
                     _switch_status_cache_until = 0.0
 
-                    eval_scripts = getattr(eval_ctrl, "evaluate_and_apply_scripts", None)
-                    if callable(eval_scripts):
-                        eval_scripts(current_values_map)
                     eval_advanced = getattr(eval_ctrl, "_evaluate_and_apply_advanced", None)
                     if callable(eval_advanced):
                         eval_advanced(current_values_map)
@@ -8975,21 +8984,29 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     sensor_lineage = f"Switch_{switch_id}"
 
                     for label, is_on in ctrl.last_state.items():
-                        # UI key: what the frontend expects (switch_id::Label)
-                        ui_key = f"{switch_id}::{label}"
-
-                        # DB key: may include SWITCH_n_ID via build_switch_key
+                        # Canonical key prefers channel_id::label via ctrl._switch_key().
                         try:
                             db_key = ctrl._switch_key(label)
                         except Exception:
                             db_key = _switch_key(switch_id, label)
+                        ui_key = f"{switch_id}::{label}"
 
-                        latest = data_logger.get_latest_switch_state(db_key, sensor_id=sensor_lineage)
-                        latest_bool = (latest == "On") if latest is not None else bool(is_on)
+                        try:
+                            live_bool = bool(ctrl.get_state(label))
+                        except Exception:
+                            live_bool = bool(is_on)
                         events = _format_events(db_key, sensor_lineage, limit=5)
-                        payload = {"state": latest_bool, "time": events}
+                        payload = {"state": live_bool, "time": events}
                         payload.update(_timer_snapshot(switch_id, label))
-                        states[ui_key] = payload
+                        if DEBUG and str(switch_id).strip().lower() == "sensoria-hub-0" and str(label).strip().lower() == "fan":
+                            printDM(
+                                f"[switch-status-update] {ui_key} live={live_bool} last_state={bool(is_on)} db_key={db_key} events_head={(events[-1] if events else 'none')}",
+                                location=MODULE,
+                            )
+                        canonical_key = str(db_key or "").strip() or ui_key
+                        states[canonical_key] = payload
+                        if ui_key and ui_key not in states:
+                            states[ui_key] = dict(payload)
 
             # --- B) Remote Pico2 W / Nodus switches ---
             # Prefer DB identities (authoritative mapping), then fall back to MQTT cache.
@@ -9420,8 +9437,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 from saiAutomationManager import AutomationManager
                 am = AutomationManager("switch_settings")
                 automation_switch_id = _ctrl_switch_id(ctrl) or sid or ""
+                try:
+                    channel_id = str((getattr(ctrl, "channel_id_for_label", {}) or {}).get(matched_label, "") or "").strip()
+                except Exception:
+                    channel_id = ""
+                suffix = channel_id or matched_label
                 automation_switch_key = (
-                    f"{automation_switch_id}::{matched_label}" if automation_switch_id else f"::{matched_label}"
+                    f"{automation_switch_id}::{suffix}" if automation_switch_id else f"::{suffix}"
                 )
                 automation_state = am.get_advanced_state_for_switch_key(automation_switch_id, automation_switch_key)
                 if bool(automation_state.get("enabled_any", False)):

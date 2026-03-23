@@ -133,7 +133,6 @@ class SwitchController:
         if isinstance(getattr(self, "switch", None), str):
             printDM(f"[{self.switch_id}] BUG: self.switch is a str = {self.switch!r}", location="saiSwitch")
 
-        self.script_rules = {}
         self.is_present = bool(getattr(self.switch, "is_present", False))
         if DEBUG:
             try:
@@ -222,17 +221,9 @@ class SwitchController:
             ch_count = 0
         printDM(f"SwitchController created: present={self.is_present}, channels={ch_count}", location=MODULE)
 
-        # parse any embedded TriggerScript JSON from [Switch] now
-        try:
-            self.script_rules = self._parse_trigger_scripts() or {}
-        except Exception as e:
-            printDM(f"Init parse TriggerScripts failed: {e}", location=MODULE)
-            self.script_rules = {}
-
     # ---------- helpers: switch_key & db convenience --------------------------
     def reload_settings(self, new_settings):
         self.settings = new_settings
-        self.script_rules = self._parse_trigger_scripts()
 
     def _switch_block(self) -> dict:
         try:
@@ -291,20 +282,6 @@ class SwitchController:
             pass
         return []
 
-    def _parse_trigger_scripts(self):
-        rules = {}
-        for key in self.settings.get("Switch", {}):
-            if key.startswith("SWITCH_") and key.endswith("_TriggerScript"):
-                base = key.replace("_TriggerScript", "")
-                label = self.settings["Switch"].get(base)
-                script_str = self.settings["Switch"].get(key)
-                if label and script_str:
-                    try:
-                        rules[label] = json.loads(script_str)
-                    except Exception as e:
-                        printDM(f"Failed to parse TriggerScript for {label}: {e}", location=MODULE)
-        return rules
-
     def _time_in_window(self, start: str, end: str, now_str: str) -> bool:
         # Inclusive start, exclusive end: [start, end)
         if not start and not end:
@@ -343,11 +320,8 @@ class SwitchController:
 
     def _resolve_astral_location(self) -> dict | None:
         """
-        Resolve location for astral calculations.
-        Priority:
-          1) Manual settings [Astral].LATITUDE/LONGITUDE/TIMEZONE
-          2) IP geolocation when [Astral].AUTO_IP is true
-          3) None (astral condition evaluates False)
+        Resolve location for astral calculations using the same path as the UI.
+        This keeps dashboard sunrise/sunset and automation evaluation consistent.
         """
         now = time.monotonic()
         cache = getattr(self, "_astral_location_cache", None) or {}
@@ -357,33 +331,28 @@ class SwitchController:
         resolved = None
         try:
             from saiSettings import saiSettings
-
             settings = saiSettings(apply_live=False)
-            astral_cfg = settings.get_section("Astral") or {}
-            time_tz = str(settings.get_setting("Time", "TZ", "") or "").strip()
-
-            raw_lat = astral_cfg.get("LATITUDE", "")
-            raw_lon = astral_cfg.get("LONGITUDE", "")
-            raw_tz = str(astral_cfg.get("TIMEZONE", "") or "").strip() or time_tz
-
-            try:
-                lat = float(raw_lat)
-                lon = float(raw_lon)
-            except Exception:
-                lat = None
-                lon = None
-
-            if lat is not None and lon is not None and -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0 and raw_tz:
-                resolved = {"lat": lat, "lon": lon, "tz": raw_tz}
-            else:
-                auto_ip_raw = astral_cfg.get("AUTO_IP", True)
-                auto_ip = str(auto_ip_raw).strip().lower() in {"1", "true", "yes", "on"} if isinstance(auto_ip_raw, str) else bool(auto_ip_raw)
-                if auto_ip:
-                    resolved = self._ip_geolocate() or None
-        except Exception:
+            resolved = settings.resolve_astral_location(
+                persist_if_auto=True,
+                timeout_sec=2.5,
+            )
+        except Exception as e:
+            if DEBUG:
+                printDM(f"[astral] resolve location error: {e}", location=MODULE)
             resolved = None
 
-        ttl = 3600.0 if resolved else 300.0
+        if not isinstance(resolved, dict):
+            resolved = None
+        elif (
+            resolved.get("lat") is None
+            or resolved.get("lon") is None
+            or not str(resolved.get("tz", "") or "").strip()
+        ):
+            if DEBUG:
+                printDM(f"[astral] incomplete location payload: {resolved}", location=MODULE)
+            resolved = None
+
+        ttl = 3600.0 if resolved else 15.0
         self._astral_location_cache = {"value": resolved, "expires_at": now + ttl}
         return resolved
 
@@ -394,16 +363,22 @@ class SwitchController:
         Optionally restricted by `days` (0=Mon..6=Sun).
         """
         if LocationInfo is None or _astral_sun is None:
+            if DEBUG:
+                printDM("[astral] astral dependency unavailable", location=MODULE)
             return False
 
         resolved = self._resolve_astral_location()
         if not resolved:
+            if DEBUG:
+                printDM("[astral] no resolved location available", location=MODULE)
             return False
 
         tz_name = str(resolved.get("tz", "") or "").strip()
         try:
             tz = ZoneInfo(tz_name)
         except Exception:
+            if DEBUG:
+                printDM(f"[astral] invalid timezone {tz_name!r}", location=MODULE)
             return False
 
         now_local = datetime.now(tz)
@@ -418,10 +393,17 @@ class SwitchController:
             if 0 <= n <= 6:
                 allowed_days.append(n)
         if allowed_days and (now_local.weekday() not in allowed_days):
+            if DEBUG:
+                printDM(
+                    f"[astral] weekday filtered out: now={now_local.weekday()} allowed={allowed_days}",
+                    location=MODULE,
+                )
             return False
 
         event = str(cond.get("astral_event", cond.get("event", "sunrise")) or "sunrise").strip().lower()
         if event not in {"sunrise", "sunset"}:
+            if DEBUG:
+                printDM(f"[astral] invalid event {event!r}", location=MODULE)
             return False
 
         try:
@@ -441,10 +423,20 @@ class SwitchController:
             s = _astral_sun(loc.observer, date=now_local.date(), tzinfo=tz)
             evt_dt = s.get(event)
             if evt_dt is None:
+                if DEBUG:
+                    printDM(f"[astral] missing event time for {event}", location=MODULE)
                 return False
             threshold = evt_dt + timedelta(minutes=offset)
-            return now_local >= threshold
-        except Exception:
+            result = now_local >= threshold
+            if DEBUG:
+                printDM(
+                    f"[astral] event={event} now={now_local.isoformat()} threshold={threshold.isoformat()} result={result}",
+                    location=MODULE,
+                )
+            return result
+        except Exception as e:
+            if DEBUG:
+                printDM(f"[astral] evaluation error: {e}", location=MODULE)
             return False
 
     def _log(self, name, on: bool):
@@ -780,7 +772,7 @@ class SwitchController:
     def _rules_enabled(self) -> bool:
         """
         Fast “do we have anything to evaluate?” check with mtime caching.
-        True if we have in-memory script rules OR enabled automations.toml rules.
+        True if we have enabled automations.toml rules.
         """
         def _sync_overrides_from_triggers(triggers: dict) -> None:
             """
@@ -861,11 +853,6 @@ class SwitchController:
             except Exception:
                 pass
 
-        # in-memory JSON scripts counted as rules
-        if getattr(self, "script_rules", None):
-            if any(self.script_rules.values()):
-                return True
-
         # disk-based automations.toml
         try:
             if not hasattr(self, "_rules_cache"):
@@ -922,8 +909,8 @@ class SwitchController:
 
         - For each action:
             * Let `rule_ok` be the OR of group results for that action.
-            * If rule_ok is True:  desired = action.set
-              else:                desired = not action.set  (complementary)
+            * If rule_ok is True: apply action.set
+            * If rule_ok is False: do nothing
 
         Only targets actions whose switch_key belongs to this controller.
         """
@@ -1213,12 +1200,24 @@ class SwitchController:
                                 break
                         group_results.append(grp_ok)
 
-                    rule_ok   = any(group_results)
-                    inside_set = bool(act.get("set", True))
-                    desired    = inside_set if rule_ok else (not inside_set)
+                    rule_ok = any(group_results)
+                    if not rule_ok:
+                        if DEBUG and str(target_label).strip().lower() == "fan":
+                            printDM(
+                                f"[advanced] fan rule {_rule_id} no-op: rule_ok={rule_ok} group_results={group_results}",
+                                location=MODULE,
+                            )
+                        continue
+
+                    desired = bool(act.get("set", True))
 
                     curr = bool(self.get_state(target_label))
                     if curr == desired:
+                        if DEBUG and str(target_label).strip().lower() == "fan":
+                            printDM(
+                                f"[advanced] fan rule {_rule_id} skipped: curr={curr} desired={desired} switch_key={skey}",
+                                location=MODULE,
+                            )
                         continue
 
                     delay_s = int(act.get("delay_s", 0) or 0)
@@ -1241,114 +1240,21 @@ class SwitchController:
                             f"rule_ok={rule_ok} desired={desired} (switch_key={skey})",
                             location=MODULE,
                         )
+                    if DEBUG and str(target_label).strip().lower() == "fan":
+                        printDM(
+                            f"[advanced] fan apply {_rule_id}: curr={curr} desired={desired} switch_key={skey}",
+                            location=MODULE,
+                        )
 
                     self.set_state(target_label, desired)
 
             except Exception as e:
                 printDM(f"[advanced] rule error: {e}", location=MODULE)
                 
-    def evaluate_and_apply_scripts(self, current_values):
-        now = time.monotonic()
-        for name, rule in self.script_rules.items():
-            if self.override_script.get(name, False):
-                if DEBUG:
-                    printDM(f"[evaluate_and_apply_scripts] Skipping '{name}' due to override", location=MODULE)
-                continue
-
-            current_state = self.get_state(name)
-            result = self._evaluate_script(rule, current_values, current_state)
-            if result is None:
-                continue
-
-            elapsed = now - self.last_set_time.get(name, 0)
-
-            if result == current_state:
-                continue
-            if result and elapsed < self.min_off_time:
-                continue
-            if not result and elapsed < self.min_on_time:
-                continue
-
-            if self._set_switch_state(name, result):
-                self.last_state[name] = result
-                self.last_set_time[name] = now
-                self._sync_auto_off_state(name, bool(result), restart=bool(result and not current_state))
-
-    def _evaluate_script(self, rule, sensor_data, current_state: bool):
-        """
-        Evaluate a single per-channel rule (from in-settings TriggerScript JSON).
-        Supports:
-          - time-only conditions: {"type":"time","start":"HH:MM","end":"HH:MM"}
-          - sensor conditions (existing behavior) with optional start/end gate
-        Returns desired state (True/False) or None (no decision).
-        """
-        logic = (rule.get("logic", "AND") or "AND").upper()
-        results = []
-        now_str = time.strftime("%H:%M")
-
-        conditions = rule.get("conditions", [])
-        if not isinstance(conditions, list) or not conditions:
-            return None
-
-        for cond in conditions:
-            ctype = str(cond.get("type", "") or "").strip().lower()
-
-            # --- TIME-ONLY CONDITION ------------------------
-            if ctype == "time":
-                start = cond.get("start") or "00:00"
-                end   = cond.get("end")   or "24:00"
-                results.append(self._time_in_window(start, end, now_str))
-                continue
-
-            # --- SENSOR CONDITION (existing behavior) -------
-            sid    = cond.get("sensor")
-            metric = cond.get("metric")
-            op     = cond.get("op", ">")
-
-            try:
-                val  = float(cond.get("value", 0))
-                hyst = float(cond.get("hyst", 0))
-            except Exception:
-                results.append(False)
-                continue
-
-            # Optional additional time gate on the sensor condition
-            start = cond.get("start")
-            end   = cond.get("end")
-            if start or end:
-                if not self._time_in_window(start or "00:00", end or "24:00", now_str):
-                    results.append(False)
-                    continue
-
-            sensor_vals = sensor_data.get(sid) if isinstance(sensor_data, dict) else None
-            if not sensor_vals or metric not in sensor_vals:
-                results.append(False)
-                continue
-
-            actual = sensor_vals[metric]
-            try:
-                threshold_hi = val + hyst
-                threshold_lo = val - hyst
-                if op == ">":
-                    want = (actual > threshold_hi) if not current_state else (actual > threshold_lo)
-                elif op == "<":
-                    want = (actual < threshold_lo) if not current_state else (actual < threshold_hi)
-                elif op == "==":
-                    want = (actual == val)
-                elif op == "!=":
-                    want = (actual != val)
-                else:
-                    want = False
-                results.append(bool(want))
-            except Exception:
-                results.append(False)
-
-        return all(results) if logic == "AND" else any(results)
-
     async def run_controladora_monitor(self, sensor, interval=29):
         """
         Periodically evaluate switch rules.
-        - If ANY rules (in-memory TriggerScript JSON or automations.toml) are enabled,
+        - If any enabled automation rules are present,
           we will run evaluation each cycle.
         - If a bound sensor is present and healthy, include its current dataset.
           Otherwise, we evaluate with the last known values (if any) or {}.
@@ -1403,7 +1309,6 @@ class SwitchController:
                         current_values_map = getattr(self, "values", {}) or {}
 
                     # Evaluate rules (per-switch overrides are handled inside)
-                    self.evaluate_and_apply_scripts(current_values_map)
                     self._evaluate_and_apply_advanced(current_values_map)
 
             except Exception as e:

@@ -1039,6 +1039,64 @@ class saiDataLogger:
             return 0
         return removed
 
+    def migrate_switch_keys(self, mapping: dict[str, str] | None) -> int:
+        """
+        Rewrite switch keys in switch_ids and sw_events.
+        Primarily used to migrate placeholder local keys like 'S1-::Fan'
+        to stable keys like 'S1-abc123::Fan'.
+        """
+        key_map = {
+            str(old or "").strip(): str(new or "").strip()
+            for old, new in (mapping or {}).items()
+            if str(old or "").strip() and str(new or "").strip()
+        }
+        if not key_map:
+            return 0
+
+        changed = 0
+        try:
+            with self._writer_lock:
+                self._ensure_writer()
+                cur = self._writer_conn.cursor()
+                for old_key, new_key in key_map.items():
+                    if old_key.lower() == new_key.lower():
+                        continue
+
+                    row = cur.execute(
+                        "SELECT switch_id, label, location FROM switch_ids WHERE switch_key = ? COLLATE NOCASE LIMIT 1",
+                        (old_key,),
+                    ).fetchone()
+                    if row:
+                        cur.execute(
+                            """
+                            INSERT INTO switch_ids(switch_key, switch_id, label, location)
+                            VALUES(?, ?, ?, ?)
+                            ON CONFLICT(switch_key) DO UPDATE SET
+                                switch_id=excluded.switch_id,
+                                label=excluded.label,
+                                location=excluded.location
+                            """,
+                            (new_key, row[0], row[1], row[2]),
+                        )
+                        cur.execute(
+                            "DELETE FROM switch_ids WHERE switch_key = ? COLLATE NOCASE AND switch_key <> ?",
+                            (old_key, new_key),
+                        )
+
+                    cur.execute(
+                        "UPDATE sw_events SET switch_key = ? WHERE switch_key = ? COLLATE NOCASE",
+                        (new_key, old_key),
+                    )
+                    changed += int(cur.rowcount or 0)
+
+                self._writer_conn.commit()
+                self._switch_identities_cache = None
+        except Exception as e:
+            printDM(f"[migrate_switch_keys] error: {e}", location=MODULE)
+            return 0
+
+        return changed
+
     def log_switch_event(
         self,
         switch_key: str,
@@ -1095,35 +1153,75 @@ class saiDataLogger:
         except Exception as e:
             printDM(f"[log_switch_event] write error: {e}", location=MODULE)
 
+    def _switch_key_alias_candidates(self, switch_key: str) -> list[str]:
+        key = str(switch_key or "").strip()
+        if not key:
+            return []
+
+        candidates: list[str] = [key]
+        if SW_KEY_DELIM not in key:
+            return candidates
+
+        prefix, label = key.split(SW_KEY_DELIM, 1)
+        prefix = prefix.strip()
+        label = label.strip()
+        if not label:
+            return candidates
+
+        try:
+            with self._open_conn() as conn:
+                rows = conn.execute(
+                    "SELECT switch_key, switch_id, label FROM switch_ids WHERE LOWER(label) = LOWER(?)",
+                    (label,),
+                ).fetchall()
+        except Exception:
+            return candidates
+
+        for row in rows or []:
+            db_key = str(row[0] or "").strip()
+            db_sid = str(row[1] or "").strip()
+            db_label = str(row[2] or "").strip()
+            if not db_key or db_label.lower() != label.lower():
+                continue
+            db_channel = db_key.split(SW_KEY_DELIM, 1)[0].strip() if SW_KEY_DELIM in db_key else ""
+            if prefix.lower() in {db_sid.lower(), db_channel.lower(), db_key.lower()} and db_key not in candidates:
+                candidates.append(db_key)
+
+        return candidates
+
     def get_last_switch_events(self, switch_key: str, sensor_id: str | None = None, limit: int = 5):
         """
         Return list[(state_str, timestamp)] from sw_events for a given switch_key.
         sensor_id is optional, used only if you want to scope to a particular host.
         """
         try:
+            candidates = self._switch_key_alias_candidates(switch_key)
+            if not candidates:
+                return []
+            placeholders = ",".join(["?"] * len(candidates))
             with self._open_conn() as conn:
                 cur = conn.cursor()
                 if sensor_id:
                     cur.execute(
-                        """
+                        f"""
                         SELECT timestamp, state
                         FROM sw_events
-                        WHERE switch_key = ? COLLATE NOCASE AND LOWER(sensor_id)=LOWER(?)
+                        WHERE switch_key COLLATE NOCASE IN ({placeholders}) AND LOWER(sensor_id)=LOWER(?)
                         ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC
                         LIMIT ?
                         """,
-                        (switch_key, sensor_id, limit)
+                        (*candidates, sensor_id, limit)
                     )
                 else:
                     cur.execute(
-                        """
+                        f"""
                         SELECT timestamp, state
                         FROM sw_events
-                        WHERE switch_key=? COLLATE NOCASE
+                        WHERE switch_key COLLATE NOCASE IN ({placeholders})
                         ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC
                         LIMIT ?
                         """,
-                        (switch_key, limit)
+                        (*candidates, limit)
                     )
                 rows = cur.fetchall()
                 result = []
@@ -1151,27 +1249,31 @@ class saiDataLogger:
         Returns "On"/"Off"/None using the newest sw_events row for the switch_key.
         """
         try:
+            candidates = self._switch_key_alias_candidates(switch_key)
+            if not candidates:
+                return None
+            placeholders = ",".join(["?"] * len(candidates))
             with self._open_conn() as conn:
                 cur = conn.cursor()
                 if sensor_id:
                     cur.execute(
-                        """
+                        f"""
                         SELECT state FROM sw_events
-                        WHERE switch_key = ? COLLATE NOCASE AND LOWER(sensor_id)=LOWER(?)
+                        WHERE switch_key COLLATE NOCASE IN ({placeholders}) AND LOWER(sensor_id)=LOWER(?)
                         ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC
                         LIMIT 1
                         """,
-                        (switch_key, sensor_id)
+                        (*candidates, sensor_id)
                     )
                 else:
                     cur.execute(
-                        """
+                        f"""
                         SELECT state FROM sw_events
-                        WHERE switch_key=? COLLATE NOCASE 
+                        WHERE switch_key COLLATE NOCASE IN ({placeholders})
                         ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC
                         LIMIT 1
                         """,
-                        (switch_key,)
+                        (*candidates,)
                     )
                 row = cur.fetchone()
                 if not row:

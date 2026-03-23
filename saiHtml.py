@@ -1420,13 +1420,19 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             for label in render_labels:
                 safe_label = label.lower().replace(" ", "_")
                 is_on = bool(getattr(switch_ctrl, "last_state", {}).get(label, False))
+                if DEBUG and str(sw_id).strip().lower() == "sensoria-hub-0" and str(label).strip().lower() == "fan":
+                    printDM(
+                        f"[render_dashboard] {sw_id}::{label} render last_state={is_on}",
+                        location=MODULE,
+                    )
                 state_str = "on" if is_on else "off"
                 current_state_text = " ON" if is_on else "OFF"
                 override_enabled = bool(getattr(switch_ctrl, "override_script", {}).get(label, False))
                 checked_attr = "checked" if override_enabled else ""
                 last_time_str = getattr(switch_ctrl, "last_set_time", {}).get(label, "")
 
-                # Prefer channel_id for action payload when available; otherwise use switch_id.
+                # Canonical switch identity is channel_id::label when a channel
+                # id exists; fall back to switch_id::label only if needed.
                 channel_id = ""
                 try:
                     channel_id = str((getattr(switch_ctrl, "channel_id_for_label", {}) or {}).get(label, "") or "").strip()
@@ -1487,7 +1493,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                     f"  title='{'Automation enabled. Disable automation to toggle manually.' if automation_enabled else f'Toggle state for {label}'}' "
                     f"  data-switch-name='{label}' "
                     f"  data-switch-key='{switch_key}' "
-                    f"  data-switch-id='{action_sid}' "
+                    f"  data-switch-id='{sw_id}' "
                     f"  data-automation-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' "
                     f"  data-automation-label='{label_norm}' "
                     f"  data-automation-enabled='{'1' if automation_enabled else '0'}' "
@@ -1516,9 +1522,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 yield "</div>"
                 yield "</td>"
 
+                events_id = _safe(f"{sw_id}_{label_norm}_events") if sw_id else f"{safe_label}_events"
+                events_list_id = f"{events_id}_list"
                 yield "<td>"
-                yield f"  <div id='{safe_label}_events' class='switch-events' role='listbox' aria-label='Recent switch events'>"
-                yield f"    <ul id='{safe_label}_events_list' class='switch-events-list' data-switch-key='{switch_key}'></ul>"
+                yield f"  <div id='{events_id}' class='switch-events' role='listbox' aria-label='Recent switch events'>"
+                yield f"    <ul id='{events_list_id}' class='switch-events-list' data-switch-key='{switch_key}'></ul>"
                 yield f"  </div>"
                 yield "</td>"
                 yield "</tr>"                
@@ -3376,9 +3384,6 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  if (k) {"
     yield "    const exact = document.querySelector(`.switch-timer-panel[data-switch-ui-key=\"${_cssEsc(k)}\"]`);"
     yield "    if (exact) return exact;"
-    yield "    const { label } = _splitKey(k);"
-    yield "    const suffix = document.querySelector(`.switch-timer-panel[data-switch-ui-key$=\"::${_cssEsc(label)}\"]`);"
-    yield "    if (suffix) return suffix;"
     yield "  }"
     yield "  return null;"
     yield "}"
@@ -3468,30 +3473,29 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     # 1) exact match on the *UL*
     yield "  let el=document.querySelector(`ul.switch-events-list[data-switch-key=\"${_cssEsc(key)}\"]`);"
     yield "  if(el) return el;"
-    # 2) suffix match ::Label
-    yield "  el=document.querySelector(`ul.switch-events-list[data-switch-key$=\"::${_cssEsc(label)}\"]`);"
-    yield "  if(el) return el;"
-    # 3) id by label
-    yield "  const id1=_safeName(label)+\"_events_list\";"
+    # 2) id by switchId+label
+    yield "  const id1=_safeName((switchId?switchId+\"_\":\"\")+label)+\"_events_list\";"
     yield "  el=document.getElementById(id1);"
     yield "  if(el && el.tagName==='UL') return el;"
-    # 4) id by switchId+label
-    yield "  const id2=_safeName((switchId?switchId+\"_\":\"\")+label)+\"_events_list\";"
+    # 3) legacy id by label only
+    yield "  const id2=_safeName(label)+\"_events_list\";"
     yield "  el=document.getElementById(id2);"
     yield "  if(el && el.tagName==='UL') return el;"
-    # 5) defensive row walk
+    # 4) defensive row walk
     yield "  if(el && el.tagName!=='UL'){"
     yield "    const row=el.closest('tr');"
     yield "    const ul=row?row.querySelector('ul.switch-events-list'):null;"
     yield "    if(ul) return ul;"
     yield "  }"
-    # 6) FINAL fallback: scan all ULs; match label loosely (case-insensitive, ignore trailing 's')
+    # 5) FINAL fallback: scan all ULs; match label loosely only when unique
     yield "  const want=norm(label);"
+    yield "  const matches=[];"
     yield "  for(const ul of document.querySelectorAll('ul.switch-events-list')){"
     yield "    const k=ul.getAttribute('data-switch-key')||'';"
     yield "    const {label:lab2}=_splitKey(k);"
-    yield "    if(norm(lab2)===want) return ul;"
+    yield "    if(norm(lab2)===want) matches.push(ul);"
     yield "  }"
+    yield "  if(matches.length===1) return matches[0];"
     yield "  return null;"
     yield "}"
 
@@ -3873,16 +3877,40 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
 
     yield "function updateSwitchVisuals(name, stateData, key) {"
     yield "  const { safe, box, labelEl, timeEl } = _selectSwitchElements(name, key);"
+    yield "  try {"
+    yield "    console.debug('[switch-ui] updateSwitchVisuals', {"
+    yield "      name,"
+    yield "      key,"
+    yield "      safe,"
+    yield "      incomingState: stateData && stateData.state,"
+    yield "      boxFound: !!box,"
+    yield "      boxKey: box && box.dataset ? box.dataset.switchKey : '',"
+    yield "      boxName: box && box.dataset ? box.dataset.switchName : '',"
+    yield "      boxText: box ? (box.textContent || '').trim() : '',"
+    yield "      labelFound: !!labelEl,"
+    yield "      labelText: labelEl ? (labelEl.textContent || '').trim() : '',"
+    yield "    });"
+    yield "  } catch (_) {}"
     yield "  if (!box) { return; }"
     yield "  const isOn = !!(stateData && (stateData.state===true || String(stateData.state).toLowerCase()==='on'));"
     yield "  const lastTime = stateData && stateData.time ? stateData.time : '';"
     yield "  setSwitchBoxState(box, isOn);"
+    yield "  try { console.debug('[switch-ui] setSwitchBoxState', { key, name, isOn, boxKey: box.dataset ? box.dataset.switchKey : '', boxText: (box.textContent || '').trim() }); } catch (_) {}"
     yield "  updateSwitchTimerUi(key, Object.assign({}, stateData || {}, { state: isOn }), name);"
     yield "  if (labelEl) {"
     yield "    labelEl.textContent = isOn ? ' ON' : 'OFF';"
     yield "    labelEl.style.color = isOn ? '#080' : '#666';"
     yield "    labelEl.style.fontWeight = 'bold';"
     yield "  }"
+    yield "  try {"
+    yield "    console.debug('[switch-ui] updated', {"
+    yield "      key,"
+    yield "      name,"
+    yield "      isOn,"
+    yield "      boxText: box ? (box.textContent || '').trim() : '',"
+    yield "      labelText: labelEl ? (labelEl.textContent || '').trim() : '',"
+    yield "    });"
+    yield "  } catch (_) {}"
     yield "}"
 
     # --- WebSocket live switch updates ---
@@ -3900,7 +3928,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "        if (msg.type === 'switch_event'){"
     yield "          const key = msg.key || '';"
     yield "          const uiKey = msg.ui_key || key;"
-    yield "          const hasKeyedBoxes = !!document.querySelector('.switch-box[data-switch-key]');"
+    yield "          const hasKeyedBoxes = !!document.querySelector('.switch-box[data-switch-key], button[data-switch-key]');"
     yield "          const label = key.includes('::') ? key.split('::')[1] : key;"
     yield "          const data  = { state: !!msg.state, time: [], timer_seconds: msg.timer_seconds, timer_deadline_epoch: msg.timer_deadline_epoch, timer_remaining_s: msg.timer_remaining_s, ui_key: uiKey };"
     yield "          updateSwitchVisuals(label, data, key);"
@@ -3952,7 +3980,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    if (!resp.ok) return;"
     yield "    const statusMap = await resp.json();"
     yield "    if (!statusMap) return;"
-    yield "    const hasKeyedBoxes = !!document.querySelector('.switch-box[data-switch-key]');"
+    yield "    const hasKeyedBoxes = !!document.querySelector('.switch-box[data-switch-key], button[data-switch-key]');"
     yield "    const now = Date.now();"
     yield "    Object.entries(statusMap).forEach(([key, data]) => {"
     yield "      const hasKey = key.includes('::');"

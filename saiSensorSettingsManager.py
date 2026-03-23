@@ -12,6 +12,7 @@ import copy
 import json
 from pathlib import Path
 from collections import OrderedDict
+from saiLocalIdentity import extract_local_host_id_from_sensor_id, resolve_persisted_host_serial
 
 try:
     import tomllib  # Python 3.11+ (read)
@@ -341,6 +342,14 @@ class SensorSettingsManager:
         else:
             data = OrderedDict()
 
+        host_id = extract_local_host_id_from_sensor_id(sensor_id)
+        if not str(serial_num or "").strip() and host_id:
+            serial_num = resolve_persisted_host_serial(
+                host_id,
+                switch_base_dir="switch_settings",
+                sensor_base_dir=self.base_dir,
+            )
+
         # ensure required sections/keys
         if "Sensor" not in data or not isinstance(data["Sensor"], dict):
             data["Sensor"] = OrderedDict()
@@ -398,6 +407,37 @@ class SensorSettingsManager:
         if DEBUG:
             printDM(f"[seed_from_factory] seeded → {dst}", location=MODULE)
         return dst
+
+    def ensure_local_serial_num(self, sensor_id: str) -> bool:
+        """
+        Backfill [Sensor].SERIAL_NUM for directly connected local sensors.
+        Returns True if the file was updated.
+        """
+        host_id = extract_local_host_id_from_sensor_id(sensor_id)
+        if not host_id:
+            return False
+
+        doc = self.load(sensor_id) or OrderedDict()
+        sensor = doc.get("Sensor", {}) or {}
+        if not isinstance(sensor, dict):
+            return False
+
+        existing = str(sensor.get("SERIAL_NUM", "") or "").strip()
+        if existing:
+            return False
+
+        serial_num = resolve_persisted_host_serial(
+            host_id,
+            switch_base_dir="switch_settings",
+            sensor_base_dir=self.base_dir,
+        )
+        if not serial_num:
+            return False
+
+        sensor["SERIAL_NUM"] = serial_num
+        doc["Sensor"] = sensor
+        self.save(sensor_id, doc)
+        return True
 
     # ---------- internal helpers ---------------
     def _deep_merge(self, base: OrderedDict, update: dict | OrderedDict) -> OrderedDict:

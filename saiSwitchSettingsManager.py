@@ -16,6 +16,11 @@ import json
 from pathlib import Path
 from collections import OrderedDict
 from saiUtils import printDM, debug_enabled
+from saiLocalIdentity import (
+    is_placeholder_channel_id,
+    make_channel_id,
+    resolve_persisted_host_serial,
+)
 
 MODULE = "saiSwitchSettingsManager"
 DEBUG = debug_enabled(MODULE)
@@ -338,7 +343,7 @@ class SwitchSettingsManager:
         sw["SWITCH_DEVICE_ID"] = host_id
         if switch_loc is not None:
             sw["SWITCH_LOCATION"] = str(switch_loc)
-        self._ensure_channel_ids(sw)
+        self._ensure_local_identity_fields(host_id, sw)
 
         # 5) save to host path (new layout) and cache
         self.save(host_id, tmpl)
@@ -378,7 +383,7 @@ class SwitchSettingsManager:
         sw["SWITCH_DEVICE_ID"] = switch_id
         if switch_loc is not None:
             sw["SWITCH_LOCATION"] = str(switch_loc)
-        self._ensure_channel_ids(sw)
+        self._ensure_local_identity_fields(switch_id, sw)
 
         self.save(switch_id, tmpl)
         if DEBUG:
@@ -407,7 +412,7 @@ class SwitchSettingsManager:
 
         tpl_sw = tmpl["Switch"]
         tpl_sw.update(keep)
-        self._ensure_channel_ids(tpl_sw)
+        self._ensure_local_identity_fields(switch_id, tpl_sw)
         self.save(switch_id, tmpl)
         if DEBUG:
             printDM(f"[SwitchMgr] Retargeted {switch_id} to template '{template_name}' (preserved {list(keep.keys())})",
@@ -661,18 +666,21 @@ class SwitchSettingsManager:
 
     # --------------- channel-id helpers ---------------
     @staticmethod
-    def _generate_channel_id(channel_index: int) -> str:
+    def _generate_channel_id(channel_index: int, suffix: str | None = None) -> str:
         """
         Generate a stable-looking channel ID like 'S1-123456'.
-        Called only when a SWITCH_N_CHANNEL_ID is missing/empty.
+        Called only when a SWITCH_N_CHANNEL_ID is missing/invalid.
         """
+        suffix_text = str(suffix or "").strip()
+        if suffix_text:
+            return make_channel_id(channel_index, suffix_text)
         random_value = secrets.randbelow(1_000_000)  # 000000..999999
         return f"S{channel_index}-{random_value:06d}"
 
-    def _ensure_channel_ids(self, switch_block: dict) -> None:
+    def _ensure_channel_ids(self, switch_block: dict, *, suffix: str | None = None) -> None:
         """
         Ensure each defined SWITCH_N_LABEL has a companion SWITCH_N_CHANNEL_ID.
-        Does NOT overwrite existing non-empty IDs.
+        Repairs placeholder IDs like 'S1-' and does NOT overwrite real IDs.
         """
         if not isinstance(switch_block, dict):
             return
@@ -699,12 +707,35 @@ class SwitchSettingsManager:
             id_key = f"SWITCH_{channel_index}_CHANNEL_ID"
             existing_id = switch_block.get(id_key)
 
-            # If an ID already exists and is non-empty, leave it alone
-            if isinstance(existing_id, str) and existing_id.strip():
+            # If an ID already exists and is non-placeholder, leave it alone
+            if isinstance(existing_id, str) and existing_id.strip() and not is_placeholder_channel_id(existing_id, channel_index=channel_index):
                 continue
 
             # Otherwise, generate and assign a new one
-            switch_block[id_key] = self._generate_channel_id(channel_index)
+            switch_block[id_key] = self._generate_channel_id(channel_index, suffix=suffix)
+
+    def _ensure_local_identity_fields(self, switch_id: str, switch_block: dict) -> str:
+        if not isinstance(switch_block, dict):
+            return ""
+
+        sw_type = str(switch_block.get("TYPE", "pi") or "pi").strip().lower()
+        is_remote = sw_type in {"picow", "pico2w", "nodus", "mqtt", "remote"}
+        serial = str(switch_block.get("DEVICE_SERIAL_NUM", "") or "").strip()
+
+        if not is_remote:
+            if not serial:
+                serial = resolve_persisted_host_serial(
+                    switch_id,
+                    switch_base_dir=self.base_dir,
+                    sensor_base_dir="sensor_settings",
+                )
+            if serial:
+                switch_block["DEVICE_SERIAL_NUM"] = serial
+                self._ensure_channel_ids(switch_block, suffix=serial)
+                return serial
+
+        self._ensure_channel_ids(switch_block)
+        return serial
             
     def ensure_channel_ids_for_switch(self, switch_id: str) -> bool:
         """
@@ -717,7 +748,7 @@ class SwitchSettingsManager:
             return False
 
         before = dict(sw)
-        self._ensure_channel_ids(sw)
+        self._ensure_local_identity_fields(switch_id, sw)
 
         if sw != before:
             # Something changed; write back

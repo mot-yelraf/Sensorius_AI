@@ -14,6 +14,9 @@ if "digitalio" not in sys.modules:
     )
 
 import saiSwitchFactory
+from saiDataLogger import saiDataLogger
+from saiSensorSettingsManager import SensorSettingsManager
+from saiSwitchSettingsManager import SwitchSettingsManager
 from saiSwitchFactory import MQTTSwitch
 
 
@@ -167,3 +170,75 @@ def test_mqtt_switch_accepts_switch_n_en_install_markers():
         mqtt_client=_FakeMQTT(rc=0),
     )
     assert sw.get_switch_names() == ["Desk Fan"]
+
+
+def test_local_switch_channel_ids_are_repaired_from_placeholder_ids(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    mgr = SwitchSettingsManager("switch_settings")
+    mgr.save(
+        "hub-1",
+        {
+            "Switch": {
+                "DEVICE": "switch",
+                "SWITCH_DEVICE_ID": "hub-1",
+                "SWITCH_LOCATION": "Shelf",
+                "SWITCH_1_LABEL": "Fan",
+                "SWITCH_1_CHANNEL_ID": "S1-",
+                "SWITCH_2_LABEL": "Light",
+                "SWITCH_2_CHANNEL_ID": "S2-",
+            }
+        },
+    )
+
+    assert mgr.ensure_channel_ids_for_switch("hub-1") is True
+
+    sw = mgr.load("hub-1")["Switch"]
+    serial = str(sw["DEVICE_SERIAL_NUM"])
+    assert len(serial) == 6
+    assert sw["SWITCH_1_CHANNEL_ID"] == f"S1-{serial}"
+    assert sw["SWITCH_2_CHANNEL_ID"] == f"S2-{serial}"
+
+
+def test_local_sensor_serial_backfills_from_persisted_host_serial(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    sw_mgr = SwitchSettingsManager("switch_settings")
+    sw_mgr.save(
+        "hub-1",
+        {
+            "Switch": {
+                "DEVICE": "switch",
+                "SWITCH_DEVICE_ID": "hub-1",
+                "DEVICE_SERIAL_NUM": "abc123",
+                "SWITCH_1_LABEL": "Fan",
+                "SWITCH_1_CHANNEL_ID": "S1-abc123",
+            }
+        },
+    )
+
+    sensor_mgr = SensorSettingsManager("sensor_settings")
+    sensor_mgr.seed_from_factory(
+        sensor_id="avpd-i2c-0-hub-1",
+        device="avpd",
+        location="Shelf",
+        serial_num="",
+    )
+
+    sensor = sensor_mgr.load("avpd-i2c-0-hub-1")["Sensor"]
+    assert sensor["SERIAL_NUM"] == "abc123"
+
+
+def test_switch_event_migration_preserves_old_key_reads(tmp_path):
+    db = saiDataLogger(str(tmp_path / "sensorius.db"))
+    db.upsert_switch_identity(
+        switch_key="S1-::Fan",
+        switch_id="hub-1",
+        label="Fan",
+        location="Shelf",
+    )
+    db.log_switch_event("S1-::Fan", True, source="test", sensor_id="Switch_hub-1")
+
+    moved = db.migrate_switch_keys({"S1-::Fan": "S1-abc123::Fan"})
+
+    assert moved >= 1
+    assert db.get_latest_switch_state("S1-abc123::Fan") == "On"
+    assert db.get_latest_switch_state("hub-1::Fan") == "On"
