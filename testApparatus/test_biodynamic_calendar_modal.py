@@ -98,17 +98,35 @@ async def test_biodynamic_calendar_api_default_month_uses_biodynamic_local_time(
     monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
 
     captured = {}
+    window_calls = []
+
+    class _FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            base = cls(2026, 3, 22, 9, 15)
+            return base.replace(tzinfo=tz) if tz is not None else base
 
     def _fake_payload(anchor):
         captured["anchor"] = anchor
         return {"ok": True, "calendar": [], "month_label": "", "notes": {}, "daily_summaries": {}}
+
+    class _FakeDailySummaryService:
+        def __init__(self, *, settings, data_logger, supervisor=None, sensor_mgr=None, statter=None):
+            self.settings = settings
+            self.data_logger = data_logger
+
+        def ensure_summaries_for_window(self, start_date, *, days=14, refresh_start=True):
+            window_calls.append((start_date.isoformat(), days, refresh_start))
+            return 0
 
     monkeypatch.setattr(
         saiWebRoutes,
         "get_biodynamic_local_now",
         lambda: datetime(2026, 3, 31, 23, 30, tzinfo=ZoneInfo("America/Denver")),
     )
+    monkeypatch.setattr(saiWebRoutes, "datetime", _FixedDateTime)
     monkeypatch.setattr(saiWebRoutes, "get_biodynamic_payload", _fake_payload)
+    monkeypatch.setattr(saiWebRoutes, "DailySummaryService", _FakeDailySummaryService)
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_notes_for_month", lambda anchor: {})
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_daily_summaries_for_month", lambda anchor: {})
 
@@ -120,3 +138,4 @@ async def test_biodynamic_calendar_api_default_month_uses_biodynamic_local_time(
 
     assert res.status_code == 200
     assert captured["anchor"].isoformat() == "2026-03-01"
+    assert window_calls == [("2026-03-22", 14, True)]

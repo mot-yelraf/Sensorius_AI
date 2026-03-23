@@ -514,7 +514,7 @@ async def main():
     farmos_bridge = saiFarmOSBridge(settings=settings, data_logger=data_logger, supervisor=supervisor)
     daily_summary_service = DailySummaryService(settings=settings, data_logger=data_logger, supervisor=supervisor)
     try:
-        daily_summary_service.ensure_summary_for_date(datetime.now(daily_summary_service.local_tz).date())
+        daily_summary_service.ensure_summaries_for_window(datetime.now(daily_summary_service.local_tz).date())
     except Exception as e:
         printDM(f"Daily summary bootstrap skipped: {e}", location=f"{MODULE}:main")
     supervisor.add(farmos_bridge.run, name="FarmOS Bridge")

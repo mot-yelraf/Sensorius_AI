@@ -6,9 +6,6 @@ from datetime import date, datetime, time as dtime, timedelta
 from zoneinfo import ZoneInfo
 
 from saiBiodynamics import get_biodynamic_payload
-from saiHtml import get_gauge_config
-from saiSensorSettingsManager import SensorSettingsManager
-from saiStats import saiStats
 from saiUtils import debug_enabled, printDM
 
 try:
@@ -22,6 +19,7 @@ except Exception:
 
 MODULE = "saiDailySummary"
 DEBUG = debug_enabled(MODULE)
+DEFAULT_FORECAST_DAYS = 14
 
 
 def _moon_phase_name(phase_val: float) -> str:
@@ -55,22 +53,13 @@ class DailySummaryService:
         settings,
         data_logger,
         supervisor=None,
-        sensor_mgr: SensorSettingsManager | None = None,
-        statter: saiStats | None = None,
+        sensor_mgr=None,
+        statter=None,
     ):
         self.settings = settings
         self.data_logger = data_logger
         self.supervisor = supervisor
-        self.sensor_mgr = sensor_mgr or SensorSettingsManager("sensor_settings")
-        self.statter = statter or saiStats()
-        self.gauge_config = get_gauge_config()
         self.local_tz = self._resolve_tz()
-
-    def _previous_day_window(self, summary_date: date) -> tuple[date, float, float]:
-        target_day = summary_date - timedelta(days=1)
-        start_dt = datetime.combine(target_day, dtime.min, self.local_tz)
-        end_dt = datetime.combine(summary_date, dtime.min, self.local_tz)
-        return target_day, start_dt.timestamp(), end_dt.timestamp()
 
     def _resolve_tz(self) -> ZoneInfo:
         tz_name = (
@@ -83,105 +72,6 @@ class DailySummaryService:
         except Exception:
             return ZoneInfo("America/Denver")
 
-    def _available_sensor_ids(self) -> list[str]:
-        ids = set()
-        try:
-            ids.update(self.sensor_mgr.list_ids() or [])
-        except Exception:
-            pass
-        try:
-            ids.update(self.data_logger.get_available_sensors() or [])
-        except Exception:
-            pass
-        return sorted(str(sid).strip() for sid in ids if str(sid).strip())
-
-    def _format_metric_value(self, metric: str, value) -> str:
-        if value is None:
-            return "--"
-        try:
-            num = float(value)
-        except Exception:
-            return str(value)
-
-        if metric in {"Ambient VPD", "Plant VPD"}:
-            return f"{num:.3f}"
-        if metric in {"Baro-Pressure", "Plant Baro-Pressure", "CO2", "Air Quality"}:
-            return f"{num:.0f}"
-        if abs(num) >= 100 and math.isclose(num, round(num), abs_tol=0.05):
-            return f"{num:.0f}"
-        return f"{num:.2f}"
-
-    def _build_metrics_section(self, summary_date: date) -> list[str]:
-        target_day, start_epoch, end_epoch = self._previous_day_window(summary_date)
-
-        lines = [f"24 hr Metrics for {target_day.isoformat()}"]
-        appended = False
-
-        for sensor_id in self._available_sensor_ids():
-            try:
-                metrics = self.sensor_mgr.get_display_metrics(sensor_id) or []
-            except Exception:
-                metrics = []
-            if not metrics:
-                continue
-
-            stats = self.statter.get_stats_for_range(sensor_id, start_epoch, end_epoch)
-            if not stats:
-                continue
-
-            sensor_label = sensor_id.upper()
-            for metric in metrics:
-                stat = stats.get(metric)
-                if not stat:
-                    continue
-                unit = str((self.gauge_config.get(metric) or {}).get("unit") or "").strip()
-                metric_label = f"{metric} ({unit})" if unit else metric
-                lines.append(
-                    f"{sensor_label} | {metric_label}: "
-                    f"avg {self._format_metric_value(metric, stat.get('avg'))} | "
-                    f"min {self._format_metric_value(metric, stat.get('min'))} | "
-                    f"max {self._format_metric_value(metric, stat.get('max'))}"
-                )
-                appended = True
-
-        if not appended:
-            lines.append("No display-metric data found for the previous day.")
-        return lines
-
-    def _collect_previous_day_display_stats(self, summary_date: date) -> dict[str, dict[str, dict]]:
-        _, start_epoch, end_epoch = self._previous_day_window(summary_date)
-        out: dict[str, dict[str, dict]] = {}
-        for sensor_id in self._available_sensor_ids():
-            try:
-                metrics = self.sensor_mgr.get_display_metrics(sensor_id) or []
-            except Exception:
-                metrics = []
-            if not metrics:
-                continue
-            stats = self.statter.get_stats_for_range(sensor_id, start_epoch, end_epoch)
-            if not stats:
-                continue
-            sensor_stats = {}
-            for metric in metrics:
-                if metric in stats:
-                    sensor_stats[metric] = stats[metric]
-            if sensor_stats:
-                out[sensor_id] = sensor_stats
-        return out
-
-    def _derive_hint_context(self, summary_date: date) -> dict[str, float]:
-        context: dict[str, float] = {}
-        for sensor_stats in self._collect_previous_day_display_stats(summary_date).values():
-            for metric in ("Rel-Humidity", "DewVPD Risk", "Ambient VPD", "Dewpoint Depression"):
-                stat = sensor_stats.get(metric)
-                if not stat:
-                    continue
-                avg_val = stat.get("avg")
-                try:
-                    context.setdefault(metric, float(avg_val))
-                except Exception:
-                    continue
-        return context
 
     def _build_hint_lines(self, summary_date: date, biodynamic_day: dict | None) -> list[str]:
         lines = ["Biodynamic Hints"]
@@ -191,7 +81,6 @@ class DailySummaryService:
 
         part = str(biodynamic_day.get("dominant_plant_part") or "").strip().lower()
         sign = str(biodynamic_day.get("dominant_sign") or "--").strip()
-        ctx = self._derive_hint_context(summary_date)
 
         part_hints = {
             "root": [
@@ -213,22 +102,7 @@ class DailySummaryService:
         }
 
         lines.extend(part_hints.get(part, [f"Suggestion: use {sign} Moon as a planning cue rather than a rigid rule."]))
-
-        dew_risk = ctx.get("DewVPD Risk")
-        rh = ctx.get("Rel-Humidity")
-        vpd = ctx.get("Ambient VPD")
-        depression = ctx.get("Dewpoint Depression")
-
-        if dew_risk is not None and dew_risk >= 40.0:
-            lines.append("If conditions fit: elevated dew risk suggests watching fungal pressure; some growers would consider 508 support.")
-        elif rh is not None and rh >= 75.0:
-            lines.append("If conditions fit: high humidity suggests prioritizing airflow and leaf-dryness management.")
-        elif vpd is not None and vpd >= 1.6:
-            lines.append("If conditions fit: higher VPD suggests avoiding unnecessary stress while monitoring water demand.")
-        elif depression is not None and depression <= 3.0:
-            lines.append("If conditions fit: low dewpoint depression suggests paying close attention to condensation windows.")
-        else:
-            lines.append("Suggestion: use the biodynamic window as a planning hint and let actual plant/environment conditions decide execution.")
+        lines.append("Suggestion: use the biodynamic window as a planning hint and let actual plant/environment conditions decide execution.")
 
         return lines
 
@@ -256,7 +130,7 @@ class DailySummaryService:
         return best.strftime("%H:%M")
 
     def _astral_summary_lines(self, summary_date: date) -> tuple[list[str], dict | None]:
-        lines = ["Astral"]
+        lines = ["Astral Notes"]
         biodynamic_day: dict | None = None
         astral_ok = (
             LocationInfo is not None
@@ -343,27 +217,42 @@ class DailySummaryService:
         body = str(text or "").strip()
         if not body:
             return False
-        expected_astral_header = "Astral"
         expected_hints_header = "Biodynamic Hints"
         return (
             expected_hints_header in body
-            and expected_astral_header in body
+            and ("Astral Notes" in body or "Astral" in body)
         )
 
-    def ensure_summary_for_date(self, summary_date: date) -> bool:
+    def ensure_summary_for_date(self, summary_date: date, *, force_refresh: bool = False) -> bool:
         summary_iso = summary_date.isoformat()
-        try:
-            existing = self.data_logger.get_biodynamic_daily_summary(summary_iso)
-        except Exception:
-            existing = ""
-        if self._summary_is_complete(summary_date, existing):
-            return False
+        if not force_refresh:
+            try:
+                existing = self.data_logger.get_biodynamic_daily_summary(summary_iso)
+            except Exception:
+                existing = ""
+            if self._summary_is_complete(summary_date, existing):
+                return False
 
         text = self.build_summary_text(summary_date)
         ok = self.data_logger.save_biodynamic_daily_summary(summary_iso, text)
         if ok and DEBUG:
             printDM(f"[daily-summary] wrote summary for {summary_iso}", location=MODULE)
         return bool(ok)
+
+    def ensure_summaries_for_window(
+        self,
+        start_date: date,
+        *,
+        days: int = DEFAULT_FORECAST_DAYS,
+        refresh_start: bool = True,
+    ) -> int:
+        total = max(int(days), 0)
+        writes = 0
+        for offset in range(total):
+            target_date = start_date + timedelta(days=offset)
+            if self.ensure_summary_for_date(target_date, force_refresh=bool(refresh_start and offset == 0)):
+                writes += 1
+        return writes
 
     def _feed_watchdog(self, *, error: bool = False) -> None:
         sup = getattr(self, "supervisor", None)
@@ -383,7 +272,7 @@ class DailySummaryService:
             try:
                 self._feed_watchdog()
                 now_local = datetime.now(self.local_tz)
-                self.ensure_summary_for_date(now_local.date())
+                self.ensure_summaries_for_window(now_local.date())
                 next_run = datetime.combine(now_local.date() + timedelta(days=1), dtime(0, 0, 1), self.local_tz)
                 sleep_s = max((next_run - now_local).total_seconds(), 1.0)
             except Exception as exc:

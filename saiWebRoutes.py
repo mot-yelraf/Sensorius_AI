@@ -3605,8 +3605,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         summary_started = time.monotonic()
         try:
             today_local = datetime.now(getattr(data_logger, "local_tz", ZoneInfo("America/Denver"))).date()
-            if anchor.year == today_local.year and anchor.month == today_local.month:
-                DailySummaryService(settings=settings, data_logger=data_logger).ensure_summary_for_date(today_local)
+            DailySummaryService(settings=settings, data_logger=data_logger).ensure_summaries_for_window(today_local)
         except Exception as exc:
             if DEBUG:
                 printDM(f"[api_biodynamic_calendar] daily summary backfill skipped: {exc}", location=MODULE)
