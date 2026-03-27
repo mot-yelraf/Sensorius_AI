@@ -778,6 +778,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         except Exception:
             pass
 
+
     GAUGE_SIZES = {
         "Small": {
             "canvas_width": 260,
@@ -4070,10 +4071,13 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      return s;"
     yield "    };"
     yield ""
-    yield "    const newLines = events.map(normLine).filter(Boolean);"
+    yield "    const hasTimestamp = (line) => /(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2})/.test(String(line || ''));"
+    yield ""
+    yield "    const newLines = events.map(normLine).filter(Boolean).filter(hasTimestamp);"
     yield "    const existingLines = Array.from(listElem.querySelectorAll('li'))"
     yield "          .map(li => (li.textContent || '').trim())"
-    yield "          .filter(Boolean);"
+    yield "          .filter(Boolean)"
+    yield "          .filter(hasTimestamp);"
     yield ""
     yield "    const mergedLines = existingLines.slice();"
     yield "    for(const line of newLines){"
@@ -4125,9 +4129,12 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  if(!listElem) return;"
     yield "  const text = String(line || '').trim();"
     yield "  if(!text) return;"
+    yield "  const hasTimestamp = /(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2})/.test(text);"
+    yield "  if(!hasTimestamp) return;"
     yield "  const existingLines = Array.from(listElem.querySelectorAll('li'))"
     yield "        .map(li => (li.textContent || '').trim())"
-    yield "        .filter(Boolean);"
+    yield "        .filter(Boolean)"
+    yield "        .filter(value => /(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2})/.test(String(value || '')));"
     yield "  const mergedLines = existingLines.slice();"
     yield "  if(!mergedLines.includes(text)){"
     yield "    mergedLines.push(text);"

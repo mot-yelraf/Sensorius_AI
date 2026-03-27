@@ -319,7 +319,7 @@ class saiMQTTIngest:
                 })
             self.registered_topics.update(prefixed_topics)
         self.onboarding_event_handler = None
-        self._pending_set: dict[tuple[str, str], float] = {}
+        self._pending_set: dict[tuple[str, str], dict[str, object]] = {}
         self._loop = None  # set in start()
         
         try:
@@ -2395,10 +2395,16 @@ class saiMQTTIngest:
                 return False
 
             channel_index = self._resolve_switch_channel_index(switch_id_text, channel_id_text)
-            target_device = self.resolve_nodus_hostname(switch_id_text, device_type="switch") if switch_id_text else None
-            if not target_device and switch_id_text and not switch_id_text.startswith("switch-"):
-                target_device = switch_id_text
-            if channel_index and target_device:
+            target_devices: list[str] = []
+            if channel_id_text:
+                target_devices.append(channel_id_text)
+            resolved_host = self.resolve_nodus_hostname(switch_id_text, device_type="switch") if switch_id_text else None
+            if resolved_host and resolved_host not in target_devices:
+                target_devices.append(resolved_host)
+            if switch_id_text and not switch_id_text.startswith("switch-") and switch_id_text not in target_devices:
+                target_devices.append(switch_id_text)
+
+            if channel_index and target_devices:
                 payload = {
                     "updates": [
                         {
@@ -2409,24 +2415,25 @@ class saiMQTTIngest:
                         }
                     ]
                 }
-                publish_result = self.publish_nodus_config(
-                    target_device,
-                    payload=payload,
-                    qos=max(int(qos or 0), 1),
-                    restart=False,
-                )
-                ok = bool(publish_result.get("ok", False))
-                if DEBUG:
-                    printDM(
-                        f"[set_switch_by_channel_id] config/set target={target_device} switch_id={switch_id_text} channel_id={channel_id_text} channel_index={channel_index} ok={ok}",
-                        location=MODULE,
+                for target_device in target_devices:
+                    publish_result = self.publish_nodus_config(
+                        target_device,
+                        payload=payload,
+                        qos=max(int(qos or 0), 1),
+                        restart=False,
                     )
-                if ok:
-                    return True
+                    ok = bool(publish_result.get("ok", False))
+                    if DEBUG:
+                        printDM(
+                            f"[set_switch_by_channel_id] config/set target={target_device} switch_id={switch_id_text} channel_id={channel_id_text} channel_index={channel_index} ok={ok}",
+                            location=MODULE,
+                        )
+                    if ok:
+                        return True
 
             if DEBUG:
                 printDM(
-                    f"[set_switch_by_channel_id] config/set unresolved for switch_id={switch_id_text} channel_id={channel_id_text} target_device={target_device!r} channel_index={channel_index!r}",
+                    f"[set_switch_by_channel_id] config/set unresolved for switch_id={switch_id_text} channel_id={channel_id_text} targets={target_devices!r} channel_index={channel_index!r}",
                     location=MODULE,
                 )
             return False
@@ -3748,27 +3755,11 @@ class saiMQTTIngest:
                 retain=retain,
             )
             if ok:
-                self._pending_set[(str(switch_id), str(channel_label))] = time.time()
-                try:
-                    switch_id_str = str(switch_id)
-                    channel_id_str = str(channel_id)
-                    state_txt = "on" if new_state else "off"
-                    cache = self._switch_state_cache.setdefault(switch_id_str, {})
-                    cache[channel_id_str] = state_txt
-                    cache[str(channel_label)] = state_txt
-                    try:
-                        target_sid = switch_id_str.strip().lower()
-                        target_ch = channel_id_str.strip().lower()
-                        for row in (self.data_logger.get_switch_identities() or []):
-                            rsid = str(row.get("switch_id", "") or "").strip().lower()
-                            rch = str(row.get("channel_id", "") or "").strip().lower()
-                            rlab = str(row.get("label", "") or "").strip()
-                            if rsid == target_sid and rch == target_ch and rlab:
-                                cache[rlab] = state_txt
-                    except Exception:
-                        pass
-                except Exception:
-                    pass
+                self._pending_set[(str(switch_id), str(channel_label))] = {
+                    "ts": time.time(),
+                    "state": bool(new_state),
+                    "channel_id": str(channel_id or "").strip(),
+                }
                 if DEBUG:
                     printDM(
                         f"[set_switch] queued switch_id={switch_id} channel_id={channel_id} label={channel_label} new_state={new_state}",
@@ -3778,6 +3769,35 @@ class saiMQTTIngest:
         except Exception as e:
             printDM(f"[set_switch] error: {e}", location=MODULE)
             return False
+
+    def clear_pending_switch_set(self, switch_id: str, channel_id: str | None = None, label: str | None = None) -> None:
+        """
+        Drop optimistic remote command markers once authoritative MQTT state arrives.
+        """
+        try:
+            sid = str(switch_id or "").strip()
+            ch = str(channel_id or "").strip().lower()
+            lbl = str(label or "").strip().lower()
+            if not sid:
+                return
+
+            keys_to_remove: list[tuple[str, str]] = []
+            for key, meta in list((self._pending_set or {}).items()):
+                key_sid = str((key or ("", ""))[0] or "").strip()
+                key_label = str((key or ("", ""))[1] or "").strip().lower()
+                if key_sid != sid:
+                    continue
+                meta_channel = str((meta or {}).get("channel_id") or "").strip().lower()
+                if lbl and key_label == lbl:
+                    keys_to_remove.append(key)
+                    continue
+                if ch and meta_channel == ch:
+                    keys_to_remove.append(key)
+                    continue
+            for key in keys_to_remove:
+                self._pending_set.pop(key, None)
+        except Exception:
+            pass
 
     def toggle_switch(self, switch_id: str, channel_label: str, default_on: bool = True) -> bool:
         """
@@ -3961,6 +3981,7 @@ class saiMQTTIngest:
             cache[channel_id] = "on" if is_on else "off"
             if label:
                 cache[label] = "on" if is_on else "off"
+            self.clear_pending_switch_set(switch_id, channel_id=channel_id, label=label)
             self._known_switch_ids.add(switch_id)
             try:
                 self.last_mqtt_seen[switch_id] = time.time()
@@ -4030,6 +4051,7 @@ class saiMQTTIngest:
                 labels = _labels_for_channel(sid, ch_id, hint=hint)
                 for lbl in labels:
                     cache[lbl] = state_txt
+                self.clear_pending_switch_set(sid, channel_id=ch_id, label=(labels[0] if labels else hint))
                 self._known_switch_ids.add(sid)
                 return labels
 
@@ -4047,6 +4069,7 @@ class saiMQTTIngest:
 
             payload_text = "" if payload is None else str(payload).strip()
             is_on: bool | None = None
+            # Nodus switch payload timestamps are not trusted; persist with hub-local time.
             ts_iso: str | None = None
             source = "mqtt-nodus"
 
@@ -4060,11 +4083,6 @@ class saiMQTTIngest:
                 if isinstance(obj, dict):
                     # optional source
                     source = (obj.get("source") or source) if isinstance(obj.get("source"), str) else source
-
-                    # parse timestamp if present
-                    ts_val = obj.get("timestamp")
-                    if ts_val is not None:
-                        ts_iso = _iso_from_payload_ts(ts_val)
 
                     # extract ON/OFF from "event" dict
                     ev = obj.get("event") or {}
@@ -4142,7 +4160,7 @@ class saiMQTTIngest:
                             "type": "switch_event",
                             "key": f"{switch_id}::{ui_label}",
                             "state": bool(is_on),
-                            "timestamp": ts_iso or get_timestamp(),
+                            "timestamp": get_timestamp(),
                             "source": source,
                         }))
                 except Exception:

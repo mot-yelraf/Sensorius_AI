@@ -9171,6 +9171,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             identity_rows: list[dict[str, object]],
         ) -> dict[str, dict]:
             states: dict[str, dict] = {}
+            pending_set = copy.deepcopy(getattr(mqtt_ingest, "_pending_set", {}) or {})
+            pending_ttl_s = 15.0
 
             def _format_events(switch_key: str, sensor_id: str | None, limit: int = 5) -> list[str]:
                 evs = data_logger.get_last_switch_events(switch_key, sensor_id=sensor_id, limit=limit)
@@ -9251,6 +9253,30 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     pass
                 return None
 
+            def _pending_state_for(sid: str, label: str, db_key: str) -> bool | None:
+                try:
+                    now_ts = time.time()
+                    pending = pending_set.get((str(sid or ""), str(label or "")))
+                    if pending is None and "::" in str(db_key or ""):
+                        channel_id = db_key.split("::", 1)[0].strip()
+                        for (psid, plabel), meta in pending_set.items():
+                            if str(psid or "").strip() != str(sid or "").strip():
+                                continue
+                            meta_channel = str((meta or {}).get("channel_id") or "").strip()
+                            if meta_channel and meta_channel == channel_id:
+                                pending = meta
+                                break
+                    if not isinstance(pending, dict):
+                        return None
+                    pending_ts = float(pending.get("ts") or 0.0)
+                    if pending_ts <= 0.0 or (now_ts - pending_ts) > pending_ttl_s:
+                        return None
+                    if "state" not in pending:
+                        return None
+                    return bool(pending.get("state"))
+                except Exception:
+                    return None
+
             for entry in local_entries:
                 switch_id = str(entry.get("switch_id", "") or "").strip()
                 label = str(entry.get("label", "") or "").strip()
@@ -9278,8 +9304,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     continue
                 ui_key = f"{sid}::{label}"
                 cached_bool = _cache_state_for(sid, label, db_key)
+                pending_bool = _pending_state_for(sid, label, db_key)
                 if cached_bool is not None:
                     latest_bool = cached_bool
+                elif pending_bool is not None:
+                    latest_bool = pending_bool
                 else:
                     latest = data_logger.get_latest_switch_state(db_key)
                     latest_bool = (latest == "On") if latest is not None else False
@@ -9305,8 +9334,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         continue
                     db_key = _db_key_for_label(remote_switch_id, channel_label)
                     cached_bool = _cache_state_for(remote_switch_id, channel_label, db_key)
+                    pending_bool = _pending_state_for(remote_switch_id, channel_label, db_key)
                     if cached_bool is not None:
                         latest_bool = cached_bool
+                    elif pending_bool is not None:
+                        latest_bool = pending_bool
                     else:
                         latest = data_logger.get_latest_switch_state(db_key)
                         latest_bool = (latest == "On") if latest is not None else (str(human_state).lower() == "on")
@@ -9647,7 +9679,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                             # Invalidate short-lived switch status cache after a state change request.
                             _switch_status_cache_payload = None
                             _switch_status_cache_until = 0.0
-                            return {"state": bool(new_state), "time": ts}
+                            return {"state": bool(current_on) if current_on is not None else False, "time": ts}
                 except Exception as e:
                     printDM(f"[toggle_switch] channel fallback failed: {e}", location=MODULE)
 
@@ -9715,6 +9747,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 pass
 
             new_state = _desired_toggle_from_db(data_logger, sid, matched_label, ctrl)
+            response_state = bool(new_state)
 
             # Decide path: direct GPIO vs remote/MQTT
             remote = _looks_remote(ctrl)
@@ -9760,13 +9793,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         printDM(f"[toggle_switch] ingest.set_switch error: {e}", location=MODULE)
                 if ok:
                     try:
-                        if isinstance(getattr(ctrl, "last_state", None), dict):
-                            ctrl.last_state[matched_label] = bool(new_state)
-                        sync_timer = getattr(ctrl, "_sync_auto_off_state", None)
-                        if callable(sync_timer):
-                            sync_timer(matched_label, bool(new_state), restart=bool(new_state and not current))
+                        response_state = bool(ctrl.get_state(matched_label))
                     except Exception:
-                        pass
+                        response_state = bool(current)
 
             # ...after we've tried to set the state (ok = ctrl.set_state(...) or MQTT path)...
             if not ok:
@@ -9793,7 +9822,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             # Persist SWITCH_n_LAST_STATE
             try:
-                if sid:
+                if sid and not remote:
                     mgr = SwitchSettingsManager("switch_settings")
                     # Prefer controller helper if available
                     idx = None
@@ -9836,7 +9865,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # Let controller optionally record/log an event
             try:
                 rec = getattr(ctrl, "record_event", None)
-                if callable(rec):
+                if callable(rec) and not remote:
                     rec(matched_label, "on" if new_state else "off", ts)
             except Exception:
                 pass
@@ -9845,7 +9874,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             _switch_status_cache_payload = None
             _switch_status_cache_until = 0.0
 
-            return _timer_response_payload(new_state, ts)
+            return _timer_response_payload(response_state, ts)
 
         except Exception as e:
             printDM(f"[toggle_switch] ERROR for '{switch_name}': {e}", location=MODULE)

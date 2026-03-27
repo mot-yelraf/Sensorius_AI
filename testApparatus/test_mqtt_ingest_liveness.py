@@ -318,7 +318,7 @@ def test_calibration_sample_topics_are_tracked_by_sensor_and_message(monkeypatch
     assert ingest.calibration_samples_by_message["soil-ph-1"][0]["sensor_id"] == "soil-123"
 
 
-def test_set_switch_updates_remote_cache_optimistically(monkeypatch):
+def test_set_switch_leaves_remote_cache_unchanged_until_confirmation(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     ingest.data_logger.switch_identities = [
         {
@@ -334,8 +334,12 @@ def test_set_switch_updates_remote_cache_optimistically(monkeypatch):
     ok = ingest.set_switch("sw1", "Fan", False)
 
     assert ok is True
-    assert ingest._switch_state_cache["sw1"]["S1-sw1"] == "off"
-    assert ingest._switch_state_cache["sw1"]["Fan"] == "off"
+    assert ingest._pending_set.get(("sw1", "Fan")) == {
+        "ts": ingest._pending_set[("sw1", "Fan")]["ts"],
+        "state": False,
+        "channel_id": "S1-sw1",
+    }
+    assert ingest._switch_state_cache == {}
 
 
 def test_confirmed_nodus_event_persists_after_optimistic_cache_update(monkeypatch):
@@ -367,6 +371,7 @@ def test_confirmed_nodus_event_persists_after_optimistic_cache_update(monkeypatc
     assert ingest.data_logger.switch_events[-1]["switch_key"] == "S1-sw1::Fan"
     assert ingest.data_logger.switch_events[-1]["is_on"] is False
     assert ingest.data_logger.switch_events[-1]["source"] == "mqtt"
+    assert ingest.data_logger.switch_events[-1]["timestamp"] is None
 
 
 def test_confirmed_nodus_state_persists_even_after_manual_ui_off(monkeypatch):
@@ -404,6 +409,33 @@ def test_confirmed_nodus_state_persists_even_after_manual_ui_off(monkeypatch):
     assert ingest.data_logger.switch_events[-1]["switch_key"] == "S1-sw1::Fan"
     assert ingest.data_logger.switch_events[-1]["is_on"] is False
     assert ingest.data_logger.switch_events[-1]["source"] == "mqtt-nodus-state"
+
+
+def test_nodus_switch_json_timestamp_is_ignored_for_persist(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.data_logger.switch_identities = [
+        {
+            "switch_key": "S1-sw1::Fan",
+            "switch_id": "sw1",
+            "label": "Fan",
+            "channel_id": "S1-sw1",
+            "location": "lab",
+        }
+    ]
+    ingest.nodus_switch_topic_map["nodus/S1-sw1/event"] = {
+        "switch_id": "sw1",
+        "channel_id": "S1-sw1",
+        "label": "Fan",
+        "kind": "event",
+    }
+
+    ingest.handle_nodus_switch_topic(
+        "nodus/S1-sw1/event",
+        json.dumps({"event": {"SWITCH_1": "off"}, "source": "mqtt", "timestamp": 946685474}),
+    )
+
+    assert ingest.data_logger.switch_events[-1]["switch_key"] == "S1-sw1::Fan"
+    assert ingest.data_logger.switch_events[-1]["timestamp"] is None
 
 
 def test_calibration_topics_update_state_caches(monkeypatch):
@@ -706,6 +738,78 @@ def test_http_itaot_meta_normalizes_to_topic_contract(monkeypatch):
     assert ingest.nodus_switch_command_topics.get(("switch-x943fm", "S1-x943fm")) == "nodus/S1-x943fm/set"
     assert ingest.nodus_switch_command_topics.get(("switch-x943fm", "S2-x943fm")) == "nodus/S2-x943fm/set"
     assert ingest.nodus_switch_topic_map.get("nodus/S1-x943fm/state", {}).get("label") == "Fan"
+
+
+def test_set_switch_by_channel_id_prefers_channel_scoped_config_target(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.mqtt_clients = {"aqi-x943fm"}
+    ingest.host_to_peer_ids = {"aqi-x943fm": ["aqi-x943fm", "switch-x943fm"]}
+
+    ok = ingest.set_switch_by_channel_id("switch-x943fm", "S1-x943fm", True)
+
+    assert ok is True
+    assert ingest.client.pubs, "expected config/set publish for remote switch toggle"
+    topic, payload, qos, retain = ingest.client.pubs[0]
+    assert topic == "nodus/S1-x943fm/config/set"
+    assert qos == 1
+    assert retain is False
+    envelope = json.loads(payload)
+    posted = ((envelope.get("payload") or {}).get("updates") or [])
+    assert posted == [
+        {
+            "section": "Switch",
+            "key": "SWITCH_1_LAST_STATE",
+            "value": True,
+            "name": "switch.toml",
+        }
+    ]
+
+
+def test_set_switch_does_not_optimistically_mutate_remote_state_cache(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.data_logger.switch_identities.append(
+        {
+            "switch_id": "switch-x943fm",
+            "switch_key": "S1-x943fm::Fan",
+            "channel_id": "S1-x943fm",
+            "label": "Fan",
+            "location": "TestLab",
+        }
+    )
+    ingest.mqtt_clients = {"aqi-x943fm"}
+    ingest.host_to_peer_ids = {"aqi-x943fm": ["aqi-x943fm", "switch-x943fm"]}
+
+    ok = ingest.set_switch("switch-x943fm", "Fan", True)
+
+    assert ok is True
+    assert ingest._pending_set.get(("switch-x943fm", "Fan")) == {
+        "ts": ingest._pending_set[("switch-x943fm", "Fan")]["ts"],
+        "state": True,
+        "channel_id": "S1-x943fm",
+    }
+    assert ingest._switch_state_cache == {}
+
+
+def test_confirmed_switch_state_clears_pending_set(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.data_logger.switch_identities.append(
+        {
+            "switch_id": "switch-x943fm",
+            "switch_key": "S1-x943fm::Fan",
+            "channel_id": "S1-x943fm",
+            "label": "Fan",
+            "location": "TestLab",
+        }
+    )
+    ingest._pending_set[("switch-x943fm", "Fan")] = {
+        "ts": time.time(),
+        "state": True,
+        "channel_id": "S1-x943fm",
+    }
+
+    ingest.handle_nodus_switch_topic("nodus/S1-x943fm/state", "ON")
+
+    assert ingest._pending_set == {}
 
 
 def test_retained_stale_heartbeat_sets_unknown(monkeypatch):
