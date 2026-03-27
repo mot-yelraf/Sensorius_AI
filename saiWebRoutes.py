@@ -1517,11 +1517,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     break
             expected_gauge_map[sid] = deduped
             try:
-                raw_styles = sensor_mgr.get_display_styles(sid, default_style=displayStyle)
+                raw_styles = sensor_mgr.get_display_styles(sid, default_style="Gauge")
             except Exception:
-                raw_styles = [displayStyle] * 6
+                raw_styles = ["Gauge"] * 6
             expected_display_style_map[sid] = {
-                f"METRIC_{idx + 1}": str(raw_styles[idx] or displayStyle)
+                f"METRIC_{idx + 1}": str(raw_styles[idx] or "Gauge")
                 for idx in range(6)
             }
         phase_ms["expected_metrics"] = (
@@ -6299,17 +6299,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 val = canonicalize_metric_name(val, gauge_config)
                 current_metrics.append(val)
 
-            global_display_style = "Gauge"
-            try:
-                app_settings = saiSettings(apply_live=False)
-                global_display_style = str(
-                    app_settings.get_setting("Display", "display_style", "Gauge") or "Gauge"
-                ).strip() or "Gauge"
-            except Exception:
-                global_display_style = "Gauge"
-
             display_style_options = ["Gauge", "Graph6hr", "Graph24hr"]
-            current_metric_styles = manager.get_display_styles(normalized_id, default_style=global_display_style)
+            current_metric_styles = manager.get_display_styles(normalized_id, default_style="Gauge")
 
             # location
             sensor_section = settings_dict.get("Sensor", {}) or {}

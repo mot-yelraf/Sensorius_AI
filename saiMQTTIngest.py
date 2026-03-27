@@ -1899,14 +1899,9 @@ class saiMQTTIngest:
                     return loc
             return "Unknown"
 
-        def _preserve_known_location(candidate: str, existing: str | None = None) -> str:
-            cand = str(candidate or "").strip()
-            prev = str(existing or "").strip()
-            if cand and not _is_unknown_loc(cand):
-                return cand
-            if prev and not _is_unknown_loc(prev):
-                return prev
-            return "Unknown"
+        def _canonical_location(value: str | None) -> str:
+            loc = str(value or "").strip()
+            return loc if loc and not _is_unknown_loc(loc) else "Unknown"
 
         def _coerce_switch_state(raw_state) -> bool | None:
             if isinstance(raw_state, bool):
@@ -3304,14 +3299,9 @@ class saiMQTTIngest:
             v = str(val or "").strip().lower()
             return v in ("", "unknown", "n/a", "na", "none", "-")
 
-        def _preserve_known_location(candidate: str, existing: str | None = None) -> str:
-            cand = str(candidate or "").strip()
-            prev = str(existing or "").strip()
-            if cand and not _is_unknown_loc(cand):
-                return cand
-            if prev and not _is_unknown_loc(prev):
-                return prev
-            return "Unknown"
+        def _canonical_location(value: str | None) -> str:
+            loc = str(value or "").strip()
+            return loc if loc and not _is_unknown_loc(loc) else "Unknown"
 
         # ---- system_settings/<HOSTNAME>/settings.toml ----
         system_id = _strip_local(str((info or {}).get("HOSTNAME") or hostname or ""))
@@ -3397,13 +3387,9 @@ class saiMQTTIngest:
                     if serial and str(sb.get("SERIAL_NUM", "") or "").strip() != serial:
                         sb["SERIAL_NUM"] = serial
                         changed = True
-                    if (
-                        location
-                        and location.strip()
-                        and not _is_unknown_loc(location)
-                        and str(sb.get("LOCATION", "") or "").strip() != location
-                    ):
-                        sb["LOCATION"] = location
+                    canonical_location = _canonical_location(location)
+                    if str(sb.get("LOCATION", "") or "").strip() != canonical_location:
+                        sb["LOCATION"] = canonical_location
                         changed = True
                     if sensor_id and str(sb.get("SENSOR_ID", "") or "").strip() != sensor_id:
                         sb["SENSOR_ID"] = sensor_id
@@ -3415,13 +3401,13 @@ class saiMQTTIngest:
                     if "Display" not in data or not isinstance(data["Display"], dict):
                         data["Display"] = OrderedDict()
                     display = data["Display"]
-                    if remote_display_metrics:
-                        for idx in range(6):
-                            metric_key = f"METRIC_{idx + 1}"
-                            metric_val = remote_display_metrics[idx] if idx < len(remote_display_metrics) else ""
-                            if str(display.get(metric_key, "") or "") != metric_val:
-                                display[metric_key] = metric_val
-                                changed = True
+                    chosen_metrics = remote_display_metrics or _display_defaults_for_device(device_name or device_type)
+                    for idx in range(6):
+                        metric_key = f"METRIC_{idx + 1}"
+                        metric_val = chosen_metrics[idx] if idx < len(chosen_metrics) else ""
+                        if str(display.get(metric_key, "") or "") != metric_val:
+                            display[metric_key] = metric_val
+                            changed = True
 
                     if changed:
                         sensor_mgr.save(sensor_id, data)
@@ -3445,8 +3431,7 @@ class saiMQTTIngest:
                     if device_type:
                         sb["TYPE"] = device_type
                     sb["SENSOR_ID"] = sensor_id
-                    existing_loc = str(sb.get("LOCATION", "") or "").strip()
-                    sb["LOCATION"] = _preserve_known_location(location, existing_loc)
+                    sb["LOCATION"] = _canonical_location(location)
                     if serial:
                         sb["SERIAL_NUM"] = serial
 
@@ -3459,7 +3444,24 @@ class saiMQTTIngest:
 
                     sensor_mgr.save(sensor_id, data)
                 else:
-                    sensor_mgr.seed_from_factory(sensor_id, device_name or device_type, location, serial_num=serial)
+                    data = OrderedDict()
+                    data["Sensor"] = OrderedDict()
+                    sb = data["Sensor"]
+                    if device_name:
+                        sb["DEVICE"] = device_name
+                    if device_type:
+                        sb["TYPE"] = device_type
+                    sb["SENSOR_ID"] = sensor_id
+                    sb["LOCATION"] = _canonical_location(location)
+                    if serial:
+                        sb["SERIAL_NUM"] = serial
+
+                    data["Display"] = OrderedDict()
+                    chosen_metrics = remote_display_metrics or _display_defaults_for_device(device_name or device_type)
+                    for idx in range(6):
+                        data["Display"][f"METRIC_{idx + 1}"] = chosen_metrics[idx] if idx < len(chosen_metrics) else ""
+
+                    sensor_mgr.save(sensor_id, data)
                 if DEBUG:
                     printDM(f"[itaot-settings] seeded sensor settings for {sensor_id}", location=MODULE)
         except Exception as exc:
@@ -3500,12 +3502,9 @@ class saiMQTTIngest:
                 if str(sb.get("SWITCH_DEVICE_ID", "") or "").strip() != switch_id:
                     sb["SWITCH_DEVICE_ID"] = switch_id
                     changed = True
-                if (
-                    switch_loc
-                    and not _is_unknown_loc(switch_loc)
-                    and str(sb.get("SWITCH_LOCATION", "") or "").strip() != switch_loc
-                ):
-                    sb["SWITCH_LOCATION"] = switch_loc
+                canonical_switch_location = _canonical_location(switch_loc)
+                if str(sb.get("SWITCH_LOCATION", "") or "").strip() != canonical_switch_location:
+                    sb["SWITCH_LOCATION"] = canonical_switch_location
                     changed = True
                 if switch_type and str(sb.get("TYPE", "") or "").strip() != switch_type:
                     sb["TYPE"] = switch_type
@@ -3530,21 +3529,6 @@ class saiMQTTIngest:
                                 continue
 
                             existing_val = sb.get(ks)
-                            incoming_text = str(v or "").strip()
-                            existing_text = str(existing_val or "").strip()
-
-                            # Preserve real Nodus hardware wiring when metadata only
-                            # provides shadow MQTT install markers or blank pins.
-                            if ks.endswith("_PIN") and incoming_text == "":
-                                continue
-                            if (
-                                ks.endswith("_ENABLE_PIN")
-                                and incoming_text.lower() == "mqtt"
-                                and existing_text
-                                and existing_text.lower() != "mqtt"
-                            ):
-                                continue
-
                             if existing_val != v:
                                 sb[ks] = v
                                 changed = True

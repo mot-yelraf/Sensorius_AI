@@ -859,9 +859,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                     except Exception:
                         metrics = list(gauge_config.keys())
                     sensor_display_map[sid] = metrics
-                    styles = mgr.get_display_styles(actual_id, default_style=display_style)
+                    styles = mgr.get_display_styles(actual_id, default_style="Gauge")
                     sensor_style_map[sid] = {
-                        f"METRIC_{idx + 1}": styles[idx] if idx < len(styles) else display_style
+                        f"METRIC_{idx + 1}": styles[idx] if idx < len(styles) else "Gauge"
                         for idx in range(6)
                     }
             except Exception as e:

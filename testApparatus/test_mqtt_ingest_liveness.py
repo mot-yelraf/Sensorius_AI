@@ -1248,7 +1248,7 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
     assert 'SWITCH_1_EN = "1"' not in switch_saved
 
 
-def test_ensure_settings_from_itaot_preserves_known_locations_when_payload_is_unknown(tmp_path, monkeypatch):
+def test_ensure_settings_from_itaot_overwrites_shadow_locations_when_payload_is_unknown(tmp_path, monkeypatch):
     ingest = _build_ingest(monkeypatch)
 
     sensor_root = tmp_path / "sensor_settings"
@@ -1326,11 +1326,156 @@ def test_ensure_settings_from_itaot_preserves_known_locations_when_payload_is_un
 
     sensor_saved = sensor_mgr.load("co2-ykdvea")
     switch_saved = switch_mgr.load("switch-ykdvea")
-    assert sensor_saved["Sensor"]["LOCATION"] == "Lab"
-    assert switch_saved["Switch"]["SWITCH_LOCATION"] == "Lab"
+    assert sensor_saved["Sensor"]["LOCATION"] == "Unknown"
+    assert switch_saved["Switch"]["SWITCH_LOCATION"] == "Unknown"
 
 
-def test_nodus_meta_preserves_manual_switch_wiring_and_prunes_stale_channels(tmp_path, monkeypatch):
+def test_ensure_settings_from_itaot_resets_sensor_display_metrics_to_meta_defaults(tmp_path, monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    switch_root.mkdir()
+    system_root.mkdir()
+
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    real_settings_cls = saiSettings.saiSettings
+
+    monkeypatch.setattr(
+        saiSensorSettingsManager,
+        "SensorSettingsManager",
+        lambda *_a, **_k: real_sensor_mgr(str(sensor_root)),
+    )
+    monkeypatch.setattr(
+        saiSwitchSettingsManager,
+        "SwitchSettingsManager",
+        lambda *_a, **_k: real_switch_mgr(str(switch_root)),
+    )
+    monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
+
+    sensor_mgr = real_sensor_mgr(str(sensor_root))
+    sensor_mgr.save(
+        "aqi-123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "aqi-123",
+                "LOCATION": "Room A",
+            },
+            "Display": {
+                "METRIC_1": "Old 1",
+                "METRIC_2": "Old 2",
+                "METRIC_3": "Old 3",
+                "METRIC_4": "Old 4",
+                "METRIC_5": "Old 5",
+                "METRIC_6": "Old 6",
+            },
+        },
+    )
+
+    ingest._ensure_settings_from_itaot(
+        {"HOSTNAME": "aqi-123"},
+        "aqi-123",
+        [
+            {
+                "sensor_id": "aqi-123",
+                "device_type": "nodus",
+                "device": "aqi",
+                "sensor_type": "nodus",
+                "location": "Room A",
+                "serial": "123",
+            }
+        ],
+        [],
+    )
+
+    sensor_saved = sensor_mgr.load("aqi-123")
+    assert sensor_saved["Display"]["METRIC_1"] == "Air Quality"
+    assert sensor_saved["Display"]["METRIC_2"] == "Temperature"
+    assert sensor_saved["Display"]["METRIC_3"] == "Rel-Humidity"
+    assert sensor_saved["Display"]["METRIC_4"] == "Ambient VPD"
+    assert sensor_saved["Display"]["METRIC_5"] == "Dewpoint Deficit"
+    assert sensor_saved["Display"]["METRIC_6"] == "dewVPD Risk"
+
+
+def test_nodus_meta_clears_switch_shadow_wiring_when_meta_fields_are_blank(tmp_path, monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    switch_root.mkdir()
+    system_root.mkdir()
+
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    real_settings_cls = saiSettings.saiSettings
+
+    monkeypatch.setattr(
+        saiSensorSettingsManager,
+        "SensorSettingsManager",
+        lambda *_a, **_k: real_sensor_mgr(str(sensor_root)),
+    )
+    monkeypatch.setattr(
+        saiSwitchSettingsManager,
+        "SwitchSettingsManager",
+        lambda *_a, **_k: real_switch_mgr(str(switch_root)),
+    )
+    monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
+
+    switch_mgr = real_switch_mgr(str(switch_root))
+    switch_mgr.save(
+        "switch-123",
+        {
+            "Switch": {
+                "TYPE": "nodus",
+                "DEVICE": "switch",
+                "SWITCH_DEVICE_ID": "switch-123",
+                "SWITCH_LOCATION": "Room A",
+                "SWITCH_1_LABEL": "Fan",
+                "SWITCH_1_CHANNEL_ID": "S1-123",
+                "SWITCH_1_ENABLE_PIN": "GP5",
+                "SWITCH_1_PIN": "GP28",
+                "SWITCH_1_LAST_STATE": True,
+            }
+        },
+    )
+
+    ingest._ensure_settings_from_itaot(
+        {"HOSTNAME": "aqi-123"},
+        "aqi-123",
+        [],
+        [
+            {
+                "switch_id": "switch-123",
+                "switch_location": "Room A",
+                "switch_type": "nodus",
+                "serial": "123",
+                "switch_payload": {
+                    "Switch": {
+                        "SWITCH_1_LABEL": "Fan",
+                        "SWITCH_1_CHANNEL_ID": "S1-123",
+                        "SWITCH_1_ENABLE_PIN": "",
+                        "SWITCH_1_PIN": "",
+                        "SWITCH_1_LAST_STATE": False,
+                    }
+                },
+            }
+        ],
+    )
+
+    switch_saved = switch_mgr.load("switch-123")
+    assert switch_saved["Switch"]["SWITCH_1_ENABLE_PIN"] == ""
+    assert switch_saved["Switch"]["SWITCH_1_PIN"] == ""
+    assert switch_saved["Switch"]["SWITCH_1_LAST_STATE"] is False
+
+
+def test_nodus_meta_reconciles_switch_shadow_and_prunes_stale_channels(tmp_path, monkeypatch):
     ingest = _build_ingest(monkeypatch)
     ingest.data_logger.switch_identities = [
         {

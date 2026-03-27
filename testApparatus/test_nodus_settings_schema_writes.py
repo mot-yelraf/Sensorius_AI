@@ -1440,6 +1440,56 @@ async def test_dashboard_metric_position_reorder_preserves_hidden_sensor_slots(t
 
 
 @pytest.mark.asyncio
+async def test_dashboard_display_style_prefers_sensor_settings_over_global_default(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "aqi-123",
+        {
+            "Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "aqi-123", "LOCATION": "Grow Tent"},
+            "Display": {
+                "METRIC_1": "Temperature",
+                "Style": {
+                    "METRIC_1": "Graph6hr",
+                },
+            },
+        },
+    )
+
+    _PersistentFakeSaiSettings.STORED_SETTINGS = {
+        "Display": {"display_style": "Graph24hr"},
+    }
+    monkeypatch.setattr(saiWebRoutes, "saiSettings", _PersistentFakeSaiSettings)
+    monkeypatch.setattr(saiSettingsModule, "saiSettings", _PersistentFakeSaiSettings)
+
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["aqi-123"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso)
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_latest_values_and_timestamps",
+        lambda ids: (
+            {sid: {"Temperature": 72.0} for sid in ids},
+            {sid: now_iso for sid in ids},
+        ),
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_metrics", lambda sid: ["Temperature"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {"aqi-123": {}})
+    ingest.mqtt_clients = []
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/", params={"json_only": "true"})
+
+    assert res.status_code == 200
+    body = res.json()
+    style_map = body["expected_display_style_map"]["aqi-123"]
+    assert style_map["METRIC_1"] == "Graph6hr"
+    assert style_map["METRIC_2"] == "Gauge"
+
+
+@pytest.mark.asyncio
 async def test_remove_device_list_merges_settings_db_and_ingest_ids(tmp_path, monkeypatch):
     app, ingest, system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
