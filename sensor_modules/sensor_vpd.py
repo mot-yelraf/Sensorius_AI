@@ -237,30 +237,22 @@ class VPDSensor(BaseSensor):
         temp_c = self._get_calibrated_temp_c()
         rh = self._get_calibrated_rh()
         if temp_c is None or rh is None:
-            self.current_values["Dew-Point"] = None
             return None
-        dewpoint_c = self.calculate_dewpoint(temp_c, rh)
-        self.current_values["Dew-Point"] = dewpoint_c
-        return dewpoint_c
+        return self.calculate_dewpoint(temp_c, rh)
 
     def _get_calibrated_dewpoint_f(self) -> float:
         dewpoint_c = self._get_calibrated_dewpoint_c()
         if dewpoint_c is None:
-            self.current_values["Dew-Point_F"] = None
             return None
-        dewpoint_f = (dewpoint_c * 9.0 / 5.0) + 32.0
-        self.current_values["Dew-Point_F"] = dewpoint_f
-        return dewpoint_f
+        return (dewpoint_c * 9.0 / 5.0) + 32.0
 
     def _get_calibrated_dewpoint_depression(self) -> float:
         temp_c = self._get_calibrated_temp_c()
         rh = self._get_calibrated_rh()
         if temp_c is None or rh is None:
-            self.current_values["Dewpoint Depression"] = None
             return None
         depression = self.calculate_dewpoint_depression(temp_c, rh)
         depression = self._clamp_if_number(depression, 0.0, 30.0)
-        self.current_values["Dewpoint Depression"] = depression
         return depression
 
     def _get_calibrated_dewvpd_risk(self) -> float:

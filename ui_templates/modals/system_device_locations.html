@@ -120,6 +120,7 @@ window.startLocationsFromSetup = async function(formEl) {
         input.className = "location-input";
         input.value = dev.location || "";
         input.placeholder = "Enter location";
+        input.dataset.originalLocation = (dev.location || "").trim();
 
         input.dataset.deviceId   = dev.id || "";
         input.dataset.deviceType = (dev.type || "").toLowerCase();
@@ -172,10 +173,17 @@ document.addEventListener("click", async (ev) => {
         const id   = (inp.dataset.deviceId || "").trim();
         const type = (inp.dataset.deviceType || "").trim().toLowerCase();
         const loc  = (inp.value || "").trim();
-        if (id && type && loc) {
+        const originalLoc = (inp.dataset.originalLocation || "").trim();
+        if (id && type && loc && loc !== originalLoc) {
           payload.push({ id, type, location: loc });
         }
       });
+
+      if (!payload.length) {
+        if (window.showToast) window.showToast("No location changes","ok");
+        window.closeLocationsModal();
+        return;
+      }
 
       const resp = await fetch("/device-locations", {
         method: "POST",

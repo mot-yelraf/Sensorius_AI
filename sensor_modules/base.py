@@ -312,7 +312,11 @@ class BaseSensor:
                         int(filtered) if precision is None else round(filtered, precision)
                     )
 
-            return dict(self.current_values), dict(self.unit_map), ts
+            return (
+                {name: self.current_values.get(name) for name in self.meas_types},
+                {name: self.unit_map.get(name) for name in self.meas_types},
+                ts,
+            )
 
         except Exception as exc:
             self.meas_status = "pending"
@@ -329,7 +333,11 @@ class BaseSensor:
     def current_data_set(self):
         if not self.current_values or self.current_ts is None:
             return {n: None for n in self.meas_types}, "No Data", get_timestamp()
-        return dict(self.current_values), self.meas_status, self.current_ts
+        return (
+            {name: self.current_values.get(name) for name in self.meas_types},
+            self.meas_status,
+            self.current_ts,
+        )
 
 #future proof for soil sensor
 def _probe_soil_rs485() -> bool:

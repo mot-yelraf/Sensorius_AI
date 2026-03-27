@@ -75,6 +75,7 @@ class SwitchController:
         self.min_on_time = 5
         self.min_off_time = 5
         self._advanced_delay_due = {}
+        self._advanced_revert_cooldown = set()
         self._astral_location_cache = {"value": None, "expires_at": 0.0}
 
         # Settings accessor that works with either wrapper or dict
@@ -676,8 +677,7 @@ class SwitchController:
         try:
             from saiAutomationManager import AutomationManager
             mgr = AutomationManager("switch_settings")
-            data = mgr.load(self.switch_id) or {}
-            return {"Advanced": data.get("Advanced") or {}}
+            return {"Advanced": mgr.load_runtime_advanced(self.switch_id) or {}}
         except Exception:
             pass
 
@@ -799,7 +799,11 @@ class SwitchController:
                         enabled = bool(enabled_raw)
                     script_json = rule.get("script_json", "")
                     try:
-                        script = _json.loads(str(script_json))
+                        script = (
+                            script_json
+                            if isinstance(script_json, (dict, list))
+                            else _json.loads(str(script_json))
+                        )
                     except Exception:
                         continue
                     actions = script.get("actions") or []
@@ -909,8 +913,10 @@ class SwitchController:
 
         - For each action:
             * Let `rule_ok` be the OR of group results for that action.
-            * If rule_ok is True: apply action.set
-            * If rule_ok is False: do nothing
+            * If rule_ok is True: apply action.set immediately.
+            * If `revert_action == "previous_state"` and delay_s > 0,
+              schedule a non-blocking revert back to the pre-action state.
+            * If rule_ok is False: do nothing.
 
         Only targets actions whose switch_key belongs to this controller.
         """
@@ -1087,6 +1093,33 @@ class SwitchController:
             # Unknown condition type → treat as False (safe default)
             return False
 
+        now_mono = time.monotonic()
+        for delay_key, pending in list((self._advanced_delay_due or {}).items()):
+            if not isinstance(pending, dict):
+                self._advanced_delay_due.pop(delay_key, None)
+                continue
+            due_at = float(pending.get("due_at", 0.0) or 0.0)
+            if due_at > now_mono:
+                continue
+            self._advanced_delay_due.pop(delay_key, None)
+
+            revert_action = str(pending.get("revert_action", "") or "").strip().lower()
+            if revert_action != "previous_state":
+                continue
+
+            target_label = str(pending.get("target_label", "") or "").strip()
+            if not target_label:
+                continue
+
+            revert_to = bool(pending.get("revert_to", False))
+            current_state = bool(self.get_state(target_label))
+            if current_state == revert_to:
+                continue
+
+            ok = bool(self.set_state(target_label, revert_to, force=True))
+            if not ok and bool(self.get_state(target_label)) != revert_to:
+                self._advanced_delay_due[delay_key] = dict(pending, due_at=time.monotonic() + 1.0)
+
         # ----- main rule loop -------------------------------------------------
         for _rule_id, rule in (advanced or {}).items():
             try:
@@ -1201,7 +1234,11 @@ class SwitchController:
                         group_results.append(grp_ok)
 
                     rule_ok = any(group_results)
+                    desired = bool(act.get("set", True))
+                    action_key = (str(_rule_id), str(target_label), str(skey), bool(desired))
+
                     if not rule_ok:
+                        self._advanced_revert_cooldown.discard(action_key)
                         if DEBUG and str(target_label).strip().lower() == "fan":
                             printDM(
                                 f"[advanced] fan rule {_rule_id} no-op: rule_ok={rule_ok} group_results={group_results}",
@@ -1209,8 +1246,13 @@ class SwitchController:
                             )
                         continue
 
-                    desired = bool(act.get("set", True))
+                    if action_key in self._advanced_revert_cooldown:
+                        continue
 
+                    revert_action = str(act.get("revert_action", "do_nothing") or "do_nothing").strip().lower()
+                    if revert_action not in {"previous_state", "do_nothing"}:
+                        revert_action = "do_nothing"
+                    delay_s = int(act.get("delay_s", 0) or 0)
                     curr = bool(self.get_state(target_label))
                     if curr == desired:
                         if DEBUG and str(target_label).strip().lower() == "fan":
@@ -1219,20 +1261,6 @@ class SwitchController:
                                 location=MODULE,
                             )
                         continue
-
-                    delay_s = int(act.get("delay_s", 0) or 0)
-                    delay_key = (str(_rule_id), str(target_label), str(skey), bool(desired))
-                    if delay_s > 0:
-                        now_mono = time.monotonic()
-                        due_at = self._advanced_delay_due.get(delay_key)
-                        if due_at is None:
-                            self._advanced_delay_due[delay_key] = now_mono + min(delay_s, 300)
-                            continue
-                        if now_mono < due_at:
-                            continue
-                        self._advanced_delay_due.pop(delay_key, None)
-                    else:
-                        self._advanced_delay_due.pop(delay_key, None)
 
                     if DEBUG:
                         printDM(
@@ -1246,7 +1274,21 @@ class SwitchController:
                             location=MODULE,
                         )
 
-                    self.set_state(target_label, desired)
+                    ok = bool(self.set_state(target_label, desired))
+                    if not ok:
+                        continue
+
+                    self._advanced_delay_due.pop(action_key, None)
+                    if revert_action == "previous_state" and delay_s > 0:
+                        self._advanced_delay_due[action_key] = {
+                            "due_at": time.monotonic() + min(delay_s, 300),
+                            "target_label": target_label,
+                            "revert_action": revert_action,
+                            "revert_to": curr,
+                        }
+                        self._advanced_revert_cooldown.add(action_key)
+                    else:
+                        self._advanced_revert_cooldown.discard(action_key)
 
             except Exception as e:
                 printDM(f"[advanced] rule error: {e}", location=MODULE)
@@ -1273,9 +1315,16 @@ class SwitchController:
                 await asyncio.sleep(0)
 
         while True:
+            tick_started = time.monotonic()
+            rules_check_ms = 0.0
+            snapshot_ms = 0.0
+            eval_ms = 0.0
+            rules_present = False
             try:
                 # Decide if we should do any work this tick
+                rules_check_started = time.monotonic()
                 rules_present = self._rules_enabled()
+                rules_check_ms = (time.monotonic() - rules_check_started) * 1000.0
                 if not rules_present:
                     if DEBUG:
                         printDM(f"{self.switch_id} Switch monitor: no enabled rules; skipping eval", location=MODULE)
@@ -1288,7 +1337,9 @@ class SwitchController:
                     if bound_sensor is not None and hasattr(bound_sensor, "current_data_set"):
                         if getattr(bound_sensor, "present", True) is not False:
                             try:
+                                snapshot_started = time.monotonic()
                                 raw_values, *_ = bound_sensor.current_data_set()
+                                snapshot_ms = (time.monotonic() - snapshot_started) * 1000.0
                                 sensor_key = (
                                     getattr(bound_sensor, "sensor_id", None)
                                     or getattr(bound_sensor, "devID", None)
@@ -1309,10 +1360,21 @@ class SwitchController:
                         current_values_map = getattr(self, "values", {}) or {}
 
                     # Evaluate rules (per-switch overrides are handled inside)
+                    eval_started = time.monotonic()
                     self._evaluate_and_apply_advanced(current_values_map)
+                    eval_ms = (time.monotonic() - eval_started) * 1000.0
 
             except Exception as e:
                 printDM(f"Switch monitor error: {e}", location=MODULE)
+
+            total_ms = (time.monotonic() - tick_started) * 1000.0
+            if DEBUG:
+                printDM(
+                    f"[monitor-profile] {self.switch_id} rules_present={int(bool(rules_present))} "
+                    f"rules_check_ms={rules_check_ms:.1f} snapshot_ms={snapshot_ms:.1f} "
+                    f"eval_ms={eval_ms:.1f} total_ms={total_ms:.1f}",
+                    location=MODULE,
+                )
 
             # keep the dogs fed & cadence jitter
             if getattr(self, "supervisor", None) and hasattr(self.supervisor, "feedthedogs"):

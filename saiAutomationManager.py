@@ -51,6 +51,12 @@ DEBUG = debug_enabled(MODULE)
 _HOSTNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 T = TypeVar("T")
 
+
+def _as_enabled(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "off", "no", ""}
+    return bool(value)
+
 class AutomationManager:
     """
     File layout:
@@ -71,6 +77,9 @@ class AutomationManager:
       #   Cool_when_hot = true
       #   Lights_at_night = false
     """
+
+    _shared_lock = threading.RLock()
+    _shared_cache: dict[str, dict[str, Any]] = {}
 
     def __init__(self, base_dir: str = TRIGGERS_BASE_DIR) -> None:
         self.base_dir = Path(base_dir)
@@ -101,9 +110,128 @@ class AutomationManager:
         """Public helper for shared automation file path."""
         return self._storage_path()
 
+    def _normalize_loaded_data(self, data: Dict[str, Any] | None) -> Dict[str, Any]:
+        normalized = dict(data or {})
+        normalized.setdefault(SECTION_META, dict(DEFAULT_META))
+        normalized.setdefault(SECTION_ADV, {})
+        normalized.setdefault(SECTION_SCRIPTS, {})
+        return normalized
+
+    def _build_runtime_cache(self, data: Dict[str, Any]) -> dict[str, Any]:
+        adv = (data.get(SECTION_ADV) or {})
+        runtime_adv: dict[str, Any] = {}
+        switch_key_index: dict[str, list[dict[str, Any]]] = {}
+
+        for rule_id, rule in adv.items():
+            if not isinstance(rule, dict):
+                continue
+
+            enabled_outer = _as_enabled(rule.get("enabled", False))
+            script_json = rule.get("script_json", "")
+            try:
+                script = json.loads(str(script_json))
+            except Exception:
+                script = None
+
+            runtime_rule = dict(rule)
+            if isinstance(script, (dict, list)):
+                runtime_rule["script_json"] = script
+            runtime_adv[str(rule_id)] = runtime_rule
+
+            if not isinstance(script, dict):
+                continue
+
+            actions = script.get("actions") or []
+            switch_keys: set[str] = set()
+            for act in actions:
+                if not isinstance(act, dict):
+                    continue
+                switch_key = str(act.get("switch_key", "") or "").strip()
+                if switch_key:
+                    switch_keys.add(switch_key)
+
+            if not switch_keys:
+                continue
+
+            rule_info = {
+                "rule_id": str(rule_id),
+                "enabled_outer": enabled_outer,
+                "enabled_inner": bool(script.get("enabled", True)),
+                "switch_keys": tuple(sorted(switch_keys)),
+            }
+            for switch_key in switch_keys:
+                switch_key_index.setdefault(switch_key, []).append(rule_info)
+
+        return {
+            "data": data,
+            "runtime_advanced": runtime_adv,
+            "switch_key_index": switch_key_index,
+        }
+
+    def _read_storage_file(self, triggers_path: Path, hostname: str) -> Dict[str, Any]:
+        if not triggers_path.exists():
+            if DEBUG:
+                printDM(f"[No file yet for {hostname}; returning defaults", location=f"{MODULE}.load")
+            return self._normalize_loaded_data(None)
+
+        try:
+            with triggers_path.open("rb") as f:
+                data = tomllib.load(f) or {}
+        except Exception as e:
+            if DEBUG:
+                printDM(f"[Failed to read {triggers_path}: {e}", location=f"{MODULE}.load")
+            return self._normalize_loaded_data(None)
+
+        return self._normalize_loaded_data(data)
+
+    def _cache_key(self, hostname: str) -> tuple[str, Path]:
+        path = self._path_for_hostname(hostname)
+        return (str(path.resolve()), path)
+
+    def _cached_payload(self, hostname: str) -> dict[str, Any]:
+        cache_key, triggers_path = self._cache_key(hostname)
+        try:
+            stat = triggers_path.stat()
+            stamp = (stat.st_mtime_ns, stat.st_size)
+        except FileNotFoundError:
+            stat = None
+            stamp = None
+
+        with self._shared_lock:
+            cached = self._shared_cache.get(cache_key)
+            if cached and cached.get("stamp") == stamp:
+                return cached
+
+            data = self._read_storage_file(triggers_path, hostname)
+            runtime = self._build_runtime_cache(data)
+            payload = {
+                "stamp": stamp,
+                "path": triggers_path,
+                **runtime,
+            }
+            self._shared_cache[cache_key] = payload
+            return payload
+
+    def _replace_cached_payload(self, hostname: str, data: Dict[str, Any]) -> dict[str, Any]:
+        cache_key, triggers_path = self._cache_key(hostname)
+        try:
+            stat = triggers_path.stat()
+            stamp = (stat.st_mtime_ns, stat.st_size)
+        except FileNotFoundError:
+            stamp = None
+
+        payload = {
+            "stamp": stamp,
+            "path": triggers_path,
+            **self._build_runtime_cache(self._normalize_loaded_data(data)),
+        }
+        with self._shared_lock:
+            self._shared_cache[cache_key] = payload
+        return payload
+
     def _atomic_update(self, hostname: str, mutator: Callable[[Dict[str, Any]], T]) -> T:
         """Serialize load->mutate->save for one manager instance."""
-        with self._lock:
+        with self._shared_lock:
             data = self.load(hostname)
             result = mutator(data)
             self.save(hostname, data)
@@ -124,33 +252,13 @@ class AutomationManager:
             return {"found": False, "enabled": False, "rule_id": None}
 
         try:
-            data = self.load(hostname) or {}
-            adv = (data.get(SECTION_ADV) or {})
-            import json as _json
-
-            for rule_id, rule in adv.items():
-                if not isinstance(rule, dict):
-                    continue
-
-                enabled = bool(rule.get("enabled", False))
-                script_json = rule.get("script_json", "")
-                try:
-                    script = _json.loads(str(script_json))
-                except Exception:
-                    continue
-
-                actions = script.get("actions") or []
-                for act in actions:
-                    try:
-                        sk = (act.get("switch_key") or "").strip()
-                    except AttributeError:
-                        continue
-                    if sk == key:
-                        return {
-                            "found": True,
-                            "enabled": enabled,
-                            "rule_id": rule_id,
-                        }
+            index = self._cached_payload(hostname).get("switch_key_index") or {}
+            for rule_info in index.get(key, []):
+                return {
+                    "found": True,
+                    "enabled": bool(rule_info.get("enabled_outer", False)),
+                    "rule_id": rule_info.get("rule_id"),
+                }
 
             return {"found": False, "enabled": False, "rule_id": None}
         except Exception:
@@ -165,6 +273,11 @@ class AutomationManager:
         """
         Aggregate Advanced rule state for a switch_key across *all* matching rules.
         """
+        def _as_enabled(value: Any) -> bool:
+            if isinstance(value, str):
+                return value.strip().lower() not in {"0", "false", "off", "no", ""}
+            return bool(value)
+
         key = (switch_key or "").strip()
         if not key:
             return {
@@ -178,41 +291,20 @@ class AutomationManager:
 
         try:
             key_aliases = self._expand_switch_key_aliases(hostname, key)
-            data = self.load(hostname) or {}
-            adv = (data.get(SECTION_ADV) or {})
-            import json as _json
+            index = self._cached_payload(hostname).get("switch_key_index") or {}
 
-            rule_ids: list[str] = []
+            matched_rule_ids: set[str] = set()
             enabled_count = 0
-
-            for rule_id, rule in adv.items():
-                if not isinstance(rule, dict):
-                    continue
-
-                script_json = rule.get("script_json", "")
-                try:
-                    script = _json.loads(str(script_json))
-                except Exception:
-                    continue
-
-                actions = script.get("actions") or []
-                found_here = False
-                for act in actions:
-                    try:
-                        sk = (act.get("switch_key") or "").strip()
-                    except AttributeError:
+            for alias in key_aliases:
+                for rule_info in index.get(alias, []):
+                    rule_id = str(rule_info.get("rule_id"))
+                    if rule_id in matched_rule_ids:
                         continue
-                    if sk in key_aliases:
-                        found_here = True
-                        break
+                    matched_rule_ids.add(rule_id)
+                    if bool(rule_info.get("enabled_outer", False)):
+                        enabled_count += 1
 
-                if not found_here:
-                    continue
-
-                rule_ids.append(str(rule_id))
-                if bool(rule.get("enabled", False)):
-                    enabled_count += 1
-
+            rule_ids = sorted(matched_rule_ids)
             rule_count = len(rule_ids)
             found = rule_count > 0
             return {
@@ -346,40 +438,23 @@ class AutomationManager:
         Load automations.toml into a dict with all expected sections present.
         Missing file returns defaults.
         """
-        triggers_path = self._path_for_hostname(hostname)
-        if not triggers_path.exists():
-            if DEBUG:
-                printDM(f"[No file yet for {hostname}; returning defaults", location=f"{MODULE}.load")
-            return {
-                SECTION_META: dict(DEFAULT_META),
-                SECTION_ADV: {},
-                SECTION_SCRIPTS: {},
-            }
+        return self._cached_payload(hostname).get("data") or self._normalize_loaded_data(None)
 
-        try:
-            with triggers_path.open("rb") as f:
-                data = tomllib.load(f) or {}
-        except Exception as e:
-            if DEBUG:
-                printDM(f"[Failed to read {triggers_path}: {e}", location=f"{MODULE}.load")
-            return {
-                SECTION_META: dict(DEFAULT_META),
-                SECTION_ADV: {},
-                SECTION_SCRIPTS: {},
-            }
-
-        # Normalize missing sections
-        data.setdefault(SECTION_META, dict(DEFAULT_META))
-        data.setdefault(SECTION_ADV, {})
-        data.setdefault(SECTION_SCRIPTS, {})
-        return data
+    def load_runtime_advanced(self, hostname: str) -> Dict[str, Any]:
+        """
+        Return Advanced rules with parsed script_json where possible.
+        This is intended for runtime evaluation paths.
+        """
+        payload = self._cached_payload(hostname)
+        runtime_adv = payload.get("runtime_advanced") or {}
+        return dict(runtime_adv)
 
     def save(self, hostname: str, data: Dict[str, Any]) -> None:
         """
         Atomically write out in a stable, human-readable TOML.
         We do not require a TOML writer; we emit carefully.
         """
-        with self._lock:
+        with self._shared_lock:
             triggers_path = self._path_for_hostname(hostname)
             tmp_path = triggers_path.with_suffix(triggers_path.suffix + TMP_SUFFIX)
 
@@ -403,7 +478,7 @@ class AutomationManager:
                 buf.write("[Advanced]\n")
                 for rule_id in sorted(adv.keys()):
                     rule = adv.get(rule_id) or {}
-                    enabled = bool(rule.get("enabled", False))
+                    enabled = _as_enabled(rule.get("enabled", False))
                     script_json = rule.get("script_json", "")
                     # Ensure script_json is a single-line compact JSON string
                     if isinstance(script_json, (dict, list)):
@@ -438,6 +513,11 @@ class AutomationManager:
                 with tmp_path.open("w", encoding="utf-8", newline="\n") as f:
                     f.write(text)
                 os.replace(tmp_path, triggers_path)
+                self._replace_cached_payload(hostname, {
+                    SECTION_META: meta,
+                    SECTION_ADV: adv,
+                    SECTION_SCRIPTS: scripts,
+                })
                 if DEBUG:
                     printDM(f"[Saved {triggers_path}", location=f"{MODULE}.save")
 

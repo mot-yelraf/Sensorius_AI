@@ -43,6 +43,12 @@ import logging
 
 logger = logging.getLogger("saiSwitchTriggerManager")
 
+
+def _as_enabled(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "off", "no", ""}
+    return bool(value)
+
 _HOSTNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 T = TypeVar("T")
 
@@ -143,7 +149,7 @@ class SwitchTriggerManager:
                 buf.write("[Advanced]\n")
                 for rule_id in sorted(adv.keys()):
                     rule = adv.get(rule_id) or {}
-                    enabled = bool(rule.get("enabled", False))
+                    enabled = _as_enabled(rule.get("enabled", False))
                     script_json = rule.get("script_json", "")
 
                     if isinstance(script_json, (dict, list)):

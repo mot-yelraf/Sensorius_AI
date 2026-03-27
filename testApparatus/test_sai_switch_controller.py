@@ -50,6 +50,7 @@ def _make_controller() -> SwitchController:
     ctrl.switch_id = "sw1"
     ctrl.channel_id_for_label = {"Fan": "CH1"}
     ctrl._advanced_delay_due = {}
+    ctrl._advanced_revert_cooldown = set()
     ctrl.mqtt = None
     ctrl.switch = types.SimpleNamespace()
     return ctrl
@@ -232,6 +233,8 @@ def test_advanced_delay_is_non_blocking(monkeypatch: pytest.MonkeyPatch):
         raise AssertionError("time.sleep should not be called in advanced evaluation")
 
     monkeypatch.setattr(saiSwitch.time, "sleep", _fail_sleep)
+    monotonic_now = {"value": 100.0}
+    monkeypatch.setattr(saiSwitch.time, "monotonic", lambda: monotonic_now["value"])
 
     ctrl = _make_controller()
     ctrl._load_triggers_dict = lambda: {
@@ -241,24 +244,69 @@ def test_advanced_delay_is_non_blocking(monkeypatch: pytest.MonkeyPatch):
                 "script_json": {
                     "enabled": True,
                     "conditions": [{"type": "time", "start": "00:00", "end": "24:00"}],
-                    "actions": [{"switch_key": "sw1::Fan", "set": True, "delay_s": 1}],
+                    "actions": [{"switch_key": "sw1::Fan", "set": True, "revert_action": "previous_state", "delay_s": 1}],
                 },
             }
         }
     }
     calls = []
-    ctrl.set_state = lambda label, desired: calls.append((label, desired))
-    ctrl.get_state = lambda _label: False
+    state = {"Fan": False}
+
+    def _fake_set_state(label, desired, force=False):
+        calls.append((label, desired, force))
+        state[label] = desired
+        return True
+
+    ctrl.set_state = _fake_set_state
+    ctrl.get_state = lambda label: state[label]
 
     SwitchController._evaluate_and_apply_advanced(ctrl, {})
-    assert calls == []
+    assert calls == [("Fan", True, False)]
     assert ctrl._advanced_delay_due
+    assert ctrl._advanced_revert_cooldown == {("rule1", "Fan", "sw1::Fan", True)}
 
-    for key in list(ctrl._advanced_delay_due.keys()):
-        ctrl._advanced_delay_due[key] = time.monotonic() - 0.1
+    monotonic_now["value"] = 101.1
 
     SwitchController._evaluate_and_apply_advanced(ctrl, {})
-    assert calls == [("Fan", True)]
+    assert calls == [("Fan", True, False), ("Fan", False, True)]
+
+
+def test_advanced_action_can_do_nothing_after_delay(monkeypatch: pytest.MonkeyPatch):
+    monotonic_now = {"value": 200.0}
+    monkeypatch.setattr(saiSwitch.time, "monotonic", lambda: monotonic_now["value"])
+
+    ctrl = _make_controller()
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "rule1": {
+                "enabled": True,
+                "script_json": {
+                    "enabled": True,
+                    "conditions": [{"type": "time", "start": "00:00", "end": "24:00"}],
+                    "actions": [{"switch_key": "sw1::Fan", "set": True, "revert_action": "do_nothing", "delay_s": 5}],
+                },
+            }
+        }
+    }
+    calls = []
+    state = {"Fan": False}
+
+    def _fake_set_state(label, desired, force=False):
+        calls.append((label, desired, force))
+        state[label] = desired
+        return True
+
+    ctrl.set_state = _fake_set_state
+    ctrl.get_state = lambda label: state[label]
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    assert calls == [("Fan", True, False)]
+    assert ctrl._advanced_delay_due == {}
+    assert ctrl._advanced_revert_cooldown == set()
+
+    monotonic_now["value"] = 206.0
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    assert calls == [("Fan", True, False)]
 
 
 def test_eval_astral_condition_threshold_logic(monkeypatch: pytest.MonkeyPatch):

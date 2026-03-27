@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+from saiAutomationManager import AutomationManager
 from testApparatus.automation_test_harness import adapters, make_manager
 
 
@@ -19,13 +21,14 @@ def test_round_trip_advanced_and_scripts_sections(tmp_path: Path, adapter):
         host,
         "rule_a",
         enabled=True,
-        script={"enabled": True, "actions": [{"switch_key": "sw-alpha::Fan", "set": True}]},
+        script={"enabled": True, "actions": [{"switch_key": "sw-alpha::Fan", "set": True, "revert_action": "previous_state", "delay_s": 15}]},
     )
     mgr.set_script_enabled(host, "NightMode", True)
 
     data = mgr.load(host)
     assert data["Advanced"]["rule_a"]["enabled"] is True
     assert "script_json" in data["Advanced"]["rule_a"]
+    assert json.loads(data["Advanced"]["rule_a"]["script_json"])["actions"][0]["revert_action"] == "previous_state"
     assert data["Scripts"]["NightMode"] is True
 
     saved_path = mgr.get_storage_path()
@@ -119,3 +122,78 @@ def test_upsert_same_rule_id_updates_in_place(tmp_path: Path, adapter):
     assert sorted(data["Advanced"].keys()) == ["pump_on"]
     assert data["Advanced"]["pump_on"]["enabled"] is False
     assert "Pump On Updated" in data["Advanced"]["pump_on"]["script_json"]
+
+
+@pytest.mark.parametrize("adapter", adapters(), ids=lambda a: a.name)
+def test_aggregate_enabled_state_treats_string_false_as_disabled(tmp_path: Path, adapter):
+    mgr = make_manager(adapter, tmp_path)
+    if not hasattr(mgr, "get_advanced_state_for_switch_key"):
+        pytest.skip("manager does not expose aggregate advanced state helper")
+    payload = {
+        "Meta": {"version": 1},
+        "Advanced": {
+            "rule_shared": {
+                "enabled": "false",
+                "script_json": "{\"enabled\":false,\"actions\":[{\"switch_key\":\"sw-alpha::Fan\",\"set\":true}]}",
+            }
+        },
+        "Scripts": {},
+    }
+    adapter.save_fn(mgr, "sw-alpha", payload)
+
+    state = mgr.get_advanced_state_for_switch_key("sw-alpha", "sw-alpha::Fan")
+
+    assert state["found"] is True
+    assert state["enabled_count"] == 0
+    assert state["enabled_any"] is False
+
+
+def test_automation_manager_runtime_view_returns_parsed_scripts(tmp_path: Path):
+    mgr = AutomationManager(base_dir=str(tmp_path))
+    host = "sw-runtime"
+
+    mgr.upsert_advanced_rule(
+        host,
+        "rule_runtime",
+        enabled=True,
+        script={"enabled": True, "conditions": [{"type": "time", "start": "00:00", "end": "24:00"}], "actions": [{"switch_key": "sw-runtime::Fan", "set": True}]},
+    )
+
+    runtime_adv = mgr.load_runtime_advanced(host)
+
+    assert isinstance(runtime_adv["rule_runtime"]["script_json"], dict)
+    assert runtime_adv["rule_runtime"]["script_json"]["actions"][0]["switch_key"] == "sw-runtime::Fan"
+
+
+def test_automation_manager_refreshes_cache_after_external_file_edit(tmp_path: Path):
+    mgr = AutomationManager(base_dir=str(tmp_path))
+    host = "sw-cache"
+
+    mgr.upsert_advanced_rule(
+        host,
+        "rule_a",
+        enabled=True,
+        script={"enabled": True, "actions": [{"switch_key": "sw-cache::Fan", "set": True}]},
+    )
+
+    first = mgr.get_advanced_state_for_switch_key(host, "sw-cache::Fan")
+    assert first["enabled_any"] is True
+
+    raw_path = mgr.get_storage_path()
+    raw_path.write_text(
+        "\n".join([
+            "[Meta]",
+            "version = 1",
+            'notes = "Switch automation configuration. Edit carefully."',
+            "",
+            "[Advanced]",
+            'rule_a = { enabled=false, script_json="{\\"enabled\\":false,\\"actions\\":[{\\"switch_key\\":\\"sw-cache::Fan\\",\\"set\\":true}]}" }',
+            "",
+        ]),
+        encoding="utf-8",
+    )
+
+    refreshed = mgr.get_advanced_state_for_switch_key(host, "sw-cache::Fan")
+
+    assert refreshed["found"] is True
+    assert refreshed["enabled_any"] is False

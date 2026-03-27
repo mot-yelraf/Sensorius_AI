@@ -2338,27 +2338,98 @@ class saiMQTTIngest:
 
         return enabled
 
+    def _resolve_switch_channel_index(self, switch_id: str, channel_id: str, channel_label: str | None = None) -> int | None:
+        switch_id_text = str(switch_id or "").strip()
+        channel_id_text = str(channel_id or "").strip()
+        if not switch_id_text or not channel_id_text:
+            return None
+        try:
+            from saiSwitchSettingsManager import SwitchSettingsManager
+
+            switch_mgr = SwitchSettingsManager("switch_settings")
+            doc = switch_mgr.load(switch_id_text) or {}
+            switch_block = doc.get("Switch") if isinstance(doc, dict) else {}
+            if isinstance(switch_block, dict):
+                for idx in range(1, 33):
+                    candidate = str(switch_block.get(f"SWITCH_{idx}_CHANNEL_ID", "") or "").strip()
+                    if candidate and candidate == channel_id_text:
+                        return idx
+        except Exception:
+            pass
+
+        try:
+            match = re.fullmatch(r"S(\d+)-[A-Za-z0-9._-]+", channel_id_text, flags=re.IGNORECASE)
+            if match:
+                return int(match.group(1))
+        except Exception:
+            pass
+
+        try:
+            label_text = str(channel_label or "").strip().lower()
+            for row in (self.data_logger.get_switch_identities() or []):
+                rsid = str(row.get("switch_id", "") or "").strip().lower()
+                rch = str(row.get("channel_id", "") or "").strip()
+                if rsid != switch_id_text.lower() or rch != channel_id_text:
+                    continue
+                if label_text:
+                    rlab = str(row.get("label", "") or "").strip().lower()
+                    if rlab != label_text:
+                        continue
+                switch_key = str(row.get("switch_key", "") or "").strip()
+                if not switch_key or "::" not in switch_key:
+                    continue
+                break
+        except Exception:
+            pass
+        return None
+
     def set_switch_by_channel_id(self, switch_id: str, channel_id: str, new_state: bool, qos: int = 0, retain: bool = False) -> bool:
         """
-        Forward HA switch commands to Nodus using the ID-based command topic.
-        Nodus listens on: switch/<switch_id>/<channel_id>/set   (or base_topic-prefixed if you choose)
+        Publish remote switch changes via Nodus config/set by updating
+        Switch.SWITCH_n_LAST_STATE in switch.toml.
         """
         try:
-            if not switch_id or not channel_id:
-                # allow channel-only routing if we learned a command topic
-                pass
-            topic = (self.nodus_switch_command_topics.get((switch_id, channel_id))
-                     or self.nodus_channel_command_topics.get(channel_id)
-                     or f"nodus/{channel_id}/set")  # fallback for Nodus channel-id commands
-            payload = "ON" if new_state else "OFF"          # match your slug/state convention
-            info = self.client.publish(topic, payload, qos=qos, retain=retain)
-            rc = getattr(info, "rc", 0) if info is not None else 0
+            switch_id_text = str(switch_id or "").strip()
+            channel_id_text = str(channel_id or "").strip()
+            if not channel_id_text:
+                return False
+
+            channel_index = self._resolve_switch_channel_index(switch_id_text, channel_id_text)
+            target_device = self.resolve_nodus_hostname(switch_id_text, device_type="switch") if switch_id_text else None
+            if not target_device and switch_id_text and not switch_id_text.startswith("switch-"):
+                target_device = switch_id_text
+            if channel_index and target_device:
+                payload = {
+                    "updates": [
+                        {
+                            "section": "Switch",
+                            "key": f"SWITCH_{channel_index}_LAST_STATE",
+                            "value": bool(new_state),
+                            "name": "switch.toml",
+                        }
+                    ]
+                }
+                publish_result = self.publish_nodus_config(
+                    target_device,
+                    payload=payload,
+                    qos=max(int(qos or 0), 1),
+                    restart=False,
+                )
+                ok = bool(publish_result.get("ok", False))
+                if DEBUG:
+                    printDM(
+                        f"[set_switch_by_channel_id] config/set target={target_device} switch_id={switch_id_text} channel_id={channel_id_text} channel_index={channel_index} ok={ok}",
+                        location=MODULE,
+                    )
+                if ok:
+                    return True
+
             if DEBUG:
                 printDM(
-                    f"[set_switch_by_channel_id] publish topic={topic} payload={payload} rc={rc}",
+                    f"[set_switch_by_channel_id] config/set unresolved for switch_id={switch_id_text} channel_id={channel_id_text} target_device={target_device!r} channel_index={channel_index!r}",
                     location=MODULE,
                 )
-            return rc == 0
+            return False
         except Exception as e:
             printDM(f"[set_switch_by_channel_id] error: {e}", location=MODULE)
             return False
@@ -3630,8 +3701,8 @@ class saiMQTTIngest:
 
     def set_switch(self, switch_id: str, channel_label: str, new_state: bool, qos: int = 0, retain: bool = False) -> bool:
         """
-        Publish a command to a remote switch channel using channel-id topics.
-        Returns True if publish was queued with rc==0.
+        Publish a remote switch change by writing SWITCH_n_LAST_STATE over
+        Nodus config/set.
         """
         try:
             if not getattr(self, "client", None):
@@ -3669,17 +3740,13 @@ class saiMQTTIngest:
                 printDM(f"[set_switch] No channel_id for {switch_id}::{channel_label}", location=MODULE)
                 return False
 
-            topic = (self.nodus_switch_command_topics.get((switch_id, channel_id))
-                     or self.nodus_channel_command_topics.get(channel_id)
-                     or f"nodus/{channel_id}/set")
-            payload = "ON" if new_state else "OFF"
-            if DEBUG:
-                printDM(f"[set_switch] computed new_state={new_state} topic={topic}", location=MODULE)
-
-            info = self.client.publish(topic, payload, qos=qos, retain=retain)
-            # paho >=1.6 returns MQTTMessageInfo; accept rc==0 as success
-            rc = getattr(info, "rc", 0) if info is not None else 0
-            ok = (rc == 0)
+            ok = self.set_switch_by_channel_id(
+                str(switch_id or "").strip(),
+                str(channel_id or "").strip(),
+                bool(new_state),
+                qos=qos,
+                retain=retain,
+            )
             if ok:
                 self._pending_set[(str(switch_id), str(channel_label))] = time.time()
                 try:
@@ -3703,9 +3770,10 @@ class saiMQTTIngest:
                 except Exception:
                     pass
                 if DEBUG:
-                    printDM(f"[set_switch] → {topic} {payload}", location=MODULE)
-            else:
-                printDM(f"[set_switch] publish rc={rc} for {topic}", location=MODULE)
+                    printDM(
+                        f"[set_switch] queued switch_id={switch_id} channel_id={channel_id} label={channel_label} new_state={new_state}",
+                        location=MODULE,
+                    )
             return ok
         except Exception as e:
             printDM(f"[set_switch] error: {e}", location=MODULE)

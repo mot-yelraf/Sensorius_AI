@@ -57,6 +57,7 @@ class _FakeIngest:
         self.added: list[str] = []
         self.refreshed: list[str] = []
         self.published_json: list[dict] = []
+        self.switch_commands: list[dict] = []
         self.mqtt_clients: list[str] = []
         self.calibration_commands: list[dict] = []
         self.calibration_state: dict[str, dict] = {}
@@ -74,6 +75,7 @@ class _FakeIngest:
         self._host_ipv4addr: dict[str, str] = {}
         self.next_config_ack: dict | None = {"accepted": True}
         self.next_config_result: dict | None = {"applied": True, "updated": 1, "error": ""}
+        self.next_switch_command_ok: bool = True
 
     def set_onboarding_event_handler(self, handler):
         self.handler = handler
@@ -159,6 +161,18 @@ class _FakeIngest:
         }
         self.calibration_commands.append(message)
         return {"ok": True, "message_id": message["message_id"], "topic": f"nodus/{device_id}/calibration/set"}
+
+    def set_switch_by_channel_id(self, switch_id: str, channel_id: str, new_state: bool, qos: int = 0, retain: bool = False):
+        self.switch_commands.append(
+            {
+                "switch_id": switch_id,
+                "channel_id": channel_id,
+                "new_state": bool(new_state),
+                "qos": qos,
+                "retain": retain,
+            }
+        )
+        return bool(self.next_switch_command_ok)
 
     async def wait_for_calibration_ack(self, message_id: str, timeout: float = 0):
         if self.next_calibration_ack is None:
@@ -1052,6 +1066,73 @@ async def test_device_locations_serializes_shared_host_nodus_updates(tmp_path, m
 
 
 @pytest.mark.asyncio
+async def test_device_locations_prefers_paired_sensor_host_when_switch_system_host_is_stale(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
+    sensor_mgr.save(
+        "aqi-123",
+        {"Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "aqi-123", "LOCATION": "Old"}},
+    )
+    switch_mgr.save(
+        "switch-123",
+        {"Switch": {"TYPE": "nodus", "DEVICE": "switch", "SWITCH_DEVICE_ID": "switch-123", "SWITCH_LOCATION": "Old"}},
+    )
+    _write_system_settings(system_root, "aqi-123", "aqi-123")
+    _write_system_settings(system_root, "switch-123", "switch-123")
+    ingest.published_json.clear()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/device-locations",
+            json=[{"id": "switch-123", "type": "switch", "location": "Room B"}],
+        )
+
+    assert res.status_code == 200
+    assert len(ingest.published_json) == 1
+    assert ingest.published_json[0]["topic"] == "nodus/aqi-123/config/set"
+
+
+@pytest.mark.asyncio
+async def test_device_locations_skips_unchanged_rows_and_only_pushes_modified_nodus_devices(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
+    sensor_mgr.save(
+        "aqi-123",
+        {"Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "aqi-123", "LOCATION": "Room A"}},
+    )
+    sensor_mgr.save(
+        "co2-123",
+        {"Sensor": {"TYPE": "nodus", "DEVICE": "co2", "SENSOR_ID": "co2-123", "LOCATION": "Room B"}},
+    )
+    switch_mgr.save(
+        "switch-123",
+        {"Switch": {"TYPE": "nodus", "DEVICE": "switch", "SWITCH_DEVICE_ID": "switch-123", "SWITCH_LOCATION": "Room C"}},
+    )
+    _write_system_settings(system_root, "aqi-123", "aqi-123")
+    _write_system_settings(system_root, "co2-123", "co2-123")
+    _write_system_settings(system_root, "switch-123", "aqi-123")
+    ingest.published_json.clear()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/device-locations",
+            json=[
+                {"id": "aqi-123", "type": "sensor", "location": "Room A"},
+                {"id": "co2-123", "type": "sensor", "location": "Veg Tent"},
+                {"id": "switch-123", "type": "switch", "location": "Room C"},
+            ],
+        )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["updated"] == {"sensor": 1, "switch": 0, "nodus_pushed": 1}
+    assert len(ingest.published_json) == 1
+    assert ingest.published_json[0]["topic"] == "nodus/co2-123/config/set"
+
+
+@pytest.mark.asyncio
 async def test_device_locations_returns_502_when_nodus_config_apply_fails(tmp_path, monkeypatch):
     app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
@@ -1073,6 +1154,146 @@ async def test_device_locations_returns_502_when_nodus_config_apply_fails(tmp_pa
     body = res.json()
     assert body["ok"] is False
     assert body["error"] == "nodus_remote_apply_failed"
+    assert body["results"][0]["id"] == "aqi-123"
+    assert body["results"][0]["type"] == "sensor"
+    assert body["results"][0]["ok"] is False
+    assert body["results"][0]["target_host"] == "aqi-123"
+
+
+@pytest.mark.asyncio
+async def test_submit_switch_settings_prefers_paired_sensor_host_when_switch_system_host_is_stale(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
+    sensor_mgr.save(
+        "co2-123",
+        {"Sensor": {"TYPE": "nodus", "DEVICE": "co2", "SENSOR_ID": "co2-123", "LOCATION": "Old Rack"}},
+    )
+    switch_mgr.save(
+        "switch-123",
+        {
+            "Switch": {
+                "TYPE": "nodus",
+                "DEVICE": "switch",
+                "SWITCH_DEVICE_ID": "switch-123",
+                "SWITCH_LOCATION": "Old Rack",
+                "SWITCH_1_LABEL": "Relay 1",
+            }
+        },
+    )
+    _write_system_settings(system_root, "co2-123", "co2-123")
+    _write_system_settings(system_root, "switch-123", "switch-123")
+    ingest.published_json.clear()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-switch-settings",
+            data={
+                "switch_id": "switch-123",
+                "location": "Veg Rack",
+                "SWITCH_1_LABEL": "Lights",
+            },
+        )
+
+    assert res.status_code == 303
+    assert len(ingest.published_json) == 2
+    assert all(row["topic"] == "nodus/co2-123/config/set" for row in ingest.published_json)
+
+
+@pytest.mark.asyncio
+async def test_submit_switch_settings_remote_last_state_uses_config_set(tmp_path, monkeypatch):
+    app, ingest, system_root, _sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
+    switch_mgr.save(
+        "switch-123",
+        {
+            "Switch": {
+                "TYPE": "nodus",
+                "DEVICE": "switch",
+                "SWITCH_DEVICE_ID": "switch-123",
+                "SWITCH_LOCATION": "Old Rack",
+                "SWITCH_1_LABEL": "Relay 1",
+                "SWITCH_1_CHANNEL_ID": "S1-sernum",
+                "SWITCH_1_LAST_STATE": False,
+            }
+        },
+    )
+    _write_system_settings(system_root, "switch-123", "switch-123")
+    ingest.published_json.clear()
+    ingest.switch_commands.clear()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-switch-settings",
+            data={
+                "switch_id": "switch-123",
+                "location": "Old Rack",
+                "SWITCH_1_LABEL": "Relay 1",
+                "SWITCH_1_LAST_STATE": "true",
+            },
+        )
+
+    assert res.status_code == 303
+    posted = [
+        update
+        for row in ingest.published_json
+        for update in (((row.get("payload") or {}).get("payload") or {}).get("updates") or [])
+    ]
+    assert posted == [{"section": "Switch", "key": "SWITCH_1_LAST_STATE", "value": True, "name": "switch.toml"}]
+    assert all(row["topic"] == "nodus/switch-123/config/set" for row in ingest.published_json)
+    assert ingest.switch_commands == []
+    saved = switch_mgr.load("switch-123")
+    assert saved["Switch"]["SWITCH_1_LAST_STATE"] is True
+
+
+@pytest.mark.asyncio
+async def test_submit_switch_settings_remote_last_state_uses_previous_label_mapping_when_label_changes(tmp_path, monkeypatch):
+    app, ingest, system_root, _sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
+    switch_mgr.save(
+        "switch-123",
+        {
+            "Switch": {
+                "TYPE": "nodus",
+                "DEVICE": "switch",
+                "SWITCH_DEVICE_ID": "switch-123",
+                "SWITCH_LOCATION": "Old Rack",
+                "SWITCH_1_LABEL": "Relay 1",
+                "SWITCH_1_CHANNEL_ID": "S1-sernum",
+                "SWITCH_1_LAST_STATE": False,
+            }
+        },
+    )
+    _write_system_settings(system_root, "switch-123", "switch-123")
+    ingest.published_json.clear()
+    ingest.switch_commands.clear()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-switch-settings",
+            data={
+                "switch_id": "switch-123",
+                "location": "Old Rack",
+                "SWITCH_1_LABEL": "Lights",
+                "SWITCH_1_LAST_STATE": "true",
+            },
+        )
+
+    assert res.status_code == 303
+    posted = [
+        update
+        for row in ingest.published_json
+        for update in (((row.get("payload") or {}).get("payload") or {}).get("updates") or [])
+    ]
+    assert posted == [
+        {"section": "Switch", "key": "SWITCH_1_LABEL", "value": "Lights", "name": "switch.toml"},
+        {"section": "Switch", "key": "SWITCH_1_LAST_STATE", "value": True, "name": "switch.toml"},
+    ]
+    assert all(row["topic"] == "nodus/switch-123/config/set" for row in ingest.published_json)
+    assert ingest.switch_commands == []
+    saved = switch_mgr.load("switch-123")
+    assert saved["Switch"]["SWITCH_1_LABEL"] == "Lights"
+    assert saved["Switch"]["SWITCH_1_LAST_STATE"] is True
 
 
 @pytest.mark.asyncio

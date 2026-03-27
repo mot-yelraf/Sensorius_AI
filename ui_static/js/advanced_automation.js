@@ -19,8 +19,8 @@ async function fetchJSON(url) {
   return await r.json();
 }
 
-async function fetchSensorIds() {
-  return await fetchJSON("/sensor-ids");
+async function fetchSensorDirectory() {
+  return await fetchJSON("/sensor-directory");
 }
 
 async function fetchSensorMetrics(sensorId) {
@@ -175,7 +175,8 @@ function renderList(rootLike) {
       setAutomationView(modal, "editor");
     };
     const name  = create("div", "item-name");  name.textContent  = a.name || "(unnamed)";
-    const badge = create("div", "item-badge"); badge.textContent = a.enabled ? "Enabled" : "Disabled";
+    const badge = create("div", `item-badge ${a.enabled ? "enabled" : "disabled"}`);
+    badge.textContent = a.enabled ? "Enabled" : "Disabled";
     item.append(name, badge);
     list.appendChild(item);
   });
@@ -351,7 +352,7 @@ function addCondition(modal, cond) {
     for (const s of sensorDirectory) {
       const opt = create("option");
       opt.value = s.id;
-      opt.textContent = `${s.label} (${s.id})`;
+      opt.textContent = (s.location && s.location !== "Unknown") ? `${s.id} @ ${s.location}` : s.id;
       sensorSel.appendChild(opt);
     }
     sensorSel.value = cond?.sensor || sensorDirectory[0]?.id || "";
@@ -529,7 +530,7 @@ function addAction(modal, action) {
 
   const setWrap = create("div");
   const setLab = create("label");
-  setLab.textContent = "Set";
+  setLab.textContent = "State";
   const setSel = create("select");
   setSel.classList.add("action-set");
   setSel.innerHTML = `
@@ -538,9 +539,23 @@ function addAction(modal, action) {
   setSel.value = action?.set ? "on" : "off";
   setWrap.append(setLab, setSel);
 
+  const revertWrap = create("div");
+  const revertLab = create("label");
+  revertLab.textContent = "Revert Action";
+  const revertSel = create("select");
+  revertSel.classList.add("action-revert");
+  revertSel.innerHTML = `
+    <option value="previous_state">Previous State</option>
+    <option value="do_nothing">Do Nothing</option>`;
+  const revertValue = (typeof action?.revert_action === "string" && action.revert_action.trim())
+    ? action.revert_action.trim()
+    : "previous_state";
+  revertSel.value = revertValue === "do_nothing" ? "do_nothing" : "previous_state";
+  revertWrap.append(revertLab, revertSel);
+
   const delayWrap = create("div");
   const delayLab = create("label");
-  delayLab.textContent = "Delay (s, 0-60)";
+  delayLab.textContent = "Delay (secs)";
   const delayIn = create("input");
   delayIn.type = "number";
   delayIn.min = "0";
@@ -565,7 +580,7 @@ function addAction(modal, action) {
   };
 
   const row = create("div", "action-row");
-  row.append(switchWrap, setWrap, delayWrap, rem);
+  row.append(switchWrap, setWrap, revertWrap, delayWrap, rem);
   group.appendChild(row);
   container.appendChild(group);
 
@@ -594,7 +609,7 @@ function loadSelectedIntoForm(rootLike){
   }
 
   nameEl.value      = auto.name || "";
-  enEl.checked      = !!auto.enabled;
+  enEl.value        = auto.enabled === false ? "false" : "true";
 
   box.innerHTML = "";
   if ((auto.conditions||[]).length === 0) addCondition(modal,{type:"sensor"});
@@ -610,7 +625,7 @@ function loadSelectedIntoForm(rootLike){
 
 function serializeForm(modal){
   const name = q(modal,"#autoName").value.trim();
-  const enabled = q(modal,"#autoEnabled").checked;
+  const enabled = q(modal,"#autoEnabled").value !== "false";
 
   const groups = [...modal.querySelectorAll("#conditionsContainer .cond-group")];
   const conditions = groups.map(group => {
@@ -673,16 +688,19 @@ function serializeForm(modal){
   const actions = actionGroups.map(group => {
     const switchKey = String(group.querySelector(".action-switch")?.value || "").trim();
     const set = group.querySelector(".action-set")?.value === "on";
+    const revertAction = group.querySelector(".action-revert")?.value === "do_nothing"
+      ? "do_nothing"
+      : "previous_state";
     const delayRaw = parseInt(group.querySelector(".action-delay")?.value || "0", 10);
     const delay_s = Number.isFinite(delayRaw) ? Math.max(0, Math.min(60, delayRaw)) : 0;
-    return { switch_key: switchKey, set, delay_s };
+    return { switch_key: switchKey, set, revert_action: revertAction, delay_s };
   }).filter(a => !!a.switch_key);
 
   if (!actions.length) {
     const fallback = q(modal, "#actionsContainer .action-switch");
     const fallbackKey = String(fallback?.value || "").trim();
     if (fallbackKey) {
-      actions.push({ switch_key: fallbackKey, set: true, delay_s: 0 });
+      actions.push({ switch_key: fallbackKey, set: true, revert_action: "previous_state", delay_s: 0 });
     }
   }
 
@@ -695,10 +713,18 @@ function serializeForm(modal){
 
 // ----- Data loaders -----
 async function loadSensors(){
-  const ids = await fetchSensorIds();
-  sensorDirectory = await Promise.all(ids.map(async id => ({
-    id, label: id, metrics: await fetchSensorMetrics(id).catch(() => [])
-  })));
+  const entries = await fetchSensorDirectory();
+  sensorDirectory = await Promise.all((entries || []).map(async item => {
+    const id = String(item?.id || "").trim();
+    const location = String(item?.location || "").trim();
+    const label = String(item?.label || location || id).trim() || id;
+    return {
+      id,
+      label,
+      location,
+      metrics: await fetchSensorMetrics(id).catch(() => []),
+    };
+  }));
 }
 
 async function loadSwitchInfoInto(rootLike) {
@@ -748,12 +774,18 @@ async function loadAutomationsListInto(rootLike, opts = {}) {
   automations = (items || []).map(it => {
     let parsed = {};
     try { parsed = JSON.parse(it.script_json || "{}"); } catch {}
+    const parsedActions = Array.isArray(parsed.actions) ? parsed.actions : (parsed.actions ? [parsed.actions] : []);
     return {
       id: it.rule_id,
       name: parsed.name || it.rule_id,
       enabled: !!it.enabled,
       conditions: parsed.conditions || [],
-      actions: Array.isArray(parsed.actions) ? parsed.actions : (parsed.actions ? [parsed.actions] : [])
+      actions: parsedActions.map(action => ({
+        ...action,
+        revert_action: (typeof action?.revert_action === "string" && action.revert_action.trim())
+          ? action.revert_action.trim()
+          : "do_nothing"
+      }))
     };
   });
 
@@ -808,8 +840,17 @@ async function saveCurrent(modal){
     body: JSON.stringify(payload)
   });
   if (!res.ok) throw new Error("Save failed");
+  const saved = await res.json().catch(() => ({}));
+  const savedRuleId = String(saved?.rule_id || doc.id || "").trim() || doc.id;
+  const nextDoc = { ...doc, id: savedRuleId };
+  const existingIndex = automations.findIndex(item => item.id === savedRuleId);
+  if (existingIndex >= 0) automations[existingIndex] = nextDoc;
+  else automations.push(nextDoc);
+  selectedId = savedRuleId;
+  renderList(modal);
+  loadSelectedIntoForm(modal);
   await loadAutomationsListInto(modal, { preserveSelection: true, openEditor: true });
-  showPreview(modal, doc);
+  showPreview(modal, nextDoc);
   if (typeof window.refreshAndApplySwitchStatus === "function") {
     window.setTimeout(() => window.refreshAndApplySwitchStatus().catch?.(() => {}), 0);
   }
