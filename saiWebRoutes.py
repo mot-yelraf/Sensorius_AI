@@ -8423,6 +8423,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             # 1) Collect labels from SWITCH_<n>_LABEL in the new schema.
             labels: dict[int, str] = {}
+            channel_ids: dict[int, str] = {}
             import re
             for k, v in sw.items():
                 ks = str(k).strip()
@@ -8433,6 +8434,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     if not label_text:
                         continue
                     labels[idx] = label_text
+                    channel_id_text = str(sw.get(f"SWITCH_{idx}_CHANNEL_ID", "") or "").strip()
+                    if channel_id_text:
+                        channel_ids[idx] = channel_id_text
 
             # 2) Determine channel count from CHANNELS (if present) or from the max SWITCH_<n> index
             try:
@@ -8444,7 +8448,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             if not channels:
                 channels = max(labels.keys(), default=1)
 
-            return {"switch_id": switch_id, "channels": channels, "labels": labels}
+            return {"switch_id": switch_id, "channels": channels, "labels": labels, "channel_ids": channel_ids}
         except Exception as exc:
             printDM(f"/switch-info error: {exc}", location="saiWebRoutes")
             return JSONResponse({"error": str(exc)}, status_code=500)

@@ -10,6 +10,7 @@ let automations = [];
 let selectedId = null;
 let sensorDirectory = [];
 let switchLabels = {};
+let switchChannelIds = {};
 let switchChannels = 1;
 
 // ----- API helpers -----
@@ -106,7 +107,11 @@ function getEnabledChannelIndexSet(modal) {
 function getActionOptionEntries(modal) {
   const enabledIndexSet = getEnabledChannelIndexSet(modal);
   return Object.entries(switchLabels || {})
-    .map(([idx, lab]) => ({ idx: Number.parseInt(idx, 10), lab: String(lab || "").trim() }))
+    .map(([idx, lab]) => ({
+      idx: Number.parseInt(idx, 10),
+      lab: String(lab || "").trim(),
+      channelId: String((switchChannelIds || {})[idx] || "").trim(),
+    }))
     .filter(x => Number.isFinite(x.idx) && x.idx > 0 && x.lab)
     .filter(x => !enabledIndexSet.size || enabledIndexSet.has(x.idx))
     .sort((a, b) => a.idx - b.idx);
@@ -128,15 +133,31 @@ function fillActionSwitchOptions(selectEl, modal, preferredValue = "") {
     return;
   }
 
-  for (const { lab } of entries) {
+  for (const { lab, channelId } of entries) {
     const opt = create("option");
-    opt.value = `${currentSwitchId}::${lab}`;
+    opt.value = `${currentSwitchId}::${channelId || lab}`;
     opt.textContent = lab;
     selectEl.appendChild(opt);
   }
 
-  if (preferredValue && [...selectEl.options].some(o => o.value === preferredValue)) {
+  if (!preferredValue) return;
+
+  if ([...selectEl.options].some(o => o.value === preferredValue)) {
     selectEl.value = preferredValue;
+    return;
+  }
+
+  const preferredText = String(preferredValue).trim();
+  const delimIdx = preferredText.indexOf("::");
+  const suffix = delimIdx >= 0 ? preferredText.slice(delimIdx + 2) : preferredText;
+  const suffixLower = String(suffix || "").trim().toLowerCase();
+
+  const aliasOption = [...selectEl.options].find(o => {
+    const optionSuffix = String(o.value || "").split("::").slice(1).join("::").trim().toLowerCase();
+    return optionSuffix === suffixLower || String(o.textContent || "").trim().toLowerCase() === suffixLower;
+  });
+  if (aliasOption) {
+    selectEl.value = aliasOption.value;
   }
 }
 
@@ -555,13 +576,14 @@ function addAction(modal, action) {
 
   const delayWrap = create("div");
   const delayLab = create("label");
-  delayLab.textContent = "Delay (secs)";
+  delayLab.textContent = "Delay Before Action (secs)";
   const delayIn = create("input");
   delayIn.type = "number";
   delayIn.min = "0";
   delayIn.max = "60";
   delayIn.step = "1";
   delayIn.classList.add("action-delay");
+  delayIn.title = "Wait this many seconds after the rule becomes true before applying the action.";
   const actionDelay = parseInt(String(action?.delay_s ?? "0"), 10);
   delayIn.value = String(Number.isFinite(actionDelay) ? Math.max(0, Math.min(60, actionDelay)) : 0);
   delayWrap.append(delayLab, delayIn);
@@ -737,6 +759,7 @@ async function loadSwitchInfoInto(rootLike) {
   });
 
   switchLabels = info.labels || {};
+  switchChannelIds = info.channel_ids || {};
   switchChannels = info.channels || 1;
 
   if (!Object.keys(switchLabels).length) {
@@ -752,6 +775,7 @@ async function loadSwitchInfoInto(rootLike) {
     }
     if (Object.keys(fromForm).length) {
       switchLabels = fromForm;
+      switchChannelIds = {};
       switchChannels = Math.max(switchChannels || 1, ...Object.keys(fromForm).map(n => Number.parseInt(n, 10)));
     }
   }

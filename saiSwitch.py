@@ -76,6 +76,7 @@ class SwitchController:
         self.min_off_time = 5
         self._advanced_delay_due = {}
         self._advanced_revert_cooldown = set()
+        self._advanced_active_actions = {}
         self._astral_location_cache = {"value": None, "expires_at": 0.0}
 
         # Settings accessor that works with either wrapper or dict
@@ -289,6 +290,9 @@ class SwitchController:
             return True
         s = (start or "00:00")
         e = (end or "24:00")
+        if s == "00:00" and e == "00:00":
+            # Treat midnight-to-midnight as an explicit all-day window.
+            return True
         # handle wrap-around (e.g., 22:00–06:00)
         return (s <= now_str < e) if s <= e else (now_str >= s) or (now_str < e)
 
@@ -913,10 +917,11 @@ class SwitchController:
 
         - For each action:
             * Let `rule_ok` be the OR of group results for that action.
-            * If rule_ok is True: apply action.set immediately.
-            * If `revert_action == "previous_state"` and delay_s > 0,
-              schedule a non-blocking revert back to the pre-action state.
-            * If rule_ok is False: do nothing.
+            * If rule_ok becomes True, wait `delay_s` seconds, then apply `action.set`.
+            * While rule_ok stays True, keep the channel at `action.set`.
+            * If rule_ok becomes False:
+              - `revert_action == "previous_state"` restores the pre-action state.
+              - `revert_action == "do_nothing"` leaves the current state unchanged.
 
         Only targets actions whose switch_key belongs to this controller.
         """
@@ -1094,31 +1099,18 @@ class SwitchController:
             return False
 
         now_mono = time.monotonic()
-        for delay_key, pending in list((self._advanced_delay_due or {}).items()):
-            if not isinstance(pending, dict):
-                self._advanced_delay_due.pop(delay_key, None)
-                continue
-            due_at = float(pending.get("due_at", 0.0) or 0.0)
-            if due_at > now_mono:
-                continue
-            self._advanced_delay_due.pop(delay_key, None)
+        pending_actions = getattr(self, "_advanced_delay_due", None)
+        if not isinstance(pending_actions, dict):
+            pending_actions = {}
+            self._advanced_delay_due = pending_actions
+        active_actions = getattr(self, "_advanced_active_actions", None)
+        if not isinstance(active_actions, dict):
+            active_actions = {}
+            self._advanced_active_actions = active_actions
+        if not isinstance(getattr(self, "_advanced_revert_cooldown", None), set):
+            self._advanced_revert_cooldown = set()
 
-            revert_action = str(pending.get("revert_action", "") or "").strip().lower()
-            if revert_action != "previous_state":
-                continue
-
-            target_label = str(pending.get("target_label", "") or "").strip()
-            if not target_label:
-                continue
-
-            revert_to = bool(pending.get("revert_to", False))
-            current_state = bool(self.get_state(target_label))
-            if current_state == revert_to:
-                continue
-
-            ok = bool(self.set_state(target_label, revert_to, force=True))
-            if not ok and bool(self.get_state(target_label)) != revert_to:
-                self._advanced_delay_due[delay_key] = dict(pending, due_at=time.monotonic() + 1.0)
+        action_evals: dict[tuple[str, str, str, bool], dict] = {}
 
         # ----- main rule loop -------------------------------------------------
         for _rule_id, rule in (advanced or {}).items():
@@ -1236,62 +1228,172 @@ class SwitchController:
                     rule_ok = any(group_results)
                     desired = bool(act.get("set", True))
                     action_key = (str(_rule_id), str(target_label), str(skey), bool(desired))
-
-                    if not rule_ok:
-                        self._advanced_revert_cooldown.discard(action_key)
-                        if DEBUG and str(target_label).strip().lower() == "fan":
-                            printDM(
-                                f"[advanced] fan rule {_rule_id} no-op: rule_ok={rule_ok} group_results={group_results}",
-                                location=MODULE,
-                            )
-                        continue
-
-                    if action_key in self._advanced_revert_cooldown:
-                        continue
-
                     revert_action = str(act.get("revert_action", "do_nothing") or "do_nothing").strip().lower()
                     if revert_action not in {"previous_state", "do_nothing"}:
                         revert_action = "do_nothing"
                     delay_s = int(act.get("delay_s", 0) or 0)
-                    curr = bool(self.get_state(target_label))
-                    if curr == desired:
-                        if DEBUG and str(target_label).strip().lower() == "fan":
-                            printDM(
-                                f"[advanced] fan rule {_rule_id} skipped: curr={curr} desired={desired} switch_key={skey}",
-                                location=MODULE,
-                            )
-                        continue
 
-                    if DEBUG:
-                        printDM(
-                            f"[advanced] applying rule {_rule_id} to '{target_label}': "
-                            f"rule_ok={rule_ok} desired={desired} (switch_key={skey})",
-                            location=MODULE,
-                        )
-                    if DEBUG and str(target_label).strip().lower() == "fan":
-                        printDM(
-                            f"[advanced] fan apply {_rule_id}: curr={curr} desired={desired} switch_key={skey}",
-                            location=MODULE,
-                        )
-
-                    ok = bool(self.set_state(target_label, desired))
-                    if not ok:
-                        continue
-
-                    self._advanced_delay_due.pop(action_key, None)
-                    if revert_action == "previous_state" and delay_s > 0:
-                        self._advanced_delay_due[action_key] = {
-                            "due_at": time.monotonic() + min(delay_s, 300),
-                            "target_label": target_label,
-                            "revert_action": revert_action,
-                            "revert_to": curr,
-                        }
-                        self._advanced_revert_cooldown.add(action_key)
-                    else:
-                        self._advanced_revert_cooldown.discard(action_key)
+                    action_evals[action_key] = {
+                        "rule_id": str(_rule_id),
+                        "target_label": target_label,
+                        "switch_key": skey,
+                        "desired": desired,
+                        "revert_action": revert_action,
+                        "delay_s": max(0, delay_s),
+                        "rule_ok": rule_ok,
+                        "group_results": list(group_results),
+                    }
 
             except Exception as e:
                 printDM(f"[advanced] rule error: {e}", location=MODULE)
+
+        def _revert_active_action(action_key: tuple[str, str, str, bool], active: dict) -> bool:
+            revert_action = str(active.get("revert_action", "") or "").strip().lower()
+            target_label = str(active.get("target_label", "") or "").strip()
+            if not target_label:
+                active_actions.pop(action_key, None)
+                return True
+            if revert_action != "previous_state":
+                active_actions.pop(action_key, None)
+                return True
+
+            revert_to = bool(active.get("revert_to", False))
+            current_state = bool(self.get_state(target_label))
+            if current_state == revert_to:
+                active_actions.pop(action_key, None)
+                return True
+
+            ok = bool(self.set_state(target_label, revert_to, force=True))
+            if ok or bool(self.get_state(target_label)) == revert_to:
+                active_actions.pop(action_key, None)
+                return True
+            return False
+
+        seen_action_keys = set(action_evals.keys())
+
+        for action_key in list(pending_actions.keys()):
+            if action_key not in seen_action_keys:
+                pending_actions.pop(action_key, None)
+        for action_key, active in list(active_actions.items()):
+            if action_key not in seen_action_keys:
+                _revert_active_action(action_key, active if isinstance(active, dict) else {})
+
+        for action_key, info in action_evals.items():
+            target_label = str(info.get("target_label", "") or "").strip()
+            skey = str(info.get("switch_key", "") or "").strip()
+            desired = bool(info.get("desired", True))
+            rule_ok = bool(info.get("rule_ok", False))
+            revert_action = str(info.get("revert_action", "do_nothing") or "do_nothing").strip().lower()
+            delay_s = int(info.get("delay_s", 0) or 0)
+            current_state = bool(self.get_state(target_label))
+            pending = pending_actions.get(action_key) if isinstance(pending_actions.get(action_key), dict) else None
+            active = active_actions.get(action_key) if isinstance(active_actions.get(action_key), dict) else None
+
+            if not rule_ok:
+                pending_actions.pop(action_key, None)
+                self._advanced_revert_cooldown.discard(action_key)
+                if active:
+                    _revert_active_action(action_key, active)
+                if DEBUG and str(target_label).strip().lower() == "fan":
+                    printDM(
+                        f"[advanced] fan rule {info['rule_id']} no-op: rule_ok={rule_ok} group_results={info.get('group_results')}",
+                        location=MODULE,
+                    )
+                continue
+
+            if active:
+                if current_state == desired:
+                    if DEBUG and str(target_label).strip().lower() == "fan":
+                        printDM(
+                            f"[advanced] fan rule {info['rule_id']} skipped: curr={current_state} desired={desired} switch_key={skey}",
+                            location=MODULE,
+                        )
+                    continue
+                ok = bool(self.set_state(target_label, desired))
+                if ok:
+                    active_actions[action_key] = dict(active, last_applied_at=now_mono)
+                continue
+
+            if pending:
+                due_at = float(pending.get("due_at", 0.0) or 0.0)
+                if due_at > now_mono:
+                    continue
+                pending_actions.pop(action_key, None)
+                if current_state == desired:
+                    if DEBUG and str(target_label).strip().lower() == "fan":
+                        printDM(
+                            f"[advanced] fan rule {info['rule_id']} skipped after delay: curr={current_state} desired={desired} switch_key={skey}",
+                            location=MODULE,
+                        )
+                    continue
+                if DEBUG:
+                    printDM(
+                        f"[advanced] applying delayed rule {info['rule_id']} to '{target_label}': "
+                        f"desired={desired} (switch_key={skey})",
+                        location=MODULE,
+                    )
+                ok = bool(self.set_state(target_label, desired))
+                if not ok:
+                    pending_actions[action_key] = dict(pending, due_at=time.monotonic() + 1.0)
+                    continue
+                active_actions[action_key] = {
+                    "target_label": target_label,
+                    "switch_key": skey,
+                    "desired": desired,
+                    "revert_action": revert_action,
+                    "revert_to": current_state,
+                    "activated_at": now_mono,
+                }
+                if revert_action == "previous_state":
+                    self._advanced_revert_cooldown.add(action_key)
+                continue
+
+            if delay_s > 0:
+                pending_actions[action_key] = {
+                    "due_at": now_mono + min(delay_s, 300),
+                    "target_label": target_label,
+                    "switch_key": skey,
+                    "desired": desired,
+                    "revert_action": revert_action,
+                }
+                continue
+
+            if current_state == desired:
+                if DEBUG and str(target_label).strip().lower() == "fan":
+                    printDM(
+                        f"[advanced] fan rule {info['rule_id']} skipped: curr={current_state} desired={desired} switch_key={skey}",
+                        location=MODULE,
+                    )
+                continue
+
+            if DEBUG:
+                printDM(
+                    f"[advanced] applying rule {info['rule_id']} to '{target_label}': "
+                    f"rule_ok={rule_ok} desired={desired} (switch_key={skey})",
+                    location=MODULE,
+                )
+            if DEBUG and str(target_label).strip().lower() == "fan":
+                printDM(
+                    f"[advanced] fan apply {info['rule_id']}: curr={current_state} desired={desired} switch_key={skey}",
+                    location=MODULE,
+                )
+
+            ok = bool(self.set_state(target_label, desired))
+            if not ok:
+                continue
+
+            active_actions[action_key] = {
+                "target_label": target_label,
+                "switch_key": skey,
+                "desired": desired,
+                "revert_action": revert_action,
+                "revert_to": current_state,
+                "activated_at": now_mono,
+            }
+            if revert_action == "previous_state":
+                self._advanced_revert_cooldown.add(action_key)
+            else:
+                self._advanced_revert_cooldown.discard(action_key)
                 
     async def run_controladora_monitor(self, sensor, interval=29):
         """
