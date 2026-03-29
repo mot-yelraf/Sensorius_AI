@@ -1617,6 +1617,39 @@ class saiMQTTIngest:
                 break
         return ordered
 
+    def _normalize_display_styles(self, raw_styles, default_style: str = "Graph24hr") -> list[str]:
+        """
+        Normalize per-metric display style hints into an ordered six-slot list.
+        Returns [] when the payload does not contain any usable style hints.
+        """
+        if isinstance(raw_styles, dict):
+            values = [raw_styles.get(f"METRIC_{idx}", "") for idx in range(1, 7)]
+        elif isinstance(raw_styles, (list, tuple)):
+            values = list(raw_styles)
+        else:
+            return []
+
+        def _canonical_style(raw_value) -> str:
+            style = str(raw_value or "").strip().lower()
+            if not style:
+                return default_style
+            if style == "gauge":
+                return "Gauge"
+            if style in {"graph", "graph24", "graph24hr", "24h", "24hr"}:
+                return "Graph24hr"
+            if style in {"graph6", "graph6hr", "6h", "6hr"}:
+                return "Graph6hr"
+            return default_style
+
+        if not any(str(item or "").strip() for item in values):
+            return []
+
+        ordered: list[str] = []
+        for idx in range(6):
+            raw_value = values[idx] if idx < len(values) else default_style
+            ordered.append(_canonical_style(raw_value))
+        return ordered
+
     def _infer_sensor_device_name(self, raw_device, sensor_id: str | None = None) -> str:
         """
         Prefer an explicit device name; otherwise infer from <device>-<serial> sensor IDs.
@@ -1976,6 +2009,9 @@ class saiMQTTIngest:
             display_metrics = self._normalize_display_metrics(
                 sensor_blob.get("display_metrics") or sensor_blob.get("metrics")
             )
+            display_styles = self._normalize_display_styles(
+                sensor_blob.get("display_styles") or sensor_blob.get("styles")
+            )
             if display_metrics:
                 self.expected_gauge_map[sensor_id] = display_metrics
 
@@ -2012,6 +2048,7 @@ class saiMQTTIngest:
                 "location": sensor_loc,
                 "serial": sensor_serial,
                 "display_metrics": display_metrics,
+                "display_styles": display_styles,
             })
 
         # switch metadata
@@ -2246,6 +2283,9 @@ class saiMQTTIngest:
                 "availability_topic": f"nodus/{sensor_id}/availability" if sensor_id else "",
                 "display_metrics": self._normalize_display_metrics(
                     sensor_blob.get("display_metrics") or sensor_blob.get("metrics")
+                ),
+                "display_styles": self._normalize_display_styles(
+                    sensor_blob.get("display_styles") or sensor_blob.get("styles")
                 ),
             },
             "switch": {
@@ -2919,6 +2959,9 @@ class saiMQTTIngest:
                     device_type  = entry.get("TYPE", "pi")
                     display_list = entry.get("display_metrics", []) or entry.get("metrics", [])
                     metrics = self._normalize_display_metrics(display_list)
+                    styles = self._normalize_display_styles(
+                        entry.get("display_styles", []) or entry.get("styles", [])
+                    )
                     if dev_id and metrics:
                         self.expected_gauge_map[dev_id] = metrics
 
@@ -2938,6 +2981,7 @@ class saiMQTTIngest:
                             "location": location,
                             "serial": entry.get("SERIAL_NUM", ""),
                             "display_metrics": metrics,
+                            "display_styles": styles,
                         })
                         if topic not in self.registered_topics and not self._has_covering_subscription(topic):
                             self.registered_topics.add(topic)
@@ -3100,6 +3144,9 @@ class saiMQTTIngest:
                 device_type  = info.get("TYPE", "picow")
                 display_list = info.get("display_metrics", []) or info.get("metrics", [])
                 metrics = self._normalize_display_metrics(display_list)
+                styles = self._normalize_display_styles(
+                    info.get("display_styles", []) or info.get("styles", [])
+                )
                 if dev_id and metrics:
                     self.expected_gauge_map[dev_id] = metrics
 
@@ -3119,6 +3166,7 @@ class saiMQTTIngest:
                         "location": location,
                         "serial": info.get("SERIAL_NUM", ""),
                         "display_metrics": metrics,
+                        "display_styles": styles,
                     })
                     if topic not in self.registered_topics and not self._has_covering_subscription(topic):
                         self.registered_topics.add(topic)
@@ -3368,6 +3416,9 @@ class saiMQTTIngest:
                 remote_display_metrics = self._normalize_display_metrics(
                     s.get("display_metrics") or s.get("metrics")
                 )
+                remote_display_styles = self._normalize_display_styles(
+                    s.get("display_styles") or s.get("styles")
+                )
                 new_path, legacy_path = sensor_mgr.get_candidate_paths(sensor_id)
 
                 existing_path = new_path if new_path.exists() else (legacy_path if legacy_path.exists() else None)
@@ -3409,6 +3460,19 @@ class saiMQTTIngest:
                             display[metric_key] = metric_val
                             changed = True
 
+                    if remote_display_styles:
+                        style_block = display.get("Style")
+                        if not isinstance(style_block, dict):
+                            style_block = OrderedDict()
+                            display["Style"] = style_block
+                            changed = True
+                        for idx in range(6):
+                            style_key = f"METRIC_{idx + 1}"
+                            style_val = remote_display_styles[idx] if idx < len(remote_display_styles) else "Graph24hr"
+                            if str(style_block.get(style_key, "") or "") != style_val:
+                                style_block[style_key] = style_val
+                                changed = True
+
                     if changed:
                         sensor_mgr.save(sensor_id, data)
                         if DEBUG:
@@ -3441,6 +3505,13 @@ class saiMQTTIngest:
                     chosen_metrics = remote_display_metrics or _display_defaults_for_device(device_name or device_type)
                     for idx in range(6):
                         display[f"METRIC_{idx + 1}"] = chosen_metrics[idx] if idx < len(chosen_metrics) else ""
+                    if remote_display_styles:
+                        style_block = display.get("Style")
+                        if not isinstance(style_block, dict):
+                            style_block = OrderedDict()
+                            display["Style"] = style_block
+                        for idx in range(6):
+                            style_block[f"METRIC_{idx + 1}"] = remote_display_styles[idx] if idx < len(remote_display_styles) else "Graph24hr"
 
                     sensor_mgr.save(sensor_id, data)
                 else:
@@ -3460,6 +3531,11 @@ class saiMQTTIngest:
                     chosen_metrics = remote_display_metrics or _display_defaults_for_device(device_name or device_type)
                     for idx in range(6):
                         data["Display"][f"METRIC_{idx + 1}"] = chosen_metrics[idx] if idx < len(chosen_metrics) else ""
+                    if remote_display_styles:
+                        style_block = OrderedDict()
+                        data["Display"]["Style"] = style_block
+                        for idx in range(6):
+                            style_block[f"METRIC_{idx + 1}"] = remote_display_styles[idx] if idx < len(remote_display_styles) else "Graph24hr"
 
                     sensor_mgr.save(sensor_id, data)
                 if DEBUG:

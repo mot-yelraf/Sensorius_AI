@@ -740,6 +740,45 @@ def test_http_itaot_meta_normalizes_to_topic_contract(monkeypatch):
     assert ingest.nodus_switch_topic_map.get("nodus/S1-x943fm/state", {}).get("label") == "Fan"
 
 
+def test_nodus_meta_writes_display_styles_to_sensor_toml(tmp_path, monkeypatch):
+    real_sensor_manager = saiSensorSettingsManager.SensorSettingsManager
+    sensor_root = tmp_path / "sensor_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    system_root.mkdir()
+
+    class _TmpSensorSettingsManager(real_sensor_manager):
+        def __init__(self, base_dir_name="sensor_settings"):
+            super().__init__(str(sensor_root))
+
+    monkeypatch.setattr(saiSensorSettingsManager, "SensorSettingsManager", _TmpSensorSettingsManager)
+    monkeypatch.setattr(saiSettings.saiSettings, "DEFAULT_BASE_DIR", str(system_root), raising=False)
+
+    ingest = _build_ingest(monkeypatch)
+    payload = {
+        "schema": "nodus-meta/v1",
+        "device_id": "aqi-x943fm",
+        "sensor": {
+            "sensor_id": "aqi-x943fm",
+            "location": "East House",
+            "display_metrics": ["Air Quality", "Temperature", "Rel-Humidity"],
+            "display_styles": ["graph24hr", "gauge", "invalid-style"],
+            "data_topic": "nodus/aqi-x943fm/data",
+            "event_topic": "nodus/aqi-x943fm/event",
+            "availability_topic": "nodus/aqi-x943fm/availability",
+        },
+    }
+
+    ok, _ = ingest._parse_and_subscribe_from_http_meta(payload, "aqi-x943fm")
+
+    assert ok is True
+    saved = real_sensor_manager(str(sensor_root)).load("aqi-x943fm")
+    assert saved["Display"]["Style"]["METRIC_1"] == "Graph24hr"
+    assert saved["Display"]["Style"]["METRIC_2"] == "Gauge"
+    assert saved["Display"]["Style"]["METRIC_3"] == "Graph24hr"
+    assert saved["Display"]["Style"]["METRIC_4"] == "Graph24hr"
+
+
 def test_set_switch_by_channel_id_prefers_channel_scoped_config_target(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     ingest.mqtt_clients = {"aqi-x943fm"}
