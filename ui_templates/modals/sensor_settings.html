@@ -131,6 +131,7 @@
                   ></span>
                 </button>
               </div>
+              <div id="sensorSettingsStatus" class="muted" style="font-size:0.8rem; min-height:1.2rem; margin-top:0.35rem; text-align:right;"></div>
             </form>
           </div>
 
@@ -399,3 +400,64 @@
     </div>
   </div>
 </div>
+
+<script>
+(function(){
+  const modal = document.getElementById("sensorSettingsModal");
+  const form = document.getElementById("sensorSettingsForm");
+  const saveBtn = document.getElementById("saveBtn");
+  const spinner = document.getElementById("saveSpinner");
+  const statusEl = document.getElementById("sensorSettingsStatus");
+  if (!modal || !form || !saveBtn || !statusEl) return;
+  if (form.dataset.ajaxBound === "1") return;
+  form.dataset.ajaxBound = "1";
+
+  function setBusy(isBusy) {
+    saveBtn.disabled = !!isBusy;
+    if (spinner) spinner.style.display = isBusy ? "inline-block" : "none";
+  }
+
+  function setStatus(text) {
+    statusEl.textContent = text || "";
+  }
+
+  async function parseResponseError(resp) {
+    const contentType = String(resp.headers.get("content-type") || "").toLowerCase();
+    if (contentType.includes("application/json")) {
+      const js = await resp.json().catch(() => ({}));
+      return String(js.error || js.message || ("HTTP " + resp.status));
+    }
+    return String((await resp.text().catch(() => "")) || ("HTTP " + resp.status)).trim();
+  }
+
+  form.addEventListener("submit", async function(ev){
+    ev.preventDefault();
+    setBusy(true);
+    setStatus("Saving...");
+    try {
+      const body = new URLSearchParams(new FormData(form));
+      const resp = await fetch(form.action, {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        },
+        body: body.toString(),
+      });
+      const js = await resp.json().catch(() => ({}));
+      if (!resp.ok || js.ok === false) {
+        throw new Error(String(js.error || js.message || ("HTTP " + resp.status)));
+      }
+      setStatus("Saved.");
+      if (typeof window.showToast === "function") window.showToast("Sensor settings saved", "ok");
+    } catch (err) {
+      const msg = err && err.message ? err.message : "Failed to save sensor settings.";
+      setStatus(msg);
+      if (typeof window.showToast === "function") window.showToast("Failed to save sensor settings", "error");
+    } finally {
+      setBusy(false);
+    }
+  });
+})();
+</script>

@@ -2180,17 +2180,21 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      const dateIso = st.selectedDate || '';"
     yield "      const input = document.getElementById('bioNoteInput');"
     yield "      const status = document.getElementById('bioNoteStatus');"
+    yield "      const btn = document.getElementById('bioSaveNoteBtn');"
     yield "      if (!dateIso || !input || !status) { if (status) status.textContent = 'Select a day first.'; return; }"
+    yield "      if (btn) { if (!btn.dataset.baseLabel) btn.dataset.baseLabel = btn.textContent || 'Save Note'; btn.disabled = true; btn.textContent = 'Saving...'; }"
     yield "      status.textContent = 'Saving...';"
     yield "      const noteText = input.value || '';"
     yield "      const resp = await fetch('/api/biodynamic-note', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ date: dateIso, note: noteText }) });"
     yield "      const payload = await resp.json().catch(() => ({}));"
-    yield "      if (!resp.ok) { status.textContent = (payload && payload.error) ? payload.error : 'Save failed'; return; }"
+    yield "      if (!resp.ok) { status.textContent = (payload && payload.error) ? payload.error : 'Save failed'; if (typeof window.showToast === 'function') window.showToast('Failed to save biodynamic note', 'error'); if (btn) { btn.disabled = false; btn.textContent = btn.dataset.baseLabel || 'Save Note'; } return; }"
     yield "      st.data = st.data || {};"
     yield "      st.data.notes = st.data.notes || {};"
     yield "      if ((noteText || '').trim()) st.data.notes[dateIso] = String(noteText).trim(); else delete st.data.notes[dateIso];"
     yield "      renderBiodynamicModal();"
     yield "      status.textContent = 'Saved';"
+    yield "      if (typeof window.showToast === 'function') window.showToast('Biodynamic note saved', 'ok');"
+    yield "      if (btn) { btn.disabled = false; btn.textContent = btn.dataset.baseLabel || 'Save Note'; }"
     yield "    });"
     yield "    await loadBiodynamicMonth(monthKey, preferredDate);"
     yield "  } catch (e) {"
@@ -5183,14 +5187,18 @@ def render_graph_modal(switch_installed=None):
 
     async function saveGraphSetup(event){
       const btn = event && event.target ? event.target.closest('button') : document.getElementById('graphSaveButton');
-      if(btn) btn.disabled = true;
+      if(btn){
+        if(!btn.dataset.baseLabel) btn.dataset.baseLabel = btn.textContent || 'Save';
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+      }
       try{
         const suggested = GRAPH_ACTIVE_SETUP || '';
         const rawName = window.prompt('Save graph setup as:', suggested);
         if(rawName === null) return;
         const name = String(rawName || '').trim();
         if(!name){
-          alert('Setup name is required.');
+          if(typeof window.showToast === 'function') window.showToast('Setup name is required.', 'error');
           return;
         }
         const config = getCurrentGraphConfig();
@@ -5206,9 +5214,12 @@ def render_graph_modal(switch_installed=None):
         if(typeof window.showToast === 'function') window.showToast('Graph setup saved', 'ok');
       }catch(e){
         console.error('Save graph setup failed', e);
-        alert('Failed to save graph setup: ' + (e && e.message ? e.message : 'unknown error'));
+        if(typeof window.showToast === 'function') window.showToast('Failed to save graph setup: ' + (e && e.message ? e.message : 'unknown error'), 'error');
       }finally{
-        if(btn) btn.disabled = false;
+        if(btn){
+          btn.disabled = false;
+          btn.textContent = btn.dataset.baseLabel || 'Save';
+        }
       }
     }
 

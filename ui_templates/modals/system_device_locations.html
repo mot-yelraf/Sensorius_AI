@@ -77,6 +77,7 @@
       <button id="btn-locations-cancel" class="button black">Back</button>
       <button id="btn-locations-save" class="button blue">Save</button>
     </div>
+    <div id="locations-save-status" class="muted" style="margin-top:8px; min-height:1.2rem;"></div>
   </div>
 </div>
 
@@ -85,6 +86,8 @@
 window.openLocationsModal = function() {
   const ov = document.getElementById("device-locations-overlay");
   if (ov) ov.style.display = "flex";
+  const statusEl = document.getElementById("locations-save-status");
+  if (statusEl) statusEl.textContent = "";
 };
 window.closeLocationsModal = function() {
   const ov = document.getElementById("device-locations-overlay");
@@ -167,6 +170,8 @@ document.addEventListener("click", async (ev) => {
 
   if (ev.target && ev.target.id === "btn-locations-save") {
     try {
+      const saveBtn = document.getElementById("btn-locations-save");
+      const statusEl = document.getElementById("locations-save-status");
       const inputs = document.querySelectorAll("#locations-list .location-input");
       const payload = [];
       inputs.forEach(inp => {
@@ -181,9 +186,16 @@ document.addEventListener("click", async (ev) => {
 
       if (!payload.length) {
         if (window.showToast) window.showToast("No location changes","ok");
-        window.closeLocationsModal();
+        if (statusEl) statusEl.textContent = "No location changes.";
         return;
       }
+
+      if (saveBtn) {
+        if (!saveBtn.dataset.baseLabel) saveBtn.dataset.baseLabel = saveBtn.textContent || "Save";
+        saveBtn.disabled = true;
+        saveBtn.textContent = "Saving...";
+      }
+      if (statusEl) statusEl.textContent = "Saving...";
 
       const resp = await fetch("/device-locations", {
         method: "POST",
@@ -193,17 +205,26 @@ document.addEventListener("click", async (ev) => {
 
       if (!resp.ok) {
         const text = await resp.text().catch(() => "");
-        throw new Error("HTTP " + resp.status + " " + text);
+        throw new Error(String(text || ("HTTP " + resp.status)).trim());
       }
 
-      const res = await resp.json().catch(() => ({}));
+      await resp.json().catch(() => ({}));
       if (window.showToast) window.showToast("Locations saved","ok");
-
-      window.closeLocationsModal();
-      setTimeout(() => window.location.reload(), 200);
+      inputs.forEach(inp => {
+        inp.dataset.originalLocation = (inp.value || "").trim();
+      });
+      if (statusEl) statusEl.textContent = "Saved.";
     } catch (e) {
       console.error(e);
+      const statusEl = document.getElementById("locations-save-status");
+      if (statusEl) statusEl.textContent = e && e.message ? e.message : "Failed to save locations.";
       if (window.showToast) window.showToast("Failed to Save","error");
+    } finally {
+      const saveBtn = document.getElementById("btn-locations-save");
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = saveBtn.dataset.baseLabel || "Save";
+      }
     }
   }
 });

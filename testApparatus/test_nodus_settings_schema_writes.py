@@ -266,6 +266,22 @@ class _PersistentFakeSaiSettings(_FakeSaiSettings):
         self._dirty = False
 
 
+class _RouteFakeSaiSettings(_PersistentFakeSaiSettings):
+    def get_setting(self, section, key, default=None):
+        return self.settings.get(section, {}).get(key, default)
+
+    def replace_setting(self, section, key, value):
+        bucket = self.settings.setdefault(section, {})
+        bucket[key] = value
+        self.save_settings()
+
+    @staticmethod
+    def timezone_info(tz_name: str):
+        if str(tz_name).strip() == "America/Denver":
+            return -21600, "MDT"
+        return 0, "UTC"
+
+
 class _FakeSystemSettingsManager:
     def __init__(self, base_dir: str):
         self.base_dir = Path(base_dir)
@@ -351,6 +367,19 @@ async def _build_app(tmp_path, monkeypatch):
     return app, ingest, system_root, sensor_root, switch_root
 
 
+async def _build_route_app_with_settings(tmp_path, monkeypatch, stored_settings: dict):
+    _RouteFakeSaiSettings.STORED_SETTINGS = {
+        section: dict(values or {})
+        for section, values in (stored_settings or {}).items()
+    }
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+    monkeypatch.setattr(saiWebRoutes, "saiSettings", _RouteFakeSaiSettings)
+    app = FastAPI()
+    ingest = _FakeIngest()
+    await saiWebRoutes.register_routes(app, _HubSettings(), _FakeNetMgr(), _FakeGcMgr(), ingest)
+    return app
+
+
 def test_build_picow_settings_updates_uses_profile_and_mqtt(monkeypatch):
     monkeypatch.setattr(saiAddDevice, "resolve_pi_wifi_credentials", lambda: ("MyWiFi", "secret"))
     monkeypatch.setattr(saiAddDevice, "PI_HOSTNAME", "sensorius-main")
@@ -379,6 +408,162 @@ def test_build_picow_settings_updates_rewrites_ip_broker_to_hub_hostname(monkeyp
     )
 
     assert {"section": "MQTT", "key": "BROKER", "value": "sensoria-hub-0.local"} in updates
+
+
+@pytest.mark.asyncio
+async def test_submit_pi_setup_reset_clears_saved_astral_location(tmp_path, monkeypatch):
+    app = await _build_route_app_with_settings(
+        tmp_path,
+        monkeypatch,
+        {
+            "Astral": {
+                "LATITUDE": "40.015000",
+                "LONGITUDE": "-105.270500",
+                "TIMEZONE": "America/Denver",
+            }
+        },
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-pi-setup",
+            data={
+                "broker": "",
+                "tz": "America/Denver",
+                "httpport": "8000",
+                "astral_lat": "reset",
+                "astral_lon": "",
+                "gauge_size": "medium",
+                "display_style": "grid",
+            },
+            follow_redirects=False,
+        )
+
+    assert res.status_code == 303
+    stored = _RouteFakeSaiSettings.STORED_SETTINGS
+    assert stored["Astral"]["LATITUDE"] == ""
+    assert stored["Astral"]["LONGITUDE"] == ""
+    assert stored["Astral"]["TIMEZONE"] == ""
+
+
+@pytest.mark.asyncio
+async def test_submit_pi_setup_blank_astral_fields_leave_saved_location_unchanged(tmp_path, monkeypatch):
+    app = await _build_route_app_with_settings(
+        tmp_path,
+        monkeypatch,
+        {
+            "Astral": {
+                "LATITUDE": "40.015000",
+                "LONGITUDE": "-105.270500",
+                "TIMEZONE": "America/Denver",
+            }
+        },
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-pi-setup",
+            data={
+                "broker": "",
+                "tz": "America/Denver",
+                "httpport": "8000",
+                "astral_lat": "",
+                "astral_lon": "",
+                "gauge_size": "medium",
+                "display_style": "grid",
+            },
+            follow_redirects=False,
+        )
+
+    assert res.status_code == 303
+    stored = _RouteFakeSaiSettings.STORED_SETTINGS
+    assert stored["Astral"]["LATITUDE"] == "40.015000"
+    assert stored["Astral"]["LONGITUDE"] == "-105.270500"
+    assert stored["Astral"]["TIMEZONE"] == "America/Denver"
+
+
+@pytest.mark.asyncio
+async def test_submit_pi_setup_ajax_returns_json_success(tmp_path, monkeypatch):
+    app = await _build_route_app_with_settings(tmp_path, monkeypatch, {})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-pi-setup",
+            data={
+                "broker": "",
+                "tz": "America/Denver",
+                "httpport": "8000",
+                "astral_lat": "",
+                "astral_lon": "",
+                "gauge_size": "medium",
+                "display_style": "grid",
+            },
+            headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+
+    assert res.status_code == 200
+    assert res.json()["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_submit_sensor_settings_ajax_returns_json_success(tmp_path, monkeypatch):
+    app, _ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "aqi-123",
+        {
+            "Sensor": {
+                "TYPE": "local",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "aqi-123",
+                "LOCATION": "Old Room",
+            },
+            "Display": {"METRIC_1": "Temperature"},
+        },
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-sensor-settings",
+            data={"sensor_id": "aqi-123", "location": "Grow Tent"},
+            headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["sensor_id"] == "aqi-123"
+
+
+@pytest.mark.asyncio
+async def test_submit_switch_settings_ajax_returns_json_success(tmp_path, monkeypatch):
+    app, _ingest, _system_root, _sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
+    switch_mgr.save(
+        "switch-1",
+        {
+            "Switch": {
+                "TYPE": "local",
+                "SWITCH_LOCATION": "Old Room",
+                "SWITCH_1_LABEL": "Fan",
+            }
+        },
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-switch-settings",
+            data={"switch_id": "switch-1", "location": "Grow Tent", "SWITCH_1_LABEL": "Fan"},
+            headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["switch_id"] == "switch-1"
 
 
 @pytest.mark.asyncio

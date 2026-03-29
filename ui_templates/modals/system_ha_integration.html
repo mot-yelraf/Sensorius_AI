@@ -48,6 +48,7 @@
       <button id="btn-ha-cancel" class="button black">Back</button>
       <button id="btn-ha-save" class="button blue">Save</button>
     </div>
+    <div id="ha-save-status" class="muted" style="margin-top:8px; min-height:1.2rem;"></div>
   </div>
 </div>
 
@@ -77,6 +78,8 @@ window.openHomeAssistantModal = function() {
     elPass.type = "password";
   }
   if (elToggle) elToggle.textContent = "Show";
+  const statusEl = document.getElementById("ha-save-status");
+  if (statusEl) statusEl.textContent = "";
 
   ov.style.display = "flex";
 };
@@ -105,6 +108,8 @@ document.addEventListener("click", async (ev) => {
 
   if (ev.target && ev.target.id === "btn-ha-save") {
     try {
+      const statusEl = document.getElementById("ha-save-status");
+      const saveBtn = document.getElementById("btn-ha-save");
       const enabled = !!document.getElementById("ha-enabled")?.checked;
       const broker = (document.getElementById("ha-broker")?.value || "").trim();
       const portRaw = (document.getElementById("ha-port")?.value || "1883").trim();
@@ -112,6 +117,12 @@ document.addEventListener("click", async (ev) => {
       const password = (document.getElementById("ha-password")?.value || "").trim();
 
       const port = Math.max(1, Math.min(65535, parseInt(portRaw, 10) || 1883));
+      if (saveBtn) {
+        if (!saveBtn.dataset.baseLabel) saveBtn.dataset.baseLabel = saveBtn.textContent || "Save";
+        saveBtn.disabled = true;
+        saveBtn.textContent = "Saving...";
+      }
+      if (statusEl) statusEl.textContent = "Saving...";
 
       const resp = await fetch("/submit-homeassistant-settings", {
         method: "POST",
@@ -127,11 +138,12 @@ document.addEventListener("click", async (ev) => {
 
       if (!resp.ok) {
         const text = await resp.text().catch(() => "");
-        throw new Error("HTTP " + resp.status + " " + text);
+        throw new Error(String(text || ("HTTP " + resp.status)).trim());
       }
 
-      const res = await resp.json().catch(() => ({}));
+      await resp.json().catch(() => ({}));
       if (window.showToast) window.showToast("Home Assistant settings saved", "ok");
+      if (statusEl) statusEl.textContent = "Saved.";
 
       const ov = document.getElementById("ha-settings-overlay");
       if (ov) {
@@ -141,11 +153,17 @@ document.addEventListener("click", async (ev) => {
         ov.dataset.username = username;
         ov.dataset.password = password;
       }
-
-      window.closeHomeAssistantModal();
     } catch (e) {
       console.error(e);
+      const statusEl = document.getElementById("ha-save-status");
+      if (statusEl) statusEl.textContent = e && e.message ? e.message : "Failed to save Home Assistant settings.";
       if (window.showToast) window.showToast("Failed to save Home Assistant settings", "error");
+    } finally {
+      const saveBtn = document.getElementById("btn-ha-save");
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = saveBtn.dataset.baseLabel || "Save";
+      }
     }
   }
 });

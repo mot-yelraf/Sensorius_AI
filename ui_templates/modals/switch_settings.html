@@ -75,11 +75,12 @@
                     Home
                   </button>
 
-                  <button class="button blue" type="submit">
+                  <button class="button blue" type="submit" id="switchSettingsSaveBtn">
                     Save
                   </button>
                 </div>
               </div>
+              <div id="switchSettingsStatus" class="muted" style="font-size:0.8rem; min-height:1.2rem; margin-top:0.35rem; text-align:right;"></div>
             </form>
           </div>
 
@@ -148,6 +149,7 @@
                 <div class="row single">
                   <button class="button green" type="button" id="btnSetAutomation">Save</button>
                 </div>
+                <div id="automationSaveStatus" class="muted" style="font-size:0.8rem; min-height:1.2rem; margin-top:0.2rem;"></div>
                 <div class="json-preview" id="jsonPreview" hidden></div>
 
                 <div class="modal-footer" style="margin-top:.25rem;">
@@ -166,3 +168,53 @@
     </div>
   </div>
 </div>
+
+<script>
+(function(){
+  const modal = document.getElementById("switchSettingsModal");
+  const form = modal ? modal.querySelector('form[action="/submit-switch-settings"]') : null;
+  const saveBtn = document.getElementById("switchSettingsSaveBtn");
+  const statusEl = document.getElementById("switchSettingsStatus");
+  if (!modal || !form || !saveBtn || !statusEl) return;
+  if (form.dataset.ajaxBound === "1") return;
+  form.dataset.ajaxBound = "1";
+
+  function setBusy(isBusy) {
+    saveBtn.disabled = !!isBusy;
+  }
+
+  function setStatus(text) {
+    statusEl.textContent = text || "";
+  }
+
+  form.addEventListener("submit", async function(ev){
+    ev.preventDefault();
+    setBusy(true);
+    setStatus("Saving...");
+    try {
+      const body = new URLSearchParams(new FormData(form));
+      const resp = await fetch(form.action, {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        },
+        body: body.toString(),
+      });
+      const js = await resp.json().catch(() => ({}));
+      if (!resp.ok || js.ok === false) {
+        throw new Error(String(js.error || js.message || ("HTTP " + resp.status)));
+      }
+      setStatus("Saved.");
+      if (typeof window.showToast === "function") window.showToast("Switch settings saved", "ok");
+    } catch (err) {
+      const msg = err && err.message ? err.message : "Failed to save switch settings.";
+      setStatus(msg);
+      if (typeof window.showToast === "function") window.showToast("Failed to save switch settings", "error");
+    } finally {
+      setBusy(false);
+    }
+  });
+})();
+</script>

@@ -139,3 +139,64 @@ async def test_biodynamic_calendar_api_default_month_uses_biodynamic_local_time(
     assert res.status_code == 200
     assert captured["anchor"].isoformat() == "2026-03-01"
     assert window_calls == [("2026-03-22", 14, True)]
+
+
+@pytest.mark.asyncio
+async def test_biodynamic_calendar_api_includes_spillover_day_summaries(monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    range_calls = []
+
+    def _fake_payload(anchor):
+        assert anchor.isoformat() == "2026-03-01"
+        return {
+            "ok": True,
+            "calendar": [
+                {"date": "2026-03-29", "in_month": True},
+                {"date": "2026-03-30", "in_month": True},
+                {"date": "2026-03-31", "in_month": True},
+                {"date": "2026-04-01", "in_month": False},
+                {"date": "2026-04-02", "in_month": False},
+            ],
+            "month_label": "March 2026",
+        }
+
+    class _FakeDailySummaryService:
+        def __init__(self, *, settings, data_logger, supervisor=None, sensor_mgr=None, statter=None):
+            self.settings = settings
+            self.data_logger = data_logger
+
+        def ensure_summaries_for_window(self, start_date, *, days=14, refresh_start=True):
+            return 0
+
+    monkeypatch.setattr(saiWebRoutes, "get_biodynamic_payload", _fake_payload)
+    monkeypatch.setattr(saiWebRoutes, "DailySummaryService", _FakeDailySummaryService)
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_biodynamic_notes_for_range",
+        lambda start_date, end_date: (
+            range_calls.append(("notes", start_date.isoformat(), end_date.isoformat())) or {"2026-04-01": "spillover note"}
+        ),
+    )
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_biodynamic_daily_summaries_for_range",
+        lambda start_date, end_date: (
+            range_calls.append(("summaries", start_date.isoformat(), end_date.isoformat())) or {"2026-04-01": "spillover summary"}
+        ),
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_notes_for_month", lambda anchor: {})
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_daily_summaries_for_month", lambda anchor: {})
+
+    app = FastAPI()
+    await saiWebRoutes.register_routes(app, _HubSettings(), _FakeNetMgr(), _FakeGcMgr(), _FakeIngest())
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/api/biodynamic-calendar?month=2026-03")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["daily_summaries"]["2026-04-01"] == "spillover summary"
+    assert body["notes"]["2026-04-01"] == "spillover note"
+    assert ("notes", "2026-03-29", "2026-04-02") in range_calls
+    assert ("summaries", "2026-03-29", "2026-04-02") in range_calls

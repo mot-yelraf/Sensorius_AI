@@ -395,11 +395,12 @@
               <div class="field-grid-stack">
                 <div class="field-stack">
                   <label for="astral_lat">Latitude</label>
-                  <input type="text" id="astral_lat" name="astral_lat" value="{{ astral_lat | default('') }}" placeholder="40.0150">
+                  <input type="text" id="astral_lat" name="astral_lat" value="{{ astral_lat | default('') }}" placeholder="40.0150" title="Enter manual coordinates, or type reset in either coordinate field to clear saved Astral location and re-detect it on the next refresh or startup.">
                 </div>
                 <div class="field-stack">
                   <label for="astral_lon">Longitude</label>
-                  <input type="text" id="astral_lon" name="astral_lon" value="{{ astral_lon | default('') }}" placeholder="-105.2705">
+                  <input type="text" id="astral_lon" name="astral_lon" value="{{ astral_lon | default('') }}" placeholder="-105.2705" title="Enter manual coordinates, or type reset in either coordinate field to clear saved Astral location and re-detect it on the next refresh or startup.">
+                  <div class="field-help">Type <code>reset</code> in either coordinate field to clear saved Astral location.</div>
                 </div>
                 <div class="field-stack">
                   <label for="astral_sunrise">Sunrise</label>
@@ -440,8 +441,9 @@
 
               <div class="pane-footer">
                 <button type="button" class="button black" id="btn-home">Home</button>
-                <button type="submit" class="button blue">Save</button>
+                <button type="submit" class="button blue" id="btn-system-save">Save</button>
               </div>
+              <div class="status-text" id="system-status"></div>
             </form>
           </div>
 
@@ -766,6 +768,57 @@
     if (el) el.textContent = text || "";
   }
 
+  function setButtonBusy(buttonOrId, isBusy, busyLabel) {
+    const btn = typeof buttonOrId === "string" ? document.getElementById(buttonOrId) : buttonOrId;
+    if (!btn) return;
+    if (!Object.prototype.hasOwnProperty.call(btn.dataset, "baseLabel")) {
+      btn.dataset.baseLabel = btn.textContent || "Save";
+    }
+    btn.disabled = !!isBusy;
+    btn.textContent = isBusy ? (busyLabel || "Saving...") : (btn.dataset.baseLabel || "Save");
+  }
+
+  async function readErrorMessage(resp, fallbackText) {
+    const contentType = String(resp.headers.get("content-type") || "").toLowerCase();
+    if (contentType.includes("application/json")) {
+      const js = await resp.json().catch(() => ({}));
+      return String(js.error || js.message || fallbackText || ("HTTP " + resp.status));
+    }
+    const text = await resp.text().catch(() => "");
+    return String(text || fallbackText || ("HTTP " + resp.status)).trim();
+  }
+
+  async function saveSystemSettings() {
+    const form = document.getElementById("systemSettingsForm");
+    if (!form) return;
+    try {
+      setButtonBusy("btn-system-save", true, "Saving...");
+      setStatus("system-status", "Saving...");
+      const body = new URLSearchParams(new FormData(form));
+      const resp = await fetch(form.action, {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        },
+        body: body.toString(),
+      });
+      const js = await resp.json().catch(() => ({}));
+      if (!resp.ok || js.ok === false) {
+        throw new Error(String(js.error || js.message || ("HTTP " + resp.status)));
+      }
+      setStatus("system-status", "Saved.");
+      if (window.showToast) window.showToast("System settings saved", "ok");
+    } catch (e) {
+      console.error(e);
+      setStatus("system-status", e && e.message ? e.message : "Failed to save System settings.");
+      if (window.showToast) window.showToast("Failed to save System settings", "error");
+    } finally {
+      setButtonBusy("btn-system-save", false);
+    }
+  }
+
   function refreshTzOptionsList(items) {
     if (!tzOptionsEl) return;
     tzOptionsEl.innerHTML = "";
@@ -836,6 +889,7 @@
       const port = Math.max(1, Math.min(65535, parseInt(portRaw, 10) || 1883));
 
       setStatus("ha-status", "Saving...");
+      setButtonBusy("btn-ha-save", true, "Saving...");
 
       const resp = await fetch("/submit-homeassistant-settings", {
         method: "POST",
@@ -844,8 +898,7 @@
       });
 
       if (!resp.ok) {
-        const text = await resp.text().catch(() => "");
-        throw new Error("HTTP " + resp.status + " " + text);
+        throw new Error(await readErrorMessage(resp, "Failed to save Home Assistant settings."));
       }
 
       shell.dataset.haEnabled = String(enabled);
@@ -857,8 +910,10 @@
       if (window.showToast) window.showToast("Home Assistant settings saved", "ok");
     } catch (e) {
       console.error(e);
-      setStatus("ha-status", "Failed to save Home Assistant settings.");
+      setStatus("ha-status", e && e.message ? e.message : "Failed to save Home Assistant settings.");
       if (window.showToast) window.showToast("Failed to save Home Assistant settings", "error");
+    } finally {
+      setButtonBusy("btn-ha-save", false);
     }
   }
 
@@ -925,6 +980,7 @@
       const log_bundle = (document.getElementById("farm-log-bundle")?.value || "observation").trim().toLowerCase() || "observation";
 
       setStatus("farm-status", "Saving...");
+      setButtonBusy("btn-farm-save", true, "Saving...");
 
       const resp = await fetch("/submit-farmos-settings", {
         method: "POST",
@@ -935,8 +991,7 @@
       });
 
       if (!resp.ok) {
-        const text = await resp.text().catch(() => "");
-        throw new Error("HTTP " + resp.status + " " + text);
+        throw new Error(await readErrorMessage(resp, "Failed to save FarmOS settings."));
       }
 
       shell.dataset.farmEnabled = String(enabled);
@@ -952,8 +1007,10 @@
       if (window.showToast) window.showToast("FarmOS settings saved", "ok");
     } catch (e) {
       console.error(e);
-      setStatus("farm-status", "Failed to save FarmOS settings.");
+      setStatus("farm-status", e && e.message ? e.message : "Failed to save FarmOS settings.");
       if (window.showToast) window.showToast("Failed to save FarmOS settings", "error");
+    } finally {
+      setButtonBusy("btn-farm-save", false);
     }
   }
 
@@ -1057,6 +1114,7 @@
       });
 
       setStatus("locations-status", "Saving...");
+      setButtonBusy("btn-locations-save", true, "Saving...");
 
       const resp = await fetch("/device-locations", {
         method: "POST",
@@ -1065,17 +1123,17 @@
       });
 
       if (!resp.ok) {
-        const text = await resp.text().catch(() => "");
-        throw new Error("HTTP " + resp.status + " " + text);
+        throw new Error(await readErrorMessage(resp, "Failed to save locations."));
       }
 
       setStatus("locations-status", "Saved.");
       if (window.showToast) window.showToast("Locations saved", "ok");
-      setTimeout(() => window.location.reload(), 200);
     } catch (e) {
       console.error(e);
-      setStatus("locations-status", "Failed to save locations.");
+      setStatus("locations-status", e && e.message ? e.message : "Failed to save locations.");
       if (window.showToast) window.showToast("Failed to save", "error");
+    } finally {
+      setButtonBusy("btn-locations-save", false);
     }
   }
 
@@ -1134,6 +1192,7 @@
       };
 
       setStatus("adv-status", "Saving...");
+      setButtonBusy("btn-advanced-save", true, "Saving...");
       const resp = await fetch("/advanced/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1151,8 +1210,10 @@
       if (window.showToast) window.showToast("Advanced settings saved", "ok");
     } catch (e) {
       console.error(e);
-      setStatus("adv-status", "Failed to save Advanced settings.");
+      setStatus("adv-status", e && e.message ? e.message : "Failed to save Advanced settings.");
       if (window.showToast) window.showToast("Failed to save Advanced settings", "error");
+    } finally {
+      setButtonBusy("btn-advanced-save", false);
     }
   }
 
@@ -1812,6 +1873,14 @@
 
   if (astralLatEl) astralLatEl.addEventListener("blur", refreshTimezoneOptionsFromCoords);
   if (astralLonEl) astralLonEl.addEventListener("blur", refreshTimezoneOptionsFromCoords);
+  const systemSettingsForm = document.getElementById("systemSettingsForm");
+  if (systemSettingsForm && systemSettingsForm.dataset.ajaxBound !== "1") {
+    systemSettingsForm.dataset.ajaxBound = "1";
+    systemSettingsForm.addEventListener("submit", function(ev) {
+      ev.preventDefault();
+      saveSystemSettings();
+    });
+  }
   refreshTimezoneOptionsFromCoords();
 })();
 </script>

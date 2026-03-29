@@ -846,6 +846,14 @@ window.refreshAdvancedAutomationModal = async function(rootLike) {
 
 // ----- Public save/delete wired to backend -----
 async function saveCurrent(modal){
+  const saveBtn = modal ? modal.querySelector("#btnSetAutomation") : null;
+  const statusEl = modal ? modal.querySelector("#automationSaveStatus") : null;
+  if (saveBtn) {
+    if (!saveBtn.dataset.baseLabel) saveBtn.dataset.baseLabel = saveBtn.textContent || "Save";
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+  }
+  if (statusEl) statusEl.textContent = "Saving...";
   const doc = serializeForm(modal);
   const payload = {
     switch_id: currentSwitchId,
@@ -863,7 +871,10 @@ async function saveCurrent(modal){
     headers: {"Content-Type":"application/json"},
     body: JSON.stringify(payload)
   });
-  if (!res.ok) throw new Error("Save failed");
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(String(body.error || body.message || "Save failed"));
+  }
   const saved = await res.json().catch(() => ({}));
   const savedRuleId = String(saved?.rule_id || doc.id || "").trim() || doc.id;
   const nextDoc = { ...doc, id: savedRuleId };
@@ -880,6 +891,12 @@ async function saveCurrent(modal){
   }
   if (typeof window.scheduleSwitchStatusRefreshes === "function") {
     window.scheduleSwitchStatusRefreshes([1500, 6000, 12000]);
+  }
+  if (statusEl) statusEl.textContent = "Saved.";
+  if (typeof window.showToast === "function") window.showToast("Automation saved", "ok");
+  if (saveBtn) {
+    saveBtn.disabled = false;
+    saveBtn.textContent = saveBtn.dataset.baseLabel || "Save";
   }
 }
 
@@ -947,7 +964,15 @@ window.initAdvancedAutomationModal = async function (modalEl) {
     if (btnNewFromList) btnNewFromList.onclick = startNewAutomation;
     if (btnAdd)  btnAdd.onclick  = () => addCondition(modalRoot, { type:"sensor" });
     if (btnAddAction) btnAddAction.onclick = () => addAction(modalRoot, {});
-    if (btnSave) btnSave.onclick = () => saveCurrent(modalRoot).catch(e=>alert(e.message));
+    if (btnSave) btnSave.onclick = () => saveCurrent(modalRoot).catch((e) => {
+      const statusEl = modalRoot.querySelector("#automationSaveStatus");
+      if (statusEl) statusEl.textContent = e && e.message ? e.message : "Save failed";
+      if (typeof window.showToast === "function") window.showToast("Failed to save automation", "error");
+      if (btnSave) {
+        btnSave.disabled = false;
+        btnSave.textContent = btnSave.dataset.baseLabel || "Save";
+      }
+    });
     if (btnDel)  btnDel.onclick  = () => deleteSelected(modalRoot);
     if (btnSavedAutomations) btnSavedAutomations.onclick = () => setAutomationView(modalRoot, "chooser");
 

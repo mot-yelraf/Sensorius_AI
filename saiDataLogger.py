@@ -838,6 +838,14 @@ class saiDataLogger:
 
     # ------------------------- BIODYNAMIC NOTES API -------------------------
 
+    @staticmethod
+    def _normalize_biodynamic_date_range(start_date, end_date) -> tuple[str, str]:
+        if isinstance(start_date, str):
+            start_date = datetime.fromisoformat(start_date).date()
+        if isinstance(end_date, str):
+            end_date = datetime.fromisoformat(end_date).date()
+        return start_date.isoformat(), end_date.isoformat()
+
     def get_biodynamic_notes_for_month(self, month_anchor) -> dict[str, str]:
         try:
             if isinstance(month_anchor, str):
@@ -867,6 +875,29 @@ class saiDataLogger:
             printDM(f"[get_biodynamic_notes_for_month] error: {e}", location=MODULE)
             return {}
 
+    def get_biodynamic_notes_for_range(self, start_date, end_date) -> dict[str, str]:
+        try:
+            start_iso, end_iso = self._normalize_biodynamic_date_range(start_date, end_date)
+            with self._open_conn() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT note_date, note_text
+                    FROM biodynamic_notes
+                    WHERE note_date >= ? AND note_date <= ?
+                    ORDER BY note_date ASC
+                    """,
+                    (start_iso, end_iso),
+                )
+                return {
+                    str(row["note_date"]): str(row["note_text"] or "")
+                    for row in cur.fetchall()
+                    if row and row["note_date"]
+                }
+        except Exception as e:
+            printDM(f"[get_biodynamic_notes_for_range] error: {e}", location=MODULE)
+            return {}
+
     def get_biodynamic_daily_summaries_for_month(self, month_anchor) -> dict[str, str]:
         try:
             if isinstance(month_anchor, str):
@@ -894,6 +925,29 @@ class saiDataLogger:
                 }
         except Exception as e:
             printDM(f"[get_biodynamic_daily_summaries_for_month] error: {e}", location=MODULE)
+            return {}
+
+    def get_biodynamic_daily_summaries_for_range(self, start_date, end_date) -> dict[str, str]:
+        try:
+            start_iso, end_iso = self._normalize_biodynamic_date_range(start_date, end_date)
+            with self._open_conn() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT summary_date, summary_text
+                    FROM biodynamic_daily_summaries
+                    WHERE summary_date >= ? AND summary_date <= ?
+                    ORDER BY summary_date ASC
+                    """,
+                    (start_iso, end_iso),
+                )
+                return {
+                    str(row["summary_date"]): str(row["summary_text"] or "")
+                    for row in cur.fetchall()
+                    if row and row["summary_date"]
+                }
+        except Exception as e:
+            printDM(f"[get_biodynamic_daily_summaries_for_range] error: {e}", location=MODULE)
             return {}
 
     def get_biodynamic_daily_summary(self, summary_date: str) -> str:

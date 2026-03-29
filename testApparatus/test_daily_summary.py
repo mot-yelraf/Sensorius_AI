@@ -115,3 +115,40 @@ def test_ensure_summaries_for_window_refreshes_today_only_when_future_rows_are_c
     assert logger.saved["2026-03-09"] == "Biodynamic Hints\nfuture intact\n\nAstral Notes\nfuture intact"
     assert "Biodynamic Hints" in logger.saved["2026-03-10"]
     assert "Astral Notes" in logger.saved["2026-03-10"]
+
+
+def test_ensure_summaries_for_window_crosses_month_boundary(monkeypatch):
+    calls = []
+
+    def _fake_payload(anchor):
+        calls.append(anchor.isoformat())
+        return {
+            "ok": True,
+            "calendar": [
+                {
+                    "date": anchor.isoformat(),
+                    "dominant_sign": "Leo",
+                    "dominant_element": "Fire",
+                    "dominant_plant_part": "Fruit",
+                    "segments": [
+                        {"start": "00:00", "end": "23:59", "sign": "Leo"},
+                    ],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(saiDailySummary, "get_biodynamic_payload", _fake_payload)
+    logger = _FakeLogger()
+    service = saiDailySummary.DailySummaryService(
+        settings=_FakeSettings(),
+        data_logger=logger,
+    )
+
+    writes = service.ensure_summaries_for_window(date(2026, 3, 25), days=14, refresh_start=True)
+
+    assert writes == 14
+    assert "2026-03-31" in logger.saved
+    assert "2026-04-01" in logger.saved
+    assert "2026-04-07" in logger.saved
+    assert calls[0] == "2026-03-25"
+    assert calls[-1] == "2026-04-07"

@@ -157,6 +157,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         _DASHBOARD_INVENTORY_CACHE = None
         _DASHBOARD_DISPLAY_SETTINGS_CACHE = None
 
+    def _wants_modal_json(request: Request) -> bool:
+        accept = str(request.headers.get("accept", "") or "").lower()
+        requested_with = str(request.headers.get("x-requested-with", "") or "").lower()
+        return requested_with == "xmlhttprequest" or "application/json" in accept
+
+    def _modal_error_response(request: Request, message: str, *, status_code: int = 400):
+        if _wants_modal_json(request):
+            return JSONResponse({"ok": False, "error": str(message or "")}, status_code=status_code)
+        return PlainTextResponse(str(message or ""), status_code=status_code)
+
     def _get_sensor_settings_manager() -> SensorSettingsManager | None:
         cached = getattr(app.state, "_sensor_settings_manager", None)
         if cached is not None:
@@ -3676,8 +3686,20 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         payload = get_biodynamic_payload(anchor)
         payload_ms = (time.monotonic() - payload_started) * 1000.0
         notes_started = time.monotonic()
-        payload["notes"] = data_logger.get_biodynamic_notes_for_month(anchor)
-        payload["daily_summaries"] = data_logger.get_biodynamic_daily_summaries_for_month(anchor)
+        calendar_days = payload.get("calendar") or []
+        visible_dates = [
+            datetime.fromisoformat(str(day.get("date"))).date()
+            for day in calendar_days
+            if isinstance(day, dict) and day.get("date")
+        ]
+        if visible_dates:
+            range_start = min(visible_dates)
+            range_end = max(visible_dates)
+            payload["notes"] = data_logger.get_biodynamic_notes_for_range(range_start, range_end)
+            payload["daily_summaries"] = data_logger.get_biodynamic_daily_summaries_for_range(range_start, range_end)
+        else:
+            payload["notes"] = data_logger.get_biodynamic_notes_for_month(anchor)
+            payload["daily_summaries"] = data_logger.get_biodynamic_daily_summaries_for_month(anchor)
         notes_ms = (time.monotonic() - notes_started) * 1000.0
         _ui_profile_log(
             "api-biodynamic-calendar",
@@ -5454,33 +5476,50 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         display_style = str(form.get("display_style", "") or "").strip()
 
         if not tz:
-            return PlainTextResponse("Time zone is required.", status_code=400)
+            return _modal_error_response(request, "Time zone is required.", status_code=400)
         try:
             ZoneInfo(tz)
         except Exception:
-            return PlainTextResponse(f"Invalid timezone '{tz}'. Use a valid IANA timezone (example: America/Denver).", status_code=400)
+            return _modal_error_response(
+                request,
+                f"Invalid timezone '{tz}'. Use a valid IANA timezone (example: America/Denver).",
+                status_code=400,
+            )
 
         try:
             httpport = int(raw_httpport or "8000")
         except Exception:
-            return PlainTextResponse("HTTP Port must be a number.", status_code=400)
+            return _modal_error_response(request, "HTTP Port must be a number.", status_code=400)
         if httpport < 1 or httpport > 65535:
-            return PlainTextResponse("HTTP Port must be between 1 and 65535.", status_code=400)
+            return _modal_error_response(request, "HTTP Port must be between 1 and 65535.", status_code=400)
 
-        lat_to_store = ""
-        lon_to_store = ""
-        if raw_lat or raw_lon:
+        astral_reset_requested = raw_lat.lower() == "reset" or raw_lon.lower() == "reset"
+        lat_to_store = None
+        lon_to_store = None
+        astral_tz_to_store = None
+        if astral_reset_requested:
+            lat_to_store = ""
+            lon_to_store = ""
+            astral_tz_to_store = ""
+        elif raw_lat or raw_lon:
+            if not raw_lat or not raw_lon:
+                return _modal_error_response(
+                    request,
+                    "Latitude and Longitude must both be provided, or enter 'reset' in either field to clear Astral auto-location.",
+                    status_code=400,
+                )
             try:
                 lat_val = float(raw_lat)
                 lon_val = float(raw_lon)
             except Exception:
-                return PlainTextResponse("Latitude and Longitude must be numeric values.", status_code=400)
+                return _modal_error_response(request, "Latitude and Longitude must be numeric values, or 'reset'.", status_code=400)
             if not (-90.0 <= lat_val <= 90.0):
-                return PlainTextResponse("Latitude must be between -90 and 90.", status_code=400)
+                return _modal_error_response(request, "Latitude must be between -90 and 90.", status_code=400)
             if not (-180.0 <= lon_val <= 180.0):
-                return PlainTextResponse("Longitude must be between -180 and 180.", status_code=400)
+                return _modal_error_response(request, "Longitude must be between -180 and 180.", status_code=400)
             lat_to_store = f"{lat_val:.6f}"
             lon_to_store = f"{lon_val:.6f}"
+            astral_tz_to_store = tz
 
         tz_offset, tz_name = settings.timezone_info(tz)
 
@@ -5489,13 +5528,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         settings.replace_setting("Time", "TZ", tz)
         settings.replace_setting("Time", "TZ_OFFSET", tz_offset)
         settings.replace_setting("Time", "TZ_NAME", tz_name)
-        settings.replace_setting("Astral", "TIMEZONE", tz)
-        settings.replace_setting("Astral", "LATITUDE", lat_to_store)
-        settings.replace_setting("Astral", "LONGITUDE", lon_to_store)
+        if astral_tz_to_store is not None:
+            settings.replace_setting("Astral", "TIMEZONE", astral_tz_to_store)
+        if lat_to_store is not None:
+            settings.replace_setting("Astral", "LATITUDE", lat_to_store)
+        if lon_to_store is not None:
+            settings.replace_setting("Astral", "LONGITUDE", lon_to_store)
         settings.replace_setting("Display", "gauge_size", gauge_size)
         settings.replace_setting("Display", "display_style", display_style)
 
-        return RedirectResponse(url="/?refresh=true", status_code=303)        
+        if _wants_modal_json(request):
+            return JSONResponse({"ok": True, "message": "System settings saved."})
+        return RedirectResponse(url="/?refresh=true", status_code=303)
 
     @router.post("/submit-homeassistant-settings")
     async def submit_homeassistant_settings(request: Request):
@@ -6583,7 +6627,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # ---------- validate form ----------
         sensor_id_in_form = form.get("sensor_id")
         if not sensor_id_in_form:
-            return HTMLResponse("<h3>Missing sensor_id</h3><a href='/'>Return</a>", status_code=400)
+            return _modal_error_response(request, "Missing sensor_id", status_code=400)
 
         old_id = normalize_sensor_id(sensor_id_in_form)
         manager = SensorSettingsManager("sensor_settings")
@@ -6688,6 +6732,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 sys_host_index=sys_host_index,
             )
 
+        if _wants_modal_json(request):
+            return JSONResponse({"ok": True, "message": "Sensor settings saved.", "sensor_id": new_id})
         return RedirectResponse(url="/", status_code=303)
 
     @router.post("/calibrate")
@@ -8210,7 +8256,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # ---- validate ----
         switch_id_in_form = form.get("switch_id")
         if not switch_id_in_form:
-            return HTMLResponse("<h3>Missing switch_id</h3><a href='/'>Return</a>", status_code=400)
+            return _modal_error_response(request, "Missing switch_id", status_code=400)
 
         old_id = normalize_switch_id(switch_id_in_form)
         manager = SwitchSettingsManager("switch_settings")
@@ -8312,10 +8358,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     sys_host_index=sys_host_index,
                 )
                 if not ok:
-                    return JSONResponse(
-                        {"status": "error", "message": "Failed to apply remote switch settings."},
-                        status_code=502,
-                    )
+                    if _wants_modal_json(request):
+                        return JSONResponse(
+                            {"ok": False, "error": "Failed to apply remote switch settings."},
+                            status_code=502,
+                        )
+                    return PlainTextResponse("Failed to apply remote switch settings.", status_code=502)
             for update in remote_last_state_updates:
                 ok, err = await _publish_remote_switch_last_state(
                     old_id,
@@ -8328,15 +8376,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     sys_host_index=sys_host_index,
                 )
                 if not ok:
-                    return JSONResponse(
-                        {
-                            "status": "error",
-                            "message": err or "Failed to apply remote switch state.",
-                            "channel_id": str(update.get("channel_id") or "").strip(),
-                            "channel_label": str(update.get("channel_label") or "").strip(),
-                        },
-                        status_code=502,
-                    )
+                    err_msg = err or "Failed to apply remote switch state."
+                    if _wants_modal_json(request):
+                        return JSONResponse(
+                            {
+                                "ok": False,
+                                "error": err_msg,
+                                "channel_id": str(update.get("channel_id") or "").strip(),
+                                "channel_label": str(update.get("channel_label") or "").strip(),
+                            },
+                            status_code=502,
+                        )
+                    return PlainTextResponse(err_msg, status_code=502)
 
         # Persist the local shadow only after remote applies/commands succeed.
         try:
@@ -8350,6 +8401,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 for section_name, section_map in merged_doc.items():
                     manager.save(old_id, OrderedDict([(section_name, section_map)]))
 
+        if _wants_modal_json(request):
+            return JSONResponse({"ok": True, "message": "Switch settings saved.", "switch_id": new_id})
         return RedirectResponse(url="/", status_code=303)
 
     # Advanced Automation helpers
@@ -9111,6 +9164,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 pass
         except Exception as e:
             printDM(f"[{MODULE}] ⚠️ Failed to save Advanced trigger {rule_id} for {switch_id}: {e}", location=MODULE)
+            if is_json_request:
+                return JSONResponse({"ok": False, "error": str(e) or "Failed saving Advanced trigger."}, status_code=500)
             return HTMLResponse("<h3>Failed saving Advanced trigger.</h3><a href='/'>Return</a>", status_code=500)
 
         # Success response (JSON for JSON requests; redirect for browser form posts)
