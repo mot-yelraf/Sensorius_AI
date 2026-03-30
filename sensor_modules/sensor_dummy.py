@@ -1,4 +1,10 @@
-# sensor_modules/sensor_dummy.py
+"""Synthetic sensor backend used for development and smoke testing.
+
+The dummy sensor publishes stable temperature, humidity, and VPD-style readings
+without requiring hardware so UI, MQTT, and persistence flows can be exercised
+in non-hardware environments.
+"""
+
 import math
 from saiUtils import printDM, debug_enabled
 from sensor_modules.base import BaseSensor, find_sensor_bus

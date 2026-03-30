@@ -1,3 +1,10 @@
+"""Daily summary generation for astral, biodynamic, and calendar guidance.
+
+This module builds the persisted daily summary text shown by the Sensorius UI.
+It combines Astral-derived sun and moon data, biodynamic hints, and date-window
+maintenance helpers so summaries can be generated once and refreshed when needed.
+"""
+
 from __future__ import annotations
 
 import asyncio

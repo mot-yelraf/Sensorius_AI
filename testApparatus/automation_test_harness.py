@@ -1,3 +1,9 @@
+"""Automation manager harness for interactive compatibility checks.
+
+This module provides lightweight adapters and builders used to exercise the
+automation manager against representative switch settings outside the full app.
+"""
+
 import os
 import sys
 from dataclasses import dataclass

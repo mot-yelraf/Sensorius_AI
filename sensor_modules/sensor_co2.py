@@ -1,4 +1,10 @@
-# sensor_modules/sensor_co2.py
+"""SCD30 or SCD4x CO2 sensor backend for Sensorius.
+
+This module probes supported CO2 sensors, loads calibration offsets, and emits
+CO2, temperature, humidity, dew point, and VPD-related metrics through the
+common sensor interface.
+"""
+
 import time
 from saiUtils import printDM, debug_enabled
 from sensor_modules.base import BaseSensor, find_sensor_bus

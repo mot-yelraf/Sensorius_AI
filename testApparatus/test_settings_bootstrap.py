@@ -1,3 +1,9 @@
+"""Pytest coverage for initial settings materialization defaults.
+
+These tests verify auto-generated bootstrap values stay aligned with current
+Nodus and broker configuration expectations.
+"""
+
 from __future__ import annotations
 
 import os
@@ -51,17 +57,17 @@ def test_sensor_factory_seed_uses_nodus_aligned_display_defaults(tmp_path):
     sensor_root.mkdir()
     mgr = saiSensorSettingsManager.SensorSettingsManager(str(sensor_root))
 
-    mgr.seed_from_factory("aqi-123", "aqi")
+    mgr.seed_from_factory("apvpd-test123", "apvpd")
     mgr.seed_from_factory("lux-123", "lux")
     mgr.seed_from_factory("soil-123", "soil")
 
-    assert mgr.get_display_metrics("aqi-123") == [
-        "Air Quality",
+    assert mgr.get_display_metrics("apvpd-test123") == [
+        "Ambient VPD",
         "Temperature",
         "Rel-Humidity",
-        "Ambient VPD",
-        "Dew Point Deficit",
-        "dewVPD Risk",
+        "Plant VPD",
+        "Plant Temperature",
+        "Plant Rel-Humidity",
     ]
     assert mgr.get_display_metrics("lux-123") == [
         "Light Intensity",
@@ -77,5 +83,5 @@ def test_sensor_factory_seed_uses_nodus_aligned_display_defaults(tmp_path):
         "Soil pH",
         "Soil EC",
     ]
-    assert mgr.load("aqi-123")["Display"]["Style"]["METRIC_1"] == ""
-    assert mgr.load("aqi-123")["Display"]["Style"]["METRIC_6"] == ""
+    assert mgr.load("apvpd-test123")["Display"]["Style"]["METRIC_1"] == ""
+    assert mgr.load("apvpd-test123")["Display"]["Style"]["METRIC_6"] == ""

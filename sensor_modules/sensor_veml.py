@@ -1,12 +1,10 @@
-# sensor_modules/sensor_veml7700.py
+"""VEML7700 ambient light, PPFD, and DLI sensor backend.
+
+This module reads a VEML7700 light sensor, applies optional gain or integration
+handling plus calibration offsets, and derives lux, PPFD, and DLI telemetry for
+Sensorius dashboards, MQTT publication, and persistence.
 """
-sensor_veml7700.py
-Enhanced VEML7700 ambient light sensor with:
-- Lux and AutoLux (auto gain/integration when available)
-- Optional non-linear correction (soft knee at high lux)
-- PPFD (µmol/m²/s) from lux with configurable spectrum factor
-- DLI (mol/m²/day) computed since local midnight with O(1) memory
-"""
+
 import time
 from saiUtils import printDM, debug_enabled, get_timestamp
 from sensor_modules.base import BaseSensor

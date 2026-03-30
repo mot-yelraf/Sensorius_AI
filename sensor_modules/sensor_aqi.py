@@ -1,4 +1,10 @@
-# sensor_modules/sensor_aqi.py
+"""BME680-based air-quality sensor backend for Sensorius.
+
+This module exposes calibrated air-quality, gas-resistance, temperature,
+humidity, dew point, pressure, and ambient VPD readings from a BME680-class
+sensor.
+"""
+
 import math
 from saiUtils import printDM, debug_enabled
 from sensor_modules.base import BaseSensor, find_sensor_bus

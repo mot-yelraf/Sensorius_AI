@@ -1,4 +1,8 @@
-# switch_test.py
+"""Manual switch-board detection and cleanup helper.
+
+This script probes locally attached relay hardware and supports safe cleanup so
+GPIO-related switch behavior can be checked outside the main runtime.
+"""
 
 import time
 import sys

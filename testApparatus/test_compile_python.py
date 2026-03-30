@@ -1,3 +1,9 @@
+"""Repository-wide Python compile smoke test.
+
+This test walks the project tree and compiles Python modules to catch syntax and
+import-time breakage introduced by broad edits.
+"""
+
 import os
 import sys
 import traceback

@@ -1,3 +1,9 @@
+"""Pytest coverage for biodynamic calendar modal and API defaults.
+
+These tests validate local-date selection, default month resolution, and the
+spillover summary data returned for the biodynamic calendar experience.
+"""
+
 import os
 import sys
 from pathlib import Path

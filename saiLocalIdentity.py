@@ -1,4 +1,10 @@
-"""Helpers for persisted local host identity and channel-id normalization."""
+"""Helpers for persisted local host identity, serial reuse, and channel IDs.
+
+This module provides the small identity primitives used when Sensorius creates
+or repairs local sensor and switch settings. It covers host-serial generation,
+placeholder-channel detection, stable channel-id construction, and extraction of
+persisted host identity from local sensor naming conventions.
+"""
 
 from __future__ import annotations
 

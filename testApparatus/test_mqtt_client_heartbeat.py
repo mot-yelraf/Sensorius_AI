@@ -1,3 +1,9 @@
+"""Pytest coverage for MQTT client heartbeat and liveness publishing.
+
+These tests verify last-will setup, online or offline heartbeat publication, and
+degraded-health signaling during connectivity failures.
+"""
+
 import asyncio
 import json
 import os
@@ -61,7 +67,7 @@ class _FakePahoClient:
 
 class _FakeSettings:
     def __init__(self):
-        self.device_id = "aqi-x943fm"
+        self.device_id = "apvpd-test123"
         self.values = {
             ("SensorNetwork", "BROKER"): "broker.local",
             ("MQTT", "BASE_TOPIC"): "nodus",
@@ -80,7 +86,7 @@ class _FakeSettings:
 
 
 class _FakeSensor:
-    sensor_id = "aqi-x943fm"
+    sensor_id = "apvpd-test123"
     publish_interval = 30
     meas_interval = 30
     location = "Test"
@@ -101,15 +107,15 @@ def test_reconnect_configures_lwt_and_publishes_online_heartbeat(monkeypatch):
 
     assert c.client.wills, "LWT should be configured before connect"
     will_topic, _, _, will_retain = c.client.wills[-1]
-    assert will_topic == "nodus/aqi-x943fm/status/heartbeat"
+    assert will_topic == "nodus/apvpd-test123/status/heartbeat"
     assert will_retain is True
 
     assert c.client.pubs, "Reconnect should force online heartbeat publish"
     pub_topic, pub_payload, _, pub_retain = c.client.pubs[-1]
-    assert pub_topic == "nodus/aqi-x943fm/status/heartbeat"
+    assert pub_topic == "nodus/apvpd-test123/status/heartbeat"
     assert pub_retain is True
     data = json.loads(pub_payload)
-    assert data["device_id"] == "aqi-x943fm"
+    assert data["device_id"] == "apvpd-test123"
     assert data["status"] == "online"
     assert data["heartbeat_interval_s"] == 30
 

@@ -5,9 +5,10 @@ Sensorius can publish MQTT discovery and state topics for Home Assistant.
 ## What It Does
 
 - Connects to MQTT for Home Assistant integration
-- Publishes discovery payloads for supported entities
-- Publishes sensor/switch state updates
-- Optionally mirrors Nodus traffic into the configured base topic
+- Publishes discovery payloads for supported sensor metrics and switch channels
+- Publishes sensor/switch state and availability updates
+- Supports command routing for switch entities
+- Can mirror discovered Nodus traffic into the configured base topic when enabled
 
 ## Configure in Web UI
 
@@ -48,7 +49,7 @@ Notes:
 - `PUBLISH_DISCOVERY_RETAIN`: retain discovery payloads so HA can restore entities after restart.
 - `PUBLISH_STATE_RETAIN`: retain state payloads on broker.
 - `PUBLISH_LEGACY_SENSOR_TOPIC`: also publish legacy sensor topic format when enabled.
-- `NODUS_PASSTHROUGH`: pass Nodus topics through directly.
+- `NODUS_PASSTHROUGH`: keep direct Nodus topic subscription behavior enabled in the ingest layer.
 - `MIRROR_NODUS`: mirror discovered Nodus data into Sensorius/HA topic space.
 
 ## Topic Behavior

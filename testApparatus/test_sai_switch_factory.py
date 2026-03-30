@@ -1,3 +1,9 @@
+"""Pytest coverage for switch backend creation and board detection.
+
+This module verifies relay-board probing, settings repair, MQTT switch topic
+behavior, and local identity backfill logic.
+"""
+
 import os
 import sys
 import types

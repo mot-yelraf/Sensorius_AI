@@ -1,4 +1,10 @@
-"""HTML rendering helpers and shared UI constants."""
+"""HTML rendering helpers, UI fragments, and dashboard display metadata.
+
+This module centralizes Python-rendered HTML helpers used across the Sensorius
+web UI. It provides shared naming and branding constants, SVG fragments, metric
+canonicalization helpers, gauge configuration metadata, and other small
+presentation utilities reused by routes and templates.
+"""
 import os
 import re
 from saiUtils import printDM, debug_enabled, html_escape, normalize_hostname_base, mdns_hostname

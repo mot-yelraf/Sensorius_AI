@@ -1,4 +1,10 @@
-# sensor_modules/sensor_apvpd.py
+"""Dual-BME280 ambient and plant VPD sensor backend.
+
+This module coordinates either a dual-bus or dual-address BME280 arrangement so
+Sensorius can compare ambient and plant-climate conditions and derive plant VPD
+metrics from the paired probes.
+"""
+
 from saiUtils import printDM, debug_enabled
 from sensor_modules.base import BaseSensor, find_sensor_bus
 

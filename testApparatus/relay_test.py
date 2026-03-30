@@ -1,4 +1,8 @@
-# relay_test_loop.py
+"""Manual relay board cycle test for locally attached switch hardware.
+
+Use this script for bench testing relay channels outside the main application
+when validating board wiring and polarity behavior.
+"""
 
 import asyncio
 from saiSwitchFactory import ThreeRelaySwitch

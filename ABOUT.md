@@ -1,6 +1,6 @@
 # Sensorius
 
-Sensorius is a Raspberry Pi-based sensor and automation hub with a full web UI, MQTT ingestion, and Home Assistant support. It auto-detects local sensors, discovers Nodus devices over MQTT, and turns those signals into a live dashboard, data history, and switch control system. The goal is simple: plug in sensors, power up Nodus devices, and get immediate visibility, storage, and control with minimal manual setup.
+Sensorius is a Raspberry Pi-first sensor and automation hub with a full web UI, MQTT ingestion, and Home Assistant support. It auto-detects local sensors, discovers Nodus devices over MQTT, and turns those signals into a live dashboard, data history, and switch control system. The goal is simple: plug in sensors, power up Nodus devices, and get immediate visibility, storage, and control with minimal manual setup.
 
 ## What Sensorius Does
 
@@ -17,7 +17,7 @@ Sensorius combines data collection, discovery, configuration, visualization, and
 
 ## Discovery and Metadata
 
-Sensorius discovers Nodus devices by listening to MQTT traffic and consuming retained `nodus/<device_id>/meta` metadata. (`/itaot` remains a legacy/diagnostic fallback.) That metadata drives:
+Sensorius discovers Nodus devices by listening to MQTT traffic and consuming retained `nodus/<device_id>/meta` metadata. (`/itaot-meta` remains an AP-mode or diagnostic fallback.) That metadata drives:
 
 - Device identity (sensor id, type, serial, hostname).
 - Sensor location, display metrics, and dashboard grouping.

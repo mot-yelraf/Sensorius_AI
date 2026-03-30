@@ -1,4 +1,10 @@
-"""FarmOS telemetry bridge for Sensorius (httpx backend only)."""
+"""farmOS telemetry export bridge for Sensorius runtime readings.
+
+This module queues freshly written sensor readings from the data logger and
+ships them to farmOS using the built-in `httpx` JSON:API client path. It owns
+queueing, token selection, outbound request shaping, retry-oriented worker
+behavior, and status snapshots used by the web routes.
+"""
 
 from __future__ import annotations
 

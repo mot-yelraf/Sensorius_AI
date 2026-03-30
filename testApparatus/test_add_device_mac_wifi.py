@@ -1,3 +1,9 @@
+"""Pytest coverage for Add Device Wi-Fi helpers on macOS and Linux.
+
+These tests validate the platform-specific join and reconnect flows used during
+onboarding without requiring real network changes.
+"""
+
 from __future__ import annotations
 
 import os

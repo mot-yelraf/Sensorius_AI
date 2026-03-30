@@ -1,4 +1,10 @@
-"""Biodynamic calendar helpers for Sensorius."""
+"""Biodynamic calendar payload generation and caching for Sensorius.
+
+This module computes the biodynamic calendar data shown in the web UI and daily
+summary flows. It derives zodiac sign windows, plant-part guidance, moon-node
+or perigee intervals, and month-view payloads, while caching ephemeris-backed
+results so dashboard and API consumers can reuse them cheaply.
+"""
 
 from __future__ import annotations
 

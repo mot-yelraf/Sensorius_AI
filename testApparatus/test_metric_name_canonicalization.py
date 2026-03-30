@@ -1,3 +1,9 @@
+"""Pytest coverage for metric-name alias canonicalization.
+
+These tests keep metric naming stable across UI, ingest, and storage paths by
+verifying common aliases normalize to canonical names.
+"""
+
 from pathlib import Path
 import sys
 

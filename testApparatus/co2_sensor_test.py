@@ -1,3 +1,9 @@
+"""Manual CO2 sensor smoke test script for local hardware validation.
+
+This helper runs the CO2 backend directly so developers can observe live sensor
+output and basic initialization behavior without starting the full hub.
+"""
+
 import board
 import busio
 from smbus2 import SMBus

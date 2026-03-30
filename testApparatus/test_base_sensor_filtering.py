@@ -1,3 +1,9 @@
+"""Pytest coverage for base sensor filtering behavior.
+
+The tests in this module verify that metrics flagged to bypass smoothing are
+left unsmoothed by the shared `BaseSensor` filter pipeline.
+"""
+
 from pathlib import Path
 import sys
 

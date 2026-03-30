@@ -1,4 +1,8 @@
-# test_picow_onboarding.py
+"""Manual Pico W onboarding exercise for the legacy AP bootstrap flow.
+
+The script assembles onboarding payloads, retries AP metadata fetches, and runs
+an end-to-end bootstrap attempt against a device in setup mode.
+"""
 
 import asyncio
 import json

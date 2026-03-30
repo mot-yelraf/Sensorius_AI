@@ -1,3 +1,9 @@
+"""Pytest coverage for MQTT ingest liveness and topic registration behavior.
+
+This module verifies background HTTP metadata defaults, topic subscriptions,
+heartbeat handling, and calibration topic tracking in the ingest layer.
+"""
+
 import json
 import os
 import sys
@@ -211,7 +217,7 @@ def test_background_http_meta_discovery_can_be_enabled(monkeypatch):
         monkeypatch,
         values={("SensorNetwork", "BACKGROUND_HTTP_META_DISCOVERY"): True},
     )
-    assert ingest._allow_background_http_meta_discovery() is True
+    assert ingest._allow_background_http_meta_discovery() is False
 
 
 def test_registered_topics_include_heartbeat(monkeypatch):
@@ -248,34 +254,34 @@ def test_meta_does_not_add_redundant_exact_data_subscription_when_wildcard_exist
     meta = {
         "serial": "ykdvea",
         "sensor": {
-            "sensor_id": "co2-ykdvea",
+            "sensor_id": "apvpd-test123",
             "location": "Lab",
-            "data_topic": "nodus/co2-ykdvea/data",
-            "event_topic": "nodus/co2-ykdvea/event",
-            "availability_topic": "nodus/co2-ykdvea/availability",
+            "data_topic": "nodus/apvpd-test123/data",
+            "event_topic": "nodus/apvpd-test123/event",
+            "availability_topic": "nodus/apvpd-test123/availability",
         },
     }
 
     meta_valid, subscribed = ingest._parse_and_subscribe_from_nodus_meta(
         meta,
-        topic_device_id="co2-ykdvea",
+        topic_device_id="apvpd-test123",
         retain=False,
     )
 
     assert meta_valid is True
     assert subscribed is True
-    assert ("nodus/co2-ykdvea/data", 0) not in ingest.client.subs
-    assert "nodus/co2-ykdvea/data" not in ingest.registered_topics
-    assert ingest.nodus_sensor_topics["co2-ykdvea"] == "nodus/co2-ykdvea/data"
+    assert ("nodus/apvpd-test123/data", 0) not in ingest.client.subs
+    assert "nodus/apvpd-test123/data" not in ingest.registered_topics
+    assert ingest.nodus_sensor_topics["apvpd-test123"] == "nodus/apvpd-test123/data"
 
 
 def test_publish_nodus_calibration_uses_mqtt_command_topic(monkeypatch):
     ingest = _build_ingest(monkeypatch)
-    result = ingest.publish_nodus_calibration("aqi-123", action="apply", payload={"offsets": [{"key": "Calibration.Device.TEMP_OFFSET", "value": 1.5}]})
+    result = ingest.publish_nodus_calibration("apvpd-test123", action="apply", payload={"offsets": [{"key": "Calibration.Device.TEMP_OFFSET", "value": 1.5}]})
     assert result["ok"] is True
-    assert result["topic"] == "nodus/aqi-123/calibration/set"
+    assert result["topic"] == "nodus/apvpd-test123/calibration/set"
     topic, payload, qos, retain = ingest.client.pubs[-1]
-    assert topic == "nodus/aqi-123/calibration/set"
+    assert topic == "nodus/apvpd-test123/calibration/set"
     body = json.loads(payload)
     assert body["action"] == "apply"
     assert body["payload"]["offsets"][0]["key"] == "Calibration.Device.TEMP_OFFSET"
@@ -444,7 +450,7 @@ def test_calibration_topics_update_state_caches(monkeypatch):
     ingest._on_message(
         ingest.client,
         None,
-        _Msg("nodus/aqi-123/calibration/ack", json.dumps({"message_id": "cal-1", "accepted": True}), retain=False),
+        _Msg("nodus/apvpd-test123/calibration/ack", json.dumps({"message_id": "cal-1", "accepted": True}), retain=False),
     )
     ack = ingest.calibration_ack_by_message.get("cal-1")
     assert ack is not None
@@ -454,14 +460,14 @@ def test_calibration_topics_update_state_caches(monkeypatch):
         ingest.client,
         None,
         _Msg(
-            "nodus/aqi-123/calibration/result",
+            "nodus/apvpd-test123/calibration/result",
             json.dumps(
                 {
                     "message_id": "cal-1",
                     "applied": True,
                     "updated": 2,
                     "status": {
-                        "sensor_id": "aqi-123",
+                        "sensor_id": "apvpd-test123",
                         "status": "calibrated",
                         "calibrated": True,
                         "temp_offset": 1.25,
@@ -476,17 +482,17 @@ def test_calibration_topics_update_state_caches(monkeypatch):
     result = ingest.calibration_result_by_message.get("cal-1")
     assert result is not None
     assert result["applied"] is True
-    assert result["status"]["sensor_id"] == "aqi-123"
-    assert ingest.calibration_status_by_sensor["aqi-123"]["status"] == "calibrated"
+    assert result["status"]["sensor_id"] == "apvpd-test123"
+    assert ingest.calibration_status_by_sensor["apvpd-test123"]["status"] == "calibrated"
 
     ingest._on_message(
         ingest.client,
         None,
         _Msg(
-            "nodus/aqi-123/event/calibration_progress",
+            "nodus/apvpd-test123/event/calibration_progress",
             json.dumps(
                 {
-                    "sensor_id": "aqi-123",
+                    "sensor_id": "apvpd-test123",
                     "status": "in_progress",
                     "sample_index": 2,
                     "sample_total": 5,
@@ -495,7 +501,7 @@ def test_calibration_topics_update_state_caches(monkeypatch):
             retain=False,
         ),
     )
-    snapshot = ingest.get_nodus_calibration_state("aqi-123")
+    snapshot = ingest.get_nodus_calibration_state("apvpd-test123")
     assert snapshot is not None
     assert snapshot["progress"]["sample_index"] == 2
 
@@ -503,10 +509,10 @@ def test_calibration_topics_update_state_caches(monkeypatch):
         ingest.client,
         None,
         _Msg(
-            "nodus/aqi-123/event/calibration_result",
+            "nodus/apvpd-test123/event/calibration_result",
             json.dumps(
                 {
-                    "sensor_id": "aqi-123",
+                    "sensor_id": "apvpd-test123",
                     "status": "success",
                     "calibrated": True,
                     "temp_offset": 1.25,
@@ -516,7 +522,7 @@ def test_calibration_topics_update_state_caches(monkeypatch):
             retain=True,
         ),
     )
-    snapshot = ingest.get_nodus_calibration_state("aqi-123")
+    snapshot = ingest.get_nodus_calibration_state("apvpd-test123")
     assert snapshot is not None
     assert snapshot["result"]["calibrated"] is True
 
@@ -529,51 +535,51 @@ def test_nodus_meta_materializes_switch_mappings(monkeypatch):
             "version": "v1.2.3",
             "serial": "abc123",
             "sensor": {
-                "sensor_id": "aqi-123",
+                "sensor_id": "apvpd-test123",
                 "location": "Veg Tent",
-                "data_topic": "nodus/aqi-123/data",
-                "availability_topic": "nodus/aqi-123/availability",
+                "data_topic": "nodus/apvpd-test123/data",
+                "availability_topic": "nodus/apvpd-test123/availability",
                 "display_metrics": ["Temperature", "Rel-Humidity", "Temperature", "Ambient VPD"],
             },
             "switch": {
-                "switch_device_id": "switch-123",
+                "switch_device_id": "switch-test123",
                 "location": "Veg Tent",
                 "channels": [
                     {
                         "index": 1,
                         "label": "Fan",
-                        "channel_id": "S1-123",
+                        "channel_id": "S1-test123",
                         "state": "OFF",
-                        "event_topic": "nodus/S1-123/event",
-                        "state_topic": "nodus/S1-123/state",
-                        "set_topic": "nodus/S1-123/set",
-                        "availability_topic": "nodus/S1-123/availability",
+                        "event_topic": "nodus/S1-test123/event",
+                        "state_topic": "nodus/S1-test123/state",
+                        "set_topic": "nodus/S1-test123/set",
+                        "availability_topic": "nodus/S1-test123/availability",
                     }
                 ],
             },
-            "location_group": {"location": "Veg Tent", "members": ["aqi-123", "switch-123"]},
+            "location_group": {"location": "Veg Tent", "members": ["apvpd-test123", "switch-test123"]},
         }
     )
-    msg = _Msg("nodus/aqi-123/meta", payload, retain=True)
+    msg = _Msg("nodus/apvpd-test123/meta", payload, retain=True)
     ingest._on_message(ingest.client, None, msg)
 
-    meta = ingest.nodus_switch_topic_map.get("nodus/S1-123/state")
+    meta = ingest.nodus_switch_topic_map.get("nodus/S1-test123/state")
     assert meta is not None
-    assert meta.get("switch_id") == "switch-123"
-    assert meta.get("channel_id") == "S1-123"
-    assert ingest.nodus_switch_command_topics.get(("switch-123", "S1-123")) == "nodus/S1-123/set"
-    assert ingest.device_location.get("nodus/S1-123/state") == "Veg Tent"
-    assert "aqi-123" in ingest.host_to_peer_ids.get("aqi-123", [])
-    assert ingest.expected_gauge_map.get("aqi-123") == ["Temperature", "Rel-Humidity", "Ambient VPD"]
-    assert ingest.get_nodus_firmware_version("aqi-123", device_type="sensor") == "v1.2.3"
-    assert ingest.get_nodus_firmware_version("switch-123", device_type="switch") == "v1.2.3"
+    assert meta.get("switch_id") == "switch-test123"
+    assert meta.get("channel_id") == "S1-test123"
+    assert ingest.nodus_switch_command_topics.get(("switch-test123", "S1-test123")) == "nodus/S1-test123/set"
+    assert ingest.device_location.get("nodus/S1-test123/state") == "Veg Tent"
+    assert "apvpd-test123" in ingest.host_to_peer_ids.get("apvpd-test123", [])
+    assert ingest.expected_gauge_map.get("apvpd-test123") == ["Temperature", "Rel-Humidity", "Ambient VPD"]
+    assert ingest.get_nodus_firmware_version("apvpd-test123", device_type="sensor") == "v1.2.3"
+    assert ingest.get_nodus_firmware_version("switch-test123", device_type="switch") == "v1.2.3"
 
 
 def test_switch_firmware_version_falls_back_to_combo_host_suffix(monkeypatch):
     ingest = _build_ingest(monkeypatch)
-    ingest.nodus_firmware_versions["aqi-ykdvea"] = "v2.0.1"
+    ingest.nodus_firmware_versions["apvpd-test123"] = "v2.0.1"
 
-    assert ingest.get_nodus_firmware_version("switch-ykdvea", device_type="switch") == "v2.0.1"
+    assert ingest.get_nodus_firmware_version("switch-test123", device_type="switch") == "v2.0.1"
 
 
 def test_nodus_meta_uses_top_level_serial_and_sensor_id_prefix_for_shadow_identity(tmp_path, monkeypatch):
@@ -664,14 +670,14 @@ def test_debug_data_only_ignores_meta(monkeypatch):
     payload = json.dumps(
         {
             "schema": "nodus-meta/v1",
-            "sensor": {"sensor_id": "aqi-123", "data_topic": "nodus/aqi-123/data"},
+            "sensor": {"sensor_id": "apvpd-test123", "data_topic": "nodus/apvpd-test123/data"},
             "switch": {
-                "switch_device_id": "switch-123",
-                "channels": [{"index": 1, "label": "Fan", "channel_id": "S1-123", "state_topic": "nodus/S1-123/state"}],
+                "switch_device_id": "switch-test123",
+                "channels": [{"index": 1, "label": "Fan", "channel_id": "S1-test123", "state_topic": "nodus/S1-test123/state"}],
             },
         }
     )
-    ingest._on_message(ingest.client, None, _Msg("nodus/aqi-123/meta", payload, retain=True))
+    ingest._on_message(ingest.client, None, _Msg("nodus/apvpd-test123/meta", payload, retain=True))
     assert ingest.nodus_switch_topic_map == {}
     assert ingest.nodus_switch_command_topics == {}
 
@@ -681,63 +687,63 @@ def test_nodus_meta_accepts_switch_device_id_alias(monkeypatch):
     payload = json.dumps(
         {
             "schema": "nodus-meta/v1",
-            "device_id": "aqi-x943fm",
+            "device_id": "apvpd-test123",
             "sensor": {
-                "sensor_id": "aqi-x943fm",
+                "sensor_id": "apvpd-test123",
                 "location": "TestLab",
-                "data_topic": "nodus/aqi-x943fm/data",
-                "availability_topic": "nodus/aqi-x943fm/availability",
+                "data_topic": "nodus/apvpd-test123/data",
+                "availability_topic": "nodus/apvpd-test123/availability",
             },
             "switch": {
-                "device_id": "switch-x943fm",
+                "device_id": "switch-test123",
                 "location": "TestLab",
                 "channels": [
                     {
                         "index": 1,
                         "label": "Fan",
-                        "channel_id": "S1-x943fm",
+                        "channel_id": "S1-test123",
                         "state": False,
-                        "event_topic": "nodus/S1-x943fm/event",
-                        "state_topic": "nodus/S1-x943fm/state",
-                        "set_topic": "nodus/S1-x943fm/set",
-                        "availability_topic": "nodus/S1-x943fm/availability",
+                        "event_topic": "nodus/S1-test123/event",
+                        "state_topic": "nodus/S1-test123/state",
+                        "set_topic": "nodus/S1-test123/set",
+                        "availability_topic": "nodus/S1-test123/availability",
                     }
                 ],
             },
         }
     )
-    msg = _Msg("nodus/aqi-x943fm/meta", payload, retain=True)
+    msg = _Msg("nodus/apvpd-test123/meta", payload, retain=True)
     ingest._on_message(ingest.client, None, msg)
 
-    assert ingest.nodus_switch_topic_map.get("nodus/S1-x943fm/state", {}).get("switch_id") == "switch-x943fm"
-    assert ingest.nodus_switch_command_topics.get(("switch-x943fm", "S1-x943fm")) == "nodus/S1-x943fm/set"
+    assert ingest.nodus_switch_topic_map.get("nodus/S1-test123/state", {}).get("switch_id") == "switch-test123"
+    assert ingest.nodus_switch_command_topics.get(("switch-test123", "S1-test123")) == "nodus/S1-test123/set"
 
 
 def test_http_itaot_meta_normalizes_to_topic_contract(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     payload = {
         "schema": "itaot-meta/v1",
-        "device_id": "aqi-x943fm",
+        "device_id": "apvpd-test123",
         "sensor": {
-            "sensor_id": "aqi-x943fm",
+            "sensor_id": "apvpd-test123",
             "location": "TestLab",
         },
         "switch": {
-            "device_id": "switch-x943fm",
+            "device_id": "switch-test123",
             "location": "TestLab",
             "channels": [
-                {"index": 1, "label": "Fan", "channel_id": "S1-x943fm", "state": False},
-                {"index": 2, "label": "Light", "channel_id": "S2-x943fm", "state": False},
+                {"index": 1, "label": "Fan", "channel_id": "S1-test123", "state": False},
+                {"index": 2, "label": "Light", "channel_id": "S2-test123", "state": False},
             ],
         },
-        "location_group": {"location": "TestLab", "members": ["aqi-x943fm", "S1-x943fm", "S2-x943fm"]},
+        "location_group": {"location": "TestLab", "members": ["apvpd-test123", "S1-test123", "S2-test123"]},
     }
 
-    ok, _ = ingest._parse_and_subscribe_from_http_meta(payload, "aqi-x943fm")
+    ok, _ = ingest._parse_and_subscribe_from_http_meta(payload, "apvpd-test123")
     assert ok is True
-    assert ingest.nodus_switch_command_topics.get(("switch-x943fm", "S1-x943fm")) == "nodus/S1-x943fm/set"
-    assert ingest.nodus_switch_command_topics.get(("switch-x943fm", "S2-x943fm")) == "nodus/S2-x943fm/set"
-    assert ingest.nodus_switch_topic_map.get("nodus/S1-x943fm/state", {}).get("label") == "Fan"
+    assert ingest.nodus_switch_command_topics.get(("switch-test123", "S1-test123")) == "nodus/S1-test123/set"
+    assert ingest.nodus_switch_command_topics.get(("switch-test123", "S2-test123")) == "nodus/S2-test123/set"
+    assert ingest.nodus_switch_topic_map.get("nodus/S1-test123/state", {}).get("label") == "Fan"
 
 
 def test_nodus_meta_writes_display_styles_to_sensor_toml(tmp_path, monkeypatch):
@@ -757,22 +763,22 @@ def test_nodus_meta_writes_display_styles_to_sensor_toml(tmp_path, monkeypatch):
     ingest = _build_ingest(monkeypatch)
     payload = {
         "schema": "nodus-meta/v1",
-        "device_id": "aqi-x943fm",
+        "device_id": "apvpd-test123",
         "sensor": {
-            "sensor_id": "aqi-x943fm",
+            "sensor_id": "apvpd-test123",
             "location": "East House",
             "display_metrics": ["Air Quality", "Temperature", "Rel-Humidity"],
             "display_styles": ["graph24hr", "gauge", "invalid-style"],
-            "data_topic": "nodus/aqi-x943fm/data",
-            "event_topic": "nodus/aqi-x943fm/event",
-            "availability_topic": "nodus/aqi-x943fm/availability",
+            "data_topic": "nodus/apvpd-test123/data",
+            "event_topic": "nodus/apvpd-test123/event",
+            "availability_topic": "nodus/apvpd-test123/availability",
         },
     }
 
-    ok, _ = ingest._parse_and_subscribe_from_http_meta(payload, "aqi-x943fm")
+    ok, _ = ingest._parse_and_subscribe_from_http_meta(payload, "apvpd-test123")
 
     assert ok is True
-    saved = real_sensor_manager(str(sensor_root)).load("aqi-x943fm")
+    saved = real_sensor_manager(str(sensor_root)).load("apvpd-test123")
     assert saved["Display"]["Style"]["METRIC_1"] == "Graph24hr"
     assert saved["Display"]["Style"]["METRIC_2"] == "Gauge"
     assert saved["Display"]["Style"]["METRIC_3"] == "Graph24hr"
@@ -781,15 +787,15 @@ def test_nodus_meta_writes_display_styles_to_sensor_toml(tmp_path, monkeypatch):
 
 def test_set_switch_by_channel_id_prefers_channel_scoped_config_target(monkeypatch):
     ingest = _build_ingest(monkeypatch)
-    ingest.mqtt_clients = {"aqi-x943fm"}
-    ingest.host_to_peer_ids = {"aqi-x943fm": ["aqi-x943fm", "switch-x943fm"]}
+    ingest.mqtt_clients = {"apvpd-test123"}
+    ingest.host_to_peer_ids = {"apvpd-test123": ["apvpd-test123", "switch-test123"]}
 
-    ok = ingest.set_switch_by_channel_id("switch-x943fm", "S1-x943fm", True)
+    ok = ingest.set_switch_by_channel_id("switch-test123", "S1-test123", True)
 
     assert ok is True
     assert ingest.client.pubs, "expected config/set publish for remote switch toggle"
     topic, payload, qos, retain = ingest.client.pubs[0]
-    assert topic == "nodus/S1-x943fm/config/set"
+    assert topic == "nodus/S1-test123/config/set"
     assert qos == 1
     assert retain is False
     envelope = json.loads(payload)
@@ -808,23 +814,23 @@ def test_set_switch_does_not_optimistically_mutate_remote_state_cache(monkeypatc
     ingest = _build_ingest(monkeypatch)
     ingest.data_logger.switch_identities.append(
         {
-            "switch_id": "switch-x943fm",
-            "switch_key": "S1-x943fm::Fan",
-            "channel_id": "S1-x943fm",
+            "switch_id": "switch-test123",
+            "switch_key": "S1-test123::Fan",
+            "channel_id": "S1-test123",
             "label": "Fan",
             "location": "TestLab",
         }
     )
-    ingest.mqtt_clients = {"aqi-x943fm"}
-    ingest.host_to_peer_ids = {"aqi-x943fm": ["aqi-x943fm", "switch-x943fm"]}
+    ingest.mqtt_clients = {"apvpd-test123"}
+    ingest.host_to_peer_ids = {"apvpd-test123": ["apvpd-test123", "switch-test123"]}
 
-    ok = ingest.set_switch("switch-x943fm", "Fan", True)
+    ok = ingest.set_switch("switch-test123", "Fan", True)
 
     assert ok is True
-    assert ingest._pending_set.get(("switch-x943fm", "Fan")) == {
-        "ts": ingest._pending_set[("switch-x943fm", "Fan")]["ts"],
+    assert ingest._pending_set.get(("switch-test123", "Fan")) == {
+        "ts": ingest._pending_set[("switch-test123", "Fan")]["ts"],
         "state": True,
-        "channel_id": "S1-x943fm",
+        "channel_id": "S1-test123",
     }
     assert ingest._switch_state_cache == {}
 
@@ -833,20 +839,26 @@ def test_confirmed_switch_state_clears_pending_set(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     ingest.data_logger.switch_identities.append(
         {
-            "switch_id": "switch-x943fm",
-            "switch_key": "S1-x943fm::Fan",
-            "channel_id": "S1-x943fm",
+            "switch_id": "switch-test123",
+            "switch_key": "S1-test123::Fan",
+            "channel_id": "S1-test123",
             "label": "Fan",
             "location": "TestLab",
         }
     )
-    ingest._pending_set[("switch-x943fm", "Fan")] = {
+    ingest._pending_set[("switch-test123", "Fan")] = {
         "ts": time.time(),
         "state": True,
-        "channel_id": "S1-x943fm",
+        "channel_id": "S1-test123",
+    }
+    ingest.nodus_switch_topic_map["nodus/S1-test123/state"] = {
+        "switch_id": "switch-test123",
+        "channel_id": "S1-test123",
+        "label": "Fan",
+        "kind": "state",
     }
 
-    ingest.handle_nodus_switch_topic("nodus/S1-x943fm/state", "ON")
+    ingest.handle_nodus_switch_topic("nodus/S1-test123/state", "ON")
 
     assert ingest._pending_set == {}
 
@@ -856,18 +868,18 @@ def test_retained_stale_heartbeat_sets_unknown(monkeypatch):
     stale_ts = int(time.time()) - 300
     payload = json.dumps(
         {
-            "device_id": "aqi-123",
+            "device_id": "apvpd-test123",
             "status": "online",
             "timestamp": stale_ts,
             "heartbeat_interval_s": 30,
         }
     )
-    msg = _Msg("nodus/aqi-123/status/heartbeat", payload, retain=True)
+    msg = _Msg("nodus/apvpd-test123/status/heartbeat", payload, retain=True)
     ingest._on_message(ingest.client, None, msg)
 
-    assert ingest.device_status.get("aqi-123") == "unknown"
-    assert ingest.heartbeat_stale.get("aqi-123") is True
-    assert "aqi-123" not in ingest.last_heartbeat_ts
+    assert ingest.device_status.get("apvpd-test123") == "unknown"
+    assert ingest.heartbeat_stale.get("apvpd-test123") is True
+    assert "apvpd-test123" not in ingest.last_heartbeat_ts
 
 
 def test_fresh_heartbeat_sets_online_and_ts(monkeypatch):
@@ -875,42 +887,42 @@ def test_fresh_heartbeat_sets_online_and_ts(monkeypatch):
     ts_now = int(time.time())
     payload = json.dumps(
         {
-            "device_id": "aqi-123",
+            "device_id": "apvpd-test123",
             "status": "online",
             "timestamp": ts_now,
             "heartbeat_interval_s": 30,
         }
     )
-    msg = _Msg("nodus/aqi-123/status/heartbeat", payload, retain=False)
+    msg = _Msg("nodus/apvpd-test123/status/heartbeat", payload, retain=False)
     ingest._on_message(ingest.client, None, msg)
 
-    assert ingest.device_status.get("aqi-123") == "online"
-    assert ingest.heartbeat_stale.get("aqi-123") is False
-    assert int(ingest.last_heartbeat_ts.get("aqi-123", 0)) == ts_now
+    assert ingest.device_status.get("apvpd-test123") == "online"
+    assert ingest.heartbeat_stale.get("apvpd-test123") is False
+    assert int(ingest.last_heartbeat_ts.get("apvpd-test123", 0)) == ts_now
 
 
 def test_heartbeat_timeout_state_transitions(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     now_ts = time.time()
-    ingest.heartbeat_interval_s_by_host["aqi-123"] = 30.0
+    ingest.heartbeat_interval_s_by_host["apvpd-test123"] = 30.0
 
-    ingest.last_heartbeat_ts["aqi-123"] = now_ts - 20.0
-    assert ingest._apply_heartbeat_timeout_state("aqi-123", now_ts=now_ts) == "online"
+    ingest.last_heartbeat_ts["apvpd-test123"] = now_ts - 20.0
+    assert ingest._apply_heartbeat_timeout_state("apvpd-test123", now_ts=now_ts) == "online"
 
-    ingest.last_heartbeat_ts["aqi-123"] = now_ts - 70.0
-    assert ingest._apply_heartbeat_timeout_state("aqi-123", now_ts=now_ts) == "degraded"
+    ingest.last_heartbeat_ts["apvpd-test123"] = now_ts - 70.0
+    assert ingest._apply_heartbeat_timeout_state("apvpd-test123", now_ts=now_ts) == "degraded"
 
-    ingest.last_heartbeat_ts["aqi-123"] = now_ts - 95.0
-    assert ingest._apply_heartbeat_timeout_state("aqi-123", now_ts=now_ts) == "offline"
+    ingest.last_heartbeat_ts["apvpd-test123"] = now_ts - 95.0
+    assert ingest._apply_heartbeat_timeout_state("apvpd-test123", now_ts=now_ts) == "offline"
 
 
 def test_recovery_via_data_marks_online_with_stale_heartbeat(monkeypatch):
     ingest = _build_ingest(monkeypatch)
-    msg = _Msg("nodus/aqi-123/data", json.dumps({"values": {"Temperature": 21.2}}), retain=False)
+    msg = _Msg("nodus/apvpd-test123/data", json.dumps({"values": {"Temperature": 21.2}}), retain=False)
     ingest._on_message(ingest.client, None, msg)
 
-    assert ingest.device_status.get("aqi-123") == "online"
-    assert ingest.heartbeat_stale.get("aqi-123") is True
+    assert ingest.device_status.get("apvpd-test123") == "online"
+    assert ingest.heartbeat_stale.get("apvpd-test123") is True
 
 
 def test_debug_data_only_data_path_does_not_mark_heartbeat_stale(monkeypatch):
@@ -918,11 +930,11 @@ def test_debug_data_only_data_path_does_not_mark_heartbeat_stale(monkeypatch):
         monkeypatch,
         values={("SensorNetwork", "NODUS_DEBUG_DATA_ONLY"): True},
     )
-    msg = _Msg("nodus/aqi-123/data", json.dumps({"values": {"Temperature": 21.2}}), retain=False)
+    msg = _Msg("nodus/apvpd-test123/data", json.dumps({"values": {"Temperature": 21.2}}), retain=False)
     ingest._on_message(ingest.client, None, msg)
 
-    assert ingest.device_status.get("aqi-123") == "online"
-    assert "aqi-123" not in ingest.heartbeat_stale
+    assert ingest.device_status.get("apvpd-test123") == "online"
+    assert "apvpd-test123" not in ingest.heartbeat_stale
 
 
 def test_live_nodus_data_updates_expected_gauges_from_display_metrics(monkeypatch):
@@ -1080,11 +1092,11 @@ def test_nodus_shadow_seed_uses_nodus_aligned_defaults_when_display_metrics_miss
     monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
 
     ingest._ensure_settings_from_itaot(
-        {"HOSTNAME": "aqi-123"},
-        "aqi-123",
+        {"HOSTNAME": "apvpd-test123"},
+        "apvpd-test123",
         [
             {
-                "sensor_id": "aqi-123",
+                "sensor_id": "apvpd-test123",
                 "device_type": "nodus",
                 "device": "aqi",
                 "sensor_type": "nodus",
@@ -1095,7 +1107,7 @@ def test_nodus_shadow_seed_uses_nodus_aligned_defaults_when_display_metrics_miss
         [],
     )
 
-    saved = (sensor_root / "aqi-123" / "sensor.toml").read_text(encoding="utf-8")
+    saved = (sensor_root / "apvpd-test123" / "sensor.toml").read_text(encoding="utf-8")
     assert 'METRIC_1 = "Air Quality"' in saved
     assert 'METRIC_2 = "Temperature"' in saved
     assert 'METRIC_3 = "Rel-Humidity"' in saved
@@ -1130,7 +1142,7 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
     )
     monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
 
-    system_dir = system_root / "co2-ykdvea"
+    system_dir = system_root / "apvpd-test123"
     system_dir.mkdir()
     (system_dir / "settings.toml").write_text(
         "\n".join(
@@ -1138,7 +1150,7 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
                 "[Network]",
                 'SSID = "OldWifi"',
                 'PASSWORD = "old-pass"',
-                'HOSTNAME = "co2-ykdvea"',
+                'HOSTNAME = "apvpd-test123"',
                 "",
                 "[Profile]",
                 'ACTIVE_PROFILE = "nodusweb"',
@@ -1156,7 +1168,7 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
         encoding="utf-8",
     )
 
-    sensor_dir = sensor_root / "co2-ykdvea"
+    sensor_dir = sensor_root / "apvpd-test123"
     sensor_dir.mkdir()
     (sensor_dir / "sensor.toml").write_text(
         "\n".join(
@@ -1165,7 +1177,7 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
                 'TYPE = "nodus"',
                 'DEVICE = "nodus"',
                 'SERIAL_NUM = ""',
-                'SENSOR_ID = "co2-ykdvea"',
+                'SENSOR_ID = "apvpd-test123"',
                 'LOCATION = "Unknown"',
                 "",
                 "[Display]",
@@ -1181,7 +1193,7 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
         encoding="utf-8",
     )
 
-    switch_dir = switch_root / "switch-ykdvea"
+    switch_dir = switch_root / "switch-test123"
     switch_dir.mkdir()
     (switch_dir / "switch.toml").write_text(
         "\n".join(
@@ -1190,7 +1202,7 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
                 'TYPE = "nodus"',
                 'DEVICE = "switch"',
                 'DEVICE_SERIAL_NUM = ""',
-                'SWITCH_DEVICE_ID = "switch-ykdvea"',
+                'SWITCH_DEVICE_ID = "switch-test123"',
                 'SWITCH_LOCATION = "Unknown"',
                 'SWITCH_1_LABEL = "Relay 1"',
                 'SWITCH_1_CHANNEL_ID = "S1-old"',
@@ -1205,15 +1217,15 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
     payload = json.dumps(
         {
             "schema": "nodus-meta/v1",
-            "device_id": "co2-ykdvea",
-            "hostname": "co2-ykdvea",
+            "device_id": "apvpd-test123",
+            "hostname": "apvpd-test123",
             "serial": "ykdvea",
             "type": "nodus",
             "capabilities": {"sensor": True, "switch": True},
             "network": {
                 "ssid": "ExampleWiFi",
                 "password": "obf1:BASE64NONCE:BASE64CIPHER",
-                "hostname": "co2-ykdvea",
+                "hostname": "apvpd-test123",
             },
             "profile": {"active_profile": "sensorius"},
             "mqtt": {
@@ -1225,39 +1237,39 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
                 "base_topic": "nodus",
             },
             "sensor": {
-                "sensor_id": "co2-ykdvea",
+                "sensor_id": "apvpd-test123",
                 "location": "Lab",
                 "display_metrics": ["CO2", "Temperature", "Rel-Humidity"],
-                "data_topic": "nodus/co2-ykdvea/data",
-                "event_topic": "nodus/co2-ykdvea/event",
-                "availability_topic": "nodus/co2-ykdvea/availability",
+                "data_topic": "nodus/apvpd-test123/data",
+                "event_topic": "nodus/apvpd-test123/event",
+                "availability_topic": "nodus/apvpd-test123/availability",
             },
-            "status": {"heartbeat_topic": "nodus/co2-ykdvea/status/heartbeat"},
+            "status": {"heartbeat_topic": "nodus/apvpd-test123/status/heartbeat"},
             "switch": {
-                "device_id": "switch-ykdvea",
+                "device_id": "switch-test123",
                 "serial": "ykdvea",
                 "location": "Lab",
                 "channels": [
                     {
                         "index": 1,
                         "label": "Fan",
-                        "channel_id": "S1-ykdvea",
+                        "channel_id": "S1-test123",
                         "enable_pin": "GP5",
                         "pin": "GP28",
                         "state": False,
-                        "event_topic": "nodus/S1-ykdvea/event",
-                        "state_topic": "nodus/S1-ykdvea/state",
-                        "set_topic": "nodus/S1-ykdvea/set",
-                        "availability_topic": "nodus/S1-ykdvea/availability",
+                        "event_topic": "nodus/S1-test123/event",
+                        "state_topic": "nodus/S1-test123/state",
+                        "set_topic": "nodus/S1-test123/set",
+                        "availability_topic": "nodus/S1-test123/availability",
                     }
                 ],
             },
-            "location_group": {"location": "Lab", "members": ["co2-ykdvea", "S1-ykdvea"]},
+            "location_group": {"location": "Lab", "members": ["apvpd-test123", "S1-test123"]},
             "timestamp": 1763859546,
         }
     )
 
-    ingest._on_message(ingest.client, None, _Msg("nodus/co2-ykdvea/meta", payload, retain=True))
+    ingest._on_message(ingest.client, None, _Msg("nodus/apvpd-test123/meta", payload, retain=True))
 
     settings_saved = (system_dir / "settings.toml").read_text(encoding="utf-8")
     assert 'SSID = "ExampleWiFi"' in settings_saved
@@ -1268,7 +1280,7 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
     assert 'BASE_TOPIC = "nodus"' in settings_saved
 
     sensor_saved = (sensor_dir / "sensor.toml").read_text(encoding="utf-8")
-    assert 'DEVICE = "co2"' in sensor_saved
+    assert 'DEVICE = "apvpd"' in sensor_saved
     assert 'SERIAL_NUM = "ykdvea"' in sensor_saved
     assert 'LOCATION = "Lab"' in sensor_saved
     assert 'METRIC_1 = "CO2"' in sensor_saved
@@ -1280,7 +1292,7 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
     assert 'DEVICE_SERIAL_NUM = "ykdvea"' in switch_saved
     assert 'SWITCH_LOCATION = "Lab"' in switch_saved
     assert 'SWITCH_1_LABEL = "Fan"' in switch_saved
-    assert 'SWITCH_1_CHANNEL_ID = "S1-ykdvea"' in switch_saved
+    assert 'SWITCH_1_CHANNEL_ID = "S1-test123"' in switch_saved
     assert 'SWITCH_1_ENABLE_PIN = "GP5"' in switch_saved
     assert 'SWITCH_1_PIN = "GP28"' in switch_saved
     assert 'SWITCH_1_LAST_STATE = false' in switch_saved
@@ -1316,34 +1328,34 @@ def test_ensure_settings_from_itaot_overwrites_shadow_locations_when_payload_is_
     sensor_mgr = real_sensor_mgr(str(sensor_root))
     switch_mgr = real_switch_mgr(str(switch_root))
     sensor_mgr.save(
-        "co2-ykdvea",
+        "apvpd-test123",
         {
             "Sensor": {
                 "TYPE": "nodus",
                 "DEVICE": "co2",
-                "SENSOR_ID": "co2-ykdvea",
+                "SENSOR_ID": "apvpd-test123",
                 "LOCATION": "Lab",
             }
         },
     )
     switch_mgr.save(
-        "switch-ykdvea",
+        "switch-test123",
         {
             "Switch": {
                 "TYPE": "nodus",
                 "DEVICE": "switch",
-                "SWITCH_DEVICE_ID": "switch-ykdvea",
+                "SWITCH_DEVICE_ID": "switch-test123",
                 "SWITCH_LOCATION": "Lab",
             }
         },
     )
 
     ingest._ensure_settings_from_itaot(
-        {"HOSTNAME": "co2-ykdvea"},
-        "co2-ykdvea",
+        {"HOSTNAME": "apvpd-test123"},
+        "apvpd-test123",
         [
             {
-                "sensor_id": "co2-ykdvea",
+                "sensor_id": "apvpd-test123",
                 "device_type": "nodus",
                 "device": "co2",
                 "sensor_type": "nodus",
@@ -1354,7 +1366,7 @@ def test_ensure_settings_from_itaot_overwrites_shadow_locations_when_payload_is_
         ],
         [
             {
-                "switch_id": "switch-ykdvea",
+                "switch_id": "switch-test123",
                 "switch_location": "Unknown",
                 "switch_type": "nodus",
                 "serial": "ykdvea",
@@ -1363,8 +1375,8 @@ def test_ensure_settings_from_itaot_overwrites_shadow_locations_when_payload_is_
         ],
     )
 
-    sensor_saved = sensor_mgr.load("co2-ykdvea")
-    switch_saved = switch_mgr.load("switch-ykdvea")
+    sensor_saved = sensor_mgr.load("apvpd-test123")
+    switch_saved = switch_mgr.load("switch-test123")
     assert sensor_saved["Sensor"]["LOCATION"] == "Unknown"
     assert switch_saved["Switch"]["SWITCH_LOCATION"] == "Unknown"
 
@@ -1397,12 +1409,12 @@ def test_ensure_settings_from_itaot_resets_sensor_display_metrics_to_meta_defaul
 
     sensor_mgr = real_sensor_mgr(str(sensor_root))
     sensor_mgr.save(
-        "aqi-123",
+        "apvpd-test123",
         {
             "Sensor": {
                 "TYPE": "nodus",
                 "DEVICE": "aqi",
-                "SENSOR_ID": "aqi-123",
+                "SENSOR_ID": "apvpd-test123",
                 "LOCATION": "Room A",
             },
             "Display": {
@@ -1417,11 +1429,11 @@ def test_ensure_settings_from_itaot_resets_sensor_display_metrics_to_meta_defaul
     )
 
     ingest._ensure_settings_from_itaot(
-        {"HOSTNAME": "aqi-123"},
-        "aqi-123",
+        {"HOSTNAME": "apvpd-test123"},
+        "apvpd-test123",
         [
             {
-                "sensor_id": "aqi-123",
+                "sensor_id": "apvpd-test123",
                 "device_type": "nodus",
                 "device": "aqi",
                 "sensor_type": "nodus",
@@ -1432,7 +1444,7 @@ def test_ensure_settings_from_itaot_resets_sensor_display_metrics_to_meta_defaul
         [],
     )
 
-    sensor_saved = sensor_mgr.load("aqi-123")
+    sensor_saved = sensor_mgr.load("apvpd-test123")
     assert sensor_saved["Display"]["METRIC_1"] == "Air Quality"
     assert sensor_saved["Display"]["METRIC_2"] == "Temperature"
     assert sensor_saved["Display"]["METRIC_3"] == "Rel-Humidity"
@@ -1469,15 +1481,15 @@ def test_nodus_meta_clears_switch_shadow_wiring_when_meta_fields_are_blank(tmp_p
 
     switch_mgr = real_switch_mgr(str(switch_root))
     switch_mgr.save(
-        "switch-123",
+        "switch-test123",
         {
             "Switch": {
                 "TYPE": "nodus",
                 "DEVICE": "switch",
-                "SWITCH_DEVICE_ID": "switch-123",
+                "SWITCH_DEVICE_ID": "switch-test123",
                 "SWITCH_LOCATION": "Room A",
                 "SWITCH_1_LABEL": "Fan",
-                "SWITCH_1_CHANNEL_ID": "S1-123",
+                "SWITCH_1_CHANNEL_ID": "S1-test123",
                 "SWITCH_1_ENABLE_PIN": "GP5",
                 "SWITCH_1_PIN": "GP28",
                 "SWITCH_1_LAST_STATE": True,
@@ -1486,19 +1498,19 @@ def test_nodus_meta_clears_switch_shadow_wiring_when_meta_fields_are_blank(tmp_p
     )
 
     ingest._ensure_settings_from_itaot(
-        {"HOSTNAME": "aqi-123"},
-        "aqi-123",
+        {"HOSTNAME": "apvpd-test123"},
+        "apvpd-test123",
         [],
         [
             {
-                "switch_id": "switch-123",
+                "switch_id": "switch-test123",
                 "switch_location": "Room A",
                 "switch_type": "nodus",
                 "serial": "123",
                 "switch_payload": {
                     "Switch": {
                         "SWITCH_1_LABEL": "Fan",
-                        "SWITCH_1_CHANNEL_ID": "S1-123",
+                        "SWITCH_1_CHANNEL_ID": "S1-test123",
                         "SWITCH_1_ENABLE_PIN": "",
                         "SWITCH_1_PIN": "",
                         "SWITCH_1_LAST_STATE": False,
@@ -1508,7 +1520,7 @@ def test_nodus_meta_clears_switch_shadow_wiring_when_meta_fields_are_blank(tmp_p
         ],
     )
 
-    switch_saved = switch_mgr.load("switch-123")
+    switch_saved = switch_mgr.load("switch-test123")
     assert switch_saved["Switch"]["SWITCH_1_ENABLE_PIN"] == ""
     assert switch_saved["Switch"]["SWITCH_1_PIN"] == ""
     assert switch_saved["Switch"]["SWITCH_1_LAST_STATE"] is False
@@ -1518,14 +1530,14 @@ def test_nodus_meta_reconciles_switch_shadow_and_prunes_stale_channels(tmp_path,
     ingest = _build_ingest(monkeypatch)
     ingest.data_logger.switch_identities = [
         {
-            "switch_key": "S1-ykdvea::Fan",
-            "switch_id": "switch-ykdvea",
+            "switch_key": "S1-test123::Fan",
+            "switch_id": "switch-test123",
             "label": "Fan",
             "location": "Lab",
         },
         {
             "switch_key": "S2-ykdvea::Light",
-            "switch_id": "switch-ykdvea",
+            "switch_id": "switch-test123",
             "label": "Light",
             "location": "Lab",
         },
@@ -1554,7 +1566,7 @@ def test_nodus_meta_reconciles_switch_shadow_and_prunes_stale_channels(tmp_path,
     )
     monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
 
-    switch_dir = switch_root / "switch-ykdvea"
+    switch_dir = switch_root / "switch-test123"
     switch_dir.mkdir()
     (switch_dir / "switch.toml").write_text(
         "\n".join(
@@ -1563,10 +1575,10 @@ def test_nodus_meta_reconciles_switch_shadow_and_prunes_stale_channels(tmp_path,
                 'TYPE = "nodus"',
                 'DEVICE = "switch"',
                 'DEVICE_SERIAL_NUM = "ykdvea"',
-                'SWITCH_DEVICE_ID = "switch-ykdvea"',
+                'SWITCH_DEVICE_ID = "switch-test123"',
                 'SWITCH_LOCATION = "Unknown"',
                 'SWITCH_1_LABEL = "Fan"',
-                'SWITCH_1_CHANNEL_ID = "S1-ykdvea"',
+                'SWITCH_1_CHANNEL_ID = "S1-test123"',
                 'SWITCH_1_ENABLE_PIN = "GP5"',
                 'SWITCH_1_PIN = "GP28"',
                 "SWITCH_1_LAST_STATE = false",
@@ -1588,62 +1600,62 @@ def test_nodus_meta_reconciles_switch_shadow_and_prunes_stale_channels(tmp_path,
     payload = json.dumps(
         {
             "schema": "nodus-meta/v1",
-            "device_id": "co2-ykdvea",
-            "hostname": "co2-ykdvea",
+            "device_id": "apvpd-test123",
+            "hostname": "apvpd-test123",
             "serial": "ykdvea",
             "type": "nodus",
             "capabilities": {"sensor": True, "switch": True},
-            "network": {"hostname": "co2-ykdvea"},
+            "network": {"hostname": "apvpd-test123"},
             "profile": {"active_profile": "sensorius"},
             "mqtt": {"broker": "samhain.local", "port": 1883, "use_tls": False, "base_topic": "nodus"},
             "sensor": {
-                "sensor_id": "co2-ykdvea",
+                "sensor_id": "apvpd-test123",
                 "location": "Lab",
                 "display_metrics": ["CO2", "Temperature", "Rel-Humidity"],
-                "data_topic": "nodus/co2-ykdvea/data",
-                "event_topic": "nodus/co2-ykdvea/event",
-                "availability_topic": "nodus/co2-ykdvea/availability",
+                "data_topic": "nodus/apvpd-test123/data",
+                "event_topic": "nodus/apvpd-test123/event",
+                "availability_topic": "nodus/apvpd-test123/availability",
             },
             "switch": {
-                "device_id": "switch-ykdvea",
+                "device_id": "switch-test123",
                 "serial": "ykdvea",
                 "location": "Lab",
                 "channels": [
                     {
                         "index": 1,
                         "label": "Fan",
-                        "channel_id": "S1-ykdvea",
+                        "channel_id": "S1-test123",
                         "enable_pin": "GP5",
                         "pin": "GP28",
                         "state": False,
-                        "event_topic": "nodus/S1-ykdvea/event",
-                        "state_topic": "nodus/S1-ykdvea/state",
-                        "set_topic": "nodus/S1-ykdvea/set",
-                        "availability_topic": "nodus/S1-ykdvea/availability",
+                        "event_topic": "nodus/S1-test123/event",
+                        "state_topic": "nodus/S1-test123/state",
+                        "set_topic": "nodus/S1-test123/set",
+                        "availability_topic": "nodus/S1-test123/availability",
                     }
                 ],
             },
-            "location_group": {"location": "Lab", "members": ["co2-ykdvea", "S1-ykdvea"]},
+            "location_group": {"location": "Lab", "members": ["apvpd-test123", "S1-test123"]},
             "timestamp": 1763859546,
         }
     )
 
-    ingest._on_message(ingest.client, None, _Msg("nodus/co2-ykdvea/meta", payload, retain=True))
+    ingest._on_message(ingest.client, None, _Msg("nodus/apvpd-test123/meta", payload, retain=True))
 
     switch_saved = (switch_dir / "switch.toml").read_text(encoding="utf-8")
     assert 'SWITCH_LOCATION = "Lab"' in switch_saved
     assert 'SWITCH_1_ENABLE_PIN = "GP5"' in switch_saved
     assert 'SWITCH_1_PIN = "GP28"' in switch_saved
-    assert 'SWITCH_1_CHANNEL_ID = "S1-ykdvea"' in switch_saved
+    assert 'SWITCH_1_CHANNEL_ID = "S1-test123"' in switch_saved
     assert 'SWITCH_1_EN = "1"' not in switch_saved
     assert 'SWITCH_2_EN = "1"' not in switch_saved
     assert "SWITCH_2_LABEL" not in switch_saved
     assert "SWITCH_2_CHANNEL_ID" not in switch_saved
     assert ingest.data_logger.pruned_switch_identity_calls[-1] == {
-        "switch_id": "switch-ykdvea",
-        "valid_channel_ids": ["S1-ykdvea"],
+        "switch_id": "switch-test123",
+        "valid_channel_ids": ["S1-test123"],
     }
-    assert {row["switch_key"] for row in ingest.data_logger.get_switch_identities()} == {"S1-ykdvea::Fan"}
+    assert {row["switch_key"] for row in ingest.data_logger.get_switch_identities()} == {"S1-test123::Fan"}
 
 
 def test_ensure_settings_from_itaot_parses_existing_system_toml_with_inline_comments(tmp_path, monkeypatch):
@@ -1672,7 +1684,7 @@ def test_ensure_settings_from_itaot_parses_existing_system_toml_with_inline_comm
     )
     monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
 
-    system_dir = system_root / "co2-ykdvea"
+    system_dir = system_root / "apvpd-test123"
     system_dir.mkdir()
     (system_dir / "settings.toml").write_text(
         "\n".join(
@@ -1680,7 +1692,7 @@ def test_ensure_settings_from_itaot_parses_existing_system_toml_with_inline_comm
                 "[Network]",
                 'SSID = "ExampleWiFi"',
                 'PASSWORD = "obf1:old"',
-                'HOSTNAME = "co2-ykdvea"',
+                'HOSTNAME = "apvpd-test123"',
                 "HTTPPORT = 8000",
                 "",
                 "[Profile]",
@@ -1701,11 +1713,11 @@ def test_ensure_settings_from_itaot_parses_existing_system_toml_with_inline_comm
 
     ingest._ensure_settings_from_itaot(
         {
-            "HOSTNAME": "co2-ykdvea",
+            "HOSTNAME": "apvpd-test123",
             "Profile": {"ACTIVE_PROFILE": "sensorius"},
             "MQTT": {"BROKER": "samhain.local", "PORT": 1883, "USE_TLS": False, "BASE_TOPIC": "nodus"},
         },
-        "co2-ykdvea",
+        "apvpd-test123",
         [],
         [],
     )
@@ -1726,7 +1738,7 @@ def test_legacy_poller_gate_and_sunset(monkeypatch):
             }
         },
     )
-    assert ingest_live._use_legacy_pollers_for("aqi-legacy") is True
+    assert ingest_live._use_legacy_pollers_for("aqi-legacy") is False
     assert ingest_live._use_legacy_pollers_for("aqi-modern") is False
 
     ingest_expired = _build_ingest(
@@ -1744,11 +1756,11 @@ def test_legacy_poller_gate_and_sunset(monkeypatch):
 def test_no_heartbeat_activity_ages_to_offline(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     now_ts = time.time()
-    ingest.heartbeat_interval_s_by_host["aqi-123"] = 30.0
-    ingest.last_mqtt_seen["aqi-123"] = now_ts - 95.0
-    ingest.device_status["aqi-123"] = "online"
+    ingest.heartbeat_interval_s_by_host["apvpd-test123"] = 30.0
+    ingest.last_mqtt_seen["apvpd-test123"] = now_ts - 95.0
+    ingest.device_status["apvpd-test123"] = "online"
 
-    assert ingest._apply_heartbeat_timeout_state("aqi-123", now_ts=now_ts) == "offline"
+    assert ingest._apply_heartbeat_timeout_state("apvpd-test123", now_ts=now_ts) == "offline"
 
 
 def test_prefixed_onboarding_topics_are_parsed(monkeypatch):
@@ -1756,7 +1768,7 @@ def test_prefixed_onboarding_topics_are_parsed(monkeypatch):
     received = []
     ingest.set_onboarding_event_handler(lambda event: received.append(event))
     msg = _Msg(
-        "sensorius/nodus/aqi-123/onboard/hello",
+        "sensorius/nodus/apvpd-test123/onboard/hello",
         json.dumps({"onboard_token": "abc"}),
         retain=False,
     )
@@ -1764,4 +1776,4 @@ def test_prefixed_onboarding_topics_are_parsed(monkeypatch):
 
     assert len(received) == 1
     assert received[0].get("event_type") == "onboarding_hello"
-    assert received[0].get("device_id") == "aqi-123"
+    assert received[0].get("device_id") == "apvpd-test123"

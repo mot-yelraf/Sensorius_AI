@@ -1,3 +1,9 @@
+"""Pytest coverage for filtering remote sensors out of local controller startup.
+
+These tests ensure Sensorius does not build local sensor controllers for settings
+that describe MQTT-remote devices.
+"""
+
 import os
 import sys
 import types

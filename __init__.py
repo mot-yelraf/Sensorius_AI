@@ -1,3 +1,7 @@
-"""Sensorius package metadata."""
+"""Sensorius package metadata and repository version marker.
 
-__version__ = "v0.26.088.16"
+This package-level module exposes the current project version so runtime code,
+release notes, and supporting tooling can report a consistent build identity.
+"""
+
+__version__ = "v0.26.088.18"

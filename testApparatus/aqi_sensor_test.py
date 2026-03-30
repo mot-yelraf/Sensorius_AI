@@ -1,3 +1,9 @@
+"""Manual AQI sensor smoke test script for local hardware validation.
+
+This helper exercises the AQI sensor backend outside pytest so a developer can
+confirm live hardware readings during bench testing.
+"""
+
 import board
 import busio
 from smbus2 import SMBus

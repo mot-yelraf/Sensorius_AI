@@ -1,3 +1,9 @@
+"""SQLite schema inspection helper for Sensorius databases.
+
+This utility prints table and column information so migration or compatibility
+changes can be reviewed quickly from the command line.
+"""
+
 import sqlite3
 from collections import defaultdict
 

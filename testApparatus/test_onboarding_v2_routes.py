@@ -1,3 +1,9 @@
+"""Pytest coverage for onboarding V2 web routes and platform branching.
+
+These tests validate session creation, AP-join behavior, broker rewriting, and
+manual-join requirements across the onboarding V2 route handlers.
+"""
+
 from __future__ import annotations
 
 import os
@@ -75,7 +81,7 @@ def _default_platform_linux(monkeypatch):
     monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Linux")
     monkeypatch.setattr(
         "saiAddDevice.get_itaot_meta",
-        lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-123"}, "error": ""},
+        lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "apvpd-test123"}, "error": ""},
     )
     monkeypatch.setattr(saiWebRoutes.subprocess, "run", lambda *a, **k: _cp(stdout="10.0.0.246"))
 
@@ -355,7 +361,7 @@ async def test_v2_restart_creates_new_session(tmp_path, monkeypatch):
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
-    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-123"}, "error": ""})
+    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "apvpd-test123"}, "error": ""})
     monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
     monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
     monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
@@ -367,7 +373,7 @@ async def test_v2_restart_creates_new_session(tmp_path, monkeypatch):
     await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        start = await client.post("/onboard-device/v2/start", data={"device_id": "aqi-123"})
+        start = await client.post("/onboard-device/v2/start", data={"device_id": "apvpd-test123"})
         assert start.status_code == 200
         sid = start.json().get("session_id")
         assert sid
@@ -645,8 +651,8 @@ async def test_v2_hello_matches_token_valid_session_when_multiple_active(tmp_pat
     await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        s1 = await client.post("/onboard-device/v2/start", data={"device_id": "aqi-123"})
-        s2 = await client.post("/onboard-device/v2/start", data={"device_id": "aqi-123"})
+        s1 = await client.post("/onboard-device/v2/start", data={"device_id": "apvpd-test123"})
+        s2 = await client.post("/onboard-device/v2/start", data={"device_id": "apvpd-test123"})
         assert s1.status_code == 200
         assert s2.status_code == 200
         sid1 = str(s1.json().get("session_id") or "")
@@ -658,7 +664,7 @@ async def test_v2_hello_matches_token_valid_session_when_multiple_active(tmp_pat
         ingest.handler(
             {
                 "event_type": "onboarding_hello",
-                "device_id": "aqi-123",
+                "device_id": "apvpd-test123",
                 "payload": {"onboard_token": token_for_sid2},
             }
         )
@@ -711,7 +717,7 @@ async def test_v2_config_set_includes_onboard_token_and_settings_payload(tmp_pat
     await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        start = await client.post("/onboard-device/v2/start", data={"device_id": "aqi-123"})
+        start = await client.post("/onboard-device/v2/start", data={"device_id": "apvpd-test123"})
         assert start.status_code == 200
         sid = str(start.json().get("session_id") or "")
         assert sid
@@ -720,14 +726,14 @@ async def test_v2_config_set_includes_onboard_token_and_settings_payload(tmp_pat
         ingest.handler(
             {
                 "event_type": "onboarding_hello",
-                "device_id": "aqi-123",
+                "device_id": "apvpd-test123",
                 "payload": {"onboard_token": token},
             }
         )
 
         assert ingest.published
         topic, envelope = ingest.published[-1]
-        assert topic == "nodus/aqi-123/config/set"
+        assert topic == "nodus/apvpd-test123/config/set"
         assert envelope.get("onboard_token") == token
         payload = envelope.get("payload")
         assert isinstance(payload, dict)
@@ -775,10 +781,10 @@ async def test_v2_ack_rejected_marks_failed(tmp_path, monkeypatch):
     await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        start = await client.post("/onboard-device/v2/start", data={"device_id": "aqi-123"})
+        start = await client.post("/onboard-device/v2/start", data={"device_id": "apvpd-test123"})
         sid = str(start.json().get("session_id") or "")
         token = f"tok-{sid[:10]}"
-        ingest.handler({"event_type": "onboarding_hello", "device_id": "aqi-123", "payload": {"onboard_token": token}})
+        ingest.handler({"event_type": "onboarding_hello", "device_id": "apvpd-test123", "payload": {"onboard_token": token}})
 
         _topic, envelope = ingest.published[-1]
         msg_id = str(envelope.get("message_id") or "")
@@ -786,7 +792,7 @@ async def test_v2_ack_rejected_marks_failed(tmp_path, monkeypatch):
         ingest.handler(
             {
                 "event_type": "onboarding_config_ack",
-                "device_id": "aqi-123",
+                "device_id": "apvpd-test123",
                 "payload": {"message_id": msg_id, "accepted": False, "error": "config_rejected"},
             }
         )
@@ -838,17 +844,17 @@ async def test_v2_ack_correlates_by_message_id_with_same_device(tmp_path, monkey
     await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        s1 = await client.post("/onboard-device/v2/start", data={"device_id": "aqi-123"})
-        s2 = await client.post("/onboard-device/v2/start", data={"device_id": "aqi-123"})
+        s1 = await client.post("/onboard-device/v2/start", data={"device_id": "apvpd-test123"})
+        s2 = await client.post("/onboard-device/v2/start", data={"device_id": "apvpd-test123"})
         sid1 = str(s1.json().get("session_id") or "")
         sid2 = str(s2.json().get("session_id") or "")
         tok1 = f"tok-{sid1[:10]}"
         tok2 = f"tok-{sid2[:10]}"
 
-        ingest.handler({"event_type": "onboarding_hello", "device_id": "aqi-123", "payload": {"onboard_token": tok1}})
+        ingest.handler({"event_type": "onboarding_hello", "device_id": "apvpd-test123", "payload": {"onboard_token": tok1}})
         _topic1, env1 = ingest.published[-1]
         msg1 = str(env1.get("message_id") or "")
-        ingest.handler({"event_type": "onboarding_hello", "device_id": "aqi-123", "payload": {"onboard_token": tok2}})
+        ingest.handler({"event_type": "onboarding_hello", "device_id": "apvpd-test123", "payload": {"onboard_token": tok2}})
         _topic2, env2 = ingest.published[-1]
         msg2 = str(env2.get("message_id") or "")
         assert msg1 and msg2 and msg1 != msg2
@@ -856,7 +862,7 @@ async def test_v2_ack_correlates_by_message_id_with_same_device(tmp_path, monkey
         ingest.handler(
             {
                 "event_type": "onboarding_config_ack",
-                "device_id": "aqi-123",
+                "device_id": "apvpd-test123",
                 "payload": {"message_id": msg2, "accepted": True},
             }
         )
@@ -889,6 +895,6 @@ async def test_v2_start_disabled_by_feature_flag(tmp_path, monkeypatch):
     await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        res = await client.post("/onboard-device/v2/start", data={"device_id": "aqi-123"})
+        res = await client.post("/onboard-device/v2/start", data={"device_id": "apvpd-test123"})
         assert res.status_code == 409
         assert res.json().get("error") == "onboarding_v2_disabled"

@@ -1,3 +1,9 @@
+"""Pytest coverage for onboarding V2 token and session primitives.
+
+These tests verify the core store and token behaviors that support the newer
+MQTT-assisted device onboarding flow.
+"""
+
 from __future__ import annotations
 
 import os
@@ -38,17 +44,17 @@ def test_token_issue_validate_consume_replay_rejected(tmp_path):
     store = OnboardingSessionStore(base_dir=str(tmp_path))
     mgr = OnboardingTokenManager(store, default_ttl_sec=120)
 
-    issued = mgr.issue_token(session_id="sess-1", expected_device_id="aqi-123")
+    issued = mgr.issue_token(session_id="sess-1", expected_device_id="apvpd-test123")
     token = issued["token"]
 
-    ok, reason = mgr.validate_for_session(session_id="sess-1", token=token, device_id="aqi-123")
+    ok, reason = mgr.validate_for_session(session_id="sess-1", token=token, device_id="apvpd-test123")
     assert ok is True
     assert reason == "ok"
 
     consumed_ok, consumed_reason, updated = mgr.consume_for_session(
         session_id="sess-1",
         token=token,
-        device_id="aqi-123",
+        device_id="apvpd-test123",
     )
     assert consumed_ok is True
     assert consumed_reason == "ok"
@@ -56,7 +62,7 @@ def test_token_issue_validate_consume_replay_rejected(tmp_path):
     assert bool(updated.get("token_consumed", False)) is True
 
     # replay should fail
-    ok2, reason2 = mgr.validate_for_session(session_id="sess-1", token=token, device_id="aqi-123")
+    ok2, reason2 = mgr.validate_for_session(session_id="sess-1", token=token, device_id="apvpd-test123")
     assert ok2 is False
     assert reason2 == "token_already_used"
 

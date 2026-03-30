@@ -1,3 +1,9 @@
+"""Pytest coverage for non-Raspberry Pi startup behavior.
+
+The test in this module verifies local sensor configuration bootstrap is safely
+skipped when Pi-specific runtime support is unavailable.
+"""
+
 import importlib.util
 import os
 import sys

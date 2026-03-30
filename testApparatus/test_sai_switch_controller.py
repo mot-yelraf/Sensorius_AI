@@ -1,3 +1,9 @@
+"""Pytest coverage for switch controller runtime behavior.
+
+These tests exercise auto-off timing, remote-state refresh, rule evaluation,
+astral conditions, and controller selection behavior.
+"""
+
 import os
 import sys
 import time

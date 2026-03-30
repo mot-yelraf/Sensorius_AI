@@ -1,3 +1,9 @@
+"""Pytest coverage for SQLite migration and daily-summary persistence paths.
+
+This module verifies legacy database migration behavior and round-trip storage
+for biodynamic daily summaries.
+"""
+
 import sqlite3
 import sys
 from pathlib import Path

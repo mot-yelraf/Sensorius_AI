@@ -39,7 +39,7 @@ This keeps local and remote switch behavior consistent for automation and dashbo
 1. `Sensorius.py` initializes settings, supervisor, GC, and network helpers.
 2. Local sensors are detected and instantiated (if present on host hardware).
 3. Switch settings are enumerated and a controller is created per switch via `build_switch_controller(...)`.
-4. MQTT ingest is started and begins remote discovery (`/itaot` + MQTT topics).
+4. MQTT ingest is started and begins remote discovery from retained MQTT metadata and topics (`nodus/<device_id>/meta`, heartbeats, data, and switch topics).
 5. FarmOS bridge task is started and subscribes to new readings from `saiDataLogger`.
 6. Web server starts; dashboard and API routes read from controllers + ingest + DB.
 7. Each switch controller monitor (`run_controladora_monitor`) is scheduled to evaluate automations.
@@ -57,7 +57,8 @@ When FarmOS integration is enabled:
 
 Remote Nodus/Pico switches are discovered through MQTT ingest:
 
-- `/itaot` metadata provides switch id, labels, channel ids, and topics.
+- Retained `nodus/<device_id>/meta` payloads are the primary source of switch id, labels, channel ids, and topic metadata.
+- `itaot-meta/v1` payloads can be normalized when available for AP-mode or diagnostic enrichment, but they are not required for steady-state discovery.
 - Topic maps are cached in ingest.
 - Switch identity records are persisted in DB (`switch_id`, `label`, `channel_id` via switch key).
 

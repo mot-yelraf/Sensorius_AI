@@ -9,7 +9,7 @@ The goal is simple: get visibility, storage, and control with minimal manual set
 ## What It Does
 
 - Auto-detects locally attached sensors (Raspberry Pi deployments)
-- Discovers Nodus sensors and switches via MQTT and retained `nodus/<device_id>/meta` metadata (`/itaot` fallback for legacy/diagnostics)
+- Discovers Nodus sensors and switches via MQTT and retained `nodus/<device_id>/meta` metadata (`/itaot-meta` fallback for AP-mode/diagnostics)
 - Stores sensor readings and switch events in a local SQLite database
 - Provides live dashboards, historical graphing, and location-based views
 - Shows Astral-based sun position and moon phase cards in the dashboard when location/timezone are available

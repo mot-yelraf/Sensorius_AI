@@ -1,4 +1,10 @@
-# sensor_modules/sensor_dummy.py
+"""Template sensor backend used as a simple configurable starting point.
+
+This module mirrors the lightweight dummy-style implementation used for tests
+and scaffolding so new sensor backends can be built against the expected
+Sensorius sensor contract.
+"""
+
 import math
 from saiUtils import printDM, debug_enabled
 from sensor_modules.base import BaseSensor, find_sensor_bus

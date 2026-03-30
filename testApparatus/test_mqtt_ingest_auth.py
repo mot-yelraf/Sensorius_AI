@@ -1,3 +1,9 @@
+"""Pytest coverage for MQTT ingest authentication selection.
+
+These tests verify the ingest layer chooses the correct shared or split MQTT
+credentials when Home Assistant and Sensorius broker settings differ.
+"""
+
 import os
 import sys
 import types

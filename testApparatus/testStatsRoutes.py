@@ -1,3 +1,9 @@
+"""Pytest coverage for statistics API route behavior.
+
+These tests seed a lightweight database and verify the stats endpoints return
+expected payloads, defaults, and missing-sensor behavior.
+"""
+
 import sqlite3
 from datetime import datetime, timedelta, timezone
 

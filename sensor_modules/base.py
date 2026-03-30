@@ -1,4 +1,10 @@
-# sensor_modules/base.py - base sensor class
+"""Base classes and bus helpers for concrete Sensorius sensor backends.
+
+This module provides the shared `BaseSensor` implementation, measurement
+filtering/state helpers, calibration scaffolding, and low-level I2C or RS485 bus
+probing utilities reused by the sensor modules.
+"""
+
 import time
 import math
 import traceback

@@ -1,6 +1,8 @@
-# analyze_sensordb.py
-# Utility to inspect sensor_data.db contents (sensors + switches)
-# Python 3.11
+"""Ad hoc SQLite inspection helper for Sensorius sensor and switch history.
+
+This utility prints row counts, metric coverage, time ranges, and recent data so
+developers can inspect a captured runtime database outside the web UI.
+"""
 
 import sqlite3
 import logging

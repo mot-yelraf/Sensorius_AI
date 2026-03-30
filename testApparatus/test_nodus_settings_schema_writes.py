@@ -1,3 +1,9 @@
+"""Pytest coverage for onboarding and settings-schema materialization.
+
+These tests exercise route-level settings writes, broker rewriting, Astral value
+handling, and Nodus-facing config payload generation.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -545,12 +551,12 @@ async def test_submit_sensor_settings_ajax_returns_json_success(tmp_path, monkey
     app, _ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
-        "aqi-123",
+        "apvpd-test123",
         {
             "Sensor": {
                 "TYPE": "local",
                 "DEVICE": "aqi",
-                "SENSOR_ID": "aqi-123",
+                "SENSOR_ID": "apvpd-test123",
                 "LOCATION": "Old Room",
             },
             "Display": {"METRIC_1": "Temperature"},
@@ -560,7 +566,7 @@ async def test_submit_sensor_settings_ajax_returns_json_success(tmp_path, monkey
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
             "/submit-sensor-settings",
-            data={"sensor_id": "aqi-123", "location": "Grow Tent"},
+            data={"sensor_id": "apvpd-test123", "location": "Grow Tent"},
             headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
             follow_redirects=False,
         )
@@ -568,7 +574,7 @@ async def test_submit_sensor_settings_ajax_returns_json_success(tmp_path, monkey
     assert res.status_code == 200
     body = res.json()
     assert body["ok"] is True
-    assert body["sensor_id"] == "aqi-123"
+    assert body["sensor_id"] == "apvpd-test123"
 
 
 @pytest.mark.asyncio
@@ -605,26 +611,26 @@ async def test_submit_sensor_settings_pushes_sensor_and_display_updates_for_nodu
     app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
-        "aqi-123",
+        "apvpd-test123",
         {
             "Sensor": {
                 "TYPE": "nodus",
                 "DEVICE": "aqi",
-                "SENSOR_ID": "aqi-123",
+                "SENSOR_ID": "apvpd-test123",
                 "LOCATION": "Old Room",
             },
             "Display": {"METRIC_1": "Old"},
         },
     )
-    _write_system_settings(system_root, "aqi-123", "aqi-123")
+    _write_system_settings(system_root, "apvpd-test123", "apvpd-test123")
     ingest.published_json.clear()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
             "/submit-sensor-settings",
             data={
-                "sensor_id": "aqi-123",
-                "sensor_id_field": "aqi-123",
+                "sensor_id": "apvpd-test123",
+                "sensor_id_field": "apvpd-test123",
                 "device": "aqi",
                 "location": "Grow Tent",
                 "metric_1": "Temperature",
@@ -660,9 +666,9 @@ async def test_submit_sensor_settings_pushes_sensor_and_display_updates_for_nodu
     assert not any(p["section"] == "Sensor" and p["key"] == "SENSOR_ID" for p in posted)
     assert any(p.get("name") == "sensor_i2c.toml" for p in posted)
     assert ingest.refreshed == []
-    saved = sensor_mgr.load("aqi-123")
+    saved = sensor_mgr.load("apvpd-test123")
     assert saved["Sensor"]["DEVICE"] == "aqi"
-    assert saved["Sensor"]["SENSOR_ID"] == "aqi-123"
+    assert saved["Sensor"]["SENSOR_ID"] == "apvpd-test123"
     assert saved["Display"]["Style"]["METRIC_1"] == "Graph24hr"
     assert saved["Display"]["Style"]["METRIC_3"] == "Graph6hr"
 
@@ -672,28 +678,28 @@ async def test_submit_sensor_settings_prefers_cached_ip_for_nodus_push(tmp_path,
     app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
-        "co2-ykdvea",
+        "apvpd-test123",
         {
             "Sensor": {
                 "TYPE": "nodus",
                 "DEVICE": "co2",
-                "SENSOR_ID": "co2-ykdvea",
+                "SENSOR_ID": "apvpd-test123",
                 "LOCATION": "Lab",
             },
             "Display": {"METRIC_1": "CO2"},
         },
     )
-    _write_system_settings(system_root, "co2-ykdvea", "co2-ykdvea")
-    ingest._host_ip_cache["co2-ykdvea"] = "192.168.4.23"
-    ingest._host_ipv4addr["co2-ykdvea"] = "192.168.4.23"
+    _write_system_settings(system_root, "apvpd-test123", "apvpd-test123")
+    ingest._host_ip_cache["apvpd-test123"] = "192.168.4.23"
+    ingest._host_ipv4addr["apvpd-test123"] = "192.168.4.23"
     ingest.published_json.clear()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
             "/submit-sensor-settings",
             data={
-                "sensor_id": "co2-ykdvea",
-                "sensor_id_field": "co2-ykdvea",
+                "sensor_id": "apvpd-test123",
+                "sensor_id_field": "apvpd-test123",
                 "device": "co2",
                 "location": "Lab",
                 "metric_1": "CO2",
@@ -713,7 +719,7 @@ async def test_submit_sensor_settings_prefers_cached_ip_for_nodus_push(tmp_path,
 
     assert res.status_code == 303
     assert ingest.published_json
-    assert ingest.published_json[0]["topic"] == "nodus/co2-ykdvea/config/set"
+    assert ingest.published_json[0]["topic"] == "nodus/apvpd-test123/config/set"
     assert all(len((((row.get("payload") or {}).get("payload") or {}).get("updates") or [])) == 1 for row in ingest.published_json)
 
 
@@ -723,8 +729,8 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
     template = env.get_template("modals/sensor_settings.html")
 
     html = template.render(
-        sensor_id="aqi-123",
-        settings={"Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "aqi-123", "LOCATION": "Veg Tent"}},
+        sensor_id="apvpd-test123",
+        settings={"Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "apvpd-test123", "LOCATION": "Veg Tent"}},
         metric_options=["", "Temperature", "Rel-Humidity", "Ambient VPD"],
         current_metrics=["Temperature", "Rel-Humidity", "Ambient VPD", "", "", ""],
         display_style_options=["Gauge", "Graph6hr", "Graph24hr"],
@@ -753,7 +759,7 @@ def test_switch_settings_modal_shows_nodus_firmware_version_in_settings_pane_tit
     template = env.get_template("modals/switch_settings.html")
 
     html = template.render(
-        switch_id="switch-123",
+        switch_id="switch-test123",
         settings={"Switch": {"TYPE": "nodus", "SWITCH_LOCATION": "Veg Tent"}},
         channel_indices=[1],
         channels=[{"index": 1, "label": "Fan"}],
@@ -768,12 +774,12 @@ async def test_device_calibration_apply_for_remote_nodus_uses_mqtt_and_updates_s
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
-        "aqi-123",
+        "apvpd-test123",
         {
             "Sensor": {
                 "TYPE": "nodus",
                 "DEVICE": "aqi",
-                "SENSOR_ID": "aqi-123",
+                "SENSOR_ID": "apvpd-test123",
             }
         },
     )
@@ -782,7 +788,7 @@ async def test_device_calibration_apply_for_remote_nodus_uses_mqtt_and_updates_s
         res = await client.post(
             "/calibration/device/apply",
             json={
-                "sensor_id": "aqi-123",
+                "sensor_id": "apvpd-test123",
                 "device_kind": "aqi",
                 "offsets": [{"key": "Calibration.Device.TEMP_OFFSET", "value": 1.5}],
             },
@@ -791,7 +797,7 @@ async def test_device_calibration_apply_for_remote_nodus_uses_mqtt_and_updates_s
     assert res.status_code == 200
     assert ingest.calibration_commands[-1]["action"] == "apply"
     assert ingest.calibration_commands[-1]["payload"]["offsets"][0]["key"] == "Calibration.Device.TEMP_OFFSET"
-    saved = sensor_mgr.load("aqi-123")
+    saved = sensor_mgr.load("apvpd-test123")
     assert saved["Calibration"]["Device"]["TEMP_OFFSET"] == 1.5
 
 
@@ -800,12 +806,12 @@ async def test_device_calibration_apply_for_remote_nodus_can_update_same_offset_
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
-        "co2-ykdvea",
+        "apvpd-test123",
         {
             "Sensor": {
                 "TYPE": "nodus",
                 "DEVICE": "co2",
-                "SENSOR_ID": "co2-ykdvea",
+                "SENSOR_ID": "apvpd-test123",
             },
             "Calibration": {
                 "Device": {
@@ -819,7 +825,7 @@ async def test_device_calibration_apply_for_remote_nodus_can_update_same_offset_
         first = await client.post(
             "/calibration/device/apply",
             json={
-                "sensor_id": "co2-ykdvea",
+                "sensor_id": "apvpd-test123",
                 "device_kind": "co2",
                 "offsets": [{"key": "Calibration.Device.CO2_OFFSET", "value": -750.0}],
             },
@@ -827,7 +833,7 @@ async def test_device_calibration_apply_for_remote_nodus_can_update_same_offset_
         second = await client.post(
             "/calibration/device/apply",
             json={
-                "sensor_id": "co2-ykdvea",
+                "sensor_id": "apvpd-test123",
                 "device_kind": "co2",
                 "offsets": [{"key": "Calibration.Device.CO2_OFFSET", "value": -250.0}],
             },
@@ -835,7 +841,7 @@ async def test_device_calibration_apply_for_remote_nodus_can_update_same_offset_
 
     assert first.status_code == 200
     assert second.status_code == 200
-    assert sensor_mgr.load("co2-ykdvea")["Calibration"]["Device"]["CO2_OFFSET"] == -250.0
+    assert sensor_mgr.load("apvpd-test123")["Calibration"]["Device"]["CO2_OFFSET"] == -250.0
     assert [cmd["payload"]["offsets"][0]["value"] for cmd in ingest.calibration_commands[-2:]] == [-750.0, -250.0]
 
 
@@ -844,12 +850,12 @@ async def test_device_calibration_apply_for_remote_nodus_filters_unchanged_offse
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
-        "aqi-123",
+        "apvpd-test123",
         {
             "Sensor": {
                 "TYPE": "nodus",
                 "DEVICE": "aqi",
-                "SENSOR_ID": "aqi-123",
+                "SENSOR_ID": "apvpd-test123",
             },
             "Calibration": {
                 "Device": {
@@ -866,7 +872,7 @@ async def test_device_calibration_apply_for_remote_nodus_filters_unchanged_offse
         res = await client.post(
             "/calibration/device/apply",
             json={
-                "sensor_id": "aqi-123",
+                "sensor_id": "apvpd-test123",
                 "device_kind": "aqi",
                 "offsets": [
                     {"key": "Calibration.Device.TEMP_OFFSET", "value": 0},
@@ -880,7 +886,7 @@ async def test_device_calibration_apply_for_remote_nodus_filters_unchanged_offse
     assert res.status_code == 200
     sent_offsets = ingest.calibration_commands[-1]["payload"]["offsets"]
     assert sent_offsets == [{"key": "Calibration.Device.RH_OFFSET", "value": 0.4}]
-    saved = sensor_mgr.load("aqi-123")
+    saved = sensor_mgr.load("apvpd-test123")
     assert saved["Calibration"]["Device"]["RH_OFFSET"] == 0.4
 
 
@@ -890,12 +896,12 @@ async def test_device_calibration_apply_for_remote_nodus_does_not_update_shadow_
     ingest.next_calibration_result = {"applied": False, "error": "bad_payload", "status": {"status": "idle", "calibrated": False}}
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
-        "aqi-123",
+        "apvpd-test123",
         {
             "Sensor": {
                 "TYPE": "nodus",
                 "DEVICE": "aqi",
-                "SENSOR_ID": "aqi-123",
+                "SENSOR_ID": "apvpd-test123",
             }
         },
     )
@@ -904,14 +910,14 @@ async def test_device_calibration_apply_for_remote_nodus_does_not_update_shadow_
         res = await client.post(
             "/calibration/device/apply",
             json={
-                "sensor_id": "aqi-123",
+                "sensor_id": "apvpd-test123",
                 "device_kind": "aqi",
                 "offsets": [{"key": "Calibration.Device.TEMP_OFFSET", "value": 1.5}],
             },
         )
 
     assert res.status_code == 400
-    saved = sensor_mgr.load("aqi-123")
+    saved = sensor_mgr.load("apvpd-test123")
     assert "Calibration" not in saved
 
 
@@ -1034,18 +1040,18 @@ async def test_calibration_status_prefers_mqtt_state_for_remote_nodus(tmp_path, 
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
-        "aqi-123",
+        "apvpd-test123",
         {
             "Sensor": {
                 "TYPE": "nodus",
                 "DEVICE": "aqi",
-                "SENSOR_ID": "aqi-123",
+                "SENSOR_ID": "apvpd-test123",
             },
         },
     )
-    ingest.calibration_state["aqi-123"] = {
+    ingest.calibration_state["apvpd-test123"] = {
         "status": {
-            "sensor_id": "aqi-123",
+            "sensor_id": "apvpd-test123",
             "status": "in_progress",
             "calibrated": False,
             "sample_index": 2,
@@ -1056,7 +1062,7 @@ async def test_calibration_status_prefers_mqtt_state_for_remote_nodus(tmp_path, 
     }
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        res = await client.get("/calibration-status", params={"sensor_id": "aqi-123"})
+        res = await client.get("/calibration-status", params={"sensor_id": "apvpd-test123"})
 
     body = res.json()
     assert res.status_code == 200
@@ -1069,19 +1075,19 @@ async def test_calibrate_remote_nodus_uses_mqtt_start(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
-        "aqi-123",
+        "apvpd-test123",
         {
             "Sensor": {
                 "TYPE": "nodus",
                 "DEVICE": "apvpd",
-                "SENSOR_ID": "aqi-123",
+                "SENSOR_ID": "apvpd-test123",
             }
         },
     )
     ingest.next_calibration_result = {"applied": True, "started": True, "status": {"status": "in_progress", "calibrated": False}}
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        res = await client.post("/calibrate", params={"sensor_id": "aqi-123"})
+        res = await client.post("/calibrate", params={"sensor_id": "apvpd-test123"})
 
     assert res.status_code == 200
     assert res.json()["status"] == "started"
@@ -1093,25 +1099,25 @@ async def test_submit_switch_settings_pushes_remote_updates_for_nodus(tmp_path, 
     app, ingest, system_root, _sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
     switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
     switch_mgr.save(
-        "switch-123",
+        "switch-test123",
         {
             "Switch": {
                 "TYPE": "nodus",
                 "DEVICE": "switch",
-                "SWITCH_DEVICE_ID": "switch-123",
+                "SWITCH_DEVICE_ID": "switch-test123",
                 "SWITCH_LOCATION": "Old Rack",
                 "SWITCH_1_LABEL": "Relay 1",
             }
         },
     )
-    _write_system_settings(system_root, "switch-123", "switch-123")
+    _write_system_settings(system_root, "switch-test123", "switch-test123")
     ingest.published_json.clear()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
             "/submit-switch-settings",
             data={
-                "switch_id": "switch-123",
+                "switch_id": "switch-test123",
                 "location": "Veg Rack",
                 "SWITCH_1_LABEL": "Lights",
             },
@@ -1130,9 +1136,9 @@ async def test_submit_switch_settings_pushes_remote_updates_for_nodus(tmp_path, 
     assert not any(p["section"] == "Switch" and p["key"] == "DEVICE" for p in posted)
     assert not any(p["section"] == "Switch" and p["key"] == "SWITCH_DEVICE_ID" for p in posted)
     assert all(p.get("name") == "switch.toml" for p in posted)
-    saved = switch_mgr.load("switch-123")
+    saved = switch_mgr.load("switch-test123")
     assert saved["Switch"]["DEVICE"] == "switch"
-    assert saved["Switch"]["SWITCH_DEVICE_ID"] == "switch-123"
+    assert saved["Switch"]["SWITCH_DEVICE_ID"] == "switch-test123"
 
 
 @pytest.mark.asyncio
@@ -1140,18 +1146,18 @@ async def test_submit_switch_settings_waits_for_config_result_before_next_remote
     app, ingest, system_root, _sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
     switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
     switch_mgr.save(
-        "switch-123",
+        "switch-test123",
         {
             "Switch": {
                 "TYPE": "nodus",
                 "DEVICE": "switch",
-                "SWITCH_DEVICE_ID": "switch-123",
+                "SWITCH_DEVICE_ID": "switch-test123",
                 "SWITCH_LOCATION": "Old Rack",
                 "SWITCH_1_LABEL": "Relay 1",
             }
         },
     )
-    _write_system_settings(system_root, "switch-123", "switch-123")
+    _write_system_settings(system_root, "switch-test123", "switch-test123")
     ingest.published_json.clear()
 
     first_result_released = asyncio.Event()
@@ -1171,7 +1177,7 @@ async def test_submit_switch_settings_waits_for_config_result_before_next_remote
             client.post(
                 "/submit-switch-settings",
                 data={
-                    "switch_id": "switch-123",
+                    "switch_id": "switch-test123",
                     "location": "Veg Rack",
                     "SWITCH_1_LABEL": "Lights",
                 },
@@ -1197,23 +1203,23 @@ async def test_device_locations_pushes_for_nodus_sensor_and_switch(tmp_path, mon
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
     sensor_mgr.save(
-        "aqi-123",
-        {"Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "aqi-123", "LOCATION": "Old"}},
+        "apvpd-test123",
+        {"Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "apvpd-test123", "LOCATION": "Old"}},
     )
     switch_mgr.save(
-        "switch-123",
-        {"Switch": {"TYPE": "nodus", "DEVICE": "switch", "SWITCH_DEVICE_ID": "switch-123", "SWITCH_LOCATION": "Old"}},
+        "switch-test123",
+        {"Switch": {"TYPE": "nodus", "DEVICE": "switch", "SWITCH_DEVICE_ID": "switch-test123", "SWITCH_LOCATION": "Old"}},
     )
-    _write_system_settings(system_root, "aqi-123", "aqi-123")
-    _write_system_settings(system_root, "switch-123", "switch-123")
+    _write_system_settings(system_root, "apvpd-test123", "apvpd-test123")
+    _write_system_settings(system_root, "switch-test123", "switch-test123")
     ingest.published_json.clear()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
             "/device-locations",
             json=[
-                {"id": "aqi-123", "type": "sensor", "location": "Room A"},
-                {"id": "switch-123", "type": "switch", "location": "Room B"},
+                {"id": "apvpd-test123", "type": "sensor", "location": "Room A"},
+                {"id": "switch-test123", "type": "switch", "location": "Room B"},
             ],
         )
 
@@ -1235,15 +1241,15 @@ async def test_device_locations_serializes_shared_host_nodus_updates(tmp_path, m
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
     sensor_mgr.save(
-        "aqi-123",
-        {"Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "aqi-123", "LOCATION": "Old"}},
+        "apvpd-test123",
+        {"Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "apvpd-test123", "LOCATION": "Old"}},
     )
     switch_mgr.save(
-        "switch-123",
-        {"Switch": {"TYPE": "nodus", "DEVICE": "switch", "SWITCH_DEVICE_ID": "switch-123", "SWITCH_LOCATION": "Old"}},
+        "switch-test123",
+        {"Switch": {"TYPE": "nodus", "DEVICE": "switch", "SWITCH_DEVICE_ID": "switch-test123", "SWITCH_LOCATION": "Old"}},
     )
-    _write_system_settings(system_root, "aqi-123", "aqi-123")
-    _write_system_settings(system_root, "switch-123", "aqi-123")
+    _write_system_settings(system_root, "apvpd-test123", "apvpd-test123")
+    _write_system_settings(system_root, "switch-test123", "apvpd-test123")
     ingest.published_json.clear()
 
     first_result_released = asyncio.Event()
@@ -1263,20 +1269,20 @@ async def test_device_locations_serializes_shared_host_nodus_updates(tmp_path, m
             client.post(
                 "/device-locations",
                 json=[
-                    {"id": "aqi-123", "type": "sensor", "location": "Room A"},
-                    {"id": "switch-123", "type": "switch", "location": "Room B"},
+                    {"id": "apvpd-test123", "type": "sensor", "location": "Room A"},
+                    {"id": "switch-test123", "type": "switch", "location": "Room B"},
                 ],
             )
         )
 
         await asyncio.sleep(0.05)
         assert len(ingest.published_json) == 1
-        assert ingest.published_json[0]["topic"] == "nodus/aqi-123/config/set"
+        assert ingest.published_json[0]["topic"] == "nodus/apvpd-test123/config/set"
 
         first_result_released.set()
         await asyncio.sleep(0.05)
         assert len(ingest.published_json) == 2
-        assert all(row["topic"] == "nodus/aqi-123/config/set" for row in ingest.published_json)
+        assert all(row["topic"] == "nodus/apvpd-test123/config/set" for row in ingest.published_json)
 
         second_result_released.set()
         res = await save_task
@@ -1290,26 +1296,26 @@ async def test_device_locations_prefers_paired_sensor_host_when_switch_system_ho
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
     sensor_mgr.save(
-        "aqi-123",
-        {"Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "aqi-123", "LOCATION": "Old"}},
+        "apvpd-test123",
+        {"Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "apvpd-test123", "LOCATION": "Old"}},
     )
     switch_mgr.save(
-        "switch-123",
-        {"Switch": {"TYPE": "nodus", "DEVICE": "switch", "SWITCH_DEVICE_ID": "switch-123", "SWITCH_LOCATION": "Old"}},
+        "switch-test123",
+        {"Switch": {"TYPE": "nodus", "DEVICE": "switch", "SWITCH_DEVICE_ID": "switch-test123", "SWITCH_LOCATION": "Old"}},
     )
-    _write_system_settings(system_root, "aqi-123", "aqi-123")
-    _write_system_settings(system_root, "switch-123", "switch-123")
+    _write_system_settings(system_root, "apvpd-test123", "apvpd-test123")
+    _write_system_settings(system_root, "switch-test123", "switch-test123")
     ingest.published_json.clear()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
             "/device-locations",
-            json=[{"id": "switch-123", "type": "switch", "location": "Room B"}],
+            json=[{"id": "switch-test123", "type": "switch", "location": "Room B"}],
         )
 
     assert res.status_code == 200
     assert len(ingest.published_json) == 1
-    assert ingest.published_json[0]["topic"] == "nodus/aqi-123/config/set"
+    assert ingest.published_json[0]["topic"] == "nodus/apvpd-test123/config/set"
 
 
 @pytest.mark.asyncio
@@ -1318,29 +1324,29 @@ async def test_device_locations_skips_unchanged_rows_and_only_pushes_modified_no
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
     sensor_mgr.save(
-        "aqi-123",
-        {"Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "aqi-123", "LOCATION": "Room A"}},
+        "apvpd-test123",
+        {"Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "apvpd-test123", "LOCATION": "Room A"}},
     )
     sensor_mgr.save(
         "co2-123",
         {"Sensor": {"TYPE": "nodus", "DEVICE": "co2", "SENSOR_ID": "co2-123", "LOCATION": "Room B"}},
     )
     switch_mgr.save(
-        "switch-123",
-        {"Switch": {"TYPE": "nodus", "DEVICE": "switch", "SWITCH_DEVICE_ID": "switch-123", "SWITCH_LOCATION": "Room C"}},
+        "switch-test123",
+        {"Switch": {"TYPE": "nodus", "DEVICE": "switch", "SWITCH_DEVICE_ID": "switch-test123", "SWITCH_LOCATION": "Room C"}},
     )
-    _write_system_settings(system_root, "aqi-123", "aqi-123")
+    _write_system_settings(system_root, "apvpd-test123", "apvpd-test123")
     _write_system_settings(system_root, "co2-123", "co2-123")
-    _write_system_settings(system_root, "switch-123", "aqi-123")
+    _write_system_settings(system_root, "switch-test123", "apvpd-test123")
     ingest.published_json.clear()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
             "/device-locations",
             json=[
-                {"id": "aqi-123", "type": "sensor", "location": "Room A"},
+                {"id": "apvpd-test123", "type": "sensor", "location": "Room A"},
                 {"id": "co2-123", "type": "sensor", "location": "Veg Tent"},
-                {"id": "switch-123", "type": "switch", "location": "Room C"},
+                {"id": "switch-test123", "type": "switch", "location": "Room C"},
             ],
         )
 
@@ -1356,27 +1362,27 @@ async def test_device_locations_returns_502_when_nodus_config_apply_fails(tmp_pa
     app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
-        "aqi-123",
-        {"Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "aqi-123", "LOCATION": "Old"}},
+        "apvpd-test123",
+        {"Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "apvpd-test123", "LOCATION": "Old"}},
     )
-    _write_system_settings(system_root, "aqi-123", "aqi-123")
+    _write_system_settings(system_root, "apvpd-test123", "apvpd-test123")
     ingest.next_config_result = {"applied": False, "error": "apply_failed"}
     ingest.published_json.clear()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
             "/device-locations",
-            json=[{"id": "aqi-123", "type": "sensor", "location": "Room A"}],
+            json=[{"id": "apvpd-test123", "type": "sensor", "location": "Room A"}],
         )
 
     assert res.status_code == 502
     body = res.json()
     assert body["ok"] is False
     assert body["error"] == "nodus_remote_apply_failed"
-    assert body["results"][0]["id"] == "aqi-123"
+    assert body["results"][0]["id"] == "apvpd-test123"
     assert body["results"][0]["type"] == "sensor"
     assert body["results"][0]["ok"] is False
-    assert body["results"][0]["target_host"] == "aqi-123"
+    assert body["results"][0]["target_host"] == "apvpd-test123"
 
 
 @pytest.mark.asyncio
@@ -1389,11 +1395,11 @@ async def test_device_locations_resolves_system_root_from_base_dir_only_settings
         {"Sensor": {"TYPE": "nodus", "DEVICE": "co2", "SENSOR_ID": "co2-123", "LOCATION": "Lab"}},
     )
     switch_mgr.save(
-        "switch-123",
-        {"Switch": {"TYPE": "nodus", "DEVICE": "switch", "SWITCH_DEVICE_ID": "switch-123", "SWITCH_LOCATION": "Lab"}},
+        "switch-test123",
+        {"Switch": {"TYPE": "nodus", "DEVICE": "switch", "SWITCH_DEVICE_ID": "switch-test123", "SWITCH_LOCATION": "Lab"}},
     )
     _write_system_settings(system_root, "co2-123", "co2-123")
-    _write_system_settings(system_root, "switch-123", "co2-123")
+    _write_system_settings(system_root, "switch-test123", "co2-123")
     ingest.published_json.clear()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1401,7 +1407,7 @@ async def test_device_locations_resolves_system_root_from_base_dir_only_settings
             "/device-locations",
             json=[
                 {"id": "co2-123", "type": "sensor", "location": "Office"},
-                {"id": "switch-123", "type": "switch", "location": "Office"},
+                {"id": "switch-test123", "type": "switch", "location": "Office"},
             ],
         )
 
@@ -1416,30 +1422,30 @@ async def test_submit_switch_settings_prefers_paired_sensor_host_when_switch_sys
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
     sensor_mgr.save(
-        "co2-123",
-        {"Sensor": {"TYPE": "nodus", "DEVICE": "co2", "SENSOR_ID": "co2-123", "LOCATION": "Old Rack"}},
+        "apvpd-test123",
+        {"Sensor": {"TYPE": "nodus", "DEVICE": "apvpd", "SENSOR_ID": "apvpd-test123", "LOCATION": "Old Rack"}},
     )
     switch_mgr.save(
-        "switch-123",
+        "switch-test123",
         {
             "Switch": {
                 "TYPE": "nodus",
                 "DEVICE": "switch",
-                "SWITCH_DEVICE_ID": "switch-123",
+                "SWITCH_DEVICE_ID": "switch-test123",
                 "SWITCH_LOCATION": "Old Rack",
                 "SWITCH_1_LABEL": "Relay 1",
             }
         },
     )
-    _write_system_settings(system_root, "co2-123", "co2-123")
-    _write_system_settings(system_root, "switch-123", "switch-123")
+    _write_system_settings(system_root, "apvpd-test123", "apvpd-test123")
+    _write_system_settings(system_root, "switch-test123", "switch-test123")
     ingest.published_json.clear()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
             "/submit-switch-settings",
             data={
-                "switch_id": "switch-123",
+                "switch_id": "switch-test123",
                 "location": "Veg Rack",
                 "SWITCH_1_LABEL": "Lights",
             },
@@ -1447,7 +1453,7 @@ async def test_submit_switch_settings_prefers_paired_sensor_host_when_switch_sys
 
     assert res.status_code == 303
     assert len(ingest.published_json) == 2
-    assert all(row["topic"] == "nodus/co2-123/config/set" for row in ingest.published_json)
+    assert all(row["topic"] == "nodus/apvpd-test123/config/set" for row in ingest.published_json)
 
 
 @pytest.mark.asyncio
@@ -1455,12 +1461,12 @@ async def test_submit_switch_settings_remote_last_state_uses_config_set(tmp_path
     app, ingest, system_root, _sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
     switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
     switch_mgr.save(
-        "switch-123",
+        "switch-test123",
         {
             "Switch": {
                 "TYPE": "nodus",
                 "DEVICE": "switch",
-                "SWITCH_DEVICE_ID": "switch-123",
+                "SWITCH_DEVICE_ID": "switch-test123",
                 "SWITCH_LOCATION": "Old Rack",
                 "SWITCH_1_LABEL": "Relay 1",
                 "SWITCH_1_CHANNEL_ID": "S1-sernum",
@@ -1468,7 +1474,7 @@ async def test_submit_switch_settings_remote_last_state_uses_config_set(tmp_path
             }
         },
     )
-    _write_system_settings(system_root, "switch-123", "switch-123")
+    _write_system_settings(system_root, "switch-test123", "switch-test123")
     ingest.published_json.clear()
     ingest.switch_commands.clear()
 
@@ -1476,7 +1482,7 @@ async def test_submit_switch_settings_remote_last_state_uses_config_set(tmp_path
         res = await client.post(
             "/submit-switch-settings",
             data={
-                "switch_id": "switch-123",
+                "switch_id": "switch-test123",
                 "location": "Old Rack",
                 "SWITCH_1_LABEL": "Relay 1",
                 "SWITCH_1_LAST_STATE": "true",
@@ -1490,9 +1496,9 @@ async def test_submit_switch_settings_remote_last_state_uses_config_set(tmp_path
         for update in (((row.get("payload") or {}).get("payload") or {}).get("updates") or [])
     ]
     assert posted == [{"section": "Switch", "key": "SWITCH_1_LAST_STATE", "value": True, "name": "switch.toml"}]
-    assert all(row["topic"] == "nodus/switch-123/config/set" for row in ingest.published_json)
+    assert all(row["topic"] == "nodus/switch-test123/config/set" for row in ingest.published_json)
     assert ingest.switch_commands == []
-    saved = switch_mgr.load("switch-123")
+    saved = switch_mgr.load("switch-test123")
     assert saved["Switch"]["SWITCH_1_LAST_STATE"] is True
 
 
@@ -1501,12 +1507,12 @@ async def test_submit_switch_settings_remote_last_state_uses_previous_label_mapp
     app, ingest, system_root, _sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
     switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
     switch_mgr.save(
-        "switch-123",
+        "switch-test123",
         {
             "Switch": {
                 "TYPE": "nodus",
                 "DEVICE": "switch",
-                "SWITCH_DEVICE_ID": "switch-123",
+                "SWITCH_DEVICE_ID": "switch-test123",
                 "SWITCH_LOCATION": "Old Rack",
                 "SWITCH_1_LABEL": "Relay 1",
                 "SWITCH_1_CHANNEL_ID": "S1-sernum",
@@ -1514,7 +1520,7 @@ async def test_submit_switch_settings_remote_last_state_uses_previous_label_mapp
             }
         },
     )
-    _write_system_settings(system_root, "switch-123", "switch-123")
+    _write_system_settings(system_root, "switch-test123", "switch-test123")
     ingest.published_json.clear()
     ingest.switch_commands.clear()
 
@@ -1522,7 +1528,7 @@ async def test_submit_switch_settings_remote_last_state_uses_previous_label_mapp
         res = await client.post(
             "/submit-switch-settings",
             data={
-                "switch_id": "switch-123",
+                "switch_id": "switch-test123",
                 "location": "Old Rack",
                 "SWITCH_1_LABEL": "Lights",
                 "SWITCH_1_LAST_STATE": "true",
@@ -1539,9 +1545,9 @@ async def test_submit_switch_settings_remote_last_state_uses_previous_label_mapp
         {"section": "Switch", "key": "SWITCH_1_LABEL", "value": "Lights", "name": "switch.toml"},
         {"section": "Switch", "key": "SWITCH_1_LAST_STATE", "value": True, "name": "switch.toml"},
     ]
-    assert all(row["topic"] == "nodus/switch-123/config/set" for row in ingest.published_json)
+    assert all(row["topic"] == "nodus/switch-test123/config/set" for row in ingest.published_json)
     assert ingest.switch_commands == []
-    saved = switch_mgr.load("switch-123")
+    saved = switch_mgr.load("switch-test123")
     assert saved["Switch"]["SWITCH_1_LABEL"] == "Lights"
     assert saved["Switch"]["SWITCH_1_LAST_STATE"] is True
 
@@ -1551,49 +1557,53 @@ async def test_dashboard_sensor_locations_ignore_unknown_live_cache_and_use_toml
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     saiWebRoutes._SENSOR_LOCATION_CACHE.clear()
     saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
-    app.state.sensor_map = [SimpleNamespace(sensor_id="aqi-123", location="Grow Tent")]
+    app.state.sensor_map = [SimpleNamespace(sensor_id="apvpd-test123", location="Grow Tent")]
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
-        "aqi-123",
+        "apvpd-test123",
         {
             "Sensor": {
                 "TYPE": "nodus",
                 "DEVICE": "aqi",
-                "SENSOR_ID": "aqi-123",
+                "SENSOR_ID": "apvpd-test123",
                 "LOCATION": "Grow Tent",
             },
             "Display": {"METRIC_1": "Temperature"},
         },
     )
 
-    ingest.mqtt_clients = ["aqi-123"]
-    ingest.device_location["sensor/aqi-123/data"] = "Unknown"
+    ingest.mqtt_clients = ["apvpd-test123"]
+    ingest.device_location["sensor/apvpd-test123/data"] = "Unknown"
 
     now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
-    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["aqi-123"])
-    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso if sid == "aqi-123" else "")
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["apvpd-test123"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso if sid == "apvpd-test123" else "")
     monkeypatch.setattr(
         saiWebRoutes.data_logger,
         "get_latest_values_and_timestamps",
         lambda ids: (
-            {"aqi-123": {"Temperature": 72.0}},
-            {"aqi-123": now_iso},
+            {"apvpd-test123": {"Temperature": 72.0}},
+            {"apvpd-test123": now_iso},
         ),
     )
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
-    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {"aqi-123": {}})
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {"apvpd-test123": {}})
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.get("/", params={"json_only": "true"})
 
     assert res.status_code == 200
     body = res.json()
-    assert body["locations"]["aqi-123"] == "Grow Tent"
+    assert body["locations"]["apvpd-test123"] == "Grow Tent"
 
 
 @pytest.mark.asyncio
 async def test_dashboard_read_does_not_rewrite_metric_positions_for_offline_sensors(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    saiWebRoutes._SENSOR_LOCATION_CACHE.clear()
+    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    app.state.sensor_map = []
+    saiWebRoutes.sensor_map = []
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     for sid in ("aqi-a", "aqi-b", "aqi-c"):
         sensor_mgr.save(
@@ -1643,6 +1653,10 @@ async def test_dashboard_read_does_not_rewrite_metric_positions_for_offline_sens
 @pytest.mark.asyncio
 async def test_dashboard_metric_position_reorder_preserves_hidden_sensor_slots(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    saiWebRoutes._SENSOR_LOCATION_CACHE.clear()
+    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    app.state.sensor_map = []
+    saiWebRoutes.sensor_map = []
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     for sid in ("aqi-a", "aqi-b", "aqi-c"):
         sensor_mgr.save(
@@ -1694,9 +1708,9 @@ async def test_dashboard_display_style_prefers_sensor_settings_over_global_defau
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
-        "aqi-123",
+        "apvpd-test123",
         {
-            "Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "aqi-123", "LOCATION": "Grow Tent"},
+            "Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "apvpd-test123", "LOCATION": "Grow Tent"},
             "Display": {
                 "METRIC_1": "Temperature",
                 "Style": {
@@ -1714,7 +1728,7 @@ async def test_dashboard_display_style_prefers_sensor_settings_over_global_defau
 
     saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
     now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
-    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["aqi-123"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["apvpd-test123"])
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso)
     monkeypatch.setattr(
         saiWebRoutes.data_logger,
@@ -1726,7 +1740,7 @@ async def test_dashboard_display_style_prefers_sensor_settings_over_global_defau
     )
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_metrics", lambda sid: ["Temperature"])
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
-    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {"aqi-123": {}})
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {"apvpd-test123": {}})
     ingest.mqtt_clients = []
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1734,7 +1748,7 @@ async def test_dashboard_display_style_prefers_sensor_settings_over_global_defau
 
     assert res.status_code == 200
     body = res.json()
-    style_map = body["expected_display_style_map"]["aqi-123"]
+    style_map = body["expected_display_style_map"]["apvpd-test123"]
     assert style_map["METRIC_1"] == "Graph6hr"
     assert style_map["METRIC_2"] == "Gauge"
 

@@ -1,4 +1,10 @@
-# sensor_modules/sensor_vpd.py
+"""Ambient BME280-based temperature, humidity, and VPD sensor backend.
+
+This module wraps a single BME280-family device and exposes calibrated ambient
+metrics such as temperature, relative humidity, dew point, barometric pressure,
+and vapor-pressure deficit for Sensorius.
+"""
+
 from saiUtils import printDM, debug_enabled
 from sensor_modules.base import BaseSensor, find_sensor_bus
 

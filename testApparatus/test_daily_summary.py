@@ -1,3 +1,9 @@
+"""Pytest coverage for daily summary generation and persistence.
+
+These tests verify summary text ordering, repair of incomplete rows, and date
+window refresh behavior for the persisted daily summary service.
+"""
+
 from __future__ import annotations
 
 import sys

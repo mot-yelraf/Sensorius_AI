@@ -1,3 +1,9 @@
+"""Pytest smoke test for importing `saiSwitch` without GPIO libraries.
+
+The test keeps non-Raspberry Pi environments working by ensuring the switch
+module can import cleanly when board-specific dependencies are absent.
+"""
+
 import importlib
 import os
 import sys

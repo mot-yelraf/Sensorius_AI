@@ -1,3 +1,9 @@
+"""Small query helper for gas and humidity slices in the runtime database.
+
+This script is intended for quick local analysis of stored sensor readings when
+checking calibration or trend behavior outside the web UI.
+"""
+
 import sqlite3
 import csv
 

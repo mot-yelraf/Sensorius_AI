@@ -1,12 +1,10 @@
-"""saiHomeAssistantMqtt.py
-    HomeAssistantTopicMap and rPiHomeAssistantBridge for integrating Sensorius
-    with Home Assistant over MQTT discovery, state, availability, and commands.
+"""Home Assistant MQTT discovery and state publishing for Sensorius.
 
-    Sensorius publishes aggregated sensor metrics per sensor topic. Home Assistant
-    requires per-entity discovery metadata, so this bridge publishes discovery
-    payloads and state topics that HA can map into entities.
+This module defines the topic map and bridge used to publish Home Assistant
+discovery payloads, sensor state, switch state, availability, and command
+routing for Sensorius-managed local and remote entities.
 """
-    
+
 from __future__ import annotations
 
 import asyncio

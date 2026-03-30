@@ -1,3 +1,9 @@
+"""Pytest coverage for the persisted automation contract and helpers.
+
+These tests verify rule storage, enablement, shared-file behavior, and runtime
+views so automation edits remain backward compatible.
+"""
+
 import os
 import sys
 import json

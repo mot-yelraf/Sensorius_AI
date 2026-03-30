@@ -1,3 +1,9 @@
+"""Pytest coverage for Home Assistant MQTT bridge behavior.
+
+These tests validate switch command handling and metadata refresh behavior for
+the Home Assistant bridge integration.
+"""
+
 import os
 import sys
 import asyncio

@@ -1,3 +1,9 @@
+"""Pytest coverage for switch trigger manager compatibility helpers.
+
+This module verifies defaults, persistence, and compatibility-oriented helper
+behavior for trigger manager storage.
+"""
+
 import os
 import sys
 from pathlib import Path

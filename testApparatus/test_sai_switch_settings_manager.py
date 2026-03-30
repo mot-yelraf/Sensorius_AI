@@ -1,3 +1,9 @@
+"""Pytest coverage for switch settings manager path and save behavior.
+
+These tests verify path safety, host template fallback behavior, and section
+preservation during switch settings updates.
+"""
+
 import os
 import sys
 from pathlib import Path
