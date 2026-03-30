@@ -266,6 +266,18 @@ class _PersistentFakeSaiSettings(_FakeSaiSettings):
         self._dirty = False
 
 
+class _BaseDirOnlyFakeSaiSettings:
+    DEFAULT_BASE_DIR = ""
+
+    def __init__(self, *args, **_kwargs):
+        self.base_dir = self.DEFAULT_BASE_DIR
+        self.settings = {}
+        self._dirty = False
+
+    def get_setting(self, _section, _key, default=None):
+        return default
+
+
 class _RouteFakeSaiSettings(_PersistentFakeSaiSettings):
     def get_setting(self, section, key, default=None):
         return self.settings.get(section, {}).get(key, default)
@@ -357,6 +369,28 @@ async def _build_app(tmp_path, monkeypatch):
 
     monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
     monkeypatch.setattr(saiWebRoutes, "saiSettings", _FakeSaiSettings)
+    monkeypatch.setattr(saiWebRoutes, "SystemSettingsManager", _FakeSystemSettingsManager, raising=False)
+    monkeypatch.setattr(saiWebRoutes, "SensorSettingsManager", lambda *_a, **_k: _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root)))
+    monkeypatch.setattr(saiWebRoutes, "SwitchSettingsManager", lambda *_a, **_k: _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root)))
+    monkeypatch.setattr(saiSwitchSettingsManager, "SwitchSettingsManager", lambda *_a, **_k: _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root)))
+    app = FastAPI()
+    ingest = _FakeIngest()
+    await saiWebRoutes.register_routes(app, _HubSettings(), _FakeNetMgr(), _FakeGcMgr(), ingest)
+    return app, ingest, system_root, sensor_root, switch_root
+
+
+async def _build_app_base_dir_only(tmp_path, monkeypatch):
+    system_root = tmp_path / "system_settings"
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root.mkdir()
+    sensor_root.mkdir()
+    switch_root.mkdir()
+
+    _BaseDirOnlyFakeSaiSettings.DEFAULT_BASE_DIR = str(system_root)
+
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+    monkeypatch.setattr(saiWebRoutes, "saiSettings", _BaseDirOnlyFakeSaiSettings)
     monkeypatch.setattr(saiWebRoutes, "SystemSettingsManager", _FakeSystemSettingsManager, raising=False)
     monkeypatch.setattr(saiWebRoutes, "SensorSettingsManager", lambda *_a, **_k: _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root)))
     monkeypatch.setattr(saiWebRoutes, "SwitchSettingsManager", lambda *_a, **_k: _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root)))
@@ -1343,6 +1377,37 @@ async def test_device_locations_returns_502_when_nodus_config_apply_fails(tmp_pa
     assert body["results"][0]["type"] == "sensor"
     assert body["results"][0]["ok"] is False
     assert body["results"][0]["target_host"] == "aqi-123"
+
+
+@pytest.mark.asyncio
+async def test_device_locations_resolves_system_root_from_base_dir_only_settings(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, switch_root = await _build_app_base_dir_only(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
+    sensor_mgr.save(
+        "co2-123",
+        {"Sensor": {"TYPE": "nodus", "DEVICE": "co2", "SENSOR_ID": "co2-123", "LOCATION": "Lab"}},
+    )
+    switch_mgr.save(
+        "switch-123",
+        {"Switch": {"TYPE": "nodus", "DEVICE": "switch", "SWITCH_DEVICE_ID": "switch-123", "SWITCH_LOCATION": "Lab"}},
+    )
+    _write_system_settings(system_root, "co2-123", "co2-123")
+    _write_system_settings(system_root, "switch-123", "co2-123")
+    ingest.published_json.clear()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/device-locations",
+            json=[
+                {"id": "co2-123", "type": "sensor", "location": "Office"},
+                {"id": "switch-123", "type": "switch", "location": "Office"},
+            ],
+        )
+
+    assert res.status_code == 200
+    assert len(ingest.published_json) == 2
+    assert all(row["topic"] == "nodus/co2-123/config/set" for row in ingest.published_json)
 
 
 @pytest.mark.asyncio

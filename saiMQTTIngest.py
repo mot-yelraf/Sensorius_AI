@@ -788,7 +788,17 @@ class saiMQTTIngest:
         if token:
             envelope["onboard_token"] = token
         topic = f"nodus/{device}/config/set"
+        if DEBUG:
+            printDM(
+                f"[publish_nodus_config] topic={topic} message_id={message_id} client={self._describe_publish_client(use_ha_client=False)} payload={self._summarize_nodus_config_payload(envelope)}",
+                location=MODULE,
+            )
         ok = bool(self.publish_json(topic, envelope, qos=qos, retain=False, use_ha_client=False))
+        if DEBUG:
+            printDM(
+                f"[publish_nodus_config] publish_result topic={topic} message_id={message_id} ok={ok}",
+                location=MODULE,
+            )
         if ok:
             with self._config_lock:
                 self.config_message_device[message_id] = device
@@ -4349,6 +4359,11 @@ class saiMQTTIngest:
             client = (self.ha_client or self.client) if use_ha_client else self.client
             info = client.publish(topic, payload, qos=qos, retain=retain)
             rc = getattr(info, "rc", 0) if info is not None else 0
+            if DEBUG and topic.endswith("/config/set"):
+                printDM(
+                    f"[publish_text] topic={topic} use_ha_client={bool(use_ha_client)} rc={rc} client={self._describe_publish_client(use_ha_client=use_ha_client)} bytes={len(payload or '')}",
+                    location=MODULE,
+                )
             return rc == 0
         except Exception as e:
             printDM(f"[publish_text] {topic} error: {e}", location=MODULE)
@@ -4398,6 +4413,48 @@ class saiMQTTIngest:
         except Exception as e:
             printDM(f"[subscribe] {topic_filter} error: {e}", location=MODULE)
             return False
+
+    def _describe_publish_client(self, *, use_ha_client: bool) -> str:
+        client = (self.ha_client or self.client) if use_ha_client else self.client
+        if client is self.ha_client and self.ha_client is not self.client:
+            broker = self.ha_broker
+            port = self.ha_port
+            name = "ha_client"
+        else:
+            broker = self.broker
+            port = self.port
+            name = "client"
+        try:
+            connected = bool(client.is_connected()) if client else False
+        except Exception:
+            connected = False
+        try:
+            client_id = client._client_id.decode("utf-8", errors="ignore") if getattr(client, "_client_id", None) else ""
+        except Exception:
+            client_id = ""
+        return f"{name}(client_id={client_id or 'unknown'}, connected={connected}, broker={broker}, port={port})"
+
+    def _summarize_nodus_config_payload(self, envelope: dict | None) -> str:
+        body = dict(envelope or {})
+        payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
+        updates = payload.get("updates") if isinstance(payload.get("updates"), list) else []
+        settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
+        if updates:
+            parts = []
+            for item in updates[:4]:
+                if not isinstance(item, dict):
+                    continue
+                section = str(item.get("section") or "").strip()
+                key = str(item.get("key") or "").strip()
+                value = repr(item.get("value"))
+                name = str(item.get("name") or "").strip()
+                suffix = f"@{name}" if name else ""
+                parts.append(f"{section}.{key}={value}{suffix}")
+            extra = "" if len(updates) <= 4 else f" +{len(updates) - 4} more"
+            return f"updates[{len(updates)}]: " + ", ".join(parts) + extra
+        if settings:
+            return f"settings_sections={list(settings.keys())}"
+        return f"keys={list(body.keys())}"
         
     async def mqtt_discovery_loop(self):
         """

@@ -4009,6 +4009,58 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             _nodus_host_locks[host] = lock
         return lock
     
+    def _normalize_system_settings_root(system_root: str | None) -> str:
+        """Return the absolute `system_settings` directory for a candidate root."""
+        import os
+
+        text = str(system_root or "").strip()
+        if not text:
+            return "system_settings"
+        try:
+            root = os.path.abspath(text)
+        except Exception:
+            return text
+        if os.path.basename(root) == "system_settings":
+            return root
+        nested = os.path.join(root, "system_settings")
+        if os.path.isdir(nested):
+            return os.path.abspath(nested)
+        return root
+
+    def _resolve_system_settings_root(system_mgr=None) -> str:
+        """Resolve the on-disk `system_settings` root from manager or app settings."""
+        import os
+
+        candidates: list[str | None] = []
+        class_default_root = getattr(saiSettings, "DEFAULT_BASE_DIR", None)
+        if class_default_root:
+            try:
+                if os.path.isabs(str(class_default_root)):
+                    candidates.append(str(class_default_root))
+            except Exception:
+                pass
+        try:
+            app_settings = saiSettings(apply_live=False)
+            candidates.extend([
+                getattr(app_settings, "base_dir", None),
+                getattr(app_settings, "system_dir", None),
+                getattr(app_settings, "settings_root", None),
+            ])
+        except Exception:
+            pass
+        if system_mgr is not None:
+            candidates.extend([
+                getattr(system_mgr, "base_dir", None),
+                getattr(system_mgr, "system_dir", None),
+                getattr(system_mgr, "settings_root", None),
+            ])
+
+        for cand in candidates:
+            root = _normalize_system_settings_root(cand)
+            if os.path.isdir(root):
+                return root
+        return _normalize_system_settings_root("system_settings")
+
     def _build_system_hostname_index(system_root: str) -> dict[str, str]:
         """
         Scan system_settings/*/settings.toml and return {serial_suffix: HOSTNAME}.
@@ -4024,6 +4076,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if not tomllib:
             return serial_to_host
 
+        system_root = _normalize_system_settings_root(system_root)
         try:
             for name in os.listdir(system_root):
                 if name in {"factory", "__pycache__"}:
@@ -4067,9 +4120,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         (we find it via sys_host_index).
         For switch-only Nodus, <system-id> == 'switch-<serial>'.
         """
+        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
         try:
-            if 'mqtt_ingest' in globals() and getattr(mqtt_ingest, 'resolve_nodus_hostname', None):
-                host = mqtt_ingest.resolve_nodus_hostname(device_id, device_type=device_type)
+            if ingest and getattr(ingest, 'resolve_nodus_hostname', None):
+                host = ingest.resolve_nodus_hostname(device_id, device_type=device_type)
                 if host:
                     return host
         except Exception:
@@ -4081,12 +4135,28 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         serial = (dev_id.rsplit("-", 1)[-1] if "-" in dev_id else dev_id).strip()
 
+        def _sensor_settings_manager():
+            mgr_cls = globals().get("SensorSettingsManager", None)
+            if mgr_cls is not None:
+                try:
+                    return mgr_cls("sensor_settings")
+                except TypeError:
+                    return mgr_cls()
+            try:
+                from saiSensorSettingsManager import SensorSettingsManager as _SensorSettingsManager
+                return _SensorSettingsManager("sensor_settings")
+            except TypeError:
+                return _SensorSettingsManager()
+            except Exception:
+                return None
+
         def _paired_sensor_host_for_switch() -> str | None:
             if not serial:
                 return None
             try:
-                from saiSensorSettingsManager import SensorSettingsManager
-                sm = SensorSettingsManager("sensor_settings")
+                sm = _sensor_settings_manager()
+                if not sm:
+                    return None
                 for sid in (sm.list_ids() or []):
                     sid = str(sid or "").strip()
                     if not sid or sid.lower().startswith("switch-"):
@@ -4128,13 +4198,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # Resolve system_root
         if not system_root:
-            try:
-                app_settings = saiSettings(apply_live=False)
-                system_root = getattr(app_settings, "system_dir", None) or getattr(app_settings, "settings_root", None)
-            except Exception:
-                system_root = None
-        if not system_root:
-            system_root = "system_settings"
+            system_root = _resolve_system_settings_root(system_mgr)
+        else:
+            system_root = _normalize_system_settings_root(system_root)
 
         import os
         try:
@@ -4164,8 +4230,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     return paired_host
                 # 2a) Try to match any known mqtt_clients like '<anything>-<serial>'
                 try:
-                    if 'mqtt_ingest' in globals() and getattr(mqtt_ingest, 'mqtt_clients', None):
-                        for cand in (mqtt_ingest.mqtt_clients or []):
+                    if ingest and getattr(ingest, 'mqtt_clients', None):
+                        for cand in (ingest.mqtt_clients or []):
                             cand = str(cand)
                             if cand.endswith(f"-{serial}"):
                                 return cand  # bare hostname, e.g. "aqi-nz6g89"
@@ -4174,8 +4240,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
                 # 2b) Try to match any known sensor_id in sensor settings
                 try:
-                    from saiSensorSettingsManager import SensorSettingsManager
-                    sm = SensorSettingsManager("sensor_settings")
+                    sm = _sensor_settings_manager()
+                    if not sm:
+                        return None
                     for sid in (sm.list_ids() or []):
                         sid = str(sid)
                         if sid.lower().startswith("switch-"):
@@ -4237,6 +4304,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     location=MODULE,
                 )
             return False
+
+        if DEBUG:
+            client_desc = ""
+            try:
+                if hasattr(ingest, "_describe_publish_client"):
+                    client_desc = str(ingest._describe_publish_client(use_ha_client=False) or "")
+            except Exception:
+                client_desc = ""
+            printDM(
+                f"[push_nodus_setting:{device_type}:{device_id}] preparing publish target={target_device} topic=nodus/{target_device}/config/set update={update_payload} {client_desc}".strip(),
+                location=MODULE,
+            )
 
         publish_result = ingest.publish_nodus_config(
             target_device,
@@ -4350,10 +4429,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     @router.get("/device-locations", tags=[LOCATIONS_ROUTE_TAG])
     async def list_device_locations(request: Request) -> JSONResponse:
         try:
-            app_settings = saiSettings(apply_live=False)
-            # Resolve directories safely
-            system_dir = getattr(app_settings, "base_dir", None) or getattr(app_settings, "settings_root", None) or "."
-            system_dir = str(system_dir)
+            system_dir = _resolve_system_settings_root()
 
             sensor_settings = SensorSettingsManager()
             sensor_dir = getattr(sensor_settings, "base_dir", None)
@@ -4439,11 +4515,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             switch_mgr = SwitchSettingsManager("switch_settings")
             SystemSettingsMgr = globals().get("SystemSettingsManager", None)
             system_mgr = SystemSettingsMgr("system_settings") if SystemSettingsMgr else None
-            try:
-                app_settings = saiSettings(apply_live=False)
-                system_root = getattr(app_settings, "system_dir", None) or getattr(app_settings, "settings_root", None)
-            except Exception:
-                system_root = "system_settings"
+            system_root = _resolve_system_settings_root(system_mgr)
             updated = {"sensor": 0, "switch": 0, "nodus_pushed": 0}
 
             sys_host_index = _build_system_hostname_index(system_root)
@@ -6633,11 +6705,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         manager = SensorSettingsManager("sensor_settings")
         SystemSettingsMgr = globals().get("SystemSettingsManager", None)
         system_mgr = SystemSettingsMgr("system_settings") if SystemSettingsMgr else None
-        try:
-            app_settings = saiSettings(apply_live=False)
-            system_root = getattr(app_settings, "system_dir", None) or getattr(app_settings, "settings_root", None)
-        except Exception:
-            system_root = "system_settings"
+        system_root = _resolve_system_settings_root(system_mgr)
         sys_host_index = _build_system_hostname_index(system_root)
 
         location_value = (form.get("location", "") or "").strip()
@@ -8262,11 +8330,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         manager = SwitchSettingsManager("switch_settings")
         SystemSettingsMgr = globals().get("SystemSettingsManager", None)
         system_mgr = SystemSettingsMgr("system_settings") if SystemSettingsMgr else None
-        try:
-            app_settings = saiSettings(apply_live=False)
-            system_root = getattr(app_settings, "system_dir", None) or getattr(app_settings, "settings_root", None)
-        except Exception:
-            system_root = "system_settings"
+        system_root = _resolve_system_settings_root(system_mgr)
         sys_host_index = _build_system_hostname_index(system_root)
 
         location_value = (form.get("location", "") or "").strip()

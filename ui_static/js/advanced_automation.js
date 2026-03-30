@@ -210,6 +210,104 @@ function showPreview(modal, obj) {
   box.textContent = JSON.stringify(obj, null, 2);
 }
 
+function _pad2(num) {
+  const n = Number.parseInt(String(num ?? ""), 10);
+  if (!Number.isFinite(n)) return "00";
+  return String(n).padStart(2, "0");
+}
+
+function _normalizeTwentyFourHourTime(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return "00:00";
+  const hour = Number.parseInt(match[1], 10);
+  const minute = Number.parseInt(match[2], 10);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return "00:00";
+  if (hour < 0 || hour > 24) return "00:00";
+  if (minute < 0 || minute > 59) return "00:00";
+  if (hour === 24 && minute !== 0) return "00:00";
+  return `${_pad2(hour)}:${_pad2(minute)}`;
+}
+
+function _timePartsFromTwentyFourHour(value) {
+  const normalized = _normalizeTwentyFourHourTime(value);
+  if (normalized === "24:00") {
+    return { hour12: "12", minute: "00", period: "24" };
+  }
+  const [hourText, minuteText] = normalized.split(":");
+  const hour24 = Number.parseInt(hourText, 10);
+  const minute = _pad2(minuteText);
+  const period = hour24 >= 12 ? "PM" : "AM";
+  let hour12 = hour24 % 12;
+  if (hour12 === 0) hour12 = 12;
+  return { hour12: String(hour12), minute, period };
+}
+
+function _timePartsToTwentyFourHour(hour12, minute, period) {
+  const periodText = String(period || "AM").trim().toUpperCase();
+  if (periodText === "24") return "24:00";
+  let hour = Number.parseInt(String(hour12 || "12"), 10);
+  let mins = Number.parseInt(String(minute || "0"), 10);
+  if (!Number.isFinite(hour) || hour < 1 || hour > 12) hour = 12;
+  if (!Number.isFinite(mins) || mins < 0 || mins > 59) mins = 0;
+  let hour24 = hour % 12;
+  if (periodText === "PM") hour24 += 12;
+  return `${_pad2(hour24)}:${_pad2(mins)}`;
+}
+
+function createAutomationTimePicker(className, value) {
+  const parts = _timePartsFromTwentyFourHour(value);
+  const picker = create("div", `automation-time-picker ${className}`.trim());
+
+  const hourSel = create("select");
+  hourSel.classList.add("time-hour");
+  for (let i = 1; i <= 12; i += 1) {
+    const opt = create("option");
+    opt.value = String(i);
+    opt.textContent = String(i);
+    hourSel.appendChild(opt);
+  }
+  hourSel.value = parts.hour12;
+
+  const minuteSel = create("select");
+  minuteSel.classList.add("time-minute");
+  for (let i = 0; i < 60; i += 1) {
+    const opt = create("option");
+    opt.value = _pad2(i);
+    opt.textContent = _pad2(i);
+    minuteSel.appendChild(opt);
+  }
+  minuteSel.value = parts.minute;
+
+  const periodSel = create("select");
+  periodSel.classList.add("time-period");
+  periodSel.innerHTML = `
+    <option value="AM">AM</option>
+    <option value="PM">PM</option>
+    <option value="24">24:00</option>`;
+  periodSel.value = parts.period;
+
+  const syncDisabled = () => {
+    const disableClock = periodSel.value === "24";
+    hourSel.disabled = disableClock;
+    minuteSel.disabled = disableClock;
+  };
+  periodSel.addEventListener("change", syncDisabled);
+  syncDisabled();
+
+  picker.append(hourSel, minuteSel, periodSel);
+  return picker;
+}
+
+function readAutomationTimePicker(group, className) {
+  const picker = group.querySelector(`.automation-time-picker.${className}`);
+  if (!picker) return "00:00";
+  const hourSel = picker.querySelector(".time-hour");
+  const minuteSel = picker.querySelector(".time-minute");
+  const periodSel = picker.querySelector(".time-period");
+  return _timePartsToTwentyFourHour(hourSel?.value, minuteSel?.value, periodSel?.value);
+}
+
 // ----- Conditions builder -----
 function addCondition(modal, cond) {
   const container = q(modal, "#conditionsContainer");
@@ -235,20 +333,14 @@ function addCondition(modal, cond) {
   const startWrap = create("div");
   const startLab = create("label");
   startLab.textContent = "Start Time";
-  const startIn = create("input");
-  startIn.type = "time";
-  startIn.step = 60;
-  startIn.value = cond?.start || "00:00";
-  startWrap.append(startLab, startIn);
+  const startPicker = createAutomationTimePicker("start-time", cond?.start || "00:00");
+  startWrap.append(startLab, startPicker);
 
   const endWrap = create("div");
   const endLab = create("label");
   endLab.textContent = "Stop Time";
-  const endIn = create("input");
-  endIn.type = "time";
-  endIn.step = 60;
-  endIn.value = cond?.end || "00:00";
-  endWrap.append(endLab, endIn);
+  const endPicker = createAutomationTimePicker("end-time", cond?.end || "00:00");
+  endWrap.append(endLab, endPicker);
 
   // Day-of-week controls for time-of-day
   const dowWrap = create("div");
@@ -654,9 +746,8 @@ function serializeForm(modal){
     const typeVal = group.querySelector("select")?.value || "sensor";
 
     if (typeVal === "time"){
-      const inputs = group.querySelectorAll(".time input[type='time']");
-      const start = inputs[0]?.value || "00:00";
-      const end   = inputs[1]?.value || "00:00";
+      const start = readAutomationTimePicker(group, "start-time");
+      const end   = readAutomationTimePicker(group, "end-time");
 
       const dayChecks = group.querySelectorAll(".time input.dow-checkbox");
       const days = Array.from(dayChecks)
