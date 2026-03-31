@@ -4,6 +4,7 @@ This module verifies background HTTP metadata defaults, topic subscriptions,
 heartbeat handling, and calibration topic tracking in the ingest layer.
 """
 
+import asyncio
 import json
 import os
 import sys
@@ -446,6 +447,49 @@ def test_confirmed_nodus_state_persists_even_after_manual_ui_off(monkeypatch):
     assert ingest.data_logger.switch_events[-1]["switch_key"] == "S1-sw1::Fan"
     assert ingest.data_logger.switch_events[-1]["is_on"] is False
     assert ingest.data_logger.switch_events[-1]["source"] == "mqtt-nodus-state"
+
+
+def test_confirmed_nodus_state_broadcasts_live_switch_event(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.data_logger.switch_identities = [
+        {
+            "switch_key": "S1-sw1::Fan",
+            "switch_id": "sw1",
+            "label": "Fan",
+            "channel_id": "S1-sw1",
+            "location": "lab",
+        }
+    ]
+    ingest.nodus_switch_topic_map["nodus/S1-sw1/state"] = {
+        "switch_id": "sw1",
+        "channel_id": "S1-sw1",
+        "label": "Fan",
+        "kind": "state",
+    }
+
+    pushed = []
+
+    async def _fake_broadcast(payload):
+        pushed.append(payload)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "saiWebRoutes",
+        types.SimpleNamespace(
+            app=types.SimpleNamespace(
+                state=types.SimpleNamespace(switch_broadcast=_fake_broadcast)
+            )
+        ),
+    )
+    ingest._schedule_coro = lambda coro: asyncio.run(coro)
+
+    ingest.handle_nodus_switch_topic("nodus/S1-sw1/state", "OFF")
+
+    assert pushed
+    assert pushed[-1]["type"] == "switch_event"
+    assert pushed[-1]["key"] == "sw1::Fan"
+    assert pushed[-1]["state"] is False
+    assert pushed[-1]["source"] == "mqtt-nodus"
 
 
 def test_nodus_switch_json_timestamp_is_ignored_for_persist(monkeypatch):

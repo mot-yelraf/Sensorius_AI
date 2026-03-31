@@ -4288,7 +4288,21 @@ class saiMQTTIngest:
                     sensor_lineage=f"Switch_{switch_id}",
                     force_write=force_write,
                 )
-                _cache_channel_state(switch_id, channel_id, is_on, hint=label)
+                labels = _cache_channel_state(switch_id, channel_id, is_on, hint=label)
+                ui_label = labels[0] if labels else (label or channel_id)
+                try:
+                    import saiWebRoutes as routes
+                    switch_broadcast = getattr(getattr(routes, "app", object()), "state", object()).switch_broadcast
+                    if switch_broadcast:
+                        self._schedule_coro(switch_broadcast({
+                            "type": "switch_event",
+                            "key": f"{switch_id}::{ui_label}",
+                            "state": bool(is_on),
+                            "timestamp": get_timestamp(),
+                            "source": source,
+                        }))
+                except Exception:
+                    pass
             elif kind == "event":
                 self._maybe_persist_switch_event(
                     switch_id=switch_id,
