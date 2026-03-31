@@ -1243,9 +1243,17 @@ class saiDataLogger:
 
         return candidates
 
-    def get_last_switch_events(self, switch_key: str, sensor_id: str | None = None, limit: int = 5):
+    def get_last_switch_events(
+        self,
+        switch_key: str,
+        sensor_id: str | None = None,
+        limit: int = 5,
+        *,
+        include_source: bool = False,
+    ):
         """
         Return list[(state_str, timestamp)] from sw_events for a given switch_key.
+        When include_source=True, returns list[(state_str, timestamp, source)].
         sensor_id is optional, used only if you want to scope to a particular host.
         """
         try:
@@ -1253,12 +1261,13 @@ class saiDataLogger:
             if not candidates:
                 return []
             placeholders = ",".join(["?"] * len(candidates))
+            select_cols = "timestamp, state, source" if include_source else "timestamp, state"
             with self._open_conn() as conn:
                 cur = conn.cursor()
                 if sensor_id:
                     cur.execute(
                         f"""
-                        SELECT timestamp, state
+                        SELECT {select_cols}
                         FROM sw_events
                         WHERE switch_key COLLATE NOCASE IN ({placeholders}) AND LOWER(sensor_id)=LOWER(?)
                         ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC
@@ -1269,7 +1278,7 @@ class saiDataLogger:
                 else:
                     cur.execute(
                         f"""
-                        SELECT timestamp, state
+                        SELECT {select_cols}
                         FROM sw_events
                         WHERE switch_key COLLATE NOCASE IN ({placeholders})
                         ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC
@@ -1279,9 +1288,15 @@ class saiDataLogger:
                     )
                 rows = cur.fetchall()
                 result = []
-                for ts, state in rows:
+                for row in rows:
+                    ts = row[0]
+                    state = row[1]
+                    source = row[2] if include_source and len(row) > 2 else None
                     is_on = bool(int(state)) if isinstance(state, (int, float)) else str(state).lower() in ("1","true","on")
-                    result.append(("On" if is_on else "Off", ts))
+                    if include_source:
+                        result.append(("On" if is_on else "Off", ts, source))
+                    else:
+                        result.append(("On" if is_on else "Off", ts))
                 return result
         except Exception as e:
             printDM(f"[get_last_switch_events] query failed: {e}", location=MODULE)

@@ -115,21 +115,33 @@
               </div>
 
               <div class="modal-footer" style="margin-top:auto;">
-                <button
-                  type="button"
-                  class="button black"
-                  onclick="window.closeSensorSettingsModal && window.closeSensorSettingsModal();"
-                >
-                  Home
-                </button>
-                <button type="submit" class="button blue" id="saveBtn">
-                  Save
-                  <span
-                    id="saveSpinner"
-                    class="spinner"
-                    style="display:none; width:16px; height:16px; border:2px solid #ccc; border-top:2px solid #333; border-radius:50%; animation:spin 1s linear infinite; vertical-align:middle;"
-                  ></span>
-                </button>
+                <div class="footer-buttons footer-buttons-restart-layout">
+                  <button
+                    type="button"
+                    class="button black footer-home"
+                    onclick="window.closeSensorSettingsModal && window.closeSensorSettingsModal();"
+                  >
+                    Home
+                  </button>
+                  {% if can_restart_device %}
+                  <button
+                    type="button"
+                    class="button red footer-restart"
+                    id="sensorRestartBtn"
+                    data-restart-url="/sensor-settings/restart-device"
+                  >
+                    Restart Device
+                  </button>
+                  {% endif %}
+                  <button type="submit" class="button blue footer-save" id="saveBtn">
+                    Save
+                    <span
+                      id="saveSpinner"
+                      class="spinner"
+                      style="display:none; width:16px; height:16px; border:2px solid #ccc; border-top:2px solid #333; border-radius:50%; animation:spin 1s linear infinite; vertical-align:middle;"
+                    ></span>
+                  </button>
+                </div>
               </div>
               <div id="sensorSettingsStatus" class="muted" style="font-size:0.8rem; min-height:1.2rem; margin-top:0.35rem; text-align:right;"></div>
             </form>
@@ -408,17 +420,29 @@
   const saveBtn = document.getElementById("saveBtn");
   const spinner = document.getElementById("saveSpinner");
   const statusEl = document.getElementById("sensorSettingsStatus");
+  const restartBtn = document.getElementById("sensorRestartBtn");
   if (!modal || !form || !saveBtn || !statusEl) return;
   if (form.dataset.ajaxBound === "1") return;
   form.dataset.ajaxBound = "1";
 
   function setBusy(isBusy) {
     saveBtn.disabled = !!isBusy;
+    if (restartBtn && restartBtn.dataset.pending !== "1") restartBtn.disabled = !!isBusy;
     if (spinner) spinner.style.display = isBusy ? "inline-block" : "none";
   }
 
   function setStatus(text) {
     statusEl.textContent = text || "";
+  }
+
+  function setRestartPending(isPending) {
+    if (!restartBtn) return;
+    if (!restartBtn.dataset.baseLabel) {
+      restartBtn.dataset.baseLabel = (restartBtn.textContent || "Restart Device").trim();
+    }
+    restartBtn.dataset.pending = isPending ? "1" : "0";
+    restartBtn.disabled = !!isPending;
+    restartBtn.textContent = isPending ? "Device Restarting..." : (restartBtn.dataset.baseLabel || "Restart Device");
   }
 
   async function parseResponseError(resp) {
@@ -459,5 +483,50 @@
       setBusy(false);
     }
   });
+
+  if (restartBtn) {
+    setRestartPending(false);
+    restartBtn.addEventListener("click", async function(){
+      const sensorIdInput = form.querySelector('input[name="sensor_id"]');
+      const sensorId = (sensorIdInput && sensorIdInput.value) ? String(sensorIdInput.value) : String(modal.dataset.sensorId || "");
+      if (!sensorId) {
+        setStatus("Missing sensor id.");
+        return;
+      }
+      if (!window.confirm("Restart this device now? Unsaved changes in this modal will not be applied.")) {
+        return;
+      }
+      setBusy(true);
+      setRestartPending(true);
+      setStatus("Device Restarting...");
+      try {
+        const body = new URLSearchParams();
+        body.set("sensor_id", sensorId);
+        const resp = await fetch(restartBtn.dataset.restartUrl || "/sensor-settings/restart-device", {
+          method: "POST",
+          headers: {
+            "Accept": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          },
+          body: body.toString(),
+        });
+        if (!resp.ok) {
+          throw new Error(await parseResponseError(resp));
+        }
+        const js = await resp.json().catch(() => ({}));
+        const message = String(js.message || "Device restarting...");
+        setStatus(message);
+        if (typeof window.showToast === "function") window.showToast(message, "ok");
+      } catch (err) {
+        const msg = err && err.message ? err.message : "Failed to restart device.";
+        setRestartPending(false);
+        setStatus(msg);
+        if (typeof window.showToast === "function") window.showToast("Failed to restart device", "error");
+      } finally {
+        setBusy(false);
+      }
+    });
+  }
 })();
 </script>

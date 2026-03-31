@@ -804,6 +804,43 @@ class saiMQTTIngest:
                 self.config_message_device[message_id] = device
         return {"ok": ok, "message_id": message_id, "topic": topic, "payload": envelope}
 
+    def publish_nodus_restart(
+        self,
+        device_id: str,
+        *,
+        restart_mode: str = "soft",
+        message_id: str | None = None,
+        qos: int = 1,
+    ) -> dict:
+        """Publish a Nodus restart request over the config/set topic."""
+        device = str(device_id or "").strip()
+        mode = str(restart_mode or "soft").strip().lower() or "soft"
+        if not device:
+            return {"ok": False, "message_id": "", "topic": ""}
+        if not message_id:
+            message_id = f"rst-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+        envelope = {
+            "message_id": message_id,
+            "restart": True,
+            "restart_mode": mode,
+        }
+        topic = f"nodus/{device}/config/set"
+        if DEBUG:
+            printDM(
+                f"[publish_nodus_restart] topic={topic} message_id={message_id} restart_mode={mode} client={self._describe_publish_client(use_ha_client=False)}",
+                location=MODULE,
+            )
+        ok = bool(self.publish_json(topic, envelope, qos=qos, retain=False, use_ha_client=False))
+        if DEBUG:
+            printDM(
+                f"[publish_nodus_restart] publish_result topic={topic} message_id={message_id} ok={ok}",
+                location=MODULE,
+            )
+        if ok:
+            with self._config_lock:
+                self.config_message_device[message_id] = device
+        return {"ok": ok, "message_id": message_id, "topic": topic, "payload": envelope}
+
     async def wait_for_config_ack(self, message_id: str, timeout: float = 3.0) -> dict | None:
         deadline = time.time() + max(float(timeout), 0.0)
         while time.time() < deadline:
@@ -3776,7 +3813,38 @@ class saiMQTTIngest:
             return
         
 
-    def set_switch(self, switch_id: str, channel_label: str, new_state: bool, qos: int = 0, retain: bool = False) -> bool:
+    def _pending_switch_meta(self, switch_id: str, channel_id: str | None = None, label: str | None = None) -> dict | None:
+        try:
+            sid = str(switch_id or "").strip()
+            ch = str(channel_id or "").strip().lower()
+            lbl = str(label or "").strip().lower()
+            if not sid:
+                return None
+            for key, meta in list((self._pending_set or {}).items()):
+                key_sid = str((key or ("", ""))[0] or "").strip()
+                key_label = str((key or ("", ""))[1] or "").strip().lower()
+                if key_sid != sid:
+                    continue
+                meta_channel = str((meta or {}).get("channel_id") or "").strip().lower()
+                if lbl and key_label == lbl:
+                    return dict(meta or {})
+                if ch and meta_channel == ch:
+                    return dict(meta or {})
+            return None
+        except Exception:
+            return None
+
+    def set_switch(
+        self,
+        switch_id: str,
+        channel_label: str,
+        new_state: bool,
+        qos: int = 0,
+        retain: bool = False,
+        *,
+        event_origin: str | None = None,
+        event_label: str | None = None,
+    ) -> bool:
         """
         Publish a remote switch change by writing SWITCH_n_LAST_STATE over
         Nodus config/set.
@@ -3829,6 +3897,8 @@ class saiMQTTIngest:
                     "ts": time.time(),
                     "state": bool(new_state),
                     "channel_id": str(channel_id or "").strip(),
+                    "event_origin": str(event_origin or "").strip().lower(),
+                    "event_label": str(event_label or "").strip(),
                 }
                 if DEBUG:
                     printDM(
@@ -3888,6 +3958,7 @@ class saiMQTTIngest:
         source: str,
         sensor_lineage: str | None = None,
         force_write: bool = False,
+        update_cache: bool = True,
     ):
         """
         Persist a switch event *only if* it represents a state change relative to cache.
@@ -3941,9 +4012,9 @@ class saiMQTTIngest:
                     )
                 return
 
-            # update cache
-            last_cache[channel_id_str] = new_state
-            self._known_switch_ids.add(switch_id_str)
+            if update_cache:
+                last_cache[channel_id_str] = new_state
+                self._known_switch_ids.add(switch_id_str)
 
             label_resolved = None
             try:
@@ -4133,6 +4204,7 @@ class saiMQTTIngest:
             channel_id = info.get("channel_id")
             label = info.get("label")
             kind = info.get("kind")
+            pending_meta = self._pending_switch_meta(str(switch_id or ""), channel_id=str(channel_id or ""), label=str(label or ""))
 
             if not switch_id or not channel_id or kind not in ("state", "event"):
                 return
@@ -4142,6 +4214,12 @@ class saiMQTTIngest:
             # Nodus switch payload timestamps are not trusted; persist with hub-local time.
             ts_iso: str | None = None
             source = "mqtt-nodus"
+            pending_origin = str((pending_meta or {}).get("event_origin") or "").strip().lower()
+            pending_label = str((pending_meta or {}).get("event_label") or "").strip()
+            if pending_origin == "manual":
+                source = "mqtt-manual"
+            elif pending_origin == "auto":
+                source = f"mqtt-auto:{pending_label}" if pending_label else "mqtt-auto"
 
             # JSON payload (preferred)
             if payload_text.startswith("{") and payload_text.endswith("}"):
@@ -4152,7 +4230,8 @@ class saiMQTTIngest:
 
                 if isinstance(obj, dict):
                     # optional source
-                    source = (obj.get("source") or source) if isinstance(obj.get("source"), str) else source
+                    if isinstance(obj.get("source"), str) and not pending_origin:
+                        source = obj.get("source") or source
 
                     # extract ON/OFF from "event" dict
                     ev = obj.get("event") or {}
@@ -4218,8 +4297,14 @@ class saiMQTTIngest:
                     ts_iso=ts_iso,
                     source=source,
                     sensor_lineage=f"Switch_{switch_id}",
+                    update_cache=False,
                 )
-                labels = _cache_channel_state(switch_id, channel_id, is_on, hint=label)
+                labels = _labels_for_channel(switch_id, channel_id, hint=label)
+                self._known_switch_ids.add(switch_id)
+                try:
+                    self.last_mqtt_seen[switch_id] = time.time()
+                except Exception:
+                    pass
                 ui_label = labels[0] if labels else (label or channel_id)
                 # Push live updates to the UI (label-based key for listbox match)
                 try:

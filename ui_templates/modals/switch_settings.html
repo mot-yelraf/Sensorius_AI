@@ -66,16 +66,25 @@
               </div>
 
               <div class="modal-footer switch-form-footer">
-                <div class="footer-buttons">
+                <div class="footer-buttons footer-buttons-restart-layout">
                   <button
-                    class="button black"
+                    class="button black footer-home"
                     type="button"
                     onclick="window.closeSwitchSettingsModal && window.closeSwitchSettingsModal();"
                   >
                     Home
                   </button>
-
-                  <button class="button blue" type="submit" id="switchSettingsSaveBtn">
+                  {% if can_restart_device %}
+                  <button
+                    class="button red footer-restart"
+                    type="button"
+                    id="switchRestartBtn"
+                    data-restart-url="/switch-settings/restart-device"
+                  >
+                    Restart Device
+                  </button>
+                  {% endif %}
+                  <button class="button blue footer-save" type="submit" id="switchSettingsSaveBtn">
                     Save
                   </button>
                 </div>
@@ -175,16 +184,37 @@
   const form = modal ? modal.querySelector('form[action="/submit-switch-settings"]') : null;
   const saveBtn = document.getElementById("switchSettingsSaveBtn");
   const statusEl = document.getElementById("switchSettingsStatus");
+  const restartBtn = document.getElementById("switchRestartBtn");
   if (!modal || !form || !saveBtn || !statusEl) return;
   if (form.dataset.ajaxBound === "1") return;
   form.dataset.ajaxBound = "1";
 
   function setBusy(isBusy) {
     saveBtn.disabled = !!isBusy;
+    if (restartBtn && restartBtn.dataset.pending !== "1") restartBtn.disabled = !!isBusy;
   }
 
   function setStatus(text) {
     statusEl.textContent = text || "";
+  }
+
+  function setRestartPending(isPending) {
+    if (!restartBtn) return;
+    if (!restartBtn.dataset.baseLabel) {
+      restartBtn.dataset.baseLabel = (restartBtn.textContent || "Restart Device").trim();
+    }
+    restartBtn.dataset.pending = isPending ? "1" : "0";
+    restartBtn.disabled = !!isPending;
+    restartBtn.textContent = isPending ? "Device Restarting..." : (restartBtn.dataset.baseLabel || "Restart Device");
+  }
+
+  async function parseResponseError(resp) {
+    const contentType = String(resp.headers.get("content-type") || "").toLowerCase();
+    if (contentType.includes("application/json")) {
+      const js = await resp.json().catch(() => ({}));
+      return String(js.error || js.message || ("HTTP " + resp.status));
+    }
+    return String((await resp.text().catch(() => "")) || ("HTTP " + resp.status)).trim();
   }
 
   form.addEventListener("submit", async function(ev){
@@ -216,5 +246,50 @@
       setBusy(false);
     }
   });
+
+  if (restartBtn) {
+    setRestartPending(false);
+    restartBtn.addEventListener("click", async function(){
+      const switchIdInput = form.querySelector('input[name="switch_id"]');
+      const switchId = (switchIdInput && switchIdInput.value) ? String(switchIdInput.value) : String(modal.dataset.switchId || "");
+      if (!switchId) {
+        setStatus("Missing switch id.");
+        return;
+      }
+      if (!window.confirm("Restart this device now? Unsaved changes in this modal will not be applied.")) {
+        return;
+      }
+      setBusy(true);
+      setRestartPending(true);
+      setStatus("Device Restarting...");
+      try {
+        const body = new URLSearchParams();
+        body.set("switch_id", switchId);
+        const resp = await fetch(restartBtn.dataset.restartUrl || "/switch-settings/restart-device", {
+          method: "POST",
+          headers: {
+            "Accept": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          },
+          body: body.toString(),
+        });
+        if (!resp.ok) {
+          throw new Error(await parseResponseError(resp));
+        }
+        const js = await resp.json().catch(() => ({}));
+        const message = String(js.message || "Device restarting...");
+        setStatus(message);
+        if (typeof window.showToast === "function") window.showToast(message, "ok");
+      } catch (err) {
+        const msg = err && err.message ? err.message : "Failed to restart device.";
+        setRestartPending(false);
+        setStatus(msg);
+        if (typeof window.showToast === "function") window.showToast("Failed to restart device", "error");
+      } finally {
+        setBusy(false);
+      }
+    });
+  }
 })();
 </script>

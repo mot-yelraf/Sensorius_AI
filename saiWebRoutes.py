@@ -4363,6 +4363,69 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             )
         return True
 
+    async def _request_nodus_device_restart(
+        *,
+        target_device: str,
+        device_id: str,
+        device_type: str,
+        restart_mode: str = "soft",
+    ) -> tuple[bool, str]:
+        def _restart_result_applied(result_payload: dict[str, Any] | None) -> bool:
+            return isinstance(result_payload, dict) and result_payload.get("applied") is True
+
+        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        if not ingest:
+            return False, "MQTT ingest unavailable"
+
+        message_id = f"rst-{int(time.time())}-{uuid4().hex[:8]}"
+        publish_result: dict[str, Any] | None = None
+
+        if hasattr(ingest, "publish_nodus_restart"):
+            publish_result = ingest.publish_nodus_restart(
+                target_device,
+                restart_mode=restart_mode,
+                message_id=message_id,
+            )
+        elif hasattr(ingest, "publish_json"):
+            topic = f"nodus/{target_device}/config/set"
+            envelope = {
+                "message_id": message_id,
+                "restart": True,
+                "restart_mode": restart_mode,
+            }
+            ok = bool(ingest.publish_json(topic, envelope, qos=1, retain=False, use_ha_client=False))
+            publish_result = {"ok": ok, "message_id": message_id, "topic": topic, "payload": envelope}
+        else:
+            return False, "MQTT publish unavailable"
+
+        if not bool((publish_result or {}).get("ok", False)):
+            return False, "Failed to publish restart request"
+
+        ack = None
+        if hasattr(ingest, "wait_for_config_ack"):
+            ack = await ingest.wait_for_config_ack(message_id, timeout=3.0)
+        if not isinstance(ack, dict):
+            return False, "Restart request was not acknowledged by the device"
+        if ack.get("accepted") is False:
+            error_text = str(ack.get("error") or "").strip()
+            return False, error_text or "Restart request was rejected by the device"
+
+        result = None
+        if hasattr(ingest, "wait_for_config_result"):
+            result = await ingest.wait_for_config_result(message_id, timeout=8.0)
+        if result is None:
+            return False, "Restart request timed out waiting for device result"
+        if not _restart_result_applied(result):
+            error_text = str((result or {}).get("error") or "").strip()
+            return False, error_text or "Restart request was not applied by the device"
+
+        if DEBUG:
+            printDM(
+                f"[restart_nodus_device:{device_type}:{device_id}] target={target_device} message_id={message_id} ack={ack} result={result}",
+                location=MODULE,
+            )
+        return True, "Device restarting..."
+
     async def push_nodus_settings_batch(
         *,
         device_id: str,
@@ -6521,6 +6584,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 device_offsets=device_offsets,
                 candidate_sensors=candidate_sensors,
                 default_range_hours=24,
+                can_restart_device=(sensor_type in ("picow", "pico2w", "nodus", "remote", "mqtt")),
             )
 
             if embed:
@@ -6803,6 +6867,56 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if _wants_modal_json(request):
             return JSONResponse({"ok": True, "message": "Sensor settings saved.", "sensor_id": new_id})
         return RedirectResponse(url="/", status_code=303)
+
+    @router.post("/sensor-settings/restart-device")
+    async def restart_sensor_device(request: Request):
+        form = await request.form()
+        sensor_id = normalize_sensor_id(form.get("sensor_id"))
+        if not sensor_id:
+            return JSONResponse({"ok": False, "error": "Missing sensor_id"}, status_code=400)
+
+        manager = SensorSettingsManager("sensor_settings")
+        doc = manager.load(sensor_id) or {}
+        sensor_type = str(((doc.get("Sensor", {}) or {}).get("TYPE", "") or "")).strip().lower()
+        if sensor_type not in {"picow", "pico2w", "nodus", "remote", "mqtt"}:
+            return JSONResponse({"ok": False, "error": "Restart is only available for Nodus sensors."}, status_code=400)
+
+        SystemSettingsMgr = globals().get("SystemSettingsManager", None)
+        system_mgr = SystemSettingsMgr("system_settings") if SystemSettingsMgr else None
+        system_root = _resolve_system_settings_root(system_mgr)
+        sys_host_index = _build_system_hostname_index(system_root)
+        target_device = str(
+            _read_hostname_from_system_settings(
+                sensor_id,
+                system_mgr,
+                system_root,
+                device_type="sensor",
+                sys_host_index=sys_host_index,
+            )
+            or sensor_id
+        ).strip()
+        printDM(
+            f"[restart-request] device_type=sensor device_id={sensor_id} target={target_device} via=webui",
+            location=MODULE,
+            level="info",
+        )
+        ok, message = await _request_nodus_device_restart(
+            target_device=target_device,
+            device_id=sensor_id,
+            device_type="sensor",
+            restart_mode="soft",
+        )
+        printDM(
+            f"[restart-result] device_type=sensor device_id={sensor_id} target={target_device} ok={ok} message={message}",
+            location=MODULE,
+            level="info" if ok else "warning",
+        )
+        status_code = 200 if ok else 502
+        payload_key = "message" if ok else "error"
+        return JSONResponse(
+            {"ok": ok, payload_key: message, "sensor_id": sensor_id, "target_device": target_device},
+            status_code=status_code,
+        )
 
     @router.post("/calibrate")
     async def calibrate_sensor(sensor_id: str = Query(...)):
@@ -8263,6 +8377,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             channel_indices=channel_indices,
             channels=channels,
             nodus_firmware_version=nodus_firmware_version,
+            can_restart_device=(switch_type in ("picow", "pico2w", "nodus", "remote", "mqtt")),
         )
 
         # ---- embed=1 → just the modal markup (used by dashboard JS) ----
@@ -8468,6 +8583,57 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if _wants_modal_json(request):
             return JSONResponse({"ok": True, "message": "Switch settings saved.", "switch_id": new_id})
         return RedirectResponse(url="/", status_code=303)
+
+    @router.post("/switch-settings/restart-device")
+    async def restart_switch_device(request: Request):
+        form = await request.form()
+        switch_id = str(form.get("switch_id") or "").strip().replace(" ", "-")
+        switch_id = "".join(ch for ch in switch_id if ch.isalnum() or ch in "-_").lower()
+        if not switch_id:
+            return JSONResponse({"ok": False, "error": "Missing switch_id"}, status_code=400)
+
+        manager = SwitchSettingsManager("switch_settings")
+        doc = manager.load(switch_id) or {}
+        switch_type = str(((doc.get("Switch", {}) or {}).get("TYPE", "") or "")).strip().lower()
+        if switch_type not in {"picow", "pico2w", "nodus", "remote", "mqtt"}:
+            return JSONResponse({"ok": False, "error": "Restart is only available for Nodus switches."}, status_code=400)
+
+        SystemSettingsMgr = globals().get("SystemSettingsManager", None)
+        system_mgr = SystemSettingsMgr("system_settings") if SystemSettingsMgr else None
+        system_root = _resolve_system_settings_root(system_mgr)
+        sys_host_index = _build_system_hostname_index(system_root)
+        target_device = str(
+            _read_hostname_from_system_settings(
+                switch_id,
+                system_mgr,
+                system_root,
+                device_type="switch",
+                sys_host_index=sys_host_index,
+            )
+            or switch_id
+        ).strip()
+        printDM(
+            f"[restart-request] device_type=switch device_id={switch_id} target={target_device} via=webui",
+            location=MODULE,
+            level="info",
+        )
+        ok, message = await _request_nodus_device_restart(
+            target_device=target_device,
+            device_id=switch_id,
+            device_type="switch",
+            restart_mode="soft",
+        )
+        printDM(
+            f"[restart-result] device_type=switch device_id={switch_id} target={target_device} ok={ok} message={message}",
+            location=MODULE,
+            level="info" if ok else "warning",
+        )
+        status_code = 200 if ok else 502
+        payload_key = "message" if ok else "error"
+        return JSONResponse(
+            {"ok": ok, payload_key: message, "switch_id": switch_id, "target_device": target_device},
+            status_code=status_code,
+        )
 
     # Advanced Automation helpers
     # switch id helpers
@@ -9288,38 +9454,44 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             pending_set = copy.deepcopy(getattr(mqtt_ingest, "_pending_set", {}) or {})
             pending_ttl_s = 15.0
 
+            def _event_origin_tag(source: object) -> str:
+                raw = str(source or "").strip()
+                src = raw.lower()
+                if not src:
+                    return ""
+                if src.startswith("mqtt-auto:"):
+                    detail = raw.split(":", 1)[1].strip()
+                    return f"auto - {detail}" if detail else "auto"
+                if src.startswith("mqtt-manual"):
+                    return "manual"
+                if src.startswith("auto/rule:"):
+                    detail = raw.split(":", 1)[1].strip()
+                    if detail.lower().endswith("/mqtt"):
+                        detail = detail[:-5].strip()
+                    return f"auto - {detail}" if detail else "auto"
+                if any(token in src for token in ("manual", "/ui", "ui/", "user")):
+                    return "manual"
+                if any(token in src for token in ("auto", "rule", "timer", "automation", "schedule")):
+                    return "auto"
+                return ""
+
             def _format_events(switch_key: str, sensor_id: str | None, limit: int = 5) -> list[str]:
-                evs = data_logger.get_last_switch_events(switch_key, sensor_id=sensor_id, limit=limit)
+                evs = data_logger.get_last_switch_events(
+                    switch_key,
+                    sensor_id=sensor_id,
+                    limit=limit,
+                    include_source=True,
+                )
                 out: list[str] = []
-                for state_str, ts in evs:
+                for state_str, ts, source in evs:
                     label = "On" if str(state_str).lower() in ("on", "true", "1") else "Off"
-                    out.append(f"{label} {ts}")
+                    origin_tag = _event_origin_tag(source)
+                    suffix = f" ({origin_tag})" if origin_tag else ""
+                    out.append(f"{label} {ts}{suffix}")
                 return out
 
             def _format_events_remote(switch_key: str, limit: int = 5) -> list[str]:
-                out: list[str] = []
-                try:
-                    db_path = getattr(data_logger, "db_path", "sensorius_data.db")
-                    with sqlite3.connect(db_path) as conn:
-                        cur = conn.cursor()
-                        cur.execute(
-                            """
-                            SELECT timestamp, state
-                            FROM sw_events
-                            WHERE switch_key = ? COLLATE NOCASE
-                              AND LOWER(COALESCE(source, '')) LIKE 'mqtt%'
-                            ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC
-                            LIMIT ?
-                            """,
-                            (switch_key, limit),
-                        )
-                        rows = cur.fetchall()
-                    for ts, st in rows:
-                        is_on = bool(st) if isinstance(st, (int, bool)) else (str(st).lower() in ("1", "true", "on"))
-                        out.append(f"{'On' if is_on else 'Off'} {ts}")
-                    return out
-                except Exception:
-                    return []
+                return _format_events(switch_key, None, limit=limit)
 
             known_channel_ids_by_sid: dict[str, set[str]] = {}
             for row in (identity_rows or []):
@@ -9419,10 +9591,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 ui_key = f"{sid}::{label}"
                 cached_bool = _cache_state_for(sid, label, db_key)
                 pending_bool = _pending_state_for(sid, label, db_key)
-                if cached_bool is not None:
-                    latest_bool = cached_bool
-                elif pending_bool is not None:
+                if pending_bool is not None:
                     latest_bool = pending_bool
+                elif cached_bool is not None:
+                    latest_bool = cached_bool
                 else:
                     latest = data_logger.get_latest_switch_state(db_key)
                     latest_bool = (latest == "On") if latest is not None else False
@@ -9449,10 +9621,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     db_key = _db_key_for_label(remote_switch_id, channel_label)
                     cached_bool = _cache_state_for(remote_switch_id, channel_label, db_key)
                     pending_bool = _pending_state_for(remote_switch_id, channel_label, db_key)
-                    if cached_bool is not None:
-                        latest_bool = cached_bool
-                    elif pending_bool is not None:
+                    if pending_bool is not None:
                         latest_bool = pending_bool
+                    elif cached_bool is not None:
+                        latest_bool = cached_bool
                     else:
                         latest = data_logger.get_latest_switch_state(db_key)
                         latest_bool = (latest == "On") if latest is not None else (str(human_state).lower() == "on")
@@ -9902,14 +10074,19 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 # Primary: use ingest helper (finds correct base topic and emits {"set": "..."} JSON)
                 if sid:
                     try:
-                        ok = bool(mqtt_ingest.set_switch(sid, matched_label, new_state))
+                        ok = bool(mqtt_ingest.set_switch(sid, matched_label, new_state, event_origin="manual"))
                     except Exception as e:
                         printDM(f"[toggle_switch] ingest.set_switch error: {e}", location=MODULE)
                 if ok:
                     try:
-                        response_state = bool(ctrl.get_state(matched_label))
-                    except Exception:
-                        response_state = bool(current)
+                        sync_toggle = getattr(ctrl, "sync_manual_toggle_result", None)
+                        if callable(sync_toggle):
+                            sync_toggle(matched_label, bool(new_state), previous_state=bool(current))
+                        else:
+                            ctrl.last_state[matched_label] = bool(new_state)
+                    except Exception as e:
+                        printDM(f"[toggle_switch] remote timer sync failed: {e}", location=MODULE)
+                    response_state = bool(new_state)
 
             # ...after we've tried to set the state (ok = ctrl.set_state(...) or MQTT path)...
             if not ok:

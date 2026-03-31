@@ -95,8 +95,8 @@ def test_process_auto_off_timers_turns_channel_off(monkeypatch: pytest.MonkeyPat
     ctrl.auto_off_deadline["Fan"] = 100.0
     calls = []
 
-    def _fake_set_state(label, state, force=False):
-        calls.append((label, state, force))
+    def _fake_set_state(label, state, force=False, event_source="manual/ui"):
+        calls.append((label, state, force, event_source))
         ctrl.last_state[label] = state
         SwitchController._sync_auto_off_state(ctrl, label, state, restart=state)
         return True
@@ -106,9 +106,30 @@ def test_process_auto_off_timers_turns_channel_off(monkeypatch: pytest.MonkeyPat
 
     SwitchController._process_auto_off_timers(ctrl)
 
-    assert calls == [("Fan", False, True)]
+    assert calls == [("Fan", False, True, "manual/timer")]
     assert ctrl.last_state["Fan"] is False
     assert ctrl.auto_off_deadline["Fan"] is None
+
+
+def test_process_auto_off_timers_clears_deadline_after_single_expiry_attempt(monkeypatch: pytest.MonkeyPatch):
+    ctrl = _make_controller()
+    ctrl.last_state["Fan"] = True
+    ctrl.auto_off_seconds["Fan"] = 30
+    ctrl.auto_off_deadline["Fan"] = 100.0
+    calls = []
+
+    def _fake_set_state(label, state, force=False, event_source="manual/ui"):
+        calls.append((label, state, force, event_source))
+        return False
+
+    ctrl.set_state = _fake_set_state
+    monkeypatch.setattr(saiSwitch.time, "time", lambda: 100.5)
+
+    SwitchController._process_auto_off_timers(ctrl)
+
+    assert calls == [("Fan", False, True, "manual/timer")]
+    assert ctrl.auto_off_deadline["Fan"] is None
+    assert ctrl.last_state["Fan"] is True
 
 
 def test_set_state_restarts_auto_off_only_on_new_on_transition(monkeypatch: pytest.MonkeyPatch):
@@ -117,13 +138,28 @@ def test_set_state_restarts_auto_off_only_on_new_on_transition(monkeypatch: pyte
     ctrl.auto_off_seconds["Fan"] = 30
     ctrl.auto_off_deadline["Fan"] = 150.0
     ctrl.get_state = lambda label: ctrl.last_state[label]
-    ctrl._set_switch_state = lambda _name, _on: True
-    ctrl._log = lambda _name, _on: None
+    ctrl._set_switch_state = lambda _name, _on, event_origin="manual", event_label="": True
+    ctrl._log = lambda _name, _on, source="manual/ui": None
 
     monkeypatch.setattr(saiSwitch.time, "monotonic", lambda: 50.0)
 
     assert SwitchController.set_state(ctrl, "Fan", True, force=True) is True
     assert ctrl.auto_off_deadline["Fan"] == 150.0
+
+
+def test_set_state_auto_rule_does_not_start_manual_timer(monkeypatch: pytest.MonkeyPatch):
+    ctrl = _make_controller()
+    ctrl.last_state["Fan"] = False
+    ctrl.auto_off_seconds["Fan"] = 60
+    ctrl.auto_off_deadline["Fan"] = None
+    ctrl.get_state = lambda label: ctrl.last_state[label]
+    ctrl._set_switch_state = lambda _name, _on, event_origin="manual", event_label="": True
+    ctrl._log = lambda _name, _on, source="manual/ui": None
+
+    monkeypatch.setattr(saiSwitch.time, "monotonic", lambda: 50.0)
+
+    assert SwitchController.set_state(ctrl, "Fan", True, force=True, event_source="auto/rule:TOD") is True
+    assert ctrl.auto_off_deadline["Fan"] is None
 
 
 def test_remote_ingest_refresh_does_not_restart_active_auto_off(monkeypatch: pytest.MonkeyPatch):
@@ -138,9 +174,15 @@ def test_remote_ingest_refresh_does_not_restart_active_auto_off(monkeypatch: pyt
 
     called = []
 
-    def _fake_sync(label, is_on, *, restart=False):
+    def _fake_sync(label, is_on, *, restart=False, allow_create_if_missing=True):
         called.append((label, is_on, restart))
-        SwitchController._sync_auto_off_state(ctrl, label, is_on, restart=restart)
+        SwitchController._sync_auto_off_state(
+            ctrl,
+            label,
+            is_on,
+            restart=restart,
+            allow_create_if_missing=allow_create_if_missing,
+        )
 
     ctrl._sync_auto_off_state = _fake_sync
 
@@ -151,6 +193,114 @@ def test_remote_ingest_refresh_does_not_restart_active_auto_off(monkeypatch: pyt
     assert ctrl.last_state["Fan"] is True
     assert called == [("Fan", True, False)]
     assert ctrl.auto_off_deadline["Fan"] == 150.0
+
+
+def test_remote_ingest_on_refresh_does_not_create_new_deadline_after_expiry(monkeypatch: pytest.MonkeyPatch):
+    ctrl = RemoteSwitchController.__new__(RemoteSwitchController)
+    ctrl.mqtt_ingest = types.SimpleNamespace(_switch_state_cache={"sw1": {"CH1": "on"}})
+    ctrl.switch_id = "sw1"
+    ctrl.channel_id_for_label = {"Fan": "CH1"}
+    ctrl.last_state = {"Fan": False}
+    ctrl.auto_off_seconds = {"Fan": 30}
+    ctrl.auto_off_deadline = {"Fan": None}
+    ctrl.get_switch_names = lambda: ["Fan"]
+
+    monkeypatch.setattr(saiSwitch.time, "time", lambda: 120.0)
+
+    RemoteSwitchController._refresh_state_from_ingest(ctrl)
+
+    assert ctrl.last_state["Fan"] is True
+    assert ctrl.auto_off_deadline["Fan"] is None
+
+
+def test_remote_ingest_prefers_pending_on_over_stale_cached_off(monkeypatch: pytest.MonkeyPatch):
+    ctrl = RemoteSwitchController.__new__(RemoteSwitchController)
+    ctrl.mqtt_ingest = types.SimpleNamespace(
+        _switch_state_cache={"sw1": {"CH1": "off"}},
+        _pending_set={("sw1", "Fan"): {"ts": 100.0, "state": True, "channel_id": "CH1"}},
+    )
+    ctrl.switch_id = "sw1"
+    ctrl.channel_id_for_label = {"Fan": "CH1"}
+    ctrl.last_state = {"Fan": True}
+    ctrl.auto_off_seconds = {"Fan": 60}
+    ctrl.auto_off_deadline = {"Fan": 160.0}
+    ctrl.get_switch_names = lambda: ["Fan"]
+
+    monkeypatch.setattr(saiSwitch.time, "time", lambda: 105.0)
+
+    RemoteSwitchController._refresh_state_from_ingest(ctrl)
+
+    assert ctrl.last_state["Fan"] is True
+    assert ctrl.auto_off_deadline["Fan"] == pytest.approx(160.0)
+
+
+def test_remote_ingest_stale_cached_off_clears_deadline_without_pending(monkeypatch: pytest.MonkeyPatch):
+    ctrl = RemoteSwitchController.__new__(RemoteSwitchController)
+    ctrl.mqtt_ingest = types.SimpleNamespace(
+        _switch_state_cache={"sw1": {"CH1": "off"}},
+        _pending_set={},
+    )
+    ctrl.switch_id = "sw1"
+    ctrl.channel_id_for_label = {"Fan": "CH1"}
+    ctrl.last_state = {"Fan": True}
+    ctrl.auto_off_seconds = {"Fan": 60}
+    ctrl.auto_off_deadline = {"Fan": 160.0}
+    ctrl.get_switch_names = lambda: ["Fan"]
+
+    monkeypatch.setattr(saiSwitch.time, "time", lambda: 105.0)
+
+    RemoteSwitchController._refresh_state_from_ingest(ctrl)
+
+    assert ctrl.last_state["Fan"] is False
+    assert ctrl.auto_off_deadline["Fan"] is None
+
+
+def test_sync_manual_toggle_result_starts_auto_off_on_new_on_transition(monkeypatch: pytest.MonkeyPatch):
+    ctrl = RemoteSwitchController.__new__(RemoteSwitchController)
+    ctrl.last_state = {"Fan": False}
+    ctrl.last_set_time = {"Fan": 0.0}
+    ctrl.auto_off_seconds = {"Fan": 60}
+    ctrl.auto_off_deadline = {"Fan": None}
+
+    monkeypatch.setattr(saiSwitch.time, "time", lambda: 100.0)
+    monkeypatch.setattr(saiSwitch.time, "monotonic", lambda: 55.0)
+
+    RemoteSwitchController.sync_manual_toggle_result(ctrl, "Fan", True, previous_state=False)
+
+    assert ctrl.last_state["Fan"] is True
+    assert ctrl.last_set_time["Fan"] == pytest.approx(55.0)
+    assert ctrl.auto_off_deadline["Fan"] == pytest.approx(160.0)
+
+
+def test_sync_manual_toggle_result_clears_auto_off_on_manual_off(monkeypatch: pytest.MonkeyPatch):
+    ctrl = RemoteSwitchController.__new__(RemoteSwitchController)
+    ctrl.last_state = {"Fan": True}
+    ctrl.last_set_time = {"Fan": 10.0}
+    ctrl.auto_off_seconds = {"Fan": 60}
+    ctrl.auto_off_deadline = {"Fan": 160.0}
+
+    monkeypatch.setattr(saiSwitch.time, "monotonic", lambda: 75.0)
+
+    RemoteSwitchController.sync_manual_toggle_result(ctrl, "Fan", False, previous_state=True)
+
+    assert ctrl.last_state["Fan"] is False
+    assert ctrl.last_set_time["Fan"] == pytest.approx(75.0)
+    assert ctrl.auto_off_deadline["Fan"] is None
+
+
+def test_remote_log_skips_manual_ui_history_writes():
+    logged = []
+    ctrl = RemoteSwitchController.__new__(RemoteSwitchController)
+    ctrl.is_remote = True
+    ctrl.switch_id = "sw1"
+    ctrl.channel_id_for_label = {"Fan": "CH1"}
+    ctrl.data_logger = types.SimpleNamespace(
+        log_switch_event=lambda **kwargs: logged.append(kwargs)
+    )
+
+    RemoteSwitchController._log(ctrl, "Fan", False)
+
+    assert logged == []
 
 
 def test_set_state_does_not_publish_or_log_on_backend_failure():
@@ -166,9 +316,9 @@ def test_set_state_does_not_publish_or_log_on_backend_failure():
 
     ctrl = _make_controller()
     ctrl.mqtt = FakeMQTT()
-    ctrl._set_switch_state = lambda _name, _on: False
+    ctrl._set_switch_state = lambda _name, _on, event_origin="manual", event_label="": False
     logged = []
-    ctrl._log = lambda name, on: logged.append((name, on))
+    ctrl._log = lambda name, on, source="manual/ui": logged.append((name, on, source))
 
     ok = SwitchController.set_state(ctrl, "Fan", True, force=True)
 
@@ -193,7 +343,7 @@ def test_advanced_rule_does_nothing_when_conditions_are_false():
         }
     }
     calls = []
-    ctrl.set_state = lambda label, desired: calls.append((label, desired))
+    ctrl.set_state = lambda label, desired, **_kwargs: calls.append((label, desired))
     ctrl.get_state = lambda _label: True
 
     SwitchController._evaluate_and_apply_advanced(ctrl, {})
@@ -267,7 +417,7 @@ def test_advanced_delay_is_non_blocking(monkeypatch: pytest.MonkeyPatch):
     calls = []
     state = {"Fan": False}
 
-    def _fake_set_state(label, desired, force=False):
+    def _fake_set_state(label, desired, force=False, event_source="manual/ui"):
         calls.append((label, desired, force))
         state[label] = desired
         return True
@@ -306,7 +456,7 @@ def test_advanced_previous_state_reverts_when_rule_stops_matching():
         }
     }
 
-    def _fake_set_state(label, desired, force=False):
+    def _fake_set_state(label, desired, force=False, event_source="manual/ui"):
         calls.append((label, desired, force))
         state[label] = desired
         return True
@@ -342,7 +492,7 @@ def test_advanced_action_can_do_nothing_after_delay(monkeypatch: pytest.MonkeyPa
     calls = []
     state = {"Fan": False}
 
-    def _fake_set_state(label, desired, force=False):
+    def _fake_set_state(label, desired, force=False, event_source="manual/ui"):
         calls.append((label, desired, force))
         state[label] = desired
         return True
@@ -379,7 +529,7 @@ def test_advanced_do_nothing_keeps_state_when_rule_stops_matching():
         }
     }
 
-    def _fake_set_state(label, desired, force=False):
+    def _fake_set_state(label, desired, force=False, event_source="manual/ui"):
         calls.append((label, desired, force))
         state[label] = desired
         return True
@@ -415,7 +565,7 @@ def test_advanced_action_invalid_revert_action_defaults_to_do_nothing(monkeypatc
     calls = []
     state = {"Fan": False}
 
-    def _fake_set_state(label, desired, force=False):
+    def _fake_set_state(label, desired, force=False, event_source="manual/ui"):
         calls.append((label, desired, force))
         state[label] = desired
         return True
@@ -461,7 +611,7 @@ def test_timer_rule_turns_switch_off_when_window_ends(monkeypatch: pytest.Monkey
         }
     }
 
-    def _fake_set_state(label, desired, force=False):
+    def _fake_set_state(label, desired, force=False, event_source="manual/ui"):
         calls.append((label, desired, force))
         state[label] = desired
         return True
@@ -555,7 +705,7 @@ def test_advanced_rule_supports_astral_condition(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(ctrl, "_eval_astral_condition", lambda _cond: True)
     ctrl.get_state = lambda _label: False
     calls = []
-    ctrl.set_state = lambda label, desired: calls.append((label, desired))
+    ctrl.set_state = lambda label, desired, **_kwargs: calls.append((label, desired))
 
     SwitchController._evaluate_and_apply_advanced(ctrl, {})
     assert calls == [("Fan", True)]
@@ -577,7 +727,7 @@ def test_advanced_evaluation_ignores_actions_for_other_switch_ids():
     }
     ctrl.get_state = lambda _label: False
     calls = []
-    ctrl.set_state = lambda label, desired: calls.append((label, desired))
+    ctrl.set_state = lambda label, desired, **_kwargs: calls.append((label, desired))
 
     SwitchController._evaluate_and_apply_advanced(ctrl, {})
     assert calls == []

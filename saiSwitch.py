@@ -444,9 +444,12 @@ class SwitchController:
                 printDM(f"[astral] evaluation error: {e}", location=MODULE)
             return False
 
-    def _log(self, name, on: bool):
+    def _log(self, name, on: bool, *, source: str = "manual/ui"):
         # Persist as a SWITCH EVENT (not a generic reading) so /switch-status-update
         # can fetch the latest “On”/“Off” and recent event list.
+        # Remote/Nodus switch history should come only from confirmed MQTT ingest.
+        if bool(getattr(self, "is_remote", False)):
+            return
         from saiUtils import get_timestamp
         switch_key = self._switch_key(name)
         sensor_lineage = f"Switch_{self.switch_id}" if getattr(self, "switch_id", None) else None
@@ -455,7 +458,7 @@ class SwitchController:
             switch_key=switch_key,
             is_on=bool(on),
             timestamp=get_timestamp(),
-            source="manual/ui",
+            source=source,
             sensor_id=sensor_lineage
         )
         try:
@@ -473,7 +476,7 @@ class SwitchController:
                     "ui_key": f"{self.switch_id}::{name}" if getattr(self, "switch_id", None) else switch_key,
                     "state": bool(on),      # True / False
                     "timestamp": get_timestamp(),
-                    "source": "manual/ui",
+                    "source": source,
                 }
                 payload.update(self.get_auto_off_status(name))
                 asyncio.create_task(switch_broadcast(payload))
@@ -542,13 +545,34 @@ class SwitchController:
             "timer_remaining_s": remaining,
         }
 
-    def _sync_auto_off_state(self, name: str, is_on: bool, *, restart: bool = False) -> None:
+    def _sync_auto_off_state(
+        self,
+        name: str,
+        is_on: bool,
+        *,
+        restart: bool = False,
+        allow_create_if_missing: bool = True,
+    ) -> None:
         seconds = int(self.auto_off_seconds.get(name, 0) or 0)
         if not is_on or seconds <= 0:
             self.auto_off_deadline[name] = None
             return
-        if restart or not self.auto_off_deadline.get(name):
+        if restart:
             self.auto_off_deadline[name] = time.time() + seconds
+            return
+        if allow_create_if_missing and not self.auto_off_deadline.get(name):
+            self.auto_off_deadline[name] = time.time() + seconds
+
+    def sync_manual_toggle_result(self, name: str, is_on: bool, *, previous_state: bool) -> None:
+        """Apply post-toggle runtime state after a confirmed manual switch command."""
+        self.last_state[name] = bool(is_on)
+        self.last_set_time[name] = time.monotonic()
+        self._sync_auto_off_state(
+            name,
+            bool(is_on),
+            restart=bool(is_on and not previous_state),
+            allow_create_if_missing=bool(is_on and not previous_state),
+        )
 
     def _process_auto_off_timers(self) -> None:
         now = time.time()
@@ -566,9 +590,10 @@ class SwitchController:
             if not bool(self.get_state(name)):
                 self.auto_off_deadline[name] = None
                 continue
-            ok = bool(self.set_state(name, False, force=True))
-            if not ok and bool(self.get_state(name)):
-                self.auto_off_deadline[name] = time.time() + 1.0
+            # Expiry is single-shot: send one OFF request, then clear the timer
+            # immediately so stale remote ON refreshes cannot restart it.
+            self.auto_off_deadline[name] = None
+            self.set_state(name, False, force=True, event_source="manual/timer")
 
     def label_for_channel_id(self, channel_id: str) -> str:
         chan = (channel_id or "").strip().lower()
@@ -579,7 +604,14 @@ class SwitchController:
                 return label
         return ""
 
-    def _set_switch_state(self, name: str, on: bool) -> bool:
+    def _set_switch_state(
+        self,
+        name: str,
+        on: bool,
+        *,
+        event_origin: str = "manual",
+        event_label: str = "",
+    ) -> bool:
         # 1) Try device backend first
         if hasattr(self, "switch") and hasattr(self.switch, "set_state"):
             if bool(self.switch.set_state(name, on)):
@@ -590,7 +622,15 @@ class SwitchController:
             from saiMQTTIngest import get_current_ingest  # small helper you’ll add below
             ing = get_current_ingest()
             if ing:
-                return bool(ing.set_switch(self.switch_id, name, on))
+                return bool(
+                    ing.set_switch(
+                        self.switch_id,
+                        name,
+                        on,
+                        event_origin=event_origin,
+                        event_label=event_label,
+                    )
+                )
         except Exception:
             pass
 
@@ -598,17 +638,25 @@ class SwitchController:
         return False
 
 
-    def set_state(self, name, on: bool, *, force: bool = False):
+    def set_state(self, name, on: bool, *, force: bool = False, event_source: str = "manual/ui"):
         now = time.monotonic()
         prev_on = self.get_state(name)
+        event_source_text = str(event_source or "").strip()
+        event_origin = "auto" if event_source_text.lower().startswith("auto") else "manual"
+        event_label = ""
+        if event_source_text.lower().startswith("auto/rule:"):
+            event_label = event_source_text.split(":", 1)[1].strip()
         if self.override_script.get(name, False):
             printDM(f"Override active: {name} forced to {on}", location=MODULE)
-            ok = self._set_switch_state(name, on)
+            ok = self._set_switch_state(name, on, event_origin=event_origin, event_label=event_label)
             if ok:
                 self.last_state[name] = on                     # <-- keep RAM state in sync
-                self._log(name, on)
+                self._log(name, on, source=event_source)
                 self.last_set_time[name] = now
-                self._sync_auto_off_state(name, bool(on), restart=bool(on and not prev_on))
+                if event_origin == "manual":
+                    self._sync_auto_off_state(name, bool(on), restart=bool(on and not prev_on))
+                else:
+                    self.auto_off_deadline[name] = None
             return bool(ok)
 
         elapsed = now - self.last_set_time.get(name, 0)
@@ -620,12 +668,15 @@ class SwitchController:
             return False
 
         printDM(f"Setting {name} to {'ON' if on else 'OFF'} (override: {self.override_script.get(name, False)})", location=MODULE)
-        ok = self._set_switch_state(name, on)
+        ok = self._set_switch_state(name, on, event_origin=event_origin, event_label=event_label)
         if ok:
             self.last_state[name] = on                         # <-- keep RAM state in sync
-            self._log(name, on)
+            self._log(name, on, source=event_source)
             self.last_set_time[name] = now
-            self._sync_auto_off_state(name, bool(on), restart=bool(on and not prev_on))
+            if event_origin == "manual":
+                self._sync_auto_off_state(name, bool(on), restart=bool(on and not prev_on))
+            else:
+                self.auto_off_deadline[name] = None
 
         # Only publish this telemetry for local backend; MQTTSwitch already sent a command.
         # Prefer ID-based topics using SWITCH_n_CHANNEL_ID.
@@ -1235,6 +1286,7 @@ class SwitchController:
 
                     action_evals[action_key] = {
                         "rule_id": str(_rule_id),
+                        "rule_name": str(script.get("name", "") or "").strip(),
                         "target_label": target_label,
                         "switch_key": skey,
                         "desired": desired,
@@ -1263,7 +1315,9 @@ class SwitchController:
                 active_actions.pop(action_key, None)
                 return True
 
-            ok = bool(self.set_state(target_label, revert_to, force=True))
+            rule_name = str(active.get("rule_name", "") or "").strip()
+            event_source = f"auto/rule:{rule_name}" if rule_name else "auto/rule"
+            ok = bool(self.set_state(target_label, revert_to, force=True, event_source=event_source))
             if ok or bool(self.get_state(target_label)) == revert_to:
                 active_actions.pop(action_key, None)
                 return True
@@ -1309,7 +1363,9 @@ class SwitchController:
                             location=MODULE,
                         )
                     continue
-                ok = bool(self.set_state(target_label, desired))
+                rule_name = str(active.get("rule_name", "") or "").strip()
+                event_source = f"auto/rule:{rule_name}" if rule_name else "auto/rule"
+                ok = bool(self.set_state(target_label, desired, event_source=event_source))
                 if ok:
                     active_actions[action_key] = dict(active, last_applied_at=now_mono)
                 continue
@@ -1332,11 +1388,14 @@ class SwitchController:
                         f"desired={desired} (switch_key={skey})",
                         location=MODULE,
                     )
-                ok = bool(self.set_state(target_label, desired))
+                rule_name = str(info.get("rule_name", "") or "").strip()
+                event_source = f"auto/rule:{rule_name}" if rule_name else "auto/rule"
+                ok = bool(self.set_state(target_label, desired, event_source=event_source))
                 if not ok:
                     pending_actions[action_key] = dict(pending, due_at=time.monotonic() + 1.0)
                     continue
                 active_actions[action_key] = {
+                    "rule_name": str(info.get("rule_name", "") or "").strip(),
                     "target_label": target_label,
                     "switch_key": skey,
                     "desired": desired,
@@ -1351,6 +1410,7 @@ class SwitchController:
             if delay_s > 0:
                 pending_actions[action_key] = {
                     "due_at": now_mono + min(delay_s, 300),
+                    "rule_name": str(info.get("rule_name", "") or "").strip(),
                     "target_label": target_label,
                     "switch_key": skey,
                     "desired": desired,
@@ -1378,11 +1438,14 @@ class SwitchController:
                     location=MODULE,
                 )
 
-            ok = bool(self.set_state(target_label, desired))
+            rule_name = str(info.get("rule_name", "") or "").strip()
+            event_source = f"auto/rule:{rule_name}" if rule_name else "auto/rule"
+            ok = bool(self.set_state(target_label, desired, event_source=event_source))
             if not ok:
                 continue
 
             active_actions[action_key] = {
+                "rule_name": str(info.get("rule_name", "") or "").strip(),
                 "target_label": target_label,
                 "switch_key": skey,
                 "desired": desired,
@@ -1395,7 +1458,7 @@ class SwitchController:
             else:
                 self._advanced_revert_cooldown.discard(action_key)
                 
-    async def run_controladora_monitor(self, sensor, interval=29):
+    async def run_controladora_monitor(self, sensor, interval=5):
         """
         Periodically evaluate switch rules.
         - If any enabled automation rules are present,
@@ -1493,6 +1556,33 @@ class RemoteSwitchController(SwitchController):
         self.mqtt_ingest = mqtt_ingest
         super().__init__(switch_settings=switch_settings, supervisor=supervisor, sensor=sensor, data_logger=data_logger)
 
+    def _pending_state_from_ingest(self, ing, sid: str, label: str, channel_id: str) -> bool | None:
+        try:
+            pending_map = getattr(ing, "_pending_set", {}) or {}
+            now_ts = time.time()
+            pending_ttl_s = 15.0
+
+            pending = pending_map.get((str(sid or ""), str(label or "")))
+            if pending is None and channel_id:
+                for (psid, _plabel), meta in pending_map.items():
+                    if str(psid or "").strip() != str(sid or "").strip():
+                        continue
+                    meta_channel = str((meta or {}).get("channel_id") or "").strip()
+                    if meta_channel and meta_channel == channel_id:
+                        pending = meta
+                        break
+            if not isinstance(pending, dict):
+                return None
+
+            pending_ts = float(pending.get("ts") or 0.0)
+            if pending_ts <= 0.0 or (now_ts - pending_ts) > pending_ttl_s:
+                return None
+            if "state" not in pending:
+                return None
+            return bool(pending.get("state"))
+        except Exception:
+            return None
+
     def _refresh_state_from_ingest(self) -> None:
         try:
             ing = self.mqtt_ingest
@@ -1512,22 +1602,31 @@ class RemoteSwitchController(SwitchController):
 
             for label in (self.get_switch_names() or []):
                 channel_id = str((self.channel_id_for_label or {}).get(label, "") or "").strip()
-                raw = None
-                if channel_id:
-                    raw = ch_map.get(channel_id)
+                pending_state = self._pending_state_from_ingest(ing, sid, str(label or ""), channel_id)
+                if pending_state is not None:
+                    new_state = bool(pending_state)
+                else:
+                    raw = None
+                    if channel_id:
+                        raw = ch_map.get(channel_id)
+                        if raw is None:
+                            raw = ch_map.get(channel_id.lower())
                     if raw is None:
-                        raw = ch_map.get(channel_id.lower())
-                if raw is None:
-                    raw = ch_map.get(label)
-                if raw is None:
-                    raw = ch_map.get(str(label).lower())
-                if raw is None:
-                    continue
-                new_state = str(raw).strip().lower() in ("on", "true", "1")
+                        raw = ch_map.get(label)
+                    if raw is None:
+                        raw = ch_map.get(str(label).lower())
+                    if raw is None:
+                        continue
+                    new_state = str(raw).strip().lower() in ("on", "true", "1")
                 prev_state = bool(self.last_state.get(label, False))
                 self.last_state[label] = new_state
                 if new_state != prev_state:
-                    self._sync_auto_off_state(label, new_state, restart=False)
+                    self._sync_auto_off_state(
+                        label,
+                        new_state,
+                        restart=False,
+                        allow_create_if_missing=False,
+                    )
         except Exception:
             return
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -139,6 +140,17 @@ class _FakeIngest:
         }
         if onboard_token:
             envelope["onboard_token"] = onboard_token
+        topic = f"nodus/{device_id}/config/set"
+        ok = self.publish_json(topic, envelope, qos=qos, retain=False, use_ha_client=False)
+        return {"ok": ok, "message_id": mid, "topic": topic, "payload": envelope}
+
+    def publish_nodus_restart(self, device_id: str, *, restart_mode: str = "soft", message_id: str | None = None, qos: int = 1):
+        mid = message_id or f"rst-{len(self.published_json) + 1}"
+        envelope = {
+            "message_id": mid,
+            "restart": True,
+            "restart_mode": str(restart_mode or "soft"),
+        }
         topic = f"nodus/{device_id}/config/set"
         ok = self.publish_json(topic, envelope, qos=qos, retain=False, use_ha_client=False)
         return {"ok": ok, "message_id": mid, "topic": topic, "payload": envelope}
@@ -747,9 +759,11 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
         device_offsets=[],
         candidate_sensors=[],
         default_range_hours=24,
+        can_restart_device=True,
     )
 
     assert "Sensor Settings v1.2.3" in html
+    assert html.index("Home") < html.index("Restart Device") < html.index("Save")
     assert 'name="display_style_1"' in html
     assert 'name="display_style_3"' in html
 
@@ -764,9 +778,140 @@ def test_switch_settings_modal_shows_nodus_firmware_version_in_settings_pane_tit
         channel_indices=[1],
         channels=[{"index": 1, "label": "Fan"}],
         nodus_firmware_version="v1.2.3",
+        can_restart_device=True,
     )
 
     assert "Switch Settings v1.2.3" in html
+    assert html.index("Home") < html.index("Restart Device") < html.index("Save")
+    assert "Device Restarting..." in html
+
+
+def test_sensor_settings_modal_restart_button_uses_restarting_label():
+    env = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
+    template = env.get_template("modals/sensor_settings.html")
+
+    html = template.render(
+        sensor_id="apvpd-test123",
+        settings={"Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "apvpd-test123", "LOCATION": "Veg Tent"}},
+        metric_options=["", "Temperature", "Rel-Humidity", "Ambient VPD"],
+        current_metrics=["Temperature", "Rel-Humidity", "Ambient VPD", "", "", ""],
+        display_style_options=["Gauge", "Graph6hr", "Graph24hr"],
+        current_metric_styles=["Gauge", "Graph6hr", "Graph24hr", "Gauge", "Gauge", "Gauge"],
+        location="Veg Tent",
+        device_kind="aqi",
+        device_label="aqi",
+        is_apvpd=False,
+        is_soil=False,
+        ambient_temp_offset=0.0,
+        ambient_rh_offset=0.0,
+        nodus_firmware_version="v1.2.3",
+        soil_ph_offset=0.0,
+        device_offsets=[],
+        candidate_sensors=[],
+        default_range_hours=24,
+        can_restart_device=True,
+    )
+
+    assert "Device Restarting..." in html
+
+
+@pytest.mark.asyncio
+async def test_restart_sensor_device_publishes_soft_restart_to_nodus_config_set(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    restart_logs: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(saiWebRoutes, "printDM", lambda msg, location="", level="debug": restart_logs.append((str(msg), str(location), str(level))))
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "apvpd-test123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "apvpd-test123",
+            }
+        },
+    )
+    _write_system_settings(system_root, "apvpd-test123", "aqi-nz6g89")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/sensor-settings/restart-device",
+            data={"sensor_id": "apvpd-test123"},
+        )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["message"] == "Device restarting..."
+    assert ingest.published_json[-1]["topic"] == f"nodus/{body['target_device']}/config/set"
+    assert ingest.published_json[-1]["payload"]["restart"] is True
+    assert ingest.published_json[-1]["payload"]["restart_mode"] == "soft"
+    assert "payload" not in ingest.published_json[-1]["payload"]
+    assert any("[restart-request]" in msg for msg, _location, _level in restart_logs)
+    assert any("[restart-result]" in msg and "ok=True" in msg for msg, _location, _level in restart_logs)
+
+
+@pytest.mark.asyncio
+async def test_restart_switch_device_publishes_soft_restart_to_nodus_config_set(tmp_path, monkeypatch):
+    app, ingest, system_root, _sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    restart_logs: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(saiWebRoutes, "printDM", lambda msg, location="", level="debug": restart_logs.append((str(msg), str(location), str(level))))
+    switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
+    switch_mgr.save(
+        "switch-test123",
+        {
+            "Switch": {
+                "TYPE": "nodus",
+                "SWITCH_LOCATION": "Veg Tent",
+                "SWITCH_1_LABEL": "Fan",
+            }
+        },
+    )
+    _write_system_settings(system_root, "switch-test123", "switch-nz6g89")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/switch-settings/restart-device",
+            data={"switch_id": "switch-test123"},
+        )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["message"] == "Device restarting..."
+    assert ingest.published_json[-1]["topic"] == "nodus/switch-nz6g89/config/set"
+    assert ingest.published_json[-1]["payload"]["restart"] is True
+    assert ingest.published_json[-1]["payload"]["restart_mode"] == "soft"
+    assert any("[restart-request]" in msg for msg, _location, _level in restart_logs)
+    assert any("[restart-result]" in msg and "ok=True" in msg for msg, _location, _level in restart_logs)
+
+
+@pytest.mark.asyncio
+async def test_restart_sensor_device_requires_config_result_before_reporting_success(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "apvpd-test123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "apvpd-test123",
+            }
+        },
+    )
+    ingest.next_config_result = None
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/sensor-settings/restart-device",
+            data={"sensor_id": "apvpd-test123"},
+        )
+
+    assert res.status_code == 502
+    body = res.json()
+    assert body["ok"] is False
+    assert "timed out waiting for device result" in body["error"]
 
 
 @pytest.mark.asyncio
@@ -1830,3 +1975,43 @@ async def test_remove_device_list_allows_same_origin_browser_request_without_api
     assert res.status_code == 200
     body = res.json()
     assert "aqi-settings" in body["devices"]
+
+
+@pytest.mark.asyncio
+async def test_switch_status_update_prefers_pending_remote_state_over_stale_cache(tmp_path, monkeypatch):
+    app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    saiWebRoutes._switch_status_cache_payload = None
+    saiWebRoutes._switch_status_cache_until = 0.0
+    saiWebRoutes.switch_controllers = {}
+
+    ingest._switch_state_cache = {"switch-ykdvea": {"S1-ykdvea": "off"}}
+    ingest._pending_set = {
+        ("switch-ykdvea", "Fan"): {
+            "ts": time.time(),
+            "state": True,
+            "channel_id": "S1-ykdvea",
+        }
+    }
+
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_switch_identities",
+        lambda: [
+            {
+                "switch_id": "switch-ykdvea",
+                "switch_key": "S1-ykdvea::Fan",
+                "channel_id": "S1-ykdvea",
+                "label": "Fan",
+                "location": "OfficeDesk",
+            }
+        ],
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_switch_state", lambda _switch_key: "Off")
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_last_switch_events", lambda *_a, **_k: [])
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/switch-status-update")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["switch-ykdvea::Fan"]["state"] is True
