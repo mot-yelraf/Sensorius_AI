@@ -472,6 +472,90 @@ def test_advanced_previous_state_reverts_when_rule_stops_matching():
     assert calls == [("Fan", True, False), ("Fan", False, True)]
 
 
+def test_advanced_previous_state_recovers_revert_after_restart_from_history():
+    ctrl = _make_controller()
+    state = {"Fan": True}
+    calls = []
+
+    ctrl._advanced_active_actions = {}
+    ctrl._advanced_delay_due = {}
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "rule1": {
+                "enabled": True,
+                "script_json": {
+                    "name": "TOD",
+                    "enabled": True,
+                    "conditions": [{"type": "time", "start": "00:00", "end": "00:01"}],
+                    "actions": [{"switch_key": "sw1::Fan", "set": True, "revert_action": "previous_state", "delay_s": 0}],
+                },
+            }
+        }
+    }
+    ctrl.data_logger = types.SimpleNamespace(
+        get_last_switch_events=lambda *_a, **_k: [
+            ("On", "2026-03-31 11:30:03", "mqtt-auto:TOD"),
+            ("Off", "2026-03-31 11:25:06", "mqtt-auto:TOD"),
+        ]
+    )
+
+    def _fake_set_state(label, desired, force=False, event_source="manual/ui"):
+        calls.append((label, desired, force, event_source))
+        state[label] = desired
+        return True
+
+    ctrl.set_state = _fake_set_state
+    ctrl.get_state = lambda label: state[label]
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+
+    assert calls == [("Fan", False, True, "auto/rule:TOD")]
+
+
+def test_advanced_previous_state_recovery_prefers_remote_ingest_current_state():
+    ctrl = _make_controller()
+    ctrl.is_remote = True
+    ctrl.switch_id = "sw1"
+    ctrl.channel_id_for_label = {"Fan": "CH1"}
+    ctrl.mqtt_ingest = types.SimpleNamespace(_switch_state_cache={"sw1": {"CH1": "on"}})
+    state = {"Fan": False}
+    calls = []
+
+    ctrl._advanced_active_actions = {}
+    ctrl._advanced_delay_due = {}
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "rule1": {
+                "enabled": True,
+                "script_json": {
+                    "name": "TOD",
+                    "enabled": True,
+                    "conditions": [{"type": "time", "start": "00:00", "end": "00:01"}],
+                    "actions": [{"switch_key": "sw1::Fan", "set": True, "revert_action": "previous_state", "delay_s": 0}],
+                },
+            }
+        }
+    }
+    ctrl.data_logger = types.SimpleNamespace(
+        get_last_switch_events=lambda *_a, **_k: [
+            ("On", "2026-03-31 11:30:03", "mqtt-auto:TOD"),
+            ("Off", "2026-03-31 11:25:06", "mqtt-auto:TOD"),
+        ]
+    )
+
+    def _fake_set_state(label, desired, force=False, event_source="manual/ui"):
+        calls.append((label, desired, force, event_source))
+        state[label] = desired
+        return True
+
+    ctrl.set_state = _fake_set_state
+    ctrl.get_state = lambda label: state[label]
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+
+    assert calls == [("Fan", False, True, "auto/rule:TOD")]
+
+
 def test_advanced_action_can_do_nothing_after_delay(monkeypatch: pytest.MonkeyPatch):
     monotonic_now = {"value": 200.0}
     monkeypatch.setattr(saiSwitch.time, "monotonic", lambda: monotonic_now["value"])

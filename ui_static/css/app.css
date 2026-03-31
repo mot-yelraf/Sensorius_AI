@@ -610,6 +610,7 @@ select.op-select{ max-width:80px; width:100%; }
 
 /* Footer / misc */
 .footer-buttons{ display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap:.75rem; width:100%; }
+.footer-buttons-left{ justify-content:flex-start; }
 .footer-buttons-restart-layout{
   display:grid;
   grid-template-columns:minmax(0, 1fr) auto minmax(0, 1fr);

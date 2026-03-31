@@ -2015,3 +2015,104 @@ async def test_switch_status_update_prefers_pending_remote_state_over_stale_cach
     assert res.status_code == 200
     body = res.json()
     assert body["switch-ykdvea::Fan"]["state"] is True
+
+
+@pytest.mark.asyncio
+async def test_switch_toggle_returns_recent_events_for_immediate_ui_refresh(tmp_path, monkeypatch):
+    app, _ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    saiWebRoutes._switch_status_cache_payload = None
+    saiWebRoutes._switch_status_cache_until = 0.0
+
+    class _Ctrl:
+        switch_id = "desk-hub"
+        location = "OfficeDesk"
+
+        def __init__(self):
+            self.last_state = {"Fan": False}
+            self.last_set_time = {"Fan": 0.0}
+
+        def get_switch_names(self):
+            return ["Fan"]
+
+        def get_state(self, label):
+            return bool(self.last_state[label])
+
+        def set_state(self, label, on, force=False):
+            self.last_state[label] = bool(on)
+            return True
+
+        def _switch_key(self, label):
+            return f"S1-ykdvea::{label}"
+
+        def get_auto_off_status(self, label):
+            return {
+                "timer_seconds": 0,
+                "timer_enabled": False,
+                "timer_deadline_epoch": None,
+                "timer_remaining_s": 0,
+            }
+
+    saiWebRoutes.switch_controllers = {"desk-hub": _Ctrl()}
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_switch_state", lambda _switch_key: "Off")
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_last_switch_events",
+        lambda *_a, **_k: [("On", "2026-03-31 11:30:03", "ui")],
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"referer": "http://test/"},
+    ) as client:
+        res = await client.post("/switch/toggle?switch_name=Fan&switch_id=desk-hub")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["state"] is True
+    assert body["events"] == ["On 2026-03-31 11:30:03 (manual)"]
+    assert body["time"] == ""
+
+
+@pytest.mark.asyncio
+async def test_advanced_automations_list_filters_to_requested_switch_id(tmp_path, monkeypatch):
+    app, _ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+
+    class _FakeAutomationManager:
+        def __init__(self, _base_dir):
+            pass
+
+        def load(self, _switch_id):
+            return {
+                "Advanced": {
+                    "desk-fan-rule": {
+                        "enabled": True,
+                        "script_json": (
+                            '{"name":"Desk Fan","actions":[{"switch_key":"desk-hub::S1-desk"}]}'
+                        ),
+                    },
+                    "grow-rule": {
+                        "enabled": True,
+                        "script_json": (
+                            '{"name":"Grow Rack","actions":[{"switch_key":"grow-hub::S1-grow"}]}'
+                        ),
+                    },
+                    "legacy-local-rule": {
+                        "enabled": False,
+                        "script_json": (
+                            '{"name":"Legacy Local","actions":[{"switch_key":"Fan"}]}'
+                        ),
+                    },
+                }
+            }
+
+    monkeypatch.setattr("saiAutomationManager.AutomationManager", _FakeAutomationManager)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/advanced/automations?switch_id=desk-hub")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["switch_id"] == "desk-hub"
+    assert [item["rule_id"] for item in body["items"]] == ["desk-fan-rule", "legacy-local-rule"]

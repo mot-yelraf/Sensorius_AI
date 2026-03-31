@@ -273,6 +273,105 @@ class SwitchController:
             printDM(f"get_last_events_from_db error({label}): {e}", location=MODULE)
             return []
 
+    def _recover_advanced_revert_from_history(self, info: dict, current_state: bool) -> bool:
+        """Best-effort recovery of a previous_state revert after process restart."""
+        if str(info.get("revert_action", "") or "").strip().lower() != "previous_state":
+            return False
+
+        target_label = str(info.get("target_label", "") or "").strip()
+        if not target_label:
+            return False
+
+        desired = bool(info.get("desired", True))
+        authoritative_current = bool(current_state)
+        if bool(getattr(self, "is_remote", False)):
+            try:
+                ing = getattr(self, "mqtt_ingest", None)
+                if ing is None:
+                    from saiMQTTIngest import get_current_ingest
+                    ing = get_current_ingest()
+                sid = str(getattr(self, "switch_id", "") or "").strip()
+                channel_id = str((getattr(self, "channel_id_for_label", {}) or {}).get(target_label, "") or "").strip()
+                if ing is not None and sid:
+                    pending_state = None
+                    pending_getter = getattr(self, "_pending_state_from_ingest", None)
+                    if callable(pending_getter):
+                        pending_state = pending_getter(ing, sid, target_label, channel_id)
+                    if pending_state is not None:
+                        authoritative_current = bool(pending_state)
+                    else:
+                        ch_map = (getattr(ing, "_switch_state_cache", {}) or {}).get(sid, {}) or {}
+                        raw = None
+                        if channel_id:
+                            raw = ch_map.get(channel_id)
+                            if raw is None:
+                                raw = ch_map.get(channel_id.lower())
+                        if raw is None:
+                            raw = ch_map.get(target_label)
+                        if raw is None:
+                            raw = ch_map.get(str(target_label).lower())
+                        if raw is not None:
+                            authoritative_current = str(raw).strip().lower() in ("on", "true", "1")
+            except Exception:
+                authoritative_current = bool(current_state)
+
+        if authoritative_current != desired:
+            return False
+
+        rule_name = str(info.get("rule_name", "") or "").strip()
+
+        def _normalized_rule_source(source: object) -> str:
+            raw = str(source or "").strip()
+            low = raw.lower()
+            if low.startswith("mqtt-auto:"):
+                raw = raw.split(":", 1)[1].strip()
+            elif low.startswith("auto/rule:"):
+                raw = raw.split(":", 1)[1].strip()
+            elif low in {"mqtt-auto", "auto/rule"}:
+                raw = ""
+            if raw.lower().endswith("/mqtt"):
+                raw = raw[:-5].strip()
+            return raw.strip().lower()
+
+        try:
+            rows = self.data_logger.get_last_switch_events(
+                self._switch_key(target_label),
+                limit=6,
+                include_source=True,
+            )
+        except Exception as e:
+            if DEBUG:
+                printDM(f"[advanced] history recovery query failed: {e}", location=MODULE)
+            return False
+
+        if len(rows) < 2:
+            return False
+
+        latest_state, _latest_ts, latest_source = rows[0]
+        latest_is_on = str(latest_state).strip().lower() == "on"
+        if latest_is_on != authoritative_current:
+            return False
+
+        expected_source = rule_name.lower()
+        actual_source = _normalized_rule_source(latest_source)
+        if expected_source:
+            if actual_source != expected_source:
+                return False
+        elif actual_source:
+            return False
+
+        revert_to = None
+        for prior_state, _prior_ts, _prior_source in rows[1:]:
+            prior_is_on = str(prior_state).strip().lower() == "on"
+            if prior_is_on != latest_is_on:
+                revert_to = prior_is_on
+                break
+        if revert_to is None:
+            return False
+
+        event_source = f"auto/rule:{rule_name}" if rule_name else "auto/rule"
+        return bool(self.set_state(target_label, revert_to, force=True, event_source=event_source))
+
     @property
     def switches(self) -> list[str]:
         try:
@@ -1348,6 +1447,12 @@ class SwitchController:
                 self._advanced_revert_cooldown.discard(action_key)
                 if active:
                     _revert_active_action(action_key, active)
+                elif self._recover_advanced_revert_from_history(info, current_state):
+                    if DEBUG and str(target_label).strip().lower() == "fan":
+                        printDM(
+                            f"[advanced] fan rule {info['rule_id']} recovered previous_state from history",
+                            location=MODULE,
+                        )
                 if DEBUG and str(target_label).strip().lower() == "fan":
                     printDM(
                         f"[advanced] fan rule {info['rule_id']} no-op: rule_ok={rule_ok} group_results={info.get('group_results')}",

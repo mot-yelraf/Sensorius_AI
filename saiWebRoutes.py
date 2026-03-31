@@ -8743,6 +8743,43 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             if isinstance(value, str):
                 return value.strip().lower() not in {"0", "false", "off", "no", ""}
             return bool(value)
+        def _rule_targets_switch(payload: object, requested_switch_id: str) -> bool:
+            wanted_sid = str(requested_switch_id or "").strip().lower()
+            if not wanted_sid:
+                return False
+            if not isinstance(payload, dict):
+                return False
+            script_json = (
+                str(payload.get("script_json", ""))
+                or str(payload.get("script", ""))
+                or str(payload.get("json", ""))
+                or ""
+            )
+            if not script_json:
+                return False
+            try:
+                parsed = json.loads(script_json)
+            except Exception:
+                return False
+            if not isinstance(parsed, dict):
+                return False
+            actions = parsed.get("actions") or []
+            if isinstance(actions, dict):
+                actions = [actions]
+            for action in actions:
+                if not isinstance(action, dict):
+                    continue
+                switch_key = str(action.get("switch_key", "") or "").strip()
+                if not switch_key:
+                    continue
+                if "::" in switch_key:
+                    sid_part, _suffix = switch_key.split("::", 1)
+                    if str(sid_part or "").strip().lower() == wanted_sid:
+                        return True
+                    continue
+                # Backward compatibility for older rules that stored only a label/channel suffix.
+                return True
+            return False
         try:
             mgr = AutomationManager("switch_settings")
             data = mgr.load(switch_id) or {}
@@ -8759,6 +8796,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             for rule_id in sorted(adv.keys()):
                 payload = adv[rule_id]
                 if isinstance(payload, dict):
+                    if not _rule_targets_switch(payload, switch_id):
+                        continue
                     enabled = _parse_enabled(payload.get("enabled", True))
                     script_json = (
                         str(payload.get("script_json", ""))
@@ -8767,8 +8806,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         or ""
                     )
                 else:
-                    enabled = True
-                    script_json = str(payload or "")
+                    continue
                 items.append({"rule_id": rule_id, "enabled": enabled, "script_json": script_json})
 
             return {"switch_id": switch_id, "items": items}
@@ -9469,7 +9507,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     if detail.lower().endswith("/mqtt"):
                         detail = detail[:-5].strip()
                     return f"auto - {detail}" if detail else "auto"
-                if any(token in src for token in ("manual", "/ui", "ui/", "user")):
+                if src == "ui" or any(token in src for token in ("manual", "/ui", "ui/", "user")):
                     return "manual"
                 if any(token in src for token in ("auto", "rule", "timer", "automation", "schedule")):
                     return "auto"
@@ -10039,14 +10077,60 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             remote = _looks_remote(ctrl)
             ok = False
 
+            def _event_origin_tag(source: object) -> str:
+                raw = str(source or "").strip()
+                src = raw.lower()
+                if not src:
+                    return ""
+                if src.startswith("mqtt-auto:"):
+                    detail = raw.split(":", 1)[1].strip()
+                    return f"auto - {detail}" if detail else "auto"
+                if src.startswith("mqtt-manual"):
+                    return "manual"
+                if src.startswith("auto/rule:"):
+                    detail = raw.split(":", 1)[1].strip()
+                    if detail.lower().endswith("/mqtt"):
+                        detail = detail[:-5].strip()
+                    return f"auto - {detail}" if detail else "auto"
+                if src == "ui" or any(token in src for token in ("manual", "/ui", "ui/", "user")):
+                    return "manual"
+                if any(token in src for token in ("auto", "rule", "timer", "automation", "schedule")):
+                    return "auto"
+                return ""
+
+            def _recent_events_payload(limit: int = 5) -> list[str]:
+                if remote or not sid:
+                    return []
+                try:
+                    db_key = ctrl._switch_key(matched_label)
+                except Exception:
+                    db_key = f"{sid}::{matched_label}"
+                sensor_lineage = f"Switch_{sid}" if sid else None
+                rows = data_logger.get_last_switch_events(
+                    db_key,
+                    sensor_id=sensor_lineage,
+                    limit=limit,
+                    include_source=True,
+                )
+                events: list[str] = []
+                for state_str, ts_text, source in rows:
+                    label_text = "On" if str(state_str).lower() in ("on", "true", "1") else "Off"
+                    origin_tag = _event_origin_tag(source)
+                    suffix = f" ({origin_tag})" if origin_tag else ""
+                    events.append(f"{label_text} {ts_text}{suffix}")
+                return events
+
             def _timer_response_payload(state_value: bool, ts_value, *, note: str | None = None) -> dict:
                 payload = {
                     "state": bool(state_value),
-                    "time": ts_value,
+                    "time": ts_value if isinstance(ts_value, str) else "",
                     "switch_id": sid or "",
                     "label": matched_label,
                     "ui_key": f"{sid}::{matched_label}" if sid else "",
                 }
+                events = _recent_events_payload()
+                if events:
+                    payload["events"] = events
                 try:
                     getter = getattr(ctrl, "get_auto_off_status", None)
                     if callable(getter):
