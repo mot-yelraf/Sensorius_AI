@@ -26,7 +26,7 @@ except Exception:
 
 MODULE = "saiDailySummary"
 DEBUG = debug_enabled(MODULE)
-DEFAULT_FORECAST_DAYS = 14
+DEFAULT_FORECAST_DAYS = 29
 
 
 def _moon_phase_name(phase_val: float) -> str:

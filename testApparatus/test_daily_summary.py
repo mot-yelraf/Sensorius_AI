@@ -150,11 +150,11 @@ def test_ensure_summaries_for_window_crosses_month_boundary(monkeypatch):
         data_logger=logger,
     )
 
-    writes = service.ensure_summaries_for_window(date(2026, 3, 25), days=14, refresh_start=True)
+    writes = service.ensure_summaries_for_window(date(2026, 3, 25), days=29, refresh_start=True)
 
-    assert writes == 14
+    assert writes == 29
     assert "2026-03-31" in logger.saved
     assert "2026-04-01" in logger.saved
-    assert "2026-04-07" in logger.saved
+    assert "2026-04-22" in logger.saved
     assert calls[0] == "2026-03-25"
-    assert calls[-1] == "2026-04-07"
+    assert calls[-1] == "2026-04-22"

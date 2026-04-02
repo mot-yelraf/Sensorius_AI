@@ -121,7 +121,7 @@ async def test_biodynamic_calendar_api_default_month_uses_biodynamic_local_time(
             self.settings = settings
             self.data_logger = data_logger
 
-        def ensure_summaries_for_window(self, start_date, *, days=14, refresh_start=True):
+        def ensure_summaries_for_window(self, start_date, *, days=29, refresh_start=True):
             window_calls.append((start_date.isoformat(), days, refresh_start))
             return 0
 
@@ -144,7 +144,7 @@ async def test_biodynamic_calendar_api_default_month_uses_biodynamic_local_time(
 
     assert res.status_code == 200
     assert captured["anchor"].isoformat() == "2026-03-01"
-    assert window_calls == [("2026-03-22", 14, True)]
+    assert window_calls == [("2026-03-22", 29, True)]
 
 
 @pytest.mark.asyncio
@@ -172,7 +172,7 @@ async def test_biodynamic_calendar_api_includes_spillover_day_summaries(monkeypa
             self.settings = settings
             self.data_logger = data_logger
 
-        def ensure_summaries_for_window(self, start_date, *, days=14, refresh_start=True):
+        def ensure_summaries_for_window(self, start_date, *, days=29, refresh_start=True):
             return 0
 
     monkeypatch.setattr(saiWebRoutes, "get_biodynamic_payload", _fake_payload)
