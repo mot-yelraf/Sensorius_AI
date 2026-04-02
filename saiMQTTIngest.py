@@ -320,6 +320,7 @@ class saiMQTTIngest:
             self.registered_topics.update(prefixed_topics)
         self.onboarding_event_handler = None
         self._pending_set: dict[tuple[str, str], dict[str, object]] = {}
+        self._recent_switch_origin: dict[tuple[str, str], dict[str, object]] = {}
         self._loop = None  # set in start()
         
         try:
@@ -3830,6 +3831,21 @@ class saiMQTTIngest:
                     return dict(meta or {})
                 if ch and meta_channel == ch:
                     return dict(meta or {})
+            now = time.time()
+            for key, meta in list((self._recent_switch_origin or {}).items()):
+                expires_at = float((meta or {}).get("expires_at") or 0.0)
+                if expires_at and expires_at < now:
+                    self._recent_switch_origin.pop(key, None)
+                    continue
+                key_sid = str((key or ("", ""))[0] or "").strip()
+                key_label = str((key or ("", ""))[1] or "").strip().lower()
+                if key_sid != sid:
+                    continue
+                meta_channel = str((meta or {}).get("channel_id") or "").strip().lower()
+                if lbl and key_label == lbl:
+                    return dict(meta or {})
+                if ch and meta_channel == ch:
+                    return dict(meta or {})
             return None
         except Exception:
             return None
@@ -3935,7 +3951,12 @@ class saiMQTTIngest:
                     keys_to_remove.append(key)
                     continue
             for key in keys_to_remove:
-                self._pending_set.pop(key, None)
+                meta = self._pending_set.pop(key, None)
+                if isinstance(meta, dict):
+                    self._recent_switch_origin[key] = {
+                        **dict(meta),
+                        "expires_at": time.time() + 8.0,
+                    }
         except Exception:
             pass
 
@@ -4284,7 +4305,11 @@ class saiMQTTIngest:
                     channel_id=channel_id,
                     is_on=is_on,
                     ts_iso=ts_iso,
-                    source=f"{source}-state",
+                    source=(
+                        source
+                        if str(source or "").strip().lower().startswith(("mqtt-auto:", "mqtt-manual"))
+                        else f"{source}-state"
+                    ),
                     sensor_lineage=f"Switch_{switch_id}",
                     force_write=force_write,
                 )

@@ -48,19 +48,20 @@ logger = logging.getLogger("saiUtils")
 logger.addHandler(logging.NullHandler())
 logger.setLevel(logging.NOTSET)
 _DOTENV_FILE_VALUES: dict[str, str] = {}
+_DOTENV_PATH = Path(__file__).resolve().parent / ".env"
+_DOTENV_MTIME_NS: int | None = None
 
 
 def _load_startup_dotenv() -> None:
     """
     Load a project-root .env (if present) before any env-driven config is read.
     """
-    global _DOTENV_FILE_VALUES
+    global _DOTENV_FILE_VALUES, _DOTENV_MTIME_NS
     _DOTENV_FILE_VALUES = {}
     if load_dotenv is None:
         return
 
-    base_dir = Path(__file__).resolve().parent
-    dotenv_path = base_dir / ".env"
+    dotenv_path = _DOTENV_PATH
     if dotenv_path.exists():
         if dotenv_values is not None:
             try:
@@ -73,12 +74,33 @@ def _load_startup_dotenv() -> None:
             except Exception:
                 _DOTENV_FILE_VALUES = {}
         load_dotenv(dotenv_path=dotenv_path, override=False)
+        try:
+            _DOTENV_MTIME_NS = dotenv_path.stat().st_mtime_ns
+        except Exception:
+            _DOTENV_MTIME_NS = None
     else:
         # Fall back to default dotenv discovery behavior.
         load_dotenv(override=False)
+        _DOTENV_MTIME_NS = None
 
 
 _load_startup_dotenv()
+
+
+def _refresh_dotenv_cache_if_needed() -> None:
+    """Refresh cached .env values when the project .env file changes on disk."""
+    global _DOTENV_MTIME_NS
+    try:
+        if not _DOTENV_PATH.exists():
+            if _DOTENV_MTIME_NS is not None:
+                _DOTENV_MTIME_NS = None
+                _load_startup_dotenv()
+            return
+        current_mtime_ns = _DOTENV_PATH.stat().st_mtime_ns
+        if _DOTENV_MTIME_NS != current_mtime_ns:
+            _load_startup_dotenv()
+    except Exception:
+        pass
 
 
 def _strip_env_value(raw: str) -> str:
@@ -228,6 +250,7 @@ def _get_env_setting(key: str, default=None, *, prefer_dotenv: bool = False):
     Read env settings with optional .env-file precedence.
     """
     if prefer_dotenv:
+        _refresh_dotenv_cache_if_needed()
         file_val = _DOTENV_FILE_VALUES.get(key)
         if file_val is not None and str(file_val).strip() != "":
             return str(file_val)
@@ -252,6 +275,22 @@ def _load_debug_modules() -> set[str]:
 
 
 DEBUG_MODULES = _load_debug_modules()
+
+
+class _DynamicDebugFlag:
+    """Bool-like debug flag that reflects the latest saved debug-module selection."""
+
+    __slots__ = ("module_name",)
+
+    def __init__(self, module_name: str):
+        self.module_name = str(module_name or "").strip()
+
+    def __bool__(self) -> bool:
+        modules = _load_debug_modules()
+        return "ALL" in modules or self.module_name in modules
+
+    def __repr__(self) -> str:
+        return f"_DynamicDebugFlag(module_name={self.module_name!r}, enabled={bool(self)})"
 
 
 def configure_logging(
@@ -344,7 +383,7 @@ async def supervised_task(name, coro_func, supervisor):
             supervisor.feedthedogs(name, error=True)
 
 def debug_enabled(module_name: str) -> bool:
-    return "ALL" in DEBUG_MODULES or module_name in DEBUG_MODULES
+    return _DynamicDebugFlag(module_name)
 
 
 def printDM(msg, location="", level: str = "debug"):

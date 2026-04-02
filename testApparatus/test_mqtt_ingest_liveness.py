@@ -976,6 +976,47 @@ def test_confirmed_switch_state_clears_pending_set(monkeypatch):
     ingest.handle_nodus_switch_topic("nodus/S1-test123/state", "ON")
 
     assert ingest._pending_set == {}
+    assert ingest._recent_switch_origin[("switch-test123", "Fan")]["event_origin"] == "manual"
+
+
+def test_confirmed_nodus_event_keeps_origin_after_state_clears_pending(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.data_logger.switch_identities.append(
+        {
+            "switch_id": "switch-test123",
+            "switch_key": "S1-test123::Fan",
+            "channel_id": "S1-test123",
+            "label": "Fan",
+            "location": "TestLab",
+        }
+    )
+    ingest._pending_set[("switch-test123", "Fan")] = {
+        "ts": time.time(),
+        "state": False,
+        "channel_id": "S1-test123",
+        "event_origin": "auto",
+        "event_label": "Desk Cooldown",
+    }
+    ingest.nodus_switch_topic_map["nodus/S1-test123/state"] = {
+        "switch_id": "switch-test123",
+        "channel_id": "S1-test123",
+        "label": "Fan",
+        "kind": "state",
+    }
+    ingest.nodus_switch_topic_map["nodus/S1-test123/event"] = {
+        "switch_id": "switch-test123",
+        "channel_id": "S1-test123",
+        "label": "Fan",
+        "kind": "event",
+    }
+
+    ingest.handle_nodus_switch_topic("nodus/S1-test123/state", "OFF")
+    ingest.handle_nodus_switch_topic(
+        "nodus/S1-test123/event",
+        json.dumps({"event": {"SWITCH_1": "off"}, "source": "mqtt"}),
+    )
+
+    assert ingest.data_logger.switch_events[-1]["source"] == "mqtt-auto:Desk Cooldown"
 
 
 def test_retained_stale_heartbeat_sets_unknown(monkeypatch):

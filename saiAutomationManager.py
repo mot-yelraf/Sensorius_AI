@@ -253,12 +253,14 @@ class AutomationManager:
 
         try:
             index = self._cached_payload(hostname).get("switch_key_index") or {}
-            for rule_info in index.get(key, []):
-                return {
-                    "found": True,
-                    "enabled": bool(rule_info.get("enabled_outer", False)),
-                    "rule_id": rule_info.get("rule_id"),
-                }
+            key_aliases = self._expand_switch_key_aliases(hostname, key)
+            for alias in key_aliases:
+                for rule_info in index.get(alias, []):
+                    return {
+                        "found": True,
+                        "enabled": bool(rule_info.get("enabled_outer", False)),
+                        "rule_id": rule_info.get("rule_id"),
+                    }
 
             return {"found": False, "enabled": False, "rule_id": None}
         except Exception:
@@ -410,6 +412,11 @@ class AutomationManager:
         if not sid or not suffix:
             return aliases
 
+        # Keep lookups tolerant to case drift between persisted settings,
+        # runtime controller IDs, and user-facing headers.
+        sid_variants = {sid, sid.lower(), sid.upper()}
+        aliases.update(f"{sid_variant}::{suffix}" for sid_variant in sid_variants if sid_variant)
+
         try:
             from saiSwitchSettingsManager import SwitchSettingsManager
 
@@ -424,9 +431,12 @@ class AutomationManager:
                 if not label:
                     continue
                 if suffix.lower() == label.lower() or (channel_id and suffix.lower() == channel_id.lower()):
-                    aliases.add(f"{sid}::{label}")
-                    if channel_id:
-                        aliases.add(f"{sid}::{channel_id}")
+                    for sid_variant in sid_variants:
+                        if not sid_variant:
+                            continue
+                        aliases.add(f"{sid_variant}::{label}")
+                        if channel_id:
+                            aliases.add(f"{sid_variant}::{channel_id}")
                     break
         except Exception:
             pass

@@ -203,3 +203,42 @@ def test_automation_manager_refreshes_cache_after_external_file_edit(tmp_path: P
 
     assert refreshed["found"] is True
     assert refreshed["enabled_any"] is False
+
+
+def test_automation_manager_rule_lookup_expands_case_and_channel_aliases(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    mgr = AutomationManager(base_dir=str(tmp_path))
+    host = "switch-x943fm"
+
+    mgr.upsert_advanced_rule(
+        host,
+        "pump_on",
+        enabled=True,
+        script={
+            "enabled": True,
+            "actions": [{"switch_key": "switch-x943fm::S2-x943fm", "set": True}],
+        },
+    )
+
+    class _FakeSwitchSettingsManager:
+        def __init__(self, _base_dir: str):
+            pass
+
+        def load(self, _hostname: str):
+            return {
+                "Switch": {
+                    "SWITCH_1_LABEL": "Fan",
+                    "SWITCH_1_CHANNEL_ID": "S1-x943fm",
+                    "SWITCH_2_LABEL": "Pump",
+                    "SWITCH_2_CHANNEL_ID": "S2-x943fm",
+                }
+            }
+
+    monkeypatch.setattr("saiSwitchSettingsManager.SwitchSettingsManager", _FakeSwitchSettingsManager)
+
+    state = mgr.get_advanced_state_for_switch_key("SWITCH-X943FM", "SWITCH-X943FM::Pump")
+    rule = mgr.get_advanced_rule_for_switch_key("SWITCH-X943FM", "SWITCH-X943FM::Pump")
+
+    assert state["found"] is True
+    assert state["enabled_any"] is True
+    assert state["rule_ids"] == ["pump_on"]
+    assert rule == {"found": True, "enabled": True, "rule_id": "pump_on"}

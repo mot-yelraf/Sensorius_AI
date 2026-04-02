@@ -76,6 +76,11 @@ class TaskSupervisor:
             self._started = True
             self._shutdown = False
             self._stop_event.clear()
+            if DEBUG:
+                printDM(
+                    f"Supervisor starting {len(self.tasks)} task(s): {[task['name'] for task in self.tasks]}",
+                    location=f"{__name__}.start",
+                )
             self._runner_tasks = {
                 asyncio.create_task(
                     self.runner(task["func"], task["args"], task["kwargs"], task["name"]),

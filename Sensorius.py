@@ -12,6 +12,7 @@ import importlib.util
 from threading import Thread
 import socket
 from datetime import datetime
+from __init__ import __version__
 from saiUtils import printDM, debug_enabled, configure_logging
 from saiSensor import SensorController
 from saiMQTTClient import saiMQTTClient, set_mqtt_client, get_all_mqtt_clients
@@ -364,7 +365,7 @@ async def ensure_mqtt_ready(client, retries=3):
 
 # Sensorius main
 async def main():
-    printDM("Sensorius startup...", location=f"{MODULE}:main")
+    printDM(f"Sensorius startup... version={__version__}", location=f"{MODULE}:main")
 
     supervisor = TaskSupervisor()
     gc_mgr = GCManager(interval_sec=31, supervisor=supervisor)
@@ -576,6 +577,15 @@ async def main():
     seed_switch_state_history_once(data_logger, switch_controllers)
     for ctrl in (switch_controllers.values() if isinstance(switch_controllers, dict) else []):
         await asyncio.sleep(1)
+        if DEBUG:
+            try:
+                printDM(
+                    f"Queueing switch monitor: {ctrl.switch_id} remote={int(bool(getattr(ctrl, 'is_remote', False)))} "
+                    f"labels={list(getattr(ctrl, 'get_switch_names', lambda: [])() or [])}",
+                    location=f"{MODULE}:main",
+                )
+            except Exception:
+                pass
         supervisor.add(ctrl.run_controladora_monitor, ctrl.sensor, name=f"{ctrl.switch_id} Controladora Monitor")
         if DEBUG:
             printDM(f"switch.switch_id {ctrl.switch_id}.", location=f"{MODULE}:main")

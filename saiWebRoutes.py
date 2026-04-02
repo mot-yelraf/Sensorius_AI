@@ -798,6 +798,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         "saiMQTTIngest",
         "saiHtml",
         "saiSwitch",
+        "saiTaskSupervisor",
+        "saiAutomationManager",
+        "saiSwitchFactory",
+        "saiDataLogger",
         "saiWebRoutes",
         "saiAddDevice",
         "saiSettings",
@@ -859,6 +863,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 out_lines.append(f"{key}={val}")
 
         _ENV_PATH.write_text("\n".join(out_lines).rstrip() + "\n", encoding="utf-8")
+        for key, val in updates.items():
+            os.environ[str(key)] = str(val)
         try:
             os.chmod(_ENV_PATH, 0o644)
         except Exception:
@@ -1489,12 +1495,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         expected_gauge_map = {}
         expected_display_style_map = {}
         for sid in all_values:
-            metrics = mqtt_ingest.expected_gauge_map.get(sid)
+            try:
+                metrics = sensor_mgr.get_display_metrics(sid)
+            except Exception:
+                metrics = []
             if not metrics:
-                try:
-                    metrics = sensor_mgr.get_display_metrics(sid)
-                except Exception:
-                    metrics = []
+                metrics = mqtt_ingest.expected_gauge_map.get(sid)
             if not metrics:
                 # If display metrics are blank, prefer per-sensor stored metrics
                 # rather than rendering every gauge_config metric.

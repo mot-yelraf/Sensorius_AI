@@ -1899,6 +1899,95 @@ async def test_dashboard_display_style_prefers_sensor_settings_over_global_defau
 
 
 @pytest.mark.asyncio
+async def test_dashboard_display_metrics_prefer_sensor_settings_over_ingest_expected_map(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "apvpd-test123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "apvpd",
+                "SENSOR_ID": "apvpd-test123",
+                "LOCATION": "Grow Tent",
+            },
+            "Display": {
+                "METRIC_1": "Ambient VPD",
+                "METRIC_2": "Temperature",
+                "METRIC_3": "Rel-Humidity",
+                "METRIC_4": "Plant VPD",
+                "METRIC_5": "Plant Temperature",
+                "METRIC_6": "Plant Rel-Humidity",
+            },
+        },
+    )
+
+    ingest.expected_gauge_map["apvpd-test123"] = [
+        "Temperature",
+        "Temperature_F",
+        "Rel-Humidity",
+        "Ambient VPD",
+        "Plant Temperature",
+        "Plant Temperature_F",
+    ]
+
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["apvpd-test123"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso)
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_latest_values_and_timestamps",
+        lambda ids: (
+            {
+                sid: {
+                    "Temperature": 25.45,
+                    "Temperature_F": 77.8,
+                    "Rel-Humidity": 30.49,
+                    "Ambient VPD": 2.262,
+                    "Plant Temperature": 25.21,
+                    "Plant Temperature_F": 77.4,
+                    "Plant Rel-Humidity": 24.75,
+                    "Plant VPD": 2.414,
+                }
+                for sid in ids
+            },
+            {sid: now_iso for sid in ids},
+        ),
+    )
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_available_metrics",
+        lambda sid: [
+            "Temperature",
+            "Temperature_F",
+            "Rel-Humidity",
+            "Ambient VPD",
+            "Plant Temperature",
+            "Plant Temperature_F",
+            "Plant Rel-Humidity",
+            "Plant VPD",
+        ],
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {"apvpd-test123": {}})
+    ingest.mqtt_clients = []
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/", params={"json_only": "true"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["expected_gauge_map"]["apvpd-test123"] == [
+        "Ambient VPD",
+        "Temperature",
+        "Rel-Humidity",
+        "Plant VPD",
+        "Plant Temperature",
+        "Plant Rel-Humidity",
+    ]
+
+@pytest.mark.asyncio
 async def test_remove_device_list_merges_settings_db_and_ingest_ids(tmp_path, monkeypatch):
     app, ingest, system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))

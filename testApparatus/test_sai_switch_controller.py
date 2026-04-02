@@ -472,6 +472,39 @@ def test_advanced_previous_state_reverts_when_rule_stops_matching():
     assert calls == [("Fan", True, False), ("Fan", False, True)]
 
 
+def test_advanced_rule_matches_switch_id_case_insensitively():
+    ctrl = _make_controller()
+    ctrl.switch_id = "SWITCH-X943FM"
+    ctrl.channel_id_for_label = {"Pump": "S2-x943fm"}
+    ctrl.last_state = {"Pump": False}
+    calls = []
+
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "rule1": {
+                "enabled": True,
+                "script_json": {
+                    "enabled": True,
+                    "conditions": [{"type": "time", "start": "00:00", "end": "24:00"}],
+                    "actions": [{"switch_key": "switch-x943fm::S2-x943fm", "set": True, "revert_action": "previous_state", "delay_s": 0}],
+                },
+            }
+        }
+    }
+
+    def _fake_set_state(label, desired, force=False, event_source="manual/ui"):
+        calls.append((label, desired, force, event_source))
+        ctrl.last_state[label] = desired
+        return True
+
+    ctrl.set_state = _fake_set_state
+    ctrl.get_state = lambda label: ctrl.last_state[label]
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+
+    assert calls == [("Pump", True, False, "auto/rule")]
+
+
 def test_advanced_previous_state_recovers_revert_after_restart_from_history():
     ctrl = _make_controller()
     state = {"Fan": True}
@@ -554,6 +587,247 @@ def test_advanced_previous_state_recovery_prefers_remote_ingest_current_state():
     SwitchController._evaluate_and_apply_advanced(ctrl, {})
 
     assert calls == [("Fan", False, True, "auto/rule:TOD")]
+
+
+def test_advanced_previous_state_recovers_when_latest_row_is_not_rule_specific():
+    ctrl = _make_controller()
+    ctrl.is_remote = True
+    ctrl.switch_id = "sw1"
+    ctrl.channel_id_for_label = {"Pump": "CH2"}
+    ctrl.mqtt_ingest = types.SimpleNamespace(_switch_state_cache={"sw1": {"CH2": "on"}})
+    state = {"Pump": False}
+    calls = []
+
+    ctrl._advanced_active_actions = {}
+    ctrl._advanced_delay_due = {}
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "rule1": {
+                "enabled": True,
+                "script_json": {
+                    "name": "Pump On",
+                    "enabled": True,
+                    "conditions": [{"type": "time", "start": "00:00", "end": "00:01"}],
+                    "actions": [{"switch_key": "sw1::CH2", "set": True, "revert_action": "previous_state", "delay_s": 0}],
+                },
+            }
+        }
+    }
+    ctrl.data_logger = types.SimpleNamespace(
+        get_last_switch_events=lambda *_a, **_k: [
+            ("On", "2026-04-01 12:10:05", "mqtt-nodus"),
+            ("On", "2026-04-01 07:00:21", "mqtt-auto:Pump On"),
+            ("Off", "2026-03-31 12:10:31", "mqtt-auto:Pump On"),
+        ]
+    )
+
+    def _fake_set_state(label, desired, force=False, event_source="manual/ui"):
+        calls.append((label, desired, force, event_source))
+        state[label] = desired
+        return True
+
+    ctrl.set_state = _fake_set_state
+    ctrl.get_state = lambda label: state[label]
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+
+    assert calls == [("Pump", False, True, "auto/rule:Pump On")]
+
+
+def test_advanced_previous_state_restores_from_persisted_runtime_ownership():
+    ctrl = _make_controller()
+    ctrl.switch_id = "switch-x943fm"
+    ctrl.last_state = {"Pump": True}
+    ctrl.channel_id_for_label = {"Pump": "S2-x943fm"}
+    ctrl.settings = {
+        "Runtime": {
+            "ADVANCED_ACTIVE_ACTIONS_JSON": (
+                '[{"activated_at":123.0,"desired":true,"revert_action":"previous_state",'
+                '"revert_to":false,"rule_id":"auto-cuqitkkg4pi","rule_name":"Pump On",'
+                '"switch_key":"switch-x943fm::S2-x943fm","target_label":"Pump"}]'
+            )
+        }
+    }
+    calls = []
+
+    SwitchController._restore_advanced_runtime_state(ctrl)
+    assert ("auto-cuqitkkg4pi", "Pump", "switch-x943fm::S2-x943fm", True) in ctrl._advanced_active_actions
+
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "auto-cuqitkkg4pi": {
+                "enabled": True,
+                "script_json": {
+                    "name": "Pump On",
+                    "enabled": True,
+                    "conditions": [{"type": "time", "start": "00:00", "end": "00:01"}],
+                    "actions": [{"switch_key": "switch-x943fm::S2-x943fm", "set": True, "revert_action": "previous_state", "delay_s": 0}],
+                },
+            }
+        }
+    }
+    ctrl.data_logger = types.SimpleNamespace(
+        get_last_switch_events=lambda *_a, **_k: [
+            ("On", "2026-03-31 07:00:41", "mqtt"),
+            ("Off", "2026-03-30 12:10:31", "mqtt"),
+        ]
+    )
+
+    def _fake_set_state(label, desired, force=False, event_source="manual/ui"):
+        calls.append((label, desired, force, event_source))
+        ctrl.last_state[label] = desired
+        return True
+
+    ctrl.set_state = _fake_set_state
+    ctrl.get_state = lambda label: ctrl.last_state[label]
+    ctrl._persist_advanced_runtime_state = lambda: None
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+
+    assert calls == [("Pump", False, True, "auto/rule:Pump On")]
+    assert ctrl._advanced_active_actions == {}
+
+
+def test_advanced_runtime_ownership_persists_only_previous_state_actions(monkeypatch: pytest.MonkeyPatch):
+    saved = []
+
+    class FakeMgr:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def set_setting(self, switch_id, dotted_key, value):
+            saved.append((switch_id, dotted_key, value))
+
+    import saiSwitchSettingsManager
+
+    monkeypatch.setattr(saiSwitchSettingsManager, "SwitchSettingsManager", FakeMgr)
+
+    ctrl = _make_controller()
+    ctrl.switch_id = "sw1"
+    ctrl._advanced_active_actions = {
+        ("rule1", "Fan", "sw1::Fan", True): {
+            "rule_id": "rule1",
+            "rule_name": "Daily Timer",
+            "target_label": "Fan",
+            "switch_key": "sw1::Fan",
+            "desired": True,
+            "revert_action": "previous_state",
+            "revert_to": False,
+            "activated_at": 123.0,
+        },
+        ("rule2", "Fan", "sw1::Fan", False): {
+            "rule_id": "rule2",
+            "rule_name": "No Persist",
+            "target_label": "Fan",
+            "switch_key": "sw1::Fan",
+            "desired": False,
+            "revert_action": "do_nothing",
+            "revert_to": True,
+            "activated_at": 124.0,
+        },
+    }
+    ctrl._advanced_active_actions_persisted_json = None
+
+    SwitchController._persist_advanced_runtime_state(ctrl)
+
+    assert saved == [
+        (
+            "sw1",
+            "Runtime.ADVANCED_ACTIVE_ACTIONS_JSON",
+            '[{"activated_at":123.0,"desired":true,"revert_action":"previous_state","revert_to":false,"rule_id":"rule1","rule_name":"Daily Timer","switch_key":"sw1::Fan","target_label":"Fan"}]',
+        )
+    ]
+
+
+def test_advanced_previous_state_bootstraps_from_time_start_transition():
+    ctrl = _make_controller()
+    ctrl.is_remote = True
+    ctrl.switch_id = "switch-x943fm"
+    ctrl.channel_id_for_label = {"Pump": "S2-x943fm"}
+    ctrl.mqtt_ingest = types.SimpleNamespace(_switch_state_cache={"switch-x943fm": {"S2-x943fm": "on"}})
+    ctrl._advanced_active_actions = {}
+    ctrl._advanced_delay_due = {}
+    state = {"Pump": True}
+    calls = []
+
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "auto-cuqitkkg4pi": {
+                "enabled": True,
+                "script_json": {
+                    "name": "Pump On",
+                    "enabled": True,
+                    "conditions": [{"type": "time", "start": "07:00", "end": "12:10"}],
+                    "actions": [{"switch_key": "switch-x943fm::S2-x943fm", "set": True, "revert_action": "previous_state", "delay_s": 0}],
+                },
+            }
+        }
+    }
+    ctrl.data_logger = types.SimpleNamespace(
+        local_tz=saiSwitch.ZoneInfo("America/Denver"),
+        get_last_switch_events=lambda *_a, **_k: [
+            ("On", "2026-03-31T07:00:41.450445-06:00", "mqtt"),
+            ("On", "2026-03-31T07:00:40.603158-06:00", "manual/ui"),
+            ("Off", "2026-03-30T12:10:31.357796-06:00", "mqtt"),
+        ],
+    )
+
+    def _fake_set_state(label, desired, force=False, event_source="manual/ui"):
+        calls.append((label, desired, force, event_source))
+        state[label] = desired
+        return True
+
+    ctrl.set_state = _fake_set_state
+    ctrl.get_state = lambda label: state[label]
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+
+    assert calls == [("Pump", False, True, "auto/rule:Pump On")]
+
+
+def test_advanced_previous_state_bootstrap_does_not_grab_manual_on_state():
+    ctrl = _make_controller()
+    ctrl.is_remote = True
+    ctrl.switch_id = "switch-x943fm"
+    ctrl.channel_id_for_label = {"Fan": "S1-x943fm"}
+    ctrl.mqtt_ingest = types.SimpleNamespace(_switch_state_cache={"switch-x943fm": {"S1-x943fm": "on"}})
+    ctrl._advanced_active_actions = {}
+    ctrl._advanced_delay_due = {}
+    state = {"Fan": True}
+    calls = []
+
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "auto-hg7mpdm267i": {
+                "enabled": True,
+                "script_json": {
+                    "name": "Daily Timer",
+                    "enabled": True,
+                    "conditions": [{"type": "time", "start": "07:00", "end": "17:00"}],
+                    "actions": [{"switch_key": "switch-x943fm::S1-x943fm", "set": True, "revert_action": "previous_state", "delay_s": 0}],
+                },
+            }
+        }
+    }
+    ctrl.data_logger = types.SimpleNamespace(
+        local_tz=saiSwitch.ZoneInfo("America/Denver"),
+        get_last_switch_events=lambda *_a, **_k: [
+            ("On", "2026-03-31T10:56:45.407794-06:00", "mqtt-nodus-state"),
+            ("Off", "2026-03-31T04:05:26.295025-06:00", "manual/ui"),
+        ],
+    )
+
+    def _fake_set_state(label, desired, force=False, event_source="manual/ui"):
+        calls.append((label, desired, force, event_source))
+        state[label] = desired
+        return True
+
+    ctrl.set_state = _fake_set_state
+    ctrl.get_state = lambda label: state[label]
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+
+    assert calls == []
 
 
 def test_advanced_action_can_do_nothing_after_delay(monkeypatch: pytest.MonkeyPatch):

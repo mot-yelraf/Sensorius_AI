@@ -37,6 +37,7 @@ except Exception:
 MODULE = "saiSwitch"
 DEBUG = debug_enabled(MODULE)
 REMOTE_SWITCH_TYPES = {"picow", "pico2w", "nodus", "remote", "mqtt"}
+_ADVANCED_ACTIVE_ACTIONS_KEY = "ADVANCED_ACTIVE_ACTIONS_JSON"
 
 
 def _switch_type_from_settings(switch_settings) -> str:
@@ -77,6 +78,7 @@ class SwitchController:
         self._advanced_delay_due = {}
         self._advanced_revert_cooldown = set()
         self._advanced_active_actions = {}
+        self._advanced_active_actions_persisted_json = None
         self._astral_location_cache = {"value": None, "expires_at": 0.0}
 
         # Settings accessor that works with either wrapper or dict
@@ -217,6 +219,8 @@ class SwitchController:
             except Exception as e:
                 printDM(f"Initial trigger evaluation error: {e}", location=MODULE)
 
+        self._restore_advanced_runtime_state()
+
         try:
             ch_count = len(self.switch.get_switch_names()) if self.is_present else 0
         except Exception:
@@ -273,8 +277,105 @@ class SwitchController:
             printDM(f"get_last_events_from_db error({label}): {e}", location=MODULE)
             return []
 
+    def _load_runtime_setting(self, key: str, default=None):
+        try:
+            if hasattr(self.settings, "get_setting"):
+                return self.settings.get_setting("Runtime", key, default)
+        except Exception:
+            pass
+        try:
+            return ((self.settings or {}).get("Runtime", {}) or {}).get(key, default)
+        except Exception:
+            return default
+
+    def _restore_advanced_runtime_state(self) -> None:
+        """Restore persisted advanced-action ownership used for previous_state revert."""
+        try:
+            raw = self._load_runtime_setting(_ADVANCED_ACTIVE_ACTIONS_KEY, "")
+            if not raw:
+                self._advanced_active_actions = {}
+                self._advanced_active_actions_persisted_json = None
+                return
+
+            payload = json.loads(str(raw))
+            if not isinstance(payload, list):
+                self._advanced_active_actions = {}
+                self._advanced_active_actions_persisted_json = None
+                return
+
+            restored: dict[tuple[str, str, str, bool], dict] = {}
+            for item in payload:
+                if not isinstance(item, dict):
+                    continue
+                rule_id = str(item.get("rule_id", "") or "").strip()
+                target_label = str(item.get("target_label", "") or "").strip()
+                switch_key = str(item.get("switch_key", "") or "").strip()
+                if not rule_id or not target_label or not switch_key:
+                    continue
+                desired = bool(item.get("desired", True))
+                restored[(rule_id, target_label, switch_key, desired)] = {
+                    "rule_id": rule_id,
+                    "rule_name": str(item.get("rule_name", "") or "").strip(),
+                    "target_label": target_label,
+                    "switch_key": switch_key,
+                    "desired": desired,
+                    "revert_action": str(item.get("revert_action", "do_nothing") or "do_nothing").strip().lower(),
+                    "revert_to": bool(item.get("revert_to", False)),
+                    "activated_at": float(item.get("activated_at", 0.0) or 0.0),
+                    "restored_at_startup": True,
+                }
+            self._advanced_active_actions = restored
+            self._advanced_active_actions_persisted_json = str(raw)
+            if DEBUG and restored:
+                printDM(
+                    f"[advanced] restored {len(restored)} persisted active action(s) for {self.switch_id}",
+                    location=MODULE,
+                )
+        except Exception as e:
+            self._advanced_active_actions = {}
+            self._advanced_active_actions_persisted_json = None
+            if DEBUG:
+                printDM(f"[advanced] restore runtime state failed: {e}", location=MODULE)
+
+    def _persist_advanced_runtime_state(self) -> None:
+        """Persist active advanced-action ownership separately from raw switch events."""
+        payload = []
+        for action_key, active in sorted((self._advanced_active_actions or {}).items()):
+            if not isinstance(active, dict):
+                continue
+            if str(active.get("revert_action", "") or "").strip().lower() != "previous_state":
+                continue
+            rule_id, target_label, switch_key, desired = action_key
+            payload.append(
+                {
+                    "rule_id": str(rule_id),
+                    "rule_name": str(active.get("rule_name", "") or "").strip(),
+                    "target_label": str(target_label),
+                    "switch_key": str(switch_key),
+                    "desired": bool(desired),
+                    "revert_action": "previous_state",
+                    "revert_to": bool(active.get("revert_to", False)),
+                    "activated_at": float(active.get("activated_at", 0.0) or 0.0),
+                }
+            )
+
+        raw = json.dumps(payload, separators=(",", ":"), sort_keys=True) if payload else ""
+        if raw == getattr(self, "_advanced_active_actions_persisted_json", None):
+            return
+
+        try:
+            from saiSwitchSettingsManager import SwitchSettingsManager
+
+            mgr = SwitchSettingsManager("switch_settings")
+            mgr.set_setting(self.switch_id, f"Runtime.{_ADVANCED_ACTIVE_ACTIONS_KEY}", raw)
+            self._advanced_active_actions_persisted_json = raw
+        except Exception as e:
+            if DEBUG:
+                printDM(f"[advanced] persist runtime state failed: {e}", location=MODULE)
+
     def _recover_advanced_revert_from_history(self, info: dict, current_state: bool) -> bool:
         """Best-effort recovery of a previous_state revert after process restart."""
+        rule_id = str(info.get("rule_id", "") or "").strip()
         if str(info.get("revert_action", "") or "").strip().lower() != "previous_state":
             return False
 
@@ -319,6 +420,7 @@ class SwitchController:
             return False
 
         rule_name = str(info.get("rule_name", "") or "").strip()
+        conditions = list(info.get("conditions") or [])
 
         def _normalized_rule_source(source: object) -> str:
             raw = str(source or "").strip()
@@ -336,7 +438,7 @@ class SwitchController:
         try:
             rows = self.data_logger.get_last_switch_events(
                 self._switch_key(target_label),
-                limit=6,
+                limit=25,
                 include_source=True,
             )
         except Exception as e:
@@ -345,32 +447,166 @@ class SwitchController:
             return False
 
         if len(rows) < 2:
-            return False
-
-        latest_state, _latest_ts, latest_source = rows[0]
-        latest_is_on = str(latest_state).strip().lower() == "on"
-        if latest_is_on != authoritative_current:
+            if DEBUG:
+                printDM(
+                    f"[advanced] {target_label} rule {rule_id or '?'} history recovery skipped: insufficient rows",
+                    location=MODULE,
+                )
             return False
 
         expected_source = rule_name.lower()
-        actual_source = _normalized_rule_source(latest_source)
-        if expected_source:
-            if actual_source != expected_source:
-                return False
-        elif actual_source:
+        matched_idx = None
+        matched_is_on = None
+        for idx, (row_state, _row_ts, row_source) in enumerate(rows):
+            row_is_on = str(row_state).strip().lower() == "on"
+            if row_is_on != authoritative_current:
+                continue
+            actual_source = _normalized_rule_source(row_source)
+            if expected_source:
+                if actual_source != expected_source:
+                    continue
+            elif actual_source:
+                continue
+            matched_idx = idx
+            matched_is_on = row_is_on
+            break
+
+        if matched_idx is None or matched_is_on is None:
+            generic_revert_to = self._infer_previous_state_revert_from_transition(
+                conditions=conditions,
+                rows=rows,
+                authoritative_current=authoritative_current,
+                desired=desired,
+            )
+            if generic_revert_to is not None:
+                event_source = f"auto/rule:{rule_name}" if rule_name else "auto/rule"
+                if DEBUG:
+                    printDM(
+                        f"[advanced] {target_label} rule {rule_id or '?'} recovering previous_state from "
+                        f"generic transition: current={authoritative_current} revert_to={generic_revert_to}",
+                        location=MODULE,
+                    )
+                return bool(self.set_state(target_label, generic_revert_to, force=True, event_source=event_source))
+            if DEBUG:
+                row_preview = [
+                    {
+                        "state": str(row_state).strip(),
+                        "ts": str(row_ts or "").strip(),
+                        "src": str(row_source or "").strip(),
+                    }
+                    for row_state, row_ts, row_source in rows[:8]
+                ]
+                printDM(
+                    f"[advanced] {target_label} rule {rule_id or '?'} history recovery skipped: "
+                    f"no matching source row for current_state={authoritative_current} "
+                    f"rule_name={rule_name or '-'} recent_rows={row_preview}",
+                    location=MODULE,
+                )
             return False
 
         revert_to = None
-        for prior_state, _prior_ts, _prior_source in rows[1:]:
+        for prior_state, _prior_ts, _prior_source in rows[matched_idx + 1:]:
             prior_is_on = str(prior_state).strip().lower() == "on"
-            if prior_is_on != latest_is_on:
+            if prior_is_on != matched_is_on:
                 revert_to = prior_is_on
                 break
         if revert_to is None:
+            if DEBUG:
+                printDM(
+                    f"[advanced] {target_label} rule {rule_id or '?'} history recovery skipped: no prior opposite state",
+                    location=MODULE,
+                )
             return False
 
         event_source = f"auto/rule:{rule_name}" if rule_name else "auto/rule"
+        if DEBUG:
+            printDM(
+                f"[advanced] {target_label} rule {rule_id or '?'} recovering previous_state from history: "
+                f"current={authoritative_current} revert_to={revert_to} matched_row={matched_idx}",
+                location=MODULE,
+            )
         return bool(self.set_state(target_label, revert_to, force=True, event_source=event_source))
+
+    def _infer_previous_state_revert_from_transition(
+        self,
+        *,
+        conditions: list[dict],
+        rows: list[tuple[str, str, str | None]],
+        authoritative_current: bool,
+        desired: bool,
+    ) -> bool | None:
+        """
+        Legacy bootstrap for remote previous_state recovery.
+
+        When old event rows lost automation provenance, infer ownership only for
+        simple time-window rules whose most recent transition into the current
+        desired state lines up with the configured window start.
+        """
+        if authoritative_current != desired:
+            return None
+
+        candidate_starts: list[str] = []
+        for cond in conditions:
+            if not isinstance(cond, dict):
+                continue
+            if str(cond.get("type", "") or "").strip().lower() != "time":
+                continue
+            start = str(cond.get("start", "") or "").strip()
+            end = str(cond.get("end", "") or "").strip()
+            if start and end:
+                candidate_starts.append(start)
+        if not candidate_starts or len(rows) < 2:
+            return None
+
+        def _parse_local_ts(text: object) -> datetime | None:
+            raw = str(text or "").strip()
+            if not raw:
+                return None
+            try:
+                dt = datetime.fromisoformat(raw)
+            except Exception:
+                return None
+            if dt.tzinfo is None:
+                try:
+                    dt = dt.replace(tzinfo=getattr(self.data_logger, "local_tz", ZoneInfo("America/Denver")))
+                except Exception:
+                    pass
+            return dt
+
+        leading_block: list[tuple[str, str, str | None]] = []
+        for row in rows:
+            row_is_on = str(row[0]).strip().lower() == "on"
+            if row_is_on != authoritative_current:
+                break
+            leading_block.append(row)
+        if not leading_block or len(rows) <= len(leading_block):
+            return None
+
+        prior_row = rows[len(leading_block)]
+        prior_is_on = str(prior_row[0]).strip().lower() == "on"
+        if prior_is_on == authoritative_current:
+            return None
+
+        transition_dt = _parse_local_ts(leading_block[-1][1])
+        if transition_dt is None:
+            return None
+
+        transition_minutes = transition_dt.hour * 60 + transition_dt.minute
+
+        def _minutes_from_hhmm(text: str) -> int | None:
+            try:
+                hh, mm = text.split(":", 1)
+                return int(hh) * 60 + int(mm)
+            except Exception:
+                return None
+
+        for start in candidate_starts:
+            start_minutes = _minutes_from_hhmm(start)
+            if start_minutes is None:
+                continue
+            if abs(transition_minutes - start_minutes) <= 2:
+                return prior_is_on
+        return None
 
     @property
     def switches(self) -> list[str]:
@@ -1259,6 +1495,7 @@ class SwitchController:
             self._advanced_active_actions = active_actions
         if not isinstance(getattr(self, "_advanced_revert_cooldown", None), set):
             self._advanced_revert_cooldown = set()
+        persist_active_actions = False
 
         action_evals: dict[tuple[str, str, str, bool], dict] = {}
 
@@ -1313,7 +1550,7 @@ class SwitchController:
                     target_sid = raw_sid.strip()
 
                     # Only act if this rule targets *this* controller
-                    if target_sid != getattr(self, "switch_id", None):
+                    if target_sid.lower() != str(getattr(self, "switch_id", "") or "").strip().lower():
                         continue
 
                     # Resolve the human-facing label we use for:
@@ -1386,6 +1623,7 @@ class SwitchController:
                     action_evals[action_key] = {
                         "rule_id": str(_rule_id),
                         "rule_name": str(script.get("name", "") or "").strip(),
+                        "conditions": list(conditions),
                         "target_label": target_label,
                         "switch_key": skey,
                         "desired": desired,
@@ -1399,19 +1637,23 @@ class SwitchController:
                 printDM(f"[advanced] rule error: {e}", location=MODULE)
 
         def _revert_active_action(action_key: tuple[str, str, str, bool], active: dict) -> bool:
+            nonlocal persist_active_actions
             revert_action = str(active.get("revert_action", "") or "").strip().lower()
             target_label = str(active.get("target_label", "") or "").strip()
             if not target_label:
                 active_actions.pop(action_key, None)
+                persist_active_actions = True
                 return True
             if revert_action != "previous_state":
                 active_actions.pop(action_key, None)
+                persist_active_actions = True
                 return True
 
             revert_to = bool(active.get("revert_to", False))
             current_state = bool(self.get_state(target_label))
             if current_state == revert_to:
                 active_actions.pop(action_key, None)
+                persist_active_actions = True
                 return True
 
             rule_name = str(active.get("rule_name", "") or "").strip()
@@ -1419,6 +1661,7 @@ class SwitchController:
             ok = bool(self.set_state(target_label, revert_to, force=True, event_source=event_source))
             if ok or bool(self.get_state(target_label)) == revert_to:
                 active_actions.pop(action_key, None)
+                persist_active_actions = True
                 return True
             return False
 
@@ -1448,23 +1691,25 @@ class SwitchController:
                 if active:
                     _revert_active_action(action_key, active)
                 elif self._recover_advanced_revert_from_history(info, current_state):
-                    if DEBUG and str(target_label).strip().lower() == "fan":
+                    if DEBUG:
                         printDM(
-                            f"[advanced] fan rule {info['rule_id']} recovered previous_state from history",
+                            f"[advanced] {target_label} rule {info['rule_id']} recovered previous_state from history",
                             location=MODULE,
                         )
-                if DEBUG and str(target_label).strip().lower() == "fan":
+                if DEBUG:
                     printDM(
-                        f"[advanced] fan rule {info['rule_id']} no-op: rule_ok={rule_ok} group_results={info.get('group_results')}",
+                        f"[advanced] {target_label} rule {info['rule_id']} no-op: "
+                        f"rule_ok={rule_ok} group_results={info.get('group_results')}",
                         location=MODULE,
                     )
                 continue
 
             if active:
                 if current_state == desired:
-                    if DEBUG and str(target_label).strip().lower() == "fan":
+                    if DEBUG:
                         printDM(
-                            f"[advanced] fan rule {info['rule_id']} skipped: curr={current_state} desired={desired} switch_key={skey}",
+                            f"[advanced] {target_label} rule {info['rule_id']} skipped: "
+                            f"curr={current_state} desired={desired} switch_key={skey}",
                             location=MODULE,
                         )
                     continue
@@ -1473,6 +1718,7 @@ class SwitchController:
                 ok = bool(self.set_state(target_label, desired, event_source=event_source))
                 if ok:
                     active_actions[action_key] = dict(active, last_applied_at=now_mono)
+                    persist_active_actions = True
                 continue
 
             if pending:
@@ -1481,9 +1727,10 @@ class SwitchController:
                     continue
                 pending_actions.pop(action_key, None)
                 if current_state == desired:
-                    if DEBUG and str(target_label).strip().lower() == "fan":
+                    if DEBUG:
                         printDM(
-                            f"[advanced] fan rule {info['rule_id']} skipped after delay: curr={current_state} desired={desired} switch_key={skey}",
+                            f"[advanced] {target_label} rule {info['rule_id']} skipped after delay: "
+                            f"curr={current_state} desired={desired} switch_key={skey}",
                             location=MODULE,
                         )
                     continue
@@ -1500,6 +1747,7 @@ class SwitchController:
                     pending_actions[action_key] = dict(pending, due_at=time.monotonic() + 1.0)
                     continue
                 active_actions[action_key] = {
+                    "rule_id": str(info.get("rule_id", "") or "").strip(),
                     "rule_name": str(info.get("rule_name", "") or "").strip(),
                     "target_label": target_label,
                     "switch_key": skey,
@@ -1508,6 +1756,7 @@ class SwitchController:
                     "revert_to": current_state,
                     "activated_at": now_mono,
                 }
+                persist_active_actions = True
                 if revert_action == "previous_state":
                     self._advanced_revert_cooldown.add(action_key)
                 continue
@@ -1524,9 +1773,10 @@ class SwitchController:
                 continue
 
             if current_state == desired:
-                if DEBUG and str(target_label).strip().lower() == "fan":
+                if DEBUG:
                     printDM(
-                        f"[advanced] fan rule {info['rule_id']} skipped: curr={current_state} desired={desired} switch_key={skey}",
+                        f"[advanced] {target_label} rule {info['rule_id']} skipped: "
+                        f"curr={current_state} desired={desired} switch_key={skey}",
                         location=MODULE,
                     )
                 continue
@@ -1537,9 +1787,10 @@ class SwitchController:
                     f"rule_ok={rule_ok} desired={desired} (switch_key={skey})",
                     location=MODULE,
                 )
-            if DEBUG and str(target_label).strip().lower() == "fan":
+            if DEBUG:
                 printDM(
-                    f"[advanced] fan apply {info['rule_id']}: curr={current_state} desired={desired} switch_key={skey}",
+                    f"[advanced] {target_label} apply {info['rule_id']}: "
+                    f"curr={current_state} desired={desired} switch_key={skey}",
                     location=MODULE,
                 )
 
@@ -1550,6 +1801,7 @@ class SwitchController:
                 continue
 
             active_actions[action_key] = {
+                "rule_id": str(info.get("rule_id", "") or "").strip(),
                 "rule_name": str(info.get("rule_name", "") or "").strip(),
                 "target_label": target_label,
                 "switch_key": skey,
@@ -1558,10 +1810,14 @@ class SwitchController:
                 "revert_to": current_state,
                 "activated_at": now_mono,
             }
+            persist_active_actions = True
             if revert_action == "previous_state":
                 self._advanced_revert_cooldown.add(action_key)
             else:
                 self._advanced_revert_cooldown.discard(action_key)
+
+        if persist_active_actions:
+            self._persist_advanced_runtime_state()
                 
     async def run_controladora_monitor(self, sensor, interval=5):
         """
@@ -1572,6 +1828,17 @@ class SwitchController:
           Otherwise, we evaluate with the last known values (if any) or {}.
         """
         heartbeat_every_s = 10.0
+        labels = []
+        try:
+            labels = list(self.get_switch_names() or [])
+        except Exception:
+            labels = []
+        if DEBUG:
+            printDM(
+                f"[monitor-start] switch_id={self.switch_id} remote={int(bool(getattr(self, 'is_remote', False)))} "
+                f"sensor_bound={int(bool(sensor or getattr(self, 'sensor', None)))} labels={labels}",
+                location=MODULE,
+            )
 
         async def _sleep_with_heartbeat(total_sleep_s: float) -> None:
             remaining = max(float(total_sleep_s), 0.0)
@@ -1586,11 +1853,18 @@ class SwitchController:
 
         while True:
             tick_started = time.monotonic()
+            tick_no = int(getattr(self, "_monitor_tick_count", 0) or 0) + 1
+            self._monitor_tick_count = tick_no
             rules_check_ms = 0.0
             snapshot_ms = 0.0
             eval_ms = 0.0
             rules_present = False
             try:
+                if DEBUG and tick_no == 1:
+                    printDM(
+                        f"[monitor-first-tick] {self.switch_id} entering monitor loop",
+                        location=MODULE,
+                    )
                 # Decide if we should do any work this tick
                 rules_check_started = time.monotonic()
                 rules_present = self._rules_enabled()
