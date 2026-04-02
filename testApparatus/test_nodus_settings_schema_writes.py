@@ -148,6 +148,7 @@ class _FakeIngest:
         mid = message_id or f"rst-{len(self.published_json) + 1}"
         envelope = {
             "message_id": mid,
+            "payload": {},
             "restart": True,
             "restart_mode": str(restart_mode or "soft"),
         }
@@ -846,7 +847,7 @@ async def test_restart_sensor_device_publishes_soft_restart_to_nodus_config_set(
     assert ingest.published_json[-1]["topic"] == f"nodus/{body['target_device']}/config/set"
     assert ingest.published_json[-1]["payload"]["restart"] is True
     assert ingest.published_json[-1]["payload"]["restart_mode"] == "soft"
-    assert "payload" not in ingest.published_json[-1]["payload"]
+    assert ingest.published_json[-1]["payload"]["payload"] == {}
     assert any("[restart-request]" in msg for msg, _location, _level in restart_logs)
     assert any("[restart-result]" in msg and "ok=True" in msg for msg, _location, _level in restart_logs)
 
@@ -912,6 +913,35 @@ async def test_restart_sensor_device_requires_config_result_before_reporting_suc
     body = res.json()
     assert body["ok"] is False
     assert "timed out waiting for device result" in body["error"]
+
+
+@pytest.mark.asyncio
+async def test_restart_sensor_device_accepts_legacy_restart_ack_and_result_shapes(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "apvpd-test123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "apvpd-test123",
+            }
+        },
+    )
+    ingest.next_config_ack = {"message_id": "ignored-by-fake", "duplicate": False}
+    ingest.next_config_result = {"message_id": "ignored-by-fake", "rebooting": True, "error": ""}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/sensor-settings/restart-device",
+            data={"sensor_id": "apvpd-test123"},
+        )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["message"] == "Device restarting..."
 
 
 @pytest.mark.asyncio
@@ -1846,6 +1876,124 @@ async def test_dashboard_metric_position_reorder_preserves_hidden_sensor_slots(t
         "aqi-b": 2,
         "aqi-a": 3,
     }
+
+
+@pytest.mark.asyncio
+async def test_dashboard_merges_switch_cards_for_same_location(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    saiWebRoutes._SENSOR_LOCATION_CACHE.clear()
+    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    app.state.sensor_map = []
+    saiWebRoutes.sensor_map = []
+    saiWebRoutes.switch_controllers = {}
+
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
+
+    sensor_mgr.save(
+        "co2-ykdvea",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "co2-ykdvea",
+                "LOCATION": "OfficeDesk",
+            },
+            "Display": {"METRIC_1": "CO2"},
+        },
+    )
+    switch_mgr.save(
+        "switch-ykdvea",
+        {
+            "Switch": {
+                "TYPE": "nodus",
+                "SWITCH_DEVICE_ID": "switch-ykdvea",
+                "SWITCH_LOCATION": "OfficeDesk",
+                "SWITCH_1_LABEL": "Fan",
+                "SWITCH_1_CHANNEL_ID": "S1-ykdvea",
+                "SWITCH_1_ENABLE_PIN": "installed",
+            },
+        },
+    )
+    switch_mgr.save(
+        "switch-zbcalz",
+        {
+            "Switch": {
+                "TYPE": "nodus",
+                "SWITCH_DEVICE_ID": "switch-zbcalz",
+                "SWITCH_LOCATION": "OfficeDesk",
+                "SWITCH_1_LABEL": "Pump",
+                "SWITCH_1_CHANNEL_ID": "S1-zbcalz",
+                "SWITCH_1_ENABLE_PIN": "installed",
+            },
+        },
+    )
+
+    now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["co2-ykdvea"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso if sid == "co2-ykdvea" else "")
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_latest_values_and_timestamps",
+        lambda ids: (
+            {"co2-ykdvea": {"CO2": 1271.0}},
+            {"co2-ykdvea": now_iso},
+        ),
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_metrics", lambda sid: ["CO2"])
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_switch_identities",
+        lambda: [
+            {
+                "switch_id": "switch-ykdvea",
+                "switch_key": "S1-ykdvea::Fan",
+                "channel_id": "S1-ykdvea",
+                "label": "Fan",
+                "location": "OfficeDesk",
+            },
+            {
+                "switch_id": "switch-zbcalz",
+                "switch_key": "S1-zbcalz::Pump",
+                "channel_id": "S1-zbcalz",
+                "label": "Pump",
+                "location": "OfficeDesk",
+            },
+        ],
+    )
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {"co2-ykdvea": {}})
+
+    ingest.mqtt_clients = ["co2-ykdvea"]
+    ingest._switch_state_cache = {
+        "switch-ykdvea": {"S1-ykdvea": "on"},
+        "switch-zbcalz": {"S1-zbcalz": "off"},
+    }
+    ingest.nodus_switch_topic_map = {
+        "nodus/S1-ykdvea/state": {
+            "switch_id": "switch-ykdvea",
+            "channel_id": "S1-ykdvea",
+            "label": "Fan",
+        },
+        "nodus/S1-zbcalz/state": {
+            "switch_id": "switch-zbcalz",
+            "channel_id": "S1-zbcalz",
+            "label": "Pump",
+        },
+    }
+    ingest.device_location = {
+        "nodus/S1-ykdvea/state": "OfficeDesk",
+        "nodus/S1-zbcalz/state": "OfficeDesk",
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/")
+
+    assert res.status_code == 200
+    assert res.text.count("class='switch-metric-container'") == 1
+    assert "data-switch-ids='switch-ykdvea,switch-zbcalz'" in res.text
+    assert "<td>Fan " in res.text or "<td>Fan</td>" in res.text
+    assert "<td>Pump " in res.text or "<td>Pump</td>" in res.text
 
 
 @pytest.mark.asyncio

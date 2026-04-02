@@ -4376,8 +4376,29 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         device_type: str,
         restart_mode: str = "soft",
     ) -> tuple[bool, str]:
+        def _truthy(value: Any) -> bool:
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return value != 0
+            return str(value or "").strip().lower() in {"1", "true", "yes", "on", "ok", "accepted", "applied", "rebooting", "restarted"}
+
+        def _restart_ack_accepted(ack_payload: dict[str, Any] | None) -> bool:
+            if not isinstance(ack_payload, dict):
+                return False
+            if "accepted" in ack_payload:
+                return _truthy(ack_payload.get("accepted"))
+            if "ok" in ack_payload:
+                return _truthy(ack_payload.get("ok"))
+            return True
+
         def _restart_result_applied(result_payload: dict[str, Any] | None) -> bool:
-            return isinstance(result_payload, dict) and result_payload.get("applied") is True
+            if not isinstance(result_payload, dict):
+                return False
+            for key in ("applied", "restarted", "rebooting", "accepted", "ok", "success"):
+                if key in result_payload and _truthy(result_payload.get(key)):
+                    return True
+            return False
 
         ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
         if not ingest:
@@ -4396,6 +4417,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             topic = f"nodus/{target_device}/config/set"
             envelope = {
                 "message_id": message_id,
+                "payload": {},
                 "restart": True,
                 "restart_mode": restart_mode,
             }
@@ -4412,7 +4434,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             ack = await ingest.wait_for_config_ack(message_id, timeout=3.0)
         if not isinstance(ack, dict):
             return False, "Restart request was not acknowledged by the device"
-        if ack.get("accepted") is False:
+        if not _restart_ack_accepted(ack):
             error_text = str(ack.get("error") or "").strip()
             return False, error_text or "Restart request was rejected by the device"
 

@@ -1313,11 +1313,14 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         if DEBUG and matched_switches:
             printDM(f"[render_dashboard] {sid} @ '{location}' matched {len(matched_switches)} switch controller(s)", location="saiHtml")
 
-        # ── render-time dedupe: ensure each switch_id renders at most once per location ──
+        # Collapse every switch controller at the same location into one
+        # rendered card so the location shows a single switch table.
         _rendered_swids_here: set[str] = set()
+        switch_rows: list[dict] = []
+        switch_ids_here: list[str] = []
+        label_counts: dict[str, int] = defaultdict(int)
 
         for switch_ctrl in matched_switches:
-            # Normalize id for dedupe (case-insensitive); also keep raw for lookups/UI
             sw_id: str = (getattr(switch_ctrl, "switch_id", "") or "").strip()
             sw_id_key: str = sw_id.lower() if sw_id else "__no_switch_id__"
 
@@ -1326,8 +1329,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                     printDM(f"[render_dashboard] skip duplicate render of switch '{sw_id}' in location '{location}'", location="saiHtml")
                 continue
             _rendered_swids_here.add(sw_id_key)
+            if sw_id:
+                switch_ids_here.append(sw_id)
 
-            # ------ decide which labels to render (prefer on-disk truth) ------
             render_labels = []
 
             try:
@@ -1341,7 +1345,6 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 )
 
                 if sw_type in ("picow", "pico2w", "nodus", "remote", "mqtt") or has_en_keys:
-                    # Pico2 W: *_ENABLE_PIN indicates channel installed
                     pairs = [("SWITCH_1_LABEL", 1), ("SWITCH_2_LABEL", 2)]
                     tmp = []
                     for lbl_key, idx in pairs:
@@ -1353,7 +1356,6 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                     if tmp:
                         render_labels = tmp
                 else:
-                    # Pi: require BOTH a label and an integer PIN to render the channel
                     tmp = []
                     for n in range(1, 33):
                         label = (str(sw_blk.get(f"SWITCH_{n}_LABEL", "") or "").strip())
@@ -1366,14 +1368,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                         render_labels = tmp
 
             except Exception:
-                # fall back below
                 pass
 
-            # Final fallback: whatever the controller reported (may be stale)
             if not render_labels:
                 render_labels = list(getattr(switch_ctrl, "switches", []))
-            # If the controller only reports generic relay placeholders, prefer
-            # discovery/DB-derived labels for this switch_id.
             try:
                 is_generic_only = bool(render_labels) and all(
                     re.match(r"(?i)^relay\s+\d+$", str(lbl or "").strip()) for lbl in render_labels
@@ -1401,30 +1399,55 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 except Exception:
                     pass
 
-            # ----------------------------------------------------------------------
-            yield "<div class='switch-metric-container'>"
+            if not render_labels:
+                switch_rows.append({"empty": True, "switch_ctrl": switch_ctrl, "sw_id": sw_id})
+                continue
+
+            for label in render_labels:
+                label_counts[str(label or "").strip().lower()] += 1
+                switch_rows.append({
+                    "empty": False,
+                    "switch_ctrl": switch_ctrl,
+                    "sw_id": sw_id,
+                    "label": label,
+                })
+
+        if switch_rows:
+            switch_ids_attr = ",".join(switch_ids_here)
+            multi_switch_card = len(switch_ids_here) > 1
+            header_id = _safe(f"{'_'.join(switch_ids_here) if switch_ids_here else location}_header")
+            yield f"<div class='switch-metric-container' data-switch-ids='{switch_ids_attr}'>"
             yield f"<div style='text-align:center; width:100%; margin-top:-1.5rem; margin-bottom:-1.0rem;'>"
-            yield f"<h3 id='{sw_id}_header'>{sw_id.upper()} "
-            yield f"  <a href='javascript:void(0)' onclick='editSwitchSettings(\"{sw_id}\")' title='Open {sw_id} Settings' style='margin-left:2px; margin-right:8px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
-            yield from _settings_gear_svg_lines(indent="    ")
-            yield "  </a>"
-            yield f"{switch_ctrl.location}</h3>"
+            if not multi_switch_card and switch_ids_here:
+                header_sw_id = switch_ids_here[0]
+                yield f"<h3 id='{header_id}'>{header_sw_id.upper()} "
+                yield f"  <a href='javascript:void(0)' onclick='editSwitchSettings(\"{header_sw_id}\")' title='Open {header_sw_id} Settings' style='margin-left:2px; margin-right:8px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
+                yield from _settings_gear_svg_lines(indent="    ")
+                yield "  </a>"
+                yield f"{location}</h3>"
+            else:
+                header_devices = ", ".join(sw.upper() for sw in switch_ids_here if sw)
+                yield f"<h3 id='{header_id}'>SWITCHES <span style='font-size:0.72em; font-weight:normal;'>{header_devices}</span> {location}</h3>"
             yield "</div>"
 
             yield "<div class='switch-container'>"
             yield "<div class='switch-view'>"
-
             yield "<table class='switch-table'>"
             yield "<thead><tr>"
             yield "<th>Switch</th><th>State</th><th>Events</th>"
             yield "</tr></thead>"
             yield "<tbody>"
 
-            # if nothing is enabled for a Pico2 W, show a friendly row
-            if not render_labels:
+            if not any(not row.get("empty") for row in switch_rows):
                 yield "<tr><td colspan='3' style='opacity:0.7;'>No enabled switch channels</td></tr>"
 
-            for label in render_labels:
+            for row in switch_rows:
+                if row.get("empty"):
+                    continue
+
+                switch_ctrl = row["switch_ctrl"]
+                sw_id = row["sw_id"]
+                label = row["label"]
                 safe_label = label.lower().replace(" ", "_")
                 is_on = bool(getattr(switch_ctrl, "last_state", {}).get(label, False))
                 if DEBUG and str(sw_id).strip().lower() == "sensoria-hub-0" and str(label).strip().lower() == "fan":
@@ -1438,8 +1461,6 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 checked_attr = "checked" if override_enabled else ""
                 last_time_str = getattr(switch_ctrl, "last_set_time", {}).get(label, "")
 
-                # Canonical switch identity is channel_id::label when a channel
-                # id exists; fall back to switch_id::label only if needed.
                 channel_id = ""
                 try:
                     channel_id = str((getattr(switch_ctrl, "channel_id_for_label", {}) or {}).get(label, "") or "").strip()
@@ -1468,7 +1489,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                     timer_status_text = f"Countdown: {timer_remaining}s"
                 else:
                     timer_status_text = f"Timer set: {timer_seconds}s"
-                
+
                 try:
                     from saiAutomationManager import AutomationManager
                     am = AutomationManager()
@@ -1483,9 +1504,22 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 if automation_enabled:
                     state_cell_classes += " automation-enabled"
 
+                label_key = label_norm.lower()
+                display_label = label
+                if label_counts.get(label_key, 0) > 1 and sw_id:
+                    display_label = f"{label} ({sw_id.upper()})"
+
+                label_cell = html_escape(display_label)
+                if multi_switch_card and sw_id:
+                    label_cell += (
+                        f" <a href='javascript:void(0)' onclick='editSwitchSettings(\"{sw_id}\")' "
+                        f"title='Open {sw_id} Settings' style='margin-left:4px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
+                    )
+                    label_cell += "".join(_settings_gear_svg_lines(indent="", aria_hidden=True))
+                    label_cell += "</a>"
+
                 yield "<tr>"
-                yield f"<td>{label}</td>"
-                # Switch cell
+                yield f"<td>{label_cell}</td>"
                 yield (
                     f"<td class='{state_cell_classes}' "
                     f"data-automation-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' "
@@ -1536,8 +1570,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 yield f"    <ul id='{events_list_id}' class='switch-events-list' data-switch-key='{switch_key}'></ul>"
                 yield f"  </div>"
                 yield "</td>"
-                yield "</tr>"                
-                
+                yield "</tr>"
+
             yield "</tbody>"
             yield "</table>"
             yield "</div>"  # .switch-view
@@ -2558,10 +2592,16 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "}"
 
     yield "function _renderedSwitchIds() {"
-    yield "  return Array.from(document.querySelectorAll('.switch-metric-container h3[id$=\"_header\"]'))"
-    yield "    .map(h => String(h.id || '').replace(/_header$/, ''))"
-    yield "    .map(_normSwitchId)"
-    yield "    .filter(Boolean);"
+    yield "  return Array.from(document.querySelectorAll('.switch-metric-container')).flatMap((card) => {"
+    yield "    const raw = String(card.dataset.switchIds || '').trim();"
+    yield "    if (raw) {"
+    yield "      return raw.split(',').map(_normSwitchId).filter(Boolean);"
+    yield "    }"
+    yield "    const header = card.querySelector('h3[id$=\"_header\"]');"
+    yield "    if (!header) return [];"
+    yield "    const fallback = _normSwitchId(String(header.id || '').replace(/_header$/, ''));"
+    yield "    return fallback ? [fallback] : [];"
+    yield "  });"
     yield "}"
 
     yield "function _layoutSignature(available, nextExpMap, renderableSwitches) {"

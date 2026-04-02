@@ -822,6 +822,7 @@ class saiMQTTIngest:
             message_id = f"rst-{int(time.time())}-{uuid.uuid4().hex[:8]}"
         envelope = {
             "message_id": message_id,
+            "payload": {},
             "restart": True,
             "restart_mode": mode,
         }
