@@ -225,12 +225,14 @@ def test_registered_topics_include_heartbeat(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     assert "nodus/+/status/heartbeat" in ingest.registered_topics
     assert "nodus/+/meta" in ingest.registered_topics
+    assert "nodus/+/meta/patch" in ingest.registered_topics
     assert "nodus/+/calibration/ack" in ingest.registered_topics
     assert "nodus/+/calibration/result" in ingest.registered_topics
     assert "nodus/+/event/calibration_status" in ingest.registered_topics
     assert "nodus/+/event/calibration_sample" in ingest.registered_topics
     assert "sensorius/nodus/+/onboard/hello" in ingest.registered_topics
     assert "sensorius/nodus/+/meta" in ingest.registered_topics
+    assert "sensorius/nodus/+/meta/patch" in ingest.registered_topics
     assert "sensorius/nodus/+/config/ack" in ingest.registered_topics
     assert "sensorius/nodus/+/config/result" in ingest.registered_topics
     assert "sensorius/nodus/+/event/calibration_sample" in ingest.registered_topics
@@ -1453,6 +1455,183 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
     assert 'SWITCH_1_PIN = "GP28"' in switch_saved
     assert 'SWITCH_1_LAST_STATE = false' in switch_saved
     assert 'SWITCH_1_EN = "1"' not in switch_saved
+
+
+def test_nodus_meta_patch_updates_cached_sensor_meta_and_shadow_settings(tmp_path, monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    switch_root.mkdir()
+    system_root.mkdir()
+
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    real_settings_cls = saiSettings.saiSettings
+
+    monkeypatch.setattr(
+        saiSensorSettingsManager,
+        "SensorSettingsManager",
+        lambda *_a, **_k: real_sensor_mgr(str(sensor_root)),
+    )
+    monkeypatch.setattr(
+        saiSwitchSettingsManager,
+        "SwitchSettingsManager",
+        lambda *_a, **_k: real_switch_mgr(str(switch_root)),
+    )
+    monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
+
+    sensor_mgr = real_sensor_mgr(str(sensor_root))
+
+    meta_payload = json.dumps(
+        {
+            "schema": "nodus-meta/v1",
+            "device_id": "apvpd-test123",
+            "hostname": "apvpd-test123",
+            "serial": "ykdvea",
+            "type": "nodus",
+            "network": {"hostname": "apvpd-test123"},
+            "profile": {"active_profile": "sensorius"},
+            "mqtt": {"broker": "sensorius.local", "port": 1883, "use_tls": False, "base_topic": "nodus"},
+            "sensor": {
+                "sensor_id": "apvpd-test123",
+                "location": "Lab",
+                "display_metrics": ["CO2", "Temperature", "Rel-Humidity"],
+                "data_topic": "nodus/apvpd-test123/data",
+                "event_topic": "nodus/apvpd-test123/event",
+                "availability_topic": "nodus/apvpd-test123/availability",
+            },
+            "location_group": {"location": "Lab", "members": ["apvpd-test123"]},
+            "timestamp": 1763859546,
+        }
+    )
+    ingest._on_message(ingest.client, None, _Msg("nodus/apvpd-test123/meta", meta_payload, retain=True))
+
+    patch_payload = json.dumps(
+        {
+            "schema": "nodus-meta-patch/v1",
+            "device_id": "apvpd-test123",
+            "message_id": "cfg-123",
+            "timestamp": 1763859551,
+            "source": "config_set",
+            "sections": ["Display", "Profile"],
+            "updates": [
+                {"section": "Display", "key": "METRIC_1", "value": "Ambient VPD"},
+                {"section": "Display", "key": "METRIC_4", "value": "Baro-Pressure"},
+                {"section": "Profile", "key": "ACTIVE_PROFILE", "value": "nodusweb"},
+            ],
+        }
+    )
+    ingest._on_message(ingest.client, None, _Msg("nodus/apvpd-test123/meta/patch", patch_payload, retain=False))
+
+    sensor_saved = sensor_mgr.load("apvpd-test123")
+    assert sensor_saved["Display"]["METRIC_1"] == "Ambient VPD"
+    assert sensor_saved["Display"]["METRIC_2"] == "Temperature"
+    assert sensor_saved["Display"]["METRIC_3"] == "Rel-Humidity"
+    assert sensor_saved["Display"]["METRIC_4"] == "Baro-Pressure"
+    assert ingest.expected_gauge_map["apvpd-test123"] == [
+        "Ambient VPD",
+        "Temperature",
+        "Rel-Humidity",
+        "Baro-Pressure",
+    ]
+
+    settings_saved = (system_root / "apvpd-test123" / "settings.toml").read_text(encoding="utf-8")
+    assert 'ACTIVE_PROFILE = "nodusweb"' in settings_saved
+
+    cached = ingest.discovery_cache["apvpd-test123"]
+    assert cached["profile"]["active_profile"] == "nodusweb"
+    assert cached["sensor"]["display_metrics"]["METRIC_4"] == "Baro-Pressure"
+    assert cached["timestamp"] == 1763859551
+
+
+def test_nodus_meta_patch_updates_switch_shadow_from_channel_topic(tmp_path, monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    switch_root.mkdir()
+    system_root.mkdir()
+
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    real_settings_cls = saiSettings.saiSettings
+
+    monkeypatch.setattr(
+        saiSensorSettingsManager,
+        "SensorSettingsManager",
+        lambda *_a, **_k: real_sensor_mgr(str(sensor_root)),
+    )
+    monkeypatch.setattr(
+        saiSwitchSettingsManager,
+        "SwitchSettingsManager",
+        lambda *_a, **_k: real_switch_mgr(str(switch_root)),
+    )
+    monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
+
+    switch_mgr = real_switch_mgr(str(switch_root))
+
+    meta_payload = json.dumps(
+        {
+            "schema": "nodus-meta/v1",
+            "device_id": "apvpd-test123",
+            "hostname": "apvpd-test123",
+            "serial": "ykdvea",
+            "type": "nodus",
+            "sensor": {
+                "sensor_id": "apvpd-test123",
+                "location": "Lab",
+                "data_topic": "nodus/apvpd-test123/data",
+                "availability_topic": "nodus/apvpd-test123/availability",
+            },
+            "switch": {
+                "device_id": "switch-test123",
+                "location": "Lab",
+                "channels": [
+                    {
+                        "index": 1,
+                        "label": "Fan",
+                        "channel_id": "S1-test123",
+                        "state": False,
+                        "event_topic": "nodus/S1-test123/event",
+                        "state_topic": "nodus/S1-test123/state",
+                        "set_topic": "nodus/S1-test123/set",
+                        "availability_topic": "nodus/S1-test123/availability",
+                    }
+                ],
+            },
+            "location_group": {"location": "Lab", "members": ["apvpd-test123", "switch-test123"]},
+            "timestamp": 1763859546,
+        }
+    )
+    ingest._on_message(ingest.client, None, _Msg("nodus/apvpd-test123/meta", meta_payload, retain=True))
+
+    patch_payload = json.dumps(
+        {
+            "schema": "nodus-meta-patch/v1",
+            "device_id": "S1-test123",
+            "message_id": "cfg-channel-1",
+            "timestamp": 1763859552,
+            "source": "config_set",
+            "sections": ["Switch"],
+            "updates": [
+                {"section": "Switch", "key": "SWITCH_1_LABEL", "value": "Exhaust"},
+                {"section": "Switch", "key": "SWITCH_1_LAST_STATE", "value": True},
+            ],
+        }
+    )
+    ingest._on_message(ingest.client, None, _Msg("nodus/S1-test123/meta/patch", patch_payload, retain=False))
+
+    switch_saved = switch_mgr.load("switch-test123")
+    assert switch_saved["Switch"]["SWITCH_1_LABEL"] == "Exhaust"
+    assert switch_saved["Switch"]["SWITCH_1_LAST_STATE"] is True
+    assert ingest.nodus_switch_topic_map["nodus/S1-test123/state"]["label"] == "Exhaust"
+    assert ingest.discovery_cache["apvpd-test123"]["switch"]["channels"][0]["label"] == "Exhaust"
+    assert ingest._switch_state_cache["switch-test123"]["S1-test123"] == "on"
 
 
 def test_ensure_settings_from_itaot_overwrites_shadow_locations_when_payload_is_unknown(tmp_path, monkeypatch):

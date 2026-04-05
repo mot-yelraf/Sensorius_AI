@@ -87,6 +87,14 @@
   max-width: 760px;
   margin-inline: auto;
 }
+#setupPiModal .field-grid-top {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .75rem 1rem;
+  width: 100%;
+  max-width: 700px;
+  margin-inline: auto;
+}
 #setupPiModal .field-grid-single {
   display: grid;
   grid-template-columns: minmax(220px, 340px);
@@ -115,10 +123,12 @@
   display: flex;
   justify-content: center;
   margin: .1rem 0 .8rem 0;
+  gap: 1.25rem;
 }
 #setupPiModal .ha-enabled-wrap .field-stack {
   align-items: center;
   gap: .4rem;
+  min-width: 120px;
 }
 #setupPiModal .ha-enabled-wrap .field-stack input[type="checkbox"] {
   width: auto;
@@ -129,6 +139,12 @@
   gap: .75rem 1rem;
   max-width: 760px;
   margin-inline: auto;
+}
+#setupPiModal .ha-subgrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .75rem 1rem;
+  width: 100%;
 }
 #setupPiModal .ha-grid .field-stack {
   align-items: flex-start;
@@ -144,11 +160,24 @@
 #setupPiModal .field-stack label {
   font-weight: 600;
 }
-#setupPiModal .field-stack input,
+#setupPiModal .field-stack input:not([type="checkbox"]),
 #setupPiModal .field-stack select {
   width: 100%;
   padding: .5rem .6rem;
   box-sizing: border-box;
+  min-width: 0;
+  min-height: 3.2rem;
+  border: 1px solid #c9d1cc;
+  border-radius: 12px;
+  background: #fff;
+  color: #111;
+  text-align: center;
+  font: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+}
+#setupPiModal .field-stack select {
+  text-align-last: center;
 }
 #setupPiModal .ha-grid > .field-stack {
   min-width: 0;
@@ -314,6 +343,10 @@
     grid-template-columns: 1fr;
     max-width: 100%;
   }
+  #setupPiModal .field-grid-top {
+    grid-template-columns: 1fr;
+    max-width: 100%;
+  }
   #setupPiModal .field-grid-single {
     grid-template-columns: 1fr;
     max-width: 100%;
@@ -326,6 +359,9 @@
     grid-template-columns: 1fr;
     max-width: 100%;
   }
+  #setupPiModal .ha-subgrid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
 
@@ -333,6 +369,7 @@
      class="modal-backdrop"
      style="display:flex; z-index:9999;">
   <div class="system-settings-shell" data-ha-enabled="{{ ha_enabled | default(false) }}"
+       data-ha-use-tls="{{ ha_use_tls | default(false) }}"
        data-ha-username="{{ ha_username | default('') }}"
        data-ha-password="{{ ha_password | default('') }}"
        data-ha-broker="{{ ha_broker | default('') }}"
@@ -367,7 +404,7 @@
           <div class="settings-pane" id="pane-system">
             <h3 class="pane-title">System Settings</h3>
             <form method="POST" action="/submit-pi-setup" id="systemSettingsForm" style="display:flex;flex-direction:column;gap:.5rem;flex:1;min-height:0;">
-              <div class="field-grid-stack">
+              <div class="field-grid-top">
                 <div class="field-stack">
                   <label for="hostname">Hostname</label>
                   <input type="text" id="hostname" name="hostname" value="{{ hostname }}" readonly>
@@ -376,6 +413,20 @@
                   <label for="httpport">HTTP Port</label>
                   <input type="number" id="httpport" name="httpport" value="{{ httpport }}" min="1" max="65535" step="1">
                 </div>
+                <div class="field-stack">
+                  <label for="sensornetwork_use_tls">TLS Enable</label>
+                  <select id="sensornetwork_use_tls" name="sensornetwork_use_tls">
+                    <option value="false" {% if not sensornetwork_use_tls %}selected{% endif %}>No</option>
+                    <option value="true" {% if sensornetwork_use_tls %}selected{% endif %}>Yes</option>
+                  </select>
+                </div>
+                <div class="field-stack">
+                  <label for="mqttport">MQTT Port</label>
+                  <input type="number" id="mqttport" name="mqttport" value="{{ mqttport | default(1883) }}" min="1" max="65535" step="1">
+                </div>
+              </div>
+
+              <div class="field-grid-stack">
                 <div class="field-stack">
                   <label for="broker">Sensorius Hub</label>
                   <input type="text" id="broker" name="broker" value="{{ broker }}">
@@ -395,12 +446,11 @@
               <div class="field-grid-stack">
                 <div class="field-stack">
                   <label for="astral_lat">Latitude</label>
-                  <input type="text" id="astral_lat" name="astral_lat" value="{{ astral_lat | default('') }}" placeholder="40.0150" title="Enter manual coordinates, or type reset in either coordinate field to clear saved Astral location and re-detect it on the next refresh or startup.">
+                  <input type="text" id="astral_lat" name="astral_lat" value="{{ astral_lat | default('') }}" placeholder="40.0150" title="Enter manual coordinates. To reposition lat/long both fields must be empty, then save.">
                 </div>
                 <div class="field-stack">
                   <label for="astral_lon">Longitude</label>
-                  <input type="text" id="astral_lon" name="astral_lon" value="{{ astral_lon | default('') }}" placeholder="-105.2705" title="Enter manual coordinates, or type reset in either coordinate field to clear saved Astral location and re-detect it on the next refresh or startup.">
-                  <div class="field-help">Type <code>reset</code> in either coordinate field to clear saved Astral location.</div>
+                  <input type="text" id="astral_lon" name="astral_lon" value="{{ astral_lon | default('') }}" placeholder="-105.2705" title="Enter manual coordinates. To reposition lat/long both fields must be empty, then save.">
                 </div>
                 <div class="field-stack">
                   <label for="astral_sunrise">Sunrise</label>
@@ -452,7 +502,10 @@
             <div class="ha-enabled-wrap">
               <div class="field-stack">
                 <label for="ha-enabled">Enabled</label>
-                <input type="checkbox" id="ha-enabled">
+                <select id="ha-enabled">
+                  <option value="false">No</option>
+                  <option value="true">Yes</option>
+                </select>
               </div>
             </div>
 
@@ -461,9 +514,18 @@
                 <label for="ha-broker">Broker</label>
                 <input type="text" id="ha-broker" placeholder="homeassistant.local">
               </div>
-              <div class="field-stack">
-                <label for="ha-port">Port</label>
-                <input type="number" id="ha-port" min="1" max="65535" step="1">
+              <div class="ha-subgrid">
+                <div class="field-stack">
+                  <label for="ha-use-tls">TLS Enable</label>
+                  <select id="ha-use-tls">
+                    <option value="false">No</option>
+                    <option value="true">Yes</option>
+                  </select>
+                </div>
+                <div class="field-stack">
+                  <label for="ha-port">Port</label>
+                  <input type="number" id="ha-port" min="1" max="65535" step="1">
+                </div>
               </div>
               <div class="field-stack">
                 <label for="ha-username">Username</label>
@@ -491,11 +553,17 @@
             <div class="ha-enabled-wrap">
               <div class="field-stack">
                 <label for="farm-enabled">Enabled</label>
-                <input type="checkbox" id="farm-enabled">
+                <select id="farm-enabled">
+                  <option value="false">No</option>
+                  <option value="true">Yes</option>
+                </select>
               </div>
               <div class="field-stack">
                 <label for="farm-verify-tls">Verify TLS</label>
-                <input type="checkbox" id="farm-verify-tls">
+                <select id="farm-verify-tls">
+                  <option value="true">Yes</option>
+                  <option value="false">No</option>
+                </select>
               </div>
             </div>
 
@@ -590,11 +658,9 @@
             <div class="pane-footer">
               <div class="inline-actions">
                 <button type="button" class="button black btn-back-system">Back</button>
-                <button type="button" class="button neutral" id="btn-onboard-reset">Reset</button>
-                <button type="button" class="button yellow" id="btn-onboard-retry">Retry</button>
-                <button type="button" class="button blue" id="btn-onboard-restart">Restart</button>
               </div>
               <div class="inline-actions">
+                <button type="button" class="button yellow" id="btn-onboard-retry">Retry</button>
                 <button type="button" class="button green" id="btn-onboard-add" disabled>Add</button>
               </div>
             </div>
@@ -855,19 +921,22 @@
   function hydrateHAFromData() {
     if (!shell) return;
     const enabled = String(shell.dataset.haEnabled || "").toLowerCase() === "true";
+    const useTls = String(shell.dataset.haUseTls || "").toLowerCase() === "true";
     const broker = shell.dataset.haBroker || "";
     const port = shell.dataset.haPort || "1883";
     const username = shell.dataset.haUsername || "";
     const password = shell.dataset.haPassword || "";
 
     const enabledEl = document.getElementById("ha-enabled");
+    const useTlsEl = document.getElementById("ha-use-tls");
     const brokerEl = document.getElementById("ha-broker");
     const portEl = document.getElementById("ha-port");
     const userEl = document.getElementById("ha-username");
     const passEl = document.getElementById("ha-password");
     const toggleEl = document.getElementById("ha-pass-toggle");
 
-    if (enabledEl) enabledEl.checked = enabled;
+    if (enabledEl) enabledEl.value = enabled ? "true" : "false";
+    if (useTlsEl) useTlsEl.value = useTls ? "true" : "false";
     if (brokerEl) brokerEl.value = broker;
     if (portEl) portEl.value = port;
     if (userEl) userEl.value = username;
@@ -881,7 +950,8 @@
 
   async function saveHASettings() {
     try {
-      const enabled = !!document.getElementById("ha-enabled")?.checked;
+      const enabled = String(document.getElementById("ha-enabled")?.value || "false").toLowerCase() === "true";
+      const use_tls = String(document.getElementById("ha-use-tls")?.value || "false").toLowerCase() === "true";
       const broker = (document.getElementById("ha-broker")?.value || "").trim();
       const portRaw = (document.getElementById("ha-port")?.value || "1883").trim();
       const username = (document.getElementById("ha-username")?.value || "").trim();
@@ -894,7 +964,7 @@
       const resp = await fetch("/submit-homeassistant-settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled, broker, port, username, password })
+        body: JSON.stringify({ enabled, use_tls, broker, port, username, password })
       });
 
       if (!resp.ok) {
@@ -939,8 +1009,8 @@
     const passwordEl = document.getElementById("farm-password");
     const logBundleEl = document.getElementById("farm-log-bundle");
 
-    if (enabledEl) enabledEl.checked = enabled;
-    if (verifyTlsEl) verifyTlsEl.checked = verifyTls;
+    if (enabledEl) enabledEl.value = enabled ? "true" : "false";
+    if (verifyTlsEl) verifyTlsEl.value = verifyTls ? "true" : "false";
     if (baseUrlEl) baseUrlEl.value = baseUrl;
     if (accessTokenEl) {
       accessTokenEl.value = accessToken;
@@ -969,8 +1039,8 @@
 
   async function saveFarmSettings() {
     try {
-      const enabled = !!document.getElementById("farm-enabled")?.checked;
-      const verify_tls = !!document.getElementById("farm-verify-tls")?.checked;
+      const enabled = String(document.getElementById("farm-enabled")?.value || "false").toLowerCase() === "true";
+      const verify_tls = String(document.getElementById("farm-verify-tls")?.value || "true").toLowerCase() === "true";
       const base_url = (document.getElementById("farm-base-url")?.value || "").trim();
       const access_token = (document.getElementById("farm-access-token")?.value || "").trim();
       const client_id = (document.getElementById("farm-client-id")?.value || "farm").trim() || "farm";
@@ -1837,13 +1907,6 @@
     }
     if (ev.target && ev.target.id === "btn-onboard-retry") {
       retryOnboard();
-    }
-    if (ev.target && ev.target.id === "btn-onboard-restart") {
-      restartOnboardSession();
-    }
-    if (ev.target && ev.target.id === "btn-onboard-reset") {
-      resetAddDevicePaneState();
-      if (!addScanActive) startAddScan();
     }
     if (ev.target && ev.target.id === "remove-device-run") {
       submitRemoveDevices();

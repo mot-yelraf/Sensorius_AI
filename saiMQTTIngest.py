@@ -9,6 +9,7 @@ Responsibilities:
 - maintain device liveness, topic maps, and discovery caches
 """
 import asyncio
+import copy
 import json
 import re
 import socket
@@ -286,6 +287,7 @@ class saiMQTTIngest:
                 "nodus/+/availability",
                 "nodus/+/status/heartbeat",
                 "nodus/+/meta",
+                "nodus/+/meta/patch",
                 "nodus/+/calibration/ack",
                 "nodus/+/calibration/result",
                 "nodus/+/event/calibration_status",
@@ -313,6 +315,7 @@ class saiMQTTIngest:
                     f"{self.base_topic}/nodus/+/event/calibration_sample",
                     f"{self.base_topic}/nodus/+/event/calibration_result",
                     f"{self.base_topic}/nodus/+/meta",
+                    f"{self.base_topic}/nodus/+/meta/patch",
                     f"{self.base_topic}/nodus/+/onboard/hello",
                     f"{self.base_topic}/nodus/+/config/ack",
                     f"{self.base_topic}/nodus/+/config/result",
@@ -1230,7 +1233,25 @@ class saiMQTTIngest:
             )
             if is_nodus_root or is_nodus_prefixed:
                 id_index = 1 if is_nodus_root else 2
-                if (not self.nodus_debug_data_only) and len(parts) > id_index + 1 and parts[id_index + 1] == "meta":
+                if (
+                    (not self.nodus_debug_data_only)
+                    and len(parts) > id_index + 2
+                    and parts[id_index + 1] == "meta"
+                    and parts[id_index + 2] == "patch"
+                ):
+                    nodus_id = parts[id_index]
+                    ok_patch, _ = self._apply_nodus_meta_patch(
+                        data if isinstance(data, dict) else {},
+                        topic_device_id=nodus_id,
+                        retain=retain,
+                    )
+                    if ok_patch:
+                        return
+                if (
+                    (not self.nodus_debug_data_only)
+                    and len(parts) == id_index + 2
+                    and parts[id_index + 1] == "meta"
+                ):
                     nodus_id = parts[id_index]
                     if _looks_like_channel_id(nodus_id):
                         return
@@ -1698,6 +1719,349 @@ class saiMQTTIngest:
             raw_value = values[idx] if idx < len(values) else default_style
             ordered.append(_canonical_style(raw_value))
         return ordered
+
+    @staticmethod
+    def _meta_metric_slot_map(raw_values) -> OrderedDict[str, str]:
+        slots: OrderedDict[str, str] = OrderedDict(
+            (f"METRIC_{idx}", "") for idx in range(1, 7)
+        )
+        if isinstance(raw_values, dict):
+            for idx in range(1, 7):
+                key = f"METRIC_{idx}"
+                value = raw_values.get(key)
+                if value is not None:
+                    slots[key] = str(value)
+            return slots
+        if isinstance(raw_values, (list, tuple)):
+            for idx, value in enumerate(list(raw_values)[:6], start=1):
+                slots[f"METRIC_{idx}"] = "" if value is None else str(value)
+        return slots
+
+    def _find_nodus_meta_cache_key(
+        self,
+        device_id: str | None,
+        *,
+        topic_device_id: str | None = None,
+    ) -> str | None:
+        candidates: list[str] = []
+        search_tokens: set[str] = set()
+
+        def _add_candidate(raw_value: str | None, *, device_type: str | None = None) -> None:
+            raw = str(raw_value or "").strip()
+            if not raw:
+                return
+            for candidate in (
+                raw,
+                self._normalize_host_key(raw),
+                self._host_from_sid_base(raw),
+                self.resolve_nodus_hostname(raw, device_type=device_type),
+            ):
+                text = str(candidate or "").strip()
+                if text and text not in candidates:
+                    candidates.append(text)
+                if text:
+                    search_tokens.add(text.lower())
+                normalized = self._normalize_host_key(text)
+                if normalized:
+                    search_tokens.add(normalized.lower())
+
+        device_text = str(device_id or "").strip()
+        topic_text = str(topic_device_id or "").strip()
+        _add_candidate(device_text)
+        _add_candidate(topic_text)
+        if device_text.startswith("switch-"):
+            _add_candidate(device_text, device_type="switch")
+        if topic_text.startswith("switch-"):
+            _add_candidate(topic_text, device_type="switch")
+
+        for candidate in candidates:
+            if candidate in self.discovery_cache:
+                return candidate
+
+        def _meta_contains_identifier(meta: dict, raw_value: str) -> bool:
+            if not isinstance(meta, dict):
+                return False
+            want = str(raw_value or "").strip().lower()
+            if not want:
+                return False
+
+            observed: set[str] = set()
+
+            def _observe(value) -> None:
+                text = str(value or "").strip()
+                if not text:
+                    return
+                observed.add(text.lower())
+                normalized = self._normalize_host_key(text)
+                if normalized:
+                    observed.add(normalized.lower())
+
+            _observe(meta.get("device_id"))
+            _observe(meta.get("hostname"))
+
+            sensor = meta.get("sensor") if isinstance(meta.get("sensor"), dict) else {}
+            _observe(sensor.get("sensor_id"))
+
+            switch = meta.get("switch") if isinstance(meta.get("switch"), dict) else {}
+            _observe(switch.get("device_id"))
+            _observe(switch.get("switch_device_id"))
+
+            channels = switch.get("channels")
+            if isinstance(channels, list):
+                for row in channels:
+                    if not isinstance(row, dict):
+                        continue
+                    _observe(row.get("channel_id"))
+
+            return want in observed
+
+        if search_tokens:
+            for host, meta in (self.discovery_cache or {}).items():
+                for token in search_tokens:
+                    if _meta_contains_identifier(meta, token):
+                        return host
+
+        for raw in (device_text, topic_text):
+            if not raw:
+                continue
+            for host, peers in (self.host_to_peer_ids or {}).items():
+                try:
+                    if raw == host or raw in (peers or []):
+                        if host in self.discovery_cache:
+                            return host
+                    normalized = self._normalize_host_key(raw)
+                    if normalized and normalized == host and host in self.discovery_cache:
+                        return host
+                except Exception:
+                    continue
+        return None
+
+    def _apply_nodus_meta_patch_update(self, meta: dict, update: dict) -> bool:
+        if not isinstance(meta, dict) or not isinstance(update, dict):
+            return False
+
+        section = str(update.get("section") or "").strip()
+        key = str(update.get("key") or "").strip()
+        if not section or not key:
+            return False
+
+        value = update.get("value")
+        section_key = section.lower()
+        key_upper = key.upper()
+
+        def _ensure_block(parent: dict, name: str) -> dict:
+            block = parent.get(name)
+            if not isinstance(block, dict):
+                block = {}
+                parent[name] = block
+            return block
+
+        def _update_group_location(raw_location) -> None:
+            location_group = _ensure_block(meta, "location_group")
+            location_group["location"] = "" if raw_location is None else str(raw_location)
+
+        if section_key == "display":
+            sensor = _ensure_block(meta, "sensor")
+            display_metrics = self._meta_metric_slot_map(sensor.get("display_metrics"))
+            display_metrics[key_upper] = "" if value is None else str(value)
+            sensor["display_metrics"] = dict(display_metrics)
+            return True
+
+        if section_key == "display.style":
+            sensor = _ensure_block(meta, "sensor")
+            display_styles = self._meta_metric_slot_map(sensor.get("display_styles"))
+            display_styles[key_upper] = "" if value is None else str(value)
+            sensor["display_styles"] = dict(display_styles)
+            return True
+
+        if section_key == "sensor":
+            sensor = _ensure_block(meta, "sensor")
+            field_name = {
+                "LOCATION": "location",
+                "DEVICE": "device",
+                "TYPE": "type",
+                "SENSOR_ID": "sensor_id",
+                "SERIAL_NUM": "serial",
+                "DEVICE_SERIAL_NUM": "serial",
+                "DATA_TOPIC": "data_topic",
+                "EVENT_TOPIC": "event_topic",
+                "AVAILABILITY_TOPIC": "availability_topic",
+            }.get(key_upper, key.lower())
+            sensor[field_name] = value
+            if key_upper == "LOCATION":
+                _update_group_location(value)
+            return True
+
+        if section_key == "profile":
+            profile = _ensure_block(meta, "profile")
+            field_name = {"ACTIVE_PROFILE": "active_profile"}.get(key_upper, key.lower())
+            profile[field_name] = value
+            return True
+
+        if section_key == "network":
+            network = _ensure_block(meta, "network")
+            field_name = {
+                "HOSTNAME": "hostname",
+                "SSID": "ssid",
+                "PASSWORD": "password",
+            }.get(key_upper, key.lower())
+            network[field_name] = value
+            if field_name == "hostname":
+                meta["hostname"] = value
+            return True
+
+        if section_key == "mqtt":
+            mqtt_meta = _ensure_block(meta, "mqtt")
+            field_name = {
+                "BROKER": "broker",
+                "PORT": "port",
+                "USE_TLS": "use_tls",
+                "BASE_TOPIC": "base_topic",
+                "USERNAME": "username",
+                "PASSWORD": "password",
+            }.get(key_upper, key.lower())
+            mqtt_meta[field_name] = value
+            return True
+
+        if section_key in {"homeassistant", "time"}:
+            block = _ensure_block(meta, section_key)
+            block[key.lower()] = value
+            return True
+
+        if section_key != "switch":
+            return False
+
+        switch = _ensure_block(meta, "switch")
+        top_level_field = {
+            "SWITCH_DEVICE_ID": "device_id",
+            "SWITCH_LOCATION": "location",
+            "DEVICE_SERIAL_NUM": "serial",
+            "TYPE": "type",
+        }.get(key_upper)
+        if top_level_field:
+            switch[top_level_field] = value
+            if key_upper == "SWITCH_LOCATION":
+                _update_group_location(value)
+            return True
+
+        match = re.fullmatch(r"SWITCH_(\d+)_(.+)", key_upper)
+        if not match:
+            return False
+
+        channel_index = max(int(match.group(1)), 1)
+        suffix = match.group(2)
+        channels = switch.get("channels")
+        if not isinstance(channels, list):
+            channels = []
+            switch["channels"] = channels
+        while len(channels) < channel_index:
+            channels.append({})
+        row = channels[channel_index - 1]
+        if not isinstance(row, dict):
+            row = {}
+            channels[channel_index - 1] = row
+        row.setdefault("index", channel_index)
+
+        field_name = {
+            "LABEL": "label",
+            "CHANNEL_ID": "channel_id",
+            "LAST_STATE": "state",
+            "ENABLE_PIN": "enable_pin",
+            "PIN": "pin",
+            "EVENT_TOPIC": "event_topic",
+            "STATE_TOPIC": "state_topic",
+            "SET_TOPIC": "set_topic",
+            "AVAILABILITY_TOPIC": "availability_topic",
+        }.get(suffix, suffix.lower())
+        row[field_name] = value
+        return True
+
+    def _apply_nodus_meta_patch(
+        self,
+        patch: dict,
+        *,
+        topic_device_id: str | None = None,
+        retain: bool = False,
+    ) -> tuple[bool, bool]:
+        if not isinstance(patch, dict):
+            return False, False
+
+        schema = str(patch.get("schema") or "").strip().lower()
+        if schema and schema != "nodus-meta-patch/v1":
+            return False, False
+
+        device_id = str(patch.get("device_id") or topic_device_id or "").strip()
+        if not device_id:
+            return False, False
+
+        cache_key = self._find_nodus_meta_cache_key(device_id, topic_device_id=topic_device_id)
+        if not cache_key:
+            if DEBUG:
+                printDM(
+                    f"[nodus-meta-patch] no cached meta snapshot for {device_id}",
+                    location=MODULE,
+                )
+            return False, False
+
+        cached_meta = self.discovery_cache.get(cache_key)
+        if not isinstance(cached_meta, dict):
+            return False, False
+
+        patched_meta = copy.deepcopy(cached_meta)
+        if "timestamp" in patch:
+            patched_meta["timestamp"] = patch.get("timestamp")
+        if not str(patched_meta.get("device_id") or "").strip():
+            patched_meta["device_id"] = cache_key
+
+        applied_any = False
+        system_patch_info: dict[str, object] = {"HOSTNAME": cache_key}
+        system_patch_changed = False
+
+        for update in (patch.get("updates") or []):
+            applied_any = self._apply_nodus_meta_patch_update(patched_meta, update) or applied_any
+            if not isinstance(update, dict):
+                continue
+            section = str(update.get("section") or "").strip().lower()
+            key = str(update.get("key") or "").strip()
+            if not key:
+                continue
+            block_name = {
+                "network": "Network",
+                "profile": "Profile",
+                "mqtt": "MQTT",
+                "homeassistant": "HomeAssistant",
+                "time": "Time",
+            }.get(section)
+            if not block_name:
+                continue
+            block = system_patch_info.get(block_name)
+            if not isinstance(block, dict):
+                block = {}
+                system_patch_info[block_name] = block
+            block[key] = update.get("value")
+            system_patch_changed = True
+
+        if not applied_any:
+            return False, False
+
+        self.discovery_cache[cache_key] = patched_meta
+        ok_meta, subscribed = self._parse_and_subscribe_from_nodus_meta(
+            patched_meta,
+            topic_device_id=cache_key,
+            retain=retain,
+        )
+        if system_patch_changed:
+            try:
+                self._ensure_settings_from_itaot(
+                    system_patch_info,
+                    cache_key,
+                    [],
+                    [],
+                )
+            except Exception as e:
+                if DEBUG:
+                    printDM(f"[nodus-meta-patch] system settings apply failed: {e}", location=MODULE)
+        return ok_meta, subscribed
 
     def _infer_sensor_device_name(self, raw_device, sensor_id: str | None = None) -> str:
         """
@@ -4027,11 +4391,6 @@ class saiMQTTIngest:
                     pass
 
             if (not force_write) and last_state == new_state:
-                if DEBUG:
-                    printDM(
-                        f"[dedupe] {switch_id_str}::{channel_id_str} unchanged ({new_state}) — skip DB",
-                        location=MODULE,
-                    )
                 return
 
             if update_cache:
@@ -4080,7 +4439,7 @@ class saiMQTTIngest:
 
             if DEBUG:
                 printDM(
-                    f"[persist] {switch_id_str}::{channel_id_str} -> {new_state} (src={source})",
+                    f"[persist] {switch_id_str}::{channel_id_str} {last_state or 'unknown'} -> {new_state} (src={source})",
                     location=MODULE,
                 )
 

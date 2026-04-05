@@ -34,7 +34,7 @@ except Exception:  # pragma: no cover - optional dependency guard
 
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-DEFAULT_LOG_FILE = "sensorius.log"
+DEFAULT_LOG_FILE = str(Path("logs") / "sensorius.log")
 DEFAULT_DEBUG_MODULES = {
     "Sensorius",
     "saiSensor",
@@ -306,7 +306,7 @@ def configure_logging(
     ENV overrides:
       - SENSORIUS_LOG_LEVEL (default: DEBUG)
       - SENSORIUS_FILE_LOG  (true/false, default: false)
-      - SENSORIUS_LOG_FILE  (default: sensorius.log)
+      - SENSORIUS_LOG_FILE  (default: logs/sensorius.log)
       - SENSORIUS_HTTP_DEBUG (true/false, default: false)
     """
     effective_level = (level or _get_env_setting("SENSORIUS_LOG_LEVEL", "DEBUG", prefer_dotenv=True)).upper()
@@ -317,6 +317,7 @@ def configure_logging(
     if enable_file is not None:
         file_logging = bool(enable_file)
     target_file = log_file or _get_env_setting("SENSORIUS_LOG_FILE", DEFAULT_LOG_FILE, prefer_dotenv=True)
+    target_path = Path(target_file)
     http_debug = _parse_bool(_get_env_setting("SENSORIUS_HTTP_DEBUG", None, prefer_dotenv=True), default=False)
 
     root_logger = logging.getLogger()
@@ -344,11 +345,15 @@ def configure_logging(
     if file_logging:
         have_file_handler = any(
             isinstance(h, logging.FileHandler)
-            and getattr(h, "baseFilename", "").endswith(target_file)
+            and Path(getattr(h, "baseFilename", "")) == target_path.resolve()
             for h in root_logger.handlers
         )
         if not have_file_handler:
-            fh = RotatingFileHandler(target_file, maxBytes=5_000_000, backupCount=3)
+            try:
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+            fh = RotatingFileHandler(target_path, maxBytes=11_000_000, backupCount=3)
             fh.setLevel(logging.DEBUG)
             fh.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT))
             root_logger.addHandler(fh)

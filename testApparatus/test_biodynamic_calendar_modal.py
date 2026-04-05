@@ -70,7 +70,13 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "await loadBiodynamicMonth(monthKey, preferredDate);" in text
     assert ".bio-day.today:not(.selected){box-shadow:inset 0 0 0 1px rgba(39,49,58,.45);}" in text
     assert ".bio-day.out{opacity:.62;filter:saturate(.42) brightness(1.02);}" in text
+    assert ".bio-status{display:flex;align-items:center;justify-content:flex-start;gap:.14rem;padding:.24rem .3rem;border-radius:8px;border:1px solid #27313a;background:#fffdf6;overflow:hidden;box-sizing:border-box;}" in text
+    assert "#bioCurrentBadge{display:inline-flex;align-items:center;justify-content:center;min-width:48px;max-width:48px;padding:.22rem .24rem;border-radius:999px;border:1px solid #27313a;font-size:.52rem;font-weight:700;letter-spacing:.01em;text-transform:uppercase;color:#27313a;white-space:nowrap;flex:0 0 auto;overflow:hidden;margin-left:auto;}" in text
     assert "function renderBiodynamicPrintView(){" in text
+    assert "const textOnHex = (hex) => {" in text
+    assert "badgeEl.style.borderColor = '#27313a';" in text
+    assert "badgeEl.style.color = textOnHex(color);" in text
+    assert "panelEl.style.borderColor = '#27313a';" in text
     assert ".bio-print-block{font-size:9pt;line-height:1.35;color:#27313a;white-space:pre-wrap;overflow-wrap:anywhere;min-height:1.2em;text-align:left;}" in text
     assert ".bio-summary-card .bio-summary-output{height:78px;max-height:78px;}" in text
     assert "document.body.classList.add('bio-printing');" in text

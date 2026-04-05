@@ -464,43 +464,7 @@ def test_build_picow_settings_updates_rewrites_ip_broker_to_hub_hostname(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_submit_pi_setup_reset_clears_saved_astral_location(tmp_path, monkeypatch):
-    app = await _build_route_app_with_settings(
-        tmp_path,
-        monkeypatch,
-        {
-            "Astral": {
-                "LATITUDE": "40.015000",
-                "LONGITUDE": "-105.270500",
-                "TIMEZONE": "America/Denver",
-            }
-        },
-    )
-
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        res = await client.post(
-            "/submit-pi-setup",
-            data={
-                "broker": "",
-                "tz": "America/Denver",
-                "httpport": "8000",
-                "astral_lat": "reset",
-                "astral_lon": "",
-                "gauge_size": "medium",
-                "display_style": "grid",
-            },
-            follow_redirects=False,
-        )
-
-    assert res.status_code == 303
-    stored = _RouteFakeSaiSettings.STORED_SETTINGS
-    assert stored["Astral"]["LATITUDE"] == ""
-    assert stored["Astral"]["LONGITUDE"] == ""
-    assert stored["Astral"]["TIMEZONE"] == ""
-
-
-@pytest.mark.asyncio
-async def test_submit_pi_setup_blank_astral_fields_leave_saved_location_unchanged(tmp_path, monkeypatch):
+async def test_submit_pi_setup_blank_astral_fields_clear_saved_astral_location(tmp_path, monkeypatch):
     app = await _build_route_app_with_settings(
         tmp_path,
         monkeypatch,
@@ -529,6 +493,42 @@ async def test_submit_pi_setup_blank_astral_fields_leave_saved_location_unchange
         )
 
     assert res.status_code == 303
+    stored = _RouteFakeSaiSettings.STORED_SETTINGS
+    assert stored["Astral"]["LATITUDE"] == ""
+    assert stored["Astral"]["LONGITUDE"] == ""
+    assert stored["Astral"]["TIMEZONE"] == ""
+
+
+@pytest.mark.asyncio
+async def test_submit_pi_setup_partial_blank_astral_fields_return_error(tmp_path, monkeypatch):
+    app = await _build_route_app_with_settings(
+        tmp_path,
+        monkeypatch,
+        {
+            "Astral": {
+                "LATITUDE": "40.015000",
+                "LONGITUDE": "-105.270500",
+                "TIMEZONE": "America/Denver",
+            }
+        },
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-pi-setup",
+            data={
+                "broker": "",
+                "tz": "America/Denver",
+                "httpport": "8000",
+                "astral_lat": "",
+                "astral_lon": "-105.270500",
+                "gauge_size": "medium",
+                "display_style": "grid",
+            },
+            follow_redirects=False,
+        )
+
+    assert res.status_code == 400
     stored = _RouteFakeSaiSettings.STORED_SETTINGS
     assert stored["Astral"]["LATITUDE"] == "40.015000"
     assert stored["Astral"]["LONGITUDE"] == "-105.270500"
@@ -557,6 +557,96 @@ async def test_submit_pi_setup_ajax_returns_json_success(tmp_path, monkeypatch):
 
     assert res.status_code == 200
     assert res.json()["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_submit_pi_setup_persists_sensornetwork_tls_and_mqtt_port(tmp_path, monkeypatch):
+    app = await _build_route_app_with_settings(tmp_path, monkeypatch, {})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-pi-setup",
+            data={
+                "broker": "hub.local",
+                "tz": "America/Denver",
+                "httpport": "8000",
+                "mqttport": "8883",
+                "sensornetwork_use_tls": "on",
+                "astral_lat": "",
+                "astral_lon": "",
+                "gauge_size": "medium",
+                "display_style": "grid",
+            },
+            follow_redirects=False,
+        )
+
+    assert res.status_code == 303
+    stored = _RouteFakeSaiSettings.STORED_SETTINGS
+    assert stored["SensorNetwork"]["BROKER"] == "hub.local"
+    assert stored["SensorNetwork"]["MQTTPORT"] == 8883
+    assert stored["SensorNetwork"]["USE_TLS"] is True
+
+
+@pytest.mark.asyncio
+async def test_submit_homeassistant_settings_persists_enabled_tls_and_port(tmp_path, monkeypatch):
+    app = await _build_route_app_with_settings(tmp_path, monkeypatch, {})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-homeassistant-settings",
+            json={
+                "enabled": True,
+                "use_tls": True,
+                "broker": "homeassistant.local",
+                "port": 8883,
+                "username": "ha-user",
+                "password": "secret",
+            },
+            follow_redirects=False,
+        )
+
+    assert res.status_code == 200
+    stored = _RouteFakeSaiSettings.STORED_SETTINGS
+    assert stored["HomeAssistant"]["ENABLED"] is True
+    assert stored["HomeAssistant"]["USE_TLS"] is True
+    assert stored["HomeAssistant"]["HA_BROKER"] == "homeassistant.local"
+    assert stored["HomeAssistant"]["HA_MQTTPORT"] == 8883
+    assert stored["HomeAssistant"]["HA_USERNAME"] == "ha-user"
+    assert stored["HomeAssistant"]["HA_PASSWORD"] == "secret"
+
+
+@pytest.mark.asyncio
+async def test_submit_farmos_settings_persists_enabled_and_verify_tls(tmp_path, monkeypatch):
+    app = await _build_route_app_with_settings(tmp_path, monkeypatch, {})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-farmos-settings",
+            json={
+                "enabled": True,
+                "verify_tls": False,
+                "base_url": "https://farm.example.com",
+                "access_token": "token",
+                "client_id": "farm",
+                "client_secret": "client-secret",
+                "username": "farm-user",
+                "password": "farm-pass",
+                "log_bundle": "observation",
+            },
+            follow_redirects=False,
+        )
+
+    assert res.status_code == 200
+    stored = _RouteFakeSaiSettings.STORED_SETTINGS
+    assert stored["FarmOS"]["ENABLED"] is True
+    assert stored["FarmOS"]["VERIFY_TLS"] is False
+    assert stored["FarmOS"]["BASE_URL"] == "https://farm.example.com"
+    assert stored["FarmOS"]["ACCESS_TOKEN"] == "token"
+    assert stored["FarmOS"]["CLIENT_ID"] == "farm"
+    assert stored["FarmOS"]["CLIENT_SECRET"] == "client-secret"
+    assert stored["FarmOS"]["USERNAME"] == "farm-user"
+    assert stored["FarmOS"]["PASSWORD"] == "farm-pass"
+    assert stored["FarmOS"]["LOG_BUNDLE"] == "observation"
 
 
 @pytest.mark.asyncio
@@ -662,7 +752,7 @@ async def test_submit_sensor_settings_pushes_sensor_and_display_updates_for_nodu
         )
 
     assert res.status_code == 303
-    assert len(ingest.published_json) == 10
+    assert len(ingest.published_json) == 13
     assert all(len((((row.get("payload") or {}).get("payload") or {}).get("updates") or [])) == 1 for row in ingest.published_json)
     posted = [
         update
@@ -673,6 +763,9 @@ async def test_submit_sensor_settings_pushes_sensor_and_display_updates_for_nodu
     assert any(p["section"] == "Display" and p["key"] == "METRIC_1" and p["value"] == "Temperature" for p in posted)
     assert any(p["section"] == "Display" and p["key"] == "METRIC_2" and p["value"] == "Humidity" for p in posted)
     assert any(p["section"] == "Display" and p["key"] == "METRIC_3" and p["value"] == "PM2.5" for p in posted)
+    assert any(p["section"] == "Display" and p["key"] == "METRIC_4" and p["value"] == "" for p in posted)
+    assert any(p["section"] == "Display" and p["key"] == "METRIC_5" and p["value"] == "" for p in posted)
+    assert any(p["section"] == "Display" and p["key"] == "METRIC_6" and p["value"] == "" for p in posted)
     assert any(p["section"] == "Display.Style" and p["key"] == "METRIC_1" and p["value"] == "Graph24hr" for p in posted)
     assert any(p["section"] == "Display.Style" and p["key"] == "METRIC_3" and p["value"] == "Graph6hr" for p in posted)
     assert not any(p["section"] == "Sensor" and p["key"] == "DEVICE" for p in posted)
@@ -684,6 +777,107 @@ async def test_submit_sensor_settings_pushes_sensor_and_display_updates_for_nodu
     assert saved["Sensor"]["SENSOR_ID"] == "apvpd-test123"
     assert saved["Display"]["Style"]["METRIC_1"] == "Graph24hr"
     assert saved["Display"]["Style"]["METRIC_3"] == "Graph6hr"
+
+
+@pytest.mark.asyncio
+async def test_submit_sensor_settings_pushes_explicit_blank_metric_clears_for_nodus(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "co2-ykdvea",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "co2",
+                "SENSOR_ID": "co2-ykdvea",
+                "LOCATION": "Lab",
+            },
+            "Display": {
+                "METRIC_1": "CO2",
+                "METRIC_2": "Temperature",
+                "METRIC_3": "Rel-Humidity",
+                "METRIC_4": "Ambient VPD",
+            },
+        },
+    )
+    _write_system_settings(system_root, "co2-ykdvea", "co2-ykdvea")
+    ingest.published_json.clear()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-sensor-settings",
+            data={
+                "sensor_id": "co2-ykdvea",
+                "sensor_id_field": "co2-ykdvea",
+                "device": "co2",
+                "location": "Lab",
+                "metric_1": "CO2",
+                "metric_2": "Temperature",
+                "metric_3": "Rel-Humidity",
+                "metric_4": "Ambient VPD",
+                "metric_5": "",
+                "metric_6": "",
+            },
+        )
+
+    assert res.status_code == 303
+    posted = [
+        update
+        for row in ingest.published_json
+        for update in (((row.get("payload") or {}).get("payload") or {}).get("updates") or [])
+    ]
+    assert {"section": "Display", "key": "METRIC_5", "value": "", "name": "sensor_i2c.toml"} in posted
+    assert {"section": "Display", "key": "METRIC_6", "value": "", "name": "sensor_i2c.toml"} in posted
+
+
+@pytest.mark.asyncio
+async def test_submit_sensor_settings_uses_extended_nodus_config_timeouts(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "co2-ykdvea",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "co2",
+                "SENSOR_ID": "co2-ykdvea",
+                "LOCATION": "Old Lab",
+            },
+        },
+    )
+    _write_system_settings(system_root, "co2-ykdvea", "co2-ykdvea")
+    ingest.published_json.clear()
+
+    ack_timeouts: list[float] = []
+    result_timeouts: list[float] = []
+
+    async def _wait_for_config_ack(message_id: str, timeout: float = 0):
+        ack_timeouts.append(float(timeout))
+        return {"message_id": message_id, "accepted": True, "duplicate": False, "error": ""}
+
+    async def _wait_for_config_result(message_id: str, timeout: float = 0):
+        result_timeouts.append(float(timeout))
+        if float(timeout) < 20.0:
+            return None
+        return {"message_id": message_id, "applied": True, "updated": 1, "error": ""}
+
+    ingest.wait_for_config_ack = _wait_for_config_ack
+    ingest.wait_for_config_result = _wait_for_config_result
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-sensor-settings",
+            data={
+                "sensor_id": "co2-ykdvea",
+                "sensor_id_field": "co2-ykdvea",
+                "device": "co2",
+                "location": "New Lab",
+            },
+        )
+
+    assert res.status_code == 303
+    assert ack_timeouts == [5.0]
+    assert result_timeouts == [20.0]
 
 
 @pytest.mark.asyncio

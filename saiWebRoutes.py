@@ -118,6 +118,8 @@ _DASHBOARD_INVENTORY_CACHE: tuple[float, dict[str, object]] | None = None
 _DASHBOARD_DISPLAY_SETTINGS_CACHE_TTL_SEC: float = 2.0
 _DASHBOARD_DISPLAY_SETTINGS_CACHE: tuple[float, dict[str, object]] | None = None
 _BIODYNAMIC_PAYLOAD_CACHE_TTL_SEC: float = 60.0
+_NODUS_CONFIG_ACK_TIMEOUT_SEC: float = 5.0
+_NODUS_CONFIG_RESULT_TIMEOUT_SEC: float = 20.0
 _BIODYNAMIC_PAYLOAD_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
 _ASTRO_PAYLOAD_CACHE_TTL_SEC: float = 60.0
 _ASTRO_PAYLOAD_CACHE: tuple[float, dict[str, object]] | None = None
@@ -2475,6 +2477,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         hostname   = settings.get_setting("Network", "HOSTNAME", "") or ""
         httpport   = settings.get_setting("Network", "HTTPPORT", 8000) or 8000
         broker     = settings.get_setting("SensorNetwork", "BROKER", "") or ""
+        mqttport   = settings.get_setting("SensorNetwork", "MQTTPORT", 1883) or 1883
+        sensornetwork_use_tls = bool(settings.get_setting("SensorNetwork", "USE_TLS", False))
         tz         = (
             settings.get_setting("Time", "TZ", "")
             or ""
@@ -2509,6 +2513,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             or settings.get_setting("HomeAssistant", "PORT", 1883)
             or 1883
         )
+        ha_use_tls = bool(settings.get_setting("HomeAssistant", "USE_TLS", False))
         farm_enabled = bool(settings.get_setting("FarmOS", "ENABLED", False))
         farm_base_url = settings.get_setting("FarmOS", "BASE_URL", "") or ""
         farm_verify_tls = bool(settings.get_setting("FarmOS", "VERIFY_TLS", True))
@@ -2577,6 +2582,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             hostname=hostname,
             httpport=httpport,
             broker=broker,
+            mqttport=mqttport,
+            sensornetwork_use_tls=sensornetwork_use_tls,
             tz=tz,
             tz_offset=tz_offset,
             tz_name=tz_name,
@@ -2591,6 +2598,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             astral_noon=astral_noon,
             client_list=client_list,
             ha_enabled=ha_enabled,
+            ha_use_tls=ha_use_tls,
             ha_username=ha_username,
             ha_password=ha_password,
             ha_broker=ha_broker,
@@ -4337,27 +4345,27 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return False
 
         message_id = str(publish_result.get("message_id") or "").strip()
-        ack = await ingest.wait_for_config_ack(message_id, timeout=3.0)
+        ack = await ingest.wait_for_config_ack(message_id, timeout=_NODUS_CONFIG_ACK_TIMEOUT_SEC)
         if not ack or not bool(ack.get("accepted", False)):
             if DEBUG:
                 printDM(
-                    f"[push_nodus_setting:{device_type}:{device_id}] config ack failed for nodus/{target_device}/config/set: {ack}",
+                    f"[push_nodus_setting:{device_type}:{device_id}] config ack failed for nodus/{target_device}/config/set message_id={message_id}: {ack}",
                     location=MODULE,
                 )
             return False
 
-        result = await ingest.wait_for_config_result(message_id, timeout=8.0)
+        result = await ingest.wait_for_config_result(message_id, timeout=_NODUS_CONFIG_RESULT_TIMEOUT_SEC)
         if result is None:
             if DEBUG:
                 printDM(
-                    f"[push_nodus_setting:{device_type}:{device_id}] config result timeout for nodus/{target_device}/config/set",
+                    f"[push_nodus_setting:{device_type}:{device_id}] config result timeout for nodus/{target_device}/config/set message_id={message_id}",
                     location=MODULE,
                 )
             return False
         if not _config_result_applied(result):
             if DEBUG:
                 printDM(
-                    f"[push_nodus_setting:{device_type}:{device_id}] config apply failed for nodus/{target_device}/config/set: {result}",
+                    f"[push_nodus_setting:{device_type}:{device_id}] config apply failed for nodus/{target_device}/config/set message_id={message_id}: {result}",
                     location=MODULE,
                 )
             return False
@@ -4431,7 +4439,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         ack = None
         if hasattr(ingest, "wait_for_config_ack"):
-            ack = await ingest.wait_for_config_ack(message_id, timeout=3.0)
+            ack = await ingest.wait_for_config_ack(message_id, timeout=_NODUS_CONFIG_ACK_TIMEOUT_SEC)
         if not isinstance(ack, dict):
             return False, "Restart request was not acknowledged by the device"
         if not _restart_ack_accepted(ack):
@@ -4440,7 +4448,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         result = None
         if hasattr(ingest, "wait_for_config_result"):
-            result = await ingest.wait_for_config_result(message_id, timeout=8.0)
+            result = await ingest.wait_for_config_result(message_id, timeout=_NODUS_CONFIG_RESULT_TIMEOUT_SEC)
         if result is None:
             return False, "Restart request timed out waiting for device result"
         if not _restart_result_applied(result):
@@ -5633,6 +5641,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         broker = str(form.get("broker", "") or "").strip()
         tz = str(form.get("tz", "") or "").strip()
         raw_httpport = str(form.get("httpport", "") or "").strip()
+        raw_mqttport = str(form.get("mqttport", "") or "").strip()
+        sensornetwork_use_tls = str(form.get("sensornetwork_use_tls", "") or "").strip().lower() in ("1", "true", "on", "yes")
         raw_lat = str(form.get("astral_lat", "") or "").strip()
         raw_lon = str(form.get("astral_lon", "") or "").strip()
         gauge_size = str(form.get("gauge_size", "") or "").strip()
@@ -5655,12 +5665,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return _modal_error_response(request, "HTTP Port must be a number.", status_code=400)
         if httpport < 1 or httpport > 65535:
             return _modal_error_response(request, "HTTP Port must be between 1 and 65535.", status_code=400)
+        try:
+            mqttport = int(raw_mqttport or "1883")
+        except Exception:
+            return _modal_error_response(request, "MQTT Port must be a number.", status_code=400)
+        if mqttport < 1 or mqttport > 65535:
+            return _modal_error_response(request, "MQTT Port must be between 1 and 65535.", status_code=400)
 
-        astral_reset_requested = raw_lat.lower() == "reset" or raw_lon.lower() == "reset"
         lat_to_store = None
         lon_to_store = None
         astral_tz_to_store = None
-        if astral_reset_requested:
+        if not raw_lat and not raw_lon:
             lat_to_store = ""
             lon_to_store = ""
             astral_tz_to_store = ""
@@ -5668,14 +5683,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             if not raw_lat or not raw_lon:
                 return _modal_error_response(
                     request,
-                    "Latitude and Longitude must both be provided, or enter 'reset' in either field to clear Astral auto-location.",
+                    "Latitude and Longitude must both be provided, or both left empty to re-detect Astral location.",
                     status_code=400,
                 )
             try:
                 lat_val = float(raw_lat)
                 lon_val = float(raw_lon)
             except Exception:
-                return _modal_error_response(request, "Latitude and Longitude must be numeric values, or 'reset'.", status_code=400)
+                return _modal_error_response(request, "Latitude and Longitude must be numeric values.", status_code=400)
             if not (-90.0 <= lat_val <= 90.0):
                 return _modal_error_response(request, "Latitude must be between -90 and 90.", status_code=400)
             if not (-180.0 <= lon_val <= 180.0):
@@ -5688,6 +5703,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         settings.replace_setting("Network", "HTTPPORT", httpport)
         settings.replace_setting("SensorNetwork", "BROKER", broker)
+        settings.replace_setting("SensorNetwork", "MQTTPORT", mqttport)
+        settings.replace_setting("SensorNetwork", "USE_TLS", sensornetwork_use_tls)
         settings.replace_setting("Time", "TZ", tz)
         settings.replace_setting("Time", "TZ_OFFSET", tz_offset)
         settings.replace_setting("Time", "TZ_NAME", tz_name)
@@ -5713,6 +5730,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             data = {}
 
         enabled = bool(data.get("enabled", False))
+        use_tls = bool(data.get("use_tls", False))
         broker = str(data.get("broker", "") or "").strip()
         username = str(data.get("username", "") or "").strip()
         password = str(data.get("password", "") or "").strip()
@@ -5724,6 +5742,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             port = 1883
 
         settings.replace_setting("HomeAssistant", "ENABLED", enabled)
+        settings.replace_setting("HomeAssistant", "USE_TLS", use_tls)
         settings.replace_setting("HomeAssistant", "HA_BROKER", broker)
         settings.replace_setting("HomeAssistant", "HA_MQTTPORT", port)
         settings.replace_setting("HomeAssistant", "HA_USERNAME", username)
@@ -6723,6 +6742,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 for idx in range(1, 7):
                     value = metric_list[idx - 1] if idx - 1 < len(metric_list) else ""
                     key = f"METRIC_{idx}"
+                    # Explicit blank metric submissions must still be pushed to
+                    # Nodus so stale remote values get cleared even when the
+                    # local shadow file omitted the key entirely.
+                    if value == "" and not (
+                        isinstance(existing_display_block, dict) and key in existing_display_block
+                    ):
+                        updates.append(("Display", key, value))
+                        continue
                     if not _nodus_values_match(
                         existing_display_block.get(key) if isinstance(existing_display_block, dict) else None,
                         value,
