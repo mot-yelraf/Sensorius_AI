@@ -221,7 +221,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             "moon_lit_pct": None,
             "moon_rise": "",
             "moon_set": "",
-            "moon_next_full": "",
+            "moon_next_phase_label": "",
+            "moon_next_phase_date": "",
             "moon_visible_angle": None,
         }
         if (
@@ -381,34 +382,45 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 moon_rise = ""
                 moon_set = ""
 
-            moon_next_full = ""
+            moon_next_phase_label = ""
+            moon_next_phase_date = ""
             try:
-                nf_fn = getattr(_astral_moon, "next_full_moon", None)
-                nf = nf_fn(now_local.date()) if callable(nf_fn) else None
-                if isinstance(nf, datetime):
-                    moon_next_full = nf.date().isoformat()
-                elif hasattr(nf, "isoformat"):
-                    moon_next_full = str(nf.isoformat())
-                if moon_next_full:
-                    moon_next_full = moon_next_full[:10]
-            except Exception:
-                moon_next_full = ""
+                phase_targets = (
+                    ("New Moon", 0.0),
+                    ("1st Quarter", 7.0),
+                    ("Full Moon", 14.0),
+                    ("3rd Quarter", 21.0),
+                )
+                phase_cycle = 28.0
+                current_phase = moon_val % phase_cycle
+                for label, target in phase_targets:
+                    if current_phase < target:
+                        moon_next_phase_label = label
+                        break
+                if not moon_next_phase_label:
+                    moon_next_phase_label = "New Moon"
+                target_phase = next(target for label, target in phase_targets if label == moon_next_phase_label)
 
-            if not moon_next_full:
                 best_date = None
-                for i in range(1, 32):
+                best_dist = None
+                for i in range(1, 33):
                     d = now_local.date() + timedelta(days=i)
                     try:
-                        pv = float(_astral_moon.phase(d))
+                        pv = float(_astral_moon.phase(d)) % phase_cycle
                     except Exception:
                         continue
-                    dist = abs((pv % 28.0) - 14.0)
-                    dist = min(dist, 28.0 - dist)
-                    if dist <= 0.6:
+                    dist = abs(pv - target_phase)
+                    dist = min(dist, phase_cycle - dist)
+                    if best_dist is None or dist < best_dist:
+                        best_dist = dist
                         best_date = d
-                        break
+                        if dist <= 0.05:
+                            break
                 if best_date is not None:
-                    moon_next_full = best_date.isoformat()
+                    moon_next_phase_date = best_date.isoformat()
+            except Exception:
+                moon_next_phase_label = ""
+                moon_next_phase_date = ""
 
             out.update({
                 "ok": True,
@@ -424,7 +436,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 "moon_lit_pct": moon_lit_pct,
                 "moon_rise": moon_rise,
                 "moon_set": moon_set,
-                "moon_next_full": moon_next_full,
+                "moon_next_phase_label": moon_next_phase_label,
+                "moon_next_phase_date": moon_next_phase_date,
                 "moon_visible_angle": moon_visible_angle,
             })
             return out
@@ -1154,8 +1167,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      <div class='moon-side right'>"
     yield "        <span class='moon-label'>% Lit</span>"
     yield "        <span class='moon-value' id='moonLitPct'>--</span>"
-    yield "        <span class='moon-label'>Full Moon</span>"
-    yield "        <span class='moon-value' id='moonNextFull'>--</span>"
+    yield "        <span class='moon-label' id='moonNextPhaseLabel'>Next Phase</span>"
+    yield "        <span class='moon-value' id='moonNextPhaseDate'>--</span>"
     yield "      </div>"
     yield "    </div>"
     yield "    <div class='astro-meta' id='moonMeta'>Loading moon data...</div>"
@@ -1731,8 +1744,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  const riseEl = document.getElementById('moonRiseTime');"
     yield "  const setEl = document.getElementById('moonSetTime');"
     yield "  const litEl = document.getElementById('moonLitPct');"
-    yield "  const nextFullEl = document.getElementById('moonNextFull');"
-    yield "  if (!c || !meta || !riseEl || !setEl || !litEl || !nextFullEl) return;"
+    yield "  const nextPhaseLabelEl = document.getElementById('moonNextPhaseLabel');"
+    yield "  const nextPhaseDateEl = document.getElementById('moonNextPhaseDate');"
+    yield "  if (!c || !meta || !riseEl || !setEl || !litEl || !nextPhaseLabelEl || !nextPhaseDateEl) return;"
     yield "  const ctx = c.getContext('2d');"
     yield "  ctx.clearRect(0,0,c.width,c.height);"
     yield "  const fmtRaw = (v) => (typeof v === 'string' && v.trim() ? v.trim() : '--');"
@@ -1759,7 +1773,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    riseEl.textContent = '--';"
     yield "    setEl.textContent = '--';"
     yield "    litEl.textContent = '--';"
-    yield "    nextFullEl.textContent = '--';"
+    yield "    nextPhaseLabelEl.textContent = 'Next Phase';"
+    yield "    nextPhaseDateEl.textContent = '--';"
     yield "    return;"
     yield "  }"
     yield "  const w = c.width, h = c.height;"
@@ -1812,7 +1827,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  riseEl.textContent = fmtMoonTime(data.moon_rise);"
     yield "  setEl.textContent = fmtMoonTime(data.moon_set);"
     yield "  litEl.textContent = litPct;"
-    yield "  nextFullEl.textContent = fmtMoonDate(data.moon_next_full);"
+    yield "  nextPhaseLabelEl.textContent = fmtRaw(data.moon_next_phase_label) === '--' ? 'Next Phase' : fmtRaw(data.moon_next_phase_label);"
+    yield "  nextPhaseDateEl.textContent = fmtMoonDate(data.moon_next_phase_date);"
     yield "}"
     yield ""
     yield "function drawBiodynamic(data){"

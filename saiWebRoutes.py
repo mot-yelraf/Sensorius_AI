@@ -463,7 +463,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "moon_lit_pct": None,
             "moon_rise": "",
             "moon_set": "",
-            "moon_next_full": "",
+            "moon_next_phase_label": "",
+            "moon_next_phase_date": "",
             "moon_visible_angle": None,
         }
         if (
@@ -619,34 +620,45 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 moon_rise = ""
                 moon_set = ""
 
-            moon_next_full = ""
+            moon_next_phase_label = ""
+            moon_next_phase_date = ""
             try:
-                nf_fn = getattr(_astral_moon, "next_full_moon", None)
-                nf = nf_fn(now_local.date()) if callable(nf_fn) else None
-                if isinstance(nf, datetime):
-                    moon_next_full = nf.date().isoformat()
-                elif hasattr(nf, "isoformat"):
-                    moon_next_full = str(nf.isoformat())
-                if moon_next_full:
-                    moon_next_full = moon_next_full[:10]
-            except Exception:
-                moon_next_full = ""
+                phase_targets = (
+                    ("New Moon", 0.0),
+                    ("1st Quarter", 7.0),
+                    ("Full Moon", 14.0),
+                    ("3rd Quarter", 21.0),
+                )
+                phase_cycle = 28.0
+                current_phase = moon_val % phase_cycle
+                for label, target in phase_targets:
+                    if current_phase < target:
+                        moon_next_phase_label = label
+                        break
+                if not moon_next_phase_label:
+                    moon_next_phase_label = "New Moon"
+                target_phase = next(target for label, target in phase_targets if label == moon_next_phase_label)
 
-            if not moon_next_full:
                 best_date = None
-                for i in range(1, 32):
+                best_dist = None
+                for i in range(1, 33):
                     d = now_local.date() + timedelta(days=i)
                     try:
-                        pv = float(_astral_moon.phase(d))
+                        pv = float(_astral_moon.phase(d)) % phase_cycle
                     except Exception:
                         continue
-                    dist = abs((pv % 28.0) - 14.0)
-                    dist = min(dist, 28.0 - dist)
-                    if dist <= 0.6:
+                    dist = abs(pv - target_phase)
+                    dist = min(dist, phase_cycle - dist)
+                    if best_dist is None or dist < best_dist:
+                        best_dist = dist
                         best_date = d
-                        break
+                        if dist <= 0.05:
+                            break
                 if best_date is not None:
-                    moon_next_full = best_date.isoformat()
+                    moon_next_phase_date = best_date.isoformat()
+            except Exception:
+                moon_next_phase_label = ""
+                moon_next_phase_date = ""
 
             out.update(
                 {
@@ -663,7 +675,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     "moon_lit_pct": moon_lit_pct,
                     "moon_rise": moon_rise,
                     "moon_set": moon_set,
-                    "moon_next_full": moon_next_full,
+                    "moon_next_phase_label": moon_next_phase_label,
+                    "moon_next_phase_date": moon_next_phase_date,
                     "moon_visible_angle": moon_visible_angle,
                 }
             )
