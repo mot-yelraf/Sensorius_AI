@@ -125,6 +125,29 @@ Operational instructions for coding agents working in this repository. This file
 - Avoid broad search-and-replace edits unless the task specifically requires them.
 - Treat changes to MQTT contracts, settings materialization, onboarding, and persistence as compatibility-sensitive.
 
+## Versioning Rule
+
+When you make a code change, update `__version__` in `__init__.py` using:
+
+`v0.<year>.<doy>.<x>`
+
+- `<year>`: 2-digit year
+- `<doy>`: 3-digit day of year
+- `<x>`: per-day incrementing patch counter
+
+Rule:
+
+1. Read the current version from `__init__.py`.
+2. If `<year>` and `<doy>` match today, increment `<x>` by 1.
+3. If the day changed, reset `<x>` to `1`.
+4. Preserve zero padding.
+5. Only update the version string, not unrelated lines.
+
+Example:
+
+- `v0.26.057.2` -> `v0.26.057.3` on the same day
+- `v0.26.057.2` -> `v0.26.058.1` on the next day
+
 ## Agent output expectations
 
 - When making changes, summarize:
