@@ -113,6 +113,17 @@ def _log_timeout_snapshot(task_name: str, elapsed: float, timeout_sec: float, he
         level="warning",
     )
 
+
+def _timeout_stall_hint(heartbeat_items, now: float, timeout_sec: float) -> str:
+    """Classify whether timeout ages look like a task-local hang or loop-wide stall."""
+    snapshot = _task_elapsed_snapshot(heartbeat_items, now)
+    timed_out = [age for _, age in snapshot if age > timeout_sec]
+    if len(timed_out) >= 3:
+        spread = max(timed_out) - min(timed_out)
+        if spread <= 5.0:
+            return "possible_global_event_loop_stall"
+    return "single_task_or_subset"
+
 async def _force_process_exit(reason: str, code: int) -> None:
     """
     Make a best effort to stop cleanly, then HARD-exit the interpreter.
@@ -205,12 +216,31 @@ async def WatchdogMonitor(supervisor, timeout: float | int = 71):
         for task_name, failed_at in failed_items:
             if str(task_name).startswith("Watchdog"):
                 continue
+            policy = (
+                supervisor.get_task_policy(str(task_name))
+                if hasattr(supervisor, "get_task_policy")
+                else {"fatal_on_error": True}
+            )
             # Immediate hard exit on explicit failure
             if isinstance(failed_at, (int, float)):
                 age = max(0.0, now - float(failed_at))
                 reason = f"Task '{task_name}' marked as failed ({age:.1f}s ago)"
             else:
                 reason = f"Task '{task_name}' marked as failed"
+            if not bool(policy.get("fatal_on_error", True)):
+                printDM(f"[Watchdog] Non-fatal task failure: {reason}", location=MODULE, level="warning")
+                if hasattr(supervisor, "report_issue"):
+                    supervisor.report_issue(
+                        str(task_name),
+                        reason,
+                        recommend_restart=True,
+                        issue_type="failed_task",
+                    )
+                try:
+                    failed_tasks.pop(task_name, None)
+                except Exception:
+                    pass
+                continue
             await _force_process_exit(
                 reason=reason,
                 code=EXIT_CODE_FAILED_TASK
@@ -221,6 +251,11 @@ async def WatchdogMonitor(supervisor, timeout: float | int = 71):
         for task_name, last_beat in heartbeat_items:
             if str(task_name).startswith("Watchdog"):
                 continue
+            policy = (
+                supervisor.get_task_policy(str(task_name))
+                if hasattr(supervisor, "get_task_policy")
+                else {"fatal_on_timeout": True}
+            )
 
             try:
                 elapsed = now - float(last_beat)
@@ -228,6 +263,7 @@ async def WatchdogMonitor(supervisor, timeout: float | int = 71):
                 elapsed = float("inf")
 
             if elapsed > timeout_sec:
+                stall_hint = _timeout_stall_hint(heartbeat_items, now, timeout_sec)
                 try:
                     _log_timeout_snapshot(
                         task_name=str(task_name),
@@ -242,6 +278,24 @@ async def WatchdogMonitor(supervisor, timeout: float | int = 71):
                         location=MODULE,
                         level="warning",
                     )
+                fatal_timeout = bool(policy.get("fatal_on_timeout", True))
+                if (not fatal_timeout) and stall_hint != "possible_global_event_loop_stall":
+                    reason = f"'{task_name}' missed watchdog heartbeat for {int(elapsed)}s"
+                    printDM(f"[Watchdog] Non-fatal timeout: {reason}", location=MODULE, level="warning")
+                    if hasattr(supervisor, "report_issue"):
+                        supervisor.report_issue(
+                            str(task_name),
+                            reason,
+                            recommend_restart=True,
+                            issue_type="timeout",
+                        )
+                    try:
+                        heartbeat_map = getattr(supervisor, "time_to_feedthedogs", {})
+                        if isinstance(heartbeat_map, dict):
+                            heartbeat_map[str(task_name)] = now
+                    except Exception:
+                        pass
+                    continue
                 await _force_process_exit(
                     reason=f"'{task_name}' not fed in {int(elapsed)}s (timeout={int(timeout_sec)}s)",
                     code=EXIT_CODE_TIMEOUT

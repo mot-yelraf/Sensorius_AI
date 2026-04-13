@@ -515,6 +515,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             try:
                 if not getattr(ctrl, "is_present", False):
                     continue
+                if bool(getattr(ctrl, "is_remote", False)):
+                    # Remote/Nodus switches get a richer presenter from MQTT/discovery
+                    # below; do not let a stale startup controller shadow it.
+                    continue
 
                 sw_id = getattr(ctrl, "switch_id", None)
                 # Prefer exact id match; if missing and only one local switch exists, use that
@@ -913,7 +917,295 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     # Sort by display label, but keep 'Unknown' last if present
     known_items = [(k, v) for k, v in loc_display_map.items()]
     known_items.sort(key=lambda kv: (kv[1].lower() == "unknown", kv[1].lower()))
-    
+
+    def _render_switch_cards_for_location(location: str, matched_switches: list):
+        """Yield switch cards for one visible location bucket."""
+        if DEBUG and matched_switches:
+            printDM(
+                f"[render_dashboard] switches @ '{location}' matched {len(matched_switches)} controller(s)",
+                location="saiHtml",
+            )
+
+        rendered_swids_here: set[str] = set()
+        switch_rows: list[dict] = []
+        switch_ids_here: list[str] = []
+        label_counts: dict[str, int] = defaultdict(int)
+
+        for switch_ctrl in matched_switches:
+            sw_id: str = (getattr(switch_ctrl, "switch_id", "") or "").strip()
+            sw_id_key: str = sw_id.lower() if sw_id else "__no_switch_id__"
+
+            if sw_id_key in rendered_swids_here:
+                if DEBUG:
+                    printDM(
+                        f"[render_dashboard] skip duplicate render of switch '{sw_id}' in location '{location}'",
+                        location="saiHtml",
+                    )
+                continue
+            rendered_swids_here.add(sw_id_key)
+            if sw_id:
+                switch_ids_here.append(sw_id)
+
+            render_labels = []
+
+            try:
+                doc = sw_mgr.load(sw_id) or {}
+                sw_blk = doc.get("Switch", {}) if isinstance(doc, dict) else {}
+
+                sw_type = str(sw_blk.get("TYPE", "") or "").strip().lower()
+                has_en_keys = (
+                    ("SWITCH_1_ENABLE_PIN" in sw_blk) or ("SWITCH_2_ENABLE_PIN" in sw_blk)
+                    or ("SWITCH_1_EN" in sw_blk) or ("SWITCH_2_EN" in sw_blk)
+                )
+
+                if sw_type in ("picow", "pico2w", "nodus", "remote", "mqtt") or has_en_keys:
+                    tmp = []
+                    for idx in range(1, 9):
+                        label = (sw_blk.get(f"SWITCH_{idx}_LABEL") or "").strip()
+                        en_val = _enable_field_value(sw_blk, idx)
+                        enabled = _has_install_marker(en_val)
+                        if label and enabled:
+                            tmp.append(label)
+                    if tmp:
+                        render_labels = tmp
+                else:
+                    tmp = []
+                    for n in range(1, 33):
+                        label = (str(sw_blk.get(f"SWITCH_{n}_LABEL", "") or "").strip())
+                        pin = sw_blk.get(f"SWITCH_{n}_PIN", None)
+                        if not label:
+                            continue
+                        if isinstance(pin, (int, float)):
+                            tmp.append(label)
+                    if tmp:
+                        render_labels = tmp
+
+            except Exception:
+                pass
+
+            if not render_labels:
+                render_labels = list(getattr(switch_ctrl, "switches", []))
+            try:
+                is_generic_only = bool(render_labels) and all(
+                    re.match(r"(?i)^relay\s+\d+$", str(lbl or "").strip()) for lbl in render_labels
+                )
+            except Exception:
+                is_generic_only = False
+            candidate_map: dict[str, str] = {}
+            try:
+                discovered_map = dict(discovered_switches.get(sw_id, {}) or {})
+                db_map = _db_label_map_for_switch(sw_id)
+                enabled_map = _channel_map_from_switch_settings(sw_id)
+                if discovered_map:
+                    candidate_map.update(discovered_map)
+                for lbl, cid in db_map.items():
+                    candidate_map.setdefault(lbl, cid)
+                if enabled_map:
+                    enabled_labels = set(enabled_map.keys())
+                    if candidate_map:
+                        candidate_map = {lbl: cid for lbl, cid in candidate_map.items() if lbl in enabled_labels}
+                    if not candidate_map:
+                        candidate_map = dict(enabled_map)
+            except Exception:
+                candidate_map = {}
+
+            if (not render_labels) or is_generic_only:
+                if candidate_map:
+                    render_labels = list(candidate_map.keys())
+            elif candidate_map:
+                # Merge discovery/DB labels into settings-derived labels so stale
+                # local shadow config cannot hide newly added remote channels.
+                merged_labels = list(render_labels)
+                seen_labels = {str(lbl or "").strip().lower() for lbl in merged_labels if str(lbl or "").strip()}
+                for lbl in candidate_map.keys():
+                    lbl_text = str(lbl or "").strip()
+                    if not lbl_text or lbl_text.lower() in seen_labels:
+                        continue
+                    merged_labels.append(lbl_text)
+                    seen_labels.add(lbl_text.lower())
+                render_labels = merged_labels
+
+            if not render_labels:
+                switch_rows.append({"empty": True, "switch_ctrl": switch_ctrl, "sw_id": sw_id})
+                continue
+
+            for label in render_labels:
+                label_counts[str(label or "").strip().lower()] += 1
+                switch_rows.append({
+                    "empty": False,
+                    "switch_ctrl": switch_ctrl,
+                    "sw_id": sw_id,
+                    "label": label,
+                })
+
+        if not switch_rows:
+            return
+
+        switch_ids_attr = ",".join(switch_ids_here)
+        multi_switch_card = len(switch_ids_here) > 1
+        header_id = _safe(f"{'_'.join(switch_ids_here) if switch_ids_here else location}_header")
+        yield f"<div class='switch-metric-container' data-switch-ids='{switch_ids_attr}'>"
+        yield "<div style='text-align:center; width:100%; margin-top:-1.5rem; margin-bottom:-1.0rem;'>"
+        if not multi_switch_card and switch_ids_here:
+            header_sw_id = switch_ids_here[0]
+            yield f"<h3 id='{header_id}'>{header_sw_id.upper()} "
+            yield f"  <a href='javascript:void(0)' onclick='editSwitchSettings(\"{header_sw_id}\")' title='Open {header_sw_id} Settings' style='margin-left:2px; margin-right:8px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
+            yield from _settings_gear_svg_lines(indent="    ")
+            yield "  </a>"
+            yield f"{location}</h3>"
+        else:
+            header_devices = ", ".join(sw.upper() for sw in switch_ids_here if sw)
+            yield f"<h3 id='{header_id}'>SWITCHES <span style='font-size:0.72em; font-weight:normal;'>{header_devices}</span> {location}</h3>"
+        yield "</div>"
+
+        yield "<div class='switch-container'>"
+        yield "<div class='switch-view'>"
+        yield "<table class='switch-table'>"
+        yield "<thead><tr>"
+        yield "<th>Switch</th><th>State</th><th>Events</th>"
+        yield "</tr></thead>"
+        yield "<tbody>"
+
+        if not any(not row.get("empty") for row in switch_rows):
+            yield "<tr><td colspan='3' style='opacity:0.7;'>No enabled switch channels</td></tr>"
+
+        for row in switch_rows:
+            if row.get("empty"):
+                continue
+
+            switch_ctrl = row["switch_ctrl"]
+            sw_id = row["sw_id"]
+            label = row["label"]
+            safe_label = label.lower().replace(" ", "_")
+            is_on = bool(getattr(switch_ctrl, "last_state", {}).get(label, False))
+            if DEBUG and str(sw_id).strip().lower() == "sensoria-hub-0" and str(label).strip().lower() == "fan":
+                printDM(
+                    f"[render_dashboard] {sw_id}::{label} render last_state={is_on}",
+                    location=MODULE,
+                )
+            state_str = "on" if is_on else "off"
+            current_state_text = " ON" if is_on else "OFF"
+            override_enabled = bool(getattr(switch_ctrl, "override_script", {}).get(label, False))
+            checked_attr = "checked" if override_enabled else ""
+            last_time_str = getattr(switch_ctrl, "last_set_time", {}).get(label, "")
+
+            channel_id = ""
+            try:
+                channel_id = str((getattr(switch_ctrl, "channel_id_for_label", {}) or {}).get(label, "") or "").strip()
+            except Exception:
+                channel_id = ""
+            action_sid = channel_id or sw_id
+            switch_key = f"{action_sid}::{label}" if action_sid else f"::{label}"
+            box_id = f"{sw_id}-{safe_label}_box" if sw_id else f"{safe_label}_box"
+            state_id = f"{sw_id}-{safe_label}_state" if sw_id else f"{safe_label}_state"
+            time_id = f"{sw_id}-{safe_label}_time" if sw_id else f"{safe_label}_time"
+            label_norm = (label or "").strip()
+            try:
+                timer_state = dict(getattr(switch_ctrl, "get_auto_off_status")(label_norm) or {})
+            except Exception:
+                timer_state = {}
+            timer_seconds = int(timer_state.get("timer_seconds", 0) or 0)
+            timer_remaining = int(timer_state.get("timer_remaining_s", 0) or 0)
+            timer_ui_key = f"{getattr(switch_ctrl, 'switch_id', '')}::{label_norm}" if getattr(switch_ctrl, "switch_id", "") else f"::{label_norm}"
+            timer_safe_key = _safe(f"{getattr(switch_ctrl,'switch_id','')}_{label_norm}_automation")
+            timer_input_id = f"{timer_safe_key}_timer_input"
+            timer_status_id = f"{timer_safe_key}_timer_status"
+            timer_editor_id = f"{timer_safe_key}_timer_editor"
+            if timer_seconds <= 0:
+                timer_status_text = "Timer disabled"
+            elif is_on and timer_remaining > 0:
+                timer_status_text = f"Countdown: {timer_remaining}s"
+            else:
+                timer_status_text = f"Timer set: {timer_seconds}s"
+
+            try:
+                from saiAutomationManager import AutomationManager
+                am = AutomationManager()
+                sid = getattr(switch_ctrl, "switch_id", "") or ""
+                switch_key_full = f"{sid}::{label_norm}" if sid else f"::{label_norm}"
+                rule_enabled = am.get_advanced_enabled_for_switch_key(sid, switch_key_full)
+            except Exception:
+                rule_enabled = False
+
+            automation_enabled = bool(rule_enabled)
+            state_cell_classes = "switch-state-td"
+            if automation_enabled:
+                state_cell_classes += " automation-enabled"
+
+            label_key = label_norm.lower()
+            display_label = label
+            if label_counts.get(label_key, 0) > 1 and sw_id:
+                display_label = f"{label} ({sw_id.upper()})"
+
+            label_cell = html_escape(display_label)
+            if multi_switch_card and sw_id:
+                label_cell += (
+                    f" <a href='javascript:void(0)' onclick='editSwitchSettings(\"{sw_id}\")' "
+                    f"title='Open {sw_id} Settings' style='margin-left:4px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
+                )
+                label_cell += "".join(_settings_gear_svg_lines(indent="", aria_hidden=True))
+                label_cell += "</a>"
+
+            yield "<tr>"
+            yield f"<td>{label_cell}</td>"
+            yield (
+                f"<td class='{state_cell_classes}' "
+                f"data-automation-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' "
+                f"data-automation-label='{label_norm}' "
+                f"data-automation-enabled='{'1' if automation_enabled else '0'}'>"
+            )
+            yield "<div class='switch-state-cell'>"
+            yield (
+                f"<button "
+                f"  id='{box_id}_btn' "
+                f"  class='button {'green' if is_on else 'black'}' "
+                f"  title='{'Automation enabled. Disable automation to toggle manually.' if automation_enabled else f'Toggle state for {label}'}' "
+                f"  data-switch-name='{label}' "
+                f"  data-switch-key='{switch_key}' "
+                f"  data-switch-id='{sw_id}' "
+                f"  data-automation-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' "
+                f"  data-automation-label='{label_norm}' "
+                f"  data-automation-enabled='{'1' if automation_enabled else '0'}' "
+                f"  data-state='{state_str}' "
+                f"  onclick='toggleSwitchInline(this)'>"
+                f"{'On' if is_on else 'Off'}"
+                f"</button>"
+            )
+            yield "".join((
+                f"<div class='switch-timer-panel' data-switch-ui-key='{timer_ui_key}' data-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' data-label='{label_norm}'>",
+                f"  <div class='switch-timer-summary'>",
+                f"    <div id='{timer_status_id}' class='switch-timer-status' data-switch-ui-key='{timer_ui_key}'>{timer_status_text}</div>",
+                f"    <button type='button' class='switch-timer-edit-btn' title='Edit timer for {label_norm}' aria-label='Edit timer for {label_norm}' ",
+                f"      data-switch-ui-key='{timer_ui_key}' data-editor-id='{timer_editor_id}'>",
+                "".join(_settings_gear_svg_lines(indent="      ", aria_hidden=True)),
+                f"    </button>",
+                f"  </div>",
+                f"  <div id='{timer_editor_id}' class='switch-timer-editor' style='display:none;'>",
+                f"    <input id='{timer_input_id}' class='switch-timer-input' type='number' min='0' max='9999' step='30' inputmode='numeric' ",
+                f"      data-switch-ui-key='{timer_ui_key}' data-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' data-label='{label_norm}' value='{timer_seconds}' />",
+                f"    <button type='button' class='button blue switch-timer-confirm-btn' data-input-id='{timer_input_id}'>Ok</button>",
+                f"    <button type='button' class='button black switch-timer-cancel-btn' data-input-id='{timer_input_id}' data-editor-id='{timer_editor_id}'>Cancel</button>",
+                f"  </div>",
+                f"</div>",
+            ))
+            yield "</div>"
+            yield "</td>"
+
+            events_id = _safe(f"{sw_id}_{label_norm}_events") if sw_id else f"{safe_label}_events"
+            events_list_id = f"{events_id}_list"
+            yield "<td>"
+            yield f"  <div id='{events_id}' class='switch-events' role='listbox' aria-label='Recent switch events'>"
+            yield f"    <ul id='{events_list_id}' class='switch-events-list' data-switch-key='{switch_key}'></ul>"
+            yield f"  </div>"
+            yield "</td>"
+            yield "</tr>"
+
+        yield "</tbody>"
+        yield "</table>"
+        yield "</div>"  # .switch-view
+        yield "</div>"  # .switch-container
+        yield "</div>"  # .switch-metric-container
+
     # --- measurement status helpers (direct vs MQTT) ---
     def _get_sensor_map():
         """
@@ -1321,278 +1613,35 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             yield "</div>"  # metric-stats
             yield "</div>"  # metric-container
 
-        matched_switches = switches_by_loc.get(_norm_loc(location), [])
-
-        if DEBUG and matched_switches:
-            printDM(f"[render_dashboard] {sid} @ '{location}' matched {len(matched_switches)} switch controller(s)", location="saiHtml")
-
-        # Collapse every switch controller at the same location into one
-        # rendered card so the location shows a single switch table.
-        _rendered_swids_here: set[str] = set()
-        switch_rows: list[dict] = []
-        switch_ids_here: list[str] = []
-        label_counts: dict[str, int] = defaultdict(int)
-
-        for switch_ctrl in matched_switches:
-            sw_id: str = (getattr(switch_ctrl, "switch_id", "") or "").strip()
-            sw_id_key: str = sw_id.lower() if sw_id else "__no_switch_id__"
-
-            if sw_id_key in _rendered_swids_here:
-                if DEBUG:
-                    printDM(f"[render_dashboard] skip duplicate render of switch '{sw_id}' in location '{location}'", location="saiHtml")
-                continue
-            _rendered_swids_here.add(sw_id_key)
-            if sw_id:
-                switch_ids_here.append(sw_id)
-
-            render_labels = []
-
-            try:
-                doc = sw_mgr.load(sw_id) or {}
-                sw_blk = doc.get("Switch", {}) if isinstance(doc, dict) else {}
-
-                sw_type = str(sw_blk.get("TYPE", "") or "").strip().lower()
-                has_en_keys = (
-                    ("SWITCH_1_ENABLE_PIN" in sw_blk) or ("SWITCH_2_ENABLE_PIN" in sw_blk)
-                    or ("SWITCH_1_EN" in sw_blk) or ("SWITCH_2_EN" in sw_blk)
-                )
-
-                if sw_type in ("picow", "pico2w", "nodus", "remote", "mqtt") or has_en_keys:
-                    pairs = [("SWITCH_1_LABEL", 1), ("SWITCH_2_LABEL", 2)]
-                    tmp = []
-                    for lbl_key, idx in pairs:
-                        label = (sw_blk.get(lbl_key) or "").strip()
-                        en_val = _enable_field_value(sw_blk, idx)
-                        enabled = _has_install_marker(en_val)
-                        if label and enabled:
-                            tmp.append(label)
-                    if tmp:
-                        render_labels = tmp
-                else:
-                    tmp = []
-                    for n in range(1, 33):
-                        label = (str(sw_blk.get(f"SWITCH_{n}_LABEL", "") or "").strip())
-                        pin   = sw_blk.get(f"SWITCH_{n}_PIN", None)
-                        if not label:
-                            continue
-                        if isinstance(pin, (int, float)):
-                            tmp.append(label)
-                    if tmp:
-                        render_labels = tmp
-
-            except Exception:
-                pass
-
-            if not render_labels:
-                render_labels = list(getattr(switch_ctrl, "switches", []))
-            try:
-                is_generic_only = bool(render_labels) and all(
-                    re.match(r"(?i)^relay\s+\d+$", str(lbl or "").strip()) for lbl in render_labels
-                )
-            except Exception:
-                is_generic_only = False
-            if (not render_labels) or is_generic_only:
-                try:
-                    discovered_map = dict(discovered_switches.get(sw_id, {}) or {})
-                    db_map = _db_label_map_for_switch(sw_id)
-                    enabled_map = _channel_map_from_switch_settings(sw_id)
-                    candidate_map: dict[str, str] = {}
-                    if discovered_map:
-                        candidate_map.update(discovered_map)
-                    for lbl, cid in db_map.items():
-                        candidate_map.setdefault(lbl, cid)
-                    if enabled_map:
-                        enabled_labels = set(enabled_map.keys())
-                        if candidate_map:
-                            candidate_map = {lbl: cid for lbl, cid in candidate_map.items() if lbl in enabled_labels}
-                        if not candidate_map:
-                            candidate_map = dict(enabled_map)
-                    if candidate_map:
-                        render_labels = list(candidate_map.keys())
-                except Exception:
-                    pass
-
-            if not render_labels:
-                switch_rows.append({"empty": True, "switch_ctrl": switch_ctrl, "sw_id": sw_id})
-                continue
-
-            for label in render_labels:
-                label_counts[str(label or "").strip().lower()] += 1
-                switch_rows.append({
-                    "empty": False,
-                    "switch_ctrl": switch_ctrl,
-                    "sw_id": sw_id,
-                    "label": label,
-                })
-
-        if switch_rows:
-            switch_ids_attr = ",".join(switch_ids_here)
-            multi_switch_card = len(switch_ids_here) > 1
-            header_id = _safe(f"{'_'.join(switch_ids_here) if switch_ids_here else location}_header")
-            yield f"<div class='switch-metric-container' data-switch-ids='{switch_ids_attr}'>"
-            yield f"<div style='text-align:center; width:100%; margin-top:-1.5rem; margin-bottom:-1.0rem;'>"
-            if not multi_switch_card and switch_ids_here:
-                header_sw_id = switch_ids_here[0]
-                yield f"<h3 id='{header_id}'>{header_sw_id.upper()} "
-                yield f"  <a href='javascript:void(0)' onclick='editSwitchSettings(\"{header_sw_id}\")' title='Open {header_sw_id} Settings' style='margin-left:2px; margin-right:8px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
-                yield from _settings_gear_svg_lines(indent="    ")
-                yield "  </a>"
-                yield f"{location}</h3>"
-            else:
-                header_devices = ", ".join(sw.upper() for sw in switch_ids_here if sw)
-                yield f"<h3 id='{header_id}'>SWITCHES <span style='font-size:0.72em; font-weight:normal;'>{header_devices}</span> {location}</h3>"
-            yield "</div>"
-
-            yield "<div class='switch-container'>"
-            yield "<div class='switch-view'>"
-            yield "<table class='switch-table'>"
-            yield "<thead><tr>"
-            yield "<th>Switch</th><th>State</th><th>Events</th>"
-            yield "</tr></thead>"
-            yield "<tbody>"
-
-            if not any(not row.get("empty") for row in switch_rows):
-                yield "<tr><td colspan='3' style='opacity:0.7;'>No enabled switch channels</td></tr>"
-
-            for row in switch_rows:
-                if row.get("empty"):
-                    continue
-
-                switch_ctrl = row["switch_ctrl"]
-                sw_id = row["sw_id"]
-                label = row["label"]
-                safe_label = label.lower().replace(" ", "_")
-                is_on = bool(getattr(switch_ctrl, "last_state", {}).get(label, False))
-                if DEBUG and str(sw_id).strip().lower() == "sensoria-hub-0" and str(label).strip().lower() == "fan":
-                    printDM(
-                        f"[render_dashboard] {sw_id}::{label} render last_state={is_on}",
-                        location=MODULE,
-                    )
-                state_str = "on" if is_on else "off"
-                current_state_text = " ON" if is_on else "OFF"
-                override_enabled = bool(getattr(switch_ctrl, "override_script", {}).get(label, False))
-                checked_attr = "checked" if override_enabled else ""
-                last_time_str = getattr(switch_ctrl, "last_set_time", {}).get(label, "")
-
-                channel_id = ""
-                try:
-                    channel_id = str((getattr(switch_ctrl, "channel_id_for_label", {}) or {}).get(label, "") or "").strip()
-                except Exception:
-                    channel_id = ""
-                action_sid = channel_id or sw_id
-                switch_key = f"{action_sid}::{label}" if action_sid else f"::{label}"
-                box_id  = f"{sw_id}-{safe_label}_box" if sw_id else f"{safe_label}_box"
-                state_id= f"{sw_id}-{safe_label}_state" if sw_id else f"{safe_label}_state"
-                time_id = f"{sw_id}-{safe_label}_time"  if sw_id else f"{safe_label}_time"
-                label_norm = (label or "").strip()
-                try:
-                    timer_state = dict(getattr(switch_ctrl, "get_auto_off_status")(label_norm) or {})
-                except Exception:
-                    timer_state = {}
-                timer_seconds = int(timer_state.get("timer_seconds", 0) or 0)
-                timer_remaining = int(timer_state.get("timer_remaining_s", 0) or 0)
-                timer_ui_key = f"{getattr(switch_ctrl, 'switch_id', '')}::{label_norm}" if getattr(switch_ctrl, "switch_id", "") else f"::{label_norm}"
-                timer_safe_key = _safe(f"{getattr(switch_ctrl,'switch_id','')}_{label_norm}_automation")
-                timer_input_id = f"{timer_safe_key}_timer_input"
-                timer_status_id = f"{timer_safe_key}_timer_status"
-                timer_editor_id = f"{timer_safe_key}_timer_editor"
-                if timer_seconds <= 0:
-                    timer_status_text = "Timer disabled"
-                elif is_on and timer_remaining > 0:
-                    timer_status_text = f"Countdown: {timer_remaining}s"
-                else:
-                    timer_status_text = f"Timer set: {timer_seconds}s"
-
-                try:
-                    from saiAutomationManager import AutomationManager
-                    am = AutomationManager()
-                    sid = getattr(switch_ctrl, "switch_id", "") or ""
-                    switch_key_full = f"{sid}::{label_norm}" if sid else f"::{label_norm}"
-                    rule_enabled = am.get_advanced_enabled_for_switch_key(sid, switch_key_full)
-                except Exception:
-                    rule_enabled = False
-
-                automation_enabled = bool(rule_enabled)
-                state_cell_classes = "switch-state-td"
-                if automation_enabled:
-                    state_cell_classes += " automation-enabled"
-
-                label_key = label_norm.lower()
-                display_label = label
-                if label_counts.get(label_key, 0) > 1 and sw_id:
-                    display_label = f"{label} ({sw_id.upper()})"
-
-                label_cell = html_escape(display_label)
-                if multi_switch_card and sw_id:
-                    label_cell += (
-                        f" <a href='javascript:void(0)' onclick='editSwitchSettings(\"{sw_id}\")' "
-                        f"title='Open {sw_id} Settings' style='margin-left:4px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
-                    )
-                    label_cell += "".join(_settings_gear_svg_lines(indent="", aria_hidden=True))
-                    label_cell += "</a>"
-
-                yield "<tr>"
-                yield f"<td>{label_cell}</td>"
-                yield (
-                    f"<td class='{state_cell_classes}' "
-                    f"data-automation-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' "
-                    f"data-automation-label='{label_norm}' "
-                    f"data-automation-enabled='{'1' if automation_enabled else '0'}'>"
-                )
-                yield "<div class='switch-state-cell'>"
-                yield (
-                    f"<button "
-                    f"  id='{box_id}_btn' "
-                    f"  class='button {'green' if is_on else 'black'}' "
-                    f"  title='{'Automation enabled. Disable automation to toggle manually.' if automation_enabled else f'Toggle state for {label}'}' "
-                    f"  data-switch-name='{label}' "
-                    f"  data-switch-key='{switch_key}' "
-                    f"  data-switch-id='{sw_id}' "
-                    f"  data-automation-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' "
-                    f"  data-automation-label='{label_norm}' "
-                    f"  data-automation-enabled='{'1' if automation_enabled else '0'}' "
-                    f"  data-state='{state_str}' "
-                    f"  onclick='toggleSwitchInline(this)'>"
-                    f"{'On' if is_on else 'Off'}"
-                    f"</button>"
-                )
-                yield "".join((
-                    f"<div class='switch-timer-panel' data-switch-ui-key='{timer_ui_key}' data-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' data-label='{label_norm}'>",
-                    f"  <div class='switch-timer-summary'>",
-                    f"    <div id='{timer_status_id}' class='switch-timer-status' data-switch-ui-key='{timer_ui_key}'>{timer_status_text}</div>",
-                    f"    <button type='button' class='switch-timer-edit-btn' title='Edit timer for {label_norm}' aria-label='Edit timer for {label_norm}' ",
-                    f"      data-switch-ui-key='{timer_ui_key}' data-editor-id='{timer_editor_id}'>",
-                    "".join(_settings_gear_svg_lines(indent="      ", aria_hidden=True)),
-                    f"    </button>",
-                    f"  </div>",
-                    f"  <div id='{timer_editor_id}' class='switch-timer-editor' style='display:none;'>",
-                    f"    <input id='{timer_input_id}' class='switch-timer-input' type='number' min='0' max='9999' step='30' inputmode='numeric' ",
-                    f"      data-switch-ui-key='{timer_ui_key}' data-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' data-label='{label_norm}' value='{timer_seconds}' />",
-                    f"    <button type='button' class='button blue switch-timer-confirm-btn' data-input-id='{timer_input_id}'>Ok</button>",
-                    f"    <button type='button' class='button black switch-timer-cancel-btn' data-input-id='{timer_input_id}' data-editor-id='{timer_editor_id}'>Cancel</button>",
-                    f"  </div>",
-                    f"</div>",
-                ))
-                yield "</div>"
-                yield "</td>"
-
-                events_id = _safe(f"{sw_id}_{label_norm}_events") if sw_id else f"{safe_label}_events"
-                events_list_id = f"{events_id}_list"
-                yield "<td>"
-                yield f"  <div id='{events_id}' class='switch-events' role='listbox' aria-label='Recent switch events'>"
-                yield f"    <ul id='{events_list_id}' class='switch-events-list' data-switch-key='{switch_key}'></ul>"
-                yield f"  </div>"
-                yield "</td>"
-                yield "</tr>"
-
-            yield "</tbody>"
-            yield "</table>"
-            yield "</div>"  # .switch-view
-            yield "</div>"  # .switch-container
-            yield "</div>"  # .switch-metric-container
-
         yield "</div>"  # sensor-row
         yield "</div>"  # sensor-group
+
+    selected_switch_locations: list[tuple[str, str]] = []
+    if isinstance(sensor_id, str) and sensor_id.startswith("loc:"):
+        loc_disp = sensor_id[4:].strip()
+        loc_norm = _norm_loc(loc_disp)
+        if switches_by_loc.get(loc_norm):
+            selected_switch_locations.append((loc_norm, loc_display_map.get(loc_norm, loc_disp or "Unknown")))
+    elif sensor_id and sensor_id != "All":
+        loc_disp = (sensor_locations or {}).get(sensor_id) or ""
+        loc_norm = _norm_loc(loc_disp)
+        if switches_by_loc.get(loc_norm):
+            selected_switch_locations.append((loc_norm, loc_display_map.get(loc_norm, loc_disp or "Unknown")))
+    else:
+        for loc_norm, disp in known_items:
+            if switches_by_loc.get(loc_norm):
+                selected_switch_locations.append((loc_norm, disp))
+
+    if selected_switch_locations:
+        yield "<div class='sensor-group switch-group' id='group_switches' style='width:100%; flex:0 0 100%; display:block;'>"
+        yield "<div class='sensor-group-header'>"
+        yield "<h3 id='switches_header' class='sensor-group-title'>SWITCHES</h3>"
+        yield "</div>"
+        yield "<div class='sensor-row switches-row' id='row_switches'>"
+        for loc_norm, disp in selected_switch_locations:
+            yield from _render_switch_cards_for_location(disp, switches_by_loc.get(loc_norm, []))
+        yield "</div>"
+        yield "</div>"
 
     # --- z-index so toasts always appear above stacked modals ---
     yield "<style>"
@@ -2323,6 +2372,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield " const byGraphModal = document.getElementById('graphModal')?.parentElement || null;" 
     yield " const dashboard = document.querySelector('.dashboard');"
     yield " const parent = dashboard || (existingRow && existingRow.parentElement) || byGraphModal || document.body;" 
+    yield " const switchGroup = document.getElementById('group_switches');"
     yield ""
 
     yield "  const groupId = `group_${sid}`;"
@@ -2334,7 +2384,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    group.style.width = '100%';"
     yield "    group.style.flex = '0 0 100%';"
     yield "    group.style.display = 'block';"
-    yield "    parent.appendChild(group);"
+    yield "    if (switchGroup && switchGroup.parentElement === parent) parent.insertBefore(group, switchGroup);"
+    yield "    else parent.appendChild(group);"
     yield "  }"
     yield ""
 
@@ -3624,6 +3675,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const el = groups.get(String(sid || ''));"
     yield "    if (el) dashboard.appendChild(el);"
     yield "  });"
+    yield "  const switchGroup = document.getElementById('group_switches');"
+    yield "  if (switchGroup) dashboard.appendChild(switchGroup);"
     yield "};"
     yield "window.reorderSensorGroup = async function(sensorId, direction){"
     yield "  const sid = String(sensorId || '').trim();"

@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 from collections import OrderedDict
 from saiLocalIdentity import extract_local_host_id_from_sensor_id, resolve_persisted_host_serial
+from saiRuntimePaths import resolve_runtime_base_dir
 
 try:
     import tomllib  # Python 3.11+ (read)
@@ -52,8 +53,8 @@ class SensorSettingsManager:
     _TEMPLATE_DIR_NAMES = {"factory", "template", "templates"}
 
     def __init__(self, base_dir_name: str = _default_base_dir):
-        # r-string style and resolved absolute path
-        self.base_dir = Path(rf"{base_dir_name}").expanduser().resolve()
+        # Bare runtime roots live under ~/Sensorius, not the source checkout.
+        self.base_dir = resolve_runtime_base_dir(base_dir_name)
         self.base_dir.mkdir(parents=True, exist_ok=True)
         if DEBUG:
             printDM(f"Initialized with base_dir={self.base_dir}", location=MODULE)

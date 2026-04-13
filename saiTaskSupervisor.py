@@ -30,9 +30,19 @@ class TaskSupervisor:
         self.pause_event.set()
         self.time_to_feedthedogs = {}
         self.failed_tasks = {}
+        self.task_policies = {}
+        self.task_issues = {}
         self._last_feed_log = {}
 
-    def add(self, coro_func, *args, name="Unnamed", **kwargs):
+    def add(
+        self,
+        coro_func,
+        *args,
+        name="Unnamed",
+        fatal_on_timeout=True,
+        fatal_on_error=True,
+        **kwargs,
+    ):
         if self._started:
             raise RuntimeError("Cannot add tasks after supervisor has started")
         if name in self._task_names:
@@ -45,6 +55,10 @@ class TaskSupervisor:
             "name": name
         })
         self.time_to_feedthedogs[name] = time.monotonic()
+        self.task_policies[name] = {
+            "fatal_on_timeout": bool(fatal_on_timeout),
+            "fatal_on_error": bool(fatal_on_error),
+        }
 
     async def runner(self, func, args, kwargs, name):
         while not self._shutdown:
@@ -108,6 +122,53 @@ class TaskSupervisor:
 
     async def cancel_all(self):
         await self.shutdown()
+
+    def get_task_policy(self, task_name):
+        """Return watchdog policy for a supervised task."""
+        policy = self.task_policies.get(task_name) or {}
+        return {
+            "fatal_on_timeout": bool(policy.get("fatal_on_timeout", True)),
+            "fatal_on_error": bool(policy.get("fatal_on_error", True)),
+        }
+
+    def report_issue(self, task_name, message, *, recommend_restart=True, issue_type="warning"):
+        """Record a recoverable runtime issue for UI/status consumers."""
+        if not task_name:
+            return
+        now = time.monotonic()
+        current = self.task_issues.get(task_name) or {}
+        self.task_issues[task_name] = {
+            "task_name": str(task_name),
+            "message": str(message or "").strip(),
+            "recommend_restart": bool(recommend_restart),
+            "issue_type": str(issue_type or "warning"),
+            "count": int(current.get("count", 0)) + 1,
+            "last_seen_monotonic": now,
+            "first_seen_monotonic": float(current.get("first_seen_monotonic", now)),
+        }
+
+    def runtime_status_snapshot(self):
+        """Return a lightweight snapshot of watchdog policy and recoverable issues."""
+        issues = []
+        for task_name in sorted(self.task_issues.keys()):
+            issue = self.task_issues.get(task_name) or {}
+            issues.append(
+                {
+                    "task_name": task_name,
+                    "message": str(issue.get("message", "")),
+                    "recommend_restart": bool(issue.get("recommend_restart", True)),
+                    "issue_type": str(issue.get("issue_type", "warning")),
+                    "count": int(issue.get("count", 0)),
+                }
+            )
+        policies = {
+            name: self.get_task_policy(name)
+            for name in sorted(self.task_policies.keys())
+        }
+        return {
+            "issues": issues,
+            "policies": policies,
+        }
 
     def feedthedogs(self, task_name, error=False):
         if task_name in self.time_to_feedthedogs and task_name != "Watchdog Monitor":

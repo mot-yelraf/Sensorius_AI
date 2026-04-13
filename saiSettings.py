@@ -28,6 +28,7 @@ from pathlib import Path
 from collections import OrderedDict
 from saiUtils import debug_enabled, printDM, get_pi_network_info, get_time_settings
 from saiSensorSettingsManager import SensorSettingsManager
+from saiRuntimePaths import resolve_runtime_base_dir
 
 MODULE = "saiSettings"
 DEBUG = debug_enabled(MODULE)
@@ -75,7 +76,7 @@ class saiSettings:
         self.device_id = device_id
 
         # Resolve base dir (absolute)
-        self.base_dir = Path(rf"{base_dir}").expanduser().resolve()
+        self.base_dir = resolve_runtime_base_dir(base_dir)
 
         # Candidate paths
         self._new_path = (self.base_dir / self.device_id / self.STANDARD_FILENAME) if self.device_id else None
@@ -639,7 +640,7 @@ class saiSettings:
         Read AP credentials from:
         system_settings/factory_nodus/settings.toml.def
         """
-        root = Path(base_dir or cls.DEFAULT_BASE_DIR).expanduser()
+        root = resolve_runtime_base_dir(base_dir or cls.DEFAULT_BASE_DIR)
         settings_dir = root / "factory_nodus"
         path = settings_dir / f"{cls.STANDARD_FILENAME}.def"
         if not path.exists():

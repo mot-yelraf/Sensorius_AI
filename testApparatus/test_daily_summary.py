@@ -6,6 +6,7 @@ window refresh behavior for the persisted daily summary service.
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from datetime import date
 from pathlib import Path
@@ -158,3 +159,49 @@ def test_ensure_summaries_for_window_crosses_month_boundary(monkeypatch):
     assert "2026-04-22" in logger.saved
     assert calls[0] == "2026-03-25"
     assert calls[-1] == "2026-04-22"
+
+
+class _FakeSupervisor:
+    def __init__(self):
+        self.feed_calls = []
+        self.issues = []
+
+    def feedthedogs(self, name, error=False):
+        self.feed_calls.append((name, bool(error)))
+
+    def report_issue(self, task_name, message, *, recommend_restart=True, issue_type="warning"):
+        self.issues.append(
+            {
+                "task_name": task_name,
+                "message": message,
+                "recommend_restart": recommend_restart,
+                "issue_type": issue_type,
+            }
+        )
+
+
+def test_daily_summary_run_reports_recoverable_error_without_marking_failed(monkeypatch):
+    service = saiDailySummary.DailySummaryService(
+        settings=_FakeSettings(),
+        data_logger=_FakeLogger(),
+        supervisor=_FakeSupervisor(),
+    )
+
+    def _boom(_start_date, *, days=saiDailySummary.DEFAULT_FORECAST_DAYS, refresh_start=True):
+        raise RuntimeError("summary write failed")
+
+    async def _stop_sleep(_total_sleep_s, heartbeat_every_s=20.0):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(service, "ensure_summaries_for_window", _boom)
+    monkeypatch.setattr(service, "_sleep_with_heartbeat", _stop_sleep)
+
+    try:
+        asyncio.run(service.run())
+    except asyncio.CancelledError:
+        pass
+
+    assert ("Daily Summary Writer", True) not in service.supervisor.feed_calls
+    assert service.supervisor.issues
+    assert service.supervisor.issues[0]["task_name"] == "Daily Summary Writer"
+    assert service.supervisor.issues[0]["recommend_restart"] is False

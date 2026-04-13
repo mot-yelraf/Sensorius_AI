@@ -487,11 +487,15 @@ async def main():
             if client.broker:
                 supervisor.add(
                     lambda c=client: supervised_task(f"{c.sensor.sensor_id} MQTT Publisher", c.mqtt_publish_data, supervisor),
-                    name=f"{client.sensor.sensor_id} MQTT Publisher"
+                    name=f"{client.sensor.sensor_id} MQTT Publisher",
+                    fatal_on_timeout=False,
+                    fatal_on_error=False,
                 )
                 supervisor.add(
                     lambda c=client: supervised_task(f"{c.sensor.sensor_id} MQTT Loop", c.mqtt_loop, supervisor),
-                    name=f"{client.sensor.sensor_id} MQTT Loop"
+                    name=f"{client.sensor.sensor_id} MQTT Loop",
+                    fatal_on_timeout=False,
+                    fatal_on_error=False,
                 )
                 if DEBUG:
                     printDM(f"MQTT client coroutines added: {client.sensor.sensor_id}", location=f"{MODULE}:main")
@@ -516,7 +520,12 @@ async def main():
 
     if broker:
         asyncio.create_task(mqtt_ingest_clients.start())
-        supervisor.add(mqtt_ingest_clients.mqtt_discovery_loop, name="MQTT Discovery Loop")
+        supervisor.add(
+            mqtt_ingest_clients.mqtt_discovery_loop,
+            name="MQTT Discovery Loop",
+            fatal_on_timeout=False,
+            fatal_on_error=False,
+        )
         
         ha_enabled = bool(settings.get_setting("HomeAssistant", "ENABLED", False))
 
@@ -558,10 +567,10 @@ async def main():
         daily_summary_service.ensure_summaries_for_window(datetime.now(daily_summary_service.local_tz).date())
     except Exception as e:
         printDM(f"Daily summary bootstrap skipped: {e}", location=f"{MODULE}:main")
-    supervisor.add(farmos_bridge.run, name="FarmOS Bridge")
-    supervisor.add(daily_summary_service.run, name="Daily Summary Writer")
+    supervisor.add(farmos_bridge.run, name="FarmOS Bridge", fatal_on_timeout=False, fatal_on_error=False)
+    supervisor.add(daily_summary_service.run, name="Daily Summary Writer", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(WatchdogMonitor, supervisor, name="Watchdog Monitor")
-    supervisor.add(gc_mgr.run, name="GC Manager")
+    supervisor.add(gc_mgr.run, name="GC Manager", fatal_on_timeout=False, fatal_on_error=False)
     
     from saiUtils import loop_lag_monitor
     asyncio.create_task(loop_lag_monitor())
@@ -569,7 +578,12 @@ async def main():
     # --- Local sensor data collection (optional) ---
     for sensor in sensor_map:
         await asyncio.sleep(1)
-        supervisor.add(sensor.data_collection, name=f"{sensor.sensor_id} Data Collection")
+        supervisor.add(
+            sensor.data_collection,
+            name=f"{sensor.sensor_id} Data Collection",
+            fatal_on_timeout=False,
+            fatal_on_error=False,
+        )
         if DEBUG:
             printDM(f"sensor.sensor_id {sensor.sensor_id}.", location=f"{MODULE}:main")
 
@@ -586,7 +600,13 @@ async def main():
                 )
             except Exception:
                 pass
-        supervisor.add(ctrl.run_controladora_monitor, ctrl.sensor, name=f"{ctrl.switch_id} Controladora Monitor")
+        supervisor.add(
+            ctrl.run_controladora_monitor,
+            ctrl.sensor,
+            name=f"{ctrl.switch_id} Controladora Monitor",
+            fatal_on_timeout=False,
+            fatal_on_error=False,
+        )
         if DEBUG:
             printDM(f"switch.switch_id {ctrl.switch_id}.", location=f"{MODULE}:main")
 
@@ -597,6 +617,7 @@ async def main():
     # make ingest available to request.app.state for /retry-discovery
     web_server.app.state.mqtt_ingest = mqtt_ingest_clients
     web_server.app.state.farmos_bridge = farmos_bridge
+    web_server.app.state.supervisor = supervisor
     
     await web_server.initialize_server()
     await web_server.run_async()

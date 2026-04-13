@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 from collections import OrderedDict
 from saiUtils import printDM, debug_enabled
+from saiRuntimePaths import resolve_runtime_base_dir
 from saiLocalIdentity import (
     is_placeholder_channel_id,
     make_channel_id,
@@ -54,8 +55,8 @@ class SwitchSettingsManager:
     _TEMPLATE_DIR_NAMES = {"factory", "templates", "template", "_templates"}
 
     def __init__(self, base_dir: str = _default_base_dir):
-        # r-string style and resolved absolute path
-        self.base_dir = Path(rf"{base_dir}").expanduser().resolve()
+        # Bare runtime roots live under ~/Sensorius, not the source checkout.
+        self.base_dir = resolve_runtime_base_dir(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
         if DEBUG:
             printDM(f"Initialized with base_dir={self.base_dir}", location=MODULE)
@@ -341,6 +342,7 @@ class SwitchSettingsManager:
         sw = tmpl["Switch"]
         sw["DEVICE"] = "switch"  # <-- force host copy to be a real switch, not a template
         sw["SWITCH_DEVICE_ID"] = host_id
+        sw["SWITCH_ID"] = host_id
         if switch_loc is not None:
             sw["SWITCH_LOCATION"] = str(switch_loc)
         self._ensure_local_identity_fields(host_id, sw)
@@ -381,6 +383,7 @@ class SwitchSettingsManager:
         sw = tmpl["Switch"]
         sw["DEVICE"] = "switch"
         sw["SWITCH_DEVICE_ID"] = switch_id
+        sw["SWITCH_ID"] = switch_id
         if switch_loc is not None:
             sw["SWITCH_LOCATION"] = str(switch_loc)
         self._ensure_local_identity_fields(switch_id, sw)

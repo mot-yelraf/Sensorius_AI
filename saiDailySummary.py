@@ -266,6 +266,16 @@ class DailySummaryService:
         if sup and hasattr(sup, "feedthedogs"):
             sup.feedthedogs("Daily Summary Writer", error=error)
 
+    def _report_issue(self, message: str, *, recommend_restart: bool = False) -> None:
+        sup = getattr(self, "supervisor", None)
+        if sup and hasattr(sup, "report_issue"):
+            sup.report_issue(
+                "Daily Summary Writer",
+                message,
+                recommend_restart=recommend_restart,
+                issue_type="service_warning",
+            )
+
     async def _sleep_with_heartbeat(self, total_sleep_s: float, heartbeat_every_s: float = 20.0) -> None:
         remaining = max(float(total_sleep_s), 0.0)
         while remaining > 0.0:
@@ -283,7 +293,8 @@ class DailySummaryService:
                 next_run = datetime.combine(now_local.date() + timedelta(days=1), dtime(0, 0, 1), self.local_tz)
                 sleep_s = max((next_run - now_local).total_seconds(), 1.0)
             except Exception as exc:
-                self._feed_watchdog(error=True)
+                self._feed_watchdog()
+                self._report_issue(f"Daily summary writer hit a recoverable error: {exc}", recommend_restart=False)
                 printDM(f"[daily-summary] loop error: {exc}", location=MODULE)
                 sleep_s = 60.0
             await self._sleep_with_heartbeat(sleep_s)

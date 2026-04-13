@@ -12,6 +12,7 @@ let sensorDirectory = [];
 let switchLabels = {};
 let switchChannelIds = {};
 let switchChannels = 1;
+let astralStatus = { ok: false, message: "" };
 
 // ----- API helpers -----
 async function fetchJSON(url) {
@@ -170,6 +171,23 @@ function setAutomationView(modal, mode) {
   editor.hidden = showChooser;
   chooser.style.display = showChooser ? "flex" : "none";
   editor.style.display = showChooser ? "none" : "block";
+}
+
+function updateAstralDependencyWarning(modal) {
+  const box = q(modal, "#astralDependencyWarning");
+  if (!box) return;
+  const hasAstral = [...modal.querySelectorAll("#conditionsContainer .cond-group select")]
+    .some(sel => String(sel?.value || "").trim().toLowerCase() === "astral");
+  if (!hasAstral || astralStatus?.ok) {
+    box.hidden = true;
+    box.textContent = "";
+    return;
+  }
+  box.hidden = false;
+  box.textContent = String(
+    astralStatus?.message ||
+    "Astral location is not currently resolved. Astral automations will evaluate false until location/timezone is available."
+  );
 }
 
 function renderList(rootLike) {
@@ -538,7 +556,7 @@ function addCondition(modal, cond) {
   rem.setAttribute("aria-label","Remove condition");
   rem.textContent = "×";
   rem.title = "Remove condition";
-  rem.onclick = () => group.remove();
+  rem.onclick = () => { group.remove(); updateAstralDependencyWarning(modal); };
 
   const orChip = create("div","or-chip");
   orChip.textContent = "OR";
@@ -622,9 +640,11 @@ function renderAsTime() {
     else if (typeSel.value === "timer")   renderAsTimer();
     else if (typeSel.value === "or")      renderAsOr();
     else                                  renderAsSensor();
+    updateAstralDependencyWarning(modal);
   });
 
   container.appendChild(group);
+  updateAstralDependencyWarning(modal);
 }
 
 // ----- Actions builder -----
@@ -735,6 +755,7 @@ function loadSelectedIntoForm(rootLike){
   else normalizedActions.forEach(a => addAction(modal, a));
 
   showPreview(modal, auto);
+  updateAstralDependencyWarning(modal);
 }
 
 function serializeForm(modal){
@@ -852,6 +873,7 @@ async function loadSwitchInfoInto(rootLike) {
   switchLabels = info.labels || {};
   switchChannelIds = info.channel_ids || {};
   switchChannels = info.channels || 1;
+  astralStatus = info.astral_status || { ok: false, message: "" };
 
   if (!Object.keys(switchLabels).length) {
     const fromForm = {};
@@ -872,6 +894,7 @@ async function loadSwitchInfoInto(rootLike) {
   }
 
   const actionSelectors = [...modal.querySelectorAll("#actionsContainer .action-switch")];
+  updateAstralDependencyWarning(modal);
   if (!actionSelectors.length) return;
   actionSelectors.forEach(sel => fillActionSwitchOptions(sel, modal, sel.value));
 }

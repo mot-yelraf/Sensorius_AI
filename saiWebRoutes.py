@@ -5848,6 +5848,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if autostart_scope not in {"user", "system"}:
             autostart_scope = "user"
         autostart_enabled = _autostart_is_enabled(autostart_scope)
+        supervisor = getattr(request.app.state, "supervisor", None)
+        runtime_health = None
+        if supervisor and hasattr(supervisor, "runtime_status_snapshot"):
+            try:
+                runtime_health = supervisor.runtime_status_snapshot()
+            except Exception:
+                runtime_health = None
 
         return JSONResponse({
             "platform": platform.system(),
@@ -5858,6 +5865,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "debug_module_choices": list(_ADV_DEBUG_MODULE_CHOICES),
             "debug_modules": debug_modules,
             "db_retention_days": retention_days,
+            "runtime_health": runtime_health,
             "autostart_note": "If you manually run 'python Sensorius.py', stop that instance before enabling auto-start to avoid duplicate instances.",
             "autostart_scope_note": "macOS user-level launchctl is default. System-level may require admin privileges.",
         })
@@ -8799,7 +8807,51 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             if not channels:
                 channels = max(labels.keys(), default=1)
 
-            return {"switch_id": switch_id, "channels": channels, "labels": labels, "channel_ids": channel_ids}
+            astral_status = {
+                "ok": False,
+                "source": "",
+                "lat": None,
+                "lon": None,
+                "tz": "",
+                "message": "",
+            }
+            try:
+                settings_local = saiSettings(apply_live=False)
+                resolved = settings_local.resolve_astral_location(persist_if_auto=False, timeout_sec=2.5) or {}
+                lat = resolved.get("lat")
+                lon = resolved.get("lon")
+                tz_name = str(resolved.get("tz") or "").strip()
+                source = str(resolved.get("source") or "").strip()
+                ok = lat is not None and lon is not None and bool(tz_name)
+                astral_status = {
+                    "ok": bool(ok),
+                    "source": source,
+                    "lat": float(lat) if lat is not None else None,
+                    "lon": float(lon) if lon is not None else None,
+                    "tz": tz_name,
+                    "message": (
+                        f"Astral location ready ({source or 'resolved'})."
+                        if ok else
+                        "Astral location is not currently resolved. Astral automations will evaluate false until location/timezone is available."
+                    ),
+                }
+            except Exception as exc:
+                astral_status = {
+                    "ok": False,
+                    "source": "",
+                    "lat": None,
+                    "lon": None,
+                    "tz": "",
+                    "message": f"Astral location check failed: {exc}",
+                }
+
+            return {
+                "switch_id": switch_id,
+                "channels": channels,
+                "labels": labels,
+                "channel_ids": channel_ids,
+                "astral_status": astral_status,
+            }
         except Exception as exc:
             printDM(f"/switch-info error: {exc}", location="saiWebRoutes")
             return JSONResponse({"error": str(exc)}, status_code=500)

@@ -1933,7 +1933,76 @@ class RemoteSwitchController(SwitchController):
     def __init__(self, switch_settings=None, supervisor=None, sensor=None, mqtt_ingest=None, data_logger=None):
         self.is_remote = True
         self.mqtt_ingest = mqtt_ingest
+        self._settings_signature = None
         super().__init__(switch_settings=switch_settings, supervisor=supervisor, sensor=sensor, data_logger=data_logger)
+
+    def _capture_settings_signature(self, sw_block: dict) -> tuple:
+        sig: list[tuple[str, object]] = []
+        for idx in range(1, 9):
+            sig.append((f"L{idx}", str(sw_block.get(f"SWITCH_{idx}_LABEL", "") or "").strip()))
+            sig.append((f"C{idx}", str(sw_block.get(f"SWITCH_{idx}_CHANNEL_ID", "") or "").strip()))
+            sig.append((f"E{idx}", str(sw_block.get(f"SWITCH_{idx}_ENABLE_PIN", sw_block.get(f"SWITCH_{idx}_EN", "")) or "").strip()))
+        sig.append(("LOC", str(sw_block.get("SWITCH_LOCATION", "") or "").strip()))
+        return tuple(sig)
+
+    def _apply_remote_settings_doc(self, doc: dict) -> None:
+        sw = doc.get("Switch", {}) if isinstance(doc, dict) else {}
+        if not isinstance(sw, dict):
+            return
+
+        prior_last_state = dict(getattr(self, "last_state", {}) or {})
+        prior_override = dict(getattr(self, "override_script", {}) or {})
+        prior_last_set_time = dict(getattr(self, "last_set_time", {}) or {})
+        prior_auto_off_seconds = dict(getattr(self, "auto_off_seconds", {}) or {})
+        prior_auto_off_deadline = dict(getattr(self, "auto_off_deadline", {}) or {})
+
+        if hasattr(self.settings, "settings") and isinstance(getattr(self.settings, "settings"), dict):
+            self.settings.settings = doc
+        else:
+            self.settings = doc
+
+        self.location = str(sw.get("SWITCH_LOCATION", self.location) or self.location).strip()
+        self.switch = create_switch(settings=self.settings, mqtt_client=self.mqtt)
+        self.is_present = bool(getattr(self.switch, "is_present", False))
+
+        self.last_state = {}
+        self.override_script = {}
+        self.last_set_time = {}
+        self.auto_off_seconds = {}
+        self.auto_off_deadline = {}
+        self.channel_id_for_label = {}
+
+        labels = list(self.switch.get_switch_names() or [])
+        for idx in range(1, 9):
+            label = str(sw.get(f"SWITCH_{idx}_LABEL", "") or "").strip()
+            if not label or label not in labels:
+                continue
+            self.last_state[label] = bool(prior_last_state.get(label, sw.get(f"SWITCH_{idx}_LAST_STATE", False)))
+            self.override_script[label] = bool(prior_override.get(label, sw.get(f"SWITCH_{idx}_OVERRIDE_SCRIPT", False)))
+            self.last_set_time[label] = float(prior_last_set_time.get(label, 0.0) or 0.0)
+            self.auto_off_seconds[label] = int(prior_auto_off_seconds.get(label, 0) or 0)
+            self.auto_off_deadline[label] = prior_auto_off_deadline.get(label)
+            channel_id = str(sw.get(f"SWITCH_{idx}_CHANNEL_ID", "") or "").strip()
+            if channel_id:
+                self.channel_id_for_label[label] = channel_id
+
+        self._settings_signature = self._capture_settings_signature(sw)
+
+    def _refresh_definition_from_settings(self) -> None:
+        try:
+            from saiSwitchSettingsManager import SwitchSettingsManager
+
+            mgr = SwitchSettingsManager("switch_settings")
+            doc = mgr.load(self.switch_id) or {}
+            sw = doc.get("Switch", {}) if isinstance(doc, dict) else {}
+            if not isinstance(sw, dict):
+                return
+            signature = self._capture_settings_signature(sw)
+            if signature == self._settings_signature:
+                return
+            self._apply_remote_settings_doc(doc)
+        except Exception:
+            return
 
     def _pending_state_from_ingest(self, ing, sid: str, label: str, channel_id: str) -> bool | None:
         try:
@@ -2010,8 +2079,17 @@ class RemoteSwitchController(SwitchController):
             return
 
     def get_state(self, name):
+        self._refresh_definition_from_settings()
         self._refresh_state_from_ingest()
         return super().get_state(name)
+
+    def get_switch_names(self) -> list[str]:
+        self._refresh_definition_from_settings()
+        return super().get_switch_names()
+
+    def set_state(self, name, on: bool, *, force: bool = False, event_source: str = "manual/ui"):
+        self._refresh_definition_from_settings()
+        return super().set_state(name, on, force=force, event_source=event_source)
 
 
 def build_switch_controller(*, switch_settings=None, supervisor=None, sensor=None, mqtt_ingest=None, data_logger=None):

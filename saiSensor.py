@@ -74,6 +74,8 @@ class SensorController:
         self.data_logger = data_logger or saiDataLogger()
         self._last_read_error_log = 0.0
         self._read_error_log_interval_s = 30.0
+        self._sensor_read_timeout_s = 25.0
+        self._db_write_timeout_s = 20.0
 
         self._sync_from_sensor()
 
@@ -106,6 +108,16 @@ class SensorController:
         self.publish_interval = self._safe_interval(
             getattr(sensor, "publish_interval", self.publish_interval), 60.0, "publish_interval"
         )
+
+    def _report_issue(self, message: str, *, recommend_restart: bool = True, issue_type: str = "sensor_warning") -> None:
+        task_name = f"{self.sensor_id} Data Collection" if self.sensor_id else "Unknown Data Collection"
+        if self.supervisor and hasattr(self.supervisor, "report_issue"):
+            self.supervisor.report_issue(
+                task_name,
+                message,
+                recommend_restart=recommend_restart,
+                issue_type=issue_type,
+            )
 
     # Series of read-only properties
     @property
@@ -233,25 +245,55 @@ class SensorController:
             loop_start = time.monotonic()
             meas_end = 0.0
             try:
-                values, units, ts = await asyncio.to_thread(self.sensor.read_sensor_data)
-
-                # Keep DB writes off the event loop so storage latency does not
-                # stall unrelated coroutines and trip the watchdog.
-                await asyncio.to_thread(self.data_logger.log_readings, ts, self.sensor_id, values)
-   
-                self.sensor.meas_status = "online"
-
-                if DEBUG:
-                    printDM(f"{self.sensor_id} secs, values: {values}", location=f"{__name__}.{self.__class__.__name__}.data_collection")
-
-                meas_end = time.monotonic()
-
+                values, units, ts = await asyncio.wait_for(
+                    asyncio.to_thread(self.sensor.read_sensor_data),
+                    timeout=self._sensor_read_timeout_s,
+                )
+            except asyncio.TimeoutError:
+                self.sensor.meas_status = "pending"
+                self.sensor.present = False
+                msg = (
+                    f"{self.sensor_id or 'unknown'} sensor read exceeded timeout "
+                    f"({self._sensor_read_timeout_s:.0f}s); marking sensor not present until reinit succeeds"
+                )
+                printDM(msg, location=f"{__name__}.{self.__class__.__name__}.data_collection")
+                self._report_issue(msg, recommend_restart=True, issue_type="sensor_timeout")
+                values = units = ts = None
             except Exception as e:
                 self.sensor.meas_status = "pending"
                 now = time.monotonic()
                 if now - self._last_read_error_log >= self._read_error_log_interval_s:
                     printDM(f"Data collection error: {e}", location=f"{__name__}.{self.__class__.__name__}.data_collection")
                     self._last_read_error_log = now
+                values = units = ts = None
+
+            if values is not None and ts is not None:
+                try:
+                    # Keep DB writes off the event loop so storage latency does not
+                    # stall unrelated coroutines and trip the watchdog.
+                    await asyncio.wait_for(
+                        asyncio.to_thread(self.data_logger.log_readings, ts, self.sensor_id, values),
+                        timeout=self._db_write_timeout_s,
+                    )
+                except asyncio.TimeoutError:
+                    msg = (
+                        f"{self.sensor_id or 'unknown'} DB write exceeded timeout "
+                        f"({self._db_write_timeout_s:.0f}s); readings skipped for this cycle"
+                    )
+                    printDM(msg, location=f"{__name__}.{self.__class__.__name__}.data_collection")
+                    self._report_issue(msg, recommend_restart=False, issue_type="db_timeout")
+                except Exception as e:
+                    now = time.monotonic()
+                    if now - self._last_read_error_log >= self._read_error_log_interval_s:
+                        printDM(f"Data collection error: {e}", location=f"{__name__}.{self.__class__.__name__}.data_collection")
+                        self._last_read_error_log = now
+
+                self.sensor.meas_status = "online"
+
+                if DEBUG:
+                    printDM(f"{self.sensor_id} secs, values: {values}", location=f"{__name__}.{self.__class__.__name__}.data_collection")
+
+                meas_end = time.monotonic()
 
             self.supervisor.feedthedogs(f"{self.sensor_id} Data Collection")
 

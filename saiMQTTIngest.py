@@ -3957,6 +3957,8 @@ class saiMQTTIngest:
             if DEBUG:
                 printDM(f"[itaot-settings] sensor seed error: {exc}", location=MODULE)
 
+        source_hostname = _strip_local(str((info or {}).get("HOSTNAME") or hostname or ""))
+
         # ---- switch_settings/<SWITCH_DEVICE_ID>/switch.toml ----
         try:
             switch_mgr = SwitchSettingsManager()
@@ -4009,6 +4011,11 @@ class saiMQTTIngest:
                         src = switch_payload.get("Switch") if isinstance(switch_payload.get("Switch"), dict) else switch_payload
                     if isinstance(src, dict):
                         incoming_indices: set[int] = set()
+                        existing_indices: set[int] = set()
+                        for existing_key in list(sb.keys()):
+                            match = re.fullmatch(r"SWITCH_(\d+)_(.+)", str(existing_key or ""))
+                            if match:
+                                existing_indices.add(int(match.group(1)))
                         for k, v in src.items():
                             ks = str(k or "")
                             match = re.fullmatch(r"SWITCH_(\d+)_(.+)", ks)
@@ -4022,20 +4029,38 @@ class saiMQTTIngest:
                                 sb[ks] = v
                                 changed = True
 
+                        preserve_richer_existing_remote = (
+                            str(switch_type or "").strip().lower() in {"nodus", "picow", "pico2w", "remote", "mqtt"}
+                            and source_hostname
+                            and source_hostname.lower() == switch_id.lower()
+                            and incoming_indices
+                            and existing_indices
+                            and len(existing_indices) > len(incoming_indices)
+                            and incoming_indices.issubset(existing_indices)
+                        )
+
                         if incoming_indices:
-                            for existing_key in list(sb.keys()):
-                                match = re.fullmatch(r"SWITCH_(\d+)_(.+)", str(existing_key or ""))
-                                if not match:
-                                    continue
-                                existing_idx = int(match.group(1))
-                                existing_suffix = match.group(2)
-                                if existing_idx not in incoming_indices:
-                                    sb.pop(existing_key, None)
-                                    changed = True
-                                    continue
-                                if existing_suffix == "EN" and f"SWITCH_{existing_idx}_EN" not in src:
-                                    sb.pop(existing_key, None)
-                                    changed = True
+                            if preserve_richer_existing_remote:
+                                if DEBUG:
+                                    printDM(
+                                        f"[itaot-settings] preserve richer switch definition for {switch_id}: "
+                                        f"host={source_hostname} existing={sorted(existing_indices)} incoming={sorted(incoming_indices)}",
+                                        location=MODULE,
+                                    )
+                            else:
+                                for existing_key in list(sb.keys()):
+                                    match = re.fullmatch(r"SWITCH_(\d+)_(.+)", str(existing_key or ""))
+                                    if not match:
+                                        continue
+                                    existing_idx = int(match.group(1))
+                                    existing_suffix = match.group(2)
+                                    if existing_idx not in incoming_indices:
+                                        sb.pop(existing_key, None)
+                                        changed = True
+                                        continue
+                                    if existing_suffix == "EN" and f"SWITCH_{existing_idx}_EN" not in src:
+                                        sb.pop(existing_key, None)
+                                        changed = True
                 except Exception:
                     pass
                 try:

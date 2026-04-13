@@ -1993,6 +1993,107 @@ def test_nodus_meta_reconciles_switch_shadow_and_prunes_stale_channels(tmp_path,
     assert {row["switch_key"] for row in ingest.data_logger.get_switch_identities()} == {"S1-test123::Fan"}
 
 
+def test_switch_scoped_remote_payload_does_not_prune_richer_existing_switch_definition(tmp_path, monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.data_logger.switch_identities = [
+        {
+            "switch_key": "S1-test123::Fan",
+            "switch_id": "switch-test123",
+            "label": "Fan",
+            "location": "Lab",
+        },
+        {
+            "switch_key": "S2-test123::Humidifier",
+            "switch_id": "switch-test123",
+            "label": "Humidifier",
+            "location": "Lab",
+        },
+    ]
+
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    switch_root.mkdir()
+    system_root.mkdir()
+
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    real_settings_cls = saiSettings.saiSettings
+
+    monkeypatch.setattr(
+        saiSensorSettingsManager,
+        "SensorSettingsManager",
+        lambda *_a, **_k: real_sensor_mgr(str(sensor_root)),
+    )
+    monkeypatch.setattr(
+        saiSwitchSettingsManager,
+        "SwitchSettingsManager",
+        lambda *_a, **_k: real_switch_mgr(str(switch_root)),
+    )
+    monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
+
+    switch_mgr = real_switch_mgr(str(switch_root))
+    switch_mgr.save(
+        "switch-test123",
+        {
+            "Switch": {
+                "TYPE": "nodus",
+                "DEVICE": "switch",
+                "DEVICE_SERIAL_NUM": "test123",
+                "SWITCH_DEVICE_ID": "switch-test123",
+                "SWITCH_LOCATION": "Lab",
+                "SWITCH_1_LABEL": "Fan",
+                "SWITCH_1_CHANNEL_ID": "S1-test123",
+                "SWITCH_1_ENABLE_PIN": "GP5",
+                "SWITCH_1_PIN": "GP28",
+                "SWITCH_1_LAST_STATE": False,
+                "SWITCH_2_LABEL": "Humidifier",
+                "SWITCH_2_CHANNEL_ID": "S2-test123",
+                "SWITCH_2_ENABLE_PIN": "GP10",
+                "SWITCH_2_PIN": "GP21",
+                "SWITCH_2_LAST_STATE": False,
+            }
+        },
+    )
+
+    ingest._ensure_settings_from_itaot(
+        {"HOSTNAME": "switch-test123"},
+        "switch-test123",
+        [],
+        [
+            {
+                "switch_id": "switch-test123",
+                "switch_location": "Lab",
+                "switch_type": "nodus",
+                "serial": "test123",
+                "switch_payload": {
+                    "Switch": {
+                        "SWITCH_1_LABEL": "Fan",
+                        "SWITCH_1_CHANNEL_ID": "S1-test123",
+                        "SWITCH_1_ENABLE_PIN": "GP5",
+                        "SWITCH_1_PIN": "GP28",
+                        "SWITCH_1_LAST_STATE": False,
+                    }
+                },
+            }
+        ],
+    )
+
+    switch_saved = switch_mgr.load("switch-test123")
+    assert switch_saved["Switch"]["SWITCH_1_LABEL"] == "Fan"
+    assert switch_saved["Switch"]["SWITCH_2_LABEL"] == "Humidifier"
+    assert switch_saved["Switch"]["SWITCH_2_CHANNEL_ID"] == "S2-test123"
+    assert ingest.data_logger.pruned_switch_identity_calls[-1] == {
+        "switch_id": "switch-test123",
+        "valid_channel_ids": ["S1-test123", "S2-test123"],
+    }
+    assert {row["switch_key"] for row in ingest.data_logger.get_switch_identities()} == {
+        "S1-test123::Fan",
+        "S2-test123::Humidifier",
+    }
+
+
 def test_ensure_settings_from_itaot_parses_existing_system_toml_with_inline_comments(tmp_path, monkeypatch):
     ingest = _build_ingest(monkeypatch)
 
