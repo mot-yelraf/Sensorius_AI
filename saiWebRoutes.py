@@ -527,8 +527,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             try:
                 moon_az_fn = getattr(_astral_moon, "azimuth", None)
                 moon_el_fn = getattr(_astral_moon, "elevation", None)
-                moon_az = float(moon_az_fn(obs, now_local)) if callable(moon_az_fn) else float("nan")
-                moon_el = float(moon_el_fn(obs, now_local)) if callable(moon_el_fn) else float("nan")
+                moon_obs_dt = now_local.astimezone(timezone.utc)
+                moon_az = float(moon_az_fn(obs, moon_obs_dt)) if callable(moon_az_fn) else float("nan")
+                moon_el = float(moon_el_fn(obs, moon_obs_dt)) if callable(moon_el_fn) else float("nan")
                 sun_az = float(_astral_azimuth(obs, now_local))
                 sun_el = float(_astral_elevation(obs, now_local))
 
@@ -579,8 +580,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
                     if up_axis is not None:
                         # Build screen-right from the local up axis and moon-view direction.
-                        # The previous cross-product order mirrored the phase left/right.
-                        right_axis = _unit(_cross(up_axis, moon_vec))
+                        # With Astral moon coordinates normalized to UTC, this cross-product
+                        # order matches the observer-facing sky orientation on the canvas.
+                        right_axis = _unit(_cross(moon_vec, up_axis))
                         limb_vec = _unit(_sub(sun_vec, _mul(moon_vec, _dot(sun_vec, moon_vec))))
                         if right_axis is not None and limb_vec is not None:
                             ang = math.degrees(math.atan2(_dot(limb_vec, up_axis), _dot(limb_vec, right_axis)))

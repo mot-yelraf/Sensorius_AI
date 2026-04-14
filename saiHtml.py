@@ -289,8 +289,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             try:
                 moon_az_fn = getattr(_astral_moon, "azimuth", None)
                 moon_el_fn = getattr(_astral_moon, "elevation", None)
-                moon_az = float(moon_az_fn(obs, now_local)) if callable(moon_az_fn) else float("nan")
-                moon_el = float(moon_el_fn(obs, now_local)) if callable(moon_el_fn) else float("nan")
+                moon_obs_dt = now_local.astimezone(timezone.utc)
+                moon_az = float(moon_az_fn(obs, moon_obs_dt)) if callable(moon_az_fn) else float("nan")
+                moon_el = float(moon_el_fn(obs, moon_obs_dt)) if callable(moon_el_fn) else float("nan")
                 sun_az = float(_astral_azimuth(obs, now_local))
                 sun_el = float(_astral_elevation(obs, now_local))
 
@@ -341,8 +342,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
 
                     if up_axis is not None:
                         # Build screen-right from the local up axis and moon-view direction.
-                        # The previous cross-product order mirrored the phase left/right.
-                        right_axis = _unit(_cross(up_axis, moon_vec))
+                        # With Astral moon coordinates normalized to UTC, this cross-product
+                        # order matches the observer-facing sky orientation on the canvas.
+                        right_axis = _unit(_cross(moon_vec, up_axis))
                         limb_vec = _unit(_sub(sun_vec, _mul(moon_vec, _dot(sun_vec, moon_vec))))
                         if right_axis is not None and limb_vec is not None:
                             ang = math.degrees(math.atan2(_dot(limb_vec, up_axis), _dot(limb_vec, right_axis)))
@@ -1836,12 +1838,14 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  const image = ctx.createImageData(w, h);"
     yield "  const pix = image.data;"
     yield "  const phaseAngle = (2 * Math.PI * phase) / 28;"
-    yield "  const limbStrength = Math.sin(phaseAngle);"
-    yield "  const visibleAngle = Number(data.moon_visible_angle);"
-    yield "  const theta = Number.isFinite(visibleAngle) ? ((visibleAngle * Math.PI) / 180) : (hemisphereFlip < 0 ? Math.PI : 0);"
-    yield "  if (Number.isFinite(visibleAngle)) c.setAttribute('data-visible-angle', visibleAngle.toFixed(2)); else c.removeAttribute('data-visible-angle');"
+    yield "  const rawVisibleAngle = data ? data.moon_visible_angle : null;"
+    yield "  const visibleAngle = (typeof rawVisibleAngle === 'number' && Number.isFinite(rawVisibleAngle)) ? rawVisibleAngle : NaN;"
+    yield "  const hasVisibleAngle = Number.isFinite(visibleAngle);"
+    yield "  const limbStrength = hasVisibleAngle ? Math.abs(Math.sin(phaseAngle)) : Math.sin(phaseAngle);"
+    yield "  const theta = hasVisibleAngle ? ((visibleAngle * Math.PI) / 180) : (hemisphereFlip < 0 ? Math.PI : 0);"
+    yield "  if (hasVisibleAngle) c.setAttribute('data-visible-angle', visibleAngle.toFixed(2)); else c.removeAttribute('data-visible-angle');"
     yield "  const sx = limbStrength * Math.cos(theta);"
-    yield "  const sy = limbStrength * Math.sin(theta);"
+    yield "  const sy = -limbStrength * Math.sin(theta);"
     yield "  const sz = -Math.cos(phaseAngle);"
     yield "  for (let py = 0; py < h; py++) {"
     yield "    for (let px = 0; px < w; px++) {"
