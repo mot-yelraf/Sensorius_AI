@@ -9,7 +9,7 @@ Switch automations support:
 - Threshold hysteresis and minimum interval timing to reduce relay chatter
 - Time-of-day windows (`start` / `end`) and day-based scheduling (`days` in Advanced rules)
 - Astral conditions (`astral_event` + `offset_min`) for sunrise/sunset schedules
-- Timer-based schedules (`duration_min`, `freq_hours`) for periodic active windows
+- Timer-based schedules (`duration_min`, `period_min`, legacy `freq_hours`) for periodic active windows
 - Action-level revert behavior via `revert_action` (`previous_state` or `do_nothing`) plus `delay_s`
 
 Time window notes:
@@ -23,6 +23,9 @@ Action revert notes:
 - `delay_s` is a delay before the action is applied after the rule becomes true.
 - While a rule remains true, the evaluator keeps the target switch at the configured action state.
 - For timer conditions, `duration_min` defines how long that timer window stays active within each period.
+- `duration_min` must be strictly less than the selected repeat interval.
+- Hour-based timer intervals keep their existing on-the-hour alignment.
+- Minute-based timer intervals can use `anchor_epoch` so a newly saved 5/15/30 minute timer starts from save time.
 - If a rule later becomes false and `revert_action = "previous_state"`, the evaluator restores the switch to the state it had before the rule first applied.
 - If a rule later becomes false and `revert_action = "do_nothing"`, the evaluator leaves the switch in its current state.
 

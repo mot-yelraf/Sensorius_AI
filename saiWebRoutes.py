@@ -6324,6 +6324,64 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     def _mqtt_calibration_payload_from_offsets(offsets: list[dict]) -> dict:
         return {"offsets": [dict(item) for item in (offsets or [])]}
 
+    def _apply_remote_calibration_patch_shadow(sensor_id: str, patch: dict | None) -> list[str]:
+        from collections import OrderedDict
+
+        if not isinstance(patch, dict):
+            return []
+
+        mgr = SensorSettingsManager("sensor_settings")
+        try:
+            doc = mgr.load(sensor_id) or OrderedDict()
+        except FileNotFoundError:
+            doc = OrderedDict()
+
+        def _ensure_block(parent: dict, name: str) -> dict:
+            block = parent.get(name)
+            if not isinstance(block, dict):
+                block = OrderedDict()
+                parent[name] = block
+            return block
+
+        changed = False
+        applied_keys: list[str] = []
+        for update in (patch.get("updates") or []):
+            if not isinstance(update, dict):
+                continue
+            section = str(update.get("section") or "").strip()
+            key = str(update.get("key") or "").strip()
+            if not key:
+                continue
+            section_norm = section.lower()
+            if section_norm != "calibration" and not section_norm.startswith("calibration."):
+                continue
+
+            current = doc
+            for segment in [seg for seg in section.split(".") if seg]:
+                current = _ensure_block(current, segment)
+            value = update.get("value")
+            if current.get(key) != value:
+                current[key] = value
+                changed = True
+            applied_keys.append(f"{section}.{key}" if section else key)
+
+        if changed:
+            mgr.save(sensor_id, doc)
+        return applied_keys
+
+    async def _sync_remote_calibration_shadow(sensor_id: str, message_id: str, *, timeout: float = 3.0) -> tuple[list[str], bool]:
+        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        if not ingest or not hasattr(ingest, "wait_for_nodus_meta_patch"):
+            return [], False
+        patch = await ingest.wait_for_nodus_meta_patch(
+            message_id,
+            source="calibration_set",
+            timeout=timeout,
+        )
+        if not isinstance(patch, dict):
+            return [], False
+        return _apply_remote_calibration_patch_shadow(sensor_id, patch), True
+
     async def _publish_remote_calibration_command(sensor_id: str, *, action: str, payload: dict | None = None, ack_timeout: float = 3.0, result_timeout: float = 8.0) -> tuple[bool, str, dict | None, dict | None]:
         ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
         if not ingest or not hasattr(ingest, "publish_nodus_calibration"):
@@ -7589,18 +7647,21 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     },
                     status_code=400,
                 )
-
-        try:
-            applied_keys = _apply_device_offsets_shadow(sensor_id, device_kind, offsets)
-        except Exception as exc:
-            printDM(f"[{MODULE}] device_calibration_apply save error: {exc}", location=MODULE)
-            return JSONResponse(
-                {
-                    "status": "error",
-                    "message": f"Failed to save device calibration for {sensor_id}.",
-                },
-                status_code=500,
-            )
+            message_id = str((result or {}).get("message_id") or (_ack or {}).get("message_id") or "").strip()
+            applied_keys, shadow_synced = await _sync_remote_calibration_shadow(sensor_id, message_id)
+        else:
+            try:
+                applied_keys = _apply_device_offsets_shadow(sensor_id, device_kind, offsets)
+            except Exception as exc:
+                printDM(f"[{MODULE}] device_calibration_apply save error: {exc}", location=MODULE)
+                return JSONResponse(
+                    {
+                        "status": "error",
+                        "message": f"Failed to save device calibration for {sensor_id}.",
+                    },
+                    status_code=500,
+                )
+            shadow_synced = True
 
         if not _is_remote_nodus_type(sensor_type):
             try:
@@ -7613,12 +7674,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 )
 
 
-        msg = f"Updated {len(applied_keys)} device calibration value(s) for {sensor_id}."
+        if _is_remote_nodus_type(sensor_type) and not shadow_synced:
+            msg = f"Accepted calibration update for {sensor_id}; awaiting meta patch shadow sync."
+        else:
+            msg = f"Updated {len(applied_keys)} device calibration value(s) for {sensor_id}."
         return JSONResponse(
             {
                 "status": "success",
                 "message": msg,
                 "applied": applied_keys,
+                "shadow_synced": shadow_synced,
             }
         )
 
@@ -7727,6 +7792,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     },
                     status_code=400,
                 )
+            message_id = str((result or {}).get("message_id") or (_ack or {}).get("message_id") or "").strip()
+            applied_keys, shadow_synced = await _sync_remote_calibration_shadow(sensor_id, message_id)
         else:
             try:
                 latest = data_logger.get_latest_values(sensor_id) or {}
@@ -7750,18 +7817,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             new_offset = round(buffer_ph - current_ph, 4)
             offsets = [{"key": "soil_ph_offset", "value": new_offset}]
-
-        try:
-            applied_keys = _apply_device_offsets_shadow(sensor_id, device_kind, offsets)
-        except Exception as exc:
-            printDM(f"[{MODULE}] soil_ph_buffer_calibration save error: {exc}", location=MODULE)
-            return JSONResponse(
-                {
-                    "status": "error",
-                    "message": f"Failed to save soil pH calibration for {sensor_id}.",
-                },
-                status_code=500,
-            )
+            try:
+                applied_keys = _apply_device_offsets_shadow(sensor_id, device_kind, offsets)
+            except Exception as exc:
+                printDM(f"[{MODULE}] soil_ph_buffer_calibration save error: {exc}", location=MODULE)
+                return JSONResponse(
+                    {
+                        "status": "error",
+                        "message": f"Failed to save soil pH calibration for {sensor_id}.",
+                    },
+                    status_code=500,
+                )
+            shadow_synced = True
 
         if not _is_remote_nodus_type(sensor_type):
             try:
@@ -7776,12 +7843,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return JSONResponse(
             {
                 "status": "success",
-                "message": f"Calibrated {sensor_id} to pH {buffer_ph:.1f}.",
+                "message": (
+                    f"Calibrated {sensor_id} to pH {buffer_ph:.1f}."
+                    if shadow_synced
+                    else f"Calibrated {sensor_id} to pH {buffer_ph:.1f}; awaiting meta patch shadow sync."
+                ),
                 "sensor_id": sensor_id,
                 "buffer_ph": buffer_ph,
                 "measured_ph": current_ph,
                 "soil_ph_offset": new_offset,
                 "applied": applied_keys,
+                "shadow_synced": shadow_synced,
             }
         )
         
@@ -8215,8 +8287,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                             }
                         )
                         continue
-
-                cal_mgr.apply_system_calibration(sensor_id, result)
+                    message_id = str((mqtt_result or {}).get("message_id") or (_ack or {}).get("message_id") or "").strip()
+                    await _sync_remote_calibration_shadow(sensor_id, message_id)
+                else:
+                    cal_mgr.apply_system_calibration(sensor_id, result)
                 applied.append(sensor_id)
 
             except Exception as exc:
@@ -9145,6 +9219,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 return default
             return str(v).strip().lower() in ("1", "true", "on", "yes")
 
+        def error_response(message: str, status_code: int = 400):
+            if request.headers.get("content-type", "").startswith("application/json"):
+                return JSONResponse({"ok": False, "error": message}, status_code=status_code)
+            return HTMLResponse(f"<h3>{message}</h3><a href='/'>Return</a>", status_code=status_code)
+
         async def read_payload():
             ctype = request.headers.get("content-type", "")
             if ctype.startswith("application/json"):
@@ -9201,6 +9280,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             # CONDITIONS (your UI already matches these keys)
             normalized_conditions = []
+            save_anchor_epoch = int(time.time())
             for c in parsed.get("conditions", []) or []:
                 cond_type = str(c.get("type", "")).strip().lower()
 
@@ -9215,6 +9295,22 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     if 0 <= n <= 6:
                         days_norm.append(n)
 
+                duration_min = _num(c.get("duration_min"), int, None)
+                freq_hours = _num(c.get("freq_hours"), int, None)
+                period_min = _num(c.get("period_min"), int, None)
+                if period_min is None and isinstance(freq_hours, int) and freq_hours > 0:
+                    period_min = freq_hours * 60
+                anchor_epoch = _num(c.get("anchor_epoch"), int, None)
+                if cond_type == "timer":
+                    if duration_min is None or duration_min <= 0:
+                        return error_response("Timer duration must be at least 1 minute.", status_code=400)
+                    if period_min is None or period_min <= 0:
+                        return error_response("Timer Every value is invalid.", status_code=400)
+                    if duration_min >= period_min:
+                        return error_response("Timer duration must be less than Every.", status_code=400)
+                    if period_min < 60:
+                        anchor_epoch = save_anchor_epoch
+
                 normalized_conditions.append({
                     "type":   cond_type,  # 'sensor' / 'time' / 'astral' / 'timer' / 'or'
                     "sensor": str(c.get("sensor",  c.get("sensor_id", ""))).strip(),
@@ -9228,8 +9324,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     "offset_min": _num(c.get("offset_min", c.get("offset_minutes")), int, 0),
                     # new optional fields
                     "days":        days_norm or None,
-                    "duration_min": _num(c.get("duration_min"), int, None),
-                    "freq_hours":   _num(c.get("freq_hours"),   int, None),
+                    "duration_min": duration_min,
+                    "freq_hours":   freq_hours,
+                    "period_min":   period_min,
+                    "anchor_epoch": anchor_epoch,
                 })
 
             # ACTIONS: accept UI shape (switch_label/set) OR legacy (switch/state/delay)

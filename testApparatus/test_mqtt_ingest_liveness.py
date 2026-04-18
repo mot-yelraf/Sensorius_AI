@@ -579,13 +579,6 @@ def test_calibration_topics_update_state_caches(monkeypatch):
                     "message_id": "cal-1",
                     "applied": True,
                     "updated": 2,
-                    "status": {
-                        "sensor_id": "apvpd-test123",
-                        "status": "calibrated",
-                        "calibrated": True,
-                        "temp_offset": 1.25,
-                        "rh_offset": -2.5,
-                    },
                     "error": "",
                 }
             ),
@@ -595,8 +588,8 @@ def test_calibration_topics_update_state_caches(monkeypatch):
     result = ingest.calibration_result_by_message.get("cal-1")
     assert result is not None
     assert result["applied"] is True
-    assert result["status"]["sensor_id"] == "apvpd-test123"
-    assert ingest.calibration_status_by_sensor["apvpd-test123"]["status"] == "calibrated"
+    assert result["status"] == {}
+    assert "apvpd-test123" not in ingest.calibration_status_by_sensor
 
     ingest._on_message(
         ingest.client,
@@ -638,6 +631,74 @@ def test_calibration_topics_update_state_caches(monkeypatch):
     snapshot = ingest.get_nodus_calibration_state("apvpd-test123")
     assert snapshot is not None
     assert snapshot["result"]["calibrated"] is True
+
+
+def test_nodus_meta_patch_updates_sensor_shadow_for_calibration_sections(tmp_path, monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    switch_root.mkdir()
+    system_root.mkdir()
+
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    real_settings_cls = saiSettings.saiSettings
+
+    monkeypatch.setattr(
+        saiSensorSettingsManager,
+        "SensorSettingsManager",
+        lambda *_a, **_k: real_sensor_mgr(str(sensor_root)),
+    )
+    monkeypatch.setattr(
+        saiSwitchSettingsManager,
+        "SwitchSettingsManager",
+        lambda *_a, **_k: real_switch_mgr(str(switch_root)),
+    )
+    monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
+
+    sensor_mgr = real_sensor_mgr(str(sensor_root))
+
+    meta_payload = json.dumps(
+        {
+            "schema": "nodus-meta/v1",
+            "device_id": "soil-123",
+            "hostname": "soil-123",
+            "type": "nodus",
+            "network": {"hostname": "soil-123"},
+            "sensor": {
+                "sensor_id": "soil-123",
+                "location": "Lab",
+                "data_topic": "nodus/soil-123/data",
+                "event_topic": "nodus/soil-123/event",
+                "availability_topic": "nodus/soil-123/availability",
+            },
+            "timestamp": 1763859546,
+        }
+    )
+    ingest._on_message(ingest.client, None, _Msg("nodus/soil-123/meta", meta_payload, retain=True))
+
+    patch_payload = json.dumps(
+        {
+            "schema": "nodus-meta-patch/v1",
+            "device_id": "soil-123",
+            "message_id": "cal-1",
+            "timestamp": 1763859551,
+            "source": "calibration_set",
+            "sections": ["Calibration.Device"],
+            "updates": [
+                {"section": "Calibration.Device", "key": "SOIL_PH_CAL_VAL", "value": 0.5},
+            ],
+        }
+    )
+    ingest._on_message(ingest.client, None, _Msg("nodus/soil-123/meta/patch", patch_payload, retain=False))
+
+    saved = sensor_mgr.load("soil-123")
+    assert saved["Calibration"]["Device"]["SOIL_PH_CAL_VAL"] == 0.5
+    assert ingest.discovery_cache["soil-123"]["calibration"]["Device"]["SOIL_PH_CAL_VAL"] == 0.5
+    assert ingest.meta_patch_by_message["cal-1"]["source"] == "calibration_set"
 
 
 def test_nodus_meta_materializes_switch_mappings(monkeypatch):

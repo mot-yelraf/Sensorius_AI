@@ -226,6 +226,8 @@ class saiMQTTIngest:
         self.calibration_samples_by_message: dict[str, list[dict]] = {}
         self.calibration_event_result_by_sensor: dict[str, dict] = {}
         self.calibration_message_device: dict[str, str] = {}
+        self._meta_patch_lock = threading.RLock()
+        self.meta_patch_by_message: dict[str, dict] = {}
 
         unique_id = f"{socket.gethostname()}-ingest"
         self.client = mqtt.Client(client_id=unique_id)
@@ -546,6 +548,8 @@ class saiMQTTIngest:
         self.onboarding_event_handler = handler
 
     def _normalize_calibration_payload(self, sensor_id: str, payload: dict | None, *, topic: str, retain: bool, kind: str) -> dict:
+        if not isinstance(payload, dict) or not payload:
+            return {}
         body = dict(payload or {})
         normalized = {
             "sensor_id": str(body.get("sensor_id") or sensor_id or "").strip(),
@@ -913,6 +917,18 @@ class saiMQTTIngest:
                     return rows
             await asyncio.sleep(0.05)
         return last_seen
+
+    async def wait_for_nodus_meta_patch(self, message_id: str, *, source: str | None = None, timeout: float = 4.0) -> dict | None:
+        deadline = time.time() + max(float(timeout), 0.0)
+        want_source = str(source or "").strip().lower()
+        while time.time() < deadline:
+            with self._meta_patch_lock:
+                hit = self.meta_patch_by_message.get(str(message_id or "").strip())
+                if isinstance(hit, dict):
+                    if not want_source or str(hit.get("source") or "").strip().lower() == want_source:
+                        return dict(hit)
+            await asyncio.sleep(0.05)
+        return None
 
     def get_nodus_calibration_state(self, sensor_id: str) -> dict | None:
         sid = str(sensor_id or "").strip()
@@ -1928,6 +1944,20 @@ class saiMQTTIngest:
             block[key.lower()] = value
             return True
 
+        if section_key == "calibration":
+            calibration = _ensure_block(meta, "calibration")
+            calibration[key_upper] = value
+            return True
+
+        if section_key.startswith("calibration."):
+            calibration = _ensure_block(meta, "calibration")
+            child_name = section.split(".", 1)[1].strip()
+            if not child_name:
+                return False
+            child = _ensure_block(calibration, child_name)
+            child[key_upper] = value
+            return True
+
         if section_key != "switch":
             return False
 
@@ -2013,17 +2043,35 @@ class saiMQTTIngest:
         if not str(patched_meta.get("device_id") or "").strip():
             patched_meta["device_id"] = cache_key
 
+        message_id = str(patch.get("message_id") or "").strip()
+        patch_source = str(patch.get("source") or "").strip()
         applied_any = False
         system_patch_info: dict[str, object] = {"HOSTNAME": cache_key}
         system_patch_changed = False
+        sensor_patch_info: dict[str, dict[str, object]] = {}
+        sensor_patch_changed = False
 
         for update in (patch.get("updates") or []):
             applied_any = self._apply_nodus_meta_patch_update(patched_meta, update) or applied_any
             if not isinstance(update, dict):
                 continue
-            section = str(update.get("section") or "").strip().lower()
+            section_raw = str(update.get("section") or "").strip()
+            section = section_raw.lower()
             key = str(update.get("key") or "").strip()
             if not key:
+                continue
+            if section == "calibration" or section.startswith("calibration."):
+                block_name = "Calibration"
+                if section.startswith("calibration."):
+                    suffix = section_raw.split(".", 1)[1].strip() if "." in section_raw else ""
+                    if suffix:
+                        block_name = f"Calibration.{suffix}"
+                block = sensor_patch_info.get(block_name)
+                if not isinstance(block, dict):
+                    block = {}
+                    sensor_patch_info[block_name] = block
+                block[key] = update.get("value")
+                sensor_patch_changed = True
                 continue
             block_name = {
                 "network": "Network",
@@ -2044,6 +2092,10 @@ class saiMQTTIngest:
         if not applied_any:
             return False, False
 
+        if message_id:
+            with self._meta_patch_lock:
+                self.meta_patch_by_message[message_id] = dict(patch)
+
         self.discovery_cache[cache_key] = patched_meta
         ok_meta, subscribed = self._parse_and_subscribe_from_nodus_meta(
             patched_meta,
@@ -2061,6 +2113,38 @@ class saiMQTTIngest:
             except Exception as e:
                 if DEBUG:
                     printDM(f"[nodus-meta-patch] system settings apply failed: {e}", location=MODULE)
+        if sensor_patch_changed:
+            try:
+                from collections import OrderedDict
+                from saiSensorSettingsManager import SensorSettingsManager
+
+                def _ensure_block(parent: dict, name: str) -> dict:
+                    block = parent.get(name)
+                    if not isinstance(block, dict):
+                        block = OrderedDict()
+                        parent[name] = block
+                    return block
+
+                sensor_mgr = SensorSettingsManager()
+                try:
+                    sensor_doc = sensor_mgr.load(cache_key) or OrderedDict()
+                except Exception:
+                    sensor_doc = OrderedDict()
+
+                changed = False
+                for block_name, items in sensor_patch_info.items():
+                    current = sensor_doc
+                    for segment in [seg for seg in str(block_name or "").split(".") if seg]:
+                        current = _ensure_block(current, segment)
+                    for key, value in (items or {}).items():
+                        if current.get(key) != value:
+                            current[key] = value
+                            changed = True
+                if changed:
+                    sensor_mgr.save(cache_key, sensor_doc)
+            except Exception as e:
+                if DEBUG:
+                    printDM(f"[nodus-meta-patch] sensor settings apply failed: {e}", location=MODULE)
         return ok_meta, subscribed
 
     def _infer_sensor_device_name(self, raw_device, sensor_id: str | None = None) -> str:

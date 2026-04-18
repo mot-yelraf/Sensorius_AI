@@ -1295,8 +1295,9 @@ class SwitchController:
             * "astral": sunrise/sunset threshold using IP/manual location:
                         true when local time is at/after event + offset_min.
             * "timer":  periodic window based on duration_min (minutes) and
-                        freq_hours (hours). True for the first duration_min
-                        minutes of each freq_hours period within a day.
+                        either period_min (minutes) or legacy freq_hours.
+                        Hour-based rules still align to on-the-hour periods.
+                        Minute-based rules may use anchor_epoch to start at save time.
             * "sensor": uses hysteresis around `value` to decide if the channel
                         should be ON, based on the *current state* of the target
                         switch channel.
@@ -1389,8 +1390,9 @@ class SwitchController:
             # --- TIMER CONDITION ----------------------------------------------
             # type == "timer"
             if ctype == "timer":
-                # duration_min: 1–60 minutes (clamped)
-                # freq_hours:   period between pulses (1,3,6,12,24, etc.)
+                # duration_min: active window length in minutes
+                # period_min:   repeat period in minutes
+                # freq_hours:   legacy hourly repeat period
                 try:
                     duration_min = int(cond.get("duration_min") or 0)
                 except Exception:
@@ -1399,16 +1401,28 @@ class SwitchController:
                     freq_hours = int(cond.get("freq_hours") or 0)
                 except Exception:
                     freq_hours = 0
+                try:
+                    period_min = int(cond.get("period_min") or 0)
+                except Exception:
+                    period_min = 0
+                if period_min <= 0 and freq_hours > 0:
+                    period_min = freq_hours * 60
+                try:
+                    anchor_epoch = int(cond.get("anchor_epoch") or 0)
+                except Exception:
+                    anchor_epoch = 0
 
-                if duration_min <= 0 or freq_hours <= 0:
+                if duration_min <= 0 or period_min <= 0 or duration_min >= period_min:
                     return False
 
-                period_sec = max(freq_hours, 1) * 3600
-                duration_sec = max(1, min(duration_min * 60, period_sec))
+                period_sec = max(period_min, 1) * 60
+                duration_sec = max(1, min(duration_min * 60, period_sec - 1))
 
-                # Repeat every 'freq_hours' from local midnight
-                # True for the first 'duration_min' minutes of each period.
-                phase = seconds_since_midnight % period_sec
+                if anchor_epoch > 0:
+                    phase = max(0, int(time.time()) - anchor_epoch) % period_sec
+                else:
+                    # Preserve legacy on-the-hour alignment for hourly timers.
+                    phase = seconds_since_midnight % period_sec
                 return phase < duration_sec
 
             # --- SENSOR CONDITION ---------------------------------------------

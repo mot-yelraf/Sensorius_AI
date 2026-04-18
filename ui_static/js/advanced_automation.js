@@ -431,7 +431,7 @@ function addCondition(modal, cond) {
   timerDurWrap.style.gap = "0.25rem";
 
   const timerDurLab  = create("label");
-  timerDurLab.textContent = "Duration (minutes)";
+  timerDurLab.textContent = "Duration";
 
   const timerDurIn   = create("input");
   timerDurIn.type = "number";
@@ -455,12 +455,16 @@ function addCondition(modal, cond) {
   const timerFreqSel  = create("select");
   timerFreqSel.classList.add("timer-frequency");
   timerFreqSel.innerHTML = `
-    <option value="1">1 hour</option>
-    <option value="3">3 hours</option>
-    <option value="6">6 hours</option>
-    <option value="12">12 hours</option>
-    <option value="24">24 hours</option>`;
-  timerFreqSel.value = String(cond?.freq_hours || 1);
+    <option value="5">5 minutes</option>
+    <option value="15">15 minutes</option>
+    <option value="30">30 minutes</option>
+    <option value="60">1 hour</option>
+    <option value="180">3 hours</option>
+    <option value="360">6 hours</option>
+    <option value="720">12 hours</option>
+    <option value="1440">24 hours</option>`;
+  const timerPeriodMin = Number.parseInt(String(cond?.period_min ?? ((cond?.freq_hours || 1) * 60)), 10);
+  timerFreqSel.value = String(Number.isFinite(timerPeriodMin) && timerPeriodMin > 0 ? timerPeriodMin : 60);
   timerFreqSel.style.width = "7rem";
 
   timerFreqWrap.append(timerFreqLab, timerFreqSel);
@@ -606,7 +610,7 @@ function renderAsTime() {
     row.style.alignItems = "flex-end";
     row.style.gap = "0.75rem";
 
-    row.append(typeWrap, timerDurWrap, timerFreqWrap, rem);
+    row.append(typeWrap, timerFreqWrap, timerDurWrap, rem);
     group.appendChild(row);
   }
 
@@ -801,10 +805,17 @@ function serializeForm(modal){
       if (!Number.isFinite(duration) || duration < 1) duration = 1;
       if (duration > 60) duration = 60;
 
-      let freq = parseInt(freqSel?.value || "1", 10);
-      if (!Number.isFinite(freq) || freq <= 0) freq = 1;
+      let periodMin = parseInt(freqSel?.value || "60", 10);
+      if (!Number.isFinite(periodMin) || periodMin <= 0) periodMin = 60;
+      if (duration >= periodMin) {
+        throw new Error(`Timer duration must be less than Every (${periodMin} minutes).`);
+      }
 
-      return { type:"timer", duration_min: duration, freq_hours: freq };
+      const condition = { type:"timer", duration_min: duration, period_min: periodMin };
+      if (periodMin >= 60 && periodMin % 60 === 0) {
+        condition.freq_hours = periodMin / 60;
+      }
+      return condition;
     } else if (typeVal === "or"){
       return { type:"or" };
     } else {

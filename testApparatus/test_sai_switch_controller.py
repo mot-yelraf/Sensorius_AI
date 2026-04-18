@@ -986,6 +986,100 @@ def test_timer_rule_turns_switch_off_when_window_ends(monkeypatch: pytest.Monkey
     assert calls == [("Fan", True, False), ("Fan", False, True)]
 
 
+def test_timer_rule_uses_anchor_epoch_for_minute_periods(monkeypatch: pytest.MonkeyPatch):
+    monotonic_now = {"value": 500.0}
+    epoch_now = {"value": 1000.0}
+    monkeypatch.setattr(saiSwitch.time, "monotonic", lambda: monotonic_now["value"])
+    monkeypatch.setattr(saiSwitch.time, "time", lambda: epoch_now["value"])
+
+    real_strftime = time.strftime
+    local_now = {"value": time.struct_time((2026, 4, 18, 10, 7, 0, 5, 108, -1))}
+    monkeypatch.setattr(saiSwitch.time, "localtime", lambda: local_now["value"])
+    monkeypatch.setattr(
+        saiSwitch.time,
+        "strftime",
+        lambda fmt, tm: f"{tm.tm_hour:02d}:{tm.tm_min:02d}" if fmt == "%H:%M" else real_strftime(fmt, tm),
+    )
+
+    ctrl = _make_controller()
+    state = {"Fan": False}
+    calls = []
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "rule1": {
+                "enabled": True,
+                "script_json": {
+                    "enabled": True,
+                    "conditions": [
+                        {"type": "time", "start": "00:00", "end": "00:00"},
+                        {"type": "timer", "duration_min": 4, "period_min": 15, "anchor_epoch": 1000},
+                    ],
+                    "actions": [{"switch_key": "sw1::Fan", "set": True, "revert_action": "previous_state", "delay_s": 0}],
+                },
+            }
+        }
+    }
+
+    def _fake_set_state(label, desired, force=False, event_source="manual/ui"):
+        calls.append((label, desired, force))
+        state[label] = desired
+        return True
+
+    ctrl.set_state = _fake_set_state
+    ctrl.get_state = lambda label: state[label]
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    assert calls == [("Fan", True, False)]
+
+    epoch_now["value"] = 1241.0
+    monotonic_now["value"] = 504.0
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    assert calls == [("Fan", True, False), ("Fan", False, True)]
+
+
+def test_timer_rule_rejects_duration_equal_to_period(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(saiSwitch.time, "monotonic", lambda: 700.0)
+
+    real_strftime = time.strftime
+    local_now = time.struct_time((2026, 4, 18, 11, 0, 0, 5, 108, -1))
+    monkeypatch.setattr(saiSwitch.time, "localtime", lambda: local_now)
+    monkeypatch.setattr(
+        saiSwitch.time,
+        "strftime",
+        lambda fmt, tm: f"{tm.tm_hour:02d}:{tm.tm_min:02d}" if fmt == "%H:%M" else real_strftime(fmt, tm),
+    )
+
+    ctrl = _make_controller()
+    state = {"Fan": False}
+    calls = []
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "rule1": {
+                "enabled": True,
+                "script_json": {
+                    "enabled": True,
+                    "conditions": [
+                        {"type": "time", "start": "00:00", "end": "00:00"},
+                        {"type": "timer", "duration_min": 15, "period_min": 15, "anchor_epoch": 1000},
+                    ],
+                    "actions": [{"switch_key": "sw1::Fan", "set": True, "revert_action": "previous_state", "delay_s": 0}],
+                },
+            }
+        }
+    }
+
+    def _fake_set_state(label, desired, force=False, event_source="manual/ui"):
+        calls.append((label, desired, force))
+        state[label] = desired
+        return True
+
+    ctrl.set_state = _fake_set_state
+    ctrl.get_state = lambda label: state[label]
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    assert calls == []
+
+
 def test_eval_astral_condition_threshold_logic(monkeypatch: pytest.MonkeyPatch):
     class FakeLocationInfo:
         def __init__(self, **_kwargs):

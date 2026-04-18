@@ -72,6 +72,8 @@ class _FakeIngest:
         self.next_calibration_ack: dict | None = {"accepted": True}
         self.next_calibration_result: dict | None = {"applied": True, "status": {"status": "calibrated", "calibrated": True}}
         self.next_calibration_result_by_action: dict[str, dict | None] = {}
+        self.meta_patches_by_message: dict[str, dict] = {}
+        self.next_meta_patch_by_action: dict[str, dict | None] = {}
         self.device_location: dict[str, str] = {}
         self.expected_gauge_map: dict[str, list[str]] = {}
         self.device_status: dict[str, str] = {}
@@ -221,6 +223,24 @@ class _FakeIngest:
         if expected_count is None or len(rows) >= int(expected_count):
             return rows
         return rows
+
+    async def wait_for_nodus_meta_patch(self, message_id: str, *, source: str | None = None, timeout: float = 0):
+        if message_id in self.meta_patches_by_message:
+            payload = self.meta_patches_by_message.get(message_id)
+        else:
+            action = ""
+            for row in self.calibration_commands:
+                if row.get("message_id") == message_id:
+                    action = str(row.get("action") or "")
+                    break
+            payload = self.next_meta_patch_by_action.get(action)
+        if payload is None:
+            return None
+        out = dict(payload)
+        out.setdefault("message_id", message_id)
+        if source:
+            out.setdefault("source", source)
+        return out
 
     def get_nodus_calibration_state(self, sensor_id: str):
         state = self.calibration_state.get(sensor_id)
@@ -1152,6 +1172,15 @@ async def test_device_calibration_apply_for_remote_nodus_uses_mqtt_and_updates_s
             }
         },
     )
+    ingest.meta_patches_by_message["test-1"] = {
+        "schema": "nodus-meta-patch/v1",
+        "device_id": "apvpd-test123",
+        "message_id": "test-1",
+        "source": "calibration_set",
+        "updates": [
+            {"section": "Calibration.Device", "key": "TEMP_OFFSET", "value": 1.5},
+        ],
+    }
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
@@ -1164,6 +1193,7 @@ async def test_device_calibration_apply_for_remote_nodus_uses_mqtt_and_updates_s
         )
 
     assert res.status_code == 200
+    assert res.json()["shadow_synced"] is True
     assert ingest.calibration_commands[-1]["action"] == "apply"
     assert ingest.calibration_commands[-1]["payload"]["offsets"][0]["key"] == "Calibration.Device.TEMP_OFFSET"
     saved = sensor_mgr.load("apvpd-test123")
@@ -1189,6 +1219,24 @@ async def test_device_calibration_apply_for_remote_nodus_can_update_same_offset_
             },
         },
     )
+    ingest.meta_patches_by_message["test-1"] = {
+        "schema": "nodus-meta-patch/v1",
+        "device_id": "apvpd-test123",
+        "message_id": "test-1",
+        "source": "calibration_set",
+        "updates": [
+            {"section": "Calibration.Device", "key": "CO2_OFFSET", "value": -750.0},
+        ],
+    }
+    ingest.meta_patches_by_message["test-2"] = {
+        "schema": "nodus-meta-patch/v1",
+        "device_id": "apvpd-test123",
+        "message_id": "test-2",
+        "source": "calibration_set",
+        "updates": [
+            {"section": "Calibration.Device", "key": "CO2_OFFSET", "value": -250.0},
+        ],
+    }
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         first = await client.post(
@@ -1210,6 +1258,8 @@ async def test_device_calibration_apply_for_remote_nodus_can_update_same_offset_
 
     assert first.status_code == 200
     assert second.status_code == 200
+    assert first.json()["shadow_synced"] is True
+    assert second.json()["shadow_synced"] is True
     assert sensor_mgr.load("apvpd-test123")["Calibration"]["Device"]["CO2_OFFSET"] == -250.0
     assert [cmd["payload"]["offsets"][0]["value"] for cmd in ingest.calibration_commands[-2:]] == [-750.0, -250.0]
 
@@ -1236,6 +1286,15 @@ async def test_device_calibration_apply_for_remote_nodus_filters_unchanged_offse
             },
         },
     )
+    ingest.meta_patches_by_message["test-1"] = {
+        "schema": "nodus-meta-patch/v1",
+        "device_id": "apvpd-test123",
+        "message_id": "test-1",
+        "source": "calibration_set",
+        "updates": [
+            {"section": "Calibration.Device", "key": "RH_OFFSET", "value": 0.4},
+        ],
+    }
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
@@ -1253,10 +1312,43 @@ async def test_device_calibration_apply_for_remote_nodus_filters_unchanged_offse
         )
 
     assert res.status_code == 200
+    assert res.json()["shadow_synced"] is True
     sent_offsets = ingest.calibration_commands[-1]["payload"]["offsets"]
     assert sent_offsets == [{"key": "Calibration.Device.RH_OFFSET", "value": 0.4}]
     saved = sensor_mgr.load("apvpd-test123")
     assert saved["Calibration"]["Device"]["RH_OFFSET"] == 0.4
+
+
+@pytest.mark.asyncio
+async def test_device_calibration_apply_for_remote_nodus_waits_for_meta_patch_before_shadow_update(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "apvpd-test123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "apvpd-test123",
+            }
+        },
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/calibration/device/apply",
+            json={
+                "sensor_id": "apvpd-test123",
+                "device_kind": "aqi",
+                "offsets": [{"key": "Calibration.Device.TEMP_OFFSET", "value": 1.5}],
+            },
+        )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["shadow_synced"] is False
+    saved = sensor_mgr.load("apvpd-test123")
+    assert "Calibration" not in saved
 
 
 @pytest.mark.asyncio
@@ -1324,6 +1416,15 @@ async def test_soil_ph_buffer_calibration_for_remote_nodus_uses_sample_session_a
             "sensor_id": "soil-123",
         },
     }
+    ingest.meta_patches_by_message["test-2"] = {
+        "schema": "nodus-meta-patch/v1",
+        "device_id": "soil-123",
+        "message_id": "test-2",
+        "source": "calibration_set",
+        "updates": [
+            {"section": "Calibration.Device", "key": "SOIL_PH_CAL_VAL", "value": 0.58},
+        ],
+    }
     ingest.sample_events_by_message["test-1"] = [
         {
             "message_id": "test-1",
@@ -1365,6 +1466,7 @@ async def test_soil_ph_buffer_calibration_for_remote_nodus_uses_sample_session_a
 
     body = res.json()
     assert res.status_code == 200
+    assert body["shadow_synced"] is True
     assert body["soil_ph_offset"] == pytest.approx(0.58)
     assert ingest.calibration_commands[0]["action"] == "soil_ph_session_start"
     assert ingest.calibration_commands[-1]["action"] == "apply"
@@ -2214,6 +2316,7 @@ async def test_dashboard_display_style_prefers_sensor_settings_over_global_defau
     monkeypatch.setattr(saiSettingsModule, "saiSettings", _PersistentFakeSaiSettings)
 
     saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
     now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["apvpd-test123"])
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso)
@@ -2274,6 +2377,7 @@ async def test_dashboard_display_metrics_prefer_sensor_settings_over_ingest_expe
     ]
 
     saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
     now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["apvpd-test123"])
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso)
