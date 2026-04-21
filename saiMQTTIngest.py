@@ -2050,6 +2050,7 @@ class saiMQTTIngest:
         system_patch_changed = False
         sensor_patch_info: dict[str, dict[str, object]] = {}
         sensor_patch_changed = False
+        live_switch_state_updates: list[dict[str, object]] = []
 
         for update in (patch.get("updates") or []):
             applied_any = self._apply_nodus_meta_patch_update(patched_meta, update) or applied_any
@@ -2073,6 +2074,20 @@ class saiMQTTIngest:
                 block[key] = update.get("value")
                 sensor_patch_changed = True
                 continue
+            if section == "switch":
+                match = re.fullmatch(r"SWITCH_(\d+)_LAST_STATE", key, flags=re.IGNORECASE)
+                if match:
+                    try:
+                        channel_index = max(int(match.group(1)), 1)
+                    except Exception:
+                        channel_index = 0
+                    if channel_index > 0:
+                        live_switch_state_updates.append(
+                            {
+                                "channel_index": channel_index,
+                                "state": update.get("value"),
+                            }
+                        )
             block_name = {
                 "network": "Network",
                 "profile": "Profile",
@@ -2145,6 +2160,66 @@ class saiMQTTIngest:
             except Exception as e:
                 if DEBUG:
                     printDM(f"[nodus-meta-patch] sensor settings apply failed: {e}", location=MODULE)
+        if live_switch_state_updates:
+            try:
+                switch_meta = patched_meta.get("switch") if isinstance(patched_meta, dict) else {}
+                switch_id = str((switch_meta or {}).get("device_id") or "").strip()
+                channels = (switch_meta or {}).get("channels") if isinstance(switch_meta, dict) else []
+                if switch_id and isinstance(channels, list):
+                    for item in live_switch_state_updates:
+                        try:
+                            channel_index = int(item.get("channel_index") or 0)
+                        except Exception:
+                            channel_index = 0
+                        if channel_index <= 0 or channel_index > len(channels):
+                            continue
+                        channel_meta = channels[channel_index - 1]
+                        if not isinstance(channel_meta, dict):
+                            continue
+                        channel_id = str(channel_meta.get("channel_id") or "").strip()
+                        label = str(channel_meta.get("label") or channel_id).strip() or channel_id
+                        if not channel_id:
+                            continue
+                        raw_state = item.get("state")
+                        if isinstance(raw_state, bool):
+                            is_on = raw_state
+                        else:
+                            state_text = str(raw_state or "").strip().lower()
+                            if state_text not in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
+                                continue
+                            is_on = state_text in {"1", "true", "yes", "on"}
+                        source = patch_source or "mqtt-meta-patch"
+                        self._maybe_persist_switch_event(
+                            switch_id=switch_id,
+                            channel_id=channel_id,
+                            is_on=is_on,
+                            ts_iso=None,
+                            source=source,
+                            sensor_lineage=f"Switch_{switch_id}",
+                        )
+                        cache = self._switch_state_cache.setdefault(switch_id, {})
+                        state_txt = "on" if is_on else "off"
+                        cache[channel_id] = state_txt
+                        if label:
+                            cache[label] = state_txt
+                        self.clear_pending_switch_set(switch_id, channel_id=channel_id, label=label)
+                        self._known_switch_ids.add(switch_id)
+                        try:
+                            import saiWebRoutes as routes
+                            switch_broadcast = getattr(getattr(routes, "app", object()), "state", object()).switch_broadcast
+                            if switch_broadcast:
+                                self._schedule_coro(switch_broadcast({
+                                    "type": "switch_event",
+                                    "key": f"{switch_id}::{label}",
+                                    "state": bool(is_on),
+                                    "timestamp": get_timestamp(),
+                                    "source": source,
+                                }))
+                        except Exception:
+                            pass
+            except Exception as e:
+                if DEBUG:
+                    printDM(f"[nodus-meta-patch] live switch update failed: {e}", location=MODULE)
         return ok_meta, subscribed
 
     def _infer_sensor_device_name(self, raw_device, sensor_id: str | None = None) -> str:

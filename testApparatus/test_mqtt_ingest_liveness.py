@@ -107,10 +107,14 @@ class _Logger:
         self.sensors.add(sensor_id)
 
     def upsert_switch_identity(self, *, switch_key, switch_id, label, location=None):
+        channel_id = ""
+        if "::" in str(switch_key or ""):
+            channel_id = str(switch_key).split("::", 1)[0].strip()
         self.switch_identities.append(
             {
                 "switch_key": switch_key,
                 "switch_id": switch_id,
+                "channel_id": channel_id,
                 "label": label,
                 "location": location,
             }
@@ -1200,7 +1204,6 @@ def test_live_nodus_data_updates_expected_gauges_from_display_metrics(monkeypatc
         "Baro-Pressure",
     ]
 
-
 def test_existing_manual_nodus_shadow_settings_are_backfilled_from_remote_display_metrics(tmp_path, monkeypatch):
     ingest = _build_ingest(monkeypatch)
 
@@ -1693,6 +1696,116 @@ def test_nodus_meta_patch_updates_switch_shadow_from_channel_topic(tmp_path, mon
     assert ingest.nodus_switch_topic_map["nodus/S1-test123/state"]["label"] == "Exhaust"
     assert ingest.discovery_cache["apvpd-test123"]["switch"]["channels"][0]["label"] == "Exhaust"
     assert ingest._switch_state_cache["switch-test123"]["S1-test123"] == "on"
+
+
+def test_nodus_meta_patch_last_state_broadcasts_live_switch_update(tmp_path, monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    switch_root.mkdir()
+    system_root.mkdir()
+
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    real_settings_cls = saiSettings.saiSettings
+
+    monkeypatch.setattr(
+        saiSensorSettingsManager,
+        "SensorSettingsManager",
+        lambda *_a, **_k: real_sensor_mgr(str(sensor_root)),
+    )
+    monkeypatch.setattr(
+        saiSwitchSettingsManager,
+        "SwitchSettingsManager",
+        lambda *_a, **_k: real_switch_mgr(str(switch_root)),
+    )
+    monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
+
+    pushed = []
+
+    async def _fake_broadcast(payload):
+        pushed.append(payload)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "saiWebRoutes",
+        types.SimpleNamespace(
+            app=types.SimpleNamespace(
+                state=types.SimpleNamespace(switch_broadcast=_fake_broadcast)
+            )
+        ),
+    )
+    ingest._schedule_coro = lambda coro: asyncio.run(coro)
+
+    meta_payload = json.dumps(
+        {
+            "schema": "nodus-meta/v1",
+            "device_id": "apvpd-test123",
+            "hostname": "apvpd-test123",
+            "serial": "ykdvea",
+            "type": "nodus",
+            "sensor": {
+                "sensor_id": "apvpd-test123",
+                "location": "Lab",
+                "data_topic": "nodus/apvpd-test123/data",
+                "availability_topic": "nodus/apvpd-test123/availability",
+            },
+            "switch": {
+                "device_id": "switch-test123",
+                "location": "Lab",
+                "channels": [
+                    {
+                        "index": 1,
+                        "label": "Fan",
+                        "channel_id": "S1-test123",
+                        "state": False,
+                        "event_topic": "nodus/S1-test123/event",
+                        "state_topic": "nodus/S1-test123/state",
+                        "set_topic": "nodus/S1-test123/set",
+                        "availability_topic": "nodus/S1-test123/availability",
+                    }
+                ],
+            },
+            "location_group": {"location": "Lab", "members": ["apvpd-test123", "switch-test123"]},
+            "timestamp": 1763859546,
+        }
+    )
+    ingest._on_message(ingest.client, None, _Msg("nodus/apvpd-test123/meta", meta_payload, retain=True))
+    ingest._pending_set[("switch-test123", "Fan")] = {
+        "ts": time.time(),
+        "state": True,
+        "channel_id": "S1-test123",
+    }
+
+    patch_payload = json.dumps(
+        {
+            "schema": "nodus-meta-patch/v1",
+            "device_id": "S1-test123",
+            "message_id": "cfg-channel-1",
+            "timestamp": 1763859552,
+            "source": "switch_set",
+            "sections": ["Switch"],
+            "updates": [
+                {"section": "Switch", "key": "SWITCH_1_LAST_STATE", "value": True},
+            ],
+        }
+    )
+    ingest._on_message(ingest.client, None, _Msg("nodus/S1-test123/meta/patch", patch_payload, retain=False))
+
+    assert ingest._switch_state_cache["switch-test123"]["S1-test123"] == "on"
+    assert ingest._switch_state_cache["switch-test123"]["Fan"] == "on"
+    assert ("switch-test123", "Fan") not in ingest._pending_set
+    assert ingest.data_logger.switch_events[-1]["switch_key"] == "S1-test123::Fan"
+    assert ingest.data_logger.switch_events[-1]["is_on"] is True
+    assert ingest.data_logger.switch_events[-1]["source"] == "switch_set"
+    assert pushed
+    assert pushed[-1]["type"] == "switch_event"
+    assert pushed[-1]["key"] == "switch-test123::Fan"
+    assert pushed[-1]["state"] is True
+    assert pushed[-1]["source"] == "switch_set"
 
 
 def test_ensure_settings_from_itaot_overwrites_shadow_locations_when_payload_is_unknown(tmp_path, monkeypatch):
