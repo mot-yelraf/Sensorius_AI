@@ -494,6 +494,7 @@ def test_confirmed_nodus_state_broadcasts_live_switch_event(monkeypatch):
     assert pushed
     assert pushed[-1]["type"] == "switch_event"
     assert pushed[-1]["key"] == "sw1::Fan"
+    assert pushed[-1]["ui_key"] == "S1-sw1::Fan"
     assert pushed[-1]["state"] is False
     assert pushed[-1]["source"] == "mqtt-nodus"
 
@@ -1804,8 +1805,51 @@ def test_nodus_meta_patch_last_state_broadcasts_live_switch_update(tmp_path, mon
     assert pushed
     assert pushed[-1]["type"] == "switch_event"
     assert pushed[-1]["key"] == "switch-test123::Fan"
+    assert pushed[-1]["ui_key"] == "S1-test123::Fan"
     assert pushed[-1]["state"] is True
     assert pushed[-1]["source"] == "switch_set"
+
+
+def test_device_event_broadcast_includes_channel_ui_key(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.data_logger.switch_identities.append(
+        {
+            "switch_id": "switch-oqs3lr",
+            "switch_key": "S1-oqs3lr::Fan",
+            "channel_id": "S1-oqs3lr",
+            "label": "Fan",
+            "location": "Lab",
+        }
+    )
+    ingest.event_topic_to_label["switch/switch-oqs3lr-GP28/event"] = "Fan"
+    ingest._schedule_coro = lambda coro: asyncio.run(coro)
+
+    pushed = []
+
+    async def _fake_broadcast(payload):
+        pushed.append(payload)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "saiWebRoutes",
+        types.SimpleNamespace(
+            app=types.SimpleNamespace(
+                state=types.SimpleNamespace(switch_broadcast=_fake_broadcast)
+            )
+        ),
+    )
+
+    ingest.handle_switch_event_device(
+        "switch/switch-oqs3lr-GP28/event",
+        json.dumps({"event": {"SWITCH_1": "on"}}),
+    )
+
+    assert pushed
+    assert pushed[-1]["type"] == "switch_event"
+    assert pushed[-1]["key"] == "switch-oqs3lr::Fan"
+    assert pushed[-1]["ui_key"] == "S1-oqs3lr::Fan"
+    assert pushed[-1]["state"] is True
+    assert pushed[-1]["source"] == "mqtt"
 
 
 def test_ensure_settings_from_itaot_overwrites_shadow_locations_when_payload_is_unknown(tmp_path, monkeypatch):

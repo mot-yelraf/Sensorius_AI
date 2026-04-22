@@ -2059,7 +2059,7 @@ class RemoteSwitchController(SwitchController):
                 return
 
             ch_map = (getattr(ing, "_switch_state_cache", {}) or {}).get(sid, {}) or {}
-            if not isinstance(ch_map, dict) or not ch_map:
+            if not isinstance(ch_map, dict):
                 return
 
             for label in (self.get_switch_names() or []):

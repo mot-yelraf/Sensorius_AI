@@ -538,6 +538,43 @@ class saiMQTTIngest:
             coro.close()
         except Exception:
             pass
+
+    def _broadcast_switch_event(
+        self,
+        *,
+        switch_id: str,
+        channel_id: str | None,
+        label: str | None,
+        is_on: bool,
+        source: str | None,
+        timestamp: str | None = None,
+    ) -> None:
+        """Push a live switch update to the dashboard using both host and channel keys."""
+        try:
+            import saiWebRoutes as routes
+
+            switch_broadcast = getattr(getattr(routes, "app", object()), "state", object()).switch_broadcast
+            if not switch_broadcast:
+                return
+
+            switch_id_text = str(switch_id or "").strip()
+            channel_id_text = str(channel_id or "").strip()
+            label_text = str(label or channel_id_text or "").strip()
+            if not switch_id_text or not label_text:
+                return
+
+            payload = {
+                "type": "switch_event",
+                "key": f"{switch_id_text}::{label_text}",
+                "state": bool(is_on),
+                "timestamp": timestamp or get_timestamp(),
+                "source": source,
+            }
+            if channel_id_text:
+                payload["ui_key"] = f"{channel_id_text}::{label_text}"
+            self._schedule_coro(switch_broadcast(payload))
+        except Exception:
+            pass
         return False
 
     def set_onboarding_event_handler(self, handler) -> None:
@@ -2204,19 +2241,13 @@ class saiMQTTIngest:
                             cache[label] = state_txt
                         self.clear_pending_switch_set(switch_id, channel_id=channel_id, label=label)
                         self._known_switch_ids.add(switch_id)
-                        try:
-                            import saiWebRoutes as routes
-                            switch_broadcast = getattr(getattr(routes, "app", object()), "state", object()).switch_broadcast
-                            if switch_broadcast:
-                                self._schedule_coro(switch_broadcast({
-                                    "type": "switch_event",
-                                    "key": f"{switch_id}::{label}",
-                                    "state": bool(is_on),
-                                    "timestamp": get_timestamp(),
-                                    "source": source,
-                                }))
-                        except Exception:
-                            pass
+                        self._broadcast_switch_event(
+                            switch_id=switch_id,
+                            channel_id=channel_id,
+                            label=label,
+                            is_on=bool(is_on),
+                            source=source,
+                        )
             except Exception as e:
                 if DEBUG:
                     printDM(f"[nodus-meta-patch] live switch update failed: {e}", location=MODULE)
@@ -4458,6 +4489,10 @@ class saiMQTTIngest:
                 retain=retain,
             )
             if ok:
+                cache = self._switch_state_cache.setdefault(str(switch_id), {})
+                optimistic_state = "on" if bool(new_state) else "off"
+                cache[str(channel_id or "").strip()] = optimistic_state
+                cache[str(channel_label or "").strip()] = optimistic_state
                 self._pending_set[(str(switch_id), str(channel_label))] = {
                     "ts": time.time(),
                     "state": bool(new_state),
@@ -4859,19 +4894,13 @@ class saiMQTTIngest:
                 )
                 labels = _cache_channel_state(switch_id, channel_id, is_on, hint=label)
                 ui_label = labels[0] if labels else (label or channel_id)
-                try:
-                    import saiWebRoutes as routes
-                    switch_broadcast = getattr(getattr(routes, "app", object()), "state", object()).switch_broadcast
-                    if switch_broadcast:
-                        self._schedule_coro(switch_broadcast({
-                            "type": "switch_event",
-                            "key": f"{switch_id}::{ui_label}",
-                            "state": bool(is_on),
-                            "timestamp": get_timestamp(),
-                            "source": source,
-                        }))
-                except Exception:
-                    pass
+                self._broadcast_switch_event(
+                    switch_id=switch_id,
+                    channel_id=channel_id,
+                    label=ui_label,
+                    is_on=bool(is_on),
+                    source=source,
+                )
             elif kind == "event":
                 self._maybe_persist_switch_event(
                     switch_id=switch_id,
@@ -4890,19 +4919,13 @@ class saiMQTTIngest:
                     pass
                 ui_label = labels[0] if labels else (label or channel_id)
                 # Push live updates to the UI (label-based key for listbox match)
-                try:
-                    import saiWebRoutes as routes
-                    switch_broadcast = getattr(getattr(routes, "app", object()), "state", object()).switch_broadcast
-                    if switch_broadcast:
-                        self._schedule_coro(switch_broadcast({
-                            "type": "switch_event",
-                            "key": f"{switch_id}::{ui_label}",
-                            "state": bool(is_on),
-                            "timestamp": get_timestamp(),
-                            "source": source,
-                        }))
-                except Exception:
-                    pass
+                self._broadcast_switch_event(
+                    switch_id=switch_id,
+                    channel_id=channel_id,
+                    label=ui_label,
+                    is_on=bool(is_on),
+                    source=source,
+                )
 
         except Exception as e:
             printDM(f"[handle_nodus_switch_topic] err: {e}", location=MODULE)
@@ -4986,6 +5009,13 @@ class saiMQTTIngest:
                 ts_iso=ts_iso,
                 source="mqtt",
                 sensor_lineage=sensor_lineage,
+            )
+            self._broadcast_switch_event(
+                switch_id=switch_id,
+                channel_id=channel_id,
+                label=label,
+                is_on=bool(is_on),
+                source="mqtt",
             )
 
         except Exception as e:

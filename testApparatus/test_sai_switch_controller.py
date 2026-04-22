@@ -234,6 +234,27 @@ def test_remote_ingest_prefers_pending_on_over_stale_cached_off(monkeypatch: pyt
     assert ctrl.auto_off_deadline["Fan"] == pytest.approx(160.0)
 
 
+def test_remote_ingest_uses_pending_state_without_cached_topic_state(monkeypatch: pytest.MonkeyPatch):
+    ctrl = RemoteSwitchController.__new__(RemoteSwitchController)
+    ctrl.mqtt_ingest = types.SimpleNamespace(
+        _switch_state_cache={},
+        _pending_set={("sw1", "Fan"): {"ts": 100.0, "state": False, "channel_id": "CH1"}},
+    )
+    ctrl.switch_id = "sw1"
+    ctrl.channel_id_for_label = {"Fan": "CH1"}
+    ctrl.last_state = {"Fan": True}
+    ctrl.auto_off_seconds = {"Fan": 60}
+    ctrl.auto_off_deadline = {"Fan": 160.0}
+    ctrl.get_switch_names = lambda: ["Fan"]
+
+    monkeypatch.setattr(saiSwitch.time, "time", lambda: 105.0)
+
+    RemoteSwitchController._refresh_state_from_ingest(ctrl)
+
+    assert ctrl.last_state["Fan"] is False
+    assert ctrl.auto_off_deadline["Fan"] is None
+
+
 def test_remote_ingest_stale_cached_off_clears_deadline_without_pending(monkeypatch: pytest.MonkeyPatch):
     ctrl = RemoteSwitchController.__new__(RemoteSwitchController)
     ctrl.mqtt_ingest = types.SimpleNamespace(

@@ -8793,6 +8793,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     _SWITCH_SOCKETS: Set[WebSocket] = set()
 
     async def _switch_broadcast(payload: Dict[str, Any]) -> None:
+        if DEBUG:
+            try:
+                printDM(
+                    f"[switch-ws] broadcast type={payload.get('type')} key={payload.get('key')} ui_key={payload.get('ui_key', '')} clients={len(_SWITCH_SOCKETS)}",
+                    location=MODULE,
+                )
+            except Exception:
+                pass
         stale: list[WebSocket] = []
         for ws in list(_SWITCH_SOCKETS):
             try:
@@ -8809,6 +8817,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     async def ws_switch_updates(ws: WebSocket):
         await ws.accept()
         _SWITCH_SOCKETS.add(ws)
+        if DEBUG:
+            printDM(f"[switch-ws] client connected total={len(_SWITCH_SOCKETS)}", location=MODULE)
         try:
             # keep alive; client never needs to send data
             while True:
@@ -8817,6 +8827,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             pass
         finally:
             _SWITCH_SOCKETS.discard(ws)
+            if DEBUG:
+                printDM(f"[switch-ws] client disconnected total={len(_SWITCH_SOCKETS)}", location=MODULE)
 
     # expose for other modules without import cycles
     app.state.switch_broadcast = _switch_broadcast
