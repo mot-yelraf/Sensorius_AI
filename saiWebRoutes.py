@@ -47,12 +47,14 @@ try:
     from astral import LocationInfo
     from astral.sun import sun as _astral_sun, elevation as _astral_elevation, azimuth as _astral_azimuth
     from astral import moon as _astral_moon
+    from astral.sidereal import lmst as _astral_lmst
 except Exception:
     LocationInfo = None
     _astral_sun = None
     _astral_elevation = None
     _astral_azimuth = None
     _astral_moon = None
+    _astral_lmst = None
 try:
     import pwd  # POSIX only
 except Exception:
@@ -466,6 +468,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "moon_next_phase_label": "",
             "moon_next_phase_date": "",
             "moon_visible_angle": None,
+            "moon_reference_angle": None,
         }
         if (
             LocationInfo is None
@@ -473,6 +476,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             or _astral_elevation is None
             or _astral_azimuth is None
             or _astral_moon is None
+            or _astral_lmst is None
         ):
             return out
 
@@ -524,6 +528,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 round((0.5 * (1 - math.cos((2 * math.pi * (moon_val % 28.0)) / 28.0))) * 100)
             )
             moon_visible_angle = None
+            moon_reference_angle = None
             try:
                 moon_az_fn = getattr(_astral_moon, "azimuth", None)
                 moon_el_fn = getattr(_astral_moon, "elevation", None)
@@ -532,63 +537,50 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 moon_el = float(moon_el_fn(obs, moon_obs_dt)) if callable(moon_el_fn) else float("nan")
                 sun_az = float(_astral_azimuth(obs, now_local))
                 sun_el = float(_astral_elevation(obs, now_local))
+                moon_pos = _astral_moon.moon_position(_astral_moon.julianday_2000(moon_obs_dt))
+                moon_ra = float(moon_pos.right_ascension)
+                moon_dec = float(moon_pos.declination)
 
                 if all(math.isfinite(v) for v in (moon_az, moon_el, sun_az, sun_el)):
-                    def _h_to_unit(az_deg: float, el_deg: float) -> tuple[float, float, float]:
-                        az = math.radians(az_deg)
-                        el = math.radians(el_deg)
-                        cel = math.cos(el)
-                        return (
-                            cel * math.sin(az),  # east
-                            cel * math.cos(az),  # north
-                            math.sin(el),        # up
+                    lat_rad = math.radians(float(resolved_lat))
+                    moon_az_rad = math.radians(moon_az)
+                    moon_el_rad = math.radians(moon_el)
+                    sun_az_rad = math.radians(sun_az)
+                    sun_el_rad = math.radians(sun_el)
+
+                    sin_sun_dec = (
+                        (math.sin(sun_el_rad) * math.sin(lat_rad))
+                        + (math.cos(sun_el_rad) * math.cos(lat_rad) * math.cos(sun_az_rad))
+                    )
+                    sun_dec = math.asin(max(-1.0, min(1.0, sin_sun_dec)))
+                    sun_hour_angle = math.atan2(
+                        -math.sin(sun_az_rad) * math.cos(sun_el_rad),
+                        (math.sin(sun_el_rad) * math.cos(lat_rad))
+                        - (math.cos(sun_el_rad) * math.sin(lat_rad) * math.cos(sun_az_rad)),
+                    )
+                    lst_rad = math.radians(float(_astral_lmst(now_local, float(resolved_lon))))
+                    sun_ra = (lst_rad - sun_hour_angle) % (2 * math.pi)
+
+                    chi_num = math.cos(sun_dec) * math.sin(sun_ra - moon_ra)
+                    chi_den = (
+                        (math.sin(sun_dec) * math.cos(moon_dec))
+                        - (math.cos(sun_dec) * math.sin(moon_dec) * math.cos(sun_ra - moon_ra))
+                    )
+                    bright_limb_angle = math.degrees(math.atan2(chi_num, chi_den)) % 360.0
+
+                    parallactic_angle = math.degrees(
+                        math.atan2(
+                            math.sin(moon_az_rad),
+                            (math.tan(lat_rad) * math.cos(moon_el_rad))
+                            - (math.sin(moon_el_rad) * math.cos(moon_az_rad)),
                         )
+                    )
 
-                    def _dot(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
-                        return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2])
-
-                    def _cross(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
-                        return (
-                            (a[1] * b[2]) - (a[2] * b[1]),
-                            (a[2] * b[0]) - (a[0] * b[2]),
-                            (a[0] * b[1]) - (a[1] * b[0]),
-                        )
-
-                    def _sub(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
-                        return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
-
-                    def _mul(a: tuple[float, float, float], k: float) -> tuple[float, float, float]:
-                        return (a[0] * k, a[1] * k, a[2] * k)
-
-                    def _norm(v: tuple[float, float, float]) -> float:
-                        return math.sqrt(_dot(v, v))
-
-                    def _unit(v: tuple[float, float, float]) -> tuple[float, float, float] | None:
-                        n = _norm(v)
-                        if n <= 1e-9:
-                            return None
-                        return (v[0] / n, v[1] / n, v[2] / n)
-
-                    moon_vec = _h_to_unit(moon_az, moon_el)
-                    sun_vec = _h_to_unit(sun_az, sun_el)
-                    zenith = (0.0, 0.0, 1.0)
-                    north = (0.0, 1.0, 0.0)
-
-                    up_axis = _unit(_sub(zenith, _mul(moon_vec, _dot(zenith, moon_vec))))
-                    if up_axis is None:
-                        up_axis = _unit(_sub(north, _mul(moon_vec, _dot(north, moon_vec))))
-
-                    if up_axis is not None:
-                        # Build screen-right from the local up axis and moon-view direction.
-                        # With Astral moon coordinates normalized to UTC, this cross-product
-                        # order matches the observer-facing sky orientation on the canvas.
-                        right_axis = _unit(_cross(moon_vec, up_axis))
-                        limb_vec = _unit(_sub(sun_vec, _mul(moon_vec, _dot(sun_vec, moon_vec))))
-                        if right_axis is not None and limb_vec is not None:
-                            ang = math.degrees(math.atan2(_dot(limb_vec, up_axis), _dot(limb_vec, right_axis)))
-                            moon_visible_angle = round(ang % 360.0, 2)
+                    moon_reference_angle = round(bright_limb_angle, 2)
+                    moon_visible_angle = round((bright_limb_angle + parallactic_angle) % 360.0, 2)
             except Exception:
                 moon_visible_angle = None
+                moon_reference_angle = None
 
             moon_rise = ""
             moon_set = ""
@@ -642,20 +634,21 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 target_phase = next(target for label, target in phase_targets if label == moon_next_phase_label)
 
                 best_date = None
-                best_dist = None
-                for i in range(1, 33):
-                    d = now_local.date() + timedelta(days=i)
+                best_key = None
+                for day_offset in range(-15, 17):
+                    d = now_local.date() + timedelta(days=day_offset)
                     try:
                         pv = float(_astral_moon.phase(d)) % phase_cycle
                     except Exception:
                         continue
                     dist = abs(pv - target_phase)
                     dist = min(dist, phase_cycle - dist)
-                    if best_dist is None or dist < best_dist:
-                        best_dist = dist
+                    # Prefer the closest phase match in the current lunation window.
+                    # If two dates are equally close, prefer an upcoming date.
+                    candidate_key = (dist, abs(day_offset), day_offset < 0)
+                    if best_key is None or candidate_key < best_key:
+                        best_key = candidate_key
                         best_date = d
-                        if dist <= 0.05:
-                            break
                 if best_date is not None:
                     moon_next_phase_date = best_date.isoformat()
             except Exception:
@@ -680,6 +673,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     "moon_next_phase_label": moon_next_phase_label,
                     "moon_next_phase_date": moon_next_phase_date,
                     "moon_visible_angle": moon_visible_angle,
+                    "moon_reference_angle": moon_reference_angle,
                 }
             )
             return out

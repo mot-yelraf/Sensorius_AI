@@ -155,12 +155,14 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         from astral import LocationInfo
         from astral.sun import sun as _astral_sun, elevation as _astral_elevation, azimuth as _astral_azimuth
         from astral import moon as _astral_moon
+        from astral.sidereal import lmst as _astral_lmst
     except Exception:
         LocationInfo = None
         _astral_sun = None
         _astral_elevation = None
         _astral_azimuth = None
         _astral_moon = None
+        _astral_lmst = None
     if isinstance(switch_controllers, dict):
         switch_controllers = {
             (k if isinstance(k, str) else str(k)).lower(): v
@@ -224,6 +226,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             "moon_next_phase_label": "",
             "moon_next_phase_date": "",
             "moon_visible_angle": None,
+            "moon_reference_angle": None,
         }
         if (
             LocationInfo is None
@@ -231,6 +234,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             or _astral_elevation is None
             or _astral_azimuth is None
             or _astral_moon is None
+            or _astral_lmst is None
         ):
             return out
 
@@ -286,6 +290,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             moon_val = float(_astral_moon.phase(now_local.date()))
             moon_lit_pct = int(round((0.5 * (1 - math.cos((2 * math.pi * (moon_val % 28.0)) / 28.0))) * 100))
             moon_visible_angle = None
+            moon_reference_angle = None
             try:
                 moon_az_fn = getattr(_astral_moon, "azimuth", None)
                 moon_el_fn = getattr(_astral_moon, "elevation", None)
@@ -294,63 +299,50 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 moon_el = float(moon_el_fn(obs, moon_obs_dt)) if callable(moon_el_fn) else float("nan")
                 sun_az = float(_astral_azimuth(obs, now_local))
                 sun_el = float(_astral_elevation(obs, now_local))
+                moon_pos = _astral_moon.moon_position(_astral_moon.julianday_2000(moon_obs_dt))
+                moon_ra = float(moon_pos.right_ascension)
+                moon_dec = float(moon_pos.declination)
 
                 if all(math.isfinite(v) for v in (moon_az, moon_el, sun_az, sun_el)):
-                    def _h_to_unit(az_deg: float, el_deg: float) -> tuple[float, float, float]:
-                        az = math.radians(az_deg)
-                        el = math.radians(el_deg)
-                        cel = math.cos(el)
-                        return (
-                            cel * math.sin(az),  # east
-                            cel * math.cos(az),  # north
-                            math.sin(el),        # up
+                    lat_rad = math.radians(float(resolved_lat))
+                    moon_az_rad = math.radians(moon_az)
+                    moon_el_rad = math.radians(moon_el)
+                    sun_az_rad = math.radians(sun_az)
+                    sun_el_rad = math.radians(sun_el)
+
+                    sin_sun_dec = (
+                        (math.sin(sun_el_rad) * math.sin(lat_rad))
+                        + (math.cos(sun_el_rad) * math.cos(lat_rad) * math.cos(sun_az_rad))
+                    )
+                    sun_dec = math.asin(max(-1.0, min(1.0, sin_sun_dec)))
+                    sun_hour_angle = math.atan2(
+                        -math.sin(sun_az_rad) * math.cos(sun_el_rad),
+                        (math.sin(sun_el_rad) * math.cos(lat_rad))
+                        - (math.cos(sun_el_rad) * math.sin(lat_rad) * math.cos(sun_az_rad)),
+                    )
+                    lst_rad = math.radians(float(_astral_lmst(now_local, float(resolved_lon))))
+                    sun_ra = (lst_rad - sun_hour_angle) % (2 * math.pi)
+
+                    chi_num = math.cos(sun_dec) * math.sin(sun_ra - moon_ra)
+                    chi_den = (
+                        (math.sin(sun_dec) * math.cos(moon_dec))
+                        - (math.cos(sun_dec) * math.sin(moon_dec) * math.cos(sun_ra - moon_ra))
+                    )
+                    bright_limb_angle = math.degrees(math.atan2(chi_num, chi_den)) % 360.0
+
+                    parallactic_angle = math.degrees(
+                        math.atan2(
+                            math.sin(moon_az_rad),
+                            (math.tan(lat_rad) * math.cos(moon_el_rad))
+                            - (math.sin(moon_el_rad) * math.cos(moon_az_rad)),
                         )
+                    )
 
-                    def _dot(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
-                        return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2])
-
-                    def _cross(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
-                        return (
-                            (a[1] * b[2]) - (a[2] * b[1]),
-                            (a[2] * b[0]) - (a[0] * b[2]),
-                            (a[0] * b[1]) - (a[1] * b[0]),
-                        )
-
-                    def _sub(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
-                        return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
-
-                    def _mul(a: tuple[float, float, float], k: float) -> tuple[float, float, float]:
-                        return (a[0] * k, a[1] * k, a[2] * k)
-
-                    def _norm(v: tuple[float, float, float]) -> float:
-                        return math.sqrt(_dot(v, v))
-
-                    def _unit(v: tuple[float, float, float]) -> tuple[float, float, float] | None:
-                        n = _norm(v)
-                        if n <= 1e-9:
-                            return None
-                        return (v[0] / n, v[1] / n, v[2] / n)
-
-                    moon_vec = _h_to_unit(moon_az, moon_el)
-                    sun_vec = _h_to_unit(sun_az, sun_el)
-                    zenith = (0.0, 0.0, 1.0)
-                    north = (0.0, 1.0, 0.0)
-
-                    up_axis = _unit(_sub(zenith, _mul(moon_vec, _dot(zenith, moon_vec))))
-                    if up_axis is None:
-                        up_axis = _unit(_sub(north, _mul(moon_vec, _dot(north, moon_vec))))
-
-                    if up_axis is not None:
-                        # Build screen-right from the local up axis and moon-view direction.
-                        # With Astral moon coordinates normalized to UTC, this cross-product
-                        # order matches the observer-facing sky orientation on the canvas.
-                        right_axis = _unit(_cross(moon_vec, up_axis))
-                        limb_vec = _unit(_sub(sun_vec, _mul(moon_vec, _dot(sun_vec, moon_vec))))
-                        if right_axis is not None and limb_vec is not None:
-                            ang = math.degrees(math.atan2(_dot(limb_vec, up_axis), _dot(limb_vec, right_axis)))
-                            moon_visible_angle = round(ang % 360.0, 2)
+                    moon_reference_angle = round(bright_limb_angle, 2)
+                    moon_visible_angle = round((bright_limb_angle + parallactic_angle) % 360.0, 2)
             except Exception:
                 moon_visible_angle = None
+                moon_reference_angle = None
 
             moon_rise = ""
             moon_set = ""
@@ -404,20 +396,21 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 target_phase = next(target for label, target in phase_targets if label == moon_next_phase_label)
 
                 best_date = None
-                best_dist = None
-                for i in range(1, 33):
-                    d = now_local.date() + timedelta(days=i)
+                best_key = None
+                for day_offset in range(-15, 17):
+                    d = now_local.date() + timedelta(days=day_offset)
                     try:
                         pv = float(_astral_moon.phase(d)) % phase_cycle
                     except Exception:
                         continue
                     dist = abs(pv - target_phase)
                     dist = min(dist, phase_cycle - dist)
-                    if best_dist is None or dist < best_dist:
-                        best_dist = dist
+                    # Prefer the closest phase match in the current lunation window.
+                    # If two dates are equally close, prefer an upcoming date.
+                    candidate_key = (dist, abs(day_offset), day_offset < 0)
+                    if best_key is None or candidate_key < best_key:
+                        best_key = candidate_key
                         best_date = d
-                        if dist <= 0.05:
-                            break
                 if best_date is not None:
                     moon_next_phase_date = best_date.isoformat()
             except Exception:
@@ -441,6 +434,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 "moon_next_phase_label": moon_next_phase_label,
                 "moon_next_phase_date": moon_next_phase_date,
                 "moon_visible_angle": moon_visible_angle,
+                "moon_reference_angle": moon_reference_angle,
             })
             return out
         except Exception:
@@ -1413,6 +1407,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ".astro-times span{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap;}"    
     yield "#sunPathCanvas{display:block;width:184px;height:96px;margin:0 auto;border:1px solid #d5c7a8;border-radius:8px;background:#dff1ff;}"
     yield "#moonPhaseCanvas{width:88px;height:88px;border:1px solid #d5c7a8;border-radius:50%;background:#081322;}"
+    yield ".moon-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.25rem;}"
+    yield ".moon-head .astro-title{margin-bottom:0;}"
+    yield ".moon-view-toggle{display:inline-flex;align-items:center;gap:.14rem;padding:.1rem;border:1px solid #d7cfb8;border-radius:999px;background:#f7f1c9;flex-shrink:0;}"
+    yield ".moon-view-btn{border:0;border-radius:999px;background:transparent;color:#4f5961;padding:.12rem .38rem;font-size:.58rem;font-weight:700;letter-spacing:.02em;cursor:pointer;line-height:1.1;}"
+    yield ".moon-view-btn.active{background:#2e4f89;color:#fff;box-shadow:0 1px 2px rgba(0,0,0,.18);}"
     yield "@media (max-width: 760px){.dash-top-row{grid-template-columns:1fr;justify-items:center}.dash-left-col,.dash-right-col,.dash-side-col{display:block;width:100%;align-items:center}#sunPathCanvas{width:184px;height:86px}.astro-times{width:184px}.astro-card{min-width:120px}.dash-loc-form,.astro-box{min-height:unset}#sunBox .astro-card,#moonBox .astro-card,#bioBox .astro-card,.dash-loc-form{width:206px;min-width:0}.moon-layout{grid-template-columns:minmax(0,1fr) 78px minmax(0,1fr);column-gap:.2rem}#moonPhaseCanvas{width:78px;height:78px}.moon-side{font-size:.6rem}#moonMeta{font-size:.64rem}.bio-day{min-height:27px;height:27px}.bio-modal .modal-body{grid-template-columns:1fr}.bio-modal-side{grid-template-columns:1fr}.bio-note-input{height:84px;max-height:84px;font-size:.47rem}.bio-summary-card .bio-summary-output{height:68px;max-height:68px}.bio-summary-output{height:52px;max-height:52px;font-size:.47rem}}"
     yield "@media print{@page{margin:.2in}@page bio-calendar{size:landscape;margin:.2in}@page bio-notes{size:portrait;margin:.35in}body.bio-printing *{visibility:hidden !important}body.bio-printing #bioPrintCalendarSheet,body.bio-printing #bioPrintCalendarSheet *{visibility:visible !important}body.bio-printing #bioPrintNotesSheet,body.bio-printing #bioPrintNotesSheet *{visibility:visible !important}body.bio-printing #bioPrintCalendarSheet,body.bio-printing #bioPrintNotesSheet{display:block !important;position:absolute;left:0;top:0;width:100%;padding:.08in;background:#fff;color:#000;box-sizing:border-box}body.bio-print-calendar-mode #bioPrintCalendarSheet{display:block !important;page:bio-calendar}body.bio-print-calendar-mode #bioPrintNotesSheet{display:none !important}body.bio-print-notes-mode #bioPrintNotesSheet{display:block !important;page:bio-notes}body.bio-print-notes-mode #bioPrintCalendarSheet{display:none !important}body.bio-print-calendar-mode .bio-print-calendar{gap:3px}body.bio-print-calendar-mode .bio-print-day{min-height:54px}body.bio-print-notes-mode .bio-print-sections{gap:.35rem}body.bio-print-notes-mode .bio-print-entry{break-inside:avoid;page-break-inside:avoid}}"
     yield "</style>"
@@ -1449,7 +1448,13 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "</div>"
     yield "<div class='astro-box' id='moonBox' aria-live='polite'>"
     yield "  <div class='astro-card'>"
-    yield "    <div class='astro-title'>Moon Phase</div>"
+    yield "    <div class='moon-head'>"
+    yield "      <div class='astro-title'>Moon Phase</div>"
+    yield "      <div class='moon-view-toggle' role='group' aria-label='Moon view mode'>"
+    yield "        <button type='button' class='moon-view-btn active' id='moonViewLocal' data-moon-view='local' aria-pressed='true'>Local</button>"
+    yield "        <button type='button' class='moon-view-btn' id='moonViewReference' data-moon-view='reference' aria-pressed='false'>Ref</button>"
+    yield "      </div>"
+    yield "    </div>"
     yield "    <div class='moon-layout'>"
     yield "      <div class='moon-side left'>"
     yield "        <span class='moon-label'>Moonrise</span>"
@@ -1789,6 +1794,28 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  ctx.stroke();"
     yield "}"
 
+    yield "function getMoonViewMode(){"
+    yield "  const localBtn = document.getElementById('moonViewLocal');"
+    yield "  const refBtn = document.getElementById('moonViewReference');"
+    yield "  if (refBtn && refBtn.classList.contains('active')) return 'reference';"
+    yield "  if (localBtn && localBtn.classList.contains('active')) return 'local';"
+    yield "  return 'local';"
+    yield "}"
+    yield ""
+    yield "function setMoonViewMode(mode){"
+    yield "  const localBtn = document.getElementById('moonViewLocal');"
+    yield "  const refBtn = document.getElementById('moonViewReference');"
+    yield "  const isReference = mode === 'reference';"
+    yield "  if (localBtn){"
+    yield "    localBtn.classList.toggle('active', !isReference);"
+    yield "    localBtn.setAttribute('aria-pressed', !isReference ? 'true' : 'false');"
+    yield "  }"
+    yield "  if (refBtn){"
+    yield "    refBtn.classList.toggle('active', isReference);"
+    yield "    refBtn.setAttribute('aria-pressed', isReference ? 'true' : 'false');"
+    yield "  }"
+    yield "}"
+    yield ""
     yield "function drawMoonPhase(data){"
     yield "  const c = document.getElementById('moonPhaseCanvas');"
     yield "  const meta = document.getElementById('moonMeta');"
@@ -1835,18 +1862,29 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  const illum = 0.5 * (1 - Math.cos((2*Math.PI*phase)/28));"
     yield "  const lat = Number(data.lat || 0);"
     yield "  const hemisphereFlip = lat < 0 ? -1 : 1;"
-    yield "  const image = ctx.createImageData(w, h);"
-    yield "  const pix = image.data;"
     yield "  const phaseAngle = (2 * Math.PI * phase) / 28;"
     yield "  const rawVisibleAngle = data ? data.moon_visible_angle : null;"
     yield "  const visibleAngle = (typeof rawVisibleAngle === 'number' && Number.isFinite(rawVisibleAngle)) ? rawVisibleAngle : NaN;"
     yield "  const hasVisibleAngle = Number.isFinite(visibleAngle);"
-    yield "  const limbStrength = hasVisibleAngle ? Math.abs(Math.sin(phaseAngle)) : Math.sin(phaseAngle);"
-    yield "  const theta = hasVisibleAngle ? ((visibleAngle * Math.PI) / 180) : (hemisphereFlip < 0 ? Math.PI : 0);"
-    yield "  if (hasVisibleAngle) c.setAttribute('data-visible-angle', visibleAngle.toFixed(2)); else c.removeAttribute('data-visible-angle');"
-    yield "  const sx = limbStrength * Math.cos(theta);"
-    yield "  const sy = -limbStrength * Math.sin(theta);"
+    yield "  const rawReferenceAngle = data ? data.moon_reference_angle : null;"
+    yield "  const referenceAngle = (typeof rawReferenceAngle === 'number' && Number.isFinite(rawReferenceAngle)) ? rawReferenceAngle : NaN;"
+    yield "  const hasReferenceAngle = Number.isFinite(referenceAngle);"
+    yield "  const moonViewMode = getMoonViewMode();"
+    yield "  const isReferenceMode = moonViewMode === 'reference';"
+    yield "  const useVisibleAngle = !isReferenceMode && hasVisibleAngle;"
+    yield "  const useReferenceAngle = isReferenceMode && hasReferenceAngle;"
+    yield "  const limbStrength = Math.abs(Math.sin(phaseAngle));"
+    yield "  const sourceAngleDeg = useVisibleAngle ? visibleAngle : (useReferenceAngle ? referenceAngle : (isReferenceMode ? 0 : (hemisphereFlip < 0 ? -60 : 60)));"
+    yield "  const rotationDeg = sourceAngleDeg;"
+    yield "  if (useVisibleAngle) c.setAttribute('data-visible-angle', visibleAngle.toFixed(2)); else c.removeAttribute('data-visible-angle');"
+    yield "  if (useReferenceAngle) c.setAttribute('data-reference-angle', referenceAngle.toFixed(2)); else c.removeAttribute('data-reference-angle');"
+    yield "  const sx = limbStrength;"
     yield "  const sz = -Math.cos(phaseAngle);"
+    yield "  const phaseCanvas = document.createElement('canvas');"
+    yield "  phaseCanvas.width = w; phaseCanvas.height = h;"
+    yield "  const phaseCtx = phaseCanvas.getContext('2d');"
+    yield "  const image = phaseCtx.createImageData(w, h);"
+    yield "  const pix = image.data;"
     yield "  for (let py = 0; py < h; py++) {"
     yield "    for (let px = 0; px < w; px++) {"
     yield "      const dx = (px + 0.5 - x) / r;"
@@ -1855,34 +1893,63 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      const off = (py * w + px) * 4;"
     yield "      if (rr > 1) { pix[off+3] = 0; continue; }"
     yield "      const dz = Math.sqrt(Math.max(0, 1 - rr));"
-    yield "      const dot = dx * sx + (-dy) * sy + dz * sz;"
-    yield "      const lit = Math.max(0, dot);"
-    yield "      const earthshine = 0.08;"
-    yield "      const LOG_CURVE_K = 9.0;"
-    yield "      const litCurve = Math.log1p(LOG_CURVE_K * lit) / Math.log1p(LOG_CURVE_K);"
-    yield "      const shade = Math.pow(Math.min(1, earthshine + ((1 - earthshine) * litCurve)), 0.90);"
-    yield "      const baseR = 9, baseG = 18, baseB = 34;"
-    yield "      const litR = 248, litG = 244, litB = 218;"
-    yield "      pix[off+0] = Math.round(baseR + (litR - baseR) * shade);"
-    yield "      pix[off+1] = Math.round(baseG + (litG - baseG) * shade);"
-    yield "      pix[off+2] = Math.round(baseB + (litB - baseB) * shade);"
+    yield "      const dot = (dx * sx) + (dz * sz);"
+    yield "      const edge = Math.max(-1, Math.min(1, dot / 0.06));"
+    yield "      const blend = (edge + 1) * 0.5;"
+    yield "      const litMix = Math.pow(blend, 0.82);"
+    yield "      const rim = Math.pow(Math.max(0, dz), 0.65);"
+    yield "      const darkR = 74, darkG = 78, darkB = 86;"
+    yield "      const litR = 244, litG = 242, litB = 234;"
+    yield "      const bodyR = darkR + ((litR - darkR) * litMix);"
+    yield "      const bodyG = darkG + ((litG - darkG) * litMix);"
+    yield "      const bodyB = darkB + ((litB - darkB) * litMix);"
+    yield "      const rimBoost = 0.12 + (0.10 * rim);"
+    yield "      pix[off+0] = Math.round(Math.max(0, Math.min(255, bodyR + (litMix * 10) + (rimBoost * 18))));"
+    yield "      pix[off+1] = Math.round(Math.max(0, Math.min(255, bodyG + (litMix * 9) + (rimBoost * 16))));"
+    yield "      pix[off+2] = Math.round(Math.max(0, Math.min(255, bodyB + (litMix * 7) + (rimBoost * 10))));"
     yield "      pix[off+3] = 255;"
     yield "    }"
     yield "  }"
-    yield "  ctx.putImageData(image, 0, 0);"
-    yield "  ctx.strokeStyle = '#c7ba9b';"
-    yield "  ctx.lineWidth = 1;"
+    yield "  phaseCtx.putImageData(image, 0, 0);"
+    yield "  const maria = [{x:-0.28,y:-0.24,r:0.22,a:0.15},{x:0.06,y:-0.1,r:0.17,a:0.12},{x:-0.12,y:0.18,r:0.2,a:0.11},{x:0.26,y:0.12,r:0.12,a:0.1},{x:0.18,y:-0.34,r:0.1,a:0.1}];"
+    yield "  phaseCtx.save();"
+    yield "  phaseCtx.translate(x, y);"
+    yield "  phaseCtx.beginPath();"
+    yield "  phaseCtx.arc(0, 0, r, 0, Math.PI * 2);"
+    yield "  phaseCtx.clip();"
+    yield "  for (const m of maria) {"
+    yield "    phaseCtx.fillStyle = `rgba(88, 92, 100, ${m.a})`;"
+    yield "    phaseCtx.beginPath();"
+    yield "    phaseCtx.arc(m.x * r, m.y * r, m.r * r, 0, Math.PI * 2);"
+    yield "    phaseCtx.fill();"
+    yield "  }"
+    yield "  phaseCtx.restore();"
+    yield "  ctx.save();"
+    yield "  ctx.translate(x, y);"
+    yield "  ctx.rotate((rotationDeg * Math.PI) / 180);"
+    yield "  ctx.drawImage(phaseCanvas, -x, -y);"
+    yield "  ctx.restore();"
+    yield "  ctx.strokeStyle = '#58524a';"
+    yield "  ctx.lineWidth = 1.15;"
     yield "  ctx.beginPath();"
     yield "  ctx.arc(x, y, r, 0, Math.PI * 2);"
     yield "  ctx.stroke();"
     yield "  const litPct = Number.isFinite(Number(data.moon_lit_pct)) ? `${Math.round(Number(data.moon_lit_pct))}%` : `${(illum*100).toFixed(0)}%`;"
-    yield "  meta.textContent = (data.moon_phase_label || 'Moon');"
+    yield "  meta.textContent = `${data.moon_phase_label || 'Moon'} • ${isReferenceMode ? 'Reference diagram' : 'Local sky view'}`;"
     yield "  riseEl.textContent = fmtMoonTime(data.moon_rise);"
     yield "  setEl.textContent = fmtMoonTime(data.moon_set);"
     yield "  litEl.textContent = litPct;"
     yield "  nextPhaseLabelEl.textContent = fmtRaw(data.moon_next_phase_label) === '--' ? 'Next Phase' : fmtRaw(data.moon_next_phase_label);"
     yield "  nextPhaseDateEl.textContent = fmtMoonDate(data.moon_next_phase_date);"
     yield "}"
+    yield ""
+    yield "document.addEventListener('click', function(ev){"
+    yield "  const btn = ev.target instanceof Element ? ev.target.closest('[data-moon-view]') : null;"
+    yield "  if (!btn) return;"
+    yield "  const mode = btn.getAttribute('data-moon-view') === 'reference' ? 'reference' : 'local';"
+    yield "  setMoonViewMode(mode);"
+    yield "  if (typeof astroData !== 'undefined') drawMoonPhase(astroData);"
+    yield "});"
     yield ""
     yield "function drawBiodynamic(data){"
     yield "  const signEl = document.getElementById('bioCurrentSign');"
