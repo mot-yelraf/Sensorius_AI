@@ -1,5 +1,6 @@
 # Documentation Index
 
+- User guide: `docs/user_guide.md`
 - Setup: `docs/setup.md`
 - Configuration: `docs/configuration.md`
 - Home Assistant integration: `docs/homeassistant.md`
