@@ -40,7 +40,7 @@ import tomllib
 from urllib.parse import urlparse
 from collections import OrderedDict
 import shutil, httpx
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import math
 from zoneinfo import ZoneInfo, available_timezones
 try:
@@ -450,6 +450,57 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return "Waning Gibbous"
         return "Waning Crescent"
 
+    def _moon_local_canvas_angle(moon_az: float, moon_el: float, sun_az: float, sun_el: float) -> float | None:
+        def _unit_from_az_el(az_deg: float, el_deg: float) -> tuple[float, float, float]:
+            az = math.radians(az_deg)
+            el = math.radians(el_deg)
+            return (
+                math.cos(el) * math.sin(az),
+                math.cos(el) * math.cos(az),
+                math.sin(el),
+            )
+
+        def _dot(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
+            return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2])
+
+        def _cross(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
+            return (
+                (a[1] * b[2]) - (a[2] * b[1]),
+                (a[2] * b[0]) - (a[0] * b[2]),
+                (a[0] * b[1]) - (a[1] * b[0]),
+            )
+
+        def _normalized(v: tuple[float, float, float]) -> tuple[float, float, float] | None:
+            mag = math.sqrt(_dot(v, v))
+            if not math.isfinite(mag) or mag < 1e-9:
+                return None
+            return (v[0] / mag, v[1] / mag, v[2] / mag)
+
+        if not all(math.isfinite(v) for v in (moon_az, moon_el, sun_az, sun_el)):
+            return None
+
+        moon_vec = _unit_from_az_el(moon_az, moon_el)
+        sun_vec = _unit_from_az_el(sun_az, sun_el)
+        bright_vec = _normalized(tuple(sun_vec[i] - (_dot(sun_vec, moon_vec) * moon_vec[i]) for i in range(3)))
+        if bright_vec is None:
+            return None
+
+        zenith = (0.0, 0.0, 1.0)
+        screen_up = _normalized(tuple(zenith[i] - (_dot(zenith, moon_vec) * moon_vec[i]) for i in range(3)))
+        if screen_up is None:
+            north = (0.0, 1.0, 0.0)
+            screen_up = _normalized(tuple(north[i] - (_dot(north, moon_vec) * moon_vec[i]) for i in range(3)))
+        if screen_up is None:
+            return None
+
+        screen_right = _normalized(_cross(moon_vec, screen_up))
+        if screen_right is None:
+            return None
+
+        canvas_x = _dot(bright_vec, screen_right)
+        canvas_y = -_dot(bright_vec, screen_up)
+        return (math.degrees(math.atan2(canvas_y, canvas_x)) + 360.0) % 360.0
+
     def _build_astro_payload() -> dict[str, object]:
         out: dict[str, object] = {
             "ok": False,
@@ -577,7 +628,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     )
 
                     moon_reference_angle = round(bright_limb_angle, 2)
-                    moon_visible_angle = round((bright_limb_angle + parallactic_angle) % 360.0, 2)
+                    local_canvas_angle = _moon_local_canvas_angle(moon_az, moon_el, sun_az, sun_el)
+                    if local_canvas_angle is not None:
+                        moon_visible_angle = round(local_canvas_angle, 2)
+                    else:
+                        moon_visible_angle = round((bright_limb_angle + parallactic_angle) % 360.0, 2)
             except Exception:
                 moon_visible_angle = None
                 moon_reference_angle = None
