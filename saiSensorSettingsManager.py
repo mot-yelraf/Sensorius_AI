@@ -325,6 +325,7 @@ class SensorSettingsManager:
           apvpd -> ["Ambient VPD","Temperature","Rel-Humidity","Plant VPD","Plant Temperature","Plant Rel-Humidity"]
           aqi   -> ["Air Quality","Temperature","Rel-Humidity","Ambient VPD","Dewpoint Deficit","dewVPD Risk"]
           avpd  -> ["Ambient VPD","Temperature","Rel-Humidity","Baro-Pressure","Dewpoint Deficit","dewVPD Risk"]
+          aht   -> ["Ambient VPD","Temperature","Rel-Humidity","Humidity","Dew Point Deficit","DewVPD Risk"]
           co2   -> ["CO2","Temperature","Rel-Humidity","Ambient VPD","Dewpoint Deficit","dewVPD Risk"]
           lux   -> ["Light Intensity","Auto Light","Estimated PPFD","Visible Light Intensity","",""]
           soil  -> ["Soil Moisture","Soil Moisture Deficit","Soil Stress Index","Soil Temp_C","Soil pH","Soil EC"]
@@ -367,6 +368,9 @@ class SensorSettingsManager:
             "apvpd": ["Ambient VPD", "Temperature", "Rel-Humidity", "Plant VPD", "Plant Temperature", "Plant Rel-Humidity"],
             "aqi":   ["Air Quality", "Temperature", "Rel-Humidity", "Ambient VPD", "Dew Point Deficit", "dewVPD Risk"],
             "avpd":  ["Ambient VPD", "Temperature", "Rel-Humidity", "Baro-Pressure", "Dew Point Deficit", "dewVPD Risk"],
+            "aht":   ["Ambient VPD", "Temperature", "Rel-Humidity", "Humidity", "Dew Point Deficit", "DewVPD Risk"],
+            "aht10": ["Ambient VPD", "Temperature", "Rel-Humidity", "Humidity", "Dew Point Deficit", "DewVPD Risk"],
+            "ahtx0": ["Ambient VPD", "Temperature", "Rel-Humidity", "Humidity", "Dew Point Deficit", "DewVPD Risk"],
             "co2":   ["CO2", "Temperature", "Rel-Humidity", "Ambient VPD", "Dew Point Deficit", "dewVPD Risk"],
             "lux":   ["Light Intensity", "Auto Light", "Estimated PPFD", "Visible Light Intensity", "", ""],
             "veml":  ["Light Intensity", "Auto Light", "Estimated PPFD", "Visible Light Intensity", "", ""],

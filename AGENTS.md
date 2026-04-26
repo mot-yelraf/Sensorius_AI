@@ -114,7 +114,7 @@ Operational instructions for coding agents working in this repository. This file
 
 - Main entrypoint: `python3 Sensorius.py`
 - Default UI URL: `http://127.0.0.1:8000`
-- Auto-select setup path: `./setup.sh`
+- Auto-select setup path: `./install.sh`
 - Platform-specific setup scripts live under `deploy_scripts/`
 - Pytest configuration is in `pytest.ini` and test discovery points at `testApparatus/`
 

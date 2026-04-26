@@ -25,6 +25,9 @@ DEBUG = debug_enabled(MODULE)
 SENSOR_MODULES = {
     "dummy": ("sensor_modules.sensor_template",  "SensorTemplate"),
     "test":  ("sensor_modules.sensor_template",  "SensorTemplate"),
+    "aht":   ("sensor_modules.sensor_aht",    "AHTSensor"),
+    "aht10": ("sensor_modules.sensor_aht",    "AHTSensor"),
+    "ahtx0": ("sensor_modules.sensor_aht",    "AHTSensor"),
     "aqi":   ("sensor_modules.sensor_aqi",    "AQISensor"),
     "co2":   ("sensor_modules.sensor_co2",    "CO2Sensor"),
     "vpd":   ("sensor_modules.sensor_vpd",    "VPDSensor"),
@@ -58,7 +61,7 @@ def create_sensor(settings, supervisor):
 # --- Autodetection on first boot ---
 @dataclass
 class DeviceDescriptor:
-    kind: str                 # "apvpd" | "aqi" | "avpd" | "co2" | "veml"
+    kind: str                 # "apvpd" | "aqi" | "avpd" | "co2" | "veml" | "aht"
     bus:  str                 # "i2c-1" | "i2c-0"
     addrs: tuple[int, ...]    # addresses consumed by this device
 
@@ -83,6 +86,7 @@ def find_sensors(known_used: Optional[dict[str, set[int]]] = None) -> list[Devic
     BME280_ADDRS = (0x76, 0x77)
     CO2_ADDRS = (0x62, 0x61)
     VEML7700_ADDR = 0x10
+    AHTX0_ADDRS = (0x38, 0x39)
 
     # free address helpers
     def free(bus, addr): return (addr in bus_map[bus]) and (addr not in used[bus])
@@ -155,6 +159,14 @@ def find_sensors(known_used: Optional[dict[str, set[int]]] = None) -> list[Devic
             used[bus].add(VEML7700_ADDR)
             found.append(DeviceDescriptor("veml", bus, (VEML7700_ADDR,)))
             # support multiple if you want; otherwise break
+
+    # 6) aht: AHT10/AHTx0 at 0x38 or 0x39
+    for bus in ("i2c-1", "i2c-0"):
+        for a in AHTX0_ADDRS:
+            if free(bus, a):
+                used[bus].add(a)
+                found.append(DeviceDescriptor("aht", bus, (a,)))
+                break
             
     if DEBUG:
         printDM(f"found: {found}", location=f"{MODULE}.find_sensors")

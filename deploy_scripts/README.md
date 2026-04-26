@@ -13,7 +13,7 @@ Requirements files in this folder include:
 
 ## Setup Entry Points
 
-- Root `../setup.sh`: interactive dispatcher (asks `uv` vs `pip`, detects OS, runs the right script in this folder)
+- Root `../install.sh`: interactive dispatcher (asks `uv` vs `pip`, detects OS, runs the right script in this folder)
 - `setup_bookworm.sh`: Raspberry Pi Bookworm + pip path
 - `setup_bookwork_uv.sh`: Raspberry Pi Bookworm + uv path
 - `setup_trixie.sh`: Raspberry Pi Trixie + pip path
@@ -53,8 +53,8 @@ macOS setup scripts now configure mosquitto in user scope by default (LaunchAgen
 ## Examples
 
 ```bash
-chmod +x setup.sh
-sudo ./setup.sh
+chmod +x install.sh
+sudo ./install.sh
 ```
 
 ```powershell

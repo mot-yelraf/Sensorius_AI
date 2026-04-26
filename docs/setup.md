@@ -15,8 +15,8 @@ All shell setup scripts in `deploy_scripts/` deploy the application files into `
 Use the root dispatcher (recommended):
 
 ```bash
-chmod +x setup.sh
-sudo ./setup.sh
+chmod +x install.sh
+sudo ./install.sh
 ```
 
 It asks whether to use `uv` or `pip`, detects Bookworm/Trixie/macOS/Linux, and dispatches to the matching script in `deploy_scripts/`.

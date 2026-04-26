@@ -29,7 +29,7 @@ Choose one setup path:
 
 All shell setup scripts deploy the runtime app to `~/Sensorius`.
 
-- Raspberry Pi, macOS, Linux: `./setup.sh` (auto-select) 
+- Raspberry Pi, macOS, Linux: `./install.sh` (auto-select)
 
 Manual Setup
 - Raspberry Pi Bookworm: `deploy_scripts/setup_bookworm.sh` / `deploy_scripts/setup_bookwork_uv.sh`

@@ -7,6 +7,7 @@ adafruit-circuitpython-requests>=4.1.12
 adafruit-circuitpython-typing>=1.12.1
 
 # Specific drivers (keep pins if your hardware is sensitive; otherwise allow minor bumps)
+adafruit-circuitpython-ahtx0>=1.0.0
 adafruit-circuitpython-bme280>=2.6.28
 adafruit-circuitpython-bme680>=3.7.13
 adafruit-circuitpython-scd30>=2.2.15

@@ -6715,7 +6715,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             elif device_kind in ("veml", "lux"):
                 _add_offset("Calibration.Device.LUX_OFFSET", "Light Intensity", "lux", "LUX_OFFSET")
                 _add_offset("Calibration.Device.PPFD_OFFSET", "Estimated PPFD", "µmol/m²/s", "PPFD_OFFSET")
-            elif device_kind in ("vpd", "avpd"):
+            elif device_kind in ("vpd", "avpd", "aht", "aht10", "ahtx0"):
                 _add_offset("Calibration.Device.TEMP_OFFSET", "Temperature", "°C", "TEMP_OFFSET")
                 _add_offset("Calibration.Device.RH_OFFSET", "Rel-Humidity", "%", "RH_OFFSET")
             elif device_kind in ("soil",):
@@ -8002,7 +8002,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             )
 
         # Non-APVPD VPD sensors (DEVICE="vpd" or "avpd")
-        elif device_kind in ("vpd", "avpd"):
+        elif device_kind in ("vpd", "avpd", "aht", "aht10", "ahtx0"):
             _add_offset("Calibration.Device.TEMP_OFFSET", "Temperature", "°C", "TEMP_OFFSET")
             _add_offset("Calibration.Device.RH_OFFSET",   "Rel-Humidity", "%", "RH_OFFSET")
         elif device_kind in ("soil",):

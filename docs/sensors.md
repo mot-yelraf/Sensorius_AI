@@ -50,6 +50,20 @@ Each sensor defines its own `self.measurements` list, which determines the exact
 - `DewVPD Risk` - %
 - `Bar-Pressure` - hPa
 
+## AHTSensor (based on AHT10/AHTx0)
+
+- I2C Bus: I2C_1 (GPIO2/SDA, GPIO3/SCL)
+- Metrics Stored:
+- `Temperature` - C
+- `Temperature_F` - F
+- `Rel-Humidity` - % (relative)
+- `Humidity` - g/m3 (absolute)
+- `Ambient VPD` - kPa
+- `Dew Point` - C
+- `Dew Point_F` - F
+- `Dew Point Deficit` - C
+- `DewVPD Risk` - %
+
 ## VPDPlantSensor (dual BME280 on I2C_1 and I2C_0)
 
 - I2C Buses:
