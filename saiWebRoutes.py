@@ -4990,19 +4990,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             ids.update(ing.get_known_switch_devices() or [])
         except Exception:
             pass
-        try:
-            ids.update(getattr(ing, "mqtt_clients", []) or [])
-        except Exception:
-            pass
-        try:
-            for host, peers in (getattr(ing, "host_to_peer_ids", {}) or {}).items():
-                if host:
-                    ids.add(host)
-                for peer in (peers or []):
-                    if peer:
-                        ids.add(peer)
-        except Exception:
-            pass
+        # Intentionally exclude raw mqtt_clients / host_to_peer_ids here.
+        # Those caches can retain stale aliases and peer IDs after deletion, which
+        # repopulates "Remove Device" with ghost entries.
 
         out: list[str] = []
         seen: set[str] = set()
@@ -5358,6 +5348,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if base_topic:
                     topics.add(f"{base_topic}/nodus/{dev_id}/{suffix}")
                     topics.add(f"{base_topic}/switch/{dev_id}/{suffix}")
+            for suffix in ("meta", "meta/patch", "status/heartbeat"):
+                topics.add(f"nodus/{dev_id}/{suffix}")
+                if base_topic:
+                    topics.add(f"{base_topic}/nodus/{dev_id}/{suffix}")
         try:
             for (sw_id, _ch_id), topic in (mqtt_ingest.nodus_switch_command_topics or {}).items():
                 if str(sw_id or "").strip().lower() in ids_l and topic:

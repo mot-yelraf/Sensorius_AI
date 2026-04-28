@@ -239,6 +239,11 @@ class CO2Sensor(BaseSensor):
     # ------------------------------------------------------------------
     def _data_ready(self) -> bool:
         try:
+            # SCD4x should only be read when its data_ready flag asserts.
+            if getattr(self, "_co2_model", "") == "SCD4x":
+                if hasattr(self.scd30, "data_ready"):
+                    return bool(self.scd30.data_ready)
+                return False
             if hasattr(self.scd30, "data_ready"):
                 return bool(self.scd30.data_ready)
             if hasattr(self.scd30, "data_available"):
