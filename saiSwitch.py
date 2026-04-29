@@ -698,8 +698,10 @@ class SwitchController:
 
     def _eval_astral_condition(self, cond: dict) -> bool:
         """
-        Astral condition is true when local time in configured timezone is at/after:
-          sunrise|sunset + offset_min
+        Astral condition supports:
+          - sunrise|sunset: true when local time is at/after event + offset_min
+          - sunrise_to_sunset: true during daytime window
+          - sunset_to_sunrise: true during nighttime window
         Optionally restricted by `days` (0=Mon..6=Sun).
         """
         if LocationInfo is None or _astral_sun is None:
@@ -741,7 +743,7 @@ class SwitchController:
             return False
 
         event = str(cond.get("astral_event", cond.get("event", "sunrise")) or "sunrise").strip().lower()
-        if event not in {"sunrise", "sunset"}:
+        if event not in {"sunrise", "sunset", "sunrise_to_sunset", "sunset_to_sunrise"}:
             if DEBUG:
                 printDM(f"[astral] invalid event {event!r}", location=MODULE)
             return False
@@ -761,16 +763,27 @@ class SwitchController:
                 longitude=float(resolved["lon"]),
             )
             s = _astral_sun(loc.observer, date=now_local.date(), tzinfo=tz)
-            evt_dt = s.get(event)
-            if evt_dt is None:
+            sunrise_dt = s.get("sunrise")
+            sunset_dt = s.get("sunset")
+            if sunrise_dt is None or sunset_dt is None:
                 if DEBUG:
-                    printDM(f"[astral] missing event time for {event}", location=MODULE)
+                    printDM("[astral] missing sunrise/sunset event time", location=MODULE)
                 return False
-            threshold = evt_dt + timedelta(minutes=offset)
-            result = now_local >= threshold
+
+            if event == "sunrise_to_sunset":
+                start_dt = sunrise_dt + timedelta(minutes=offset)
+                result = start_dt <= now_local < sunset_dt
+            elif event == "sunset_to_sunrise":
+                start_dt = sunset_dt + timedelta(minutes=offset)
+                result = now_local >= start_dt or now_local < sunrise_dt
+            else:
+                evt_dt = sunrise_dt if event == "sunrise" else sunset_dt
+                threshold = evt_dt + timedelta(minutes=offset)
+                result = now_local >= threshold
+
             if DEBUG:
                 printDM(
-                    f"[astral] event={event} now={now_local.isoformat()} threshold={threshold.isoformat()} result={result}",
+                    f"[astral] event={event} now={now_local.isoformat()} sunrise={sunrise_dt.isoformat()} sunset={sunset_dt.isoformat()} result={result}",
                     location=MODULE,
                 )
             return result

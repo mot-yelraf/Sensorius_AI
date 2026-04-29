@@ -1138,6 +1138,51 @@ def test_eval_astral_condition_threshold_logic(monkeypatch: pytest.MonkeyPatch):
     ) is False
 
 
+def test_eval_astral_condition_window_modes(monkeypatch: pytest.MonkeyPatch):
+    class FakeLocationInfo:
+        def __init__(self, **_kwargs):
+            self.observer = object()
+
+    ctrl = _make_controller()
+    ctrl._resolve_astral_location = lambda: {"lat": 40.0, "lon": -105.0, "tz": "UTC"}
+
+    monkeypatch.setattr(saiSwitch, "LocationInfo", FakeLocationInfo)
+
+    def _sun_daytime(_observer, date=None, tzinfo=None):
+        now = datetime.now(tzinfo)
+        return {
+            "sunrise": now - timedelta(hours=2),
+            "sunset": now + timedelta(hours=2),
+        }
+
+    monkeypatch.setattr(saiSwitch, "_astral_sun", _sun_daytime)
+    assert SwitchController._eval_astral_condition(
+        ctrl,
+        {"type": "astral", "astral_event": "sunrise_to_sunset", "offset_min": 0},
+    ) is True
+    assert SwitchController._eval_astral_condition(
+        ctrl,
+        {"type": "astral", "astral_event": "sunset_to_sunrise", "offset_min": 0},
+    ) is False
+
+    def _sun_nighttime(_observer, date=None, tzinfo=None):
+        now = datetime.now(tzinfo)
+        return {
+            "sunrise": now + timedelta(hours=2),
+            "sunset": now - timedelta(hours=2),
+        }
+
+    monkeypatch.setattr(saiSwitch, "_astral_sun", _sun_nighttime)
+    assert SwitchController._eval_astral_condition(
+        ctrl,
+        {"type": "astral", "astral_event": "sunrise_to_sunset", "offset_min": 0},
+    ) is False
+    assert SwitchController._eval_astral_condition(
+        ctrl,
+        {"type": "astral", "astral_event": "sunset_to_sunrise", "offset_min": 0},
+    ) is True
+
+
 def test_resolve_astral_location_delegates_to_settings(monkeypatch: pytest.MonkeyPatch):
     ctrl = _make_controller()
     ctrl._astral_location_cache = {"value": None, "expires_at": 0.0}

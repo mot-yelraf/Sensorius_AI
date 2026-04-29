@@ -407,9 +407,13 @@ function addCondition(modal, cond) {
   const astralEventSel = create("select");
   astralEventSel.classList.add("astral-event");
   astralEventSel.innerHTML = `
-    <option value="sunrise">sunrise</option>
-    <option value="sunset">sunset</option>`;
-  astralEventSel.value = (cond?.astral_event || cond?.event || "sunrise");
+    <option value="sunrise_to_sunset">sunrise to sunset (start & end)</option>
+    <option value="sunset_to_sunrise">sunset to sunrise (start & end)</option>
+    <option value="sunrise">sunrise (start)</option>
+    <option value="sunset">sunset (start)</option>`;
+  const astralRawEvent = String(cond?.astral_event || cond?.event || "sunrise").trim().toLowerCase();
+  const astralKnownEvent = new Set(["sunrise_to_sunset", "sunset_to_sunrise", "sunrise", "sunset"]);
+  astralEventSel.value = astralKnownEvent.has(astralRawEvent) ? astralRawEvent : "sunrise";
   astralEventWrap.append(astralEventLab, astralEventSel);
 
   const astralOffsetWrap = create("div");
@@ -784,7 +788,10 @@ function serializeForm(modal){
     } else if (typeVal === "astral") {
       const eventSel = group.querySelector(".astral select.astral-event");
       const offsetIn = group.querySelector(".astral input.astral-offset");
-      const event = eventSel?.value === "sunset" ? "sunset" : "sunrise";
+      const eventRaw = String(eventSel?.value || "sunrise").trim().toLowerCase();
+      const event = ["sunrise_to_sunset", "sunset_to_sunrise", "sunrise", "sunset"].includes(eventRaw)
+        ? eventRaw
+        : "sunrise";
 
       let offsetMin = parseInt(offsetIn?.value || "0", 10);
       if (!Number.isFinite(offsetMin)) offsetMin = 0;

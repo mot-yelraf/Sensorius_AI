@@ -896,7 +896,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield from render_graph_modal(switch_installed=switch_installed)
     # global assets for templates
     yield "<link rel='stylesheet' href='/ui_static/css/app.css'>"
-    yield "<script type='module' src='/ui_static/js/advanced_automation.js'></script>"
+    yield f"<script type='module' src='/ui_static/js/advanced_automation.js?v={APP_VERSION}'></script>"
     yield "<script src='/ui_static/js/sensor_settings_modal.js'></script>"
     yield "</head><body>"
     yield (
@@ -2905,17 +2905,13 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const reason = String(layoutDrift.reason || '');"
     yield "    if (reason.startsWith('switch:')) {"
     yield "      const nowMs = Date.now();"
-    yield "      if ((nowMs - __lastSuppressedSwitchLayoutAt) > 30000) {"
+    yield "      if ((nowMs - __lastSuppressedSwitchLayoutAt) > 5000) {"
     yield "        __lastSuppressedSwitchLayoutAt = nowMs;"
-    yield "        console.info('[layout-refresh-suppressed]', reason);"
+    yield "        console.info('[layout-refresh-switch]', reason);"
     yield "      }"
-    yield "      if (typeof refreshAndApplySwitchStatus === 'function') {"
-    yield "        setTimeout(() => refreshAndApplySwitchStatus(), 0);"
-    yield "      }"
-    yield "    } else {"
-    yield "      scheduleLayoutRefresh(layoutDrift.reason, sig);"
-    yield "      return;"
     yield "    }"
+    yield "    scheduleLayoutRefresh(layoutDrift.reason, sig);"
+    yield "    return;"
     yield "  }"
     yield ""
     yield ""
@@ -3176,6 +3172,12 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const isLightMetric = ['Light Intensity', 'Auto Light', 'Visible Light Intensity', 'Estimated PPFD'].includes(metricName);"
     yield "    const graphLineColor = isLightMetric ? '#000000' : '#ffffff';"
     yield ""
+    yield "    const formatYAxisTick = (val) => {"
+    yield "      const num = Number(val);"
+    yield "      if (!Number.isFinite(num)) return val;"
+    yield "      return Number(num.toFixed(2)).toString();"
+    yield "    };"
+    yield ""
     yield "    const chartOptions = {"
     yield "      responsive: false,"
     yield "      animation: false,"
@@ -3199,7 +3201,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "          },"
     yield "          grid: { display: true }"
     yield "        },"
-    yield "        y: { title: { display: false }, ticks: { precision: 1 } }"
+    yield "        y: { title: { display: false }, ticks: { callback: formatYAxisTick } }"
     yield "      }"
     yield "    };"
     yield ""
@@ -5960,17 +5962,25 @@ def render_graph_modal(switch_installed=None):
             (rightNames.join(' / ') || '')
       };
 
+      const formatYAxisTick = function(val){
+        const num = Number(val);
+        if (!Number.isFinite(num)) return val;
+        return Number(num.toFixed(2)).toString();
+      };
+
       const y1Opts = {
         position: 'left',
         beginAtZero: false,
-        title: { display: true, text: axisTitles.y1 }
+        title: { display: true, text: axisTitles.y1 },
+        ticks: { callback: formatYAxisTick }
       };
       const y2Opts = {
         position: 'right',
         beginAtZero: false,
         title: { display: (keys.length > 1), text: axisTitles.y2 },
         grid: { drawOnChartArea: false },
-        display: (keys.length > 1)
+        display: (keys.length > 1),
+        ticks: { callback: formatYAxisTick }
       };
 
       if (leftIsVPD){

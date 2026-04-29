@@ -9366,6 +9366,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     if period_min < 60:
                         anchor_epoch = save_anchor_epoch
 
+                astral_event_raw = str(c.get("astral_event", c.get("event", "sunrise"))).strip().lower()
+                astral_event_aliases = {
+                    "sunrise-sunset": "sunrise_to_sunset",
+                    "sunset-sunrise": "sunset_to_sunrise",
+                }
+                astral_event = astral_event_aliases.get(astral_event_raw, astral_event_raw)
+                if astral_event not in {"sunrise", "sunset", "sunrise_to_sunset", "sunset_to_sunrise"}:
+                    astral_event = "sunrise"
+
                 normalized_conditions.append({
                     "type":   cond_type,  # 'sensor' / 'time' / 'astral' / 'timer' / 'or'
                     "sensor": str(c.get("sensor",  c.get("sensor_id", ""))).strip(),
@@ -9375,7 +9384,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     "hyst":   _num(c.get("hyst"),  float, None),
                     "start":  str(c.get("start",   "")).strip(),
                     "end":    str(c.get("end",     "")).strip(),
-                    "astral_event": str(c.get("astral_event", c.get("event", "sunrise"))).strip().lower(),
+                    "astral_event": astral_event,
                     "offset_min": _num(c.get("offset_min", c.get("offset_minutes")), int, 0),
                     # new optional fields
                     "days":        days_norm or None,
