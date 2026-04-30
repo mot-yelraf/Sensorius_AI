@@ -5156,7 +5156,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         mapping = getattr(mqtt_ingest, "host_to_peer_ids", None)
         if not isinstance(mapping, dict):
-            return out
+            mapping = {}
 
         for host, peers in list(mapping.items()):
             host_aliases = _alias_set(host)
@@ -5167,6 +5167,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 _add(host)
                 for peer in (peers or []):
                     _add(peer)
+
+        # Also include per-channel IDs (e.g. "S1-xxxxxx") tied to related
+        # switch hosts so DB/topic cleanup can purge channel-keyed rows.
+        for related in list(out):
+            try:
+                for row in (_collect_switch_channels(related, mqtt_ingest=mqtt_ingest) or []):
+                    _add(str((row or {}).get("channel_id") or "").strip())
+            except Exception:
+                pass
 
         return out
 
@@ -5397,6 +5406,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             stats["ingest_keys_cleared"] += 1
 
         ids = _collect_related_device_ids(device_id, mqtt_ingest=ing)
+        ids_l = {str(i or "").strip().lower() for i in ids if str(i or "").strip()}
         expanded_keys: set[str] = set()
         for dev_id in ids:
             try:
@@ -5428,56 +5438,58 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # Remove from topic maps keyed by device_id
         try:
             for topic, dev in list((ing.topic_dev_id_map or {}).items()):
-                if dev == device_id:
+                if str(dev or "").strip().lower() in ids_l:
                     ing.topic_dev_id_map.pop(topic, None); _bump()
         except Exception:
             pass
 
         try:
             for topic, meta in list((ing.switch_topic_meta or {}).items()):
-                if (meta or {}).get("switch_id") == device_id:
+                if str((meta or {}).get("switch_id") or "").strip().lower() in ids_l:
                     ing.switch_topic_meta.pop(topic, None); _bump()
         except Exception:
             pass
 
         try:
             for key in list((ing.switch_control_map or {}).keys()):
-                if key and key[0] == device_id:
+                if key and str((key[0] if len(key) > 0 else "") or "").strip().lower() in ids_l:
                     ing.switch_control_map.pop(key, None); _bump()
         except Exception:
             pass
 
         try:
             for key in list((ing.switch_channel_map or {}).keys()):
-                if key and key[0] == device_id:
+                if key and str((key[0] if len(key) > 0 else "") or "").strip().lower() in ids_l:
                     ing.switch_channel_map.pop(key, None); _bump()
         except Exception:
             pass
 
         try:
             for topic, info in list((ing.nodus_switch_topic_map or {}).items()):
-                if (info or {}).get("switch_id") == device_id:
+                if str((info or {}).get("switch_id") or "").strip().lower() in ids_l:
                     ing.nodus_switch_topic_map.pop(topic, None); _bump()
         except Exception:
             pass
 
         try:
             for key in list((ing.nodus_switch_command_topics or {}).keys()):
-                if key and key[0] == device_id:
+                if key and str((key[0] if len(key) > 0 else "") or "").strip().lower() in ids_l:
                     ing.nodus_switch_command_topics.pop(key, None); _bump()
             for key in list((ing.nodus_switch_state_topics or {}).keys()):
-                if key and key[0] == device_id:
+                if key and str((key[0] if len(key) > 0 else "") or "").strip().lower() in ids_l:
                     ing.nodus_switch_state_topics.pop(key, None); _bump()
             for key in list((ing.nodus_switch_event_topics or {}).keys()):
-                if key and key[0] == device_id:
+                if key and str((key[0] if len(key) > 0 else "") or "").strip().lower() in ids_l:
                     ing.nodus_switch_event_topics.pop(key, None); _bump()
         except Exception:
             pass
 
         try:
             s = getattr(ing, "_known_switch_ids", None)
-            if isinstance(s, set) and device_id in s:
-                s.discard(device_id); _bump()
+            if isinstance(s, set):
+                for sid in list(s):
+                    if str(sid or "").strip().lower() in ids_l:
+                        s.discard(sid); _bump()
         except Exception:
             pass
 
@@ -5485,7 +5497,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             s = getattr(ing, "_ha_discovered_sensor_metrics", None)
             if isinstance(s, set):
                 for key in list(s):
-                    if key.startswith(f"{device_id}::"):
+                    key_l = str(key or "").strip().lower()
+                    if any(key_l.startswith(f"{dev}::") for dev in ids_l):
                         s.discard(key); _bump()
         except Exception:
             pass
@@ -5494,7 +5507,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             s = getattr(ing, "_ha_discovered_switch_channels", None)
             if isinstance(s, set):
                 for key in list(s):
-                    if key.startswith(f"{device_id}::"):
+                    key_l = str(key or "").strip().lower()
+                    if any(key_l.startswith(f"{dev}::") for dev in ids_l):
                         s.discard(key); _bump()
         except Exception:
             pass
@@ -5516,10 +5530,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         try:
             if data_logger:
-                if device_id in data_logger.sensor_values:
-                    data_logger.sensor_values.pop(device_id, None); _bump()
-                if device_id in getattr(data_logger, "sensor_stats", {}):
-                    data_logger.sensor_stats.pop(device_id, None); _bump()
+                for dev_id in ids:
+                    if dev_id in data_logger.sensor_values:
+                        data_logger.sensor_values.pop(dev_id, None); _bump()
+                    if dev_id in getattr(data_logger, "sensor_stats", {}):
+                        data_logger.sensor_stats.pop(dev_id, None); _bump()
         except Exception:
             pass
 
@@ -5570,8 +5585,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             cur=conn.cursor()
             cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
             tables=[r[0] for r in cur.fetchall()]
-            target_cols=["sensor_id","device_id","client_id"]
-            like_cols=["topic","source","channel"]
+            target_cols=["sensor_id","device_id","client_id","switch_id","switch_key"]
+            like_cols=["topic","source","channel","switch_key"]
             for t in tables:
                 deleted=0
                 for col in target_cols:
@@ -5647,9 +5662,24 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         except Exception:
             mqtt_ingest = None
         for dev in device_ids:
+            related_ids = _collect_related_device_ids(dev, mqtt_ingest=mqtt_ingest)
+            if dev not in related_ids:
+                related_ids.insert(0, dev)
+            # Preserve order while de-duping.
+            related_ids = list(dict.fromkeys([str(x or "").strip() for x in related_ids if str(x or "").strip()]))
+
+            def _purge_db_many(ids: list[str]) -> dict:
+                merged = {"db_path": _get_db_path(), "rows_deleted": 0, "tables": [], "ids_purged": list(ids)}
+                for did in ids:
+                    one = _purge_device_from_db(did)
+                    merged["rows_deleted"] += int(one.get("rows_deleted", 0) or 0)
+                    for entry in (one.get("tables", []) or []):
+                        merged["tables"].append(entry)
+                return merged
+
             removed_dirs, db_stats = await asyncio.gather(
                 asyncio.to_thread(_delete_device_dirs, dev),
-                asyncio.to_thread(_purge_device_from_db, dev),
+                asyncio.to_thread(_purge_db_many, related_ids),
             )
             ok_settings = await asyncio.to_thread(_remove_client_from_hub_settings, dev)
             ha_stats = await asyncio.to_thread(_clear_ha_entities, dev, mqtt_ingest=mqtt_ingest, data_logger=data_logger)
