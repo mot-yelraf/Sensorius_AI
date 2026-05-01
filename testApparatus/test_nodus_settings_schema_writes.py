@@ -85,9 +85,23 @@ class _FakeIngest:
         self.next_config_ack: dict | None = {"accepted": True}
         self.next_config_result: dict | None = {"applied": True, "updated": 1, "error": ""}
         self.next_switch_command_ok: bool = True
+        self.ha_client = None
+        self.client = SimpleNamespace(published=[])
+        self.client.publish = self._publish_raw
 
     def set_onboarding_event_handler(self, handler):
         self.handler = handler
+
+    def _publish_raw(self, topic: str, payload="", qos: int = 0, retain: bool = False):
+        self.client.published.append(
+            {
+                "topic": topic,
+                "payload": payload,
+                "qos": qos,
+                "retain": retain,
+            }
+        )
+        return SimpleNamespace(rc=0)
 
     def resolve_nodus_hostname(self, *_args, **_kwargs):
         return None
@@ -2510,6 +2524,67 @@ async def test_remove_device_list_allows_same_origin_browser_request_without_api
     assert res.status_code == 200
     body = res.json()
     assert "aqi-settings" in body["devices"]
+
+
+@pytest.mark.asyncio
+async def test_remove_device_expands_nodus_switch_suffix_cleanup(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
+    monkeypatch.setenv("SAI_WEB_API_KEY", "test-key")
+    monkeypatch.setattr(saiWebRoutes, "_SYS_BASE_DIR", str(system_root))
+    monkeypatch.setattr(saiWebRoutes, "_SENSOR_BASE_DIR", str(sensor_root))
+    monkeypatch.setattr(saiWebRoutes, "_SWITCH_BASE_DIR", str(switch_root))
+    monkeypatch.setattr(saiMQTTIngest, "get_current_ingest", lambda: ingest)
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+
+    sensor_mgr.save(
+        "avpd-zbcalz",
+        {
+            "Sensor": {"TYPE": "nodus", "DEVICE": "avpd", "SENSOR_ID": "avpd-zbcalz", "LOCATION": "Room A"},
+            "Display": {"METRIC_1": "Temperature"},
+        },
+    )
+    switch_mgr.save(
+        "switch-zbcalz",
+        {
+            "Switch": {
+                "TYPE": "nodus",
+                "DEVICE": "switch",
+                "SWITCH_DEVICE_ID": "switch-zbcalz",
+                "SWITCH_LOCATION": "Room A",
+                "SWITCH_1_LABEL": "Pump",
+                "SWITCH_1_CHANNEL_ID": "S1-zbcalz",
+            },
+        },
+    )
+    ingest._switch_state_cache["switch-zbcalz"] = {"S1-zbcalz": "off", "Pump": "off"}
+    saiWebRoutes.switch_controllers = {
+        "switch-zbcalz": SimpleNamespace(
+            switch_id="switch-zbcalz",
+            channel_id_for_label={"Pump": "S1-zbcalz"},
+        )
+    }
+    app.state.switch_controllers = dict(saiWebRoutes.switch_controllers)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"x-api-key": "test-key"},
+    ) as client:
+        res = await client.post("/remove-device", json={"device_ids": ["switch-zbcalz"]})
+
+    assert res.status_code == 200
+    assert not (sensor_root / "avpd-zbcalz").exists()
+    assert not (switch_root / "switch-zbcalz").exists()
+    cleared_topics = {row["topic"] for row in ingest.client.published if row["payload"] == "" and row["retain"] is True}
+    assert "nodus/avpd-zbcalz/meta" in cleared_topics
+    assert "nodus/switch-zbcalz/meta" in cleared_topics
+    assert "nodus/S1-zbcalz/state" in cleared_topics
+    assert "switch-zbcalz" not in ingest._switch_state_cache
+    assert saiWebRoutes.switch_controllers == {}
+    assert app.state.switch_controllers == {}
 
 
 @pytest.mark.asyncio

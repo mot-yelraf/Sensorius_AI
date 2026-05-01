@@ -5139,7 +5139,30 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 aliases.add(mdns_hostname(base).lower())
             return aliases
 
+        def _add_nodus_suffix_peers(raw: str | None) -> None:
+            """
+            Nodus switch and channel IDs are derived from the same short suffix
+            as the host sensor ID. If in-memory host_to_peer_ids is already gone,
+            use that suffix to clear retained host meta that could reseed the switch.
+            """
+            val = str(raw or "").strip()
+            if not val or "-" not in val:
+                return
+            prefix, suffix = val.split("-", 1)
+            prefix_l = prefix.lower()
+            if not suffix:
+                return
+            is_switch_peer = prefix_l == "switch" or re.fullmatch(r"s\d+", prefix_l, flags=re.IGNORECASE)
+            if not is_switch_peer:
+                return
+            for sensor_prefix in ("apvpd", "avpd", "aqi", "aht", "aht10", "ahtx0", "co2", "lux", "veml", "soil"):
+                _add(f"{sensor_prefix}-{suffix}")
+            _add(f"switch-{suffix}")
+            for idx in range(1, 9):
+                _add(f"S{idx}-{suffix}")
+
         _add(device_id)
+        _add_nodus_suffix_peers(device_id)
         if not mqtt_ingest:
             return out
 
@@ -5171,6 +5194,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # Also include per-channel IDs (e.g. "S1-xxxxxx") tied to related
         # switch hosts so DB/topic cleanup can purge channel-keyed rows.
         for related in list(out):
+            _add_nodus_suffix_peers(related)
             try:
                 for row in (_collect_switch_channels(related, mqtt_ingest=mqtt_ingest) or []):
                     _add(str((row or {}).get("channel_id") or "").strip())
@@ -5494,6 +5518,36 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             pass
 
         try:
+            d = getattr(ing, "_switch_state_cache", None)
+            if isinstance(d, dict):
+                for key in list(d.keys()):
+                    if str(key or "").strip().lower() in ids_l:
+                        d.pop(key, None); _bump()
+        except Exception:
+            pass
+
+        try:
+            d = getattr(ing, "_pending_set", None)
+            if isinstance(d, dict):
+                for key in list(d.keys()):
+                    sid = str((key[0] if isinstance(key, tuple) and key else "") or "").strip().lower()
+                    if sid in ids_l:
+                        d.pop(key, None); _bump()
+        except Exception:
+            pass
+
+        try:
+            d = getattr(ing, "nodus_label_to_channel", None)
+            if isinstance(d, dict):
+                for key in list(d.keys()):
+                    sid = str((key[0] if isinstance(key, tuple) and key else "") or "").strip().lower()
+                    channel = str(d.get(key) or "").strip().lower()
+                    if sid in ids_l or channel in ids_l:
+                        d.pop(key, None); _bump()
+        except Exception:
+            pass
+
+        try:
             s = getattr(ing, "_ha_discovered_sensor_metrics", None)
             if isinstance(s, set):
                 for key in list(s):
@@ -5540,8 +5594,40 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         return stats
 
+    def _purge_switch_controller_state(device_ids: list[str]) -> dict:
+        stats = {"switch_controllers_cleared": 0}
+        ids_l = {str(i or "").strip().lower() for i in (device_ids or []) if str(i or "").strip()}
+        if not ids_l:
+            return stats
+
+        def _purge_map(sc_map) -> None:
+            if not isinstance(sc_map, dict):
+                return
+            for key, ctrl in list(sc_map.items()):
+                key_l = str(key or "").strip().lower()
+                sid_l = str(getattr(ctrl, "switch_id", "") or "").strip().lower()
+                channel_ids = set()
+                try:
+                    channel_ids.update(str(v or "").strip().lower() for v in (getattr(ctrl, "channel_id_for_label", {}) or {}).values())
+                except Exception:
+                    pass
+                if key_l in ids_l or sid_l in ids_l or bool(channel_ids & ids_l):
+                    sc_map.pop(key, None)
+                    stats["switch_controllers_cleared"] += 1
+
+        try:
+            _purge_map(globals().get("switch_controllers"))
+        except Exception:
+            pass
+        try:
+            _purge_map(getattr(app.state, "switch_controllers", None))
+        except Exception:
+            pass
+
+        return stats
+
     def _delete_device_dirs(device_id:str)->dict:
-        removed={"sensor":False,"switch":False,"system":False}
+        removed={"sensor":False,"switch":False,"system":False, "ids_deleted":[]}
         targets = [
             ("sensor", _safe_child_path(Path(_SENSOR_BASE_DIR), device_id)),
             ("switch", _safe_child_path(Path(_SWITCH_BASE_DIR), device_id)),
@@ -5554,8 +5640,25 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if path.exists():
                     shutil.rmtree(path)
                     removed[key]=True
+                    removed["ids_deleted"].append(device_id)
             except Exception as e:
                 printDM(f"[remove-device] rmtree {path}: {e}", location=MODULE)
+        return removed
+
+    def _delete_device_dirs_many(device_ids: list[str])->dict:
+        removed={"sensor":False,"switch":False,"system":False, "ids_deleted":[]}
+        seen: set[str] = set()
+        for did in device_ids:
+            dev = str(did or "").strip()
+            if not dev or dev.lower() in seen:
+                continue
+            seen.add(dev.lower())
+            one = _delete_device_dirs(dev)
+            for key in ("sensor", "switch", "system"):
+                removed[key] = bool(removed.get(key)) or bool(one.get(key))
+            for deleted_id in (one.get("ids_deleted") or []):
+                if deleted_id not in removed["ids_deleted"]:
+                    removed["ids_deleted"].append(deleted_id)
         return removed
 
     def _get_db_path()->str:
@@ -5678,18 +5781,24 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 return merged
 
             removed_dirs, db_stats = await asyncio.gather(
-                asyncio.to_thread(_delete_device_dirs, dev),
+                asyncio.to_thread(_delete_device_dirs_many, related_ids),
                 asyncio.to_thread(_purge_db_many, related_ids),
             )
             ok_settings = await asyncio.to_thread(_remove_client_from_hub_settings, dev)
             ha_stats = await asyncio.to_thread(_clear_ha_entities, dev, mqtt_ingest=mqtt_ingest, data_logger=data_logger)
             mqtt_stats = await asyncio.to_thread(_clear_retained_mqtt_topics, dev, mqtt_ingest=mqtt_ingest)
             ingest_stats = _purge_ingest_cache(dev, mqtt_ingest=mqtt_ingest, data_logger=data_logger)
+            controller_stats = _purge_switch_controller_state(related_ids)
+            _invalidate_dashboard_caches()
+            global _switch_status_cache_payload, _switch_status_cache_until
+            _switch_status_cache_payload = None
+            _switch_status_cache_until = 0.0
             summary = (
                 f"dirs(sensor={removed_dirs.get('sensor')},switch={removed_dirs.get('switch')},system={removed_dirs.get('system')}), "
                 f"db_rows={db_stats.get('rows_deleted',0)}, clients_updated={ok_settings}, "
                 f"ha_topics={ha_stats.get('topics_cleared',0)}, mqtt_topics={mqtt_stats.get('topics_cleared',0)}, "
-                f"ingest_keys={ingest_stats.get('ingest_keys_cleared',0)}"
+                f"ingest_keys={ingest_stats.get('ingest_keys_cleared',0)}, "
+                f"switch_controllers={controller_stats.get('switch_controllers_cleared',0)}"
             )
             results[dev] = {
                 "dirs": removed_dirs,
@@ -5698,6 +5807,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "ha": ha_stats,
                 "mqtt": mqtt_stats,
                 "ingest": ingest_stats,
+                "controllers": controller_stats,
                 "summary": summary,
             }
             printDM(f"[remove-device] {dev}: {summary}", location=MODULE)
