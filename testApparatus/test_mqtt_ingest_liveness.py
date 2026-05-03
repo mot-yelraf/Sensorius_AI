@@ -296,6 +296,36 @@ def test_publish_nodus_calibration_uses_mqtt_command_topic(monkeypatch):
     assert retain is False
 
 
+def test_publish_text_rejects_non_empty_retained_set_command(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    ok = ingest.publish_text(
+        "nodus/apvpd-test123/config/set",
+        '{"message_id":"cfg-test","payload":{}}',
+        qos=1,
+        retain=True,
+        use_ha_client=False,
+    )
+
+    assert ok is False
+    assert ingest.client.pubs == []
+
+
+def test_publish_text_allows_empty_retained_set_cleanup(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    ok = ingest.publish_text(
+        "nodus/apvpd-test123/config/set",
+        "",
+        qos=0,
+        retain=True,
+        use_ha_client=False,
+    )
+
+    assert ok is True
+    assert ingest.client.pubs[-1] == ("nodus/apvpd-test123/config/set", "", 0, True)
+
+
 def test_calibration_sample_topics_are_tracked_by_sensor_and_message(monkeypatch):
     ingest = _build_ingest(monkeypatch)
 

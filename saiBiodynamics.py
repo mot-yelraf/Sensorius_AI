@@ -26,15 +26,15 @@ DEBUG = debug_enabled(MODULE)
 _SIGNS: tuple[dict[str, str], ...] = (
     {"abbr": "Ari", "name": "Aries", "element": "Fire", "plant_part": "Fruit", "color": "#d64b3b", "accent": "#ffe1dd"},
     {"abbr": "Tau", "name": "Taurus", "element": "Earth", "plant_part": "Root", "color": "#b58a57", "accent": "#f4ead9"},
-    {"abbr": "Gem", "name": "Gemini", "element": "Air", "plant_part": "Flower", "color": "#9fe8a2", "accent": "#e8f9ea"},
+    {"abbr": "Gem", "name": "Gemini", "element": "Air", "plant_part": "Flower", "color": "#ffffff", "accent": "#fff7b8"},
     {"abbr": "Cnc", "name": "Cancer", "element": "Water", "plant_part": "Leaf", "color": "#2f6eb8", "accent": "#d8e8fb"},
     {"abbr": "Leo", "name": "Leo", "element": "Fire", "plant_part": "Fruit", "color": "#d64b3b", "accent": "#ffe1dd"},
     {"abbr": "Vir", "name": "Virgo", "element": "Earth", "plant_part": "Root", "color": "#b58a57", "accent": "#f4ead9"},
-    {"abbr": "Lib", "name": "Libra", "element": "Air", "plant_part": "Flower", "color": "#9fe8a2", "accent": "#e8f9ea"},
+    {"abbr": "Lib", "name": "Libra", "element": "Air", "plant_part": "Flower", "color": "#ffffff", "accent": "#fff7b8"},
     {"abbr": "Sco", "name": "Scorpio", "element": "Water", "plant_part": "Leaf", "color": "#2f6eb8", "accent": "#d8e8fb"},
     {"abbr": "Sgr", "name": "Sagittarius", "element": "Fire", "plant_part": "Fruit", "color": "#d64b3b", "accent": "#ffe1dd"},
     {"abbr": "Cap", "name": "Capricorn", "element": "Earth", "plant_part": "Root", "color": "#b58a57", "accent": "#f4ead9"},
-    {"abbr": "Aqr", "name": "Aquarius", "element": "Air", "plant_part": "Flower", "color": "#9fe8a2", "accent": "#e8f9ea"},
+    {"abbr": "Aqr", "name": "Aquarius", "element": "Air", "plant_part": "Flower", "color": "#ffffff", "accent": "#fff7b8"},
     {"abbr": "Psc", "name": "Pisces", "element": "Water", "plant_part": "Leaf", "color": "#2f6eb8", "accent": "#d8e8fb"},
 )
 _WEEKDAYS: tuple[str, ...] = ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")

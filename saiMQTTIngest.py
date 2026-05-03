@@ -5053,9 +5053,23 @@ class saiMQTTIngest:
         except Exception:
             return False
         
+    @staticmethod
+    def _is_empty_retained_cleanup_payload(payload) -> bool:
+        if payload is None:
+            return True
+        if isinstance(payload, bytes):
+            return len(payload) == 0
+        return str(payload) == ""
+
     def publish_text(self, topic: str, payload: str, *, qos: int = 0, retain: bool = False, use_ha_client: bool = True) -> bool:
         try:
             if not topic:
+                return False
+            if retain and str(topic).endswith("/set") and not self._is_empty_retained_cleanup_payload(payload):
+                printDM(
+                    f"[publish_text] refusing retained command publish to {topic}; /set commands must be non-retained unless a cleanup flow owns clearing them",
+                    location=MODULE,
+                )
                 return False
             client = (self.ha_client or self.client) if use_ha_client else self.client
             info = client.publish(topic, payload, qos=qos, retain=retain)
