@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
 from datetime import date
 from pathlib import Path
 
@@ -205,3 +206,31 @@ def test_daily_summary_run_reports_recoverable_error_without_marking_failed(monk
     assert service.supervisor.issues
     assert service.supervisor.issues[0]["task_name"] == "Daily Summary Writer"
     assert service.supervisor.issues[0]["recommend_restart"] is False
+
+
+def test_daily_summary_window_work_feeds_watchdog_while_threaded(monkeypatch):
+    service = saiDailySummary.DailySummaryService(
+        settings=_FakeSettings(),
+        data_logger=_FakeLogger(),
+        supervisor=_FakeSupervisor(),
+    )
+    release = threading.Event()
+    calls = {"n": 0}
+
+    def _blocked_window(_start_date):
+        release.wait(timeout=1.0)
+        return 7
+
+    def _feed_watchdog(*, error=False):
+        calls["n"] += 1
+        service.supervisor.feedthedogs("Daily Summary Writer", error=error)
+        if calls["n"] >= 2:
+            release.set()
+
+    monkeypatch.setattr(service, "ensure_summaries_for_window", _blocked_window)
+    monkeypatch.setattr(service, "_feed_watchdog", _feed_watchdog)
+
+    result = asyncio.run(service._ensure_summaries_for_window_async(date(2026, 3, 8), heartbeat_every_s=0.1))
+
+    assert result == 7
+    assert len(service.supervisor.feed_calls) >= 2

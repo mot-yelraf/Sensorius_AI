@@ -206,6 +206,7 @@ class saiMQTTIngest:
         self.last_heartbeat_ts: dict[str, float] = {}  # host -> unix epoch seconds from heartbeat payload
         self.last_heartbeat_payload: dict[str, dict] = {}  # host -> last heartbeat payload object
         self.nodus_firmware_versions: dict[str, str] = {}  # host/peer id -> firmware version from nodus meta
+        self.fwupdate_result_by_device: dict[str, dict] = {}  # device_id/host -> last OTA result payload
         self.heartbeat_interval_s_by_host: dict[str, float] = {}  # host -> advertised interval
         self.heartbeat_stale: dict[str, bool] = {}  # host -> heartbeat freshness diagnostic
         # Retained startup replays can include stale hosts. Track repeated retained traffic and
@@ -297,6 +298,7 @@ class saiMQTTIngest:
                 "nodus/+/availability",
                 "nodus/+/status/heartbeat",
                 "nodus/+/meta",
+                "nodus/+/fwupdate/result",
                 "nodus/+/meta/patch",
                 "nodus/+/calibration/ack",
                 "nodus/+/calibration/result",
@@ -350,6 +352,7 @@ class saiMQTTIngest:
                     f"{self.base_topic}/nodus/+/event/calibration_sample",
                     f"{self.base_topic}/nodus/+/event/calibration_result",
                     f"{self.base_topic}/nodus/+/meta",
+                    f"{self.base_topic}/nodus/+/fwupdate/result",
                     f"{self.base_topic}/nodus/+/meta/patch",
                     f"{self.base_topic}/nodus/+/onboard/hello",
                     f"{self.base_topic}/nodus/+/config/ack",
@@ -1393,6 +1396,32 @@ class saiMQTTIngest:
                     )
                     if ok_meta:
                         return
+                if (
+                    (not self.nodus_debug_data_only)
+                    and len(parts) == id_index + 3
+                    and parts[id_index + 1] == "fwupdate"
+                    and parts[id_index + 2] == "result"
+                ):
+                    nodus_id = parts[id_index]
+                    if _looks_like_channel_id(nodus_id):
+                        return
+                    base = self._host_from_sid_base(nodus_id)
+                    if not base:
+                        return
+                    payload_obj = data if isinstance(data, dict) else {"raw": payload_text}
+                    result = dict(payload_obj)
+                    result["device_id"] = nodus_id
+                    result["topic"] = topic
+                    result["received_at"] = time.time()
+                    self.fwupdate_result_by_device[base] = result
+                    self.fwupdate_result_by_device[f"{base}.local"] = result
+                    self.fwupdate_result_by_device[nodus_id] = result
+                    self.last_mqtt_seen[base] = result["received_at"]
+                    self.last_mqtt_seen[f"{base}.local"] = result["received_at"]
+                    phase = str(result.get("phase") or "").strip().lower()
+                    if phase in {"applied", "complete", "completed"}:
+                        self._mark_host_status(base, "online")
+                    return
                 if (not self.nodus_debug_data_only) and len(parts) > id_index + 2 and parts[id_index + 1] == "status" and parts[id_index + 2] == "heartbeat":
                     nodus_id = parts[id_index]
                     if _looks_like_channel_id(nodus_id):

@@ -452,6 +452,7 @@
           <button type="button" class="system-menu-btn" data-target="pane-farm">FarmOS</button>
           <button type="button" class="system-menu-btn" data-target="pane-locations">Edit Locations</button>
           <button type="button" class="system-menu-btn" data-target="pane-add">Add Device</button>
+          <button type="button" class="system-menu-btn" data-target="pane-update">Update Device</button>
           <button type="button" class="system-menu-btn" data-target="pane-remove">Remove Device</button>
           <button type="button" class="system-menu-btn" data-target="pane-advanced">Advanced</button>
         </aside>
@@ -779,6 +780,66 @@
             </div>
           </div>
 
+          <div class="settings-pane" id="pane-update" hidden>
+            <h3 class="pane-title">Update Device</h3>
+            <div class="field-grid-stack">
+              <div class="field-stack">
+                <label for="ota-package-path">Package Path</label>
+                <input type="text" id="ota-package-path" placeholder="/absolute/path/to/package">
+              </div>
+              <div class="field-stack">
+                <label for="ota-package-upload">Package Zip</label>
+                <input type="file" id="ota-package-upload" accept=".zip,application/zip">
+              </div>
+            </div>
+            <div class="inline-actions" style="margin:.45rem 0 .65rem 0;">
+              <button type="button" class="button neutral" id="btn-ota-inspect">Inspect Package</button>
+              <button type="button" class="button black" id="btn-ota-refresh">Refresh Devices</button>
+            </div>
+            <div class="integration-state" id="ota-package-summary">
+              <div class="integration-state-title">
+                <span class="integration-dot"></span>
+                <span id="ota-package-title">No package selected</span>
+              </div>
+              <div class="integration-state-detail" id="ota-package-detail"></div>
+            </div>
+            <div class="field-grid-top" style="margin:.65rem 0;">
+              <div class="field-stack">
+                <label for="ota-concurrency">Concurrent Updates</label>
+                <input type="number" id="ota-concurrency" min="1" max="4" step="1" value="1">
+              </div>
+              <div class="field-stack">
+                <label for="ota-chunk-size">Chunk Bytes</label>
+                <input type="number" id="ota-chunk-size" min="0" max="4096" step="256" value="1024">
+              </div>
+              <div class="field-stack" style="justify-content:end;">
+                <label for="ota-force-version">
+                  <input type="checkbox" id="ota-force-version">
+                  Force version mismatch
+                </label>
+              </div>
+            </div>
+            <div id="ota-device-list" class="remove-scroll">
+              <div class="detail">Select this pane to load Nodus devices.</div>
+            </div>
+            <div id="ota-job-panel" class="integration-state" hidden>
+              <div class="integration-state-title">
+                <span class="integration-dot"></span>
+                <span id="ota-job-title">No active update job</span>
+              </div>
+              <div class="integration-state-detail" id="ota-job-detail"></div>
+            </div>
+            <div id="ota-job-history" class="detail" style="margin-top:.45rem;"></div>
+            <div class="status-text" id="ota-status"></div>
+            <div class="pane-footer">
+              <button type="button" class="button black btn-back-system">Back</button>
+              <div class="inline-actions">
+                <button type="button" class="button yellow" id="btn-ota-cancel" disabled>Cancel Job</button>
+                <button type="button" class="button blue" id="btn-ota-start" disabled>Update Selected</button>
+              </div>
+            </div>
+          </div>
+
           <div class="settings-pane" id="pane-remove" hidden>
             <h3 class="pane-title">Remove Device</h3>
             <div id="remove-device-status" class="status-text"></div>
@@ -881,6 +942,10 @@
   const addScanMax = 5;
   const addScanDelayMs = 60000;
   let addManualJoinRequired = false;
+  let otaDevicesLoaded = false;
+  let otaPackageRef = "";
+  let otaCurrentJobId = "";
+  let otaPollTimer = null;
 
   function openSetupModal() {
     root.style.display = "flex";
@@ -935,6 +1000,10 @@
     }
     if (paneId === "pane-locations" && !locationsLoaded) loadLocations();
     if (paneId === "pane-remove") loadRemovableDevices();
+    if (paneId === "pane-update" && !otaDevicesLoaded) {
+      loadOTADevices();
+      loadOTAJobs();
+    }
     if (paneId === "pane-advanced") loadAdvancedSettings();
     if (paneId === "pane-add") {
       resetAddDevicePaneState();
@@ -2085,6 +2154,245 @@
     }
   }
 
+  function setOTAStatus(msg) {
+    setStatus("ota-status", msg || "");
+  }
+
+  function updateOTAStartEnable() {
+    const selected = [...document.querySelectorAll('#ota-device-list input[type="checkbox"]:checked')];
+    const btn = document.getElementById("btn-ota-start");
+    if (btn) btn.disabled = !(otaPackageRef && selected.length);
+  }
+
+  function renderOTAPackage(pkg) {
+    const title = document.getElementById("ota-package-title");
+    const detail = document.getElementById("ota-package-detail");
+    if (!pkg) {
+      otaPackageRef = "";
+      if (title) title.textContent = "No package selected";
+      if (detail) detail.textContent = "";
+      updateOTAStartEnable();
+      return;
+    }
+    otaPackageRef = pkg.ref || "";
+    if (title) title.textContent = pkg.package_id || "Package ready";
+    if (detail) {
+      detail.textContent = [
+        "Requires " + (pkg.required_version || "unknown"),
+        (pkg.file_count || 0) + " files",
+        (pkg.total_bytes || 0) + " bytes"
+      ].join(" | ");
+    }
+    updateOTAStartEnable();
+  }
+
+  function renderOTADevices(devices) {
+    const listEl = document.getElementById("ota-device-list");
+    if (!listEl) return;
+    const devs = devices || [];
+    if (!devs.length) {
+      listEl.innerHTML = '<div class="detail">No Nodus devices discovered yet.</div>';
+      updateOTAStartEnable();
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    devs.forEach((d) => {
+      const row = document.createElement("div");
+      row.className = "remove-item";
+      row.style.alignItems = "flex-start";
+
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = d.device_id || d.host || "";
+      cb.onchange = updateOTAStartEnable;
+
+      const body = document.createElement("div");
+      body.style.display = "flex";
+      body.style.flexDirection = "column";
+      body.style.gap = ".15rem";
+
+      const title = document.createElement("label");
+      title.textContent = (d.device_id || d.host || "unknown") + "  " + (d.status || "unknown");
+      title.style.cursor = "pointer";
+
+      const detail = document.createElement("div");
+      detail.className = "detail";
+      detail.textContent = [
+        "firmware " + (d.firmware_version || "unknown"),
+        d.ip ? ("ip " + d.ip) : (d.http_url || ""),
+        d.last_seen_s == null ? "" : ("last seen " + d.last_seen_s + "s ago")
+      ].filter(Boolean).join(" | ");
+
+      body.appendChild(title);
+      body.appendChild(detail);
+      row.appendChild(cb);
+      row.appendChild(body);
+      frag.appendChild(row);
+    });
+    listEl.innerHTML = "";
+    listEl.appendChild(frag);
+    updateOTAStartEnable();
+  }
+
+  async function loadOTADevices() {
+    const listEl = document.getElementById("ota-device-list");
+    if (listEl) listEl.innerHTML = '<div class="detail">Loading Nodus devices...</div>';
+    setOTAStatus("");
+    try {
+      const resp = await fetch("/api/nodus-ota/devices");
+      const js = await resp.json();
+      if (!resp.ok || !js.ok) throw new Error((js && js.error) || "device load failed");
+      otaDevicesLoaded = true;
+      renderOTADevices(js.devices || []);
+    } catch (e) {
+      console.error(e);
+      if (listEl) listEl.innerHTML = '<div class="detail">Failed to load Nodus devices.</div>';
+      setOTAStatus(String(e));
+    }
+  }
+
+  async function inspectOTAPackage() {
+    const upload = document.getElementById("ota-package-upload");
+    const pathEl = document.getElementById("ota-package-path");
+    setOTAStatus("Inspecting package...");
+    try {
+      if (upload && upload.files && upload.files.length) {
+        const form = new FormData();
+        form.append("package", upload.files[0]);
+        const resp = await fetch("/api/nodus-ota/package/upload", { method: "POST", body: form });
+        const js = await resp.json();
+        if (!resp.ok || !js.ok) throw new Error((js && js.error) || "upload failed");
+        renderOTAPackage(js.package);
+      } else {
+        const packageRef = (pathEl && pathEl.value || "").trim();
+        if (!packageRef) throw new Error("package path required");
+        const resp = await fetch("/api/nodus-ota/package/inspect", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({ package_ref: packageRef })
+        });
+        const js = await resp.json();
+        if (!resp.ok || !js.ok) throw new Error((js && js.error) || "inspect failed");
+        renderOTAPackage(js.package);
+      }
+      setOTAStatus("Package ready.");
+    } catch (e) {
+      console.error(e);
+      renderOTAPackage(null);
+      setOTAStatus("Failed: " + e.message);
+    }
+  }
+
+  function renderOTAJob(job) {
+    const panel = document.getElementById("ota-job-panel");
+    const title = document.getElementById("ota-job-title");
+    const detail = document.getElementById("ota-job-detail");
+    const cancelBtn = document.getElementById("btn-ota-cancel");
+    if (!job) {
+      if (panel) panel.hidden = true;
+      if (cancelBtn) cancelBtn.disabled = true;
+      return;
+    }
+    if (panel) panel.hidden = false;
+    if (title) title.textContent = "Job " + (job.status || "unknown");
+    const lines = (job.devices || []).map((d) => {
+      return (d.device_id || "") + ": " + (d.phase || d.status || "") + " " + (d.progress || 0) + "% " + (d.error || d.message || "");
+    });
+    if (detail) {
+      detail.style.whiteSpace = "pre-line";
+      detail.textContent = lines.join("\n");
+    }
+    if (cancelBtn) cancelBtn.disabled = !["queued", "running"].includes(job.status || "");
+  }
+
+  async function loadOTAJobs() {
+    const el = document.getElementById("ota-job-history");
+    if (!el) return;
+    try {
+      const resp = await fetch("/api/nodus-ota/jobs");
+      const js = await resp.json();
+      if (!resp.ok || !js.ok) throw new Error((js && js.error) || "job history failed");
+      const jobs = (js.jobs || []).slice(0, 3);
+      if (!jobs.length) {
+        el.textContent = "No OTA job history.";
+        return;
+      }
+      el.textContent = "Recent jobs: " + jobs.map((job) => {
+        const pkg = job.package || {};
+        return (pkg.package_id || job.job_id || "job") + " " + (job.status || "unknown");
+      }).join(" | ");
+    } catch (e) {
+      el.textContent = "";
+    }
+  }
+
+  function pollOTAJob() {
+    if (!otaCurrentJobId) return;
+    if (otaPollTimer) clearTimeout(otaPollTimer);
+    fetch("/api/nodus-ota/jobs/" + encodeURIComponent(otaCurrentJobId))
+      .then((resp) => resp.json())
+      .then((js) => {
+        if (!js || !js.ok) throw new Error((js && js.error) || "job poll failed");
+        renderOTAJob(js.job);
+        if (["queued", "running"].includes(js.job.status || "")) {
+          otaPollTimer = setTimeout(pollOTAJob, 1500);
+        } else {
+          otaPollTimer = null;
+          loadOTADevices();
+          loadOTAJobs();
+        }
+      })
+      .catch((e) => {
+        console.error(e);
+        setOTAStatus("Job poll failed: " + e.message);
+      });
+  }
+
+  async function startOTAJob() {
+    const selected = [...document.querySelectorAll('#ota-device-list input[type="checkbox"]:checked')].map((x) => x.value);
+    if (!otaPackageRef || !selected.length) return;
+    const concurrency = Math.max(1, parseInt(document.getElementById("ota-concurrency")?.value || "1", 10) || 1);
+    const chunkSize = Math.max(0, parseInt(document.getElementById("ota-chunk-size")?.value || "1024", 10) || 1024);
+    const force = !!document.getElementById("ota-force-version")?.checked;
+    setOTAStatus("Starting OTA job...");
+    try {
+      const resp = await fetch("/api/nodus-ota/jobs", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          package_ref: otaPackageRef,
+          device_ids: selected,
+          concurrency: concurrency,
+          chunk_size: chunkSize,
+          force_version_mismatch: force
+        })
+      });
+      const js = await resp.json();
+      if (!resp.ok || !js.ok) throw new Error((js && js.error) || "job start failed");
+      otaCurrentJobId = js.job.job_id;
+      renderOTAJob(js.job);
+      setOTAStatus("OTA job running.");
+      pollOTAJob();
+    } catch (e) {
+      console.error(e);
+      setOTAStatus("Failed: " + e.message);
+    }
+  }
+
+  async function cancelOTAJob() {
+    if (!otaCurrentJobId) return;
+    try {
+      const resp = await fetch("/api/nodus-ota/jobs/" + encodeURIComponent(otaCurrentJobId) + "/cancel", { method: "POST" });
+      const js = await resp.json();
+      if (!resp.ok || !js.ok) throw new Error((js && js.error) || "cancel failed");
+      renderOTAJob(js.job);
+      setOTAStatus("Cancel requested.");
+    } catch (e) {
+      console.error(e);
+      setOTAStatus("Cancel failed: " + e.message);
+    }
+  }
+
   function clearDatabase() {
     if (!window.confirm("Clear all stored sensor data? This cannot be undone.")) return;
     window.location.href = "/clear-data";
@@ -2149,6 +2457,18 @@
     if (ev.target && ev.target.id === "btn-onboard-retry") {
       retryOnboard();
     }
+    if (ev.target && ev.target.id === "btn-ota-inspect") {
+      inspectOTAPackage();
+    }
+    if (ev.target && ev.target.id === "btn-ota-refresh") {
+      loadOTADevices();
+    }
+    if (ev.target && ev.target.id === "btn-ota-start") {
+      startOTAJob();
+    }
+    if (ev.target && ev.target.id === "btn-ota-cancel") {
+      cancelOTAJob();
+    }
     if (ev.target && ev.target.id === "remove-device-run") {
       submitRemoveDevices();
     }
@@ -2169,6 +2489,9 @@
   document.addEventListener("change", (ev) => {
     if (ev?.target?.id === "remove-device-confirm") {
       toggleRemoveEnable();
+    }
+    if (ev?.target?.id === "ota-package-upload") {
+      inspectOTAPackage();
     }
     if (ev?.target?.id === "astral_lat" || ev?.target?.id === "astral_lon") {
       refreshTimezoneOptionsFromCoords();

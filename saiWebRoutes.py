@@ -8,7 +8,7 @@ Responsibilities:
 """
 from __future__ import annotations #must be first in line
 
-from fastapi import Request, Form, Query, HTTPException
+from fastapi import Request, Form, Query, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse, PlainTextResponse, Response
 from fastapi.routing import APIRouter
 from starlette.responses import StreamingResponse
@@ -89,6 +89,7 @@ from saiSensorSettingsManager import SensorSettingsManager
 from saiSwitchSettingsManager import SwitchSettingsManager
 from saiBiodynamics import get_biodynamic_payload, get_biodynamic_local_now
 from saiDailySummary import DailySummaryService
+from saiNodusOTA import NodusOTAError, NodusOTAService
 from saiAddDevice import HUB_SETTINGS_PATH, _SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR
 try:
     from __init__ import __version__ as SAI_APP_VERSION
@@ -174,6 +175,10 @@ def _is_unknown_location_value(value: object) -> bool:
 async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     router = APIRouter()
     main_loop = asyncio.get_running_loop()
+    ota_service = getattr(app.state, "nodus_ota_service", None)
+    if ota_service is None:
+        ota_service = NodusOTAService(settings=settings, mqtt_ingest=mqtt_ingest)
+        app.state.nodus_ota_service = ota_service
     onboarding_store = OnboardingSessionStore(base_dir=getattr(saiSettings, "DEFAULT_BASE_DIR", "system_settings"))
     onboarding_tokens = OnboardingTokenManager(onboarding_store, default_ttl_sec=600)
     _v2_session_tasks: Dict[str, asyncio.Task] = {}
@@ -2898,6 +2903,87 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         raise HTTPException(status_code=401, detail="unauthorized")
 
+    def _ota_error_response(exc: Exception, *, status_code: int = 400) -> JSONResponse:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=status_code)
+
+    @router.get("/api/nodus-ota/devices", response_class=JSONResponse)
+    async def api_nodus_ota_devices(request: Request):
+        _require_protected_access(request, require_csrf=True)
+        return JSONResponse({"ok": True, "devices": ota_service.list_devices()})
+
+    @router.get("/api/nodus-ota/packages", response_class=JSONResponse)
+    async def api_nodus_ota_packages(request: Request):
+        _require_protected_access(request, require_csrf=True)
+        return JSONResponse({"ok": True, "packages": ota_service.list_packages()})
+
+    @router.post("/api/nodus-ota/package/inspect", response_class=JSONResponse)
+    async def api_nodus_ota_package_inspect(request: Request):
+        _require_protected_access(request, require_csrf=True)
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        package_ref = str((payload or {}).get("package_ref") or "").strip()
+        try:
+            package = await asyncio.to_thread(ota_service.inspect_package, package_ref)
+            return JSONResponse({"ok": True, "package": package.summary()})
+        except NodusOTAError as exc:
+            return _ota_error_response(exc)
+
+    @router.post("/api/nodus-ota/package/upload", response_class=JSONResponse)
+    async def api_nodus_ota_package_upload(request: Request, package: UploadFile = File(...)):
+        _require_protected_access(request, require_csrf=True)
+        try:
+            payload = await package.read()
+            inspected = await asyncio.to_thread(
+                ota_service.import_zip_package,
+                package.filename or "nodus-ota.zip",
+                payload,
+            )
+            return JSONResponse({"ok": True, "package": inspected.summary()})
+        except NodusOTAError as exc:
+            return _ota_error_response(exc)
+
+    @router.post("/api/nodus-ota/jobs", response_class=JSONResponse)
+    async def api_nodus_ota_start_job(request: Request):
+        _require_protected_access(request, require_csrf=True)
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
+        try:
+            job = ota_service.start_job(
+                str((payload or {}).get("package_ref") or ""),
+                list((payload or {}).get("device_ids") or []),
+                concurrency=int((payload or {}).get("concurrency") or 1),
+                force_version_mismatch=bool((payload or {}).get("force_version_mismatch", False)),
+                chunk_size=int((payload or {}).get("chunk_size") or 1024),
+            )
+            return JSONResponse({"ok": True, "job": job})
+        except NodusOTAError as exc:
+            return _ota_error_response(exc)
+
+    @router.get("/api/nodus-ota/jobs", response_class=JSONResponse)
+    async def api_nodus_ota_jobs(request: Request):
+        _require_protected_access(request, require_csrf=True)
+        return JSONResponse({"ok": True, "jobs": ota_service.list_jobs()})
+
+    @router.get("/api/nodus-ota/jobs/{job_id}", response_class=JSONResponse)
+    async def api_nodus_ota_job(request: Request, job_id: str):
+        _require_protected_access(request, require_csrf=True)
+        try:
+            return JSONResponse({"ok": True, "job": ota_service.job_snapshot(job_id)})
+        except NodusOTAError as exc:
+            return _ota_error_response(exc, status_code=404 if "not_found" in str(exc) else 400)
+
+    @router.post("/api/nodus-ota/jobs/{job_id}/cancel", response_class=JSONResponse)
+    async def api_nodus_ota_cancel_job(request: Request, job_id: str):
+        _require_protected_access(request, require_csrf=True)
+        try:
+            return JSONResponse({"ok": True, "job": ota_service.cancel_job(job_id)})
+        except NodusOTAError as exc:
+            return _ota_error_response(exc, status_code=404 if "not_found" in str(exc) else 400)
+
     def _sensor_metrics_from_display_block(display_block) -> list[str]:
         """
         Normalize the [Display] block into an ordered list of metric names.
@@ -3857,11 +3943,19 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if visible_dates:
             range_start = min(visible_dates)
             range_end = max(visible_dates)
-            payload["notes"] = data_logger.get_biodynamic_notes_for_range(range_start, range_end)
-            payload["daily_summaries"] = data_logger.get_biodynamic_daily_summaries_for_range(range_start, range_end)
+            notes, daily_summaries = await asyncio.gather(
+                asyncio.to_thread(data_logger.get_biodynamic_notes_for_range, range_start, range_end),
+                asyncio.to_thread(data_logger.get_biodynamic_daily_summaries_for_range, range_start, range_end),
+            )
+            payload["notes"] = notes
+            payload["daily_summaries"] = daily_summaries
         else:
-            payload["notes"] = data_logger.get_biodynamic_notes_for_month(anchor)
-            payload["daily_summaries"] = data_logger.get_biodynamic_daily_summaries_for_month(anchor)
+            notes, daily_summaries = await asyncio.gather(
+                asyncio.to_thread(data_logger.get_biodynamic_notes_for_month, anchor),
+                asyncio.to_thread(data_logger.get_biodynamic_daily_summaries_for_month, anchor),
+            )
+            payload["notes"] = notes
+            payload["daily_summaries"] = daily_summaries
         notes_ms = (time.monotonic() - notes_started) * 1000.0
         _ui_profile_log(
             "api-biodynamic-calendar",
@@ -3889,7 +3983,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         except Exception:
             return JSONResponse({"error": "invalid_date"}, status_code=400)
 
-        ok = data_logger.save_biodynamic_note(normalized_date, note_text)
+        ok = await asyncio.to_thread(data_logger.save_biodynamic_note, normalized_date, note_text)
         if not ok:
             return JSONResponse({"error": "save_failed"}, status_code=500)
         return JSONResponse({"ok": True, "date": normalized_date, "note": note_text.strip()})

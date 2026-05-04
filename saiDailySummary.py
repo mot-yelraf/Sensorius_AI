@@ -284,12 +284,32 @@ class DailySummaryService:
             await asyncio.sleep(chunk)
             remaining -= chunk
 
+    async def _ensure_summaries_for_window_async(self, start_date: date, heartbeat_every_s: float = 5.0) -> int:
+        """Run summary generation off the event loop while heartbeats continue."""
+        task = asyncio.create_task(
+            asyncio.to_thread(self.ensure_summaries_for_window, start_date),
+            name="DailySummaryService.ensure_summaries_for_window",
+        )
+        try:
+            while True:
+                self._feed_watchdog()
+                try:
+                    return await asyncio.wait_for(
+                        asyncio.shield(task),
+                        timeout=max(float(heartbeat_every_s), 0.1),
+                    )
+                except asyncio.TimeoutError:
+                    continue
+        finally:
+            if not task.done():
+                task.cancel()
+
     async def run(self):
         while True:
             try:
                 self._feed_watchdog()
                 now_local = datetime.now(self.local_tz)
-                self.ensure_summaries_for_window(now_local.date())
+                await self._ensure_summaries_for_window_async(now_local.date())
                 next_run = datetime.combine(now_local.date() + timedelta(days=1), dtime(0, 0, 1), self.local_tz)
                 sleep_s = max((next_run - now_local).total_seconds(), 1.0)
             except Exception as exc:
