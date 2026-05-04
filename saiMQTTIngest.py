@@ -27,6 +27,14 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from saiUtils import printDM, debug_enabled, get_timestamp, normalize_hostname_base, mdns_hostname
 from saiDataLogger import saiDataLogger, build_switch_key
+from sensor_modules.station_weewx import (
+    DEFAULT_MQTT_TOPIC as WEEWX_DEFAULT_MQTT_TOPIC,
+    DEFAULT_SENSOR_ID as WEEWX_DEFAULT_SENSOR_ID,
+    DEFAULT_UPDATE_PERIOD_SEC as WEEWX_DEFAULT_UPDATE_PERIOD_SEC,
+    WEEWX_DISPLAY_METRICS,
+    mqtt_topic_matches as weewx_topic_matches,
+    normalize_weewx_mqtt_payload,
+)
 
 MODULE = "saiMQTTIngest"
 DEBUG = debug_enabled(MODULE)
@@ -301,6 +309,31 @@ class saiMQTTIngest:
                 "nodus/+/config/result",
             })
         self.registered_topics.update(base_topics)
+        self.weewx_mqtt_enabled = False
+        self.weewx_mqtt_topic = WEEWX_DEFAULT_MQTT_TOPIC
+        self.weewx_sensor_id = WEEWX_DEFAULT_SENSOR_ID
+        self.weewx_update_period_sec = WEEWX_DEFAULT_UPDATE_PERIOD_SEC
+        try:
+            self.weewx_mqtt_enabled = bool(self.settings.get_setting("WeeWX", "MQTT_ENABLED", False))
+            self.weewx_mqtt_topic = str(
+                self.settings.get_setting("WeeWX", "MQTT_TOPIC", WEEWX_DEFAULT_MQTT_TOPIC)
+                or WEEWX_DEFAULT_MQTT_TOPIC
+            ).strip()
+            self.weewx_sensor_id = str(
+                self.settings.get_setting("WeeWX", "SENSOR_ID", WEEWX_DEFAULT_SENSOR_ID)
+                or WEEWX_DEFAULT_SENSOR_ID
+            ).strip() or WEEWX_DEFAULT_SENSOR_ID
+            self.weewx_update_period_sec = max(
+                15.0,
+                float(
+                    self.settings.get_setting("WeeWX", "UPDATE_PERIOD_SEC", WEEWX_DEFAULT_UPDATE_PERIOD_SEC)
+                    or WEEWX_DEFAULT_UPDATE_PERIOD_SEC
+                ),
+            )
+        except Exception:
+            self.weewx_mqtt_enabled = False
+        if self.weewx_mqtt_enabled and self.weewx_mqtt_topic:
+            self.registered_topics.add(self.weewx_mqtt_topic)
         if self.base_topic:
             prefixed_topics = {
                 f"{self.base_topic}/nodus/+/data",
@@ -1190,6 +1223,44 @@ class saiMQTTIngest:
         except Exception:
             pass
 
+    def _maybe_handle_weewx_mqtt(self, topic: str, payload_text: str) -> bool:
+        """Ingest configured WeeWX MQTT publications as a station sensor."""
+        try:
+            if not self.weewx_mqtt_enabled:
+                return False
+            if not weewx_topic_matches(self.weewx_mqtt_topic, topic):
+                return False
+            reading = normalize_weewx_mqtt_payload(
+                topic,
+                payload_text,
+                base_topic=self.weewx_mqtt_topic.rstrip("/#"),
+            )
+            if reading is None or not reading.values:
+                return False
+
+            sensor_id = self.weewx_sensor_id or WEEWX_DEFAULT_SENSOR_ID
+            values = dict(reading.values)
+            try:
+                previous = self.data_logger.get_latest_values(sensor_id) or {}
+                if isinstance(previous, dict) and len(values) == 1:
+                    merged = dict(previous)
+                    merged.update(values)
+                    values = merged
+            except Exception:
+                pass
+            self.data_logger.log_readings(reading.timestamp, sensor_id, values)
+            self.expected_gauge_map[sensor_id] = [
+                metric for metric in WEEWX_DISPLAY_METRICS if metric in values
+            ]
+            self.device_type[sensor_id] = "weewx"
+            self.device_location[sensor_id] = "Weather Station"
+            self.last_mqtt_seen[sensor_id] = time.time()
+            self._mark_host_status(sensor_id, "online")
+            return True
+        except Exception as exc:
+            printDM(f"[weewx-mqtt] ingest failed: {exc}", location=MODULE)
+            return False
+
     def _on_message(self, client, userdata, msg):
         # --- basic, safe extraction ---
         topic = getattr(msg, "topic", "") or ""
@@ -1251,6 +1322,13 @@ class saiMQTTIngest:
             data = json.loads(payload_text)
         except Exception:
             data = None
+
+        try:
+            if self._maybe_handle_weewx_mqtt(topic, payload_text):
+                return
+        except Exception as e:
+            if DEBUG:
+                printDM(f"[on_message] WeeWX MQTT parser skipped: {e}", location=MODULE)
 
         if not self.nodus_debug_data_only:
             try:
@@ -3183,6 +3261,20 @@ class saiMQTTIngest:
             return "unknown"
 
         now_ts = time.time()
+
+        try:
+            weewx_id = self._normalize_host_key(getattr(self, "weewx_sensor_id", WEEWX_DEFAULT_SENSOR_ID)) or WEEWX_DEFAULT_SENSOR_ID
+            if base == weewx_id:
+                last_seen = float(self.last_mqtt_seen.get(weewx_id, 0.0) or 0.0)
+                if last_seen <= 0.0:
+                    return "unknown"
+                update_period = max(
+                    15.0,
+                    float(getattr(self, "weewx_update_period_sec", WEEWX_DEFAULT_UPDATE_PERIOD_SEC) or WEEWX_DEFAULT_UPDATE_PERIOD_SEC),
+                )
+                return "online" if (now_ts - last_seen) <= (update_period * 3.0) else "offline"
+        except Exception:
+            pass
 
         # 0) Explicit MQTT availability status if present
         try:

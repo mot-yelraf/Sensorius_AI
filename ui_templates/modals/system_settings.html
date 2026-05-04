@@ -285,6 +285,54 @@
   font-size: .88rem;
   color: #444;
 }
+#setupPiModal .instructions-box {
+  max-width: 760px;
+  margin: .85rem auto 0 auto;
+  padding: .75rem .85rem;
+  border: 1px solid #d6dfd8;
+  border-radius: 10px;
+  background: #f8fbf9;
+}
+#setupPiModal .instructions-box p {
+  margin: .25rem 0 .55rem 0;
+  color: #333;
+}
+#setupPiModal .instructions-box pre {
+  margin: .5rem 0;
+  padding: .7rem .85rem;
+  overflow-x: auto;
+  border-radius: 8px;
+  background: #101820;
+  color: #e8f3ef;
+  font-size: .84rem;
+  line-height: 1.35;
+}
+#setupPiModal .integration-state {
+  max-width: 760px;
+  margin: .35rem auto .8rem auto;
+  padding: .7rem .85rem;
+  border: 1px solid #d6dfd8;
+  border-radius: 10px;
+  background: #f8fbf9;
+}
+#setupPiModal .integration-state-title {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  font-weight: 700;
+}
+#setupPiModal .integration-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid #68736d;
+  background: #ffc107;
+}
+#setupPiModal .integration-state-detail {
+  margin-top: .35rem;
+  color: #444;
+  font-size: .9rem;
+}
 #setupPiModal .onboard-badge {
   margin-top: .4rem;
   padding: .45rem .55rem;
@@ -383,6 +431,13 @@
        data-farm-username="{{ farm_username | default('') }}"
        data-farm-password="{{ farm_password | default('') }}"
        data-farm-log-bundle="{{ farm_log_bundle | default('observation') }}"
+       data-weewx-mqtt-enabled="{{ weewx_mqtt_enabled | default(false) }}"
+       data-weewx-db-path="{{ weewx_db_path | default('/var/lib/weewx/weewx.sdb') }}"
+       data-weewx-sensor-id="{{ weewx_sensor_id | default('weewx-station') }}"
+       data-weewx-mqtt-topic="{{ weewx_mqtt_topic | default('weewx/#') }}"
+       data-weewx-update-period="{{ weewx_update_period_sec | default(300) }}"
+       data-weewx-broker="{{ weewx_broker | default('localhost') }}"
+       data-weewx-port="{{ weewx_port | default(1883) }}"
        data-onboarding-v2-enabled="{{ onboarding_v2_mqtt_enabled | default(true) }}">
     <div class="system-settings-header">
       <h2 class="system-settings-title">{{ app_name_long }} {{ app_version }}</h2>
@@ -393,6 +448,7 @@
         <aside class="system-settings-menu" id="systemSettingsMenu" aria-label="System settings sections">
           <button type="button" class="system-menu-btn active" data-target="pane-system">System Settings</button>
           <button type="button" class="system-menu-btn" data-target="pane-ha">Home Assistant</button>
+          <button type="button" class="system-menu-btn" data-target="pane-weewx">WeeWX</button>
           <button type="button" class="system-menu-btn" data-target="pane-farm">FarmOS</button>
           <button type="button" class="system-menu-btn" data-target="pane-locations">Edit Locations</button>
           <button type="button" class="system-menu-btn" data-target="pane-add">Add Device</button>
@@ -545,6 +601,63 @@
             <div class="pane-footer">
               <button type="button" class="button black btn-back-system">Back</button>
               <button type="button" class="button blue" id="btn-ha-save">Save</button>
+            </div>
+          </div>
+
+          <div class="settings-pane" id="pane-weewx" hidden>
+            <h3 class="pane-title">WeeWX</h3>
+            <div class="ha-enabled-wrap">
+              <div class="field-stack">
+                <label for="weewx-mqtt-enabled">MQTT Interface</label>
+                <select id="weewx-mqtt-enabled">
+                  <option value="false">Disabled</option>
+                  <option value="true">Enabled</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="integration-state" id="weewx-runtime-state">
+              <div class="integration-state-title">
+                <span class="integration-dot" id="weewx-runtime-dot"></span>
+                <span id="weewx-runtime-title">Checking WeeWX state...</span>
+              </div>
+              <div class="integration-state-detail" id="weewx-runtime-detail"></div>
+            </div>
+
+            <div class="ha-grid">
+              <div class="field-stack">
+                <label for="weewx-db-path">WeeWX Database</label>
+                <input type="text" id="weewx-db-path" readonly>
+              </div>
+              <div class="field-stack">
+                <label for="weewx-sensor-id">Sensorius Sensor ID</label>
+                <input type="text" id="weewx-sensor-id">
+              </div>
+              <div class="field-stack">
+                <label for="weewx-mqtt-topic">MQTT Topic Filter</label>
+                <input type="text" id="weewx-mqtt-topic" placeholder="weewx/#">
+              </div>
+              <div class="field-stack">
+                <label for="weewx-update-period">Update Period Seconds</label>
+                <input type="number" id="weewx-update-period" min="15" max="3600" step="1">
+              </div>
+              <div class="field-stack">
+                <label for="weewx-broker-display">Sensorius Broker</label>
+                <input type="text" id="weewx-broker-display" readonly>
+              </div>
+            </div>
+
+            <div class="instructions-box">
+              <p>Configure the WeeWX MQTT extension to publish station archive updates to the Sensorius broker.</p>
+              <pre id="weewx-conf-example"></pre>
+              <p>After saving, restart Sensorius so the MQTT subscription is registered. Restart WeeWX after changing <code>/etc/weewx/weewx.conf</code>.</p>
+            </div>
+
+            <div class="status-text" id="weewx-status"></div>
+
+            <div class="pane-footer">
+              <button type="button" class="button black btn-back-system">Back</button>
+              <button type="button" class="button blue" id="btn-weewx-save">Save</button>
             </div>
           </div>
 
@@ -815,6 +928,7 @@
     });
 
     if (paneId === "pane-ha") hydrateHAFromData();
+    if (paneId === "pane-weewx") hydrateWeeWXFromData();
     if (paneId === "pane-farm") {
       hydrateFarmFromData();
       loadFarmStatus();
@@ -984,6 +1098,130 @@
       if (window.showToast) window.showToast("Failed to save Home Assistant settings", "error");
     } finally {
       setButtonBusy("btn-ha-save", false);
+    }
+  }
+
+  function hydrateWeeWXFromData() {
+    if (!shell) return;
+    const enabled = String(shell.dataset.weewxMqttEnabled || "").toLowerCase() === "true";
+    const dbPath = shell.dataset.weewxDbPath || "/var/lib/weewx/weewx.sdb";
+    const sensorId = shell.dataset.weewxSensorId || "weewx-station";
+    const topic = shell.dataset.weewxMqttTopic || "weewx/#";
+    const updatePeriod = shell.dataset.weewxUpdatePeriod || "300";
+    const broker = shell.dataset.weewxBroker || "localhost";
+    const port = shell.dataset.weewxPort || "1883";
+
+    const enabledEl = document.getElementById("weewx-mqtt-enabled");
+    const dbPathEl = document.getElementById("weewx-db-path");
+    const sensorIdEl = document.getElementById("weewx-sensor-id");
+    const topicEl = document.getElementById("weewx-mqtt-topic");
+    const updatePeriodEl = document.getElementById("weewx-update-period");
+    const brokerEl = document.getElementById("weewx-broker-display");
+    const exampleEl = document.getElementById("weewx-conf-example");
+
+    if (enabledEl) enabledEl.value = enabled ? "true" : "false";
+    if (dbPathEl) dbPathEl.value = dbPath;
+    if (sensorIdEl) sensorIdEl.value = sensorId;
+    if (topicEl) topicEl.value = topic;
+    if (updatePeriodEl) updatePeriodEl.value = updatePeriod;
+    if (brokerEl) brokerEl.value = `${broker}:${port}`;
+    if (exampleEl) {
+      const cleanTopic = String(topic || "weewx/#").replace(/\/#$/, "").replace(/\/$/, "") || "weewx";
+      exampleEl.textContent = [
+        "[StdRESTful]",
+        "    [[MQTT]]",
+        "        server_url = mqtt://" + broker + ":" + port + "/",
+        "        topic = " + cleanTopic,
+        "        unit_system = US",
+        "        binding = archive",
+        "        aggregation = aggregate"
+      ].join("\n");
+    }
+    setStatus("weewx-status", "");
+    loadWeeWXStatus();
+  }
+
+  function renderWeeWXStatus(data) {
+    const dot = document.getElementById("weewx-runtime-dot");
+    const title = document.getElementById("weewx-runtime-title");
+    const detail = document.getElementById("weewx-runtime-detail");
+    if (!title || !detail) return;
+
+    const state = String(data?.state || "unknown").toLowerCase();
+    const colors = { online:"#28a745", offline:"#dc3545", disabled:"#6c757d", unknown:"#ffc107" };
+    if (dot) dot.style.background = colors[state] || colors.unknown;
+
+    const label = data?.label || (
+      state === "online" ? "Receiving WeeWX weather data" :
+      state === "offline" ? "No recent WeeWX weather data" :
+      state === "disabled" ? "WeeWX integration disabled" :
+      "WeeWX state unknown"
+    );
+    title.textContent = label;
+
+    const parts = [];
+    if (data?.mode) parts.push("Mode: " + data.mode);
+    if (data?.latest_timestamp) parts.push("Latest sample: " + data.latest_timestamp);
+    if (typeof data?.latest_age_sec === "number") {
+      const ageMin = Math.max(0, Math.round(data.latest_age_sec / 60));
+      parts.push("Age: " + ageMin + " min");
+    }
+    if (typeof data?.offline_after_sec === "number") {
+      parts.push("Offline after: " + Math.round(data.offline_after_sec / 60) + " min without updates");
+    }
+    if (data?.note) parts.push(data.note);
+    detail.textContent = parts.join(" | ");
+  }
+
+  async function loadWeeWXStatus() {
+    try {
+      renderWeeWXStatus({ state: "unknown", label: "Checking WeeWX state..." });
+      const resp = await fetch("/weewx/status", { cache: "no-store" });
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      renderWeeWXStatus(data);
+    } catch (e) {
+      console.error(e);
+      renderWeeWXStatus({ state: "unknown", label: "Failed to load WeeWX state", note: e && e.message ? e.message : "" });
+    }
+  }
+
+  async function saveWeeWXSettings() {
+    try {
+      const mqtt_enabled = String(document.getElementById("weewx-mqtt-enabled")?.value || "false").toLowerCase() === "true";
+      const db_path = (document.getElementById("weewx-db-path")?.value || "/var/lib/weewx/weewx.sdb").trim();
+      const sensor_id = (document.getElementById("weewx-sensor-id")?.value || "weewx-station").trim() || "weewx-station";
+      const mqtt_topic = (document.getElementById("weewx-mqtt-topic")?.value || "weewx/#").trim() || "weewx/#";
+      const update_period_sec = Math.max(15, Math.min(3600, parseInt(document.getElementById("weewx-update-period")?.value || "300", 10) || 300));
+
+      setStatus("weewx-status", "Saving...");
+      setButtonBusy("btn-weewx-save", true, "Saving...");
+
+      const resp = await fetch("/submit-weewx-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mqtt_enabled, db_path, sensor_id, mqtt_topic, update_period_sec })
+      });
+
+      if (!resp.ok) {
+        throw new Error(await readErrorMessage(resp, "Failed to save WeeWX settings."));
+      }
+
+      shell.dataset.weewxMqttEnabled = String(mqtt_enabled);
+      shell.dataset.weewxDbPath = db_path;
+      shell.dataset.weewxSensorId = sensor_id;
+      shell.dataset.weewxMqttTopic = mqtt_topic;
+      shell.dataset.weewxUpdatePeriod = String(update_period_sec);
+      hydrateWeeWXFromData();
+      await loadWeeWXStatus();
+      setStatus("weewx-status", "Saved. Restart Sensorius for MQTT subscription changes to take effect.");
+      if (window.showToast) window.showToast("WeeWX settings saved", "ok");
+    } catch (e) {
+      console.error(e);
+      setStatus("weewx-status", e && e.message ? e.message : "Failed to save WeeWX settings.");
+      if (window.showToast) window.showToast("Failed to save WeeWX settings", "error");
+    } finally {
+      setButtonBusy("btn-weewx-save", false);
     }
   }
 
@@ -1871,6 +2109,9 @@
     }
     if (ev.target && ev.target.id === "btn-ha-save") {
       saveHASettings();
+    }
+    if (ev.target && ev.target.id === "btn-weewx-save") {
+      saveWeeWXSettings();
     }
     if (ev.target && ev.target.id === "farm-token-toggle") {
       const input = document.getElementById("farm-access-token");

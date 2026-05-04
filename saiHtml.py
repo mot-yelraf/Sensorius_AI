@@ -9,6 +9,7 @@ import os
 import re
 from saiUtils import printDM, debug_enabled, html_escape, normalize_hostname_base, mdns_hostname
 from saiBiodynamics import get_biodynamic_payload
+from sensor_modules.station_weewx import WEEWX_GAUGE_CONFIG
 from collections import defaultdict
 from pathlib import Path
 try:
@@ -133,6 +134,7 @@ def get_gauge_config():
         "Estimated PPFD": {"unit": "µmol·m⁻²·s⁻¹", "min": 0, "max": 2000, "ticks": [0, 400, 800, 1200, 1600, 2000], "zones": [{"strokeStyle": "#ffff00", "min": 0, "max": 2000}]},
         "Visible Light Intensity": {"unit": "mol·m⁻²·day⁻¹", "min": 0, "max": 70, "ticks": [0, 10, 20, 30, 40, 50, 60, 70], "zones": [{"strokeStyle": "#ffff00", "min": 0, "max": 70}]},
     }
+    gauge_config.update(WEEWX_GAUGE_CONFIG)
     return gauge_config
 
 def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None):
@@ -1318,6 +1320,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
 
         # 2) mqtt-ingested remote
         try:
+            status_fn = getattr(mqtt_ingest, "get_measure_status", None)
+            if callable(status_fn):
+                st = status_fn(sid)
+                if isinstance(st, str) and st.strip().lower() in {"online", "degraded", "offline", "unknown", "migration_required"}:
+                    return st.strip().lower()
             for host in _hostname_variants_from_sid(sid):
                 st = (getattr(mqtt_ingest, "device_status", {}) or {}).get(host)
                 if isinstance(st, str) and st.strip().lower() in {"online", "degraded", "offline", "unknown", "migration_required"}:
@@ -1610,8 +1617,18 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                         val = values[k]
                         break
 
-            stat = stats.get(metric, {})
-            display_val = val if val is not None else "--"
+            display_metric = str(config.get("value_metric") or metric)
+            display_unit = str((gauge_config.get(display_metric) or {}).get("unit") or config.get("unit") or "")
+            display_val_raw = values.get(display_metric)
+            if display_val_raw is None and display_metric != metric:
+                for k in values.keys():
+                    if k.lower().replace("-", "").replace("_", "") == display_metric.lower().replace("-", "").replace("_", ""):
+                        display_val_raw = values[k]
+                        break
+            stat_metric = str(config.get("stats_metric") or metric)
+            stat = stats.get(stat_metric, {})
+            display_val = display_val_raw if display_val_raw is not None else "--"
+            display_text = "--" if display_val == "--" else f"{display_val} {display_unit}".strip()
 
             from datetime import datetime
 
@@ -1664,7 +1681,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             yield "</div>"
             yield "</div>"
 
-            yield f"<div class='metric-current-value' id='{safe_id}_val'>{display_val}</div>"
+            yield f"<div class='metric-current-value' id='{safe_id}_val'>{display_text}</div>"
 
             yield f"<div class='metric-stats' id='{safe_id}_stats'>"
 
@@ -2674,6 +2691,84 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "});"
 
     # ---- gauge init ----
+    yield "function normalizeDegrees(value) {"
+    yield "  const n = Number(value);"
+    yield "  if (!Number.isFinite(n)) return null;"
+    yield "  return ((n % 360) + 360) % 360;"
+    yield "}"
+    yield ""
+    yield "function drawCompassGauge(canvas, rawValue) {"
+    yield "  if (!canvas) return;"
+    yield "  const ctx = canvas.getContext('2d');"
+    yield "  if (!ctx) return;"
+    yield "  const dpr = window.devicePixelRatio || 1;"
+    yield "  const cssSize = 170;"
+    yield "  canvas.style.width = `${cssSize}px`;"
+    yield "  canvas.style.height = `${cssSize}px`;"
+    yield "  canvas.width = Math.round(cssSize * dpr);"
+    yield "  canvas.height = Math.round(cssSize * dpr);"
+    yield "  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);"
+    yield "  ctx.clearRect(0, 0, cssSize, cssSize);"
+    yield "  const cx = cssSize / 2;"
+    yield "  const cy = cssSize / 2;"
+    yield "  const r = 66;"
+    yield "  ctx.save();"
+    yield "  ctx.beginPath();"
+    yield "  ctx.arc(cx, cy, r, 0, Math.PI * 2);"
+    yield "  ctx.fillStyle = '#dff7fb';"
+    yield "  ctx.fill();"
+    yield "  ctx.lineWidth = 10;"
+    yield "  ctx.strokeStyle = '#a9d7e3';"
+    yield "  ctx.stroke();"
+    yield "  ctx.lineWidth = 1;"
+    yield "  ctx.strokeStyle = 'rgba(32,45,52,.35)';"
+    yield "  ctx.stroke();"
+    yield ""
+    yield "  for (let deg = 0; deg < 360; deg += 15) {"
+    yield "    const rad = (deg - 90) * Math.PI / 180;"
+    yield "    const major = deg % 45 === 0;"
+    yield "    const inner = r - (major ? 13 : 8);"
+    yield "    const outer = r + 1;"
+    yield "    ctx.beginPath();"
+    yield "    ctx.moveTo(cx + Math.cos(rad) * inner, cy + Math.sin(rad) * inner);"
+    yield "    ctx.lineTo(cx + Math.cos(rad) * outer, cy + Math.sin(rad) * outer);"
+    yield "    ctx.lineWidth = major ? 2 : 1;"
+    yield "    ctx.strokeStyle = major ? '#1f2933' : 'rgba(31,41,51,.45)';"
+    yield "    ctx.stroke();"
+    yield "  }"
+    yield ""
+    yield "  const labels = [{t:'N',d:0},{t:'E',d:90},{t:'S',d:180},{t:'W',d:270}];"
+    yield "  ctx.font = '700 16px sans-serif';"
+    yield "  ctx.fillStyle = '#1f2933';"
+    yield "  ctx.textAlign = 'center';"
+    yield "  ctx.textBaseline = 'middle';"
+    yield "  labels.forEach(({t,d}) => {"
+    yield "    const rad = (d - 90) * Math.PI / 180;"
+    yield "    ctx.fillText(t, cx + Math.cos(rad) * (r - 27), cy + Math.sin(rad) * (r - 27));"
+    yield "  });"
+    yield ""
+    yield "  const value = normalizeDegrees(rawValue);"
+    yield "  if (value !== null) {"
+    yield "    const rad = (value - 90) * Math.PI / 180;"
+    yield "    const tipX = cx + Math.cos(rad) * (r - 14);"
+    yield "    const tipY = cy + Math.sin(rad) * (r - 14);"
+    yield "    const tailX = cx - Math.cos(rad) * 16;"
+    yield "    const tailY = cy - Math.sin(rad) * 16;"
+    yield "    const sideRad = rad + Math.PI / 2;"
+    yield "    ctx.beginPath();"
+    yield "    ctx.moveTo(tipX, tipY);"
+    yield "    ctx.lineTo(tailX + Math.cos(sideRad) * 6, tailY + Math.sin(sideRad) * 6);"
+    yield "    ctx.lineTo(tailX - Math.cos(sideRad) * 6, tailY - Math.sin(sideRad) * 6);"
+    yield "    ctx.closePath();"
+    yield "    ctx.fillStyle = '#050505';"
+    yield "    ctx.fill();"
+    yield "    ctx.beginPath();"
+    yield "    ctx.arc(cx, cy, 8, 0, Math.PI * 2);"
+    yield "    ctx.fill();"
+    yield "  }"
+    yield "  ctx.restore();"
+    yield "}"
+    yield ""
     yield "function initGauge() {"
     yield "  const metricContainers = document.querySelectorAll('.metric-container');"
     yield "  metricContainers.forEach(container => {"
@@ -2689,6 +2784,16 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    if (!config) return;"
     yield "    let value = currentValues?.[sensor]?.[metric];"
     yield "    const isNull = (value == null);"
+    yield "    if ((config.render || '').toLowerCase() === 'compass') {"
+    yield "      drawCompassGauge(canvas, isNull ? null : value);"
+    yield "      window[`${safe}_compass`] = canvas;"
+    yield "      const valueMetric = config.value_metric || metric;"
+    yield "      const valueConfig = gaugeConfig?.[valueMetric] || config;"
+    yield "      const displayValue = currentValues?.[sensor]?.[valueMetric];"
+    yield "      label.innerText = (typeof displayValue === 'number') ? `${displayValue} ${valueConfig.unit || ''}` : '--';"
+    yield "      if (window.registerContainerStyle) { window.registerContainerStyle(container, 'Gauge'); }"
+    yield "      return;"
+    yield "    }"
     yield "    if (isNull) value = 0;"
     yield "    const opts = {"
     yield "      angle: -0.2, lineWidth: 0.25, radiusScale: 0.9,"
@@ -2980,15 +3085,28 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      const val  = vset[metric];"
     yield "      const labelEl = document.getElementById(`${safe}_val`);"
     yield "      const g       = window[`${safe}_gauge`];"
+    yield "      const metricConfig = gaugeConfig?.[metric] || {};"
+    yield "      const renderMode = ((metricConfig.render) || '').toLowerCase();"
+    yield "      const valueMetric = metricConfig.value_metric || metric;"
+    yield "      const statsMetric = metricConfig.stats_metric || metric;"
+    yield "      const valueConfig = gaugeConfig?.[valueMetric] || metricConfig;"
     yield "      if (labelEl) {"
-    yield "        const unit = (gaugeConfig?.[metric]?.unit) || '';"
-    yield "        labelEl.textContent = (typeof val === 'number') ? `${val} ${unit}` : '--';"
+    yield "        if (renderMode === 'compass') {"
+    yield "          const displayValue = vset[valueMetric];"
+    yield "          labelEl.textContent = (typeof displayValue === 'number') ? `${displayValue} ${valueConfig.unit || ''}` : '--';"
+    yield "        } else {"
+    yield "          const unit = metricConfig.unit || '';"
+    yield "          labelEl.textContent = (typeof val === 'number') ? `${val} ${unit}` : '--';"
+    yield "        }"
     yield "      }"
-    yield "      if (g && typeof val === 'number') {"
+    yield "      if (renderMode === 'compass') {"
+    yield "        const compassCanvas = window[`${safe}_compass`] || document.getElementById(`${safe}Gauge`);"
+    yield "        drawCompassGauge(compassCanvas, val);"
+    yield "      } else if (g && typeof val === 'number') {"
     yield "        try { g.set(val); } catch (e) { console.warn('Gauge set() failed', safe, e); }"
     yield "      }"
     yield ""
-    yield "      const stat = sset[metric] || {};"
+    yield "      const stat = sset[statsMetric] || {};"
     yield "      const min = toFixedOrDash(stat.min);"
     yield "      const avg = toFixedOrDash(stat.avg);"
     yield "      const max = toFixedOrDash(stat.max);"

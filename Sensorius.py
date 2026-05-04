@@ -23,6 +23,7 @@ from saiWatchdog import WatchdogMonitor
 from saiMQTTIngest import saiMQTTIngest
 from saiFarmOSBridge import saiFarmOSBridge
 from saiDailySummary import DailySummaryService
+from saiWeeWX import WeeWXArchiveIngest
 from saiSettings import saiSettings
 from saiSensorSettingsManager import SensorSettingsManager
 from saiUtils import SettingsWrapper
@@ -561,12 +562,14 @@ async def main():
             printDM("No SensorNetwork.BROKER configured — MQTT ingest not started.", location=f"{MODULE}:main")
 
     # --- Always-on supervisors ---
+    weewx_ingest = WeeWXArchiveIngest(settings=settings, data_logger=data_logger, supervisor=supervisor)
     farmos_bridge = saiFarmOSBridge(settings=settings, data_logger=data_logger, supervisor=supervisor)
     daily_summary_service = DailySummaryService(settings=settings, data_logger=data_logger, supervisor=supervisor)
     try:
         daily_summary_service.ensure_summaries_for_window(datetime.now(daily_summary_service.local_tz).date())
     except Exception as e:
         printDM(f"Daily summary bootstrap skipped: {e}", location=f"{MODULE}:main")
+    supervisor.add(weewx_ingest.run, name="WeeWX Archive Ingest", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(farmos_bridge.run, name="FarmOS Bridge", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(daily_summary_service.run, name="Daily Summary Writer", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(WatchdogMonitor, supervisor, name="Watchdog Monitor")

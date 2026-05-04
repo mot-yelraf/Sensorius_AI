@@ -77,6 +77,13 @@ except Exception:
     _build_switch_key = None
 from saiStats import saiStats
 from saiHtml import render_dashboard, get_gauge_config, canonicalize_metric_name
+from sensor_modules.station_weewx import (
+    DEFAULT_DB_PATH as WEEWX_DEFAULT_DB_PATH,
+    DEFAULT_MQTT_TOPIC as WEEWX_DEFAULT_MQTT_TOPIC,
+    DEFAULT_SENSOR_ID as WEEWX_DEFAULT_SENSOR_ID,
+    DEFAULT_UPDATE_PERIOD_SEC as WEEWX_DEFAULT_UPDATE_PERIOD_SEC,
+    WEEWX_DISPLAY_METRICS,
+)
 from saiFastStats import FastStats
 from saiSensorSettingsManager import SensorSettingsManager
 from saiSwitchSettingsManager import SwitchSettingsManager
@@ -1586,6 +1593,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     ordered = [k for k in gauge_config.keys() if k in vals]
                     extras = [k for k in vals.keys() if k not in gauge_config]
                     metrics = ordered + extras
+            sid_text = str(sid or "").strip()
+            if sid_text == WEEWX_DEFAULT_SENSOR_ID or sid_text.lower().startswith("weewx"):
+                vals = all_values.get(sid) or {}
+                metrics = [metric for metric in WEEWX_DISPLAY_METRICS if metric in vals]
             # Keep dashboard payloads bounded and stable when discovery metadata is absent.
             deduped: list[str] = []
             seen = set()
@@ -2590,6 +2601,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         farm_password_raw = settings.get_setting("FarmOS", "PASSWORD", "") or ""
         farm_password = saiSettings.deobfuscate_secret(farm_password_raw)
         farm_log_bundle = settings.get_setting("FarmOS", "LOG_BUNDLE", "observation") or "observation"
+        weewx_mqtt_enabled = bool(settings.get_setting("WeeWX", "MQTT_ENABLED", False))
+        weewx_db_path = settings.get_setting("WeeWX", "DB_PATH", WEEWX_DEFAULT_DB_PATH) or WEEWX_DEFAULT_DB_PATH
+        weewx_sensor_id = settings.get_setting("WeeWX", "SENSOR_ID", WEEWX_DEFAULT_SENSOR_ID) or WEEWX_DEFAULT_SENSOR_ID
+        weewx_mqtt_topic = settings.get_setting("WeeWX", "MQTT_TOPIC", WEEWX_DEFAULT_MQTT_TOPIC) or WEEWX_DEFAULT_MQTT_TOPIC
+        weewx_update_period_sec = settings.get_setting("WeeWX", "UPDATE_PERIOD_SEC", WEEWX_DEFAULT_UPDATE_PERIOD_SEC) or WEEWX_DEFAULT_UPDATE_PERIOD_SEC
 
         clients = settings.get_all_clients() or []
         client_list = "\n".join(clients)
@@ -2676,6 +2692,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             farm_username=farm_username,
             farm_password=farm_password,
             farm_log_bundle=farm_log_bundle,
+            weewx_mqtt_enabled=weewx_mqtt_enabled,
+            weewx_db_path=weewx_db_path,
+            weewx_sensor_id=weewx_sensor_id,
+            weewx_mqtt_topic=weewx_mqtt_topic,
+            weewx_update_period_sec=weewx_update_period_sec,
+            weewx_broker=broker or "localhost",
+            weewx_port=mqttport,
             onboarding_v2_mqtt_enabled=_onboarding_v2_enabled(),
         )
 
@@ -5947,6 +5970,124 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         settings.replace_setting("HomeAssistant", "HA_PASSWORD", saiSettings.obfuscate_secret(password))
 
         return JSONResponse({"status": "ok"})
+
+    @router.post("/submit-weewx-settings")
+    async def submit_weewx_settings(request: Request):
+        settings = saiSettings()
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+
+        mqtt_enabled = bool(data.get("mqtt_enabled", False))
+        db_path = str(data.get("db_path", WEEWX_DEFAULT_DB_PATH) or WEEWX_DEFAULT_DB_PATH).strip()
+        sensor_id = str(data.get("sensor_id", WEEWX_DEFAULT_SENSOR_ID) or WEEWX_DEFAULT_SENSOR_ID).strip()
+        mqtt_topic = str(data.get("mqtt_topic", WEEWX_DEFAULT_MQTT_TOPIC) or WEEWX_DEFAULT_MQTT_TOPIC).strip()
+        try:
+            update_period_sec = int(data.get("update_period_sec", WEEWX_DEFAULT_UPDATE_PERIOD_SEC) or WEEWX_DEFAULT_UPDATE_PERIOD_SEC)
+        except Exception:
+            update_period_sec = int(WEEWX_DEFAULT_UPDATE_PERIOD_SEC)
+        update_period_sec = max(15, min(3600, update_period_sec))
+
+        if not db_path.startswith("/"):
+            return JSONResponse({"ok": False, "error": "WeeWX database path must be absolute."}, status_code=400)
+        if not re.match(r"^[A-Za-z0-9._-]+$", sensor_id):
+            return JSONResponse({"ok": False, "error": "WeeWX sensor ID may contain only letters, numbers, dot, underscore, and dash."}, status_code=400)
+        if not mqtt_topic:
+            return JSONResponse({"ok": False, "error": "WeeWX MQTT topic filter is required."}, status_code=400)
+
+        settings.replace_setting("WeeWX", "MQTT_ENABLED", mqtt_enabled)
+        settings.replace_setting("WeeWX", "MQTT_TOPIC", mqtt_topic)
+        settings.replace_setting("WeeWX", "SENSOR_ID", sensor_id)
+        settings.replace_setting("WeeWX", "DB_PATH", db_path)
+        settings.replace_setting("WeeWX", "UPDATE_PERIOD_SEC", update_period_sec)
+        settings.replace_setting("WeeWX", "ENABLED", False)
+        settings.replace_setting("WeeWX", "AUTO_DISCOVER", False)
+
+        return JSONResponse({"status": "ok", "restart_required": True})
+
+    @router.get("/weewx/status")
+    async def weewx_status(request: Request):
+        settings = saiSettings(apply_live=False)
+        sensor_id = str(settings.get_setting("WeeWX", "SENSOR_ID", WEEWX_DEFAULT_SENSOR_ID) or WEEWX_DEFAULT_SENSOR_ID).strip() or WEEWX_DEFAULT_SENSOR_ID
+        db_path = str(settings.get_setting("WeeWX", "DB_PATH", WEEWX_DEFAULT_DB_PATH) or WEEWX_DEFAULT_DB_PATH).strip()
+        mqtt_enabled = bool(settings.get_setting("WeeWX", "MQTT_ENABLED", False))
+        sqlite_enabled = bool(settings.get_setting("WeeWX", "ENABLED", False))
+        auto_discover = bool(settings.get_setting("WeeWX", "AUTO_DISCOVER", False))
+        try:
+            update_period_sec = float(settings.get_setting("WeeWX", "UPDATE_PERIOD_SEC", WEEWX_DEFAULT_UPDATE_PERIOD_SEC) or WEEWX_DEFAULT_UPDATE_PERIOD_SEC)
+        except Exception:
+            update_period_sec = float(WEEWX_DEFAULT_UPDATE_PERIOD_SEC)
+        update_period_sec = max(15.0, update_period_sec)
+        offline_after_sec = update_period_sec * 3.0
+
+        latest_timestamp = None
+        latest_age_sec = None
+        latest_values = {}
+        try:
+            latest_timestamp = data_logger.get_latest_timestamp(sensor_id)
+            latest_values = data_logger.get_latest_values(sensor_id) or {}
+            if latest_timestamp:
+                dt = datetime.fromisoformat(str(latest_timestamp))
+                if dt.tzinfo is None:
+                    try:
+                        tz_name = str(settings.get_setting("Time", "TZ", "America/Denver") or "America/Denver")
+                        dt = dt.replace(tzinfo=ZoneInfo(tz_name))
+                    except Exception:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                latest_age_sec = max(0.0, (datetime.now(dt.tzinfo) - dt).total_seconds())
+        except Exception:
+            latest_timestamp = None
+            latest_age_sec = None
+            latest_values = {}
+
+        configured = mqtt_enabled or sqlite_enabled or auto_discover
+        receiving = latest_age_sec is not None and latest_age_sec <= offline_after_sec and bool(latest_values)
+        stale = latest_age_sec is not None and latest_age_sec > offline_after_sec
+
+        if mqtt_enabled:
+            mode = "MQTT configured"
+        elif sqlite_enabled or auto_discover:
+            mode = "SQLite fallback configured"
+        elif latest_timestamp:
+            mode = "Data present, integration switch disabled"
+        else:
+            mode = "Not configured"
+
+        if receiving:
+            state = "online"
+            label = "Receiving WeeWX weather data"
+        elif stale:
+            state = "offline"
+            label = "WeeWX data is stale"
+        elif not configured and not latest_timestamp:
+            state = "disabled"
+            label = "WeeWX integration disabled"
+        else:
+            state = "unknown"
+            label = "Waiting for WeeWX weather data"
+
+        note = ""
+        if latest_timestamp and not configured:
+            note = "The MQTT interface is disabled, but Sensorius has stored WeeWX station data."
+        elif mqtt_enabled:
+            note = "MQTT availability is inferred from weather data updates."
+
+        return JSONResponse({
+            "state": state,
+            "label": label,
+            "mode": mode,
+            "note": note,
+            "sensor_id": sensor_id,
+            "db_path": db_path,
+            "mqtt_enabled": mqtt_enabled,
+            "sqlite_enabled": sqlite_enabled,
+            "auto_discover": auto_discover,
+            "latest_timestamp": latest_timestamp or "",
+            "latest_age_sec": latest_age_sec,
+            "offline_after_sec": offline_after_sec,
+            "latest_metric_count": len(latest_values or {}),
+        })
 
     @router.post("/submit-farmos-settings")
     async def submit_farmos_settings(request: Request):
