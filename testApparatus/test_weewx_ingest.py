@@ -2,6 +2,7 @@ import sqlite3
 import os
 import sys
 from pathlib import Path
+import asyncio
 
 import pytest
 
@@ -38,6 +39,14 @@ class _Logger:
 
     def log_readings(self, timestamp, sensor_id, values):
         self.rows.append((timestamp, sensor_id, dict(values)))
+
+
+class _Supervisor:
+    def __init__(self):
+        self.feeds = []
+
+    def feedthedogs(self, task_name, error=False):
+        self.feeds.append((task_name, bool(error)))
 
 
 def _make_weewx_db(path: Path, date_time: int = 1777908000):
@@ -100,6 +109,52 @@ def test_weewx_archive_ingest_skips_duplicate_latest_row(tmp_path):
     assert ingest.import_latest_once() is True
     assert ingest.import_latest_once() is False
     assert len(logger.rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_weewx_archive_sleep_feeds_watchdog_between_long_polls(monkeypatch, tmp_path):
+    db_path = tmp_path / "weewx.sdb"
+    _make_weewx_db(db_path)
+    supervisor = _Supervisor()
+    ingest = WeeWXArchiveIngest(settings=_Settings(db_path), data_logger=_Logger(), supervisor=supervisor)
+    real_sleep = asyncio.sleep
+
+    async def _fast_sleep(_seconds):
+        await real_sleep(0)
+
+    monkeypatch.setattr("saiWeeWX.HEARTBEAT_INTERVAL_SEC", 20.0)
+    monkeypatch.setattr("saiWeeWX.asyncio.sleep", _fast_sleep)
+
+    await ingest._sleep_with_heartbeat(61.0)
+
+    assert supervisor.feeds == [
+        ("WeeWX Archive Ingest", False),
+        ("WeeWX Archive Ingest", False),
+        ("WeeWX Archive Ingest", False),
+        ("WeeWX Archive Ingest", False),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_weewx_archive_run_feeds_watchdog_before_import_sleep(monkeypatch, tmp_path):
+    db_path = tmp_path / "weewx.sdb"
+    _make_weewx_db(db_path)
+    supervisor = _Supervisor()
+    ingest = WeeWXArchiveIngest(settings=_Settings(db_path), data_logger=_Logger(), supervisor=supervisor)
+
+    async def _stop_sleep(_seconds):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr("saiWeeWX.asyncio.sleep", _stop_sleep)
+
+    with pytest.raises(asyncio.CancelledError):
+        await ingest.run()
+
+    assert supervisor.feeds[:3] == [
+        ("WeeWX Archive Ingest", False),
+        ("WeeWX Archive Ingest", False),
+        ("WeeWX Archive Ingest", False),
+    ]
 
 
 def test_weewx_mqtt_json_payload_maps_to_sensorius_metrics():

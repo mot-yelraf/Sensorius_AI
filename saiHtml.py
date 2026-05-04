@@ -9,7 +9,7 @@ import os
 import re
 from saiUtils import printDM, debug_enabled, html_escape, normalize_hostname_base, mdns_hostname
 from saiBiodynamics import get_biodynamic_payload
-from sensor_modules.station_weewx import WEEWX_GAUGE_CONFIG
+from sensor_modules.station_weewx import DEFAULT_SENSOR_ID as WEEWX_DEFAULT_SENSOR_ID, WEEWX_GAUGE_CONFIG
 from collections import defaultdict
 from pathlib import Path
 try:
@@ -1306,12 +1306,14 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         Order of precedence:
           1) Direct sensor object’s sensor.meas_status if available
           2) MQTT ingest device_status[hostname or hostname.local]
-          3) Fallback: 'unknown'
+          3) WeeWX rows rendered from stored station data
+          4) Fallback: 'unknown'
         Returns one of: 'online' | 'degraded' | 'offline' | 'unknown' | 'migration_required'
         """
+        sid_text = str(sid or "").strip()
         # 1) direct/local sensor object
         try:
-            sensor_obj = _active_sensor_for(sid)
+            sensor_obj = _active_sensor_for(sid_text)
             st = getattr(getattr(sensor_obj, "sensor", sensor_obj), "meas_status", None)
             if isinstance(st, str) and st.strip().lower() in {"online", "degraded", "offline", "unknown", "migration_required"}:
                 return st.strip().lower()
@@ -1322,17 +1324,31 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         try:
             status_fn = getattr(mqtt_ingest, "get_measure_status", None)
             if callable(status_fn):
-                st = status_fn(sid)
-                if isinstance(st, str) and st.strip().lower() in {"online", "degraded", "offline", "unknown", "migration_required"}:
-                    return st.strip().lower()
-            for host in _hostname_variants_from_sid(sid):
+                st = status_fn(sid_text)
+                if isinstance(st, str):
+                    status = st.strip().lower()
+                    if status in {"online", "degraded", "offline", "migration_required"}:
+                        return status
+            for host in _hostname_variants_from_sid(sid_text):
                 st = (getattr(mqtt_ingest, "device_status", {}) or {}).get(host)
-                if isinstance(st, str) and st.strip().lower() in {"online", "degraded", "offline", "unknown", "migration_required"}:
-                    return st.strip().lower()
+                if isinstance(st, str):
+                    status = st.strip().lower()
+                    if status in {"online", "degraded", "offline", "migration_required"}:
+                        return status
         except Exception:
             pass
 
-        # 3) fallback
+        # 3) WeeWX archive/MQTT station data does not always have a live sensor object
+        # or Nodus heartbeat, so a row with rendered values should not show unknown.
+        try:
+            if sid_text.lower() == WEEWX_DEFAULT_SENSOR_ID.lower() or sid_text.lower().startswith("weewx"):
+                values = all_values.get(sid_text) or {}
+                if values:
+                    return "online"
+        except Exception:
+            pass
+
+        # 4) fallback
         return "unknown"
 
     def _status_color_hex(status: str) -> str:

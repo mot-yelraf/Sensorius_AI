@@ -118,6 +118,37 @@ _switch_status_cache_payload: dict[str, dict] | None = None
 _switch_status_cache_until: float = 0.0
 _dynamic_switch_monitor_tasks: dict[str, asyncio.Task] = {}
 _SWITCH_STATUS_CACHE_TTL_SEC: float = 1.5
+
+
+def _sensor_latest_age_sec(latest_timestamp: object, *, tz_name: str = "America/Denver") -> float | None:
+    if not latest_timestamp:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(latest_timestamp))
+        if dt.tzinfo is None:
+            try:
+                dt = dt.replace(tzinfo=ZoneInfo(str(tz_name or "America/Denver")))
+            except Exception:
+                dt = dt.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(dt.tzinfo) - dt).total_seconds())
+    except Exception:
+        return None
+
+
+def _weewx_measure_status_from_latest(
+    *,
+    latest_timestamp: object,
+    latest_values: dict | None,
+    update_period_sec: float,
+    tz_name: str = "America/Denver",
+) -> tuple[str, float | None]:
+    latest_age_sec = _sensor_latest_age_sec(latest_timestamp, tz_name=tz_name)
+    offline_after_sec = max(15.0, float(update_period_sec or WEEWX_DEFAULT_UPDATE_PERIOD_SEC)) * 3.0
+    if latest_age_sec is not None and latest_age_sec <= offline_after_sec and bool(latest_values):
+        return "online", latest_age_sec
+    if latest_age_sec is not None and latest_age_sec > offline_after_sec:
+        return "offline", latest_age_sec
+    return "unknown", latest_age_sec
 _cdp_debug_last_log: float = 0.0
 _CDP_DEBUG_MIN_INTERVAL_SEC: float = 30.0
 _DASHBOARD_JSON_CACHE_TTL_SEC: float = 2.0
@@ -1821,9 +1852,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return s
 
         def _resolve_meas_status_for_sid(sid: str) -> str:
+            sid_text = str(sid or "").strip()
             # 1) Direct/local SensorController.status
             try:
-                sc = _active_sensor_for(sid)
+                sc = _active_sensor_for(sid_text)
                 base = getattr(sc, "sensor", sc)
                 st = getattr(base, "meas_status", None)
                 if isinstance(st, str) and st.strip().lower() in {"online", "degraded", "offline", "unknown", "migration_required"}:
@@ -1834,21 +1866,50 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # 2) Ask the ingest instance we were given
             try:
                 if ing is not None and hasattr(ing, "get_measure_status") and callable(ing.get_measure_status):
-                    st = ing.get_measure_status(sid)  # should accept either sid or host
-                    if isinstance(st, str) and st.strip().lower() in {"online", "degraded", "offline", "unknown", "migration_required"}:
-                        return st.strip().lower()
+                    st = ing.get_measure_status(sid_text)  # should accept either sid or host
+                    if isinstance(st, str):
+                        status = st.strip().lower()
+                        if status in {"online", "degraded", "offline", "migration_required"}:
+                            return status
             except Exception:
                 pass
 
             # 3) Fallback: normalize host and consult ingest.device_status
             try:
                 dev_map = getattr(ing, "device_status", {}) or {}
-                host = _host_base_from_sid(sid)
+                host = _host_base_from_sid(sid_text)
                 base = normalize_hostname_base(host)
                 for key in (host, base, mdns_hostname(base)):
                     st = dev_map.get(key or "")
-                    if isinstance(st, str) and st.strip().lower() in {"online", "degraded", "offline", "unknown", "migration_required"}:
-                        return st.strip().lower()
+                    if isinstance(st, str):
+                        status = st.strip().lower()
+                        if status in {"online", "degraded", "offline", "migration_required"}:
+                            return status
+            except Exception:
+                pass
+
+            try:
+                current_settings = saiSettings(apply_live=False)
+                weewx_id = str(
+                    current_settings.get_setting("WeeWX", "SENSOR_ID", WEEWX_DEFAULT_SENSOR_ID)
+                    or WEEWX_DEFAULT_SENSOR_ID
+                ).strip() or WEEWX_DEFAULT_SENSOR_ID
+                if sid_text.lower() == weewx_id.lower() or sid_text.lower().startswith("weewx"):
+                    update_period = float(
+                        current_settings.get_setting("WeeWX", "UPDATE_PERIOD_SEC", WEEWX_DEFAULT_UPDATE_PERIOD_SEC)
+                        or WEEWX_DEFAULT_UPDATE_PERIOD_SEC
+                    )
+                    tz_name = str(current_settings.get_setting("Time", "TZ", "America/Denver") or "America/Denver")
+                    latest_timestamp = bulk_timestamps.get(sid_text) or data_logger.get_latest_timestamp(sid_text)
+                    latest_values = all_values.get(sid_text) or data_logger.get_latest_values(sid_text) or {}
+                    st, _age = _weewx_measure_status_from_latest(
+                        latest_timestamp=latest_timestamp,
+                        latest_values=latest_values,
+                        update_period_sec=update_period,
+                        tz_name=tz_name,
+                    )
+                    if st in {"online", "offline"}:
+                        return st
             except Exception:
                 pass
 
@@ -6027,23 +6088,27 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         try:
             latest_timestamp = data_logger.get_latest_timestamp(sensor_id)
             latest_values = data_logger.get_latest_values(sensor_id) or {}
-            if latest_timestamp:
-                dt = datetime.fromisoformat(str(latest_timestamp))
-                if dt.tzinfo is None:
-                    try:
-                        tz_name = str(settings.get_setting("Time", "TZ", "America/Denver") or "America/Denver")
-                        dt = dt.replace(tzinfo=ZoneInfo(tz_name))
-                    except Exception:
-                        dt = dt.replace(tzinfo=timezone.utc)
-                latest_age_sec = max(0.0, (datetime.now(dt.tzinfo) - dt).total_seconds())
+            tz_name = str(settings.get_setting("Time", "TZ", "America/Denver") or "America/Denver")
+            _status, latest_age_sec = _weewx_measure_status_from_latest(
+                latest_timestamp=latest_timestamp,
+                latest_values=latest_values,
+                update_period_sec=update_period_sec,
+                tz_name=tz_name,
+            )
         except Exception:
             latest_timestamp = None
             latest_age_sec = None
             latest_values = {}
 
         configured = mqtt_enabled or sqlite_enabled or auto_discover
-        receiving = latest_age_sec is not None and latest_age_sec <= offline_after_sec and bool(latest_values)
-        stale = latest_age_sec is not None and latest_age_sec > offline_after_sec
+        weewx_measure_status, latest_age_sec = _weewx_measure_status_from_latest(
+            latest_timestamp=latest_timestamp,
+            latest_values=latest_values,
+            update_period_sec=update_period_sec,
+            tz_name=str(settings.get_setting("Time", "TZ", "America/Denver") or "America/Denver"),
+        )
+        receiving = weewx_measure_status == "online"
+        stale = weewx_measure_status == "offline"
 
         if mqtt_enabled:
             mode = "MQTT configured"

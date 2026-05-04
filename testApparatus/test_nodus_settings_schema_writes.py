@@ -2083,6 +2083,34 @@ async def test_dashboard_sensor_locations_ignore_unknown_live_cache_and_use_toml
 
 
 @pytest.mark.asyncio
+async def test_dashboard_weewx_status_uses_recent_station_data_when_ingest_unknown(tmp_path, monkeypatch):
+    app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    ingest.get_measure_status = lambda _sid: "unknown"
+
+    now_iso = datetime.now().isoformat()
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["weewx-station"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso if sid == "weewx-station" else "")
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_values", lambda sid: {"Temperature_F": 72.1} if sid == "weewx-station" else {})
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_latest_values_and_timestamps",
+        lambda ids: (
+            {"weewx-station": {"Temperature_F": 72.1, "Wind Speed": 3.0}},
+            {"weewx-station": now_iso},
+        ),
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {"weewx-station": {}})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/", params={"json_only": "true"})
+
+    assert res.status_code == 200
+    assert res.json()["statuses"]["weewx-station"] == "online"
+
+
+@pytest.mark.asyncio
 async def test_dashboard_read_does_not_rewrite_metric_positions_for_offline_sensors(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     saiWebRoutes._SENSOR_LOCATION_CACHE.clear()

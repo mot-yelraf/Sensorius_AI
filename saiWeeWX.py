@@ -21,6 +21,8 @@ from saiUtils import debug_enabled, printDM
 
 MODULE = "saiWeeWX"
 DEBUG = debug_enabled(MODULE)
+TASK_NAME = "WeeWX Archive Ingest"
+HEARTBEAT_INTERVAL_SEC = 20.0
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,19 @@ class WeeWXArchiveIngest:
             self.local_tz = ZoneInfo("America/Denver")
         self._last_source_epoch: int | None = None
         self._last_missing_log_mono = 0.0
+
+    def _feed_watchdog(self, *, error: bool = False) -> None:
+        sup = getattr(self, "supervisor", None)
+        if sup and hasattr(sup, "feedthedogs"):
+            sup.feedthedogs(TASK_NAME, error=error)
+
+    async def _sleep_with_heartbeat(self, total_sleep_s: float) -> None:
+        remaining = max(float(total_sleep_s), 0.0)
+        while remaining > 0.0:
+            self._feed_watchdog()
+            chunk = min(HEARTBEAT_INTERVAL_SEC, remaining)
+            await asyncio.sleep(chunk)
+            remaining -= chunk
 
     @property
     def db_path(self) -> str:
@@ -144,16 +159,19 @@ class WeeWXArchiveIngest:
     async def run(self):
         """Poll WeeWX archive forever; intended for TaskSupervisor."""
         while True:
+            self._feed_watchdog()
             if not self.should_run():
                 now = time.monotonic()
                 if now - self._last_missing_log_mono >= 300.0:
                     self._last_missing_log_mono = now
                     if DEBUG:
                         printDM(f"WeeWX archive not enabled or unavailable at {self.db_path}", location=MODULE)
-                await asyncio.sleep(self.poll_interval_sec)
+                await self._sleep_with_heartbeat(self.poll_interval_sec)
                 continue
             try:
                 await asyncio.to_thread(self.import_latest_once)
+                self._feed_watchdog()
             except Exception as exc:
+                self._feed_watchdog(error=True)
                 printDM(f"WeeWX archive import failed: {exc}", location=MODULE)
-            await asyncio.sleep(self.poll_interval_sec)
+            await self._sleep_with_heartbeat(self.poll_interval_sec)
