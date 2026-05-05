@@ -219,6 +219,7 @@ def test_weewx_mqtt_ingest_skips_duplicate_payloads():
     ingest.weewx_mqtt_enabled = True
     ingest.weewx_mqtt_topic = "weather/#"
     ingest.weewx_sensor_id = "weewx-station"
+    ingest.weewx_update_period_sec = 300
     ingest.data_logger = _MqttLogger()
     ingest.expected_gauge_map = {}
     ingest.device_type = {}
@@ -236,6 +237,10 @@ def test_weewx_mqtt_ingest_skips_duplicate_payloads():
 
     assert ingest._maybe_handle_weewx_mqtt("weather/loop", payload) is True
     assert ingest._maybe_handle_weewx_mqtt("weather/loop", payload) is True
+    assert len(ingest.data_logger.rows) == 1
+
+    repeated_values_new_timestamp = payload.replace("1777943700", "1777943701", 1)
+    assert ingest._maybe_handle_weewx_mqtt("weather/loop", repeated_values_new_timestamp) is True
     assert len(ingest.data_logger.rows) == 1
 
 

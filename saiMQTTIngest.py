@@ -316,6 +316,7 @@ class saiMQTTIngest:
         self.weewx_sensor_id = WEEWX_DEFAULT_SENSOR_ID
         self.weewx_update_period_sec = WEEWX_DEFAULT_UPDATE_PERIOD_SEC
         self._last_weewx_mqtt_signature = None
+        self._last_weewx_mqtt_burst_signature = None
         self._last_weewx_mqtt_signature_mono = 0.0
         try:
             self.weewx_mqtt_enabled = bool(self.settings.get_setting("WeeWX", "MQTT_ENABLED", False))
@@ -1299,11 +1300,18 @@ class saiMQTTIngest:
                 pass
             value_signature = tuple(sorted((str(k), values[k]) for k in values.keys()))
             signature = (sensor_id, reading.timestamp, value_signature)
+            burst_signature = (sensor_id, value_signature)
             now_mono = time.monotonic()
             last_signature = getattr(self, "_last_weewx_mqtt_signature", None)
+            last_burst_signature = getattr(self, "_last_weewx_mqtt_burst_signature", None)
             last_signature_mono = float(getattr(self, "_last_weewx_mqtt_signature_mono", 0.0) or 0.0)
-            duplicate_payload = signature == last_signature and (
-                reading.timestamp is not None or (now_mono - last_signature_mono) <= 2.0
+            burst_window_sec = min(10.0, max(2.0, float(getattr(self, "weewx_update_period_sec", 300.0) or 300.0) * 0.1))
+            duplicate_payload = (
+                signature == last_signature
+                or (
+                    burst_signature == last_burst_signature
+                    and (now_mono - last_signature_mono) <= burst_window_sec
+                )
             )
             if duplicate_payload:
                 self.last_mqtt_seen[sensor_id] = time.time()
@@ -1311,6 +1319,7 @@ class saiMQTTIngest:
                 return True
             self.data_logger.log_readings(reading.timestamp, sensor_id, values)
             self._last_weewx_mqtt_signature = signature
+            self._last_weewx_mqtt_burst_signature = burst_signature
             self._last_weewx_mqtt_signature_mono = now_mono
             self.expected_gauge_map[sensor_id] = [
                 metric for metric in WEEWX_DISPLAY_METRICS if metric in values
