@@ -11,6 +11,8 @@ DEFAULT_POLL_INTERVAL_SEC = 60.0
 DEFAULT_MQTT_TOPIC = "weewx/#"
 DEFAULT_UPDATE_PERIOD_SEC = 300.0
 INHG_TO_HPA = 33.8638866667
+KPH_TO_MPH = 0.6213711922
+CM_TO_IN = 0.3937007874
 
 WEEWX_DISPLAY_METRICS = [
     "Temperature_F",
@@ -46,6 +48,7 @@ WEEWX_GAUGE_CONFIG = {
     },
     "Rain": {
         "unit": "in",
+        "display_precision": 1,
         "min": 0,
         "max": 5,
         "ticks": [0, 0.25, 0.5, 1, 2, 3, 5],
@@ -119,6 +122,10 @@ def _lookup_case_insensitive(data: dict[str, Any], key: str) -> Any:
     return None
 
 
+def _c_to_f(value: float) -> float:
+    return (value * 9.0 / 5.0) + 32.0
+
+
 def normalize_weewx_values(data: dict[str, Any]) -> dict[str, float]:
     """Map WeeWX field names or Sensorius metric names to displayable values."""
     if not isinstance(data, dict):
@@ -132,11 +139,29 @@ def normalize_weewx_values(data: dict[str, Any]) -> dict[str, float]:
         if val is not None:
             values[metric_name] = round(val, WEEWX_METRIC_PRECISION.get(metric_name, 2))
 
+    metric_transforms = {
+        "Temperature_F": (("outTemp_C",), _c_to_f),
+        "Dew Point_F": (("dewpoint_C",), _c_to_f),
+        "Wind Speed": (("windSpeed_kph",), lambda v: v * KPH_TO_MPH),
+        "Rain": (("rain_cm",), lambda v: v * CM_TO_IN),
+        "Rain Rate": (("rainRate_cm_per_hour",), lambda v: v * CM_TO_IN),
+    }
+    for metric_name, (source_names, convert) in metric_transforms.items():
+        if metric_name in values:
+            continue
+        for source_name in source_names:
+            val = _to_float(_lookup_case_insensitive(data, source_name))
+            if val is not None:
+                values[metric_name] = round(convert(val), WEEWX_METRIC_PRECISION.get(metric_name, 2))
+                break
+
     pressure = _to_float(_lookup_case_insensitive(data, "barometer"))
     if pressure is not None:
         values["Baro-Pressure"] = round(pressure * INHG_TO_HPA, WEEWX_METRIC_PRECISION["Baro-Pressure"])
     else:
-        pressure = _to_float(_lookup_case_insensitive(data, "Baro-Pressure"))
+        pressure = _to_float(_lookup_case_insensitive(data, "barometer_mbar"))
+        if pressure is None:
+            pressure = _to_float(_lookup_case_insensitive(data, "Baro-Pressure"))
         if pressure is not None:
             values["Baro-Pressure"] = round(pressure, WEEWX_METRIC_PRECISION["Baro-Pressure"])
 

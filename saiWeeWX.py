@@ -151,7 +151,7 @@ class WeeWXArchiveIngest:
         self._last_source_epoch = reading.date_time
         if DEBUG:
             printDM(
-                f"Imported WeeWX archive row for {self.sensor_id}: {reading.date_time}",
+                f"Imported WeeWX archive row for {self.sensor_id}: {reading.date_time}, values: {reading.values}",
                 location=MODULE,
             )
         return True

@@ -315,6 +315,8 @@ class saiMQTTIngest:
         self.weewx_mqtt_topic = WEEWX_DEFAULT_MQTT_TOPIC
         self.weewx_sensor_id = WEEWX_DEFAULT_SENSOR_ID
         self.weewx_update_period_sec = WEEWX_DEFAULT_UPDATE_PERIOD_SEC
+        self._last_weewx_mqtt_signature = None
+        self._last_weewx_mqtt_signature_mono = 0.0
         try:
             self.weewx_mqtt_enabled = bool(self.settings.get_setting("WeeWX", "MQTT_ENABLED", False))
             self.weewx_mqtt_topic = str(
@@ -377,6 +379,50 @@ class saiMQTTIngest:
 
         self._ha_discovered_sensor_metrics: set[str] = set()   # f"{sensor_id}::{metric_slug}"
         self._ha_discovered_switch_channels: set[str] = set()  # f"{switch_id}::{channel_id}"
+
+    def configure_weewx_mqtt(
+        self,
+        *,
+        enabled: bool,
+        topic_filter: str,
+        sensor_id: str | None = None,
+        update_period_sec: float | None = None,
+    ) -> bool:
+        """Apply WeeWX MQTT settings to the running ingest client."""
+        topic = str(topic_filter or "").strip()
+        if not topic:
+            return False
+
+        old_topic = str(getattr(self, "weewx_mqtt_topic", "") or "").strip()
+        self.weewx_mqtt_enabled = bool(enabled)
+        self.weewx_mqtt_topic = topic
+        self.weewx_sensor_id = str(sensor_id or WEEWX_DEFAULT_SENSOR_ID).strip() or WEEWX_DEFAULT_SENSOR_ID
+        try:
+            if update_period_sec is not None:
+                self.weewx_update_period_sec = max(15.0, float(update_period_sec))
+        except Exception:
+            self.weewx_update_period_sec = WEEWX_DEFAULT_UPDATE_PERIOD_SEC
+
+        if old_topic and old_topic != topic:
+            try:
+                self.client.unsubscribe(old_topic)
+            except Exception:
+                pass
+
+        if not self.weewx_mqtt_enabled:
+            return True
+
+        self.registered_topics.add(topic)
+        try:
+            res = self.client.subscribe(topic)
+            if DEBUG:
+                printDM(f"[weewx-mqtt] subscribed to {topic}", location=MODULE)
+            if isinstance(res, tuple) and len(res) >= 1:
+                return res[0] == 0
+            return True
+        except Exception as exc:
+            printDM(f"[weewx-mqtt] subscribe failed for {topic}: {exc}", location=MODULE)
+            return False
 
     def _has_covering_subscription(self, topic_filter: str) -> bool:
         candidate = str(topic_filter or "").strip()
@@ -1251,7 +1297,21 @@ class saiMQTTIngest:
                     values = merged
             except Exception:
                 pass
+            value_signature = tuple(sorted((str(k), values[k]) for k in values.keys()))
+            signature = (sensor_id, reading.timestamp, value_signature)
+            now_mono = time.monotonic()
+            last_signature = getattr(self, "_last_weewx_mqtt_signature", None)
+            last_signature_mono = float(getattr(self, "_last_weewx_mqtt_signature_mono", 0.0) or 0.0)
+            duplicate_payload = signature == last_signature and (
+                reading.timestamp is not None or (now_mono - last_signature_mono) <= 2.0
+            )
+            if duplicate_payload:
+                self.last_mqtt_seen[sensor_id] = time.time()
+                self._mark_host_status(sensor_id, "online")
+                return True
             self.data_logger.log_readings(reading.timestamp, sensor_id, values)
+            self._last_weewx_mqtt_signature = signature
+            self._last_weewx_mqtt_signature_mono = now_mono
             self.expected_gauge_map[sensor_id] = [
                 metric for metric in WEEWX_DISPLAY_METRICS if metric in values
             ]
@@ -1259,6 +1319,8 @@ class saiMQTTIngest:
             self.device_location[sensor_id] = "Weather Station"
             self.last_mqtt_seen[sensor_id] = time.time()
             self._mark_host_status(sensor_id, "online")
+            if DEBUG:
+                printDM(f"Stored WeeWX MQTT data from {sensor_id}:{values}", location=MODULE)
             return True
         except Exception as exc:
             printDM(f"[weewx-mqtt] ingest failed: {exc}", location=MODULE)
@@ -5062,10 +5124,16 @@ class saiMQTTIngest:
           payload: {"timestamp": 1758635536.73, "event": {"SWITCH_1": "on"}}
         We persist only if we can map to a human label; otherwise skip (slug events will cover it).
         """
+        parts = str(topic or "").split("/")
+        if len(parts) < 3 or parts[0] != "switch" or parts[-1] != "event":
+            return
+
         try:
             obj = json.loads(payload)
         except Exception:
             return  # not JSON
+        if not isinstance(obj, dict):
+            return
 
         try:
             ev = obj.get("event") or {}
@@ -5077,9 +5145,6 @@ class saiMQTTIngest:
             is_on = str(state_str).strip().lower() in ("on", "1", "true", "t", "yes", "y")
 
             # topic: "switch/<switch_id>-<pin>/event"  or  "switch/<switch_id>/<SWITCH_n>/event"
-            parts = topic.split("/")
-            if len(parts) < 3 or parts[0] != "switch":
-                return
             sw_part = parts[1]  # e.g. "switch-oqs3lr-GP28" or "switch-oqs3lr"
             base_id, pin = split_switch_id_and_pin(sw_part)
             switch_id = base_id

@@ -100,6 +100,32 @@ def test_list_devices_uses_mqtt_ingest_metadata(tmp_path):
     assert devices[0]["http_url"] == "http://10.0.0.42:8000"
 
 
+def test_list_devices_collapses_combo_sensor_switch_to_sensor_id(tmp_path):
+    def _resolve(device_id, device_type=None):
+        if device_id in {"apvpd-test123", "switch-test123"}:
+            return "apvpd-test123"
+        return device_id
+
+    ingest = SimpleNamespace(
+        mqtt_clients={"apvpd-test123"},
+        device_status={"apvpd-test123": "online", "switch-test123": "online"},
+        host_to_peer_ids={"apvpd-test123": ["apvpd-test123", "switch-test123"]},
+        nodus_firmware_versions={
+            "apvpd-test123": "v0.26.125.4",
+            "switch-test123": "v0.26.125.4",
+        },
+        last_mqtt_seen={"apvpd-test123": 100.0, "switch-test123": 100.0},
+        _host_ipv4addr={},
+        resolve_nodus_hostname=_resolve,
+        get_nodus_firmware_version=lambda device_id: "v0.26.125.4",
+    )
+    service = NodusOTAService(mqtt_ingest=ingest, package_root=tmp_path / "ota")
+
+    devices = service.list_devices()
+
+    assert [d["device_id"] for d in devices] == ["apvpd-test123"]
+
+
 def test_job_history_marks_running_jobs_interrupted_on_restart(tmp_path):
     service = NodusOTAService(package_root=tmp_path / "ota")
     service.jobs["job1"] = {

@@ -33,9 +33,9 @@ class BaseSensor:
         self.no_filter_metrics = set()
 
         # filters & timing
-        self.FILTER_SIZE = 7
+        self.FILTER_SIZE = 1
         self.IIR_ALPHA = 1.0 / self.FILTER_SIZE
-        self.meas_interval = int(15)
+        self.meas_interval = int(60)
         self.publish_interval = int(60)
 
         # ---- Sensor identity (aligned with [Sensor]) ----

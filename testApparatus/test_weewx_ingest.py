@@ -9,6 +9,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from saiWeeWX import WeeWXArchiveIngest
+from saiMQTTIngest import saiMQTTIngest
 from sensor_modules.station_weewx import INHG_TO_HPA, normalize_weewx_mqtt_payload
 
 
@@ -178,3 +179,98 @@ def test_weewx_mqtt_single_field_topic_payload_maps_to_sensorius_metric():
 
     assert reading is not None
     assert reading.values == {"Temperature_F": 50.5}
+
+
+def test_weewx_mqtt_metric_loop_payload_maps_to_sensorius_units():
+    reading = normalize_weewx_mqtt_payload(
+        "weather/loop",
+        (
+            '{"dateTime":"1777943700.0","windSpeed_kph":"11.2257926074189",'
+            '"windDir":"334.33744110638094","barometer_mbar":"1010.6517104141302",'
+            '"rain_cm":"0.0","rainRate_cm_per_hour":"0.0",'
+            '"dewpoint_C":"0.3904233091127275","outTemp_C":"20.024691358024686",'
+            '"outHumidity":"26.88888888888889"}'
+        ),
+        base_topic="weather",
+    )
+
+    assert reading is not None
+    assert reading.timestamp == "1777943700.0"
+    assert reading.values == {
+        "Temperature_F": 68.0,
+        "Rel-Humidity": 27,
+        "Wind Speed": 7.0,
+        "Wind Direction": 334,
+        "Rain": 0.0,
+        "Rain Rate": 0.0,
+        "Dew Point_F": 32.7,
+        "Baro-Pressure": 1010.7,
+    }
+
+
+def test_weewx_mqtt_ingest_skips_duplicate_payloads():
+    class _MqttLogger(_Logger):
+        def get_latest_values(self, sensor_id):
+            if not self.rows:
+                return {}
+            return dict(self.rows[-1][2])
+
+    ingest = saiMQTTIngest.__new__(saiMQTTIngest)
+    ingest.weewx_mqtt_enabled = True
+    ingest.weewx_mqtt_topic = "weather/#"
+    ingest.weewx_sensor_id = "weewx-station"
+    ingest.data_logger = _MqttLogger()
+    ingest.expected_gauge_map = {}
+    ingest.device_type = {}
+    ingest.device_location = {}
+    ingest.last_mqtt_seen = {}
+    ingest._mark_host_status = lambda *_args, **_kwargs: None
+
+    payload = (
+        '{"dateTime":1777943700,"windSpeed_kph":"11.2257926074189",'
+        '"windDir":"334.33744110638094","barometer_mbar":"1010.6517104141302",'
+        '"rain_cm":"0.0","rainRate_cm_per_hour":"0.0",'
+        '"dewpoint_C":"0.3904233091127275","outTemp_C":"20.024691358024686",'
+        '"outHumidity":"26.88888888888889"}'
+    )
+
+    assert ingest._maybe_handle_weewx_mqtt("weather/loop", payload) is True
+    assert ingest._maybe_handle_weewx_mqtt("weather/loop", payload) is True
+    assert len(ingest.data_logger.rows) == 1
+
+
+def test_weewx_live_reconfigure_subscribes_runtime_client():
+    class _Client:
+        def __init__(self):
+            self.subscribed = []
+            self.unsubscribed = []
+
+        def subscribe(self, topic):
+            self.subscribed.append(topic)
+            return (0, 1)
+
+        def unsubscribe(self, topic):
+            self.unsubscribed.append(topic)
+            return (0, 2)
+
+    ingest = saiMQTTIngest.__new__(saiMQTTIngest)
+    ingest.client = _Client()
+    ingest.registered_topics = {"weewx/#"}
+    ingest.weewx_mqtt_enabled = True
+    ingest.weewx_mqtt_topic = "weewx/#"
+    ingest.weewx_sensor_id = "weewx-station"
+    ingest.weewx_update_period_sec = 300
+
+    assert ingest.configure_weewx_mqtt(
+        enabled=True,
+        topic_filter="weather/#",
+        sensor_id="weather-station",
+        update_period_sec=120,
+    ) is True
+
+    assert ingest.weewx_mqtt_topic == "weather/#"
+    assert ingest.weewx_sensor_id == "weather-station"
+    assert ingest.weewx_update_period_sec == 120
+    assert "weather/#" in ingest.registered_topics
+    assert ingest.client.unsubscribed == ["weewx/#"]
+    assert ingest.client.subscribed == ["weather/#"]

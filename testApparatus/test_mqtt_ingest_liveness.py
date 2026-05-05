@@ -256,6 +256,16 @@ def test_debug_data_only_registered_topics(monkeypatch):
     assert "sensorius/nodus/+/onboard/hello" not in ingest.registered_topics
 
 
+def test_numeric_json_payload_does_not_trip_switch_event_parser(monkeypatch, capsys):
+    ingest = _build_ingest(monkeypatch)
+
+    ingest._on_message(ingest.client, None, _Msg("nodus/apvpd-test123/data", "5.0", retain=False))
+
+    captured = capsys.readouterr()
+    assert "[handle_switch_event_device] err" not in captured.out
+    assert ingest.data_logger.readings == []
+
+
 def test_meta_does_not_add_redundant_exact_data_subscription_when_wildcard_exists(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     meta = {

@@ -5276,6 +5276,83 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         return sorted(filtered_ids)
 
+    def _collect_removable_details(device_ids: list[str]) -> dict[str, dict[str, Any]]:
+        try:
+            from saiMQTTIngest import get_current_ingest as _get_ing
+            ingest = _get_ing()
+        except Exception:
+            ingest = None
+
+        now_ts = time.time()
+        details: dict[str, dict[str, Any]] = {}
+
+        def _resolved_host(dev_id: str) -> str:
+            base = normalize_hostname_base(dev_id) or str(dev_id or "").strip()
+            if not ingest:
+                return base
+            resolver = getattr(ingest, "resolve_nodus_hostname", None)
+            if callable(resolver):
+                try:
+                    resolved = resolver(base, device_type="switch" if base.startswith("switch-") else None)
+                    host = normalize_hostname_base(str(resolved or ""))
+                    if host:
+                        return host
+                except Exception:
+                    pass
+            return base
+
+        def _last_seen_seconds(dev_id: str, host: str) -> float | None:
+            if not ingest:
+                return None
+            seen = getattr(ingest, "last_mqtt_seen", {}) or {}
+            candidates = {dev_id, host}
+            base = normalize_hostname_base(host)
+            if base:
+                candidates.add(base)
+                candidates.add(mdns_hostname(base))
+            try:
+                for peer in (getattr(ingest, "host_to_peer_ids", {}) or {}).get(base or host, []) or []:
+                    peer_base = normalize_hostname_base(str(peer or ""))
+                    if peer_base:
+                        candidates.add(peer_base)
+                        candidates.add(mdns_hostname(peer_base))
+            except Exception:
+                pass
+            latest = 0.0
+            for key in candidates:
+                try:
+                    latest = max(latest, float(seen.get(key, 0.0) or 0.0))
+                except Exception:
+                    continue
+            return round(max(now_ts - latest, 0.0), 1) if latest else None
+
+        def _device_url(host: str) -> str:
+            if not host:
+                return ""
+            ip = ""
+            if ingest:
+                base = normalize_hostname_base(host) or host
+                for attr in ("_host_ipv4addr", "_host_ip_cache"):
+                    try:
+                        mapping = getattr(ingest, attr, {}) or {}
+                        ip = str(mapping.get(base) or mapping.get(host) or mapping.get(mdns_hostname(base)) or "").strip()
+                        if ip:
+                            break
+                    except Exception:
+                        pass
+            return f"http://{ip or mdns_hostname(host)}:8000"
+
+        for raw in device_ids:
+            dev_id = normalize_hostname_base(raw) or str(raw or "").strip()
+            if not dev_id:
+                continue
+            host = _resolved_host(dev_id)
+            details[dev_id] = {
+                "url": _device_url(host),
+                "last_seen_s": _last_seen_seconds(dev_id, host),
+            }
+        return details
+
     def _toml_escape(s:str)->str:
         return s.replace("\\","\\\\").replace('"','\\"')
 
@@ -5900,7 +5977,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     async def remove_device_list(request: Request):
         _require_protected_access(request, require_csrf=True)
         devices = await asyncio.to_thread(_collect_removable_ids)
-        return JSONResponse({"devices": devices})
+        device_details = await asyncio.to_thread(_collect_removable_details, devices)
+        return JSONResponse({"devices": devices, "device_details": device_details})
 
     @router.get("/remove-device")
     async def remove_device_modal_hint(request: Request):
@@ -6159,7 +6237,23 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         settings.replace_setting("WeeWX", "ENABLED", False)
         settings.replace_setting("WeeWX", "AUTO_DISCOVER", False)
 
-        return JSONResponse({"status": "ok", "restart_required": True})
+        applied_live = False
+        try:
+            from saiMQTTIngest import get_current_ingest
+            ingest = get_current_ingest()
+            if ingest is not None and hasattr(ingest, "configure_weewx_mqtt"):
+                applied_live = bool(
+                    ingest.configure_weewx_mqtt(
+                        enabled=mqtt_enabled,
+                        topic_filter=mqtt_topic,
+                        sensor_id=sensor_id,
+                        update_period_sec=update_period_sec,
+                    )
+                )
+        except Exception as exc:
+            printDM(f"WeeWX MQTT live reconfigure skipped: {exc}", location=MODULE)
+
+        return JSONResponse({"status": "ok", "restart_required": not applied_live})
 
     @router.get("/weewx/status")
     async def weewx_status(request: Request):

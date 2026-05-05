@@ -193,6 +193,50 @@ class NodusOTAService:
         hosts: set[str] = set()
         if ingest is None:
             return []
+
+        peer_map = getattr(ingest, "host_to_peer_ids", {}) or {}
+
+        def _sensor_device_for(host: str, peers: list[str]) -> str:
+            for raw_peer in peers or []:
+                peer = normalize_hostname_base(str(raw_peer or ""))
+                if peer and not peer.startswith("switch-") and not re.fullmatch(r"S\d+-[A-Za-z0-9_-]+", peer, flags=re.IGNORECASE):
+                    return peer
+            return host
+
+        def _canonical_host(raw: str) -> str:
+            base = normalize_hostname_base(str(raw or ""))
+            if not base or re.fullmatch(r"S\d+-[A-Za-z0-9_-]+", base, flags=re.IGNORECASE):
+                return ""
+
+            for host_raw, peers_raw in peer_map.items():
+                host = normalize_hostname_base(str(host_raw or ""))
+                peers = [normalize_hostname_base(str(p or "")) for p in (peers_raw or [])]
+                if base == host or base in peers:
+                    return _sensor_device_for(host, peers)
+
+            resolver = getattr(ingest, "resolve_nodus_hostname", None)
+            if callable(resolver):
+                try:
+                    resolved = resolver(base, device_type="switch" if base.startswith("switch-") else None)
+                    resolved_base = normalize_hostname_base(str(resolved or ""))
+                    if resolved_base:
+                        return resolved_base
+                except Exception:
+                    pass
+
+            if base.startswith("switch-"):
+                serial = base.rsplit("-", 1)[-1] if "-" in base else base
+                suffix = f"-{serial}"
+                try:
+                    for candidate in getattr(ingest, "mqtt_clients", set()) or set():
+                        cand = normalize_hostname_base(str(candidate or ""))
+                        if cand and not cand.startswith("switch-") and cand.endswith(suffix):
+                            return cand
+                except Exception:
+                    pass
+
+            return base
+
         for source in (
             getattr(ingest, "mqtt_clients", set()) or set(),
             getattr(ingest, "device_status", {}).keys(),
@@ -200,9 +244,9 @@ class NodusOTAService:
             getattr(ingest, "nodus_firmware_versions", {}).keys(),
         ):
             for raw in source:
-                base = normalize_hostname_base(str(raw or ""))
-                if base and not re.fullmatch(r"S\d+-[A-Za-z0-9_-]+", base, flags=re.IGNORECASE):
-                    hosts.add(base)
+                host = _canonical_host(str(raw or ""))
+                if host:
+                    hosts.add(host)
 
         devices = []
         for host in sorted(hosts):

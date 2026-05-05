@@ -2499,6 +2499,9 @@ async def test_remove_device_list_merges_settings_db_and_ingest_ids(tmp_path, mo
     )
 
     ingest.mqtt_clients = ["aqi-settings", "aqi-live.local"]
+    ingest.last_mqtt_seen = {"aqi-live": 100.0}
+    ingest._host_ipv4addr = {"aqi-live": "10.0.0.55"}
+    monkeypatch.setattr(saiWebRoutes.time, "time", lambda: 125.0)
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["aqi-db", "aqi-settings"])
     monkeypatch.setattr(
         saiWebRoutes.data_logger,
@@ -2522,6 +2525,12 @@ async def test_remove_device_list_merges_settings_db_and_ingest_ids(tmp_path, mo
         "switch-db",
         "switch-settings",
     ]
+    assert body["device_details"]["aqi-live"] == {
+        "url": "http://10.0.0.55:8000",
+        "last_seen_s": 25.0,
+    }
+    assert body["device_details"]["switch-db"]["url"] == "http://switch-db.local:8000"
+    assert body["device_details"]["switch-db"]["last_seen_s"] is None
 
 
 @pytest.mark.asyncio
