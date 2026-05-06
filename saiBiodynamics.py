@@ -24,18 +24,18 @@ MODULE = "saiBiodynamics"
 DEBUG = debug_enabled(MODULE)
 
 _SIGNS: tuple[dict[str, str], ...] = (
-    {"abbr": "Ari", "name": "Aries", "element": "Fire", "plant_part": "Fruit", "color": "#d64b3b", "accent": "#ffe1dd"},
+    {"abbr": "Ari", "name": "Aries", "element": "Fire", "plant_part": "Fruit", "color": "#ffe1dd", "accent": "#d64b3b"},
     {"abbr": "Tau", "name": "Taurus", "element": "Earth", "plant_part": "Root", "color": "#b58a57", "accent": "#f4ead9"},
-    {"abbr": "Gem", "name": "Gemini", "element": "Air", "plant_part": "Flower", "color": "#ffffff", "accent": "#fff7b8"},
-    {"abbr": "Cnc", "name": "Cancer", "element": "Water", "plant_part": "Leaf", "color": "#2f6eb8", "accent": "#d8e8fb"},
-    {"abbr": "Leo", "name": "Leo", "element": "Fire", "plant_part": "Fruit", "color": "#d64b3b", "accent": "#ffe1dd"},
+    {"abbr": "Gem", "name": "Gemini", "element": "Air", "plant_part": "Flower", "color": "#FFFDE0", "accent": "#F7E605"},
+    {"abbr": "Cnc", "name": "Cancer", "element": "Water", "plant_part": "Leaf", "color": "#2f6eb8", "accent": "#277A00"},
+    {"abbr": "Leo", "name": "Leo", "element": "Fire", "plant_part": "Fruit", "color":  "#ffe1dd", "accent": "#d64b3b"},
     {"abbr": "Vir", "name": "Virgo", "element": "Earth", "plant_part": "Root", "color": "#b58a57", "accent": "#f4ead9"},
-    {"abbr": "Lib", "name": "Libra", "element": "Air", "plant_part": "Flower", "color": "#ffffff", "accent": "#fff7b8"},
-    {"abbr": "Sco", "name": "Scorpio", "element": "Water", "plant_part": "Leaf", "color": "#2f6eb8", "accent": "#d8e8fb"},
-    {"abbr": "Sgr", "name": "Sagittarius", "element": "Fire", "plant_part": "Fruit", "color": "#d64b3b", "accent": "#ffe1dd"},
+    {"abbr": "Lib", "name": "Libra", "element": "Air", "plant_part": "Flower", "color": "#FFFDE0", "accent": "#F7E605"},
+    {"abbr": "Sco", "name": "Scorpio", "element": "Water", "plant_part": "Leaf", "color": "#2f6eb8", "accent": "#277A00"},
+    {"abbr": "Sgr", "name": "Sagittarius", "element": "Fire", "plant_part": "Fruit", "color":  "#ffe1dd", "accent": "#d64b3b"},
     {"abbr": "Cap", "name": "Capricorn", "element": "Earth", "plant_part": "Root", "color": "#b58a57", "accent": "#f4ead9"},
-    {"abbr": "Aqr", "name": "Aquarius", "element": "Air", "plant_part": "Flower", "color": "#ffffff", "accent": "#fff7b8"},
-    {"abbr": "Psc", "name": "Pisces", "element": "Water", "plant_part": "Leaf", "color": "#2f6eb8", "accent": "#d8e8fb"},
+    {"abbr": "Aqr", "name": "Aquarius", "element": "Air", "plant_part": "Flower", "color": "#FFFDE0", "accent": "#F7E605"},
+    {"abbr": "Psc", "name": "Pisces", "element": "Water", "plant_part": "Leaf", "color": "#2f6eb8", "accent": "#277A00"},
 )
 _WEEKDAYS: tuple[str, ...] = ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
 _EPHEMERIS_NAME = "de421.bsp"
