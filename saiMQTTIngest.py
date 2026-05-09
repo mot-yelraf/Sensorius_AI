@@ -279,6 +279,8 @@ class saiMQTTIngest:
         self.nodus_switch_state_topics: dict[tuple[str, str], str] = {}  # (switch_id, channel_id) -> topic
         self.nodus_switch_event_topics: dict[tuple[str, str], str] = {}  # (switch_id, channel_id) -> topic
         self.nodus_switch_availability_topics: dict[tuple[str, str], str] = {}  # (switch_id, channel_id) -> topic
+        self.nodus_switch_ack_topics: dict[tuple[str, str], str] = {}  # (switch_id, channel_id) -> topic
+        self.nodus_switch_result_topics: dict[tuple[str, str], str] = {}  # (switch_id, channel_id) -> topic
         self.nodus_sensor_topics: dict[str, str] = {}  # sensor_id -> topic
         self.nodus_label_to_channel: dict[tuple[str, str], str] = {}  # (switch_id, norm_label) -> channel_id
         try:
@@ -298,6 +300,7 @@ class saiMQTTIngest:
                 "nodus/+/availability",
                 "nodus/+/status/heartbeat",
                 "nodus/+/meta",
+                "nodus/+/meta/switch",
                 "nodus/+/fwupdate/result",
                 "nodus/+/meta/patch",
                 "nodus/+/calibration/ack",
@@ -355,6 +358,7 @@ class saiMQTTIngest:
                     f"{self.base_topic}/nodus/+/event/calibration_sample",
                     f"{self.base_topic}/nodus/+/event/calibration_result",
                     f"{self.base_topic}/nodus/+/meta",
+                    f"{self.base_topic}/nodus/+/meta/switch",
                     f"{self.base_topic}/nodus/+/fwupdate/result",
                     f"{self.base_topic}/nodus/+/meta/patch",
                     f"{self.base_topic}/nodus/+/onboard/hello",
@@ -1451,6 +1455,22 @@ class saiMQTTIngest:
                         retain=retain,
                     )
                     if ok_patch:
+                        return
+                if (
+                    (not self.nodus_debug_data_only)
+                    and len(parts) == id_index + 3
+                    and parts[id_index + 1] == "meta"
+                    and parts[id_index + 2] == "switch"
+                ):
+                    nodus_id = parts[id_index]
+                    if _looks_like_channel_id(nodus_id):
+                        return
+                    ok_switch_meta, _ = self._parse_and_subscribe_from_nodus_switch_meta(
+                        data if isinstance(data, dict) else {},
+                        topic_device_id=nodus_id,
+                        retain=retain,
+                    )
+                    if ok_switch_meta:
                         return
                 if (
                     (not self.nodus_debug_data_only)
@@ -2616,6 +2636,8 @@ class saiMQTTIngest:
         state_topics: dict | None = None,
         command_topics: dict | None = None,
         availability_topics: dict | None = None,
+        ack_topics: dict | None = None,
+        result_topics: dict | None = None,
         label_by_channel_id: dict[str, str] | None = None,
     ) -> bool:
         """
@@ -2654,8 +2676,12 @@ class saiMQTTIngest:
                 self.nodus_channel_command_topics[ch_id] = topic
             elif kind == "availability":
                 self.nodus_switch_availability_topics[(switch_id, ch_id)] = topic
+            elif kind == "ack":
+                self.nodus_switch_ack_topics[(switch_id, ch_id)] = topic
+            elif kind == "result":
+                self.nodus_switch_result_topics[(switch_id, ch_id)] = topic
 
-            if kind in ("state", "event", "availability"):
+            if kind in ("state", "event", "availability", "ack", "result"):
                 if topic not in self.registered_topics and not self._has_covering_subscription(topic):
                     self.registered_topics.add(topic)
                     self.client.subscribe(topic)
@@ -2671,8 +2697,34 @@ class saiMQTTIngest:
             _register("command", str(_m))
         for _m in (availability_topics or {}).values():
             _register("availability", str(_m))
+        for _m in (ack_topics or {}).values():
+            _register("ack", str(_m))
+        for _m in (result_topics or {}).values():
+            _register("result", str(_m))
 
         return any_new
+
+    def _subscribe_nodus_switch_meta_topic(self, topic: str) -> bool:
+        topic = str(topic or "").strip()
+        if not topic:
+            return False
+        if not (
+            topic.startswith("nodus/")
+            or (self.base_topic and topic.startswith(f"{self.base_topic}/nodus/"))
+        ):
+            return False
+        if topic in self.registered_topics or self._has_covering_subscription(topic):
+            return False
+        self.registered_topics.add(topic)
+        try:
+            self.client.subscribe(topic)
+            if DEBUG:
+                printDM(f"[nodus-meta] subscribed to split switch metadata: {topic}", location=MODULE)
+            return True
+        except Exception as exc:
+            if DEBUG:
+                printDM(f"[nodus-meta] switch metadata subscribe failed for {topic}: {exc}", location=MODULE)
+            return False
 
     def _parse_and_subscribe_from_nodus_meta(
         self,
@@ -2850,6 +2902,8 @@ class saiMQTTIngest:
             state_topics: dict[str, str] = {}
             command_topics: dict[str, str] = {}
             availability_topics: dict[str, str] = {}
+            ack_topics: dict[str, str] = {}
+            result_topics: dict[str, str] = {}
             label_by_channel: dict[str, str] = {}
             channels_with_ids: list[tuple[str, str]] = []
             switch_payload: dict[str, object] = {
@@ -2874,6 +2928,8 @@ class saiMQTTIngest:
                 ev_t = _meta_topic(row.get("event_topic"))
                 st_t = _meta_topic(row.get("state_topic"))
                 set_t = _meta_topic(row.get("set_topic"))
+                ack_t = _meta_topic(row.get("ack_topic"))
+                result_t = _meta_topic(row.get("result_topic"))
                 av_t = _meta_topic(row.get("availability_topic"))
 
                 channels_with_ids.append((label, channel_id))
@@ -2887,12 +2943,16 @@ class saiMQTTIngest:
                     state_topics[str(idx)] = st_t
                 if set_t:
                     command_topics[str(idx)] = set_t
+                if ack_t:
+                    ack_topics[str(idx)] = ack_t
+                if result_t:
+                    result_topics[str(idx)] = result_t
                 if av_t:
                     availability_topics[str(idx)] = av_t
 
                 switch_payload[f"SWITCH_{idx}_LABEL"] = label
                 switch_payload[f"SWITCH_{idx}_CHANNEL_ID"] = channel_id
-                enable_pin = str(row.get("enable_pin") or "").strip()
+                enable_pin = str(row.get("enable_pin") or channel_id).strip()
                 pin = str(row.get("pin") or "").strip()
                 switch_payload[f"SWITCH_{idx}_ENABLE_PIN"] = enable_pin
                 switch_payload[f"SWITCH_{idx}_PIN"] = pin
@@ -2930,9 +2990,29 @@ class saiMQTTIngest:
                     state_topics=state_topics,
                     command_topics=command_topics,
                     availability_topics=availability_topics,
+                    ack_topics=ack_topics,
+                    result_topics=result_topics,
                     label_by_channel_id=label_by_channel,
                 )
                 subscribed = subscribed or new_subs
+        elif switch_id:
+            touched = True
+            if switch_id not in peer_ids_for_host:
+                peer_ids_for_host.append(switch_id)
+            if firmware_version:
+                self.nodus_firmware_versions[switch_id] = firmware_version
+            self.device_type[switch_id] = "nodus"
+            self._known_switch_ids.add(switch_id)
+            self.last_mqtt_seen[switch_id] = now_t
+            try:
+                channel_count = int(switch_blob.get("channel_count") or 0)
+            except Exception:
+                channel_count = 0
+            split_topic = _meta_topic(switch_blob.get("meta_topic"))
+            if not split_topic and channel_count > 0:
+                split_topic = f"nodus/{device_id}/meta/switch"
+            if split_topic:
+                subscribed = self._subscribe_nodus_switch_meta_topic(split_topic) or subscribed
 
         if not touched:
             return False, False
@@ -3001,6 +3081,78 @@ class saiMQTTIngest:
                 pass
 
         return True, subscribed
+
+    def _parse_and_subscribe_from_nodus_switch_meta(
+        self,
+        payload: dict,
+        *,
+        topic_device_id: str | None = None,
+        retain: bool = False,
+    ) -> tuple[bool, bool]:
+        """
+        Parse retained nodus/<device_id>/meta/switch payloads and merge them
+        with the latest compact nodus/<device_id>/meta snapshot.
+        """
+        if not isinstance(payload, dict):
+            return False, False
+
+        schema = str(payload.get("schema") or "").strip().lower()
+        if schema and schema != "nodus-meta-switch/v1":
+            return False, False
+
+        device_id = str(payload.get("device_id") or topic_device_id or "").strip()
+        if not device_id:
+            return False, False
+
+        channels = payload.get("channels")
+        if not isinstance(channels, list):
+            return False, False
+
+        base = self._normalize_host_key(device_id) or device_id
+        compact = copy.deepcopy(self.discovery_cache.get(base) or {})
+        if not isinstance(compact, dict):
+            compact = {}
+
+        compact["schema"] = "nodus-meta/v1"
+        compact["device_id"] = str(compact.get("device_id") or device_id).strip() or device_id
+        compact.setdefault("location_group", {})
+        if not isinstance(compact.get("location_group"), dict):
+            compact["location_group"] = {}
+
+        old_switch = compact.get("switch") if isinstance(compact.get("switch"), dict) else {}
+        switch_id = str(
+            payload.get("switch_device_id")
+            or old_switch.get("switch_device_id")
+            or old_switch.get("device_id")
+            or ""
+        ).strip()
+        location = str(payload.get("location") or old_switch.get("location") or "").strip()
+
+        switch_blob = dict(old_switch)
+        if switch_id:
+            switch_blob["switch_device_id"] = switch_id
+            switch_blob.setdefault("device_id", switch_id)
+        if location:
+            switch_blob["location"] = location
+        switch_blob["channel_count"] = payload.get("channel_count", len(channels))
+        switch_blob["channels"] = channels
+        compact["switch"] = switch_blob
+
+        members = compact["location_group"].get("members")
+        if not isinstance(members, list):
+            members = []
+        for member in (device_id, switch_id):
+            if member and member not in members:
+                members.append(member)
+        compact["location_group"]["members"] = members
+        if location and not str(compact["location_group"].get("location") or "").strip():
+            compact["location_group"]["location"] = location
+
+        return self._parse_and_subscribe_from_nodus_meta(
+            compact,
+            topic_device_id=device_id,
+            retain=retain,
+        )
 
     def _normalize_itaot_meta_to_nodus_meta(self, payload: dict, *, topic_device_id: str | None = None) -> dict:
         """
@@ -3231,6 +3383,32 @@ class saiMQTTIngest:
                         }
                     ]
                 }
+                advertised_topic = self.nodus_switch_command_topics.get((switch_id_text, channel_id_text))
+                if advertised_topic and str(advertised_topic).strip().endswith("/config/set"):
+                    message_id = f"cfg-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+                    envelope = {
+                        "message_id": message_id,
+                        "payload": payload,
+                        "restart": False,
+                    }
+                    ok = bool(self.publish_json(
+                        str(advertised_topic).strip(),
+                        envelope,
+                        qos=max(int(qos or 0), 1),
+                        retain=False,
+                        use_ha_client=False,
+                    ))
+                    if ok:
+                        with self._config_lock:
+                            self.config_message_device[message_id] = channel_id_text
+                    if DEBUG:
+                        printDM(
+                            f"[set_switch_by_channel_id] advertised config/set topic={advertised_topic} switch_id={switch_id_text} channel_id={channel_id_text} channel_index={channel_index} ok={ok}",
+                            location=MODULE,
+                        )
+                    if ok:
+                        return True
+
                 for target_device in target_devices:
                     publish_result = self.publish_nodus_config(
                         target_device,
@@ -4684,10 +4862,6 @@ class saiMQTTIngest:
                 retain=retain,
             )
             if ok:
-                cache = self._switch_state_cache.setdefault(str(switch_id), {})
-                optimistic_state = "on" if bool(new_state) else "off"
-                cache[str(channel_id or "").strip()] = optimistic_state
-                cache[str(channel_label or "").strip()] = optimistic_state
                 self._pending_set[(str(switch_id), str(channel_label))] = {
                     "ts": time.time(),
                     "state": bool(new_state),

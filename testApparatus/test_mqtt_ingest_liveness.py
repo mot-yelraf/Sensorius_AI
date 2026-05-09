@@ -268,6 +268,7 @@ def test_numeric_json_payload_does_not_trip_switch_event_parser(monkeypatch, cap
 
 def test_meta_does_not_add_redundant_exact_data_subscription_when_wildcard_exists(monkeypatch):
     ingest = _build_ingest(monkeypatch)
+    monkeypatch.setattr(ingest, "_ensure_settings_from_itaot", lambda *_a, **_k: None)
     meta = {
         "serial": "ykdvea",
         "sensor": {
@@ -748,6 +749,7 @@ def test_nodus_meta_patch_updates_sensor_shadow_for_calibration_sections(tmp_pat
 
 def test_nodus_meta_materializes_switch_mappings(monkeypatch):
     ingest = _build_ingest(monkeypatch)
+    monkeypatch.setattr(ingest, "_ensure_settings_from_itaot", lambda *_a, **_k: None)
     payload = json.dumps(
         {
             "schema": "nodus-meta/v1",
@@ -903,6 +905,7 @@ def test_debug_data_only_ignores_meta(monkeypatch):
 
 def test_nodus_meta_accepts_switch_device_id_alias(monkeypatch):
     ingest = _build_ingest(monkeypatch)
+    monkeypatch.setattr(ingest, "_ensure_settings_from_itaot", lambda *_a, **_k: None)
     payload = json.dumps(
         {
             "schema": "nodus-meta/v1",
@@ -938,8 +941,210 @@ def test_nodus_meta_accepts_switch_device_id_alias(monkeypatch):
     assert ingest.nodus_switch_command_topics.get(("switch-test123", "S1-test123")) == "nodus/S1-test123/set"
 
 
+def test_nodus_compact_meta_subscribes_to_advertised_switch_meta_topic(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    monkeypatch.setattr(ingest, "_ensure_settings_from_itaot", lambda *_a, **_k: None)
+    payload = json.dumps(
+        {
+            "schema": "nodus-meta/v1",
+            "device_id": "apvpd-test123",
+            "sensor": {"sensor_id": "apvpd-test123", "data_topic": "nodus/apvpd-test123/data"},
+            "switch": {
+                "device_id": "switch-test123",
+                "location": "TestLab",
+                "channel_count": 1,
+                "meta_topic": "nodus/apvpd-test123/meta/switch",
+            },
+        }
+    )
+
+    ingest._on_message(ingest.client, None, _Msg("nodus/apvpd-test123/meta", payload, retain=True))
+
+    assert (
+        "nodus/apvpd-test123/meta/switch" in ingest.registered_topics
+        or "nodus/+/meta/switch" in ingest.registered_topics
+    )
+    assert ingest.nodus_switch_command_topics == {}
+
+
+def test_nodus_compact_meta_falls_back_to_default_switch_meta_topic(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    payload = json.dumps(
+        {
+            "schema": "nodus-meta/v1",
+            "device_id": "apvpd-test123",
+            "switch": {
+                "device_id": "switch-test123",
+                "location": "TestLab",
+                "channel_count": 1,
+            },
+        }
+    )
+
+    ingest._on_message(ingest.client, None, _Msg("nodus/apvpd-test123/meta", payload, retain=True))
+
+    assert (
+        "nodus/apvpd-test123/meta/switch" in ingest.registered_topics
+        or "nodus/+/meta/switch" in ingest.registered_topics
+    )
+
+
+def test_nodus_split_switch_meta_materializes_advertised_channel_topics(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    monkeypatch.setattr(ingest, "_ensure_settings_from_itaot", lambda *_a, **_k: None)
+    compact = json.dumps(
+        {
+            "schema": "nodus-meta/v1",
+            "device_id": "apvpd-test123",
+            "hostname": "apvpd-test123",
+            "sensor": {"sensor_id": "apvpd-test123", "data_topic": "nodus/apvpd-test123/data"},
+            "switch": {
+                "device_id": "switch-test123",
+                "location": "TestLab",
+                "channel_count": 1,
+                "meta_topic": "nodus/apvpd-test123/meta/switch",
+            },
+            "location_group": {"location": "TestLab", "members": ["apvpd-test123", "switch-test123"]},
+        }
+    )
+    split = json.dumps(
+        {
+            "schema": "nodus-meta-switch/v1",
+            "device_id": "apvpd-test123",
+            "switch_device_id": "switch-test123",
+            "location": "TestLab",
+            "channel_count": 1,
+            "channels": [
+                {
+                    "index": 1,
+                    "label": "Fan",
+                    "channel_id": "S1-test123",
+                    "state": False,
+                    "event_topic": "nodus/S1-test123/event",
+                    "state_topic": "nodus/S1-test123/state",
+                    "set_topic": "nodus/S1-test123/config/set",
+                    "ack_topic": "nodus/S1-test123/config/ack",
+                    "result_topic": "nodus/S1-test123/config/result",
+                    "availability_topic": "nodus/S1-test123/availability",
+                }
+            ],
+        }
+    )
+
+    ingest._on_message(ingest.client, None, _Msg("nodus/apvpd-test123/meta", compact, retain=True))
+    ingest._on_message(ingest.client, None, _Msg("nodus/apvpd-test123/meta/switch", split, retain=True))
+
+    assert ingest.nodus_switch_topic_map["nodus/S1-test123/state"]["switch_id"] == "switch-test123"
+    assert ingest.nodus_switch_command_topics[("switch-test123", "S1-test123")] == "nodus/S1-test123/config/set"
+    assert ingest.nodus_switch_ack_topics[("switch-test123", "S1-test123")] == "nodus/S1-test123/config/ack"
+    assert ingest.nodus_switch_result_topics[("switch-test123", "S1-test123")] == "nodus/S1-test123/config/result"
+    assert ingest.discovery_cache["apvpd-test123"]["switch"]["channels"][0]["label"] == "Fan"
+
+
+def test_set_switch_by_channel_id_prefers_advertised_config_set_topic(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.nodus_switch_command_topics[("switch-test123", "S1-test123")] = "nodus/S1-test123/config/set"
+
+    assert ingest.set_switch_by_channel_id("switch-test123", "S1-test123", True) is True
+
+    topic, payload_text, qos, retain = ingest.client.pubs[-1]
+    payload = json.loads(payload_text)
+    assert topic == "nodus/S1-test123/config/set"
+    assert qos == 1
+    assert retain is False
+    assert payload["payload"]["updates"][0]["key"] == "SWITCH_1_LAST_STATE"
+    assert payload["payload"]["updates"][0]["value"] is True
+
+
+def test_nodus_split_switch_meta_writes_all_channels_as_enabled_remote_shadow(tmp_path, monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    switch_root.mkdir()
+    system_root.mkdir()
+
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    real_settings_cls = saiSettings.saiSettings
+
+    monkeypatch.setattr(
+        saiSensorSettingsManager,
+        "SensorSettingsManager",
+        lambda *_a, **_k: real_sensor_mgr(str(sensor_root)),
+    )
+    monkeypatch.setattr(
+        saiSwitchSettingsManager,
+        "SwitchSettingsManager",
+        lambda *_a, **_k: real_switch_mgr(str(switch_root)),
+    )
+    monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
+
+    switch_mgr = real_switch_mgr(str(switch_root))
+    compact = {
+        "schema": "nodus-meta/v1",
+        "device_id": "co2-ykdvea",
+        "hostname": "co2-ykdvea",
+        "sensor": {"sensor_id": "co2-ykdvea", "data_topic": "nodus/co2-ykdvea/data"},
+        "switch": {
+            "device_id": "switch-ykdvea",
+            "location": "OfficeDesk",
+            "channel_count": 2,
+            "meta_topic": "nodus/co2-ykdvea/meta/switch",
+        },
+        "location_group": {"location": "OfficeDesk", "members": ["co2-ykdvea", "switch-ykdvea"]},
+    }
+    split = {
+        "schema": "nodus-meta-switch/v1",
+        "device_id": "co2-ykdvea",
+        "switch_device_id": "switch-ykdvea",
+        "location": "OfficeDesk",
+        "channel_count": 2,
+        "channels": [
+            {
+                "index": 1,
+                "label": "Fan",
+                "channel_id": "S1-ykdvea",
+                "state": False,
+                "event_topic": "nodus/S1-ykdvea/event",
+                "state_topic": "nodus/S1-ykdvea/state",
+                "set_topic": "nodus/S1-ykdvea/config/set",
+                "ack_topic": "nodus/S1-ykdvea/config/ack",
+                "result_topic": "nodus/S1-ykdvea/config/result",
+                "availability_topic": "nodus/S1-ykdvea/availability",
+            },
+            {
+                "index": 2,
+                "label": "Humidifier",
+                "channel_id": "S2-ykdvea",
+                "state": False,
+                "event_topic": "nodus/S2-ykdvea/event",
+                "state_topic": "nodus/S2-ykdvea/state",
+                "set_topic": "nodus/S2-ykdvea/config/set",
+                "ack_topic": "nodus/S2-ykdvea/config/ack",
+                "result_topic": "nodus/S2-ykdvea/config/result",
+                "availability_topic": "nodus/S2-ykdvea/availability",
+            },
+        ],
+    }
+
+    ingest._parse_and_subscribe_from_nodus_meta(compact, topic_device_id="co2-ykdvea", retain=True)
+    ingest._parse_and_subscribe_from_nodus_switch_meta(split, topic_device_id="co2-ykdvea", retain=True)
+
+    saved = switch_mgr.load("switch-ykdvea")
+    assert saved["Switch"]["SWITCH_1_LABEL"] == "Fan"
+    assert saved["Switch"]["SWITCH_1_ENABLE_PIN"] == "S1-ykdvea"
+    assert saved["Switch"]["SWITCH_2_LABEL"] == "Humidifier"
+    assert saved["Switch"]["SWITCH_2_CHANNEL_ID"] == "S2-ykdvea"
+    assert saved["Switch"]["SWITCH_2_ENABLE_PIN"] == "S2-ykdvea"
+    assert ingest.nodus_switch_command_topics[("switch-ykdvea", "S2-ykdvea")] == "nodus/S2-ykdvea/config/set"
+
+
 def test_http_itaot_meta_normalizes_to_topic_contract(monkeypatch):
     ingest = _build_ingest(monkeypatch)
+    monkeypatch.setattr(ingest, "_ensure_settings_from_itaot", lambda *_a, **_k: None)
     payload = {
         "schema": "itaot-meta/v1",
         "device_id": "apvpd-test123",
