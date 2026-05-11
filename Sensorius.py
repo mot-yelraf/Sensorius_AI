@@ -68,7 +68,7 @@ def is_remote_sensor_settings(config_dict: dict | None) -> bool:
     try:
         sensor_block = config_dict.get("Sensor", {}) if isinstance(config_dict, dict) else {}
         sensor_type = str(sensor_block.get("TYPE", "") or "").strip().lower()
-        return sensor_type in {"nodus", "picow", "pico2w", "remote", "mqtt"}
+        return sensor_type in {"nodus", "picow", "pico2w", "remote", "mqtt", "weewx", "station"}
     except Exception:
         return False
 

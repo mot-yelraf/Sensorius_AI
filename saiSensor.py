@@ -288,7 +288,10 @@ class SensorController:
                         printDM(f"Data collection error: {e}", location=f"{__name__}.{self.__class__.__name__}.data_collection")
                         self._last_read_error_log = now
 
-                self.sensor.meas_status = "online"
+                if any(value is not None for value in (values or {}).values()):
+                    self.sensor.meas_status = "online"
+                else:
+                    self.sensor.meas_status = "pending"
 
                 if DEBUG:
                     printDM(f"{self.sensor_id} secs, values: {values}", location=f"{__name__}.{self.__class__.__name__}.data_collection")

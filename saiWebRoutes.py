@@ -150,6 +150,71 @@ def _weewx_measure_status_from_latest(
     if latest_age_sec is not None and latest_age_sec > offline_after_sec:
         return "offline", latest_age_sec
     return "unknown", latest_age_sec
+
+
+def ensure_weewx_sensor_settings(
+    sensor_id: str,
+    *,
+    location: str = "Weather Station",
+    manager: SensorSettingsManager | None = None,
+) -> None:
+    """Ensure the local WeeWX station has a Sensorius-owned sensor.toml."""
+    sid = str(sensor_id or WEEWX_DEFAULT_SENSOR_ID).strip() or WEEWX_DEFAULT_SENSOR_ID
+    mgr = manager or SensorSettingsManager("sensor_settings")
+    try:
+        doc = mgr.load(sid) or OrderedDict()
+    except FileNotFoundError:
+        mgr.seed_from_factory(sid, device="weewx", location=location)
+        doc = mgr.load(sid) or OrderedDict()
+
+    if not isinstance(doc, OrderedDict):
+        doc = OrderedDict(doc)
+
+    changed = False
+    sensor_block = doc.get("Sensor")
+    if not isinstance(sensor_block, dict):
+        sensor_block = OrderedDict()
+        doc["Sensor"] = sensor_block
+        changed = True
+
+    desired_sensor_values = {
+        "TYPE": "weewx",
+        "DEVICE": "weewx",
+        "SENSOR_ID": sid,
+    }
+    for key, value in desired_sensor_values.items():
+        if sensor_block.get(key) != value:
+            sensor_block[key] = value
+            changed = True
+    if not str(sensor_block.get("LOCATION", "") or "").strip():
+        sensor_block["LOCATION"] = location or "Weather Station"
+        changed = True
+
+    display_block = doc.get("Display")
+    if not isinstance(display_block, dict):
+        display_block = OrderedDict()
+        doc["Display"] = display_block
+        changed = True
+    for idx, metric in enumerate(WEEWX_DISPLAY_METRICS[:6], start=1):
+        key = f"METRIC_{idx}"
+        if key not in display_block:
+            display_block[key] = metric
+            changed = True
+    style_block = display_block.get("Style")
+    if not isinstance(style_block, dict):
+        style_block = OrderedDict()
+        display_block["Style"] = style_block
+        changed = True
+    for idx in range(1, 7):
+        key = f"METRIC_{idx}"
+        if key not in style_block:
+            style_block[key] = ""
+            changed = True
+
+    if changed:
+        mgr.save(sid, doc)
+
+
 _cdp_debug_last_log: float = 0.0
 _CDP_DEBUG_MIN_INTERVAL_SEC: float = 30.0
 _DASHBOARD_JSON_CACHE_TTL_SEC: float = 2.0
@@ -6237,6 +6302,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         settings.replace_setting("WeeWX", "ENABLED", False)
         settings.replace_setting("WeeWX", "AUTO_DISCOVER", False)
 
+        try:
+            ensure_weewx_sensor_settings(sensor_id, manager=SensorSettingsManager("sensor_settings"))
+        except Exception as exc:
+            printDM(f"WeeWX sensor settings materialization failed: {exc}", location=MODULE)
+            return JSONResponse(
+                {"ok": False, "error": "Failed to create WeeWX sensor settings."},
+                status_code=500,
+            )
+
         applied_live = False
         try:
             from saiMQTTIngest import get_current_ingest
@@ -7139,7 +7213,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             normalized_id = normalize_sensor_id(sensor_id)
 
             manager = SensorSettingsManager("sensor_settings")
-            settings_dict = manager.load(normalized_id)
+            try:
+                settings_dict = manager.load(normalized_id)
+            except FileNotFoundError:
+                configured_weewx_id = str(
+                    settings.get_setting("WeeWX", "SENSOR_ID", WEEWX_DEFAULT_SENSOR_ID)
+                    or WEEWX_DEFAULT_SENSOR_ID
+                ).strip() or WEEWX_DEFAULT_SENSOR_ID
+                if normalized_id.lower() == configured_weewx_id.lower() or normalized_id.lower().startswith("weewx"):
+                    ensure_weewx_sensor_settings(normalized_id, manager=manager)
+                    settings_dict = manager.load(normalized_id)
+                else:
+                    raise
             if not settings_dict:
                 return HTMLResponse(
                     f"<h3>❌ No settings found for sensor '{html_escape(sensor_id)}'</h3><a href='/'>Return</a>",
@@ -7188,6 +7273,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             # location
             sensor_section = settings_dict.get("Sensor", {}) or {}
+            sensor_type = str(sensor_section.get("TYPE", "") or "").strip().lower()
+            raw_device = str(sensor_section.get("DEVICE", "") or "")
+            device_kind = raw_device.strip().lower()
+            is_weewx = sensor_type == "weewx" or device_kind == "weewx" or normalized_id.lower().startswith("weewx")
+            if is_weewx:
+                for metric in WEEWX_DISPLAY_METRICS:
+                    canonical = canonicalize_metric_name(metric, gauge_config)
+                    if canonical and canonical not in metric_options:
+                        metric_options.append(canonical)
+
             location = (
                 sensor_section.get("LOCATION")
                 or sensor_section.get("location")
@@ -7197,8 +7292,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # --- Calibration context (used by split-pane sensor modal) ---
             calib_section = (settings_dict.get("Calibration") or {}) or {}
             device_section = (calib_section.get("Device") or calib_section.get("device") or {}) or {}
-            raw_device = str(sensor_section.get("DEVICE", "") or "")
-            device_kind = raw_device.strip().lower()
             device_label = raw_device or device_kind or "Unknown"
             is_apvpd = (device_kind == "apvpd")
 
@@ -7251,7 +7344,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             ingest = getattr(request.app.state, "mqtt_ingest", None) or mqtt_ingest
             nodus_firmware_version = ""
-            sensor_type = str(sensor_section.get("TYPE", "") or "").strip().lower()
             if (
                 ingest
                 and sensor_type in ("picow", "pico2w", "nodus", "remote")
@@ -7289,6 +7381,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 device_offsets=device_offsets,
                 candidate_sensors=candidate_sensors,
                 default_range_hours=24,
+                supports_device_calibration=not is_weewx,
+                supports_system_calibration=not is_weewx,
                 can_restart_device=(sensor_type in ("picow", "pico2w", "nodus", "remote", "mqtt")),
             )
 

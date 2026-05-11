@@ -340,6 +340,8 @@ class saiMQTTIngest:
             )
         except Exception:
             self.weewx_mqtt_enabled = False
+        if self.weewx_mqtt_enabled:
+            self._ensure_weewx_sensor_settings()
         if self.weewx_mqtt_enabled and self.weewx_mqtt_topic:
             self.registered_topics.add(self.weewx_mqtt_topic)
         if self.base_topic:
@@ -385,6 +387,54 @@ class saiMQTTIngest:
         self._ha_discovered_sensor_metrics: set[str] = set()   # f"{sensor_id}::{metric_slug}"
         self._ha_discovered_switch_channels: set[str] = set()  # f"{switch_id}::{channel_id}"
 
+    def _ensure_weewx_sensor_settings(self) -> None:
+        """Materialize the local sensor.toml shadow for the WeeWX station."""
+        try:
+            from saiSensorSettingsManager import SensorSettingsManager
+
+            sensor_id = str(getattr(self, "weewx_sensor_id", WEEWX_DEFAULT_SENSOR_ID) or WEEWX_DEFAULT_SENSOR_ID).strip()
+            sensor_id = sensor_id or WEEWX_DEFAULT_SENSOR_ID
+            mgr = SensorSettingsManager("sensor_settings")
+            try:
+                doc = mgr.load(sensor_id) or OrderedDict()
+            except FileNotFoundError:
+                mgr.seed_from_factory(sensor_id, device="weewx", location="Weather Station")
+                doc = mgr.load(sensor_id) or OrderedDict()
+
+            if not isinstance(doc, OrderedDict):
+                doc = OrderedDict(doc)
+            changed = False
+
+            sensor_block = doc.get("Sensor")
+            if not isinstance(sensor_block, dict):
+                sensor_block = OrderedDict()
+                doc["Sensor"] = sensor_block
+                changed = True
+            for key, value in (("TYPE", "weewx"), ("DEVICE", "weewx"), ("SENSOR_ID", sensor_id)):
+                if sensor_block.get(key) != value:
+                    sensor_block[key] = value
+                    changed = True
+            if not str(sensor_block.get("LOCATION", "") or "").strip():
+                sensor_block["LOCATION"] = "Weather Station"
+                changed = True
+
+            display_block = doc.get("Display")
+            if not isinstance(display_block, dict):
+                display_block = OrderedDict()
+                doc["Display"] = display_block
+                changed = True
+            for idx, metric in enumerate(WEEWX_DISPLAY_METRICS[:6], start=1):
+                key = f"METRIC_{idx}"
+                if key not in display_block:
+                    display_block[key] = metric
+                    changed = True
+
+            if changed:
+                mgr.save(sensor_id, doc)
+        except Exception as exc:
+            if DEBUG:
+                printDM(f"[weewx-mqtt] sensor settings materialization skipped: {exc}", location=MODULE)
+
     def configure_weewx_mqtt(
         self,
         *,
@@ -407,6 +457,9 @@ class saiMQTTIngest:
                 self.weewx_update_period_sec = max(15.0, float(update_period_sec))
         except Exception:
             self.weewx_update_period_sec = WEEWX_DEFAULT_UPDATE_PERIOD_SEC
+
+        if self.weewx_mqtt_enabled:
+            self._ensure_weewx_sensor_settings()
 
         if old_topic and old_topic != topic:
             try:
@@ -1329,7 +1382,21 @@ class saiMQTTIngest:
                 metric for metric in WEEWX_DISPLAY_METRICS if metric in values
             ]
             self.device_type[sensor_id] = "weewx"
-            self.device_location[sensor_id] = "Weather Station"
+            station_location = "Weather Station"
+            try:
+                from saiSensorSettingsManager import SensorSettingsManager
+
+                station_location = (
+                    SensorSettingsManager("sensor_settings").get_setting(
+                        sensor_id,
+                        "Sensor.LOCATION",
+                        station_location,
+                    )
+                    or station_location
+                )
+            except Exception:
+                pass
+            self.device_location[sensor_id] = station_location
             self.last_mqtt_seen[sensor_id] = time.time()
             self._mark_host_status(sensor_id, "online")
             if DEBUG:

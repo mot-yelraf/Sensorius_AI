@@ -117,6 +117,7 @@ class CO2Sensor(BaseSensor):
         self.current_values = {name: None for name in self.meas_types}
         self._core_sample: tuple[float | None, float | None, float | None] = (None, None, None)
         self._core_sample_ts: float = 0.0
+        self._first_sample_seen = False
 
     # ------------------------------------------------------------------
     # Calibration loading
@@ -244,13 +245,37 @@ class CO2Sensor(BaseSensor):
                 if hasattr(self.scd30, "data_ready"):
                     return bool(self.scd30.data_ready)
                 return False
-            if hasattr(self.scd30, "data_ready"):
-                return bool(self.scd30.data_ready)
+            # SCD30 exposes data_available in the Adafruit driver.
             if hasattr(self.scd30, "data_available"):
                 return bool(self.scd30.data_available)
+            if hasattr(self.scd30, "data_ready"):
+                return bool(self.scd30.data_ready)
         except Exception:
             return False
         return True
+
+    def _wait_for_data_ready(self, timeout_s: float = 20.0, interval_s: float = 0.5) -> bool:
+        """
+        Wait briefly for the first CO2 sample after startup.
+
+        SCD4x sensors often need a few seconds after periodic measurement starts
+        before ``data_ready`` is true. SCD30 reports the same condition as
+        ``data_available``. Until one of those flags is set, the device is
+        present but measurement data is pending.
+        """
+        deadline = time.monotonic() + max(0.0, float(timeout_s))
+        interval = max(0.05, float(interval_s))
+        while time.monotonic() <= deadline:
+            if self._data_ready():
+                return True
+            time.sleep(interval)
+        return False
+
+    def read_sensor_data(self):
+        if not self._first_sample_seen and not self._data_ready():
+            self.meas_status = "pending"
+            self._wait_for_data_ready()
+        return super().read_sensor_data()
 
     def _get_raw_temp_c(self) -> float:
         temp_c, _rh, _co2 = self._read_core_sample()
@@ -291,6 +316,7 @@ class CO2Sensor(BaseSensor):
             self._core_sample = (None, None, None)
         else:
             self._core_sample = (raw_temp, raw_rh, raw_co2)
+            self._first_sample_seen = True
         self._core_sample_ts = now
         return self._core_sample
 

@@ -301,13 +301,14 @@ class BaseSensor:
         ts = get_timestamp()
         try:
             raw = {name: getter() for name, _, getter, _ in self.measurements}
+            has_value = any(value is not None for value in raw.values())
             for name in self.meas_types:
                 val = raw[name]
                 self.iir_filter(name, val)
                 self.latest_raw[name] = val
 
             self.current_ts = ts
-            self.meas_status = "online"
+            self.meas_status = "online" if has_value else "pending"
 
             for name, _, _, precision in self.measurements:
                 filtered = self.filtered_data[name]

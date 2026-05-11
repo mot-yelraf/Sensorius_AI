@@ -22,12 +22,16 @@
             <button type="button" class="switch-menu-btn list-item active" data-pane-target="sensor-settings-pane">
               <span class="item-name">Sensor Settings</span>
             </button>
+            {% if supports_device_calibration | default(true) %}
             <button type="button" class="switch-menu-btn list-item" data-pane-target="sensor-calibration-pane">
               <span class="item-name">Sensor Calibration</span>
             </button>
+            {% endif %}
+            {% if supports_system_calibration | default(true) %}
             <button type="button" class="switch-menu-btn list-item" data-pane-target="system-calibration-pane">
               <span class="item-name">System Calibration</span>
             </button>
+            {% endif %}
           </div>
         </aside>
 
@@ -147,6 +151,7 @@
             </form>
           </div>
 
+          {% if supports_device_calibration | default(true) %}
           <div class="sensor-pane-view" id="sensor-calibration-pane" style="display:none; flex:1; flex-direction:column; min-height:0;">
             <div class="list-header">
               <span>Sensor Calibration</span>
@@ -320,7 +325,9 @@
               </div>
             </div>
           </div>
+          {% endif %}
 
+          {% if supports_system_calibration | default(true) %}
           <div class="sensor-pane-view" id="system-calibration-pane" style="display:none; flex:1; flex-direction:column; min-height:0;">
             <div class="list-header">
               <span>System Calibration</span>
@@ -407,6 +414,7 @@
               <div id="sysCalStatus" class="muted" style="font-size:0.8rem; line-height:1.3; margin-top:0.35rem; min-height:1.2rem; text-align:right;"></div>
             </div>
           </div>
+          {% endif %}
         </section>
       </div>
     </div>
