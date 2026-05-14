@@ -72,7 +72,7 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert ".bio-day.out{opacity:.62;filter:saturate(.42) brightness(1.02);}" in text
     assert ".bio-day-num{font-size:.66rem;font-weight:800;line-height:1;display:inline-flex;align-items:center;justify-content:center;min-width:1.45em;height:1.45em;border-radius:999px;background:rgba(255,253,246,.88);border:1px solid rgba(39,49,58,.18);color:#27313a;box-shadow:0 1px 2px rgba(39,49,58,.18);}" in text
     assert ".bio-print-day-num{font-size:9pt;font-weight:800;line-height:1;display:inline-flex;align-items:center;justify-content:center;min-width:1.45em;height:1.45em;border-radius:999px;background:rgba(255,253,246,.9);border:1px solid rgba(39,49,58,.18);color:#27313a;}" in text
-    assert ".bio-status{display:flex;align-items:center;justify-content:center;gap:.14rem;padding:.24rem .3rem;border-radius:8px;border:0;background:#fffdf6;overflow:hidden;box-sizing:border-box;}" in text
+    assert ".bio-status{display:flex;align-items:center;justify-content:center;gap:.14rem;width:min(100%,156px);align-self:center;padding:.24rem .3rem;border-radius:8px;border:0;background:#fffdf6;overflow:hidden;box-sizing:border-box;}" in text
     assert ".bio-main{display:flex;flex-direction:column;align-items:center;gap:.08rem;min-width:0;flex:1 1 auto;overflow:hidden;text-align:center;}" in text
     assert "#bioCurrentBadge" not in text
     assert "openBtn.style.background = color;" in text
