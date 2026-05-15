@@ -27,6 +27,34 @@ except Exception:
 MODULE = "saiDailySummary"
 DEBUG = debug_enabled(MODULE)
 DEFAULT_FORECAST_DAYS = 29
+_GROUNDING_REMINDER = "Suggestion: prioritize actual plant health, irrigation status, weather, and disease pressure over calendar timing."
+_KNOWN_CROP_STAGES = {"seedling", "veg", "maturing", "mature", "harvest"}
+
+
+def _normalize_crop_stage(crop_stage: str | None) -> str:
+    stage = str(crop_stage or "").strip().lower()
+    if stage in _KNOWN_CROP_STAGES:
+        return stage
+    return "general"
+
+
+def _truthy(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return False
+
+
+def _safe_float(value) -> float | None:
+    try:
+        if value is None or isinstance(value, bool):
+            return None
+        return float(value)
+    except Exception:
+        return None
 
 
 def _moon_phase_name(phase_val: float) -> str:
@@ -80,7 +108,13 @@ class DailySummaryService:
             return ZoneInfo("America/Denver")
 
 
-    def _build_hint_lines(self, summary_date: date, biodynamic_day: dict | None) -> list[str]:
+    def _build_hint_lines(
+        self,
+        summary_date: date,
+        biodynamic_day: dict | None,
+        crop_stage: str | None = None,
+        plant_state: dict | None = None,
+    ) -> list[str]:
         lines = ["Biodynamic Hints"]
         if not isinstance(biodynamic_day, dict):
             lines.append("Suggestion: no biodynamic hint available for this day.")
@@ -88,28 +122,145 @@ class DailySummaryService:
 
         part = str(biodynamic_day.get("dominant_plant_part") or "").strip().lower()
         sign = str(biodynamic_day.get("dominant_sign") or "--").strip()
+        stage = _normalize_crop_stage(crop_stage)
 
         part_hints = {
-            "root": [
-                "Suggestion: favor root-zone work, transplant settling, and soil-building tasks.",
-                "Consider: prep 500 for soil/root vitality when field conditions fit your program.",
-            ],
-            "leaf": [
-                "Suggestion: favor irrigation timing, canopy recovery, and leafy-growth observations.",
-                "Consider: compost-focused work or gentle moisture-balancing tasks before pushing growth.",
-            ],
-            "flower": [
-                "Suggestion: favor blossom, herb, and aroma-focused crop work.",
-                "Consider: prep 501 only when light conditions and crop stage support a light/canopy emphasis.",
-            ],
-            "fruit": [
-                "Suggestion: favor fruiting, seed-setting, and ripening observations.",
-                "Consider: prep 501 only when crop maturity, weather, and canopy condition align.",
-            ],
+            "root": {
+                "seedling": [
+                    "Suggestion: favorable for transplanting, root establishment, and reducing transplant shock.",
+                    "Consider: focus on root-zone biology, gentle watering, and soil contact.",
+                    "Suggestion: avoid aggressive top pruning or forcing rapid canopy growth.",
+                ],
+                "veg": [
+                    "Suggestion: favor root expansion, soil-building, and steady structural growth.",
+                    "Consider: focus on compost, mulch, and moisture consistency.",
+                    "Consider: prep 500 when soil conditions fit the grow program.",
+                ],
+                "maturing": [
+                    "Suggestion: favor root strength and stress resilience over rapid top growth.",
+                    "Consider: focus on balanced moisture and mineral availability.",
+                ],
+                "mature": [
+                    "Suggestion: suitable for root crop harvest intended for storage.",
+                    "Consider: focus on density, curing, and keeping quality.",
+                ],
+                "harvest": [
+                    "Suggestion: favorable for harvesting root crops intended for curing or long-term storage.",
+                ],
+                "general": [
+                    "Suggestion: favor root-zone work, transplant settling, and soil-building tasks.",
+                    "Consider: prep 500 for soil/root vitality when field conditions fit the program.",
+                ],
+            },
+            "leaf": {
+                "seedling": [
+                    "Suggestion: favorable for early vegetative push and canopy recovery.",
+                    "Consider: focus on gentle irrigation and avoiding drought stress.",
+                ],
+                "veg": [
+                    "Suggestion: favor leafy growth, irrigation timing, and canopy development.",
+                    "Consider: focus on nitrogen availability, compost teas, and moisture balance.",
+                    "Suggestion: avoid overwatering sensitive fruiting crops.",
+                ],
+                "maturing": [
+                    "Suggestion: monitor excessive vegetative growth that may reduce flowering or fruit set.",
+                    "Consider: focus on airflow and disease prevention.",
+                ],
+                "mature": [
+                    "Suggestion: suitable for harvesting leafy greens intended for immediate freshness.",
+                ],
+                "harvest": [
+                    "Suggestion: harvest leafy crops for fresh-market quality rather than long storage.",
+                ],
+                "general": [
+                    "Suggestion: favor irrigation timing, canopy recovery, and leafy-growth observations.",
+                    "Consider: compost-focused work or gentle moisture-balancing tasks before pushing growth.",
+                ],
+            },
+            "flower": {
+                "seedling": [
+                    "Suggestion: avoid stressing young plants approaching flower initiation.",
+                    "Consider: focus on balanced growth and stable environmental conditions.",
+                ],
+                "veg": [
+                    "Suggestion: suitable for training and preparing plants for reproductive growth.",
+                    "Consider: focus on airflow, light penetration, and structural balance.",
+                ],
+                "maturing": [
+                    "Suggestion: favor blossom development, pollination support, and aromatic crops.",
+                    "Consider: focus on terpene, aroma, and flower quality.",
+                    "Consider: prep 501 only when light conditions and crop vigor support it.",
+                ],
+                "mature": [
+                    "Suggestion: favorable for flower harvest, medicinal herbs, and aromatic crops.",
+                ],
+                "harvest": [
+                    "Suggestion: harvest flowers and herbs for aroma, oils, and drying quality.",
+                ],
+                "general": [
+                    "Suggestion: favor blossom, herb, and aroma-focused crop work.",
+                    "Consider: prep 501 only when light conditions and crop stage support a light/canopy emphasis.",
+                ],
+            },
+            "fruit": {
+                "seedling": [
+                    "Suggestion: avoid overpushing immature fruiting plants.",
+                    "Consider: focus on steady structural growth before heavy reproductive demand.",
+                ],
+                "veg": [
+                    "Suggestion: suitable for training and preparing fruiting structure.",
+                    "Consider: focus on branch strength and balanced canopy/light penetration.",
+                ],
+                "maturing": [
+                    "Suggestion: favor fruiting, seed-setting, and ripening observations.",
+                    "Consider: focus on flavor, resin, sugar development, and reproductive energy.",
+                    "Consider: prep 501 when canopy health, maturity, and weather align.",
+                ],
+                "mature": [
+                    "Suggestion: favorable for harvesting fruits and seed crops intended for flavor and vitality.",
+                ],
+                "harvest": [
+                    "Suggestion: harvest fruits and seeds for flavor, ripeness, and seed-saving quality.",
+                ],
+                "general": [
+                    "Suggestion: favor fruiting, seed-setting, and ripening observations.",
+                    "Consider: prep 501 only when crop maturity, weather, and canopy condition align.",
+                ],
+            },
         }
 
-        lines.extend(part_hints.get(part, [f"Suggestion: use {sign} Moon as a planning cue rather than a rigid rule."]))
-        lines.append("Suggestion: use the biodynamic window as a planning hint and let actual plant/environment conditions decide execution.")
+        if part in part_hints:
+            lines.extend(part_hints[part].get(stage) or part_hints[part]["general"])
+        else:
+            lines.append(f"Suggestion: use {sign} Moon as a planning cue rather than a rigid rule.")
+
+        moon_direction = str(biodynamic_day.get("moon_direction") or "").strip().lower()
+        if moon_direction == "descending":
+            lines.append("Timing: descending Moon is traditionally associated with transplanting, pruning, compost, soil work, and root activity.")
+        elif moon_direction == "ascending":
+            lines.append("Timing: ascending Moon is traditionally associated with above-ground vitality, grafting, gathering herbs, fruit harvest, and foliar emphasis.")
+
+        if _truthy(biodynamic_day.get("lunar_node")):
+            lines.append("Caution: biodynamic calendars often treat lunar nodes as rest or avoidance windows for sowing, transplanting, or major crop work.")
+        if _truthy(biodynamic_day.get("perigee")):
+            lines.append("Caution: perigee is often treated as a sensitive period; avoid unnecessary plant stress if conditions are already marginal.")
+        if _truthy(biodynamic_day.get("apogee")):
+            lines.append("Observation: apogee may be treated as a lighter-touch planning window; keep plant condition and weather as the deciding factors.")
+
+        state = plant_state if isinstance(plant_state, dict) else {}
+        if _truthy(state.get("stress")):
+            lines.append("Plant Condition: visible or measured stress should override biodynamic timing; delay pruning, transplanting, or foliar work if possible.")
+        vpd = (
+            _safe_float(state.get("vpd"))
+            or _safe_float(state.get("plant_vpd"))
+            or _safe_float(state.get("Plant VPD"))
+            or _safe_float(state.get("ambient_vpd"))
+            or _safe_float(state.get("Ambient VPD"))
+        )
+        if vpd is not None and vpd > 1.8:
+            lines.append("Plant Condition: elevated VPD suggests reducing stress before aggressive pruning, transplanting, or spraying.")
+
+        lines.append(_GROUNDING_REMINDER)
 
         return lines
 
@@ -212,10 +363,10 @@ class DailySummaryService:
             lines.append(f"Biodynamic: unavailable ({exc})")
         return lines, biodynamic_day
 
-    def build_summary_text(self, summary_date: date) -> str:
+    def build_summary_text(self, summary_date: date, *, crop_stage: str | None = None, plant_state: dict | None = None) -> str:
         astral_lines, biodynamic_day = self._astral_summary_lines(summary_date)
         parts = [
-            "\n".join(self._build_hint_lines(summary_date, biodynamic_day)),
+            "\n".join(self._build_hint_lines(summary_date, biodynamic_day, crop_stage=crop_stage, plant_state=plant_state)),
             "\n".join(astral_lines),
         ]
         return "\n\n".join(part.strip() for part in parts if part and part.strip())
@@ -227,6 +378,7 @@ class DailySummaryService:
         expected_hints_header = "Biodynamic Hints"
         return (
             expected_hints_header in body
+            and (_GROUNDING_REMINDER in body or "Suggestion: no biodynamic hint available for this day." in body)
             and ("Astral Notes" in body or "Astral" in body)
         )
 

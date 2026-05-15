@@ -1,0 +1,59 @@
+"""Focused coverage for biodynamic lunar timing flags."""
+
+from __future__ import annotations
+
+import os
+import sys
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+import saiBiodynamics
+
+
+def test_lunar_flags_for_day_preserves_specific_event_types():
+    tzinfo = ZoneInfo("America/Denver")
+    day_start = datetime(2026, 3, 8, tzinfo=tzinfo)
+    day_end = day_start + timedelta(days=1)
+    intervals = [
+        saiBiodynamics._Interval(day_start + timedelta(hours=1), day_start + timedelta(hours=2), "lunar_node"),
+        saiBiodynamics._Interval(day_start + timedelta(hours=5), day_start + timedelta(hours=6), "perigee"),
+        saiBiodynamics._Interval(day_start + timedelta(hours=10), day_start + timedelta(hours=11), "apogee"),
+    ]
+
+    flags = saiBiodynamics._lunar_flags_for_day(day_start, day_end, intervals)
+
+    assert flags["lunar_node"] is True
+    assert flags["perigee"] is True
+    assert flags["apogee"] is True
+    assert [event["type"] for event in flags["lunar_events"]] == ["lunar_node", "perigee", "apogee"]
+
+
+def test_off_overlay_keeps_calendar_kind_backward_compatible_with_specific_event_label():
+    tzinfo = ZoneInfo("America/Denver")
+    day_start = datetime(2026, 3, 8, tzinfo=tzinfo)
+    day_end = day_start + timedelta(days=1)
+    day_segments = [
+        {
+            "start": "00:00",
+            "end": "24:00",
+            "sign": "Virgo",
+            "element": "Earth",
+            "plant_part": "Root",
+            "color": "#e5b172",
+            "accent": "#644817",
+            "kind": "sign",
+        }
+    ]
+    intervals = [
+        saiBiodynamics._Interval(day_start + timedelta(hours=8), day_start + timedelta(hours=10), "perigee"),
+    ]
+
+    segments = saiBiodynamics._apply_off_overlays(day_segments, day_start, day_end, intervals)
+    off_segments = [segment for segment in segments if segment.get("kind") == "off"]
+
+    assert len(off_segments) == 1
+    assert off_segments[0]["off_kind"] == "perigee"
+    assert off_segments[0]["off_label"] == "Perigee"
+    assert off_segments[0]["sign"] == "Rest"

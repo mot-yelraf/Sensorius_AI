@@ -47,6 +47,13 @@ _OFF_PERIOD_COLOR = "#5f6770"
 _OFF_PERIOD_ACCENT = "#d7dbe0"
 _MOON_NODE_WINDOW = timedelta(hours=2)
 _PERIGEE_WINDOW = timedelta(hours=12)
+_APOGEE_WINDOW = timedelta(hours=12)
+_OFF_PERIOD_LABELS = {
+    "lunar_node": "Lunar Node",
+    "perigee": "Perigee",
+    "apogee": "Apogee",
+}
+_OFF_OVERLAY_KINDS = {"lunar_node", "perigee"}
 _PAYLOAD_CACHE_TTL_SEC = 300.0
 _PAYLOAD_CACHE: dict[tuple[str, str, str], tuple[float, dict[str, object]]] = {}
 
@@ -258,6 +265,24 @@ def _moon_distance_km(dt_local: datetime, ts, eph) -> float:
     return float(earth.at(t).observe(moon).distance().km)
 
 
+def _moon_declination_deg(dt_local: datetime, ts, eph) -> float:
+    moon = eph["moon"]
+    earth = eph["earth"]
+    t = ts.from_datetime(dt_local.astimezone(timezone.utc))
+    apparent = earth.at(t).observe(moon).apparent()
+    _ra, dec, _distance = apparent.radec()
+    return float(dec.degrees)
+
+
+def _moon_direction(dt_local: datetime, ts, eph) -> str:
+    try:
+        before = _moon_declination_deg(dt_local - timedelta(hours=6), ts, eph)
+        after = _moon_declination_deg(dt_local + timedelta(hours=6), ts, eph)
+    except Exception:
+        return ""
+    return "ascending" if after >= before else "descending"
+
+
 def _refine_node_crossing(lo: datetime, hi: datetime, ts, eph) -> datetime:
     lo_val = _moon_latitude_deg(lo, ts, eph)
     hi_val = _moon_latitude_deg(hi, ts, eph)
@@ -278,7 +303,7 @@ def _refine_node_crossing(lo: datetime, hi: datetime, ts, eph) -> datetime:
     return hi
 
 
-def _refine_perigee(center: datetime, ts, eph) -> datetime:
+def _refine_distance_extreme(center: datetime, ts, eph, *, find_min: bool) -> datetime:
     lo = center - timedelta(hours=6)
     hi = center + timedelta(hours=6)
     for _ in range(24):
@@ -289,11 +314,20 @@ def _refine_perigee(center: datetime, ts, eph) -> datetime:
         m2 = hi - third
         d1 = _moon_distance_km(m1, ts, eph)
         d2 = _moon_distance_km(m2, ts, eph)
-        if d1 <= d2:
+        prefer_left = d1 <= d2 if find_min else d1 >= d2
+        if prefer_left:
             hi = m2
         else:
             lo = m1
     return lo + ((hi - lo) / 2)
+
+
+def _refine_perigee(center: datetime, ts, eph) -> datetime:
+    return _refine_distance_extreme(center, ts, eph, find_min=True)
+
+
+def _refine_apogee(center: datetime, ts, eph) -> datetime:
+    return _refine_distance_extreme(center, ts, eph, find_min=False)
 
 
 def _build_off_intervals(start_local: datetime, end_local: datetime, ts, eph) -> list[_Interval]:
@@ -316,11 +350,14 @@ def _build_off_intervals(start_local: datetime, end_local: datetime, ts, eph) ->
 
         if (prev_lat == 0.0) or (cur_lat == 0.0) or (prev_lat < 0.0 < cur_lat) or (prev_lat > 0.0 > cur_lat):
             event = _refine_node_crossing(prev, cur, ts, eph)
-            intervals.append(_Interval(event - _MOON_NODE_WINDOW, event + _MOON_NODE_WINDOW, "off"))
+            intervals.append(_Interval(event - _MOON_NODE_WINDOW, event + _MOON_NODE_WINDOW, "lunar_node"))
 
         if prev_prev_dist is not None and prev_dist <= prev_prev_dist and prev_dist <= cur_dist:
             event = _refine_perigee(prev, ts, eph)
-            intervals.append(_Interval(event - _PERIGEE_WINDOW, event + _PERIGEE_WINDOW, "off"))
+            intervals.append(_Interval(event - _PERIGEE_WINDOW, event + _PERIGEE_WINDOW, "perigee"))
+        elif prev_prev_dist is not None and prev_dist >= prev_prev_dist and prev_dist >= cur_dist:
+            event = _refine_apogee(prev, ts, eph)
+            intervals.append(_Interval(event - _APOGEE_WINDOW, event + _APOGEE_WINDOW, "apogee"))
 
         prev = cur
         prev_lat = cur_lat
@@ -372,6 +409,8 @@ def _apply_off_overlays(day_segments: list[dict[str, object]], day_start: dateti
             mid["start"] = _format_hm(max(seg_start, overlap_start))
             mid["end"] = "24:00" if overlap_end >= day_end else _format_hm(overlap_end)
             mid["kind"] = "off"
+            mid["off_kind"] = off.kind
+            mid["off_label"] = _OFF_PERIOD_LABELS.get(off.kind, "Rest")
             mid["sign"] = "Rest"
             mid["element"] = "Pause"
             mid["plant_part"] = "Rest"
@@ -385,6 +424,36 @@ def _apply_off_overlays(day_segments: list[dict[str, object]], day_start: dateti
                 next_segments.append(right)
         segments = next_segments
     return segments
+
+
+def _lunar_flags_for_day(day_start: datetime, day_end: datetime, off_intervals: list[_Interval]) -> dict[str, object]:
+    events: list[dict[str, str]] = []
+    flags = {
+        "lunar_node": False,
+        "perigee": False,
+        "apogee": False,
+    }
+    for interval in off_intervals:
+        overlap_start = max(interval.start_local, day_start)
+        overlap_end = min(interval.end_local, day_end)
+        if overlap_end <= overlap_start:
+            continue
+        if interval.kind in flags:
+            flags[interval.kind] = True
+        events.append(
+            {
+                "type": interval.kind,
+                "label": _OFF_PERIOD_LABELS.get(interval.kind, "Rest"),
+                "start": _format_hm(overlap_start),
+                "end": "24:00" if overlap_end >= day_end else _format_hm(overlap_end),
+            }
+        )
+    return {
+        "lunar_node": flags["lunar_node"],
+        "perigee": flags["perigee"],
+        "apogee": flags["apogee"],
+        "lunar_events": events,
+    }
 
 
 def _segment_bounds_for_day(day_date: date, seg: dict[str, object], tzinfo: ZoneInfo) -> tuple[datetime, datetime] | None:
@@ -429,6 +498,8 @@ def _build_segment_timeline(days: list[dict[str, object]], tzinfo: ZoneInfo) -> 
                     "color": str(seg.get("color") or ""),
                     "accent": str(seg.get("accent") or ""),
                     "kind": str(seg.get("kind") or "sign"),
+                    "off_kind": str(seg.get("off_kind") or ""),
+                    "off_label": str(seg.get("off_label") or ""),
                 }
             )
     timeline.sort(key=lambda item: item["start_local"])
@@ -483,23 +554,26 @@ def _build_calendar(month_anchor: date, tzinfo: ZoneInfo, ts, eph, constellation
                 }
             )
 
-        day_segments = _apply_off_overlays(day_segments, day_start, day_end, off_intervals)
+        overlay_intervals = [iv for iv in off_intervals if iv.kind in _OFF_OVERLAY_KINDS]
+        day_segments = _apply_off_overlays(day_segments, day_start, day_end, overlay_intervals)
+        lunar_flags = _lunar_flags_for_day(day_start, day_end, off_intervals)
 
-        days.append(
-            {
-                "date": day_date.isoformat(),
-                "day": day_date.day,
-                "weekday": _WEEKDAYS[(day_date.weekday() + 1) % 7],
-                "in_month": day_date.month == month_anchor.month,
-                "is_today": day_date == today,
-                "segments": day_segments,
-                "dominant_sign": (dominant_sign or {}).get("name", ""),
-                "dominant_element": (dominant_sign or {}).get("element", ""),
-                "dominant_plant_part": (dominant_sign or {}).get("plant_part", ""),
-                "dominant_color": (dominant_sign or {}).get("color", "#d8d8d8"),
-                "dominant_accent": (dominant_sign or {}).get("accent", "#f2f2f2"),
-            }
-        )
+        day_payload = {
+            "date": day_date.isoformat(),
+            "day": day_date.day,
+            "weekday": _WEEKDAYS[(day_date.weekday() + 1) % 7],
+            "in_month": day_date.month == month_anchor.month,
+            "is_today": day_date == today,
+            "segments": day_segments,
+            "dominant_sign": (dominant_sign or {}).get("name", ""),
+            "dominant_element": (dominant_sign or {}).get("element", ""),
+            "dominant_plant_part": (dominant_sign or {}).get("plant_part", ""),
+            "dominant_color": (dominant_sign or {}).get("color", "#d8d8d8"),
+            "dominant_accent": (dominant_sign or {}).get("accent", "#f2f2f2"),
+            "moon_direction": _moon_direction(day_start + timedelta(hours=12), ts, eph),
+        }
+        day_payload.update(lunar_flags)
+        days.append(day_payload)
 
     return days, segments
 
@@ -555,6 +629,9 @@ def get_biodynamic_payload(target_date: date | None = None) -> dict[str, object]
                     "plant_part": segment["plant_part"],
                     "color": segment["color"],
                     "accent": segment["accent"],
+                    "kind": segment["kind"],
+                    "off_kind": segment["off_kind"],
+                    "off_label": segment["off_label"],
                 }
             )
             if len(upcoming) >= 3:
@@ -575,6 +652,10 @@ def get_biodynamic_payload(target_date: date | None = None) -> dict[str, object]
                     "plant_part": str(current_segment.get("plant_part") or "") if current_segment else "",
                     "color": str(current_segment.get("color") or "") if current_segment else "",
                     "accent": str(current_segment.get("accent") or "") if current_segment else "",
+                    "kind": str(current_segment.get("kind") or "") if current_segment else "",
+                    "off_kind": str(current_segment.get("off_kind") or "") if current_segment else "",
+                    "off_label": str(current_segment.get("off_label") or "") if current_segment else "",
+                    "moon_direction": _moon_direction(now_local, ts, eph),
                     "window_start": current_segment["start_local"].isoformat() if current_segment else "",
                     "window_end": current_segment["end_local"].isoformat() if current_segment else "",
                     "window_start_hm": str(current_segment.get("start_hm") or "") if current_segment else "",

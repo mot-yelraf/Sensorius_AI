@@ -69,13 +69,60 @@ def test_build_summary_text_includes_hints_then_astral(monkeypatch):
 
     assert "Biodynamic Hints" in text
     assert "Suggestion: favor fruiting, seed-setting, and ripening observations." in text
-    assert "use the biodynamic window as a planning hint" in text
+    assert "prioritize actual plant health" in text
     assert "Astral Notes" in text
     assert "Astral location unavailable." in text
     assert "Biodynamic: Leo Moon | Fire / Fruit" in text
     assert "Zodiac: Leo" in text
     assert "24 hr Metrics for 2026-03-07" not in text
     assert text.index("Biodynamic Hints") < text.index("Astral Notes")
+
+
+def test_build_hint_lines_supports_stage_lunar_flags_and_plant_state():
+    service = saiDailySummary.DailySummaryService(
+        settings=_FakeSettings(),
+        data_logger=_FakeLogger(),
+    )
+    lines = service._build_hint_lines(
+        date(2026, 3, 8),
+        {
+            "dominant_sign": "Virgo",
+            "dominant_plant_part": "Root",
+            "moon_direction": "descending",
+            "lunar_node": True,
+            "perigee": "true",
+        },
+        crop_stage="seedling",
+        plant_state={"stress": True, "vpd": "2.1"},
+    )
+
+    assert "Suggestion: favorable for transplanting, root establishment, and reducing transplant shock." in lines
+    assert any(line.startswith("Timing: descending Moon") for line in lines)
+    assert any(line.startswith("Caution: biodynamic calendars often treat lunar nodes") for line in lines)
+    assert any(line.startswith("Caution: perigee") for line in lines)
+    assert any(line.startswith("Plant Condition: visible or measured stress") for line in lines)
+    assert any(line.startswith("Plant Condition: elevated VPD") for line in lines)
+    assert lines[-1].startswith("Suggestion: prioritize actual plant health")
+
+
+def test_build_hint_lines_falls_back_for_unknown_stage_and_part():
+    service = saiDailySummary.DailySummaryService(
+        settings=_FakeSettings(),
+        data_logger=_FakeLogger(),
+    )
+
+    leaf_lines = service._build_hint_lines(
+        date(2026, 3, 8),
+        {"dominant_sign": "Cancer", "dominant_plant_part": "Leaf"},
+        crop_stage="unknown",
+    )
+    unknown_lines = service._build_hint_lines(
+        date(2026, 3, 8),
+        {"dominant_sign": "Ophiuchus", "dominant_plant_part": ""},
+    )
+
+    assert "Suggestion: favor irrigation timing, canopy recovery, and leafy-growth observations." in leaf_lines
+    assert "Suggestion: use Ophiuchus Moon as a planning cue rather than a rigid rule." in unknown_lines
 
 
 def test_ensure_summary_for_date_writes_once(monkeypatch):
@@ -109,7 +156,12 @@ def test_ensure_summaries_for_window_refreshes_today_only_when_future_rows_are_c
     monkeypatch.setattr(saiDailySummary, "get_biodynamic_payload", lambda anchor: {"ok": False, "reason": "unavailable"})
     logger = _FakeLogger()
     logger.saved["2026-03-08"] = "Biodynamic Hints\nold today\n\nAstral Notes\nold today"
-    logger.saved["2026-03-09"] = "Biodynamic Hints\nfuture intact\n\nAstral Notes\nfuture intact"
+    logger.saved["2026-03-09"] = (
+        "Biodynamic Hints\n"
+        "Suggestion: no biodynamic hint available for this day.\n\n"
+        "Astral Notes\n"
+        "future intact"
+    )
 
     service = saiDailySummary.DailySummaryService(
         settings=_FakeSettings(),
@@ -120,7 +172,7 @@ def test_ensure_summaries_for_window_refreshes_today_only_when_future_rows_are_c
 
     assert writes == 2
     assert "old today" not in logger.saved["2026-03-08"]
-    assert logger.saved["2026-03-09"] == "Biodynamic Hints\nfuture intact\n\nAstral Notes\nfuture intact"
+    assert "future intact" in logger.saved["2026-03-09"]
     assert "Biodynamic Hints" in logger.saved["2026-03-10"]
     assert "Astral Notes" in logger.saved["2026-03-10"]
 
