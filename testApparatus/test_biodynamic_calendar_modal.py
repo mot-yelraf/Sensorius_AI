@@ -72,20 +72,32 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert ".bio-day.out{opacity:.62;filter:saturate(.42) brightness(1.02);}" in text
     assert ".bio-day-num{font-size:.66rem;font-weight:800;line-height:1;display:inline-flex;align-items:center;justify-content:center;min-width:1.45em;height:1.45em;border-radius:999px;background:rgba(255,253,246,.88);border:1px solid rgba(39,49,58,.18);color:#27313a;box-shadow:0 1px 2px rgba(39,49,58,.18);}" in text
     assert ".bio-print-day-num{font-size:9pt;font-weight:800;line-height:1;display:inline-flex;align-items:center;justify-content:center;min-width:1.45em;height:1.45em;border-radius:999px;background:rgba(255,253,246,.9);border:1px solid rgba(39,49,58,.18);color:#27313a;}" in text
-    assert ".bio-status{display:flex;align-items:center;justify-content:center;gap:.14rem;width:min(100%,156px);align-self:center;padding:.24rem .3rem;border-radius:8px;border:0;background:#fffdf6;overflow:hidden;box-sizing:border-box;}" in text
-    assert ".bio-main{display:flex;flex-direction:column;align-items:center;gap:.08rem;min-width:0;flex:1 1 auto;overflow:hidden;text-align:center;}" in text
+    assert ".bio-status{" not in text
+    assert ".bio-main{display:flex;flex-direction:column;align-items:center;gap:.08rem;width:100%;align-self:center;min-width:0;overflow:hidden;text-align:center;}" in text
+    assert "#bioBox .astro-title,#bioCurrentSign,#bioCurrentElement,.bio-window,#bioUpcoming{width:100%;box-sizing:border-box;}" in text
+    assert "<div class='bio-main' id='bioCurrentPanel'>" in text
     assert "#bioCurrentBadge" not in text
     assert "openBtn.style.background = color;" in text
     assert "openBtn.style.color = textOnHex(color);" in text
     assert "function renderBiodynamicPrintView(){" in text
     assert "const textOnHex = (hex) => {" in text
-    assert "const biodynamicMainTextColor = (item) => {" in text
-    assert "if ((element === 'fire' && part === 'fruit') || (element === 'water' && part === 'leaf')) return '#fff';" in text
-    assert "if ((element === 'earth' && part === 'root') || (element === 'air' && part === 'flower')) return '#27313a';" in text
-    assert "const mainTextColor = biodynamicMainTextColor(cur);" in text
+    assert "const biodynamicIsLightRest = (item) => {" in text
+    assert "return sign === 'rest' || element === 'pause' || part === 'rest' || kind === 'off';" in text
+    assert "const biodynamicTextColor = (item) => biodynamicIsLightRest(item) ? '#27313a' : '#fff';" in text
+    assert "const clearBiodynamicTextContrast = (els) => {" in text
+    assert "const applyBiodynamicTextContrast = (els, fallbackColor, gradient) => {" in text
+    assert "el.style.backgroundClip = 'text';" in text
+    assert "el.style.webkitBackgroundClip = 'text';" in text
+    assert "el.style.webkitTextFillColor = 'transparent';" in text
+    assert "const buildRollingTextGradient = (payload, currentIso) => {" in text
+    assert "const textColor = biodynamicTextColor(seg);" in text
+    assert "stops.push(`${textColor} ${startPct}%`, `${textColor} ${endPct}%`);" in text
+    assert "const mainTextColor = biodynamicTextColor(cur);" in text
+    assert "const mainTextGradient = buildRollingTextGradient(data, cur.timestamp);" in text
+    assert "applyBiodynamicTextContrast([titleEl, signEl, elementEl, dateEl, windowEl, upcomingEl], mainTextColor, mainTextGradient);" in text
     assert "const titleEl = boxEl.querySelector('.astro-title');" in text
-    assert "[titleEl, signEl, elementEl, dateEl, windowEl, upcomingEl].forEach((el) => { if (el) el.style.color = ''; });" in text
-    assert "[titleEl, signEl, elementEl, dateEl, windowEl, upcomingEl].forEach((el) => { if (el) el.style.color = mainTextColor; });" in text
+    assert "clearBiodynamicTextContrast([titleEl, signEl, elementEl, dateEl, windowEl, upcomingEl]);" in text
+    assert "panelEl.style.background = 'transparent';" in text
     assert "panelEl.style.borderColor = 'transparent';" in text
     assert ".bio-print-block{font-size:9pt;line-height:1.35;color:#27313a;white-space:pre-wrap;overflow-wrap:anywhere;min-height:1.2em;text-align:left;}" in text
     assert ".bio-summary-card .bio-summary-output{height:78px;max-height:78px;}" in text
