@@ -102,6 +102,13 @@
   max-width: 340px;
   margin-inline: auto;
 }
+#setupPiModal .field-grid-astral {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .75rem 1rem;
+  max-width: 760px;
+  margin-inline: auto;
+}
 #setupPiModal .field-grid-advanced {
   display: grid;
   grid-template-columns: repeat(3, minmax(220px, 1fr));
@@ -399,6 +406,10 @@
     grid-template-columns: 1fr;
     max-width: 100%;
   }
+  #setupPiModal .field-grid-astral {
+    grid-template-columns: 1fr;
+    max-width: 100%;
+  }
   #setupPiModal .field-grid-advanced {
     grid-template-columns: 1fr;
     max-width: 100%;
@@ -500,7 +511,7 @@
               </div>
 
               <div class="subhead">Astral</div>
-              <div class="field-grid-stack">
+              <div class="field-grid-astral">
                 <div class="field-stack">
                   <label for="astral_lat">Latitude</label>
                   <input type="text" id="astral_lat" name="astral_lat" value="{{ astral_lat | default('') }}" placeholder="40.0150" title="Enter manual coordinates. To reposition lat/long both fields must be empty, then save.">
@@ -509,6 +520,12 @@
                   <label for="astral_lon">Longitude</label>
                   <input type="text" id="astral_lon" name="astral_lon" value="{{ astral_lon | default('') }}" placeholder="-105.2705" title="Enter manual coordinates. To reposition lat/long both fields must be empty, then save.">
                 </div>
+                <div class="field-stack">
+                  <label for="astral_altitude">Altitude (m)</label>
+                  <input type="text" id="astral_altitude" name="astral_altitude" value="{{ astral_altitude | default('') }}" placeholder="1600" inputmode="decimal" title="Enter altitude in meters.">
+                </div>
+              </div>
+              <div class="field-grid-stack">
                 <div class="field-stack">
                   <label for="astral_sunrise">Sunrise</label>
                   <input type="text" id="astral_sunrise" value="{{ astral_sunrise | default('--') }}" readonly>

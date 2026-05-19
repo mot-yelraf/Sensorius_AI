@@ -644,6 +644,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             resolved = s.resolve_astral_location(persist_if_auto=False, timeout_sec=2.5)
             resolved_lat = resolved.get("lat")
             resolved_lon = resolved.get("lon")
+            resolved_altitude = _safe_float(resolved.get("altitude"))
             resolved_tz = str(resolved.get("tz") or "").strip()
             if resolved_lat is None or resolved_lon is None or not resolved_tz:
                 return out
@@ -657,6 +658,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 latitude=resolved_lat,
                 longitude=resolved_lon,
             ).observer
+            if resolved_altitude is not None:
+                obs.elevation = resolved_altitude
 
             sun_map = _astral_sun(obs, date=now_local.date(), tzinfo=tzinfo)
             sunrise = sun_map.get("sunrise")
@@ -2699,6 +2702,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         )
         astral_lat = str(settings.get_setting("Astral", "LATITUDE", "") or "").strip()
         astral_lon = str(settings.get_setting("Astral", "LONGITUDE", "") or "").strip()
+        astral_altitude = str(settings.get_setting("Astral", "ALTITUDE", "") or "").strip()
         astral_sunrise = "--"
         astral_sunset = "--"
         astral_daylight = "--"
@@ -2749,6 +2753,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         resolved = settings.resolve_astral_location(persist_if_auto=True, timeout_sec=2.5)
         resolved_lat = resolved.get("lat")
         resolved_lon = resolved.get("lon")
+        resolved_altitude = _safe_float(resolved.get("altitude"))
         resolved_tz = str(resolved.get("tz") or "").strip()
         tz_options = _timezone_suggestions(
             lon_hint=_safe_float(resolved_lon),
@@ -2771,7 +2776,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     latitude=resolved_lat,
                     longitude=resolved_lon,
                 )
-                sun_map = _astral_sun(loc.observer, date=now_local.date(), tzinfo=tzinfo)
+                observer = loc.observer
+                if resolved_altitude is not None:
+                    observer.elevation = resolved_altitude
+                sun_map = _astral_sun(observer, date=now_local.date(), tzinfo=tzinfo)
                 sunrise_dt = sun_map.get("sunrise")
                 sunset_dt = sun_map.get("sunset")
                 noon_dt = sun_map.get("noon")
@@ -2803,6 +2811,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             display_style=display_style,
             astral_lat=astral_lat,
             astral_lon=astral_lon,
+            astral_altitude=astral_altitude,
             astral_sunrise=astral_sunrise,
             astral_sunset=astral_sunset,
             astral_daylight=astral_daylight,
@@ -6164,6 +6173,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         sensornetwork_use_tls = str(form.get("sensornetwork_use_tls", "") or "").strip().lower() in ("1", "true", "on", "yes")
         raw_lat = str(form.get("astral_lat", "") or "").strip()
         raw_lon = str(form.get("astral_lon", "") or "").strip()
+        raw_altitude = str(form.get("astral_altitude", "") or "").strip()
         gauge_size = str(form.get("gauge_size", "") or "").strip()
         display_style = str(form.get("display_style", "") or "").strip()
 
@@ -6193,7 +6203,19 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         lat_to_store = None
         lon_to_store = None
+        altitude_to_store = None
         astral_tz_to_store = None
+        if "astral_altitude" in form:
+            if raw_altitude:
+                try:
+                    altitude_val = float(raw_altitude)
+                except Exception:
+                    return _modal_error_response(request, "Altitude must be a numeric value in meters.", status_code=400)
+                if not (-500.0 <= altitude_val <= 10000.0):
+                    return _modal_error_response(request, "Altitude must be between -500 and 10000 meters.", status_code=400)
+                altitude_to_store = f"{altitude_val:.2f}"
+            else:
+                altitude_to_store = ""
         if not raw_lat and not raw_lon:
             lat_to_store = ""
             lon_to_store = ""
@@ -6233,6 +6255,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             settings.replace_setting("Astral", "LATITUDE", lat_to_store)
         if lon_to_store is not None:
             settings.replace_setting("Astral", "LONGITUDE", lon_to_store)
+        if altitude_to_store is not None:
+            settings.replace_setting("Astral", "ALTITUDE", altitude_to_store)
         settings.replace_setting("Display", "gauge_size", gauge_size)
         settings.replace_setting("Display", "display_style", display_style)
 

@@ -535,11 +535,14 @@ class saiSettings:
         """
         Resolve Astral location from manual settings or IP geolocation fallback.
         When persist_if_auto is True, successful IP resolution is written to
-        [Astral].LATITUDE/LONGITUDE (and TIMEZONE if empty).
+        [Astral].LATITUDE/LONGITUDE (and TIMEZONE if empty). Manual
+        [Astral].ALTITUDE is returned when configured.
         """
         resolved_tz = str(self.get_setting("Astral", "TIMEZONE", "") or "").strip() or str(self.get_setting("Time", "TZ", "") or "").strip()
         resolved_lat = None
         resolved_lon = None
+        cfg_altitude = self._safe_float(self.get_setting("Astral", "ALTITUDE", ""))
+        resolved_altitude = cfg_altitude if cfg_altitude is not None and -500.0 <= cfg_altitude <= 10000.0 else None
         source = "none"
 
         cfg_lat = self._safe_float(self.get_setting("Astral", "LATITUDE", ""))
@@ -582,6 +585,7 @@ class saiSettings:
         return {
             "lat": resolved_lat,
             "lon": resolved_lon,
+            "altitude": resolved_altitude,
             "tz": resolved_tz,
             "source": source,
         }

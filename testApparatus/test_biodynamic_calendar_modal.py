@@ -74,16 +74,35 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert ".bio-print-day-num{font-size:9pt;font-weight:800;line-height:1;display:inline-flex;align-items:center;justify-content:center;min-width:1.45em;height:1.45em;border-radius:999px;background:rgba(255,253,246,.9);border:1px solid rgba(39,49,58,.18);color:#27313a;}" in text
     assert ".bio-status{" not in text
     assert ".bio-main{display:flex;flex-direction:column;align-items:center;gap:.08rem;width:100%;align-self:center;min-width:0;overflow:hidden;text-align:center;}" in text
+    assert "#bioCurrentSign{font-size:.74rem;" in text
+    assert "#bioCurrentElement{font-size:.74rem;" in text
+    assert "#bioDateLine{font-size:.74rem;" in text
     assert "#bioBox .astro-title,#bioCurrentSign,#bioCurrentElement,.bio-window,#bioUpcoming{width:100%;box-sizing:border-box;}" in text
     assert "<div class='bio-main' id='bioCurrentPanel'>" in text
+    assert text.index("<div class='astro-title'>Biodynamic Calendar</div>") < text.index("<div class='bio-window' id='bioDateLine'>Loading biodynamic date...</div>") < text.index("<div class='bio-main' id='bioCurrentPanel'>")
+    assert text.index("<div class='astro-box' id='moonBox' aria-live='polite'>") < text.index("<div class='astro-box' id='sunBox' aria-live='polite'>")
     assert "#bioCurrentBadge" not in text
     assert "openBtn.style.background = color;" in text
     assert "openBtn.style.color = textOnHex(color);" in text
+    assert "weekday: 'long'," in text
+    assert "const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];" in text
+    assert "return `${parts.weekday || '--'}, ${monthName} ${parts.day}, ${parts.year}`;" in text
+    assert "const buildBiodynamicWindowText = (payload, currentIso, current) => {" in text
+    assert "return `${sign} Moon: ${fmtHm(seg && seg.start)} to ${fmtHm(seg && seg.end)}`;" in text
+    assert "return rows.length ? rows.join('\\\\n') : `${sign} Moon: ${fmtIsoHm(current && current.window_start)} to ${fmtIsoHm(current && current.window_end)}`;" in text
+    assert "dateEl.textContent = fmtIsoDate(cur.timestamp);" in text
+    assert "windowEl.textContent = buildBiodynamicWindowText(data, cur.timestamp, cur);" in text
+    assert "dateEl.textContent = `Current date: ${fmtIsoDate(cur.timestamp)}`;" not in text
+    assert "windowEl.textContent = `Current window: ${fmtIsoHm(cur.window_start)} to ${fmtIsoHm(cur.window_end)}`;" not in text
     assert "function renderBiodynamicPrintView(){" in text
     assert "const textOnHex = (hex) => {" in text
+    assert "const darkText = '#27313a';" in text
+    assert "return contrast(luminance, darkLuminance) >= contrast(luminance, 1) ? darkText : '#fff';" in text
     assert "const biodynamicIsLightRest = (item) => {" in text
     assert "return sign === 'rest' || element === 'pause' || part === 'rest' || kind === 'off';" in text
-    assert "const biodynamicTextColor = (item) => biodynamicIsLightRest(item) ? '#27313a' : '#fff';" in text
+    assert "const biodynamicTextColor = (item) => {" in text
+    assert "const bgColor = String((item && (item.accent || item.dominant_accent || item.color)) || '');" in text
+    assert "return bgColor ? textOnHex(bgColor) : '#fff';" in text
     assert "const clearBiodynamicTextContrast = (els) => {" in text
     assert "const applyBiodynamicTextContrast = (els, fallbackColor, gradient) => {" in text
     assert "el.style.backgroundClip = 'text';" in text

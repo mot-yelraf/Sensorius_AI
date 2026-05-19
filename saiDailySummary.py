@@ -308,7 +308,12 @@ class DailySummaryService:
                 else:
                     tzinfo = ZoneInfo(tz_name)
                     loc = LocationInfo(name="Sensorius", region="", timezone=tz_name, latitude=float(lat), longitude=float(lon))
-                    sun_map = _astral_sun(loc.observer, date=summary_date, tzinfo=tzinfo)
+                    observer = loc.observer
+                    try:
+                        observer.elevation = float(resolved.get("altitude") or 0.0)
+                    except Exception:
+                        observer.elevation = 0.0
+                    sun_map = _astral_sun(observer, date=summary_date, tzinfo=tzinfo)
                     sunrise = sun_map.get("sunrise")
                     sunset = sun_map.get("sunset")
                     noon = sun_map.get("noon")

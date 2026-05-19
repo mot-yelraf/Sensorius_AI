@@ -762,7 +762,12 @@ class SwitchController:
                 latitude=float(resolved["lat"]),
                 longitude=float(resolved["lon"]),
             )
-            s = _astral_sun(loc.observer, date=now_local.date(), tzinfo=tz)
+            observer = loc.observer
+            try:
+                observer.elevation = float(resolved.get("altitude") or 0.0)
+            except Exception:
+                observer.elevation = 0.0
+            s = _astral_sun(observer, date=now_local.date(), tzinfo=tz)
             sunrise_dt = s.get("sunrise")
             sunset_dt = s.get("sunset")
             if sunrise_dt is None or sunset_dt is None:

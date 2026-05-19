@@ -85,7 +85,7 @@ System Settings in the web UI now allow saving:
 - Home Assistant integration settings
 - FarmOS integration settings (`httpx` backend)
 - Time Zone (`Time.TZ`)
-- Astral Latitude/Longitude (`Astral.LATITUDE`, `Astral.LONGITUDE`)
+- Astral Latitude/Longitude/Altitude (`Astral.LATITUDE`, `Astral.LONGITUDE`, `Astral.ALTITUDE`)
 - Gauge Size and Display Style
 
 Time Zone entry supports suggestion options from available IANA zones (`zoneinfo`), prioritized using Astral location when available.

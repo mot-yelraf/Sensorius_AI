@@ -497,6 +497,16 @@ def test_build_picow_settings_updates_rewrites_ip_broker_to_hub_hostname(monkeyp
     assert {"section": "MQTT", "key": "BROKER", "value": "sensoria-hub-0.local"} in updates
 
 
+def test_system_settings_template_has_astral_altitude_field():
+    source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
+    text = source.read_text(encoding="utf-8")
+
+    assert 'class="field-grid-astral"' in text
+    assert '<label for="astral_altitude">Altitude (m)</label>' in text
+    assert 'id="astral_altitude" name="astral_altitude"' in text
+    assert text.index('id="astral_lat"') < text.index('id="astral_lon"') < text.index('id="astral_altitude"')
+
+
 @pytest.mark.asyncio
 async def test_submit_pi_setup_blank_astral_fields_clear_saved_astral_location(tmp_path, monkeypatch):
     app = await _build_route_app_with_settings(
@@ -506,6 +516,7 @@ async def test_submit_pi_setup_blank_astral_fields_clear_saved_astral_location(t
             "Astral": {
                 "LATITUDE": "40.015000",
                 "LONGITUDE": "-105.270500",
+                "ALTITUDE": "1624.00",
                 "TIMEZONE": "America/Denver",
             }
         },
@@ -520,6 +531,7 @@ async def test_submit_pi_setup_blank_astral_fields_clear_saved_astral_location(t
                 "httpport": "8000",
                 "astral_lat": "",
                 "astral_lon": "",
+                "astral_altitude": "",
                 "gauge_size": "medium",
                 "display_style": "grid",
             },
@@ -530,6 +542,7 @@ async def test_submit_pi_setup_blank_astral_fields_clear_saved_astral_location(t
     stored = _RouteFakeSaiSettings.STORED_SETTINGS
     assert stored["Astral"]["LATITUDE"] == ""
     assert stored["Astral"]["LONGITUDE"] == ""
+    assert stored["Astral"]["ALTITUDE"] == ""
     assert stored["Astral"]["TIMEZONE"] == ""
 
 
@@ -542,6 +555,7 @@ async def test_submit_pi_setup_partial_blank_astral_fields_return_error(tmp_path
             "Astral": {
                 "LATITUDE": "40.015000",
                 "LONGITUDE": "-105.270500",
+                "ALTITUDE": "1624.00",
                 "TIMEZONE": "America/Denver",
             }
         },
@@ -556,6 +570,7 @@ async def test_submit_pi_setup_partial_blank_astral_fields_return_error(tmp_path
                 "httpport": "8000",
                 "astral_lat": "",
                 "astral_lon": "-105.270500",
+                "astral_altitude": "1600",
                 "gauge_size": "medium",
                 "display_style": "grid",
             },
@@ -566,6 +581,35 @@ async def test_submit_pi_setup_partial_blank_astral_fields_return_error(tmp_path
     stored = _RouteFakeSaiSettings.STORED_SETTINGS
     assert stored["Astral"]["LATITUDE"] == "40.015000"
     assert stored["Astral"]["LONGITUDE"] == "-105.270500"
+    assert stored["Astral"]["ALTITUDE"] == "1624.00"
+    assert stored["Astral"]["TIMEZONE"] == "America/Denver"
+
+
+@pytest.mark.asyncio
+async def test_submit_pi_setup_persists_astral_altitude(tmp_path, monkeypatch):
+    app = await _build_route_app_with_settings(tmp_path, monkeypatch, {})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-pi-setup",
+            data={
+                "broker": "",
+                "tz": "America/Denver",
+                "httpport": "8000",
+                "astral_lat": "40.015",
+                "astral_lon": "-105.2705",
+                "astral_altitude": "1624",
+                "gauge_size": "medium",
+                "display_style": "grid",
+            },
+            follow_redirects=False,
+        )
+
+    assert res.status_code == 303
+    stored = _RouteFakeSaiSettings.STORED_SETTINGS
+    assert stored["Astral"]["LATITUDE"] == "40.015000"
+    assert stored["Astral"]["LONGITUDE"] == "-105.270500"
+    assert stored["Astral"]["ALTITUDE"] == "1624.00"
     assert stored["Astral"]["TIMEZONE"] == "America/Denver"
 
 
