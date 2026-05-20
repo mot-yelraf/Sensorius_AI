@@ -77,6 +77,8 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "#bioCurrentSign{font-size:.74rem;" in text
     assert "#bioCurrentElement{font-size:.74rem;" in text
     assert "#bioDateLine{font-size:.74rem;" in text
+    assert "#bioWindow{font-size:.70rem;" in text
+    assert "white-space:pre;overflow-wrap:normal;word-break:normal;font-variant-numeric:tabular-nums;" in text
     assert "#bioBox .astro-title,#bioCurrentSign,#bioCurrentElement,.bio-window,#bioUpcoming{width:100%;box-sizing:border-box;}" in text
     assert "<div class='bio-main' id='bioCurrentPanel'>" in text
     assert text.index("<div class='astro-title'>Biodynamic Calendar</div>") < text.index("<div class='bio-window' id='bioDateLine'>Loading biodynamic date...</div>") < text.index("<div class='bio-main' id='bioCurrentPanel'>")

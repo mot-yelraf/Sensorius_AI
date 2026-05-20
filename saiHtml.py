@@ -1422,7 +1422,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "#bioCurrentElement{font-size:.74rem;color:#49545d;line-height:1.02;}"
     yield ".bio-window{font-size:.58rem;line-height:1.15;text-align:center;color:#3c464d;min-height:1.35em;padding-top:.16rem;}"
     yield "#bioDateLine{font-size:.74rem;line-height:1.02;padding-top:0;}"
-    yield "#bioWindow{font-size:.56rem;line-height:1.15;min-height:2.65em;white-space:pre-line;overflow-wrap:anywhere;}"
+    yield "#bioWindow{font-size:.70rem;line-height:1.15;min-height:2.65em;white-space:pre;overflow-wrap:normal;word-break:normal;font-variant-numeric:tabular-nums;}"
     yield "#bioUpcoming{display:none;font-size:.55rem;line-height:1.1;text-align:center;color:#3c464d;min-height:1.3em;overflow-wrap:anywhere;}"
     yield ".bio-hint{padding-top:.2rem;font-size:.54rem;line-height:1.1;text-align:center;color:#6b7280;letter-spacing:.02em;}"
     yield ".bio-card-actions{margin-top:auto;padding-top:.35rem;display:flex;justify-content:center;}"
