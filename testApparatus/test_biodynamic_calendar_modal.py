@@ -86,6 +86,17 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "#bioCurrentBadge" not in text
     assert "openBtn.style.background = color;" in text
     assert "openBtn.style.color = textOnHex(color);" in text
+    assert "const bioNowParts = () => {" in text
+    assert "return { iso: d.toISOString(), dayKey: `${parts.year}-${parts.month}-${parts.day}`, minuteOfDay: Math.max(0, Math.min(1439, (hour24 * 60) + minute)) };" in text
+    assert "let __lastBiodynamicMinuteKey = '';" in text
+    assert "const biodynamicMinuteKey = `${now.getFullYear()}-${now.getMonth()+1}-${now.getDate()}-${now.getHours()}-${now.getMinutes()}`;" in text
+    assert "if (typeof drawBiodynamic === 'function') drawBiodynamic(biodynamicData);" in text
+    assert "const findActiveBiodynamicSegment = (payload, fallback) => {" in text
+    assert "if (nowParts.minuteOfDay >= startMin && nowParts.minuteOfDay < endMin) {" in text
+    assert "const fallbackCurrent = (data && data.current && typeof data.current === 'object') ? data.current : {};" in text
+    assert "const cur = findActiveBiodynamicSegment(data || {}, fallbackCurrent);" in text
+    assert "if (!data || !data.ok || !cur.sign) {" in text
+    assert "if (!data || !data.ok || !data.current || !data.current.sign) {" not in text
     assert "weekday: 'long'," in text
     assert "const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];" in text
     assert "return `${parts.weekday || '--'}, ${monthName} ${parts.day}, ${parts.year}`;" in text
