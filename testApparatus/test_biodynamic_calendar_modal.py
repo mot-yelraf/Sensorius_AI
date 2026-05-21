@@ -81,6 +81,10 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "white-space:pre;overflow-wrap:normal;word-break:normal;font-variant-numeric:tabular-nums;" in text
     assert "#bioBox .astro-title,#bioCurrentSign,#bioCurrentElement,.bio-window,#bioUpcoming{width:100%;box-sizing:border-box;}" in text
     assert "<div class='bio-main' id='bioCurrentPanel'>" in text
+    assert "<button type='button' class='bio-open-btn' id='bioOpenBtn' aria-label='Open biodynamic calendar' title='View Calendar'>" in text
+    assert "<div class='moon-view-toggle' role='group' aria-label='Moon view mode' title='Local sky view or Reference moon diagram'>" in text
+    assert "<button type='button' class='moon-view-btn active' id='moonViewLocal' data-moon-view='local' aria-pressed='true' title='Local sky view or Reference moon diagram'>Local</button>" in text
+    assert "<button type='button' class='moon-view-btn' id='moonViewReference' data-moon-view='reference' aria-pressed='false' title='Local sky view or Reference moon diagram'>Ref</button>" in text
     assert text.index("<div class='astro-title'>Biodynamic Calendar</div>") < text.index("<div class='bio-window' id='bioDateLine'>Loading biodynamic date...</div>") < text.index("<div class='bio-main' id='bioCurrentPanel'>")
     assert text.index("<div class='astro-box' id='moonBox' aria-live='polite'>") < text.index("<div class='astro-box' id='sunBox' aria-live='polite'>")
     assert "#bioCurrentBadge" not in text
