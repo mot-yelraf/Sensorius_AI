@@ -1091,6 +1091,56 @@ async def test_sensor_settings_modal_shows_read_only_system_altitude_for_support
     assert 'value="1624.0"' in html
 
 
+@pytest.mark.asyncio
+async def test_sensor_settings_modal_uses_fresh_system_altitude_for_local_avpd_sensor(tmp_path, monkeypatch):
+    app, _ingest, _system_root, sensor_root, _switch_root = await _build_app(
+        tmp_path,
+        monkeypatch,
+        _HubSettings(),
+    )
+    app.state.templates = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "avpd-i2c-1-sensorius-hub-3",
+        {
+            "Sensor": {
+                "TYPE": "pi",
+                "DEVICE": "avpd",
+                "SENSOR_ID": "avpd-i2c-1-sensorius-hub-3",
+                "LOCATION": "Sun Room",
+            },
+            "Calibration": {
+                "Device": {
+                    "TEMP_OFFSET": 0.0,
+                    "RH_OFFSET": 0.0,
+                }
+            },
+        },
+    )
+
+    class _FreshAltitudeSettings(_FakeSaiSettings):
+        def get_setting(self, section, key, default=None):
+            if section == "Astral" and key == "ALTITUDE":
+                return "1783"
+            return default
+
+    monkeypatch.setattr(saiWebRoutes, "saiSettings", _FreshAltitudeSettings)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get(
+            "/edit-sensor",
+            params={"sensor_id": "avpd-i2c-1-sensorius-hub-3", "embed": "1"},
+        )
+
+    assert res.status_code == 200
+    html = res.text
+    assert "System Altitude" in html
+    assert 'data-key="Calibration.Device.ALTITUDE_METERS"' in html
+    assert 'data-force-send="1"' in html
+    assert 'readonly aria-readonly="true"' in html
+    assert 'value="1783.0"' in html
+
+
 def test_switch_settings_modal_shows_nodus_firmware_version_in_settings_pane_title():
     env = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
     template = env.get_template("modals/switch_settings.html")

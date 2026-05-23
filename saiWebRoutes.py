@@ -6863,14 +6863,26 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         ]
 
     def _system_altitude_meters() -> float | None:
-        try:
-            raw = settings.get_setting("Astral", "ALTITUDE", "")
-            if raw is None or str(raw).strip() == "":
+        def _coerce_altitude(raw) -> float | None:
+            try:
+                if raw is None or str(raw).strip() == "":
+                    return None
+                altitude = float(raw)
+                return altitude if -500.0 <= altitude <= 10000.0 else None
+            except Exception:
                 return None
-            altitude = float(raw)
-            return altitude if -500.0 <= altitude <= 10000.0 else None
-        except Exception:
-            return None
+
+        for source in (
+            lambda: saiSettings(apply_live=False).get_setting("Astral", "ALTITUDE", ""),
+            lambda: settings.get_setting("Astral", "ALTITUDE", ""),
+        ):
+            try:
+                altitude = _coerce_altitude(source())
+                if altitude is not None:
+                    return altitude
+            except Exception:
+                continue
+        return None
 
     def _device_supports_altitude_calibration(device_kind: str) -> bool:
         return str(device_kind or "").strip().lower() in {
