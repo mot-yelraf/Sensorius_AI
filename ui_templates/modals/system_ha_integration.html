@@ -36,7 +36,7 @@
         <span>Password</span>
         <div style="display:flex; gap:8px; align-items:center;">
           <input type="password" id="ha-password" autocomplete="current-password" style="flex:1;">
-          <button type="button" class="button black" id="ha-pass-toggle" style="margin:0; padding:6px 10px;">
+          <button type="button" class="button black" id="ha-pass-toggle" title="Show password" style="margin:0; padding:6px 10px;">
             Show
           </button>
         </div>
@@ -45,8 +45,8 @@
 
     <div class="modal-footer"
          style="display:flex; justify-content:space-between; gap:12px; margin-top:18px;">
-      <button id="btn-ha-cancel" class="button black">Back</button>
-      <button id="btn-ha-save" class="button blue">Save</button>
+      <button id="btn-ha-cancel" class="button black" title="Go back">Back</button>
+      <button id="btn-ha-save" class="button blue" title="Save Home Assistant settings">Save</button>
     </div>
     <div id="ha-save-status" class="muted" style="margin-top:8px; min-height:1.2rem;"></div>
   </div>

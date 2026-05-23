@@ -1236,8 +1236,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 f"  <div id='{timer_editor_id}' class='switch-timer-editor' style='display:none;'>",
                 f"    <input id='{timer_input_id}' class='switch-timer-input' type='number' min='0' max='9999' step='30' inputmode='numeric' ",
                 f"      data-switch-ui-key='{timer_ui_key}' data-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' data-label='{label_norm}' value='{timer_seconds}' />",
-                f"    <button type='button' class='button blue switch-timer-confirm-btn' data-input-id='{timer_input_id}'>Ok</button>",
-                f"    <button type='button' class='button black switch-timer-cancel-btn' data-input-id='{timer_input_id}' data-editor-id='{timer_editor_id}'>Cancel</button>",
+                f"    <button type='button' class='button blue switch-timer-confirm-btn' title='Save timer' data-input-id='{timer_input_id}'>Ok</button>",
+                f"    <button type='button' class='button black switch-timer-cancel-btn' title='Cancel timer edit' data-input-id='{timer_input_id}' data-editor-id='{timer_editor_id}'>Cancel</button>",
                 f"  </div>",
                 f"</div>",
             ))
@@ -1606,8 +1606,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             f"    <span class='sensor-order-bars' aria-hidden='true'><span></span><span></span><span></span></span>"
             f"  </button>"
             f"  <div class='sensor-order-menu' role='menu' aria-label='Reorder {sidUpper} row'>"
-            f"    <button type='button' class='sensor-order-item' data-move='up' data-sensor-id='{sid}'>Move up</button>"
-            f"    <button type='button' class='sensor-order-item' data-move='down' data-sensor-id='{sid}'>Move down</button>"
+            f"    <button type='button' class='sensor-order-item' data-move='up' data-sensor-id='{sid}' title='Move {sidUpper} row up'>Move up</button>"
+            f"    <button type='button' class='sensor-order-item' data-move='down' data-sensor-id='{sid}' title='Move {sidUpper} row down'>Move down</button>"
             f"  </div>"
             f"</div>"
         )
@@ -5499,7 +5499,7 @@ def render_graph_modal(switch_installed=None):
     yield "      <h3 class='graph-pane-title'>Saved Graph Setups</h3>"
     yield "      <div id='graphSetupList'></div>"
     yield "      <div class='graph-left-footer'>"
-    yield "        <button id='graphSetupRemoveBtn' class='button red' onclick='removeGraphSetup()' disabled>Remove</button>"
+    yield "        <button id='graphSetupRemoveBtn' class='button red' title='Remove graph setup' onclick='removeGraphSetup()' disabled>Remove</button>"
     yield "      </div>"
     yield "    </div>"
     yield "    <div class='graph-right-pane'>"
@@ -5598,11 +5598,11 @@ def render_graph_modal(switch_installed=None):
     yield "      </div>"
     yield "    <div class='graph-actions'>"
     yield (
-        "      <button class='button black' "
+        "      <button class='button black' title='Close graph setup' "
         "onclick=\"document.getElementById('graphModal').style.display='none'\">Home</button>"
     )
-    yield "      <button id='graphSaveButton' class='button green' onclick='saveGraphSetup(event)'>Save</button>"
-    yield "      <button id='graphButton' class='button blue' onclick='loadGraph(event)'>"
+    yield "      <button id='graphSaveButton' class='button green' title='Save graph setup' onclick='saveGraphSetup(event)'>Save</button>"
+    yield "      <button id='graphButton' class='button blue' title='Load graph' onclick='loadGraph(event)'>"
     yield "        <span class='spinner' style='display:none;margin-right:6px;'></span>"
     yield "        <span class='button-text'>Graph It</span>"
     yield "      </button>"
@@ -5615,6 +5615,7 @@ def render_graph_modal(switch_installed=None):
     yield """
     <div id="fullscreen_graph_container">
         <button class='button black'
+                title="Close full screen graph"
                 onclick="closeFullscreenGraph()"
                 style="position:absolute;bottom:1rem;left:50%;transform:translateX(-50%);z-index:1002;">
             Close
@@ -5834,11 +5835,13 @@ def render_graph_modal(switch_installed=None):
       }
       GRAPH_SETUPS.forEach(item => {
         const btn = document.createElement('button');
+        const setupName = String(item.name || '');
         btn.type = 'button';
         btn.className = 'setup-item';
-        btn.setAttribute('data-name', String(item.name || ''));
-        btn.textContent = String(item.name || '');
-        btn.onclick = () => loadSavedGraphSetup(String(item.name || ''));
+        btn.setAttribute('data-name', setupName);
+        btn.title = setupName ? `Load graph setup ${setupName}` : 'Load graph setup';
+        btn.textContent = setupName;
+        btn.onclick = () => loadSavedGraphSetup(setupName);
         list.appendChild(btn);
       });
       markActiveSetup(GRAPH_ACTIVE_SETUP || GRAPH_LAST_USED || '');
