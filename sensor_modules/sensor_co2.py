@@ -30,6 +30,7 @@ class CO2Sensor(BaseSensor):
         self.temp_offset_c: float = 0.0
         self.rh_offset_pct: float = 0.0
         self.co2_offset_ppm: float = 0.0
+        self.altitude_meters = None
         self._load_calibration_offsets(settings)
         # --------------------------------------------
         self._co2_model = "SCD30"
@@ -65,6 +66,7 @@ class CO2Sensor(BaseSensor):
                     raise RuntimeError("SCD4x detected at 0x62 but adafruit_scd4x is unavailable")
                 self.scd30 = adafruit_scd4x.SCD4X(self.i2c)
                 self._co2_model = "SCD4x"
+                self._apply_configured_altitude()
                 try:
                     self.scd30.start_periodic_measurement()
                 except Exception:
@@ -74,11 +76,7 @@ class CO2Sensor(BaseSensor):
                     raise RuntimeError("SCD30 detected at 0x61 but adafruit_scd30 is unavailable")
                 self.scd30 = adafruit_scd30.SCD30(self.i2c)
                 self._co2_model = "SCD30"
-                # Altitude in meters (your site-specific value)
-                try:
-                    self.scd30.altitude = 1786
-                except Exception as exc:
-                    printDM(f"Could not set SCD30 altitude: {exc}", location=MODULE)
+                self._apply_configured_altitude()
 
             self.present = True
 
@@ -136,6 +134,7 @@ class CO2Sensor(BaseSensor):
         TEMP_OFFSET = 0.0
         RH_OFFSET   = 0.0
         CO2_OFFSET  = 0.0
+        ALTITUDE_METERS = 0.0
 
         [Calibration.Manual]
         TEMP_OFFSET = 0.0
@@ -195,6 +194,7 @@ class CO2Sensor(BaseSensor):
         self.temp_offset_c   = device_temp + manual_temp + system_temp
         self.rh_offset_pct   = device_rh   + manual_rh   + system_rh
         self.co2_offset_ppm  = device_co2  + manual_co2  + system_co2
+        self._load_device_altitude_meters(settings)
 
         calib_status = cal_root.get("CALIB_STATUS", "Not Calibrated")
 
@@ -204,9 +204,16 @@ class CO2Sensor(BaseSensor):
                 f"temp_offset_c={self.temp_offset_c:.3f}, "
                 f"rh_offset_pct={self.rh_offset_pct:.3f}, "
                 f"co2_offset_ppm={self.co2_offset_ppm:.3f}, "
+                f"altitude_meters={self.altitude_meters}, "
                 f"status='{calib_status}'",
                 location=MODULE,
             )
+
+    def _apply_configured_altitude(self) -> None:
+        self._apply_altitude_meters_to_driver(
+            getattr(self, "scd30", None),
+            f"CO2({getattr(self, '_co2_model', 'SCD')})",
+        )
 
     def reload_calibration_from_settings(self, settings) -> None:
         """
@@ -221,6 +228,7 @@ class CO2Sensor(BaseSensor):
         """
         try:
             self._load_calibration_offsets(settings)
+            self._apply_configured_altitude()
             if DEBUG:
                 printDM(
                     (
@@ -228,6 +236,7 @@ class CO2Sensor(BaseSensor):
                         f"temp_offset_c={self.temp_offset_c:.3f}, "
                         f"rh_offset_pct={self.rh_offset_pct:.3f}, "
                         f"co2_offset_ppm={self.co2_offset_ppm:.3f}, "
+                        f"altitude_meters={self.altitude_meters}, "
                     ),
                     location=MODULE,
                 )      

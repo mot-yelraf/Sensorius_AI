@@ -121,6 +121,7 @@ class VPDPlantSensor(BaseSensor):
             # Plant calibration offsets (APVPD)
             self.thp280_plant_temp_cal = 0.0
             self.thp280_plant_rh_cal = 0.0
+            self.altitude_meters = None
             self.is_calibrated = "Not Calibrated"
 
             # --- Load calibration from sensor.toml (new nested layout) ---
@@ -182,9 +183,7 @@ class VPDPlantSensor(BaseSensor):
                 (
                     "Baro-Pressure",
                     "hPa",
-                    lambda: self._clamp_if_number(
-                        self.thp280.pressure, 700, 1100
-                    ),
+                    lambda: self._altitude_adjusted_pressure_hpa(self.thp280.pressure),
                     None,
                 ),
 
@@ -246,9 +245,7 @@ class VPDPlantSensor(BaseSensor):
                 (
                     "Plant Baro-Pressure",
                     "hPa",
-                    lambda: self._clamp_if_number(
-                        self.thp280_plant.pressure, 700, 1100
-                    ),
+                    lambda: self._altitude_adjusted_pressure_hpa(self.thp280_plant.pressure),
                     None,
                 ),
             ]
@@ -285,6 +282,7 @@ class VPDPlantSensor(BaseSensor):
         RH_OFFSET   = 0.0        # ambient
         APVPD_TEMP_CAL_VAL = 0.0 # plant
         APVPD_RH_CAL_VAL   = 0.0 # plant
+        ALTITUDE_METERS = 0.0
 
         [Calibration.Manual]
         TEMP_OFFSET = 0.0        # ambient
@@ -349,6 +347,7 @@ class VPDPlantSensor(BaseSensor):
             device_cal.get("APVPD_RH_CAL_VAL"),
             cal_root.get("APVPD_RH_CAL_VAL"),
         )
+        self._load_device_altitude_meters(settings)
 
         # ---- Calibration status ----
         status_str = cal_root.get("CALIB_STATUS")
@@ -368,7 +367,8 @@ class VPDPlantSensor(BaseSensor):
                     f"ambient_TEMP_OFFSET={self.ambient_temp_offset_c:.3f}°C, "
                     f"ambient_RH_OFFSET={self.ambient_rh_offset_pct:.3f}%, "
                     f"plant_TEMP_OFFSET={self.thp280_plant_temp_cal:.3f}°C, "
-                    f"plant_RH_OFFSET={self.thp280_plant_rh_cal:.3f}%"
+                    f"plant_RH_OFFSET={self.thp280_plant_rh_cal:.3f}%, "
+                    f"altitude_meters={self.altitude_meters}"
                 ),
                 location=MODULE,
             )
@@ -394,7 +394,8 @@ class VPDPlantSensor(BaseSensor):
                         f"ambient_TEMP_OFFSET={self.ambient_temp_offset_c:.3f}°C, "
                         f"ambient_RH_OFFSET={self.ambient_rh_offset_pct:.3f}%, "
                         f"plant_TEMP_OFFSET={self.thp280_plant_temp_cal:.3f}°C, "
-                        f"plant_RH_OFFSET={self.thp280_plant_rh_cal:.3f}%"
+                        f"plant_RH_OFFSET={self.thp280_plant_rh_cal:.3f}%, "
+                        f"altitude_meters={self.altitude_meters}"
                     ),
                     location=MODULE,
                 )      

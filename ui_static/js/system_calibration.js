@@ -64,10 +64,13 @@ window.initSystemCalibrationModal = async function(modalEl) {
       const raw = input.value;
       const value = raw === "" ? 0 : Number(raw);
       if (!Number.isFinite(value)) return;
+      const forceSend = ["1", "true", "yes"].includes(String(input.dataset.forceSend || "").toLowerCase());
       const initialRaw = Object.prototype.hasOwnProperty.call(input.dataset, "initial") ? input.dataset.initial : input.defaultValue;
       const initial = initialRaw === "" ? 0 : Number(initialRaw);
-      if (Number.isFinite(initial) && Math.abs(value - initial) < 1e-9) return;
-      results.push({ key, value });
+      if (!forceSend && Number.isFinite(initial) && Math.abs(value - initial) < 1e-9) return;
+      const item = { key, value };
+      if (forceSend) item.force = true;
+      results.push(item);
     });
     return results;
   }

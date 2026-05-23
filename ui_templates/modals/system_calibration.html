@@ -75,6 +75,34 @@
                 </tbody>
               </table>
 
+              {% if device_offsets %}
+              <h4 style="margin-top:0.75rem;">Altitude Calibration</h4>
+              <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+                <tbody>
+                  {% for off in device_offsets %}
+                  <tr data-dev-cal-row="1">
+                    <td style="padding:0.25rem 0.5rem;">
+                      {{ off.label }}
+                      {% if off.unit %} ({{ off.unit }}){% endif %}
+                    </td>
+                    <td style="padding:0.25rem 0.5rem; text-align:right;">
+                      <input type="number"
+                             step="any"
+                             data-key="{{ off.key }}"
+                             data-initial="{{ off.value | default(0) }}"
+                             {% if off.force_send %}data-force-send="1"{% endif %}
+                             class="devCalInput"
+                             style="width:100%; text-align:right;"
+                             value="{{ off.value | default(0) }}"
+                             {% if off.readonly %}readonly aria-readonly="true"{% endif %}
+                             {% if off.title %}title="{{ off.title }}"{% endif %}>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              {% endif %}
+
               <div style="margin-top:0.75rem; display:flex; gap:0.75rem; flex-direction:column;">
                 <div style="display:flex; gap:0.75rem; align-items:center;">
                   <button type="button"
@@ -135,10 +163,13 @@
                              step="any"
                              data-key="{{ off.key }}"
                              data-initial="{{ off.value | default(0) }}"
+                             {% if off.force_send %}data-force-send="1"{% endif %}
                              class="devCalInput"
                              {% if off.key == "soil_ph_offset" %}id="soilPhOffsetInput"{% endif %}
                              style="width:100%; text-align:right;"
-                             value="{{ off.value | default(0) }}">
+                             value="{{ off.value | default(0) }}"
+                             {% if off.readonly %}readonly aria-readonly="true"{% endif %}
+                             {% if off.title %}title="{{ off.title }}"{% endif %}>
                     </td>
                   </tr>
                   {% endfor %}
@@ -174,9 +205,12 @@
                              step="any"
                              data-key="{{ off.key }}"
                              data-initial="{{ off.value | default(0) }}"
+                             {% if off.force_send %}data-force-send="1"{% endif %}
                              class="devCalInput"
                              style="width:100%; text-align:right;"
-                             value="{{ off.value | default(0) }}">
+                             value="{{ off.value | default(0) }}"
+                             {% if off.readonly %}readonly aria-readonly="true"{% endif %}
+                             {% if off.title %}title="{{ off.title }}"{% endif %}>
                     </td>
                   </tr>
                   {% endfor %}

@@ -198,6 +198,79 @@ class BaseSensor:
         except Exception:
             return None
 
+    @staticmethod
+    def _optional_float(value, default=None):
+        if value is None:
+            return default
+        if isinstance(value, str) and not value.strip():
+            return default
+        try:
+            return float(value)
+        except Exception:
+            return default
+
+    def _calibration_root_from_settings(self, settings) -> dict:
+        try:
+            if isinstance(settings, dict):
+                root = settings.get("Calibration", {}) or {}
+            elif hasattr(settings, "get"):
+                root = settings.get("Calibration", {}) or {}
+            elif hasattr(settings, "get_all_settings"):
+                root = (settings.get_all_settings() or {}).get("Calibration", {}) or {}
+            elif hasattr(settings, "settings"):
+                root = (getattr(settings, "settings", {}) or {}).get("Calibration", {}) or {}
+            else:
+                root = {}
+            return root if isinstance(root, dict) else {}
+        except Exception:
+            return {}
+
+    def _calibration_device_float(self, settings, key: str, default=None):
+        root = self._calibration_root_from_settings(settings)
+        device = root.get("Device") or root.get("device") or {}
+        if not isinstance(device, dict):
+            return default
+        return self._optional_float(device.get(key), default)
+
+    def _load_device_altitude_meters(self, settings) -> None:
+        self.altitude_meters = self._calibration_device_float(settings, "ALTITUDE_METERS", None)
+
+    def _apply_altitude_meters_to_driver(self, driver, label: str) -> bool:
+        altitude = self._optional_float(getattr(self, "altitude_meters", None), None)
+        if altitude is None or driver is None:
+            return False
+
+        altitude_int = int(round(altitude))
+        for attr_name in ("altitude", "sensor_altitude"):
+            try:
+                supported = hasattr(type(driver), attr_name) or hasattr(driver, attr_name)
+            except Exception:
+                supported = hasattr(type(driver), attr_name)
+            if not supported:
+                continue
+            try:
+                setattr(driver, attr_name, altitude_int)
+                if DEBUG:
+                    printDM(f"Set {label} altitude compensation to {altitude_int} m", location=MODULE)
+                return True
+            except Exception as exc:
+                if DEBUG:
+                    printDM(f"Could not set {label} {attr_name}: {exc}", location=MODULE)
+        return False
+
+    def _altitude_adjusted_pressure_hpa(self, pressure_hpa):
+        pressure = self._clamp_if_number(pressure_hpa, 300.0, 1200.0)
+        if pressure is None:
+            return None
+        altitude = self._optional_float(getattr(self, "altitude_meters", None), None)
+        if altitude is None:
+            return self._clamp_if_number(pressure, 700.0, 1100.0)
+        base = 1.0 - (altitude / 44330.0)
+        if base <= 0:
+            return self._clamp_if_number(pressure, 700.0, 1100.0)
+        sea_level_pressure = pressure / (base ** 5.255)
+        return self._clamp_if_number(sea_level_pressure, 700.0, 1100.0)
+
     def calculate_absolute_humidity(self, temp_C, rh):
         """
         Calculate absolute humidity in grams per cubic meter (g/m³)

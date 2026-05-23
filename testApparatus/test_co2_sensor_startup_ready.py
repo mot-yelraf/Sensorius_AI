@@ -24,6 +24,10 @@ class _FlagSensor:
             self.data_ready = data_ready
 
 
+class _AltitudeSensor:
+    altitude = 0
+
+
 def _co2_with_flag(model, flag_sensor):
     sensor = CO2Sensor.__new__(CO2Sensor)
     sensor._co2_model = model
@@ -41,6 +45,17 @@ def test_scd4x_uses_data_ready_for_readiness():
     sensor = _co2_with_flag("SCD4x", _FlagSensor(data_available=True, data_ready=False))
 
     assert sensor._data_ready() is False
+
+
+def test_co2_sensor_applies_configured_altitude_to_driver():
+    sensor = CO2Sensor.__new__(CO2Sensor)
+    sensor._co2_model = "SCD30"
+    sensor.scd30 = _AltitudeSensor()
+    sensor.altitude_meters = 1624.4
+
+    sensor._apply_configured_altitude()
+
+    assert sensor.scd30.altitude == 1624
 
 
 def test_base_sensor_keeps_status_pending_when_all_values_are_missing():

@@ -20,6 +20,7 @@ class VPDSensor(BaseSensor):
         # These are the *effective* offsets = Device + Manual + System
         self.temp_offset_c = 0.0
         self.rh_offset_pct = 0.0
+        self.altitude_meters = None
         self._load_calibration_offsets(settings)
         # -----------------------------------------
 
@@ -50,7 +51,7 @@ class VPDSensor(BaseSensor):
                 (
                     "Baro-Pressure",
                     "hPa",
-                    lambda: self._clamp_if_number(self.thp280.pressure, 700, 1100),
+                    lambda: self._altitude_adjusted_pressure_hpa(self.thp280.pressure),
                     None,
                 ),
             ]
@@ -83,6 +84,8 @@ class VPDSensor(BaseSensor):
         RH_OFFSET   = 0.0
         APVPD_TEMP_CAL_VAL = 0.0
         APVPD_RH_CAL_VAL   = 0.0
+
+        ALTITUDE_METERS = 0.0
 
         [Calibration.Manual]
         TEMP_OFFSET = 0.0
@@ -138,6 +141,7 @@ class VPDSensor(BaseSensor):
         # Effective offsets that actually get applied
         self.temp_offset_c = device_temp + manual_temp + system_temp
         self.rh_offset_pct = device_rh + manual_rh + system_rh
+        self._load_device_altitude_meters(settings)
 
         calib_status = cal_root.get("CALIB_STATUS", "Not Calibrated")
 
@@ -145,6 +149,7 @@ class VPDSensor(BaseSensor):
             f"VPDSensor calibration loaded: "
             f"temp_offset_c={self.temp_offset_c:.3f}, "
             f"rh_offset_pct={self.rh_offset_pct:.3f}, "
+            f"altitude_meters={self.altitude_meters}, "
             f"status='{calib_status}'",
             location=MODULE,
         )        
@@ -168,6 +173,7 @@ class VPDSensor(BaseSensor):
                         f"VPDSensor calibration loaded: "
                         f"temp_offset_c={self.temp_offset_c:.3f}, "
                         f"rh_offset_pct={self.rh_offset_pct:.3f}, "
+                        f"altitude_meters={self.altitude_meters}, "
                     ),
                     location=MODULE,
                 )          

@@ -51,6 +51,16 @@ class _HubSettings:
         return default
 
 
+class _HubSettingsWithAltitude(_HubSettings):
+    def __init__(self, altitude: str = "1624.00"):
+        self.altitude = altitude
+
+    def get_setting(self, section, key, default=None):
+        if section == "Astral" and key == "ALTITUDE":
+            return self.altitude
+        return default
+
+
 class _FakeNetMgr:
     pass
 
@@ -410,7 +420,7 @@ def _write_system_settings(root: Path, device_id: str, hostname: str) -> None:
     )
 
 
-async def _build_app(tmp_path, monkeypatch):
+async def _build_app(tmp_path, monkeypatch, hub_settings=None):
     system_root = tmp_path / "system_settings"
     sensor_root = tmp_path / "sensor_settings"
     switch_root = tmp_path / "switch_settings"
@@ -424,11 +434,12 @@ async def _build_app(tmp_path, monkeypatch):
     monkeypatch.setattr(saiWebRoutes, "saiSettings", _FakeSaiSettings)
     monkeypatch.setattr(saiWebRoutes, "SystemSettingsManager", _FakeSystemSettingsManager, raising=False)
     monkeypatch.setattr(saiWebRoutes, "SensorSettingsManager", lambda *_a, **_k: _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root)))
+    monkeypatch.setattr(saiSensorSettingsManager, "SensorSettingsManager", lambda *_a, **_k: _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root)))
     monkeypatch.setattr(saiWebRoutes, "SwitchSettingsManager", lambda *_a, **_k: _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root)))
     monkeypatch.setattr(saiSwitchSettingsManager, "SwitchSettingsManager", lambda *_a, **_k: _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root)))
     app = FastAPI()
     ingest = _FakeIngest()
-    await saiWebRoutes.register_routes(app, _HubSettings(), _FakeNetMgr(), _FakeGcMgr(), ingest)
+    await saiWebRoutes.register_routes(app, hub_settings or _HubSettings(), _FakeNetMgr(), _FakeGcMgr(), ingest)
     return app, ingest, system_root, sensor_root, switch_root
 
 
@@ -1041,6 +1052,45 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
     assert 'name="display_style_3"' in html
 
 
+@pytest.mark.asyncio
+async def test_sensor_settings_modal_shows_read_only_system_altitude_for_supported_sensor(tmp_path, monkeypatch):
+    app, _ingest, _system_root, sensor_root, _switch_root = await _build_app(
+        tmp_path,
+        monkeypatch,
+        _HubSettingsWithAltitude("1624.00"),
+    )
+    app.state.templates = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "aqi-test123",
+        {
+            "Sensor": {
+                "TYPE": "pi",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "aqi-test123",
+                "LOCATION": "Veg Tent",
+            },
+            "Calibration": {
+                "Device": {
+                    "TEMP_OFFSET": 0.0,
+                    "RH_OFFSET": 0.0,
+                }
+            },
+        },
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/edit-sensor", params={"sensor_id": "aqi-test123", "embed": "1"})
+
+    assert res.status_code == 200
+    html = res.text
+    assert "System Altitude" in html
+    assert 'data-key="Calibration.Device.ALTITUDE_METERS"' in html
+    assert 'data-force-send="1"' in html
+    assert 'readonly aria-readonly="true"' in html
+    assert 'value="1624.0"' in html
+
+
 def test_switch_settings_modal_shows_nodus_firmware_version_in_settings_pane_title():
     env = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
     template = env.get_template("modals/switch_settings.html")
@@ -1256,6 +1306,96 @@ async def test_device_calibration_apply_for_remote_nodus_uses_mqtt_and_updates_s
     assert ingest.calibration_commands[-1]["payload"]["offsets"][0]["key"] == "Calibration.Device.TEMP_OFFSET"
     saved = sensor_mgr.load("apvpd-test123")
     assert saved["Calibration"]["Device"]["TEMP_OFFSET"] == 1.5
+
+
+@pytest.mark.asyncio
+async def test_device_calibration_apply_persists_altitude_for_local_sensor(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(
+        tmp_path,
+        monkeypatch,
+        _HubSettingsWithAltitude("1624.00"),
+    )
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "local-aqi",
+        {
+            "Sensor": {
+                "TYPE": "pi",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "local-aqi",
+            }
+        },
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/calibration/device/apply",
+            json={
+                "sensor_id": "local-aqi",
+                "device_kind": "aqi",
+                "offsets": [
+                    {"key": "Calibration.Device.ALTITUDE_METERS", "value": 9999.0, "force": True}
+                ],
+            },
+        )
+
+    assert res.status_code == 200
+    assert ingest.calibration_commands == []
+    saved = sensor_mgr.load("local-aqi")
+    assert saved["Calibration"]["Device"]["ALTITUDE_METERS"] == 1624.0
+    assert res.json()["applied"] == ["Calibration.Device.ALTITUDE_METERS"]
+
+
+@pytest.mark.asyncio
+async def test_device_calibration_apply_sends_altitude_even_when_shadow_value_matches(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(
+        tmp_path,
+        monkeypatch,
+        _HubSettingsWithAltitude("1624.00"),
+    )
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "co2-test123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "co2",
+                "SENSOR_ID": "co2-test123",
+            },
+            "Calibration": {
+                "Device": {
+                    "ALTITUDE_METERS": 1624.0,
+                }
+            },
+        },
+    )
+    ingest.meta_patches_by_message["test-1"] = {
+        "schema": "nodus-meta-patch/v1",
+        "device_id": "co2-test123",
+        "message_id": "test-1",
+        "source": "calibration_set",
+        "updates": [
+            {"section": "Calibration.Device", "key": "ALTITUDE_METERS", "value": 1624.0},
+        ],
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/calibration/device/apply",
+            json={
+                "sensor_id": "co2-test123",
+                "device_kind": "co2",
+                "offsets": [
+                    {"key": "Calibration.Device.ALTITUDE_METERS", "value": 9999.0, "force": True}
+                ],
+            },
+        )
+
+    assert res.status_code == 200
+    assert ingest.calibration_commands[-1]["payload"]["offsets"] == [
+        {"key": "Calibration.Device.ALTITUDE_METERS", "value": 1624.0}
+    ]
+    assert sensor_mgr.load("co2-test123")["Calibration"]["Device"]["ALTITUDE_METERS"] == 1624.0
 
 
 @pytest.mark.asyncio
@@ -2130,6 +2270,8 @@ async def test_dashboard_sensor_locations_ignore_unknown_live_cache_and_use_toml
 async def test_dashboard_weewx_status_uses_recent_station_data_when_ingest_unknown(tmp_path, monkeypatch):
     app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    saiWebRoutes._DASHBOARD_DISPLAY_SETTINGS_CACHE = None
     ingest.get_measure_status = lambda _sid: "unknown"
 
     now_iso = datetime.now().isoformat()

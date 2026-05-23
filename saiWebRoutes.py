@@ -6862,6 +6862,46 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             },
         ]
 
+    def _system_altitude_meters() -> float | None:
+        try:
+            raw = settings.get_setting("Astral", "ALTITUDE", "")
+            if raw is None or str(raw).strip() == "":
+                return None
+            altitude = float(raw)
+            return altitude if -500.0 <= altitude <= 10000.0 else None
+        except Exception:
+            return None
+
+    def _device_supports_altitude_calibration(device_kind: str) -> bool:
+        return str(device_kind or "").strip().lower() in {
+            "aqi",
+            "bme680",
+            "bme688",
+            "co2",
+            "scd30",
+            "scd4x",
+            "vpd",
+            "avpd",
+            "bme280",
+            "apvpd",
+        }
+
+    def _append_system_altitude_calibration(device_offsets: list[dict], device_kind: str) -> None:
+        altitude = _system_altitude_meters()
+        if altitude is None or not _device_supports_altitude_calibration(device_kind):
+            return
+        device_offsets.append(
+            {
+                "key": "Calibration.Device.ALTITUDE_METERS",
+                "label": "System Altitude",
+                "unit": "m",
+                "value": altitude,
+                "readonly": True,
+                "force_send": True,
+                "title": "Altitude is edited in System Settings.",
+            }
+        )
+
     def _apply_device_offsets_shadow(sensor_id: str, device_kind: str, offsets: list[dict]) -> list[str]:
         from collections import OrderedDict
         from collections import OrderedDict as _OD
@@ -6986,12 +7026,21 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             key = str(item.get("key") or "").strip()
             if not key:
                 continue
-            try:
-                new_val = float(item.get("value", 0))
-            except Exception:
-                continue
+            force_send = key == "Calibration.Device.ALTITUDE_METERS" and bool(
+                item.get("force") or item.get("force_send") or item.get("always_send")
+            )
+            if key == "Calibration.Device.ALTITUDE_METERS":
+                system_altitude = _system_altitude_meters()
+                if system_altitude is None:
+                    continue
+                new_val = system_altitude
+            else:
+                try:
+                    new_val = float(item.get("value", 0))
+                except Exception:
+                    continue
             current = _get_current_device_offset_value(doc, device_kind, key)
-            if current is not None and abs(new_val - current) < 1e-9:
+            if not force_send and current is not None and abs(new_val - current) < 1e-9:
                 continue
             changed.append({"key": key, "value": new_val})
         return changed
@@ -7348,11 +7397,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     }
                 )
 
-            if device_kind in ("co2",):
+            if device_kind in ("co2", "scd30", "scd4x"):
                 _add_offset("Calibration.Device.TEMP_OFFSET", "Temperature", "°C", "TEMP_OFFSET")
                 _add_offset("Calibration.Device.RH_OFFSET", "Rel-Humidity", "%", "RH_OFFSET")
                 _add_offset("Calibration.Device.CO2_OFFSET", "CO₂", "ppm", "CO2_OFFSET")
-            elif device_kind in ("aqi",):
+            elif device_kind in ("aqi", "bme680", "bme688"):
                 _add_offset("Calibration.Device.TEMP_OFFSET", "Temperature", "°C", "TEMP_OFFSET")
                 _add_offset("Calibration.Device.RH_OFFSET", "Rel-Humidity", "%", "RH_OFFSET")
                 _add_offset("Calibration.Device.AQI_OFFSET", "AQI", "", "AQI_OFFSET")
@@ -7360,11 +7409,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             elif device_kind in ("veml", "lux"):
                 _add_offset("Calibration.Device.LUX_OFFSET", "Light Intensity", "lux", "LUX_OFFSET")
                 _add_offset("Calibration.Device.PPFD_OFFSET", "Estimated PPFD", "µmol/m²/s", "PPFD_OFFSET")
-            elif device_kind in ("vpd", "avpd", "aht", "aht10", "ahtx0"):
+            elif device_kind in ("vpd", "avpd", "bme280", "aht", "aht10", "ahtx0"):
                 _add_offset("Calibration.Device.TEMP_OFFSET", "Temperature", "°C", "TEMP_OFFSET")
                 _add_offset("Calibration.Device.RH_OFFSET", "Rel-Humidity", "%", "RH_OFFSET")
             elif device_kind in ("soil",):
                 device_offsets.extend(_soil_device_offsets(device_section, _get_float))
+            _append_system_altitude_calibration(device_offsets, device_kind)
 
             ingest = getattr(request.app.state, "mqtt_ingest", None) or mqtt_ingest
             nodus_firmware_version = ""
@@ -8617,13 +8667,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             )
 
         # CO2 devices (e.g. SCD30/SCD4x → DEVICE="co2")
-        if device_kind in ("co2",):
+        if device_kind in ("co2", "scd30", "scd4x"):
             _add_offset("Calibration.Device.TEMP_OFFSET", "Temperature", "°C", "TEMP_OFFSET")
             _add_offset("Calibration.Device.RH_OFFSET",   "Rel-Humidity", "%", "RH_OFFSET")
             _add_offset("Calibration.Device.CO2_OFFSET",  "CO₂", "ppm", "CO2_OFFSET")
 
         # AQI devices (BME680/BME688 → DEVICE="aqi")
-        elif device_kind in ("aqi",):
+        elif device_kind in ("aqi", "bme680", "bme688"):
             _add_offset("Calibration.Device.TEMP_OFFSET", "Temperature", "°C", "TEMP_OFFSET")
             _add_offset("Calibration.Device.RH_OFFSET",   "Rel-Humidity", "%", "RH_OFFSET")
             _add_offset("Calibration.Device.AQI_OFFSET",  "AQI", "", "AQI_OFFSET")
@@ -8648,11 +8698,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             )
 
         # Non-APVPD VPD sensors (DEVICE="vpd" or "avpd")
-        elif device_kind in ("vpd", "avpd", "aht", "aht10", "ahtx0"):
+        elif device_kind in ("vpd", "avpd", "bme280", "aht", "aht10", "ahtx0"):
             _add_offset("Calibration.Device.TEMP_OFFSET", "Temperature", "°C", "TEMP_OFFSET")
             _add_offset("Calibration.Device.RH_OFFSET",   "Rel-Humidity", "%", "RH_OFFSET")
         elif device_kind in ("soil",):
             device_offsets.extend(_soil_device_offsets(device_section, _get_float))
+        _append_system_altitude_calibration(device_offsets, device_kind)
 
         # NOTE: APVPD still uses the dedicated is_apvpd branch in the template.
         # If you later want APVPD to also use generic device_offsets, you can

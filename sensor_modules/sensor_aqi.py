@@ -24,6 +24,7 @@ class AQISensor(BaseSensor):
         self.rh_offset_pct: float = 0.0
         self.aqi_offset: float = 0.0
         self.gas_offset_ohms: float = 0.0
+        self.altitude_meters = None
         self._load_calibration_offsets(settings)
         # ------------------------------------------------------------
 
@@ -59,7 +60,7 @@ class AQISensor(BaseSensor):
                 ("DewVPD Risk",   "%",    lambda: self._get_calibrated_dewvpd_risk(), 1),
                 ("Ambient VPD",   "kPa",  lambda: self._get_calibrated_vpd(), 3),
                 ("Baro-Pressure", "hPa",
-                 lambda: self._clamp_if_number(self.bme680.pressure, 700, 1100),
+                 lambda: self._altitude_adjusted_pressure_hpa(self.bme680.pressure),
                  None),
             ]
         except Exception as e:
@@ -91,6 +92,7 @@ class AQISensor(BaseSensor):
         RH_OFFSET   = 0.0
         AQI_OFFSET  = 0.0
         GAS_OFFSET  = 0.0    # not exposed in UI (for now)
+        ALTITUDE_METERS = 0.0
 
         [Calibration.Manual]
         TEMP_OFFSET = 0.0
@@ -156,6 +158,7 @@ class AQISensor(BaseSensor):
         self.rh_offset_pct    = device_rh   + manual_rh   + system_rh
         self.aqi_offset       = device_aqi  + manual_aqi  + system_aqi
         self.gas_offset_ohms  = device_gas  + manual_gas  + system_gas
+        self._load_device_altitude_meters(settings)
 
         calib_status = cal_root.get("CALIB_STATUS", "Not Calibrated")
 
@@ -165,6 +168,7 @@ class AQISensor(BaseSensor):
             f"rh_offset_pct={self.rh_offset_pct:.3f}, "
             f"aqi_offset={self.aqi_offset:.3f}, "
             f"gas_offset_ohms={self.gas_offset_ohms:.1f}, "
+            f"altitude_meters={self.altitude_meters}, "
             f"status='{calib_status}'",
             location=MODULE,
         )
@@ -190,6 +194,7 @@ class AQISensor(BaseSensor):
                         f"rh_offset_pct={self.rh_offset_pct:.3f}, "
                         f"aqi_offset={self.aqi_offset:.3f}, "
                         f"gas_offset_ohms={self.gas_offset_ohms:.1f}, "
+                        f"altitude_meters={self.altitude_meters}, "
                     ),
                     location=MODULE,
                 )      
