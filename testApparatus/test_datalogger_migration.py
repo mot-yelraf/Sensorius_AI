@@ -13,6 +13,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import saiSettings
+from saiCalibration import CalibrationManager
 from saiDataLogger import saiDataLogger
 
 
@@ -110,3 +111,104 @@ def test_biodynamic_daily_summaries_round_trip(tmp_path, monkeypatch: pytest.Mon
     finally:
         logger.close()
         saiDataLogger._schema_ready = False
+
+
+def test_available_metrics_by_sensor_caches_and_invalidates_on_write(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    class _StubSettings:
+        def __init__(self, apply_live=False):
+            self.apply_live = apply_live
+
+        def get_setting(self, section, key):
+            if section == "Time" and key in ("TZ", "tz"):
+                return "America/Denver"
+            return None
+
+    monkeypatch.setattr(saiSettings, "saiSettings", _StubSettings)
+
+    db_path = tmp_path / "metrics-cache.db"
+    saiDataLogger._schema_ready = False
+    logger = saiDataLogger(db_path=str(db_path))
+
+    try:
+        logger.log_readings(
+            "2026-05-24T12:00:00",
+            "co2-ykdvea",
+            {"CO2": 700.0, "Temperature": 25.0, "Rel-Humidity": 55.0},
+        )
+        logger.log_readings(
+            "2026-05-24T12:00:00",
+            "apvpd-test123",
+            {"Temperature": 24.0, "Rel-Humidity": 50.0},
+        )
+
+        metrics_by_sensor = logger.get_available_metrics_by_sensor()
+        assert metrics_by_sensor["co2-ykdvea"] == ["CO2", "Rel-Humidity", "Temperature"]
+        assert logger.get_available_metrics("CO2-YKDVEA") == ["CO2", "Rel-Humidity", "Temperature"]
+
+        logger.log_readings("2026-05-24T12:01:00", "co2-ykdvea", {"Ambient VPD": 1.2})
+
+        assert "Ambient VPD" in logger.get_available_metrics("co2-ykdvea")
+    finally:
+        logger.close()
+        saiDataLogger._schema_ready = False
+
+
+def test_latest_timestamps_bulk_lookup_uses_one_result_per_sensor(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    class _StubSettings:
+        def __init__(self, apply_live=False):
+            self.apply_live = apply_live
+
+        def get_setting(self, section, key):
+            if section == "Time" and key in ("TZ", "tz"):
+                return "America/Denver"
+            return None
+
+    monkeypatch.setattr(saiSettings, "saiSettings", _StubSettings)
+
+    db_path = tmp_path / "latest-timestamps.db"
+    saiDataLogger._schema_ready = False
+    logger = saiDataLogger(db_path=str(db_path))
+
+    try:
+        logger.log_readings("2026-05-24T12:00:00", "co2-ykdvea", {"CO2": 700.0})
+        logger.log_readings("2026-05-24T12:05:00", "co2-ykdvea", {"CO2": 705.0, "Temperature": 25.0})
+        logger.log_readings("2026-05-24T12:03:00", "apvpd-test123", {"Temperature": 24.0})
+
+        logger.sensor_timestamps.clear()
+        latest = logger.get_latest_timestamps(["CO2-YKDVEA", "apvpd-test123", "missing"])
+
+        assert latest["CO2-YKDVEA"] == "2026-05-24T12:05:00-06:00"
+        assert latest["apvpd-test123"] == "2026-05-24T12:03:00-06:00"
+        assert "missing" not in latest
+    finally:
+        logger.close()
+        saiDataLogger._schema_ready = False
+
+
+def test_calibration_manager_uses_bulk_metrics_lookup_for_calibratable_sensors():
+    class _Logger:
+        def __init__(self):
+            self.bulk_calls = 0
+            self.per_sensor_calls = 0
+
+        def get_available_metrics_by_sensor(self):
+            self.bulk_calls += 1
+            return {
+                "co2-ykdvea": ["CO2", "Temperature", "Rel-Humidity"],
+                "weather": ["Temperature_F", "Rel-Humidity"],
+                "switch": ["State"],
+            }
+
+        def get_available_sensors(self):
+            raise AssertionError("fallback sensor lookup should not be used")
+
+        def get_available_metrics(self, sensor_id):
+            self.per_sensor_calls += 1
+            return []
+
+    logger = _Logger()
+    manager = CalibrationManager(logger, sensor_mgr=None)
+
+    assert manager.get_calibratable_sensors() == ["co2-ykdvea"]
+    assert logger.bulk_calls == 1
+    assert logger.per_sensor_calls == 0

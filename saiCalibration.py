@@ -246,6 +246,22 @@ class CalibrationManager:
         return [pair for pair in METRIC_PAIR_CANDIDATES if pair[0] in metrics and pair[1] in metrics]
 
     def get_calibratable_sensors(self) -> List[str]:
+        if hasattr(self.data_logger, "get_available_metrics_by_sensor"):
+            try:
+                metrics_by_sensor = self.data_logger.get_available_metrics_by_sensor() or {}
+                result: List[str] = []
+                for sensor_id, metrics in metrics_by_sensor.items():
+                    metric_set = set(metrics or [])
+                    if any(temp in metric_set and rh in metric_set for temp, rh in METRIC_PAIR_CANDIDATES):
+                        result.append(sensor_id)
+                return result
+            except Exception as exc:
+                if DEBUG:
+                    printDM(
+                        f"get_calibratable_sensors: bulk metric lookup failed: {exc}",
+                        location=MODULE,
+                    )
+
         sensor_ids = self.data_logger.get_available_sensors()
         result: List[str] = []
         for sensor_id in sensor_ids:

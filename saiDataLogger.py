@@ -115,6 +115,8 @@ class saiDataLogger:
         self._on_readings_written: list = []
         self._on_switch_event_written: list = []
         self._available_sensors_cache: tuple[float, list[str]] | None = None
+        self._available_metrics_cache: dict[str, tuple[float, list[str]]] = {}
+        self._available_metrics_by_sensor_cache: tuple[float, dict[str, list[str]]] | None = None
         self._switch_identities_cache: tuple[float, list[dict]] | None = None
         
         from saiSettings import saiSettings
@@ -188,6 +190,10 @@ class saiDataLogger:
                         cur.execute("""
                             CREATE INDEX IF NOT EXISTS idx_readings_sid_ts
                             ON readings(sensor_id COLLATE NOCASE, timestamp DESC)
+                        """)
+                        cur.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_readings_sid_tse
+                            ON readings(sensor_id COLLATE NOCASE, ts_epoch DESC, timestamp DESC)
                         """)
                         cur.execute("""
                             CREATE INDEX IF NOT EXISTS idx_readings_sid_metric_ts
@@ -616,6 +622,8 @@ class saiDataLogger:
             self.sensor_values[sensor_id] = snap
             self.sensor_timestamps[sensor_id] = timestamp
             self._available_sensors_cache = None
+            self._available_metrics_cache.pop(str(sensor_id or "").strip().lower(), None)
+            self._available_metrics_by_sensor_cache = None
 
             # Notify post-write listeners (non-blocking; do not break writer path)
             listeners = list(getattr(self, "_on_readings_written", []) or [])
@@ -704,20 +712,77 @@ class saiDataLogger:
             return []
 
     def get_available_metrics(self, sensor_id):
+        sensor_key = str(sensor_id or "").strip().lower()
+        now_mono = time.monotonic()
+        cached = self._available_metrics_cache.get(sensor_key) if sensor_key else None
+        if cached and cached[0] > now_mono:
+            return list(cached[1])
+
+        cached_by_sensor = self._available_metrics_by_sensor_cache
+        if cached_by_sensor and cached_by_sensor[0] > now_mono:
+            for sid, metrics in cached_by_sensor[1].items():
+                if str(sid or "").strip().lower() == sensor_key:
+                    result = list(metrics)
+                    self._available_metrics_cache[sensor_key] = (now_mono + 5.0, result)
+                    return result
+
         try:
             with self._open_conn() as conn:
                 cur = conn.cursor()
                 cur.execute(
                     "SELECT DISTINCT metric FROM readings "
-                    "WHERE LOWER(sensor_id)=LOWER(?) "
+                    "WHERE sensor_id = ? COLLATE NOCASE "
                     "ORDER BY metric COLLATE NOCASE",
                     (sensor_id,)
                 )
                 rows = cur.fetchall()
-                return [row[0] for row in rows if row and row[0]]
+                result = [row[0] for row in rows if row and row[0]]
+                if sensor_key:
+                    self._available_metrics_cache[sensor_key] = (now_mono + 5.0, list(result))
+                return result
         except Exception as e:
             printDM(f"Error fetching metrics for {sensor_id}: {e}", location=MODULE)
             return []
+
+    def get_available_metrics_by_sensor(self):
+        now_mono = time.monotonic()
+        cached = self._available_metrics_by_sensor_cache
+        if cached and cached[0] > now_mono:
+            return {sid: list(metrics) for sid, metrics in cached[1].items()}
+
+        query = (
+            "SELECT sensor_id, metric FROM readings "
+            "GROUP BY sensor_id COLLATE NOCASE, metric COLLATE NOCASE "
+            "ORDER BY sensor_id COLLATE NOCASE, metric COLLATE NOCASE"
+        )
+        try:
+            with self._open_conn() as conn:
+                rows = conn.execute(query).fetchall()
+            result: dict[str, list[str]] = {}
+            seen: dict[str, set[str]] = {}
+            for sid, metric in rows:
+                sid_text = str(sid or "").strip()
+                metric_text = str(metric or "").strip()
+                if not sid_text or not metric_text:
+                    continue
+                bucket = result.setdefault(sid_text, [])
+                metric_key = metric_text.lower()
+                seen_bucket = seen.setdefault(sid_text, set())
+                if metric_key not in seen_bucket:
+                    bucket.append(metric_text)
+                    seen_bucket.add(metric_key)
+
+            expires = now_mono + 5.0
+            self._available_metrics_by_sensor_cache = (
+                expires,
+                {sid: list(metrics) for sid, metrics in result.items()},
+            )
+            for sid, metrics in result.items():
+                self._available_metrics_cache[str(sid or "").strip().lower()] = (expires, list(metrics))
+            return {sid: list(metrics) for sid, metrics in result.items()}
+        except Exception as e:
+            printDM(f"Error fetching metrics by sensor: {e}", location=MODULE)
+            return {}
 
     def get_latest_timestamp(self, sensor_id):
         cached = self.sensor_timestamps.get(sensor_id)
@@ -738,6 +803,67 @@ class saiDataLogger:
         except Exception as e:
             printDM(f"Error fetching latest timestamp for {sensor_id}: {e}", location="saiDataLogger")
             return None
+
+    def get_latest_timestamps(self, sensor_ids: list[str]) -> dict[str, str]:
+        """Return latest reading timestamps for multiple sensors using one DB query."""
+        clean_ids: list[str] = []
+        seen: set[str] = set()
+        for raw in sensor_ids or []:
+            sid = str(raw or "").strip()
+            key = sid.lower()
+            if not sid or key in seen:
+                continue
+            seen.add(key)
+            clean_ids.append(sid)
+        if not clean_ids:
+            return {}
+
+        result: dict[str, str] = {}
+        missing: list[str] = []
+        for sid in clean_ids:
+            cached = self.sensor_timestamps.get(sid)
+            if cached:
+                result[sid] = cached
+            else:
+                missing.append(sid)
+
+        if not missing:
+            return result
+
+        sid_map = {sid.lower(): sid for sid in missing}
+        placeholders = ",".join("?" for _ in sid_map)
+        try:
+            with self._open_conn() as conn:
+                rows = conn.execute(
+                    f"""
+                    WITH latest AS (
+                        SELECT LOWER(sensor_id) AS sid_l,
+                               MAX(COALESCE(ts_epoch, 0.0)) AS latest_ts_epoch
+                        FROM readings
+                        WHERE LOWER(sensor_id) IN ({placeholders})
+                        GROUP BY LOWER(sensor_id)
+                    )
+                    SELECT r.sensor_id, r.timestamp
+                    FROM readings r
+                    JOIN latest l
+                      ON LOWER(r.sensor_id) = l.sid_l
+                     AND COALESCE(r.ts_epoch, 0.0) = l.latest_ts_epoch
+                    ORDER BY LOWER(r.sensor_id), r.timestamp DESC
+                    """,
+                    tuple(sid_map.keys()),
+                ).fetchall()
+        except Exception as e:
+            printDM(f"Error fetching latest timestamps: {e}", location=MODULE)
+            rows = []
+
+        for sid_raw, ts in rows:
+            sid = sid_map.get(str(sid_raw or "").lower(), str(sid_raw or "").strip())
+            if not sid or not ts or sid in result:
+                continue
+            result[sid] = ts
+            self.sensor_timestamps[sid] = ts
+
+        return result
 
     def get_latest_values_and_timestamps(self, sensor_ids: list[str]) -> tuple[dict[str, dict], dict[str, str]]:
         clean_ids = [str(sid or "").strip() for sid in (sensor_ids or []) if str(sid or "").strip()]
@@ -832,6 +958,10 @@ class saiDataLogger:
                 except Exception:
                     pass
             self.sensor_values.clear()
+            self.sensor_timestamps.clear()
+            self._available_sensors_cache = None
+            self._available_metrics_cache.clear()
+            self._available_metrics_by_sensor_cache = None
             printDM("All sensor data cleared from database", location=MODULE)
         except Exception as e:
             printDM(f"Error clearing database: {e}", location=MODULE)

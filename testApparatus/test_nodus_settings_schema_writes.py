@@ -2756,6 +2756,152 @@ def test_dashboard_gauge_init_preserves_configured_metric_display_style():
     assert "const initialStyle = window.normalizeDisplayStyle(container.dataset.displayStyle" in html
 
 
+def test_dashboard_dynamic_sensor_settings_gear_uses_bound_sensor_id():
+    from saiHtml import get_gauge_config, render_dashboard
+
+    ingest = SimpleNamespace(expected_gauge_map={})
+    gauge_config = get_gauge_config()
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["co2-ykdvea"],
+            {"co2-ykdvea": {"CO2": 718.0}},
+            {"co2-ykdvea": {"CO2": {"min": 700.0, "avg": 718.0, "max": 730.0}}},
+            ingest,
+            gauge_config=gauge_config,
+            expected_gauge_map={"co2-ykdvea": ["CO2"]},
+            expected_display_style_map={"co2-ykdvea": {"METRIC_1": "Graph24hr"}},
+            display_style="Gauge",
+        )
+    )
+
+    assert "settingsLink.addEventListener('click'" in html
+    assert 'onclick="window.editSensorSettings && window.editSensorSettings(sidLower)' not in html
+
+
+def test_dashboard_biodynamic_calendar_card_has_calendar_button():
+    from saiHtml import get_gauge_config, render_dashboard
+
+    ingest = SimpleNamespace(expected_gauge_map={})
+    gauge_config = get_gauge_config()
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["co2-ykdvea"],
+            {"co2-ykdvea": {"CO2": 718.0}},
+            {"co2-ykdvea": {"CO2": {"min": 700.0, "avg": 718.0, "max": 730.0}}},
+            ingest,
+            gauge_config=gauge_config,
+            expected_gauge_map={"co2-ykdvea": ["CO2"]},
+            expected_display_style_map={"co2-ykdvea": {"METRIC_1": "Gauge"}},
+            display_style="Gauge",
+        )
+    )
+
+    assert "Biodynamic Calendar</div>" in html
+    assert "class='bio-open-btn' id='bioOpenBtn'" in html
+    assert "aria-label='Open biodynamic calendar'" in html
+    assert "title='View Calendar'" in html
+    assert "<span class='bio-open-btn-label'>Calendar</span>" in html
+    assert ".bio-open-btn{display:inline-flex;" in html
+    assert "text-transform:uppercase" in html
+    assert "bioOpenBtn.addEventListener('click'" in html
+    assert "window.openBiodynamicCalendarModal) window.openBiodynamicCalendarModal();" in html
+
+
+def test_dashboard_refresh_pauses_during_modal_and_hidden_tab():
+    from saiHtml import get_gauge_config, render_dashboard
+
+    ingest = SimpleNamespace(expected_gauge_map={})
+    gauge_config = get_gauge_config()
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["co2-ykdvea"],
+            {"co2-ykdvea": {"CO2": 718.0}},
+            {"co2-ykdvea": {"CO2": {"min": 700.0, "avg": 718.0, "max": 730.0}}},
+            ingest,
+            gauge_config=gauge_config,
+            expected_gauge_map={"co2-ykdvea": ["CO2"]},
+            expected_display_style_map={"co2-ykdvea": {"METRIC_1": "Graph24hr"}},
+            display_style="Gauge",
+        )
+    )
+
+    assert "function dashboardRefreshPaused() {" in html
+    assert "window.ModalBusyCursor.isBusy && window.ModalBusyCursor.isBusy()" in html
+    assert "document.visibilityState === 'hidden'" in html
+    assert "return { begin, end, isBusy, untilPaint };" in html
+    assert "if (typeof dashboardRefreshPaused === 'function' && dashboardRefreshPaused()) {" in html
+
+
+def test_dashboard_micrograph_fetches_are_cached_and_throttled():
+    from saiHtml import get_gauge_config, render_dashboard
+
+    ingest = SimpleNamespace(expected_gauge_map={})
+    gauge_config = get_gauge_config()
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["co2-ykdvea"],
+            {"co2-ykdvea": {"CO2": 718.0, "Temperature": 24.1}},
+            {
+                "co2-ykdvea": {
+                    "CO2": {"min": 700.0, "avg": 718.0, "max": 730.0},
+                    "Temperature": {"min": 23.0, "avg": 24.1, "max": 25.0},
+                }
+            },
+            ingest,
+            gauge_config=gauge_config,
+            expected_gauge_map={"co2-ykdvea": ["CO2", "Temperature"]},
+            expected_display_style_map={
+                "co2-ykdvea": {"METRIC_1": "Graph24hr", "METRIC_2": "Graph6hr"}
+            },
+            display_style="Gauge",
+        )
+    )
+
+    assert "window.__micrographDataCache = window.__micrographDataCache || new Map();" in html
+    assert "window.__micrographDataInflight = window.__micrographDataInflight || new Map();" in html
+    assert "async function getMicrographJson(requestKey, url, force)" in html
+    assert "const cacheTtlMs = 60000;" in html
+    assert "const existing = window.__micrographDataInflight.get(requestKey);" in html
+    assert "const MIN_FORCE_INTERVAL_MS = 5000;" in html
+    assert "showMicrographForContainer(container, { force });" in html
+    assert "window.__needsInitialMicrographRefresh = true;" in html
+    assert "window.refreshAllMicrographs(false);" in html
+
+
+def test_dashboard_initial_graph_styles_are_refreshed_by_configured_style():
+    from saiHtml import get_gauge_config, render_dashboard
+
+    ingest = SimpleNamespace(expected_gauge_map={})
+    gauge_config = get_gauge_config()
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["co2-ykdvea"],
+            {"co2-ykdvea": {"CO2": 718.0}},
+            {"co2-ykdvea": {"CO2": {"min": 700.0, "avg": 718.0, "max": 730.0}}},
+            ingest,
+            gauge_config=gauge_config,
+            expected_gauge_map={"co2-ykdvea": ["CO2"]},
+            expected_display_style_map={"co2-ykdvea": {"METRIC_1": "Graph24hr"}},
+            display_style="Gauge",
+        )
+    )
+
+    assert "data-display-style='Graph24hr'" in html
+    assert "const desiredStyle = (typeof window.getContainerStyle === 'function')" in html
+    assert "desiredStyle === 'Graph6hr' || desiredStyle === 'Graph24hr'" in html
+    assert "if (graphVisible && !gaugeVisible)" not in html
+
+
 def test_dashboard_metric_card_click_cycles_24hr_graph_to_6hr_graph():
     from saiHtml import get_gauge_config, render_dashboard
 

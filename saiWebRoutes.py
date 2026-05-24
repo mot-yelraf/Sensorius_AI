@@ -117,6 +117,9 @@ _ALL_IANA_TIMEZONES: tuple[str, ...] = tuple(sorted(available_timezones()))
 _calibration_progress_cache: dict[str, dict[str, object]] = {}
 _switch_status_cache_payload: dict[str, dict] | None = None
 _switch_status_cache_until: float = 0.0
+_sensor_ids_cache_payload: list[str] | None = None
+_sensor_ids_cache_until: float = 0.0
+_SENSOR_IDS_CACHE_TTL_SEC = 10.0
 _dynamic_switch_monitor_tasks: dict[str, asyncio.Task] = {}
 _SWITCH_STATUS_CACHE_TTL_SEC: float = 1.5
 
@@ -359,6 +362,38 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return False
         now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
         return dt >= (now - window)
+
+    def _filter_recent_sensors(sensor_ids: list[str], window: timedelta = timedelta(minutes=10)) -> list[str]:
+        clean_ids: list[str] = []
+        seen: set[str] = set()
+        for raw in sensor_ids or []:
+            sid = str(raw or "").strip()
+            key = sid.lower()
+            if not sid or key in seen:
+                continue
+            seen.add(key)
+            clean_ids.append(sid)
+        if not clean_ids:
+            return []
+
+        try:
+            timestamps = data_logger.get_latest_timestamps(clean_ids)
+        except Exception:
+            return [sid for sid in clean_ids if _is_recent_sensor(sid, window=window)]
+
+        result: list[str] = []
+        for sid in clean_ids:
+            ts = timestamps.get(sid)
+            if not ts:
+                continue
+            try:
+                dt = datetime.fromisoformat(ts)
+            except Exception:
+                continue
+            now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+            if dt >= (now - window):
+                result.append(sid)
+        return result
 
     _METRIC_POSITION_SECTION = "MetricPosition"
 
@@ -6676,6 +6711,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     @router.get("/sensor-ids", response_class=JSONResponse)
     async def list_sensor_ids():
+        global _sensor_ids_cache_payload, _sensor_ids_cache_until
+        now_mono = time.monotonic()
+        if _sensor_ids_cache_payload is not None and _sensor_ids_cache_until > now_mono:
+            return JSONResponse(list(_sensor_ids_cache_payload))
+
         # helpers (re-use same patterns used elsewhere in this file)
         def _strip_local_suffix(h: str) -> str:
             return normalize_hostname_base(h)
@@ -6751,8 +6791,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if DEBUG:
             printDM(f"[{MODULE}] #4 - merged sensors {merged}", location=MODULE)
 
-        merged = [sid for sid in merged if _is_recent_sensor(sid)]
-        return JSONResponse(sorted(merged))
+        merged = sorted(_filter_recent_sensors(merged))
+        _sensor_ids_cache_payload = list(merged)
+        _sensor_ids_cache_until = time.monotonic() + _SENSOR_IDS_CACHE_TTL_SEC
+        return JSONResponse(merged)
 
     @router.get("/sensor-directory", response_class=JSONResponse)
     async def sensor_directory():
@@ -7299,31 +7341,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         from saiSensorSettingsManager import SensorSettingsManager
         from saiCalibration import CalibrationManager
         from saiUtils import normalize_sensor_id, printDM, html_escape
-        import sqlite3
         import json
 
         MODULE = "edit-sensor"
-        db_path = _get_db_path()
-
-        def fetch_metrics_for_sensor_id(db_sensor_id: str) -> list[str]:
-            try:
-                with sqlite3.connect(db_path) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        """
-                        SELECT DISTINCT metric FROM readings
-                        WHERE sensor_id = ? COLLATE NOCASE
-                        ORDER BY metric
-                        """,
-                        (db_sensor_id,),
-                    )
-                    return [row[0] for row in cursor.fetchall()]
-            except Exception as e:
-                printDM(
-                    f"[{MODULE}] Metric query failed for {db_sensor_id}: {e}",
-                    location="saiWebRoutes",
-                )
-                return []
 
         try:
             normalized_id = normalize_sensor_id(sensor_id)
@@ -7351,7 +7371,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             gauge_config = get_gauge_config()
             available_metrics = [
                 canonicalize_metric_name(metric, gauge_config)
-                for metric in fetch_metrics_for_sensor_id(normalized_id)
+                for metric in await asyncio.to_thread(data_logger.get_available_metrics, normalized_id)
             ]
 
             display_block = settings_dict.get("Display", {}) or {}
@@ -7475,7 +7495,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     nodus_firmware_version = ""
 
             cal_mgr = CalibrationManager(data_logger, manager)
-            candidate_sensors = cal_mgr.get_calibratable_sensors() or []
+            candidate_sensors = await asyncio.to_thread(cal_mgr.get_calibratable_sensors) or []
 
             # Render template
             templates = request.app.state.templates
