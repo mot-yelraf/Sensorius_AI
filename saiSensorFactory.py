@@ -76,6 +76,8 @@ _last_scan = None  # dict like: {"i2c-1": set([...]), "i2c-0": set([...])}
 # I2C lock behavior for one-shot startup probing.
 I2C_LOCK_TIMEOUT_SEC = 1.0
 I2C_LOCK_POLL_SEC = 0.01
+CO2_ADDRS = (0x62, 0x61)
+I2C_READ_PROBE_ADDRS = frozenset(CO2_ADDRS)
 
 def find_sensors(known_used: Optional[dict[str, set[int]]] = None) -> list[DeviceDescriptor]:
     """
@@ -89,7 +91,6 @@ def find_sensors(known_used: Optional[dict[str, set[int]]] = None) -> list[Devic
         used["i2c-0"] |= set(known_used.get("i2c-0", set()))
 
     BME280_ADDRS = (0x76, 0x77)
-    CO2_ADDRS = (0x62, 0x61)
     VEML7700_ADDR = 0x10
     AHTX0_ADDRS = (0x38, 0x39)
 
@@ -210,6 +211,7 @@ def _scan_pi_i2c_busses():
             if i2c1: i2c1.deinit()
         except Exception:
             pass
+    addrs1 |= _read_probe_i2c_addrs(1, I2C_READ_PROBE_ADDRS)
 
     addrs0 = set()
     if ExtI2C:
@@ -228,10 +230,54 @@ def _scan_pi_i2c_busses():
                 i2c0.deinit()
             except Exception:
                 pass
+        addrs0 |= _read_probe_i2c_addrs(0, I2C_READ_PROBE_ADDRS)
 
     _last_scan = {"i2c-1": addrs1, "i2c-0": addrs0}
     printDM(f"I2C scan summary: i2c-1={sorted(addrs1)} i2c-0={sorted(addrs0)}", location="saiSensorFactory")
     return _last_scan
+
+def _read_probe_i2c_addrs(bus_num: int, addresses) -> set[int]:
+    """
+    Probe selected addresses with SMBus read_byte.
+
+    Some sensors, notably SCD4x at 0x62, can be visible to i2cdetect but absent
+    from Blinka scan() results. Keep this targeted to CO2 addresses to avoid a
+    broad read probe across unrelated devices.
+    """
+    try:
+        from smbus2 import SMBus
+    except Exception:
+        return set()
+
+    found = set()
+    try:
+        with SMBus(bus_num) as bus:
+            for addr in addresses:
+                if _smbus_addr_responds(bus, addr):
+                    found.add(addr)
+    except Exception as e:
+        if DEBUG:
+            printDM(f"i2c-{bus_num} read probe failed: {e}", location=MODULE)
+    if found and DEBUG:
+        printDM(
+            f"i2c-{bus_num} SMBus probe found {[hex(a) for a in sorted(found)]}",
+            location=MODULE,
+        )
+    return found
+
+def _smbus_addr_responds(bus, addr: int) -> bool:
+    for op_name in ("read_byte", "write_quick"):
+        op = getattr(bus, op_name, None)
+        if not callable(op):
+            continue
+        try:
+            op(addr)
+            return True
+        except OSError:
+            continue
+        except Exception:
+            continue
+    return False
 
 def _read_chip_id(bus_name: str, addr: int) -> Optional[int]:
     """Return BME chip-id (0x60=BME280, 0x61=BME680) or None."""

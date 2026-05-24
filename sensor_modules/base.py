@@ -13,6 +13,7 @@ from saiUtils import printDM, debug_enabled, get_timestamp
 
 MODULE = "BaseSensor"
 DEBUG = debug_enabled("saiSensorFactory")
+I2C_READ_PROBE_ADDRS = frozenset({0x61, 0x62})
 
 
 class BaseSensor:
@@ -561,6 +562,9 @@ def find_sensor_bus(
 
             addrs = set(i2c.scan() or [])
             i2c.unlock()
+            read_probe_targets = targets & I2C_READ_PROBE_ADDRS
+            if read_probe_targets and not (targets & addrs):
+                addrs |= _read_probe_i2c_addrs(busno, read_probe_targets)
 
             # Match if ANY of the target addresses are present on this bus
             if targets & addrs:
@@ -591,3 +595,46 @@ def find_sensor_bus(
     if want == "both":
         return found  # possibly partial; caller validates required keys
     return None
+
+def _read_probe_i2c_addrs(bus_num: int, addresses) -> set[int]:
+    """
+    Probe selected addresses with SMBus read_byte.
+
+    Blinka/ExtendedI2C scan() can miss SCD4x even though Linux i2cdetect shows
+    the device. This targeted probe lets CO2 runtime bus selection agree with
+    startup discovery without scanning every possible address.
+    """
+    try:
+        from smbus2 import SMBus
+    except Exception:
+        return set()
+
+    found = set()
+    try:
+        with SMBus(bus_num) as bus:
+            for addr in addresses:
+                if _smbus_addr_responds(bus, addr):
+                    found.add(addr)
+    except Exception as e:
+        if DEBUG:
+            printDM(f"i2c-{bus_num} read probe failed: {e}", location=MODULE)
+    if found and DEBUG:
+        printDM(
+            f"i2c-{bus_num} SMBus probe found {[hex(a) for a in sorted(found)]}",
+            location=MODULE,
+        )
+    return found
+
+def _smbus_addr_responds(bus, addr: int) -> bool:
+    for op_name in ("read_byte", "write_quick"):
+        op = getattr(bus, op_name, None)
+        if not callable(op):
+            continue
+        try:
+            op(addr)
+            return True
+        except OSError:
+            continue
+        except Exception:
+            continue
+    return False

@@ -31,6 +31,8 @@ class CO2Sensor(BaseSensor):
         self.rh_offset_pct: float = 0.0
         self.co2_offset_ppm: float = 0.0
         self.altitude_meters = None
+        self._startup_ready_waited = False
+        self._startup_data_ready = False
         self._load_calibration_offsets(settings)
         # --------------------------------------------
         self._co2_model = "SCD30"
@@ -79,6 +81,10 @@ class CO2Sensor(BaseSensor):
                 self._apply_configured_altitude()
 
             self.present = True
+            self._startup_data_ready = self._wait_for_data_ready()
+            self._startup_ready_waited = True
+            if not self._startup_data_ready:
+                self.meas_status = "pending"
 
             # NOTE: all metrics below use *calibrated* T/RH/CO2 via helpers.
             self.measurements = [
@@ -283,7 +289,8 @@ class CO2Sensor(BaseSensor):
     def read_sensor_data(self):
         if not self._first_sample_seen and not self._data_ready():
             self.meas_status = "pending"
-            self._wait_for_data_ready()
+            self._startup_data_ready = self._wait_for_data_ready()
+            self._startup_ready_waited = True
         return super().read_sensor_data()
 
     def _get_raw_temp_c(self) -> float:
