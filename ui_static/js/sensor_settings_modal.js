@@ -47,6 +47,19 @@ window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
       statusEl.textContent = text || "";
     }
 
+    function requestDashboardRefresh() {
+      try {
+        document.querySelectorAll(".metric-container[data-user-display-style]").forEach((el) => {
+          delete el.dataset.userDisplayStyle;
+        });
+        if (typeof window.updateGauges === "function") {
+          window.updateGauges();
+        }
+      } catch (err) {
+        void err;
+      }
+    }
+
     function setRestartPending(isPending) {
       if (!restartBtn) return;
       if (!restartBtn.dataset.baseLabel) {
@@ -86,6 +99,7 @@ window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
           throw new Error(String(js.error || js.message || ("HTTP " + resp.status)));
         }
         setStatus("Saved.");
+        requestDashboardRefresh();
         if (typeof window.showToast === "function") window.showToast("Sensor settings saved", "ok");
       } catch (err) {
         const msg = err && err.message ? err.message : "Failed to save sensor settings.";

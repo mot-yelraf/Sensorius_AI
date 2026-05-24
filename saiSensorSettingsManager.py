@@ -25,6 +25,10 @@ from saiUtils import debug_enabled, printDM
 MODULE = "saiSensorSettingsManager"
 DEBUG = debug_enabled(MODULE)
 
+DISPLAY_METRIC_MODE_PICK6 = "Pick 6"
+DISPLAY_METRIC_MODE_ALL = "All"
+DISPLAY_METRIC_MODE_KEY = "METRIC_DISPLAY_MODE"
+
 
 class SensorSettingsManager:
     """
@@ -38,10 +42,15 @@ class SensorSettingsManager:
       - list_ids() -> list[str]
       - delete_sensor(sensor_id) -> bool
       - get_display_metrics(sensor_id) -> list[str]
+      - get_display_metric_mode(sensor_id) -> str
       - set_display_metrics(sensor_id, metrics: list[str]) -> None
       - get_path(sensor_id) -> Path
       - invalidate_cache(file_id: str | None = None, base_dir: str | None = None) -> None
     """
+
+    DISPLAY_METRIC_MODE_PICK6 = DISPLAY_METRIC_MODE_PICK6
+    DISPLAY_METRIC_MODE_ALL = DISPLAY_METRIC_MODE_ALL
+    DISPLAY_METRIC_MODE_KEY = DISPLAY_METRIC_MODE_KEY
 
     # ---- class-level RAM cache (thread-safe across instances) ----
     _cache_by_path: dict[str, OrderedDict] = {}
@@ -288,6 +297,41 @@ class SensorSettingsManager:
             raw_str = str(raw_val or "").strip() or default_style
             ordered_styles.append(raw_str)
         return ordered_styles
+
+    @staticmethod
+    def normalize_display_metric_mode(value) -> str:
+        raw = str(value or "").strip().lower().replace("_", " ").replace("-", " ")
+        compact = raw.replace(" ", "")
+        if compact in {"all", "showall"}:
+            return DISPLAY_METRIC_MODE_ALL
+        return DISPLAY_METRIC_MODE_PICK6
+
+    def get_display_metric_mode(self, sensor_id: str) -> str:
+        """Return the local WebUI metric selection mode for a sensor."""
+        try:
+            settings = self.load(sensor_id)
+        except FileNotFoundError:
+            return DISPLAY_METRIC_MODE_PICK6
+
+        display_block = settings.get("Display", {}) if isinstance(settings, dict) else {}
+        raw_val = ""
+        if isinstance(display_block, dict):
+            raw_val = (
+                display_block.get(DISPLAY_METRIC_MODE_KEY)
+                or display_block.get(DISPLAY_METRIC_MODE_KEY.lower())
+                or display_block.get("DISPLAY_MODE")
+                or display_block.get("display_mode")
+                or ""
+            )
+        return self.normalize_display_metric_mode(raw_val)
+
+    def set_display_metric_mode(self, sensor_id: str, mode: str):
+        """Persist the local WebUI metric selection mode without changing six-slot metrics."""
+        settings = self.load(sensor_id) or OrderedDict()
+        if "Display" not in settings or not isinstance(settings["Display"], dict):
+            settings["Display"] = OrderedDict()
+        settings["Display"][DISPLAY_METRIC_MODE_KEY] = self.normalize_display_metric_mode(mode)
+        self.save(sensor_id, settings)
 
     def set_display_metrics(self, sensor_id: str, metrics: list[str]):
         """

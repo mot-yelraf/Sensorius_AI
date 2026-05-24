@@ -869,6 +869,41 @@ async def test_submit_sensor_settings_pushes_sensor_and_display_updates_for_nodu
 
 
 @pytest.mark.asyncio
+async def test_submit_sensor_settings_metric_display_mode_stays_local_for_nodus(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "apvpd-test123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "apvpd-test123",
+                "LOCATION": "Grow Tent",
+            },
+            "Display": {"METRIC_1": "Temperature"},
+        },
+    )
+    _write_system_settings(system_root, "apvpd-test123", "apvpd-test123")
+    ingest.published_json.clear()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-sensor-settings",
+            data={
+                "sensor_id": "apvpd-test123",
+                "location": "Grow Tent",
+                "metric_display_mode": "All",
+            },
+        )
+
+    assert res.status_code == 303
+    assert ingest.published_json == []
+    saved = sensor_mgr.load("apvpd-test123")
+    assert saved["Display"]["METRIC_DISPLAY_MODE"] == "All"
+
+
+@pytest.mark.asyncio
 async def test_submit_sensor_settings_pushes_explicit_blank_metric_clears_for_nodus(tmp_path, monkeypatch):
     app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
@@ -1031,6 +1066,7 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
         current_metrics=["Temperature", "Rel-Humidity", "Ambient VPD", "", "", ""],
         display_style_options=["Gauge", "Graph6hr", "Graph24hr"],
         current_metric_styles=["Gauge", "Graph6hr", "Graph24hr", "Gauge", "Gauge", "Gauge"],
+        current_metric_display_mode="All",
         location="Veg Tent",
         device_kind="aqi",
         device_label="aqi",
@@ -1048,6 +1084,8 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
 
     assert "Sensor Settings v1.2.3" in html
     assert html.index("Home") < html.index("Restart Device") < html.index("Save")
+    assert 'name="metric_display_mode"' in html
+    assert 'value="All" selected' in html
     assert 'name="display_style_1"' in html
     assert 'name="display_style_3"' in html
 
@@ -2347,6 +2385,78 @@ async def test_dashboard_weewx_status_uses_recent_station_data_when_ingest_unkno
 
 
 @pytest.mark.asyncio
+async def test_dashboard_weewx_all_metric_mode_is_not_limited_to_station_defaults(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "weewx-station",
+        {
+            "Sensor": {
+                "TYPE": "weewx",
+                "DEVICE": "weewx",
+                "SENSOR_ID": "weewx-station",
+                "LOCATION": "Weather Station",
+            },
+            "Display": {
+                "METRIC_1": "Temperature_F",
+                "METRIC_2": "Rel-Humidity",
+                "METRIC_3": "Baro-Pressure",
+                "METRIC_4": "Rain",
+                "METRIC_5": "Wind Speed",
+                "METRIC_6": "Wind Direction",
+                "METRIC_DISPLAY_MODE": "All",
+            },
+        },
+    )
+
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    saiWebRoutes._DASHBOARD_DISPLAY_SETTINGS_CACHE = None
+    now_iso = datetime.now().isoformat()
+    station_values = {
+        "Temperature_F": 72.1,
+        "Rel-Humidity": 44.0,
+        "Baro-Pressure": 1012.4,
+        "Rain": 0.02,
+        "Wind Speed": 3.0,
+        "Wind Direction": 180.0,
+        "Dew Point_F": 52.0,
+        "Rain Rate": 0.01,
+    }
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["weewx-station"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso)
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_values", lambda sid: dict(station_values))
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_latest_values_and_timestamps",
+        lambda ids: ({sid: dict(station_values) for sid in ids}, {sid: now_iso for sid in ids}),
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_metrics", lambda sid: list(station_values.keys()))
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {"weewx-station": {}})
+    ingest.mqtt_clients = []
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/", params={"json_only": "true"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["expected_gauge_map"]["weewx-station"] == [
+        "Temperature_F",
+        "Rel-Humidity",
+        "Baro-Pressure",
+        "Rain",
+        "Wind Speed",
+        "Wind Direction",
+        "Dew Point_F",
+        "Rain Rate",
+    ]
+    style_map = body["expected_display_style_map"]["weewx-station"]
+    assert style_map["METRIC_7"] == "Graph24hr"
+    assert style_map["METRIC_8"] == "Graph24hr"
+
+
+@pytest.mark.asyncio
 async def test_dashboard_read_does_not_rewrite_metric_positions_for_offline_sensors(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     saiWebRoutes._SENSOR_LOCATION_CACHE.clear()
@@ -2619,6 +2729,188 @@ async def test_dashboard_display_style_prefers_sensor_settings_over_global_defau
     style_map = body["expected_display_style_map"]["apvpd-test123"]
     assert style_map["METRIC_1"] == "Graph6hr"
     assert style_map["METRIC_2"] == "Gauge"
+
+
+def test_dashboard_gauge_init_preserves_configured_metric_display_style():
+    from saiHtml import get_gauge_config, render_dashboard
+
+    ingest = SimpleNamespace(expected_gauge_map={})
+    gauge_config = get_gauge_config()
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["co2-ykdvea"],
+            {"co2-ykdvea": {"CO2": 718.0}},
+            {"co2-ykdvea": {"CO2": {"min": 700.0, "avg": 718.0, "max": 730.0}}},
+            ingest,
+            gauge_config=gauge_config,
+            expected_gauge_map={"co2-ykdvea": ["CO2"]},
+            expected_display_style_map={"co2-ykdvea": {"METRIC_1": "Graph24hr"}},
+            display_style="Gauge",
+        )
+    )
+
+    assert "data-display-style='Graph24hr'" in html
+    assert "registerContainerStyle(container, 'Gauge')" not in html
+    assert "const initialStyle = window.normalizeDisplayStyle(container.dataset.displayStyle" in html
+
+
+def test_dashboard_metric_card_click_cycles_24hr_graph_to_6hr_graph():
+    from saiHtml import get_gauge_config, render_dashboard
+
+    ingest = SimpleNamespace(expected_gauge_map={})
+    gauge_config = get_gauge_config()
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["co2-ykdvea"],
+            {"co2-ykdvea": {"Ambient VPD": 1.95}},
+            {"co2-ykdvea": {"Ambient VPD": {"min": 1.4, "avg": 2.1, "max": 2.8}}},
+            ingest,
+            gauge_config=gauge_config,
+            expected_gauge_map={"co2-ykdvea": ["Ambient VPD"]},
+            expected_display_style_map={"co2-ykdvea": {"METRIC_1": "Graph24hr"}},
+            display_style="Gauge",
+        )
+    )
+
+    assert "if (style === 'Graph24hr')" in html
+    assert "nextStyle = 'Graph6hr'" in html
+    assert "else if (style === 'Graph6hr')" in html
+    assert "nextStyle = 'Gauge'" in html
+
+
+def test_dashboard_metric_card_reuses_chart_with_updated_graph_options():
+    from saiHtml import get_gauge_config, render_dashboard
+
+    ingest = SimpleNamespace(expected_gauge_map={})
+    gauge_config = get_gauge_config()
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["co2-ykdvea"],
+            {"co2-ykdvea": {"Ambient VPD": 1.95}},
+            {"co2-ykdvea": {"Ambient VPD": {"min": 1.4, "avg": 2.1, "max": 2.8}}},
+            ingest,
+            gauge_config=gauge_config,
+            expected_gauge_map={"co2-ykdvea": ["Ambient VPD"]},
+            expected_display_style_map={"co2-ykdvea": {"METRIC_1": "Graph24hr"}},
+            display_style="Gauge",
+        )
+    )
+
+    assert "xTitleText = '6 Hours'" in html
+    assert "chart.options = chartOptions;" in html
+    assert "chart.update('none');" in html
+
+
+def test_dashboard_metric_card_gauge_view_has_canvas_fallback():
+    from saiHtml import get_gauge_config, render_dashboard
+
+    ingest = SimpleNamespace(expected_gauge_map={})
+    gauge_config = get_gauge_config()
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["co2-ykdvea"],
+            {"co2-ykdvea": {"Ambient VPD": 1.95}},
+            {"co2-ykdvea": {"Ambient VPD": {"min": 1.4, "avg": 2.1, "max": 2.8}}},
+            ingest,
+            gauge_config=gauge_config,
+            expected_gauge_map={"co2-ykdvea": ["Ambient VPD"]},
+            expected_display_style_map={"co2-ykdvea": {"METRIC_1": "Gauge"}},
+            display_style="Gauge",
+        )
+    )
+
+    assert "function drawFallbackGauge(canvas, rawValue, config)" in html
+    assert "if (typeof Gauge === 'function')" in html
+    assert "drawFallbackGauge(canvas, value, config);" in html
+    assert "const metricCanvasWidth = 260;" in html
+    assert "canvas.width = Math.round(canvasSize.cssWidth);" in html
+    assert "canvas.style.width = '160px';" not in html
+    assert "radiusScale: 0.9" in html
+    assert "radiusScale: 0.72" not in html
+    assert "initGauge on view switch failed" in html
+
+
+@pytest.mark.asyncio
+async def test_dashboard_all_metric_mode_renders_all_known_metrics_with_extra_graph_styles(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "co2-ykdvea",
+        {
+            "Sensor": {"TYPE": "nodus", "DEVICE": "co2", "SENSOR_ID": "co2-ykdvea", "LOCATION": "Office"},
+            "Display": {
+                "METRIC_1": "CO2",
+                "METRIC_2": "Temperature",
+                "METRIC_3": "Rel-Humidity",
+                "METRIC_4": "Ambient VPD",
+                "METRIC_5": "Dew Point Deficit",
+                "METRIC_6": "DewVPD Risk",
+                "METRIC_DISPLAY_MODE": "All",
+                "Style": {
+                    "METRIC_1": "Graph6hr",
+                    "METRIC_2": "Gauge",
+                    "METRIC_3": "Graph24hr",
+                    "METRIC_4": "Gauge",
+                    "METRIC_5": "Graph6hr",
+                    "METRIC_6": "Gauge",
+                },
+            },
+        },
+    )
+
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
+    all_values = {
+        "CO2": 718.0,
+        "Temperature": 25.1,
+        "Rel-Humidity": 55.0,
+        "Ambient VPD": 1.42,
+        "Dew Point Deficit": 6.1,
+        "DewVPD Risk": 21.0,
+        "Gas": 1234.0,
+        "Baro-Pressure": 1007.0,
+    }
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["co2-ykdvea"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso)
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_latest_values_and_timestamps",
+        lambda ids: ({sid: dict(all_values) for sid in ids}, {sid: now_iso for sid in ids}),
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_metrics", lambda sid: list(all_values.keys()))
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {"co2-ykdvea": {}})
+    ingest.mqtt_clients = []
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/", params={"json_only": "true"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["expected_gauge_map"]["co2-ykdvea"] == [
+        "CO2",
+        "Temperature",
+        "Rel-Humidity",
+        "Ambient VPD",
+        "Dew Point Deficit",
+        "DewVPD Risk",
+        "Gas",
+        "Baro-Pressure",
+    ]
+    style_map = body["expected_display_style_map"]["co2-ykdvea"]
+    assert style_map["METRIC_1"] == "Graph6hr"
+    assert style_map["METRIC_6"] == "Gauge"
+    assert style_map["METRIC_7"] == "Graph24hr"
+    assert style_map["METRIC_8"] == "Graph24hr"
 
 
 @pytest.mark.asyncio

@@ -55,7 +55,19 @@
 
               <div class="section">
                 <h4 class="section-title">Display Metrics</h4>
-                <p class="muted" style="margin-top:0;">Choose up to six metrics for this sensor card.</p>
+                {% set metric_display_mode = current_metric_display_mode | default('Pick 6', true) %}
+
+                <div class="row three">
+                  <div></div>
+                  <div>
+                    <label for="metric_display_mode">Metric Set</label>
+                    <select name="metric_display_mode" id="metric_display_mode">
+                      <option value="Pick 6" {% if metric_display_mode == 'Pick 6' %}selected{% endif %}>Pick 6</option>
+                      <option value="All" {% if metric_display_mode == 'All' %}selected{% endif %}>All</option>
+                    </select>
+                  </div>
+                  <div></div>
+                </div>
 
                 <div class="row three">
                   {% for i in range(1, 4) %}
@@ -479,6 +491,19 @@
     statusEl.textContent = text || "";
   }
 
+  function requestDashboardRefresh() {
+    try {
+      document.querySelectorAll(".metric-container[data-user-display-style]").forEach(function(el) {
+        delete el.dataset.userDisplayStyle;
+      });
+      if (typeof window.updateGauges === "function") {
+        window.updateGauges();
+      }
+    } catch (err) {
+      void err;
+    }
+  }
+
   function setRestartPending(isPending) {
     if (!restartBtn) return;
     if (!restartBtn.dataset.baseLabel) {
@@ -518,6 +543,7 @@
         throw new Error(String(js.error || js.message || ("HTTP " + resp.status)));
       }
       setStatus("Saved.");
+      requestDashboardRefresh();
       if (typeof window.showToast === "function") window.showToast("Sensor settings saved", "ok");
     } catch (err) {
       const msg = err && err.message ? err.message : "Failed to save sensor settings.";

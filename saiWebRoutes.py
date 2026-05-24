@@ -1673,19 +1673,45 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         expected_display_style_map = {}
         for sid in all_values:
             try:
-                metrics = sensor_mgr.get_display_metrics(sid)
+                configured_metrics = sensor_mgr.get_display_metrics(sid)
             except Exception:
-                metrics = []
-            if not metrics:
-                metrics = mqtt_ingest.expected_gauge_map.get(sid)
-            if not metrics:
-                # If display metrics are blank, prefer per-sensor stored metrics
-                # rather than rendering every gauge_config metric.
+                configured_metrics = []
+            try:
+                metric_display_mode = sensor_mgr.get_display_metric_mode(sid)
+            except Exception:
+                metric_display_mode = "Pick 6"
+            all_metrics_mode = metric_display_mode == "All"
+
+            metrics = list(configured_metrics or [])
+            stored_metrics: list[str] = []
+            if all_metrics_mode or not metrics:
                 try:
                     stored_metrics = await asyncio.to_thread(data_logger.get_available_metrics, sid)
                     stored_metrics = stored_metrics or []
                 except Exception:
                     stored_metrics = []
+
+            if all_metrics_mode:
+                known_metrics: list[str] = []
+                known_metrics.extend(stored_metrics)
+                vals = all_values.get(sid) or {}
+                if vals:
+                    known_metrics.extend(list(vals.keys()))
+                known_metrics.extend(list(mqtt_ingest.expected_gauge_map.get(sid) or []))
+
+                known_canonical = {
+                    canonicalize_metric_name(metric, gauge_config)
+                    for metric in known_metrics
+                }
+                ordered_all = [k for k in gauge_config.keys() if k in known_canonical]
+                metrics = list(configured_metrics or [])
+                metrics.extend([metric for metric in ordered_all if metric not in metrics])
+
+            if not all_metrics_mode and not metrics:
+                metrics = mqtt_ingest.expected_gauge_map.get(sid)
+            if not all_metrics_mode and not metrics:
+                # If display metrics are blank, prefer per-sensor stored metrics
+                # rather than rendering every gauge_config metric.
                 if stored_metrics:
                     ordered = [k for k in gauge_config.keys() if k in stored_metrics]
                     extras = [k for k in stored_metrics if k not in gauge_config]
@@ -1698,10 +1724,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     extras = [k for k in vals.keys() if k not in gauge_config]
                     metrics = ordered + extras
             sid_text = str(sid or "").strip()
-            if sid_text == WEEWX_DEFAULT_SENSOR_ID or sid_text.lower().startswith("weewx"):
+            if (not all_metrics_mode) and (sid_text == WEEWX_DEFAULT_SENSOR_ID or sid_text.lower().startswith("weewx")):
                 vals = all_values.get(sid) or {}
                 metrics = [metric for metric in WEEWX_DISPLAY_METRICS if metric in vals]
-            # Keep dashboard payloads bounded and stable when discovery metadata is absent.
+            # Keep Pick 6 bounded while allowing the local All mode to render
+            # every known gauge-configured metric for the sensor.
             deduped: list[str] = []
             seen = set()
             for metric in (metrics or []):
@@ -1710,17 +1737,21 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     continue
                 seen.add(m)
                 deduped.append(m)
-                if len(deduped) >= 6:
+                if not all_metrics_mode and len(deduped) >= 6:
                     break
             expected_gauge_map[sid] = deduped
             try:
                 raw_styles = sensor_mgr.get_display_styles(sid, default_style="Gauge")
             except Exception:
                 raw_styles = ["Gauge"] * 6
-            expected_display_style_map[sid] = {
+            style_map = {
                 f"METRIC_{idx + 1}": str(raw_styles[idx] or "Gauge")
                 for idx in range(6)
             }
+            if all_metrics_mode:
+                for idx in range(6, len(deduped)):
+                    style_map[f"METRIC_{idx + 1}"] = "Graph24hr"
+            expected_display_style_map[sid] = style_map
         phase_ms["expected_metrics"] = (
             (time.monotonic() - _phase_started) * 1000.0
             - phase_ms.get("inventory", 0.0)
@@ -7355,6 +7386,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             display_style_options = ["Gauge", "Graph6hr", "Graph24hr"]
             current_metric_styles = manager.get_display_styles(normalized_id, default_style="Gauge")
+            current_metric_display_mode = manager.get_display_metric_mode(normalized_id)
 
             # location
             sensor_section = settings_dict.get("Sensor", {}) or {}
@@ -7455,6 +7487,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 current_metrics=current_metrics,
                 display_style_options=display_style_options,
                 current_metric_styles=current_metric_styles,
+                current_metric_display_mode=current_metric_display_mode,
                 location=location,
                 device_kind=device_kind,
                 device_label=device_label,
@@ -7709,6 +7742,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             display_updates["Display"]["Style"] = {
                 f"METRIC_{i}": metric_style_list[i - 1] for i in range(1, 7)
             }
+        if "metric_display_mode" in form:
+            display_updates.setdefault("Display", {})
+            display_updates["Display"][manager.DISPLAY_METRIC_MODE_KEY] = manager.normalize_display_metric_mode(
+                form.get("metric_display_mode")
+            )
 
         # Deep-merge the changes into the existing doc
         merged_doc = deep_merge_ordered(OrderedDict(existing_doc), sensor_updates)
@@ -7728,6 +7766,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 # (still preserves everything in merged_doc)
                 for section_name, section_map in merged_doc.items():
                     manager.save(old_id, OrderedDict([(section_name, section_map)]))
+        _invalidate_dashboard_caches()
 
         base_dir = Path(getattr(manager, "base_dir", "sensor_settings"))
         old_dir = base_dir / old_id
