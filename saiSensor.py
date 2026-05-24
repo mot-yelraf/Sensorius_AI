@@ -244,6 +244,7 @@ class SensorController:
             # --- Normal present path ---
             loop_start = time.monotonic()
             meas_end = 0.0
+            self.supervisor.feedthedogs(f"{self.sensor_id} Data Collection")
             try:
                 values, units, ts = await asyncio.wait_for(
                     asyncio.to_thread(self.sensor.read_sensor_data),

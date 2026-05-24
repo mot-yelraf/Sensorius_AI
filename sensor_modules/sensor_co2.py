@@ -289,8 +289,9 @@ class CO2Sensor(BaseSensor):
     def read_sensor_data(self):
         if not self._first_sample_seen and not self._data_ready():
             self.meas_status = "pending"
-            self._startup_data_ready = self._wait_for_data_ready()
-            self._startup_ready_waited = True
+            if not self._startup_ready_waited:
+                self._startup_data_ready = self._wait_for_data_ready()
+                self._startup_ready_waited = True
         return super().read_sensor_data()
 
     def _get_raw_temp_c(self) -> float:

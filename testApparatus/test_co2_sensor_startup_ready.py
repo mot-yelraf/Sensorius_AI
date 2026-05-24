@@ -122,11 +122,12 @@ def test_scd30_startup_wait_uses_data_available(monkeypatch):
     assert wait_checks == [("SCD30", True, 20.0, 0.5)]
 
 
-def test_first_read_waits_until_successful_sample_even_after_startup_wait(monkeypatch):
+def test_first_read_waits_once_when_startup_wait_not_performed(monkeypatch):
     flag_sensor = _FlagSensor(data_ready=False)
     sensor = _co2_with_flag("SCD4x", flag_sensor)
     sensor._first_sample_seen = False
-    sensor._startup_ready_waited = True
+    sensor._startup_ready_waited = False
+    sensor._startup_data_ready = False
     sensor.meas_status = ""
     sensor.measurements = []
     sensor.meas_types = []
@@ -147,6 +148,33 @@ def test_first_read_waits_until_successful_sample_even_after_startup_wait(monkey
 
     assert values == {}
     assert wait_calls == [True]
+    assert sensor._startup_ready_waited is True
+    assert sensor._startup_data_ready is True
+    assert sensor.meas_status == "pending"
+
+
+def test_first_read_does_not_repeat_startup_wait(monkeypatch):
+    flag_sensor = _FlagSensor(data_ready=False)
+    sensor = _co2_with_flag("SCD4x", flag_sensor)
+    sensor._first_sample_seen = False
+    sensor._startup_ready_waited = True
+    sensor._startup_data_ready = False
+    sensor.meas_status = ""
+    sensor.measurements = []
+    sensor.meas_types = []
+    sensor.unit_map = {}
+    sensor.filtered_data = {}
+    sensor.latest_raw = {}
+    sensor.current_values = {}
+
+    def _unexpected_wait(*_args, **_kwargs):
+        raise AssertionError("startup wait should not repeat after it has already run")
+
+    monkeypatch.setattr(sensor, "_wait_for_data_ready", _unexpected_wait)
+
+    values, _units, _ts = sensor.read_sensor_data()
+
+    assert values == {}
     assert sensor.meas_status == "pending"
 
 
