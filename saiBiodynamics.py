@@ -106,6 +106,7 @@ _CONSTELLATION_ALIASES: dict[str, str] = {
     "Cet": "Psc",
     "Aur": "Tau",
     "Ori": "Tau",
+    "Sex": "Leo",
 }
 
 
@@ -197,8 +198,13 @@ def _moon_sign_index(dt_local: datetime, ts, eph, constellation_at) -> int:
     t = ts.from_datetime(dt_local.astimezone(timezone.utc))
     apparent = earth.at(t).observe(moon).apparent()
     abbr = str(constellation_at(apparent))
-    abbr = _CONSTELLATION_ALIASES.get(abbr, abbr)
-    idx = _SIGN_INDEX_BY_ABBR.get(abbr)
+    idx = _biodynamic_sign_index_for_constellation(abbr)
+    return idx
+
+
+def _biodynamic_sign_index_for_constellation(abbr: str) -> int:
+    mapped_abbr = _CONSTELLATION_ALIASES.get(str(abbr), str(abbr))
+    idx = _SIGN_INDEX_BY_ABBR.get(mapped_abbr)
     if idx is None:
         raise RuntimeError(f"unsupported_constellation:{abbr}")
     return idx
@@ -566,6 +572,7 @@ def _build_calendar(month_anchor: date, tzinfo: ZoneInfo, ts, eph, constellation
             "is_today": day_date == today,
             "segments": day_segments,
             "dominant_sign": (dominant_sign or {}).get("name", ""),
+            "dominant_sign_abbr": (dominant_sign or {}).get("abbr", ""),
             "dominant_element": (dominant_sign or {}).get("element", ""),
             "dominant_plant_part": (dominant_sign or {}).get("plant_part", ""),
             "dominant_color": (dominant_sign or {}).get("color", "#d8d8d8"),

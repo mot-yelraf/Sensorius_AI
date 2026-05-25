@@ -88,7 +88,7 @@ from saiFastStats import FastStats
 from saiSensorSettingsManager import SensorSettingsManager
 from saiSwitchSettingsManager import SwitchSettingsManager
 from saiBiodynamics import get_biodynamic_payload, get_biodynamic_local_now
-from saiDailySummary import DailySummaryService
+from saiDailySummary import DailySummaryService, DEFAULT_FORECAST_DAYS
 from saiNodusOTA import NodusOTAError, NodusOTAService
 from saiAddDevice import HUB_SETTINGS_PATH, _SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR
 try:
@@ -342,6 +342,23 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             payload,
         )
         return payload
+
+    async def _ensure_biodynamic_summary_window(today_local: date) -> tuple[str, float]:
+        window_start = today_local.replace(day=1)
+        month_key = window_start.isoformat()
+        if getattr(app.state, "_biodynamic_summary_window_month", "") == month_key:
+            return "cached", 0.0
+
+        started = time.monotonic()
+        service = DailySummaryService(settings=settings, data_logger=data_logger)
+        await asyncio.to_thread(
+            service.ensure_summaries_for_window,
+            window_start,
+            days=DEFAULT_FORECAST_DAYS,
+            refresh_start=True,
+        )
+        setattr(app.state, "_biodynamic_summary_window_month", month_key)
+        return "updated", (time.monotonic() - started) * 1000.0
 
     def _get_cached_astro_payload() -> dict[str, object]:
         global _ASTRO_PAYLOAD_CACHE
@@ -4061,14 +4078,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         except Exception:
             return JSONResponse({"error": "invalid_month"}, status_code=400)
 
-        summary_started = time.monotonic()
+        summary_status = "skipped"
+        summary_ms = 0.0
         try:
             today_local = datetime.now(getattr(data_logger, "local_tz", ZoneInfo("America/Denver"))).date()
-            DailySummaryService(settings=settings, data_logger=data_logger).ensure_summaries_for_window(today_local)
+            summary_status, summary_ms = await _ensure_biodynamic_summary_window(today_local)
         except Exception as exc:
             if DEBUG:
                 printDM(f"[api_biodynamic_calendar] daily summary backfill skipped: {exc}", location=MODULE)
-        summary_ms = (time.monotonic() - summary_started) * 1000.0
 
         payload_started = time.monotonic()
         payload = get_biodynamic_payload(anchor)
@@ -4101,6 +4118,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "api-biodynamic-calendar",
             _route_started,
             anchor=anchor.isoformat(),
+            summary_status=summary_status,
             summary_ms=f"{summary_ms:.1f}",
             payload_ms=f"{payload_ms:.1f}",
             notes_ms=f"{notes_ms:.1f}",

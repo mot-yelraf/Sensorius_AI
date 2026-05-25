@@ -11,9 +11,9 @@ import profile_webui
 
 
 def test_select_scenarios_filters_and_deduplicates_by_name():
-    selected = profile_webui.select_scenarios("sensor_settings,fullscreen_graph,calendar,sensor_settings")
+    selected = profile_webui.select_scenarios("sensor_settings,fullscreen_graph,calendar_month_selectors,calendar,sensor_settings")
 
-    assert [scenario.name for scenario in selected] == ["sensor_settings", "fullscreen_graph", "calendar"]
+    assert [scenario.name for scenario in selected] == ["sensor_settings", "fullscreen_graph", "calendar_month_selectors", "calendar"]
 
 
 def test_build_js_helper_discovers_current_dashboard_target_shapes():
@@ -23,6 +23,7 @@ def test_build_js_helper_discovers_current_dashboard_target_shapes():
     assert ".metric-container[data-sensor]" in helper
     assert ".switch-metric-container[data-switch-ids]" in helper
     assert "visibleMetricTargets()" in helper
+    assert "if (config.setup)" in helper
     assert "fullscreen_graph_container" in helper
     assert "sensor_settings_links" in helper
     assert "switch_count" in helper
@@ -33,12 +34,20 @@ def test_modal_scenarios_accept_explicit_targets():
     sensor = next(item for item in profile_webui.SCENARIOS if item.name == "sensor_settings")
     switch = next(item for item in profile_webui.SCENARIOS if item.name == "switch_settings")
     fullscreen_graph = next(item for item in profile_webui.SCENARIOS if item.name == "fullscreen_graph")
+    month_selectors = next(item for item in profile_webui.SCENARIOS if item.name == "calendar_month_selectors")
 
     assert "__sensProfilerTargetSensorId" in sensor.js_factory
     assert "__sensProfilerTargetSwitchId" in switch.js_factory
     assert "visibleMetricTargets()" in fullscreen_graph.js_factory
     assert "graphButton" in fullscreen_graph.js_factory
     assert "fullscreen_graph_container" in fullscreen_graph.js_factory
+    assert "bioPrevMonthBtn" in month_selectors.js_factory
+    assert "bioNextMonthBtn" in month_selectors.js_factory
+    assert "next month render" in month_selectors.js_factory
+    assert "second next month render" in month_selectors.js_factory
+    assert "previous month render" in month_selectors.js_factory
+    assert "second previous month render" in month_selectors.js_factory
+    assert "Calendar month selector sequence mismatch" in month_selectors.js_factory
 
 
 def test_summary_counts_skipped_and_failed_scenario_samples():

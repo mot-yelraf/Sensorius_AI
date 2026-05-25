@@ -12,6 +12,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import saiBiodynamics
 
 
+def test_iau_edge_constellation_sextans_maps_to_leo_for_future_months():
+    idx = saiBiodynamics._biodynamic_sign_index_for_constellation("Sex")
+    meta = saiBiodynamics._sign_meta(idx)
+
+    assert meta["abbr"] == "Leo"
+    assert meta["name"] == "Leo"
+
+
 def test_lunar_flags_for_day_preserves_specific_event_types():
     tzinfo = ZoneInfo("America/Denver")
     day_start = datetime(2026, 3, 8, tzinfo=tzinfo)

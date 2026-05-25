@@ -214,6 +214,25 @@ def test_ensure_summaries_for_window_crosses_month_boundary(monkeypatch):
     assert calls[-1] == "2026-04-22"
 
 
+def test_annual_forecast_window_anchors_to_month_start(monkeypatch):
+    service = saiDailySummary.DailySummaryService(
+        settings=_FakeSettings(),
+        data_logger=_FakeLogger(),
+    )
+    calls = []
+
+    def _fake_window(start_date, *, days=saiDailySummary.DEFAULT_FORECAST_DAYS, refresh_start=True):
+        calls.append((start_date, days, refresh_start))
+        return 3
+
+    monkeypatch.setattr(service, "ensure_summaries_for_window", _fake_window)
+
+    assert saiDailySummary.DEFAULT_FORECAST_DAYS == 366
+    assert service.forecast_window_start(date(2026, 5, 25)) == date(2026, 5, 1)
+    assert service.ensure_forecast_window(date(2026, 5, 25)) == 3
+    assert calls == [(date(2026, 5, 1), saiDailySummary.DEFAULT_FORECAST_DAYS, True)]
+
+
 class _FakeSupervisor:
     def __init__(self):
         self.feed_calls = []

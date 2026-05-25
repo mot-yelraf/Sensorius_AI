@@ -26,9 +26,20 @@ except Exception:
 
 MODULE = "saiDailySummary"
 DEBUG = debug_enabled(MODULE)
-DEFAULT_FORECAST_DAYS = 29
+DEFAULT_FORECAST_DAYS = 366
 _GROUNDING_REMINDER = "Suggestion: prioritize actual plant health, irrigation status, weather, and disease pressure over calendar timing."
 _KNOWN_CROP_STAGES = {"seedling", "veg", "maturing", "mature", "harvest"}
+
+
+def _month_start(anchor_date: date) -> date:
+    return anchor_date.replace(day=1)
+
+
+def _next_month_start(anchor_date: date) -> date:
+    month_start = _month_start(anchor_date)
+    if month_start.month == 12:
+        return month_start.replace(year=month_start.year + 1, month=1, day=1)
+    return month_start.replace(month=month_start.month + 1, day=1)
 
 
 def _normalize_crop_stage(crop_stage: str | None) -> str:
@@ -418,6 +429,15 @@ class DailySummaryService:
                 writes += 1
         return writes
 
+    def forecast_window_start(self, anchor_date: date | None = None) -> date:
+        """Return the month anchor for the annual biodynamic hint window."""
+        base_date = anchor_date or datetime.now(self.local_tz).date()
+        return _month_start(base_date)
+
+    def ensure_forecast_window(self, anchor_date: date | None = None) -> int:
+        """Materialize the annual biodynamic hint window from the current month."""
+        return self.ensure_summaries_for_window(self.forecast_window_start(anchor_date))
+
     def _feed_watchdog(self, *, error: bool = False) -> None:
         sup = getattr(self, "supervisor", None)
         if sup and hasattr(sup, "feedthedogs"):
@@ -466,8 +486,9 @@ class DailySummaryService:
             try:
                 self._feed_watchdog()
                 now_local = datetime.now(self.local_tz)
-                await self._ensure_summaries_for_window_async(now_local.date())
-                next_run = datetime.combine(now_local.date() + timedelta(days=1), dtime(0, 0, 1), self.local_tz)
+                window_start = self.forecast_window_start(now_local.date())
+                await self._ensure_summaries_for_window_async(window_start)
+                next_run = datetime.combine(_next_month_start(window_start), dtime(0, 0, 1), self.local_tz)
                 sleep_s = max((next_run - now_local).total_seconds(), 1.0)
             except Exception as exc:
                 self._feed_watchdog()

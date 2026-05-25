@@ -8,6 +8,7 @@ Profiles:
 - switch settings modal
 - full-screen graph modal
 - biodynamic calendar modal
+- biodynamic calendar month selectors
 
 The script launches headless Chrome with the DevTools protocol enabled,
 drives the dashboard UI, and prints summary timing stats plus raw samples.
@@ -63,7 +64,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--scenarios",
         default="all",
-        help="Comma-separated scenarios to run. Use all, or any of: system_settings,sensor_settings,switch_settings,fullscreen_graph,calendar.",
+        help="Comma-separated scenarios to run. Use all, or any of: system_settings,sensor_settings,switch_settings,fullscreen_graph,calendar,calendar_month_selectors.",
     )
     parser.add_argument(
         "--fail-fast",
@@ -411,6 +412,9 @@ def build_js_helper(timeout_ms: int) -> str:
     }},
     async profileAction(config) {{
       this.closeKnownModals();
+      if (config.setup) {{
+        await config.setup();
+      }}
       await this.nextPaint();
       const fetches = [];
       const alerts = [];
@@ -653,6 +657,82 @@ SCENARIOS = (
     );
     window.__sensProfiler.click(trigger);
     return '';
+  },
+  waitFor: () => document.getElementById('biodynamicCalendarModal'),
+  ready: (modal) => modal.querySelector('#bioModalCalendar .bio-day'),
+}))()
+""",
+    ),
+    Scenario(
+        name="calendar_month_selectors",
+        label="Calendar Month Selectors",
+        js_factory="""
+(() => window.__sensProfiler.profileAction({
+  label: 'biodynamic calendar month selectors',
+  setup: async () => {
+    if (typeof window.openBiodynamicCalendarModal === 'function') {
+      await window.openBiodynamicCalendarModal();
+    } else {
+      const trigger = await window.__sensProfiler.waitFor(
+        () => document.getElementById('bioOpenBtn'),
+        window.__sensProfiler.timeoutMs,
+        'calendar trigger'
+      );
+      window.__sensProfiler.click(trigger);
+    }
+    const modal = await window.__sensProfiler.waitFor(
+      () => document.getElementById('biodynamicCalendarModal'),
+      window.__sensProfiler.timeoutMs,
+      'biodynamic calendar modal'
+    );
+    await window.__sensProfiler.waitFor(
+      () => modal.querySelector('#bioModalCalendar .bio-day'),
+      window.__sensProfiler.timeoutMs,
+      'biodynamic calendar ready'
+    );
+  },
+  open: async () => {
+    const modal = document.getElementById('biodynamicCalendarModal');
+    const label = document.getElementById('bioModalMonthLabel');
+    const prev = document.getElementById('bioPrevMonthBtn');
+    const next = document.getElementById('bioNextMonthBtn');
+    if (!modal || !label || !prev || !next) throw new Error('Calendar month controls not found');
+
+    const initialLabel = String(label.textContent || '').trim();
+    const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const shiftLabel = (baseLabel, delta) => {
+      const parts = String(baseLabel || '').trim().split(/\\s+/);
+      const monthIndex = monthNames.indexOf(parts[0] || '');
+      const year = parseInt(parts[1] || '', 10);
+      if (monthIndex < 0 || !Number.isFinite(year)) throw new Error(`Unable to parse month label: ${baseLabel}`);
+      const d = new Date(year, monthIndex + delta, 1);
+      return `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+    };
+    const shiftMonth = async (button, beforeLabel, labelText) => {
+      window.__sensProfiler.click(button);
+      await window.__sensProfiler.waitFor(
+        () => String(label.textContent || '').trim() && String(label.textContent || '').trim() !== beforeLabel && modal.querySelector('#bioModalCalendar .bio-day'),
+        window.__sensProfiler.timeoutMs,
+        labelText
+      );
+      return String(label.textContent || '').trim();
+    };
+    const nextLabel = await shiftMonth(next, initialLabel, 'next month render');
+    const secondNextLabel = await shiftMonth(next, nextLabel, 'second next month render');
+    const prevLabel = await shiftMonth(prev, secondNextLabel, 'previous month render');
+    const finalLabel = await shiftMonth(prev, prevLabel, 'second previous month render');
+    const expected = [
+      initialLabel,
+      shiftLabel(initialLabel, 1),
+      shiftLabel(initialLabel, 2),
+      shiftLabel(initialLabel, 1),
+      initialLabel,
+    ];
+    const actual = [initialLabel, nextLabel, secondNextLabel, prevLabel, finalLabel];
+    if (actual.join(' -> ') !== expected.join(' -> ')) {
+      throw new Error(`Calendar month selector sequence mismatch: expected ${expected.join(' -> ')}, got ${actual.join(' -> ')}`);
+    }
+    return `${initialLabel} -> ${nextLabel} -> ${secondNextLabel} -> ${prevLabel} -> ${finalLabel}`;
   },
   waitFor: () => document.getElementById('biodynamicCalendarModal'),
   ready: (modal) => modal.querySelector('#bioModalCalendar .bio-day'),
