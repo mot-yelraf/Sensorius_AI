@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import saiSettings
 from saiCalibration import CalibrationManager
 from saiDataLogger import saiDataLogger
+from sensor_modules.station_weewx import WEEWX_RAIN_24H_METRIC
 
 
 def _create_legacy_db(path: str) -> None:
@@ -62,25 +63,29 @@ def test_init_db_migrates_legacy_ts_epoch_columns(tmp_path, monkeypatch: pytest.
     db_path = tmp_path / "legacy.db"
     _create_legacy_db(str(db_path))
 
-    logger = saiDataLogger(db_path=str(db_path))
-    logger.close()
+    saiDataLogger._schema_ready = False
+    try:
+        logger = saiDataLogger(db_path=str(db_path))
+        logger.close()
 
-    with sqlite3.connect(str(db_path)) as conn:
-        cur = conn.cursor()
-        cur.execute("PRAGMA table_info(readings)")
-        readings_cols = {row[1] for row in cur.fetchall()}
-        cur.execute("PRAGMA table_info(sw_events)")
-        sw_events_cols = {row[1] for row in cur.fetchall()}
+        with sqlite3.connect(str(db_path)) as conn:
+            cur = conn.cursor()
+            cur.execute("PRAGMA table_info(readings)")
+            readings_cols = {row[1] for row in cur.fetchall()}
+            cur.execute("PRAGMA table_info(sw_events)")
+            sw_events_cols = {row[1] for row in cur.fetchall()}
 
-        cur.execute("PRAGMA index_list(readings)")
-        readings_indexes = {row[1] for row in cur.fetchall()}
-        cur.execute("PRAGMA index_list(sw_events)")
-        sw_events_indexes = {row[1] for row in cur.fetchall()}
+            cur.execute("PRAGMA index_list(readings)")
+            readings_indexes = {row[1] for row in cur.fetchall()}
+            cur.execute("PRAGMA index_list(sw_events)")
+            sw_events_indexes = {row[1] for row in cur.fetchall()}
 
-    assert "ts_epoch" in readings_cols
-    assert "ts_epoch" in sw_events_cols
-    assert "idx_readings_sid_metric_tse" in readings_indexes
-    assert "idx_swe_key_tse" in sw_events_indexes
+        assert "ts_epoch" in readings_cols
+        assert "ts_epoch" in sw_events_cols
+        assert "idx_readings_sid_metric_tse" in readings_indexes
+        assert "idx_swe_key_tse" in sw_events_indexes
+    finally:
+        saiDataLogger._schema_ready = False
 
 
 def test_biodynamic_daily_summaries_round_trip(tmp_path, monkeypatch: pytest.MonkeyPatch):
@@ -148,6 +153,56 @@ def test_available_metrics_by_sensor_caches_and_invalidates_on_write(tmp_path, m
         logger.log_readings("2026-05-24T12:01:00", "co2-ykdvea", {"Ambient VPD": 1.2})
 
         assert "Ambient VPD" in logger.get_available_metrics("co2-ykdvea")
+    finally:
+        logger.close()
+        saiDataLogger._schema_ready = False
+
+
+def test_rain_last_24h_metric_is_derived_from_interval_rain(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    class _StubSettings:
+        def __init__(self, apply_live=False):
+            self.apply_live = apply_live
+
+        def get_setting(self, section, key):
+            if section == "Time" and key in ("TZ", "tz"):
+                return "America/Denver"
+            return None
+
+    monkeypatch.setattr(saiSettings, "saiSettings", _StubSettings)
+
+    db_path = tmp_path / "rain-24h.db"
+    saiDataLogger._schema_ready = False
+    logger = saiDataLogger(db_path=str(db_path))
+
+    try:
+        logger.log_readings("2026-05-23T12:00:00-06:00", "weewx-station", {"Rain": 0.50})
+        logger.log_readings("2026-05-24T11:55:00-06:00", "weewx-station", {"Rain": 0.10})
+        logger.log_readings("2026-05-24T12:05:00-06:00", "weewx-station", {"Rain": 0.07})
+        logger.log_readings(
+            "2026-05-24T12:10:00-06:00",
+            "weewx-station",
+            {"Rain": 0.03, WEEWX_RAIN_24H_METRIC: 99.0},
+        )
+
+        latest = logger.get_latest_values("weewx-station")
+        assert latest["Rain"] == 0.03
+        assert latest[WEEWX_RAIN_24H_METRIC] == 0.20
+
+        metrics = logger.get_available_metrics("weewx-station")
+        assert metrics[metrics.index("Rain") + 1] == WEEWX_RAIN_24H_METRIC
+
+        with sqlite3.connect(str(db_path)) as conn:
+            stored = conn.execute(
+                """
+                SELECT value FROM readings
+                WHERE sensor_id = ? AND metric = ?
+                ORDER BY COALESCE(ts_epoch, 0.0) DESC
+                LIMIT 1
+                """,
+                ("weewx-station", WEEWX_RAIN_24H_METRIC),
+            ).fetchone()
+        assert stored is not None
+        assert stored[0] == 0.20
     finally:
         logger.close()
         saiDataLogger._schema_ready = False

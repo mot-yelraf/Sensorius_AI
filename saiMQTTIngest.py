@@ -32,6 +32,7 @@ from sensor_modules.station_weewx import (
     DEFAULT_SENSOR_ID as WEEWX_DEFAULT_SENSOR_ID,
     DEFAULT_UPDATE_PERIOD_SEC as WEEWX_DEFAULT_UPDATE_PERIOD_SEC,
     WEEWX_DISPLAY_METRICS,
+    WEEWX_RAIN_24H_METRIC,
     mqtt_topic_matches as weewx_topic_matches,
     normalize_weewx_mqtt_payload,
 )
@@ -1378,8 +1379,11 @@ class saiMQTTIngest:
             self._last_weewx_mqtt_signature = signature
             self._last_weewx_mqtt_burst_signature = burst_signature
             self._last_weewx_mqtt_signature_mono = now_mono
+            display_values = dict(values)
+            if "Rain" in display_values:
+                display_values.setdefault(WEEWX_RAIN_24H_METRIC, None)
             self.expected_gauge_map[sensor_id] = [
-                metric for metric in WEEWX_DISPLAY_METRICS if metric in values
+                metric for metric in WEEWX_DISPLAY_METRICS if metric in display_values
             ]
             self.device_type[sensor_id] = "weewx"
             station_location = "Weather Station"

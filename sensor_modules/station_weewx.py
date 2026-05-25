@@ -13,12 +13,13 @@ DEFAULT_UPDATE_PERIOD_SEC = 300.0
 INHG_TO_HPA = 33.8638866667
 KPH_TO_MPH = 0.6213711922
 CM_TO_IN = 0.3937007874
+WEEWX_RAIN_24H_METRIC = "Rain Last 24h"
 
 WEEWX_DISPLAY_METRICS = [
     "Temperature_F",
     "Rel-Humidity",
     "Baro-Pressure",
-    "Rain",
+    WEEWX_RAIN_24H_METRIC,
     "Wind Speed",
     "Wind Direction",
 ]
@@ -49,6 +50,18 @@ WEEWX_GAUGE_CONFIG = {
     "Rain": {
         "unit": "in",
         "display_precision": 1,
+        "min": 0,
+        "max": 5,
+        "ticks": [0, 0.25, 0.5, 1, 2, 3, 5],
+        "zones": [
+            {"strokeStyle": "#add8e6", "min": 0, "max": 1},
+            {"strokeStyle": "#66b2ff", "min": 1, "max": 3},
+            {"strokeStyle": "#0033cc", "min": 3, "max": 5},
+        ],
+    },
+    WEEWX_RAIN_24H_METRIC: {
+        "unit": "in",
+        "display_precision": 2,
         "min": 0,
         "max": 5,
         "ticks": [0, 0.25, 0.5, 1, 2, 3, 5],
@@ -89,6 +102,7 @@ WEEWX_METRIC_PRECISION = {
     "Wind Speed": 1,
     "Wind Direction": 0,
     "Rain": 2,
+    WEEWX_RAIN_24H_METRIC: 3,
     "Rain Rate": 2,
 }
 

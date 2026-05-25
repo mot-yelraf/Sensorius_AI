@@ -27,6 +27,7 @@ import saiSensorSettingsManager
 import saiSettings as saiSettingsModule
 import saiSwitchSettingsManager
 import saiWebRoutes
+from sensor_modules.station_weewx import WEEWX_RAIN_24H_METRIC
 
 _REAL_SENSOR_SETTINGS_MANAGER = saiSensorSettingsManager.SensorSettingsManager
 _REAL_SWITCH_SETTINGS_MANAGER = saiSwitchSettingsManager.SwitchSettingsManager
@@ -2418,6 +2419,7 @@ async def test_dashboard_weewx_all_metric_mode_is_not_limited_to_station_default
         "Rel-Humidity": 44.0,
         "Baro-Pressure": 1012.4,
         "Rain": 0.02,
+        WEEWX_RAIN_24H_METRIC: 0.17,
         "Wind Speed": 3.0,
         "Wind Direction": 180.0,
         "Dew Point_F": 52.0,
@@ -2449,11 +2451,13 @@ async def test_dashboard_weewx_all_metric_mode_is_not_limited_to_station_default
         "Wind Speed",
         "Wind Direction",
         "Dew Point_F",
+        WEEWX_RAIN_24H_METRIC,
         "Rain Rate",
     ]
     style_map = body["expected_display_style_map"]["weewx-station"]
     assert style_map["METRIC_7"] == "Graph24hr"
     assert style_map["METRIC_8"] == "Graph24hr"
+    assert style_map["METRIC_9"] == "Graph24hr"
 
 
 @pytest.mark.asyncio

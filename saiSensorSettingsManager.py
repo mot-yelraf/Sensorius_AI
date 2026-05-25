@@ -14,6 +14,7 @@ from pathlib import Path
 from collections import OrderedDict
 from saiLocalIdentity import extract_local_host_id_from_sensor_id, resolve_persisted_host_serial
 from saiRuntimePaths import resolve_runtime_base_dir
+from sensor_modules.station_weewx import WEEWX_DISPLAY_METRICS
 
 try:
     import tomllib  # Python 3.11+ (read)
@@ -373,7 +374,7 @@ class SensorSettingsManager:
           co2   -> ["CO2","Temperature","Rel-Humidity","Ambient VPD","Dewpoint Deficit","dewVPD Risk"]
           lux   -> ["Light Intensity","Auto Light","Estimated PPFD","Visible Light Intensity","",""]
           soil  -> ["Soil Moisture","Soil Moisture Deficit","Soil Stress Index","Soil Temp_C","Soil pH","Soil EC"]
-          weewx -> ["Temperature_F","Rel-Humidity","Baro-Pressure","Rain","Wind Speed","Wind Direction"]
+          weewx -> ["Temperature_F","Rel-Humidity","Baro-Pressure","Rain Last 24h","Wind Speed","Wind Direction"]
         """
         dst = self._resolve_write_path(sensor_id)  # ensures parent dir
         if dst.exists():
@@ -420,7 +421,7 @@ class SensorSettingsManager:
             "lux":   ["Light Intensity", "Auto Light", "Estimated PPFD", "Visible Light Intensity", "", ""],
             "veml":  ["Light Intensity", "Auto Light", "Estimated PPFD", "Visible Light Intensity", "", ""],
             "soil":  ["Soil Moisture", "Soil Moisture Deficit", "Soil Stress Index", "Soil Temp_C", "Soil pH", "Soil EC"],
-            "weewx": ["Temperature_F", "Rel-Humidity", "Baro-Pressure", "Rain", "Wind Speed", "Wind Direction"],
+            "weewx": list(WEEWX_DISPLAY_METRICS),
         }
         metric_fallback: list[str] = ["", "", "", "", "", ""]
         chosen_metrics = metric_defaults_by_device.get(base_device, metric_fallback)

@@ -1718,6 +1718,24 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         gaugeSize = str(display_settings.get("gauge_size") or "Small")
         gauge_config = dict(display_settings.get("gauge_config") or {})
         displayStyle = str(display_settings.get("display_style") or "Gauge")
+        try:
+            configured_weewx_id = str(
+                settings.get_setting("WeeWX", "SENSOR_ID", WEEWX_DEFAULT_SENSOR_ID)
+                or WEEWX_DEFAULT_SENSOR_ID
+            ).strip() or WEEWX_DEFAULT_SENSOR_ID
+        except Exception:
+            configured_weewx_id = WEEWX_DEFAULT_SENSOR_ID
+
+        def _is_weewx_dashboard_sensor(sid: str) -> bool:
+            sid_l = str(sid or "").strip().lower()
+            return (
+                bool(sid_l)
+                and (
+                    sid_l == configured_weewx_id.lower()
+                    or sid_l == WEEWX_DEFAULT_SENSOR_ID.lower()
+                    or sid_l.startswith("weewx")
+                )
+            )
 
         from saiCalibration import CalibrationManager
         sensor_mgr = sensor_settings_mgr or _get_sensor_settings_manager()
@@ -1776,7 +1794,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     extras = [k for k in vals.keys() if k not in gauge_config]
                     metrics = ordered + extras
             sid_text = str(sid or "").strip()
-            if (not all_metrics_mode) and (sid_text == WEEWX_DEFAULT_SENSOR_ID or sid_text.lower().startswith("weewx")):
+            if (not all_metrics_mode) and _is_weewx_dashboard_sensor(sid_text):
                 vals = all_values.get(sid) or {}
                 metrics = [metric for metric in WEEWX_DISPLAY_METRICS if metric in vals]
             # Keep Pick 6 bounded while allowing the local All mode to render

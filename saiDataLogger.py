@@ -26,11 +26,18 @@ import threading
 import os
 import time
 from typing import Optional, Tuple
+try:
+    from sensor_modules.station_weewx import WEEWX_RAIN_24H_METRIC
+except Exception:
+    WEEWX_RAIN_24H_METRIC = "Rain Last 24h"
 
 MODULE = "saiDataLogger"
 DEBUG = debug_enabled(MODULE)
 
 LOCAL_TIMEZONE = ZoneInfo("America/Denver")
+RAIN_INTERVAL_METRIC = "Rain"
+RAIN_24H_WINDOW_SEC = 24 * 60 * 60
+RAIN_24H_PRECISION = 3
 
 # ---- legacy prefixes kept for optional migration only -----------------------
 SW_EVENT_PREFIX = "switch_event::"
@@ -150,6 +157,126 @@ class saiDataLogger:
         except Exception:
             pass
 
+    @staticmethod
+    def _metric_key(values: dict, metric_name: str) -> str | None:
+        target = str(metric_name or "").strip().lower()
+        for key in (values or {}).keys():
+            if str(key or "").strip().lower() == target:
+                return key
+        return None
+
+    @classmethod
+    def _strip_derived_input_metrics(cls, values: dict) -> dict:
+        clean = dict(values or {})
+        key = cls._metric_key(clean, WEEWX_RAIN_24H_METRIC)
+        if key is not None:
+            clean.pop(key, None)
+        return clean
+
+    @staticmethod
+    def _sum_metric_window_on_conn(
+        conn,
+        sensor_id: str,
+        metric: str,
+        *,
+        end_epoch: float,
+        window_sec: float,
+    ) -> float | None:
+        start_epoch = float(end_epoch) - float(window_sec)
+        row = conn.execute(
+            """
+            SELECT SUM(COALESCE(value, 0))
+            FROM readings
+            WHERE LOWER(sensor_id) = LOWER(?)
+              AND LOWER(metric) = LOWER(?)
+              AND value IS NOT NULL
+              AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) >= ?
+              AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) <= ?
+            """,
+            (sensor_id, metric, start_epoch, float(end_epoch)),
+        ).fetchone()
+        if not row or row[0] is None:
+            return None
+        try:
+            return round(float(row[0]), RAIN_24H_PRECISION)
+        except Exception:
+            return None
+
+    def get_metric_sum_for_window(
+        self,
+        sensor_id: str,
+        metric: str,
+        *,
+        end_epoch: float | None = None,
+        window_sec: float = RAIN_24H_WINDOW_SEC,
+    ) -> float | None:
+        """Return a rolling sum for one metric over an epoch-second window."""
+        try:
+            end = float(time.time() if end_epoch is None else end_epoch)
+            with self._open_conn() as conn:
+                return self._sum_metric_window_on_conn(
+                    conn,
+                    sensor_id,
+                    metric,
+                    end_epoch=end,
+                    window_sec=float(window_sec),
+                )
+        except Exception as e:
+            if DEBUG:
+                printDM(f"[get_metric_sum_for_window] Query error for {sensor_id}/{metric}: {e}", location=MODULE)
+            return None
+
+    def _derive_rain_window_metrics_on_conn(
+        self,
+        conn,
+        sensor_id: str,
+        values: dict,
+        *,
+        end_epoch: float,
+    ) -> dict:
+        if self._metric_key(values, RAIN_INTERVAL_METRIC) is None:
+            return {}
+        total = self._sum_metric_window_on_conn(
+            conn,
+            sensor_id,
+            RAIN_INTERVAL_METRIC,
+            end_epoch=float(end_epoch),
+            window_sec=RAIN_24H_WINDOW_SEC,
+        )
+        if total is None:
+            return {}
+        return {WEEWX_RAIN_24H_METRIC: total}
+
+    def _with_fallback_derived_metrics(self, sensor_id: str, values: dict) -> dict:
+        out = dict(values or {})
+        if (
+            self._metric_key(out, RAIN_INTERVAL_METRIC) is not None
+            and self._metric_key(out, WEEWX_RAIN_24H_METRIC) is None
+        ):
+            total = self.get_metric_sum_for_window(sensor_id, RAIN_INTERVAL_METRIC)
+            if total is not None:
+                out[WEEWX_RAIN_24H_METRIC] = total
+        return out
+
+    @classmethod
+    def _with_available_derived_metrics(cls, metrics: list[str]) -> list[str]:
+        result = [m for m in (metrics or []) if m]
+        if cls._metric_key({m: True for m in result}, RAIN_INTERVAL_METRIC) is None:
+            return result
+        if cls._metric_key({m: True for m in result}, WEEWX_RAIN_24H_METRIC) is not None:
+            return result
+
+        rain_idx = None
+        for idx, metric in enumerate(result):
+            if str(metric or "").strip().lower() == RAIN_INTERVAL_METRIC.lower():
+                rain_idx = idx
+                break
+        if rain_idx is None:
+            result.append(WEEWX_RAIN_24H_METRIC)
+        else:
+            result.insert(rain_idx + 1, WEEWX_RAIN_24H_METRIC)
+        return result
+
     # Enable Write-Ahead-Logging, add PRAGMA and indexes, plus new switch tables
     def _init_db(self):
         # Multiple logger instances are created during startup; run schema init once per process.
@@ -190,10 +317,6 @@ class saiDataLogger:
                         cur.execute("""
                             CREATE INDEX IF NOT EXISTS idx_readings_sid_ts
                             ON readings(sensor_id COLLATE NOCASE, timestamp DESC)
-                        """)
-                        cur.execute("""
-                            CREATE INDEX IF NOT EXISTS idx_readings_sid_tse
-                            ON readings(sensor_id COLLATE NOCASE, ts_epoch DESC, timestamp DESC)
                         """)
                         cur.execute("""
                             CREATE INDEX IF NOT EXISTS idx_readings_sid_metric_ts
@@ -255,6 +378,10 @@ class saiDataLogger:
                             cur.execute("ALTER TABLE sw_events ADD COLUMN ts_epoch REAL")
 
                         # Create ts_epoch indexes only after additive migrations above.
+                        cur.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_readings_sid_tse
+                            ON readings(sensor_id COLLATE NOCASE, ts_epoch DESC, timestamp DESC)
+                        """)
                         cur.execute("""
                             CREATE INDEX IF NOT EXISTS idx_readings_sid_metric_tse
                             ON readings(sensor_id COLLATE NOCASE, metric COLLATE NOCASE, ts_epoch)
@@ -604,21 +731,40 @@ class saiDataLogger:
         timestamp, ts_epoch = _normalize_timestamp_input(
             timestamp, getattr(self, "local_tz", LOCAL_TIMEZONE)
         )
+        raw_values = self._strip_derived_input_metrics(values or {})
+        derived_values = {}
 
         try:
-            rows = [(timestamp, ts_epoch, sensor_id, metric, value) for metric, value in values.items()]
+            rows = [(timestamp, ts_epoch, sensor_id, metric, value) for metric, value in raw_values.items()]
             write_start = time.monotonic()
             with self._writer_lock:
-                self._writer_conn.executemany(
-                    "INSERT INTO readings (timestamp, ts_epoch, sensor_id, metric, value) VALUES (?, ?, ?, ?, ?)",
-                    rows
+                if rows:
+                    self._writer_conn.executemany(
+                        "INSERT INTO readings (timestamp, ts_epoch, sensor_id, metric, value) VALUES (?, ?, ?, ?, ?)",
+                        rows
+                    )
+                derived_values = self._derive_rain_window_metrics_on_conn(
+                    self._writer_conn,
+                    sensor_id,
+                    raw_values,
+                    end_epoch=ts_epoch,
                 )
+                if derived_values:
+                    self._writer_conn.executemany(
+                        "INSERT INTO readings (timestamp, ts_epoch, sensor_id, metric, value) VALUES (?, ?, ?, ?, ?)",
+                        [
+                            (timestamp, ts_epoch, sensor_id, metric, value)
+                            for metric, value in derived_values.items()
+                        ],
+                    )
                 self._writer_conn.commit()
                 self._maybe_prune_old_rows_locked()
             write_elapsed = time.monotonic() - write_start
+            logged_values = dict(raw_values)
+            logged_values.update(derived_values)
 
             snap = self.sensor_values.get(sensor_id) or {}
-            snap.update(values)
+            snap.update(logged_values)
             self.sensor_values[sensor_id] = snap
             self.sensor_timestamps[sensor_id] = timestamp
             self._available_sensors_cache = None
@@ -631,7 +777,7 @@ class saiDataLogger:
                 listener_start = time.monotonic()
                 for fn in listeners:
                     try:
-                        fn(sensor_id, timestamp, dict(values))
+                        fn(sensor_id, timestamp, dict(logged_values))
                     except Exception as exc:
                         printDM(
                             f"[log_readings] listener error for {sensor_id}: {exc}",
@@ -646,14 +792,14 @@ class saiDataLogger:
                 printDM(
                     (
                         f"[log_readings] slow write for {sensor_id}: total={total_elapsed:.2f}s "
-                        f"db={write_elapsed:.2f}s listeners={listener_elapsed:.2f}s rows={len(rows)}"
+                        f"db={write_elapsed:.2f}s listeners={listener_elapsed:.2f}s rows={len(logged_values)}"
                     ),
                     location=MODULE,
                     level="warning",
                 )
 
             if DEBUG:
-                printDM(f"Logged {len(values)} values for {sensor_id}", location=MODULE)
+                printDM(f"Logged {len(logged_values)} values for {sensor_id}", location=MODULE)
         except Exception as e:
             printDM(f"Error writing sensor data: {e}", location=MODULE)
 
@@ -670,7 +816,9 @@ class saiDataLogger:
 
     def get_latest_values(self, sensor_id):
         if sensor_id in self.sensor_values and self.sensor_values[sensor_id]:
-            return dict(self.sensor_values[sensor_id])
+            values = self._with_fallback_derived_metrics(sensor_id, self.sensor_values[sensor_id])
+            self.sensor_values[sensor_id] = dict(values)
+            return values
         try:
             with self._open_conn() as conn:
                 cur = conn.cursor()
@@ -691,7 +839,13 @@ class saiDataLogger:
                     (sensor_id, latest_ts)
                 )
                 rows = cur.fetchall()
-                return {metric: value for metric, value in rows}
+                values = self._with_fallback_derived_metrics(
+                    sensor_id,
+                    {metric: value for metric, value in rows},
+                )
+                if values:
+                    self.sensor_values[sensor_id] = dict(values)
+                return values
         except Exception as e:
             printDM(f"[get_latest_values] Query error for {sensor_id}: {e}", location=MODULE)
             return {}
@@ -737,6 +891,7 @@ class saiDataLogger:
                 )
                 rows = cur.fetchall()
                 result = [row[0] for row in rows if row and row[0]]
+                result = self._with_available_derived_metrics(result)
                 if sensor_key:
                     self._available_metrics_cache[sensor_key] = (now_mono + 5.0, list(result))
                 return result
@@ -771,6 +926,9 @@ class saiDataLogger:
                 if metric_key not in seen_bucket:
                     bucket.append(metric_text)
                     seen_bucket.add(metric_key)
+
+            for sid, metrics in list(result.items()):
+                result[sid] = self._with_available_derived_metrics(metrics)
 
             expires = now_mono + 5.0
             self._available_metrics_by_sensor_cache = (
@@ -885,6 +1043,13 @@ class saiDataLogger:
                 missing_ids.append(sid)
 
         if not missing_ids:
+            values_out = {
+                sid: self._with_fallback_derived_metrics(sid, values)
+                for sid, values in values_out.items()
+            }
+            for sid, values in values_out.items():
+                if values:
+                    self.sensor_values[sid] = dict(values)
             return values_out, timestamps_out
 
         sid_map = {sid.lower(): sid for sid in missing_ids}
@@ -936,6 +1101,13 @@ class saiDataLogger:
             if sid in timestamps_out and timestamps_out[sid]:
                 self.sensor_timestamps[sid] = timestamps_out[sid]
 
+        values_out = {
+            sid: self._with_fallback_derived_metrics(sid, values)
+            for sid, values in values_out.items()
+        }
+        for sid, values in values_out.items():
+            if values:
+                self.sensor_values[sid] = dict(values)
         return values_out, timestamps_out
 
     def register_sensor(self, dev_id: str):
