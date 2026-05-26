@@ -376,6 +376,28 @@ canvas{
 .modal-footer{ border-top:1px solid #d6dfd8; border-bottom:0 }
 .modal-title{ margin:auto; font-size:1.1rem; }
 .modal-body{ padding:1rem 1.25rem }
+.modal-header,
+.system-settings-header,
+.onboard-title{
+  cursor:grab;
+  user-select:none;
+  touch-action:none;
+}
+.modal-header:active,
+.system-settings-header:active,
+.onboard-title:active,
+.sai-modal-dragging .modal-header,
+.sai-modal-dragging .system-settings-header,
+.sai-modal-dragging .onboard-title{
+  cursor:grabbing;
+}
+.sai-modal-drag-active{
+  cursor:grabbing;
+  user-select:none;
+}
+.sai-draggable-positioned{
+  max-width:calc(100vw - 1rem);
+}
 
 /* Two-pane layout inside modal */
 .split{

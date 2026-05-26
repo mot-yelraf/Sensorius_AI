@@ -364,6 +364,41 @@ async def ensure_mqtt_ready(client, retries=3):
     printDM(f"[ERROR] MQTT failed to connect after retries", location=f"{MODULE}:emr")
     return False
 
+
+async def bootstrap_astral_auto_location(settings, *, attempts: int = 1, initial_delay_sec: float = 0.0, delay_sec: float = 30.0):
+    """Resolve and persist Astral IP geolocation when manual coordinates are empty."""
+    last_error = ""
+    if initial_delay_sec > 0:
+        await asyncio.sleep(initial_delay_sec)
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            astral_loc = await asyncio.to_thread(
+                settings.resolve_astral_location,
+                persist_if_auto=True,
+                timeout_sec=5.0,
+            )
+            lat = astral_loc.get("lat")
+            lon = astral_loc.get("lon")
+            if lat is not None and lon is not None:
+                if astral_loc.get("source") == "ip":
+                    provider = str(astral_loc.get("provider") or "ip").strip()
+                    printDM(
+                        f"Astral auto-location persisted via {provider}: lat={lat:.6f}, lon={lon:.6f}",
+                        location=f"{MODULE}:main",
+                    )
+                return astral_loc
+            last_error = str(astral_loc.get("error") or "location unavailable")
+        except Exception as e:
+            last_error = str(e)
+
+        if attempt < attempts:
+            await asyncio.sleep(delay_sec)
+
+    if last_error:
+        printDM(f"Astral auto-location unavailable after {attempts} attempt(s): {last_error}", location=f"{MODULE}:main")
+    return None
+
+
 # Sensorius main
 async def main():
     printDM(f"Sensorius startup... version={__version__}", location=f"{MODULE}:main")
@@ -371,15 +406,11 @@ async def main():
     supervisor = TaskSupervisor()
     gc_mgr = GCManager(interval_sec=31, supervisor=supervisor)
     settings = saiSettings()
-    try:
-        astral_loc = settings.resolve_astral_location(persist_if_auto=True, timeout_sec=2.5)
-        if astral_loc.get("source") == "ip" and astral_loc.get("lat") is not None and astral_loc.get("lon") is not None:
-            printDM(
-                f"Astral auto-location persisted: lat={astral_loc['lat']:.6f}, lon={astral_loc['lon']:.6f}",
-                location=f"{MODULE}:main",
-            )
-    except Exception as e:
-        printDM(f"Astral auto-location bootstrap skipped: {e}", location=f"{MODULE}:main")
+    astral_loc = await bootstrap_astral_auto_location(settings, attempts=1)
+    if not astral_loc:
+        asyncio.create_task(
+            bootstrap_astral_auto_location(settings, attempts=6, initial_delay_sec=5.0, delay_sec=30.0)
+        )
 
     from saiNet import rPiNetManager
     net_mgr = rPiNetManager()

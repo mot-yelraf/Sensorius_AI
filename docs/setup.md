@@ -261,6 +261,17 @@ Astral automations and dashboard data:
 - Use manual `[Astral]` latitude/longitude/timezone when possible.
 - If `[Astral].AUTO_IP = true`, Sensorius may use IP geolocation and persist
   coordinates when manual values are empty.
+- Coordinates persisted from IP geolocation are marked with `[Astral].SOURCE =
+  "ip"` and `[Astral].PROVIDER`, so Sensorius can refresh them later without
+  overwriting hand-entered coordinates.
+- Automatic detection tries `ipapi.co` first, then `ip-api.com`, then
+  `ipwho.is`; this keeps the IPv4-based result ahead of providers that may
+  resolve an IPv6 address to a different city.
+- In System Settings, clearing both latitude and longitude then saving asks
+  Sensorius to re-detect via IP geolocation. If that lookup cannot resolve,
+  the fields remain blank and manual coordinates are required.
+- On startup, Sensorius retries automatic Astral location resolution in the
+  background so a fresh install can recover when network service is slow.
 
 WeeWX:
 

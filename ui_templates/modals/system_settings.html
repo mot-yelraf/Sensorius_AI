@@ -514,11 +514,11 @@
               <div class="field-grid-astral">
                 <div class="field-stack">
                   <label for="astral_lat">Latitude</label>
-                  <input type="text" id="astral_lat" name="astral_lat" value="{{ astral_lat | default('') }}" placeholder="40.0150" title="Enter manual coordinates. To reposition lat/long both fields must be empty, then save.">
+                  <input type="text" id="astral_lat" name="astral_lat" value="{{ astral_lat | default('') }}" placeholder="Auto-detect" title="Enter manual coordinates. To reposition lat/long both fields must be empty, then save.">
                 </div>
                 <div class="field-stack">
                   <label for="astral_lon">Longitude</label>
-                  <input type="text" id="astral_lon" name="astral_lon" value="{{ astral_lon | default('') }}" placeholder="-105.2705" title="Enter manual coordinates. To reposition lat/long both fields must be empty, then save.">
+                  <input type="text" id="astral_lon" name="astral_lon" value="{{ astral_lon | default('') }}" placeholder="Auto-detect" title="Enter manual coordinates. To reposition lat/long both fields must be empty, then save.">
                 </div>
                 <div class="field-stack">
                   <label for="astral_altitude">Altitude (m)</label>
@@ -1066,7 +1066,14 @@
       if (!resp.ok || js.ok === false) {
         throw new Error(String(js.error || js.message || ("HTTP " + resp.status)));
       }
-      setStatus("system-status", "Saved.");
+      const astral = js && typeof js.astral === "object" ? js.astral : null;
+      if (astral && astral.ok && Number.isFinite(Number(astral.lat)) && Number.isFinite(Number(astral.lon))) {
+        if (astralLatEl) astralLatEl.value = Number(astral.lat).toFixed(6);
+        if (astralLonEl) astralLonEl.value = Number(astral.lon).toFixed(6);
+        if (tzInput && astral.tz) tzInput.value = String(astral.tz);
+      }
+      const savedMessage = String(js.message || "Saved.");
+      setStatus("system-status", savedMessage);
       if (window.showToast) window.showToast("System settings saved", "ok");
     } catch (e) {
       console.error(e);

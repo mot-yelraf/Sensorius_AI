@@ -39,6 +39,11 @@ class saiSettings:
     _mtime_by_path: dict[str, float | None] = {}
     _lock = threading.RLock()
     _startup_backup_done_by_path: set[str] = set()
+    IP_GEOLOCATION_PROVIDERS = (
+        ("ipapi.co", "https://ipapi.co/json/"),
+        ("ip-api.com", "http://ip-api.com/json/"),
+        ("ipwho.is", "https://ipwho.is/"),
+    )
 
     # ---- foldered-layout constants ----
     DEFAULT_BASE_DIR = r"system_settings"
@@ -520,6 +525,26 @@ class saiSettings:
             return value.strip().lower() in {"1", "true", "yes", "on"}
         return bool(value)
 
+    @staticmethod
+    def _extract_ip_geolocation(payload: dict | None) -> tuple[float | None, float | None, str]:
+        """Return latitude, longitude, timezone from known IP geolocation payloads."""
+        if not isinstance(payload, dict):
+            return None, None, ""
+
+        lat = saiSettings._safe_float(payload.get("latitude"))
+        lon = saiSettings._safe_float(payload.get("longitude"))
+        if lat is None:
+            lat = saiSettings._safe_float(payload.get("lat"))
+        if lon is None:
+            lon = saiSettings._safe_float(payload.get("lon"))
+
+        tz_raw = payload.get("timezone")
+        if isinstance(tz_raw, dict):
+            tz_name = str(tz_raw.get("id") or tz_raw.get("name") or "").strip()
+        else:
+            tz_name = str(tz_raw or "").strip()
+        return lat, lon, tz_name
+
     def timezone_info(self, tz_name: str) -> tuple[int, str]:
         """
         Resolve timezone offset/name from an IANA timezone string.
@@ -544,38 +569,77 @@ class saiSettings:
         cfg_altitude = self._safe_float(self.get_setting("Astral", "ALTITUDE", ""))
         resolved_altitude = cfg_altitude if cfg_altitude is not None and -500.0 <= cfg_altitude <= 10000.0 else None
         source = "none"
+        provider = ""
+        error = ""
 
         cfg_lat = self._safe_float(self.get_setting("Astral", "LATITUDE", ""))
         cfg_lon = self._safe_float(self.get_setting("Astral", "LONGITUDE", ""))
-        if cfg_lat is not None and cfg_lon is not None and -90.0 <= cfg_lat <= 90.0 and -180.0 <= cfg_lon <= 180.0:
+        cfg_source = str(self.get_setting("Astral", "SOURCE", "") or "").strip().lower()
+        cfg_provider = str(self.get_setting("Astral", "PROVIDER", "") or "").strip()
+        auto_ip = self._truthy_text(self.get_setting("Astral", "AUTO_IP", True), default=True)
+        use_saved_coordinates = (
+            cfg_lat is not None
+            and cfg_lon is not None
+            and -90.0 <= cfg_lat <= 90.0
+            and -180.0 <= cfg_lon <= 180.0
+            and (cfg_source != "ip" or not auto_ip or not persist_if_auto)
+        )
+
+        if use_saved_coordinates:
             resolved_lat = cfg_lat
             resolved_lon = cfg_lon
-            source = "manual"
+            source = "manual" if cfg_source != "ip" else "ip_cached"
+            provider = cfg_provider if cfg_source == "ip" else ""
         else:
-            auto_ip = self._truthy_text(self.get_setting("Astral", "AUTO_IP", True), default=True)
             if auto_ip:
+                provider_errors: list[str] = []
                 try:
                     import httpx
                     with httpx.Client(timeout=timeout_sec) as client:
-                        resp = client.get("https://ipapi.co/json/")
-                    if resp.status_code == 200:
-                        payload = resp.json() or {}
-                        ip_lat = self._safe_float(payload.get("latitude"))
-                        ip_lon = self._safe_float(payload.get("longitude"))
-                        ip_tz = str(payload.get("timezone", "") or "").strip()
-                        if ip_lat is not None and ip_lon is not None and -90.0 <= ip_lat <= 90.0 and -180.0 <= ip_lon <= 180.0:
-                            resolved_lat = ip_lat
-                            resolved_lon = ip_lon
-                            if ip_tz:
-                                resolved_tz = ip_tz
-                            source = "ip"
-                except Exception:
-                    pass
+                        for provider_name, url in self.IP_GEOLOCATION_PROVIDERS:
+                            try:
+                                resp = client.get(url)
+                                if resp.status_code != 200:
+                                    provider_errors.append(f"{provider_name}: HTTP {resp.status_code}")
+                                    continue
+                                payload = resp.json() or {}
+                                if payload.get("success") is False:
+                                    provider_errors.append(f"{provider_name}: {payload.get('message') or 'unsuccessful response'}")
+                                    continue
+                                if str(payload.get("status") or "").strip().lower() == "fail":
+                                    provider_errors.append(f"{provider_name}: {payload.get('message') or 'failed response'}")
+                                    continue
+                                ip_lat, ip_lon, ip_tz = self._extract_ip_geolocation(payload)
+                                if ip_lat is not None and ip_lon is not None and -90.0 <= ip_lat <= 90.0 and -180.0 <= ip_lon <= 180.0:
+                                    resolved_lat = ip_lat
+                                    resolved_lon = ip_lon
+                                    if ip_tz:
+                                        resolved_tz = ip_tz
+                                    source = "ip"
+                                    provider = provider_name
+                                    break
+                                provider_errors.append(f"{provider_name}: invalid coordinates")
+                            except Exception as provider_exc:
+                                provider_errors.append(f"{provider_name}: {provider_exc.__class__.__name__}: {provider_exc}")
+                                continue
+                except Exception as exc:
+                    provider_errors.append(f"httpx: {exc.__class__.__name__}: {exc}")
+                if source == "none" and provider_errors:
+                    error = "; ".join(provider_errors[-3:])
+                if source == "none" and cfg_source == "ip" and cfg_lat is not None and cfg_lon is not None:
+                    resolved_lat = cfg_lat
+                    resolved_lon = cfg_lon
+                    source = "ip_cached"
+                    provider = cfg_provider
+            else:
+                error = "Astral.AUTO_IP is disabled"
 
         if persist_if_auto and source == "ip" and resolved_lat is not None and resolved_lon is not None:
             updates: list[tuple[str, str, object]] = []
             updates.append(("Astral", "LATITUDE", f"{resolved_lat:.6f}"))
             updates.append(("Astral", "LONGITUDE", f"{resolved_lon:.6f}"))
+            updates.append(("Astral", "SOURCE", "ip"))
+            updates.append(("Astral", "PROVIDER", provider))
             if not str(self.get_setting("Astral", "TIMEZONE", "") or "").strip() and resolved_tz:
                 updates.append(("Astral", "TIMEZONE", resolved_tz))
             if updates:
@@ -588,6 +652,8 @@ class saiSettings:
             "altitude": resolved_altitude,
             "tz": resolved_tz,
             "source": source,
+            "provider": provider,
+            "error": error,
         }
 
     def get_section(self, name: str, reload_if_changed: bool = False) -> dict:

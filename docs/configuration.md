@@ -175,6 +175,8 @@ LATITUDE = ""
 LONGITUDE = ""
 ALTITUDE = ""
 TIMEZONE = ""
+SOURCE = ""
+PROVIDER = ""
 
 [Display]
 gauge_size = "Small"

@@ -267,10 +267,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         printDM(f"[webui-profile] {route_name} took {elapsed_ms:.1f}ms{detail}", location=MODULE)
 
     def _invalidate_dashboard_caches() -> None:
-        global _DASHBOARD_INVENTORY_CACHE, _DASHBOARD_DISPLAY_SETTINGS_CACHE
+        global _DASHBOARD_INVENTORY_CACHE, _DASHBOARD_DISPLAY_SETTINGS_CACHE, _ASTRO_PAYLOAD_CACHE
         _DASHBOARD_JSON_CACHE.clear()
         _DASHBOARD_INVENTORY_CACHE = None
         _DASHBOARD_DISPLAY_SETTINGS_CACHE = None
+        _ASTRO_PAYLOAD_CACHE = None
+        _BIODYNAMIC_PAYLOAD_CACHE.clear()
+        try:
+            from saiBiodynamics import clear_biodynamic_payload_cache
+            clear_biodynamic_payload_cache()
+        except Exception:
+            pass
 
     def _wants_modal_json(request: Request) -> bool:
         accept = str(request.headers.get("accept", "") or "").lower()
@@ -2851,7 +2858,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 return "--"
             return dt_obj.strftime("%H:%M")
 
-        resolved = settings.resolve_astral_location(persist_if_auto=True, timeout_sec=2.5)
+        resolved = settings.resolve_astral_location(persist_if_auto=False, timeout_sec=2.5)
         resolved_lat = resolved.get("lat")
         resolved_lon = resolved.get("lon")
         resolved_altitude = _safe_float(resolved.get("altitude"))
@@ -2945,6 +2952,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         fragment_parts: list[str] = []
         fragment_parts.append("<link rel='stylesheet' href='/ui_static/css/app.css'>")
+        fragment_parts.append(f"<script src='/ui_static/js/draggable_modals.js?v={APP_VERSION}'></script>")
         fragment_parts.append(system_modal_html)
         fragment_html = "\n".join(fragment_parts)
 
@@ -6278,6 +6286,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         raw_altitude = str(form.get("astral_altitude", "") or "").strip()
         gauge_size = str(form.get("gauge_size", "") or "").strip()
         display_style = str(form.get("display_style", "") or "").strip()
+        astral_reset_requested = not raw_lat and not raw_lon
 
         if not tz:
             return _modal_error_response(request, "Time zone is required.", status_code=400)
@@ -6307,6 +6316,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         lon_to_store = None
         altitude_to_store = None
         astral_tz_to_store = None
+        astral_source_to_store = None
+        astral_provider_to_store = None
         if "astral_altitude" in form:
             if raw_altitude:
                 try:
@@ -6322,6 +6333,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             lat_to_store = ""
             lon_to_store = ""
             astral_tz_to_store = ""
+            astral_source_to_store = ""
+            astral_provider_to_store = ""
         elif raw_lat or raw_lon:
             if not raw_lat or not raw_lon:
                 return _modal_error_response(
@@ -6341,6 +6354,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             lat_to_store = f"{lat_val:.6f}"
             lon_to_store = f"{lon_val:.6f}"
             astral_tz_to_store = tz
+            astral_source_to_store = "manual"
+            astral_provider_to_store = ""
 
         tz_offset, tz_name = settings.timezone_info(tz)
 
@@ -6357,13 +6372,70 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             settings.replace_setting("Astral", "LATITUDE", lat_to_store)
         if lon_to_store is not None:
             settings.replace_setting("Astral", "LONGITUDE", lon_to_store)
+        if astral_source_to_store is not None:
+            settings.replace_setting("Astral", "SOURCE", astral_source_to_store)
+        if astral_provider_to_store is not None:
+            settings.replace_setting("Astral", "PROVIDER", astral_provider_to_store)
         if altitude_to_store is not None:
             settings.replace_setting("Astral", "ALTITUDE", altitude_to_store)
         settings.replace_setting("Display", "gauge_size", gauge_size)
         settings.replace_setting("Display", "display_style", display_style)
 
+        astral_response: dict[str, object] = {
+            "ok": False,
+            "source": "",
+            "provider": "",
+            "error": "",
+            "lat": None,
+            "lon": None,
+            "tz": "",
+        }
+        message = "System settings saved."
+        if astral_reset_requested:
+            try:
+                resolved = settings.resolve_astral_location(persist_if_auto=True, timeout_sec=3.5) or {}
+            except Exception as exc:
+                resolved = {"error": str(exc)}
+            resolved_lat = _safe_float(resolved.get("lat"))
+            resolved_lon = _safe_float(resolved.get("lon"))
+            resolved_tz = str(resolved.get("tz") or "").strip()
+            resolved_source = str(resolved.get("source") or "").strip()
+            resolved_provider = str(resolved.get("provider") or "").strip()
+            resolved_error = str(resolved.get("error") or "").strip()
+            astral_ok = resolved_lat is not None and resolved_lon is not None and bool(resolved_tz)
+            astral_response = {
+                "ok": bool(astral_ok),
+                "source": resolved_source,
+                "provider": resolved_provider,
+                "error": resolved_error,
+                "lat": round(float(resolved_lat), 6) if resolved_lat is not None else None,
+                "lon": round(float(resolved_lon), 6) if resolved_lon is not None else None,
+                "tz": resolved_tz,
+            }
+            if astral_ok:
+                source_label = resolved_provider or resolved_source or "auto"
+                message = f"System settings saved. Astral location re-detected ({source_label})."
+            else:
+                detail = f" Last error: {resolved_error}" if resolved_error else ""
+                message = (
+                    "System settings saved. Astral location cleared; automatic IP geolocation did not "
+                    f"resolve coordinates.{detail} Enter Latitude and Longitude manually."
+                )
+        elif lat_to_store and lon_to_store:
+            astral_response = {
+                "ok": True,
+                "source": "manual",
+                "provider": "",
+                "error": "",
+                "lat": float(lat_to_store),
+                "lon": float(lon_to_store),
+                "tz": astral_tz_to_store or tz,
+            }
+
+        _invalidate_dashboard_caches()
+
         if _wants_modal_json(request):
-            return JSONResponse({"ok": True, "message": "System settings saved."})
+            return JSONResponse({"ok": True, "message": message, "astral": astral_response})
         return RedirectResponse(url="/?refresh=true", status_code=303)
 
     @router.post("/submit-homeassistant-settings")

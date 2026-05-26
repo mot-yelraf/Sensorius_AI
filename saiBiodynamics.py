@@ -58,6 +58,11 @@ _PAYLOAD_CACHE_TTL_SEC = 300.0
 _PAYLOAD_CACHE: dict[tuple[str, str, str], tuple[float, dict[str, object]]] = {}
 
 
+def clear_biodynamic_payload_cache() -> None:
+    """Clear cached biodynamic payloads after location or timezone changes."""
+    _PAYLOAD_CACHE.clear()
+
+
 @dataclass(frozen=True)
 class _Segment:
     start_local: datetime

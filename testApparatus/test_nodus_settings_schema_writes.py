@@ -343,6 +343,8 @@ class _BaseDirOnlyFakeSaiSettings:
 
 
 class _RouteFakeSaiSettings(_PersistentFakeSaiSettings):
+    RESOLVED_ASTRAL: dict | None = None
+
     def get_setting(self, section, key, default=None):
         return self.settings.get(section, {}).get(key, default)
 
@@ -350,6 +352,32 @@ class _RouteFakeSaiSettings(_PersistentFakeSaiSettings):
         bucket = self.settings.setdefault(section, {})
         bucket[key] = value
         self.save_settings()
+
+    def resolve_astral_location(self, persist_if_auto=False, timeout_sec=0):
+        response = self.__class__.RESOLVED_ASTRAL
+        if response is None:
+            lat = self.get_setting("Astral", "LATITUDE", "")
+            lon = self.get_setting("Astral", "LONGITUDE", "")
+            tz_name = self.get_setting("Astral", "TIMEZONE", "") or self.get_setting("Time", "TZ", "")
+            source = self.get_setting("Astral", "SOURCE", "")
+            provider = self.get_setting("Astral", "PROVIDER", "")
+            return {
+                "lat": float(lat) if str(lat).strip() else None,
+                "lon": float(lon) if str(lon).strip() else None,
+                "tz": str(tz_name or "").strip(),
+                "source": str(source or "").strip() or ("manual" if str(lat).strip() and str(lon).strip() else "none"),
+                "provider": str(provider or "").strip(),
+                "error": "",
+            }
+        out = dict(response)
+        if persist_if_auto and out.get("source") == "ip" and out.get("lat") is not None and out.get("lon") is not None:
+            self.replace_setting("Astral", "LATITUDE", f"{float(out['lat']):.6f}")
+            self.replace_setting("Astral", "LONGITUDE", f"{float(out['lon']):.6f}")
+            self.replace_setting("Astral", "SOURCE", "ip")
+            self.replace_setting("Astral", "PROVIDER", str(out.get("provider") or ""))
+            if out.get("tz"):
+                self.replace_setting("Astral", "TIMEZONE", str(out["tz"]))
+        return out
 
     @staticmethod
     def timezone_info(tz_name: str):
@@ -471,6 +499,7 @@ async def _build_route_app_with_settings(tmp_path, monkeypatch, stored_settings:
         section: dict(values or {})
         for section, values in (stored_settings or {}).items()
     }
+    _RouteFakeSaiSettings.RESOLVED_ASTRAL = None
     monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
     monkeypatch.setattr(saiWebRoutes, "saiSettings", _RouteFakeSaiSettings)
     app = FastAPI()
@@ -556,6 +585,66 @@ async def test_submit_pi_setup_blank_astral_fields_clear_saved_astral_location(t
     assert stored["Astral"]["LONGITUDE"] == ""
     assert stored["Astral"]["ALTITUDE"] == ""
     assert stored["Astral"]["TIMEZONE"] == ""
+    assert stored["Astral"]["SOURCE"] == ""
+    assert stored["Astral"]["PROVIDER"] == ""
+
+
+@pytest.mark.asyncio
+async def test_submit_pi_setup_blank_astral_fields_auto_detects_when_available(tmp_path, monkeypatch):
+    app = await _build_route_app_with_settings(
+        tmp_path,
+        monkeypatch,
+        {
+            "Astral": {
+                "LATITUDE": "40.015000",
+                "LONGITUDE": "-105.270500",
+                "TIMEZONE": "America/Denver",
+            }
+        },
+    )
+    _RouteFakeSaiSettings.RESOLVED_ASTRAL = {
+        "lat": 39.7392,
+        "lon": -104.9903,
+        "tz": "America/Denver",
+        "source": "ip",
+        "provider": "ipapi.co",
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-pi-setup",
+            data={
+                "broker": "",
+                "tz": "America/Denver",
+                "httpport": "8000",
+                "astral_lat": "",
+                "astral_lon": "",
+                "gauge_size": "medium",
+                "display_style": "grid",
+            },
+            headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
+            follow_redirects=False,
+        )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["astral"] == {
+        "ok": True,
+        "source": "ip",
+        "provider": "ipapi.co",
+        "error": "",
+        "lat": 39.7392,
+        "lon": -104.9903,
+        "tz": "America/Denver",
+    }
+    assert "re-detected" in body["message"]
+    stored = _RouteFakeSaiSettings.STORED_SETTINGS
+    assert stored["Astral"]["LATITUDE"] == "39.739200"
+    assert stored["Astral"]["LONGITUDE"] == "-104.990300"
+    assert stored["Astral"]["TIMEZONE"] == "America/Denver"
+    assert stored["Astral"]["SOURCE"] == "ip"
+    assert stored["Astral"]["PROVIDER"] == "ipapi.co"
 
 
 @pytest.mark.asyncio
@@ -623,6 +712,8 @@ async def test_submit_pi_setup_persists_astral_altitude(tmp_path, monkeypatch):
     assert stored["Astral"]["LONGITUDE"] == "-105.270500"
     assert stored["Astral"]["ALTITUDE"] == "1624.00"
     assert stored["Astral"]["TIMEZONE"] == "America/Denver"
+    assert stored["Astral"]["SOURCE"] == "manual"
+    assert stored["Astral"]["PROVIDER"] == ""
 
 
 @pytest.mark.asyncio

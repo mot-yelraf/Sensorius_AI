@@ -296,7 +296,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         resolved_tz = ""
         try:
             s = saiSettings(apply_live=False)
-            resolved = s.resolve_astral_location(persist_if_auto=True, timeout_sec=2.5)
+            resolved = s.resolve_astral_location(persist_if_auto=False, timeout_sec=2.5)
             resolved_lat = resolved.get("lat")
             resolved_lon = resolved.get("lon")
             resolved_tz = str(resolved.get("tz") or "").strip()
@@ -898,6 +898,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield from render_graph_modal(switch_installed=switch_installed)
     # global assets for templates
     yield "<link rel='stylesheet' href='/ui_static/css/app.css'>"
+    yield f"<script src='/ui_static/js/draggable_modals.js?v={APP_VERSION}'></script>"
     yield f"<script type='module' src='/ui_static/js/advanced_automation.js?v={APP_VERSION}'></script>"
     yield "<script src='/ui_static/js/sensor_settings_modal.js'></script>"
     yield "</head><body>"
