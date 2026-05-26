@@ -127,6 +127,7 @@ def get_gauge_config():
         "Soil Nitrogen": {"unit": "mg/kg", "min": 0, "max": 150, "ticks": [0, 25, 50, 75, 100, 125, 150], "zones": [{"strokeStyle": "#f00", "min": 0, "max": 25}, {"strokeStyle": "#ffcc00", "min": 25, "max": 50}, {"strokeStyle": "#66cc66", "min": 50, "max": 125}, {"strokeStyle": "#3399ff", "min": 125, "max": 150}]},
         "Soil Phosphorus": {"unit": "mg/kg", "min": 0, "max": 60, "ticks": [0, 20, 30, 40, 50, 60], "zones": [{"strokeStyle": "#f00", "min": 0, "max": 20}, {"strokeStyle": "#ffcc00", "min": 20, "max": 36}, {"strokeStyle": "#66cc66", "min": 36, "max": 50}, {"strokeStyle": "#3399ff", "min": 50, "max": 60}]},
         "Soil Potassium": {"unit": "mg/kg", "min": 0, "max": 200, "ticks": [0, 60, 100, 130, 150, 175, 200], "zones": [{"strokeStyle": "#f00", "min": 0, "max": 60}, {"strokeStyle": "#ffcc00", "min": 60, "max": 131}, {"strokeStyle": "#66cc66", "min": 131, "max": 175}, {"strokeStyle": "#3399ff", "min": 175, "max": 200}]},
+        "Soil Fertility Index": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 25, 50, 75, 100], "zones": [{"strokeStyle": "#f00", "min": 0, "max": 50}, {"strokeStyle": "#ffcc00", "min": 50, "max": 75}, {"strokeStyle": "#66cc66", "min": 75, "max": 100}]},
         "Soil Moisture Deficit": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#3399ff", "min": 0, "max": 20}, {"strokeStyle": "#03a603", "min": 20, "max": 60}, {"strokeStyle": "#bf9000", "min": 60, "max": 100}]},
         "Soil Stress Index": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#03a603", "min": 0, "max": 30}, {"strokeStyle": "#bf9000", "min": 30, "max": 60}, {"strokeStyle": "#cc7a00", "min": 60, "max": 80}, {"strokeStyle": "#d9534f", "min": 80, "max": 100}]},
         "Light Intensity": {"unit": "lux", "min": 0,  "max": 120000, "ticks": [0, 20000, 40000, 60000, 80000, 100000, 120000], "zones": [{"strokeStyle": "#ffff00", "min": 0, "max": 120000}]},
@@ -3644,8 +3645,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    }"
     yield ""
     yield "    const metricName = container.dataset.metric || metric;"
-    yield "    const metricConfig = gaugeConfig?.[metricName] || gaugeConfig?.[metric] || null;"
     yield "    const metricNorm = String(metricName || '').toLowerCase().replace(/[_-]+/g, ' ');"
+    yield "    const isSoilFertilityIndex = metricNorm === 'soil fertility index' || metricNorm.endsWith(' soil fertility index');"
+    yield "    const metricConfig = gaugeConfig?.[metricName] || gaugeConfig?.[metric] || (isSoilFertilityIndex ? gaugeConfig?.['Soil Fertility Index'] : null);"
     yield "    const metricUnit = String(metricConfig?.unit || '').trim();"
     yield "    const metricZones = Array.isArray(metricConfig?.zones) ? metricConfig.zones.map(z => ({"
     yield "      min: Number(z?.min),"
@@ -3660,6 +3662,16 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      if (!Number.isFinite(num)) return val;"
     yield "      return Number(num.toFixed(2)).toString();"
     yield "    };"
+    yield ""
+    yield "    const yScaleOptions = { title: { display: false }, ticks: { callback: formatYAxisTick } };"
+    yield "    if (isSoilFertilityIndex) {"
+    yield "      const cfgMin = Number(metricConfig?.min);"
+    yield "      const cfgMax = Number(metricConfig?.max);"
+    yield "      if (Number.isFinite(cfgMin) && Number.isFinite(cfgMax) && cfgMax > cfgMin) {"
+    yield "        yScaleOptions.min = cfgMin;"
+    yield "        yScaleOptions.max = cfgMax;"
+    yield "      }"
+    yield "    }"
     yield ""
     yield "    const chartOptions = {"
     yield "      responsive: false,"
@@ -3684,7 +3696,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "          },"
     yield "          grid: { display: true }"
     yield "        },"
-    yield "        y: { title: { display: false }, ticks: { callback: formatYAxisTick } }"
+    yield "        y: yScaleOptions"
     yield "      }"
     yield "    };"
     yield ""
@@ -5860,6 +5872,7 @@ def render_graph_modal(switch_installed=None):
     # Timezone injection
     yield f"const TZ_OFFSET_S = {tz_offset};"
     yield f"const TZ_NAME = {_json.dumps(tz_name)};"
+    yield f"const GRAPH_GAUGE_CONFIG = {_json.dumps(get_gauge_config())};"
 
     # Switch map injection
     if switch_map:
@@ -5880,6 +5893,57 @@ def render_graph_modal(switch_installed=None):
       if (v === undefined || v === null || v === '') return undefined;
       const ms = toLocalMs(v);
       return Number.isFinite(ms) ? ms : undefined;
+    }
+
+    function graphMetricNameFromKey(seriesKey){
+      const parts = String(seriesKey || '').split('::');
+      return (parts.length ? parts[parts.length - 1] : seriesKey || '').trim();
+    }
+
+    function normalizeGraphGaugeMetricName(value){
+      return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    }
+
+    function graphGaugeMetricEntry(metricName){
+      const raw = String(metricName || '').trim();
+      if (!raw) return null;
+      if (GRAPH_GAUGE_CONFIG && GRAPH_GAUGE_CONFIG[raw]) {
+        return { key: raw, config: GRAPH_GAUGE_CONFIG[raw] };
+      }
+      const withoutChannel = raw.replace(/^CH\d+\s+/i, '').trim();
+      if (withoutChannel && GRAPH_GAUGE_CONFIG && GRAPH_GAUGE_CONFIG[withoutChannel]) {
+        return { key: withoutChannel, config: GRAPH_GAUGE_CONFIG[withoutChannel] };
+      }
+      const rawNorm = normalizeGraphGaugeMetricName(raw);
+      const channelNorm = normalizeGraphGaugeMetricName(withoutChannel);
+      for (const key of Object.keys(GRAPH_GAUGE_CONFIG || {})) {
+        const keyNorm = normalizeGraphGaugeMetricName(key);
+        if (keyNorm === rawNorm || (channelNorm && keyNorm === channelNorm)) {
+          return { key: key, config: GRAPH_GAUGE_CONFIG[key] };
+        }
+      }
+      return null;
+    }
+
+    function soilFertilityGaugeZones(metricName){
+      const entry = graphGaugeMetricEntry(metricName);
+      if (!entry || entry.key !== 'Soil Fertility Index') return null;
+      const cfg = entry.config || {};
+      const zones = Array.isArray(cfg.zones) ? cfg.zones.map(function(z){
+        return {
+          min: Number(z && z.min),
+          max: Number(z && z.max),
+          color: (z && (z.strokeStyle || z.color)) || ''
+        };
+      }).filter(function(z){
+        return Number.isFinite(z.min) && Number.isFinite(z.max) && !!z.color;
+      }) : [];
+      if (!zones.length) return null;
+      return {
+        min: Number(cfg.min),
+        max: Number(cfg.max),
+        zones: zones
+      };
     }
 
     let GRAPH_SETUPS = [];
@@ -6329,6 +6393,45 @@ def render_graph_modal(switch_installed=None):
       }
     };
 
+    const gaugeZonesBackgroundGraph = {
+      id: 'gaugeZonesBackgroundGraph',
+      beforeDraw(chart) {
+        const zonesByAxis = chart && chart.options && chart.options.plugins &&
+          chart.options.plugins.gaugeZonesBackgroundGraph &&
+          chart.options.plugins.gaugeZonesBackgroundGraph.zonesByAxis;
+        if (!zonesByAxis || typeof zonesByAxis !== 'object') return;
+        const ctx = chart.ctx;
+        const chartArea = chart.chartArea;
+        const scales = chart.scales || {};
+        if (!ctx || !chartArea) return;
+        ctx.save();
+        ctx.globalAlpha = 0.3;
+        Object.entries(zonesByAxis).forEach(function(pair){
+          const axisId = pair[0];
+          const zones = pair[1];
+          const yScale = scales[axisId];
+          if (!yScale || !Array.isArray(zones) || !zones.length) return;
+          zones.forEach(function(z){
+            const zMin = Number(z && z.min);
+            const zMax = Number(z && z.max);
+            const color = (z && z.color) || '';
+            if (!Number.isFinite(zMin) || !Number.isFinite(zMax) || !color) return;
+            const y1 = yScale.getPixelForValue(zMin);
+            const y2 = yScale.getPixelForValue(zMax);
+            const top = Math.min(y1, y2);
+            const bottom = Math.max(y1, y2);
+            const clippedTop = Math.max(chartArea.top, Math.min(chartArea.bottom, top));
+            const clippedBottom = Math.max(chartArea.top, Math.min(chartArea.bottom, bottom));
+            if (clippedBottom <= clippedTop) return;
+            ctx.fillStyle = color;
+            ctx.fillRect(chartArea.left, clippedTop, chartArea.right - chartArea.left, clippedBottom - clippedTop);
+          });
+        });
+        ctx.globalAlpha = 1.0;
+        ctx.restore();
+      }
+    };
+
     function renderGraphFullscreen_V2(data){
       const canvas = document.getElementById('fullscreen_graph');
       if (!canvas) return;
@@ -6349,6 +6452,8 @@ def render_graph_modal(switch_installed=None):
       const keys = Object.keys(series || {});
       let leftAssigned = false;
       const baseColors = ['#1f77b4', '#2ca02c', '#7f3fbf'];
+      const gaugeZonesByAxis = {};
+      const gaugeAxisBounds = {};
 
       keys.forEach(function(k, idx){
         const entry = series[k] || {};
@@ -6364,6 +6469,14 @@ def render_graph_modal(switch_installed=None):
         }
         const yAxisID = leftAssigned ? 'y2' : 'y1';
         if (!leftAssigned) leftAssigned = true;
+
+        const metricZones = soilFertilityGaugeZones(graphMetricNameFromKey(k));
+        if (metricZones && !gaugeZonesByAxis[yAxisID]) {
+          gaugeZonesByAxis[yAxisID] = metricZones.zones;
+          if (Number.isFinite(metricZones.min) && Number.isFinite(metricZones.max)) {
+            gaugeAxisBounds[yAxisID] = { min: metricZones.min, max: metricZones.max };
+          }
+        }
 
         const baseColor = baseColors[idx % baseColors.length];
         datasets.push({
@@ -6509,9 +6622,17 @@ def render_graph_modal(switch_installed=None):
         y2Opts.min = 0;
         y2Opts.max = 5;
       }
+      if (gaugeAxisBounds.y1){
+        y1Opts.min = gaugeAxisBounds.y1.min;
+        y1Opts.max = gaugeAxisBounds.y1.max;
+      }
+      if (gaugeAxisBounds.y2){
+        y2Opts.min = gaugeAxisBounds.y2.min;
+        y2Opts.max = gaugeAxisBounds.y2.max;
+      }
 
       const annotationPlugin = Chart.registry.getPlugin('annotation');
-      const pluginsArr = [vpdBackgroundPlugin];
+      const pluginsArr = [vpdBackgroundPlugin, gaugeZonesBackgroundGraph];
       if (annotationPlugin){
         pluginsArr.push(annotationPlugin);
       }
@@ -6562,7 +6683,8 @@ def render_graph_modal(switch_installed=None):
           },
           plugins: {
             annotation: { annotations: allAnnotations },
-            vpdZones: { enabled: anyVPD }
+            vpdZones: { enabled: anyVPD },
+            gaugeZonesBackgroundGraph: { zonesByAxis: gaugeZonesByAxis }
           }
         },
         plugins: pluginsArr

@@ -59,6 +59,9 @@ Soil metrics:
 - `Soil-Temp_F` - degrees F.
 - `Soil-pH` - pH.
 - `Soil-EC` - mS/cm.
+- `Soil Nitrogen`, `Soil Phosphorus`, and `Soil Potassium` - mg/kg readings
+  from 7-in-1 soil probes.
+- `Soil Fertility Index` - derived NPK sufficiency score, percent.
 
 WeeWX metrics are defined by `sensor_modules/station_weewx.py`. The logger can
 derive rolling `Rain Last 24h` from interval `Rain` readings.
@@ -103,7 +106,8 @@ derive rolling `Rain Last 24h` from interval `Rain` readings.
 Soil sensor:
 
 - Hardware: UART/Modbus soil sensor.
-- Typical metrics: soil moisture, SMD, SSI, soil temperature, pH, and EC.
+- Typical metrics: soil moisture, SMD, SSI, soil temperature, pH, EC, and
+  optional 7-in-1 NPK fertility metrics.
 
 ## Calibration
 
