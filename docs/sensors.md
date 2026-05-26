@@ -1,120 +1,130 @@
-# Sensors and Metrics
+# Sensors And Metrics
 
-This guide captures the supported sensor and measurement details originally documented in `README.md`.
+Sensorius supports local Raspberry Pi sensors, MQTT-discovered Nodus sensors,
+and optional WeeWX station ingest. All readings are normalized into the same
+database and dashboard model.
 
-Each sensor defines its own `self.measurements` list, which determines the exact metrics written to the database. Each metric is timestamped and stored in `sensor_data.db`.
+Each sensor defines a `measurements` list that determines the metric names
+written to `readings` in `sensorius_data.db`. Timestamps are stored with an
+epoch column for comparisons and localized in the UI using `[Time].TZ`.
 
-## AQISensor (based on BME680)
+## Sensor Sources
 
-- I2C Bus: I2C_1 (GPIO2/SDA, GPIO3/SCL)
-- Metrics Stored:
-- `Temperature` - C
-- `Temperature_F` - F
-- `Rel-Humidity` - % (relative)
-- `Humidity` - g/m3 (absolute)
-- `Air Quality` - AQI (derived from gas resistance)
-- `Ambient VPD` - kPa
-- `Dew-Point` - C
-- `Dew-Point_F` - F
-- `Dewpoint Depression` - C
-- `DewVPD Risk` - %
-- `Baro-Pressure` - hPa
+Local Raspberry Pi sensors:
 
-## CO2Sensor (based on SCD30 or SCD4x)
+- Detected by `saiSensorFactory.find_sensors(...)` when the `board` runtime is
+  available.
+- Materialized under `sensor_settings/<sensor_id>/sensor.toml`.
+- Read by `SensorController.data_collection`.
 
-- I2C Bus: I2C_1 (GPIO2/SDA, GPIO3/SCL)
-- Metrics Stored:
-- `CO2` - ppm
-- `Temperature` - C
-- `Temperature_F` - F
-- `Rel-Humidity` - % (relative)
-- `Humidity` - g/m3 (absolute)
-- `Ambient VPD` - kPa
-- `Dew-Point` - C
-- `Dew-Point_F` - F
-- `Dewpoint Depression` - C
-- `DewVPD Risk` - %
+Remote Nodus sensors:
 
-## VPDSensor (based on BME280)
+- Discovered from retained `nodus/<device_id>/meta`.
+- Runtime data arrives on Nodus data topics.
+- Local settings are shadow copies of device metadata and patches.
 
-- I2C Bus: I2C_1 (GPIO2/SDA, GPIO3/SCL)
-- Metrics Stored:
-- `Temperature` - C
-- `Temperature_F` - F
-- `Rel-Humidity` - % (relative)
-- `Humidity` - g/m3 (absolute)
-- `Ambient VPD` - kPa
-- `Dew-Point` - C
-- `Dew-Point_F` - F
-- `Dewpoint Depression` - C
-- `DewVPD Risk` - %
-- `Bar-Pressure` - hPa
+WeeWX station ingest:
 
-## AHTSensor (based on AHT10/AHTx0)
+- Optional archive or MQTT ingest.
+- Materializes a station sensor config when enabled.
+- Adds station metrics to the same dashboard and DB paths.
 
-- I2C Bus: I2C_1 (GPIO2/SDA, GPIO3/SCL)
-- Metrics Stored:
-- `Temperature` - C
-- `Temperature_F` - F
-- `Rel-Humidity` - % (relative)
-- `Humidity` - g/m3 (absolute)
-- `Ambient VPD` - kPa
-- `Dew Point` - C
-- `Dew Point_F` - F
-- `Dew Point Deficit` - C
-- `DewVPD Risk` - %
+## Common Metrics
 
-## VPDPlantSensor (dual BME280 on I2C_1 and I2C_0)
+Metric names are compatibility-sensitive because they are stored in SQLite,
+used by dashboards, and referenced by automations.
 
-- I2C Buses:
-- Ambient: I2C_1 (GPIO2/SDA, GPIO3/SCL)
-- Plant Probe: I2C_0 (GPIO0/SDA1, GPIO1/SCL1)
-- Metrics Stored:
-- `Temperature` - C (ambient)
-- `Temperature_F` - F
-- `Rel-Humidity` - %
-- `Humidity` - g/m3
-- `Ambient VPD` - kPa
-- `Dew-Point` - C
-- `Dew-Point_F` - F
-- `Dewpoint Depression` - C
-- `DewVPD Risk` - %
-- `Baro-Pressure` - hPa
+Common environmental metrics:
 
-Plant probe additions (I2C_0):
+- `Temperature` - degrees C.
+- `Temperature_F` - degrees F.
+- `Rel-Humidity` - relative humidity percent.
+- `Humidity` - absolute humidity, g/m3.
+- `CO2` - ppm.
+- `Ambient VPD` - kPa.
+- `Plant VPD` - kPa.
+- `Dew-Point` or `Dew Point` - degrees C, depending on sensor module.
+- `Dew-Point_F` or `Dew Point_F` - degrees F.
+- `Dewpoint Depression` or `Dew Point Deficit` - degrees C.
+- `DewVPD Risk` - percent.
+- `Baro-Pressure` or `Bar-Pressure` - hPa.
+- `Air Quality` - derived AQI.
 
-- `Temperature Plant` - C
-- `Temperature_F Plant` - F
-- `Rel-Humidity Plant` - %
-- `Humidity Plant` - g/m3
-- `Plant VPD` - kPa
-- `Plant Dew-Point` - C
-- `Plant Dew-Point_F` - F
-- `Plant Dewpoint Depression` - C
-- `Plant DewVPD Risk` - %
-- `Baro-Pressure Plant` - hPa
+Soil metrics:
 
-## SoilSensor (UART/Modbus soil sensor)
+- `Soil-Moisture` - corrected volumetric moisture percent.
+- `SMD` - soil moisture deficit percent.
+- `SSI` - soil stress index percent.
+- `Soil-Temp` - degrees C.
+- `Soil-Temp_F` - degrees F.
+- `Soil-pH` - pH.
+- `Soil-EC` - mS/cm.
 
-- Bus: UART / Modbus RTU
-- Metrics Stored:
-- `Soil-Moisture` - % volumetric water content after calibration/correction
-- `SMD` - % soil moisture deficit, derived from corrected `Soil-Moisture`
-- `SSI` - % soil stress index, derived from `SMD` and corrected `Soil-Temp`
-- `Soil-Temp` - C
-- `Soil-Temp_F` - F
-- `Soil-pH` - pH
-- `Soil-EC` - mS/cm
+WeeWX metrics are defined by `sensor_modules/station_weewx.py`. The logger can
+derive rolling `Rain Last 24h` from interval `Rain` readings.
 
-Derived soil metrics:
+## Supported Local Sensor Modules
 
-- `SMD` is a normalized dryness percentage, not an independent raw sensor register.
-- `SMD` maps moisture at or above the wet threshold to `0%` and moisture at or below the dry threshold to `100%`.
-- Values between the wet and dry thresholds scale linearly and are clamped to `0-100%`.
-- If the wet threshold is less than or equal to the dry threshold, `SMD` is not reported.
-- `SSI` is a normalized soil concern percentage that combines `SMD` with temperature-based stress from corrected `Soil-Temp`.
-- The temperature contribution is `0%` inside the configured OK band and scales toward `100%` at the configured low/high critical edges.
-- `SSI` uses configurable moisture and temperature weights to blend the two contributions into a single `0-100%` index.
-- If the configured temperature band is invalid or the total weight is zero, `SSI` is not reported.
+`AQISensor`:
 
-All timestamps are in UTC. `tz`, `tzOffset`, and `tzName` are pushed to the device and used in the UI to localize time.
+- Hardware: BME680.
+- Bus: I2C_1, GPIO2 SDA and GPIO3 SCL.
+- Typical metrics: temperature, humidity, air quality, VPD, dew point,
+  dew-risk, and pressure.
+
+`CO2Sensor`:
+
+- Hardware: SCD30 or SCD4x.
+- Bus: I2C_1.
+- Typical metrics: CO2, temperature, humidity, VPD, dew point, and dew-risk.
+
+`VPDSensor`:
+
+- Hardware: BME280.
+- Bus: I2C_1.
+- Typical metrics: temperature, humidity, ambient VPD, dew point, dew-risk,
+  and pressure.
+
+`AHTSensor`:
+
+- Hardware: AHT10/AHTx0.
+- Bus: I2C_1.
+- Typical metrics: temperature, humidity, ambient VPD, dew point, and
+  dew-risk.
+
+`VPDPlantSensor`:
+
+- Hardware: dual BME280.
+- Ambient bus: I2C_1.
+- Plant probe bus: I2C_0, GPIO0 SDA1 and GPIO1 SCL1.
+- Typical metrics: ambient readings plus plant temperature, plant humidity,
+  plant VPD, plant dew point, and plant pressure.
+
+Soil sensor:
+
+- Hardware: UART/Modbus soil sensor.
+- Typical metrics: soil moisture, SMD, SSI, soil temperature, pH, and EC.
+
+## Calibration
+
+Calibration data is stored in the sensor settings file:
+
+- `[Calibration.Device]`: per-device offsets.
+- `[Calibration.System]`: reference-sensor/system calibration metadata.
+- `[Calibration.Soil]`: soil-specific offsets.
+
+Local calibration updates are persisted and hot-reloaded into the running
+sensor when supported. Remote Nodus calibration uses MQTT calibration commands,
+acks, results, and correlated metadata patches.
+
+## Display Settings
+
+The `[Display]` section stores the selected dashboard metrics. The UI supports:
+
+- Pick-six display mode.
+- All-metric display mode.
+- Per-metric display style overrides under `[Display.Style]`.
+
+Do not rename stored metric keys casually. Existing database history,
+automation rules, Home Assistant entities, and display settings can depend on
+the exact strings.

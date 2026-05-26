@@ -1,6 +1,6 @@
 # Sensorius User Guide
 
-Sensorius Automatio Instrumentorum (or Sensoirus AI or Sensorius) is an environmental sensing and automation hub for live dashboards, historical readings, switch control, calibration, and optional integrations with Home Assistant and farmOS. It can run as a full Raspberry Pi hub with directly connected sensors and relays, or as a macOS, Windows, or Linux hub for MQTT-backed Nodus sensors and switches.
+Sensorius Automatio Instrumentorum, also called Sensorius AI or Sensorius, is an environmental sensing and automation hub for live dashboards, historical readings, switch control, calibration, and optional integrations with Home Assistant and farmOS. It can run as a full Raspberry Pi hub with directly connected sensors and relays, or as a macOS, Windows, or Linux hub for MQTT-backed Nodus sensors and switches.
 
 This guide is written for day-to-day users of the Sensorius web app. For installation scripts, hardware wiring, and deployment notes, see the setup and hardware documents in this folder.
 
@@ -47,17 +47,7 @@ Each sensor card is based on the metrics reported by that device. Local Raspberr
 
 Each dashboard metric can be shown as a gauge, a 6-hour micrograph, or a 24-hour micrograph. Click a metric on the dashboard to rotate through the available display styles for that metric.
 
-![Dashboard gauge view](../assets/screenshots/Dashboard%20-%20Gauge.png)
-
-Gauge view emphasizes the current reading as instrument panels.
-
-![Dashboard 6-hour micrograph view](../assets/screenshots/Dashboard%20-%206hr%20Micrograph.png)
-
-The 6-hour micrograph view keeps recent movement visible without leaving the main dashboard.
-
-![Dashboard 24-hour micrograph view](../assets/screenshots/Dashboard%20-%2024hr%20Micrograph.png)
-
-The 24-hour micrograph view gives more daily context while still keeping the metric compact.
+Gauge view emphasizes the current reading as instrument panels. The 6-hour micrograph keeps recent movement visible without leaving the main dashboard. The 24-hour micrograph gives more daily context while still keeping the metric compact.
 
 Display style can also be set globally in System Settings or adjusted for an individual sensor in Sensor Setup. Use the global setting when you want a consistent dashboard style, and use Sensor Setup when one sensor needs its own presentation.
 
@@ -312,9 +302,12 @@ If graphs have gaps:
 ## Related Documentation
 
 - Setup: `docs/setup.md`
+- Operations: `docs/operations.md`
+- Architecture: `docs/architecture.md`
 - Configuration: `docs/configuration.md`
 - Sensors and metrics: `docs/sensors.md`
 - Switch automations: `docs/automations.md`
+- MQTT: `docs/mqtt.md`
 - Home Assistant: `docs/homeassistant.md`
 - FarmOS: `docs/farmos.md`
 - Hardware: `docs/hardware.md`

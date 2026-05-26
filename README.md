@@ -27,7 +27,9 @@ The goal is simple: get visibility, storage, and control with minimal manual set
 
 Choose one setup path:
 
-All shell setup scripts deploy the runtime app to `~/Sensorius`.
+All shell setup scripts deploy the runtime app under the user's home directory,
+for example `/home/<user>/Sensorius` on Linux or `/Users/<user>/Sensorius` on
+macOS.
 
 - Raspberry Pi, macOS, Linux: `./install.sh` (auto-select)
 
@@ -100,10 +102,12 @@ farmOS export option:
 ## Documentation
 
 - Setup: `docs/setup.md`
+- Operations: `docs/operations.md`
+- Architecture: `docs/architecture.md`
 - Configuration and `.env`: `docs/configuration.md`
+- MQTT and Nodus runtime: `docs/mqtt.md`
 - Home Assistant integration: `docs/homeassistant.md`
 - FarmOS integration: `docs/farmos.md`
-- Architecture: `docs/architecture.md`
 - Sensors and metrics: `docs/sensors.md`
 - Hardware and GPIO mapping: `docs/hardware.md`
 - Switch automations: `docs/automations.md`

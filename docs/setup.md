@@ -1,78 +1,100 @@
 # Setup Guide
 
-This guide captures the setup and startup material originally documented in `README.md`.
+Sensorius setup scripts install the runtime under the user's home directory,
+for example `/home/<user>/Sensorius` on Linux or
+`/Users/<user>/Sensorius` on macOS, and configure the web UI, Python
+environment, optional GUI support, Mosquitto, and service or autostart behavior
+for the target platform.
 
-## Setup Script Note
+Review setup scripts before running them on production devices. They are
+designed to be idempotent, but platform package managers, service managers, and
+Wi-Fi tooling differ across OS releases.
 
-Most setup scripts in this repository have not been fully verified across all target OS/version combinations. Use them at your own risk, review them before running, and prefer a test machine first.
+## Deployment Modes
 
-All shell setup scripts in `deploy_scripts/` deploy the application files into `~/Sensorius` and configure services to run from that path.
+Raspberry Pi:
 
-## Raspberry Pi Setup (Direct Sensor + Hub)
+- Full hub mode.
+- Supports direct sensors and GPIO relay hardware when the required hardware
+  libraries are available.
+- Supports MQTT-backed Nodus sensors and switches.
 
-### Raspberry Pi OS Bookworm
+macOS, Windows, and non-Pi Linux:
 
-Use the root dispatcher (recommended):
+- Hub plus MQTT plus web UI mode.
+- Does not support local GPIO/direct sensor runtime.
+- Supports Nodus onboarding, MQTT discovery, dashboards, automations, Home
+  Assistant, farmOS, and WeeWX ingest where dependencies are installed.
+
+## Recommended Entry Point
+
+Use the root dispatcher where possible:
 
 ```bash
 chmod +x install.sh
 sudo ./install.sh
 ```
 
-It asks whether to use `uv` or `pip`, detects Bookworm/Trixie/macOS/Linux, and dispatches to the matching script in `deploy_scripts/`.
+The dispatcher asks whether to use `uv` or `pip`, detects the platform, and
+calls a matching script under `deploy_scripts/`.
 
-Or run Bookworm directly:
+## Raspberry Pi OS Bookworm
+
+Pip path:
+
+```bash
+chmod +x deploy_scripts/setup_bookworm.sh
+sudo ./deploy_scripts/setup_bookworm.sh
+```
+
+uv path:
 
 ```bash
 chmod +x deploy_scripts/setup_bookwork_uv.sh
 sudo ./deploy_scripts/setup_bookwork_uv.sh
 ```
 
-Bookworm scripts:
+The uv script name is currently `setup_bookwork_uv.sh` in the repository.
 
-- Installs system and Python dependencies
-- Enables I2C and sets regional Wi-Fi settings
-- Installs and enables a systemd service (`sensorius.service`)
-- Configures the hostname and timezone
+Bookworm setup performs the normal Pi install work:
 
-Raspberry Pi Wi-Fi guidance for Nodus:
+- Installs system and Python dependencies.
+- Enables I2C.
+- Sets regional Wi-Fi settings where the script supports it.
+- Deploys application files to the platform runtime directory, such as
+  `/home/<user>/Sensorius` or `/Users/<user>/Sensorius`.
+- Configures and enables `sensorius.service`.
+- Configures hostname/timezone prompts where supported.
 
-- Best practice: configure the Raspberry Pi to use a 2.4 GHz network path before onboarding Nodus devices with Sensorius.
-- If your router provides separate 2.4 GHz and 5 GHz SSIDs, connect the Raspberry Pi to the 2.4 GHz SSID.
-- If the Raspberry Pi is not headless, configure Wi-Fi locally on the Pi before running Sensorius setup or onboarding.
-- If your router uses a single SSID for both 2.4 GHz and 5 GHz, the preferred setup is to connect the Raspberry Pi to the router by ethernet.
-- With ethernet connected, the Raspberry Pi can still route to Nodus devices that are on the router's 2.4 GHz Wi-Fi network.
-- If ethernet is not available on a single-SSID router, configure the Raspberry Pi locally so its Wi-Fi connection is using the router's 2.4 GHz radio before running the Pi headless.
-- Router-specific band steering, AP isolation, and roaming behavior are outside the scope of Sensorius setup.
+## Raspberry Pi OS Trixie
 
-### Raspberry Pi OS Trixie
-
-Use one of these scripts:
+Pip path:
 
 ```bash
 chmod +x deploy_scripts/setup_trixie.sh
 sudo ./deploy_scripts/setup_trixie.sh
 ```
 
-Or with `uv`:
+uv path:
 
 ```bash
 chmod +x deploy_scripts/setup_trixie_uv.sh
 sudo ./deploy_scripts/setup_trixie_uv.sh
 ```
 
-## macOS Setup (Hub + MQTT Only)
+## macOS
 
-macOS runs Sensorius as an MQTT hub and web UI only. Directly connected sensors and GPIO are not supported on macOS.
+macOS runs Sensorius as an MQTT hub and web UI. Direct sensors and GPIO relay
+hardware are not supported on macOS.
 
-Use one of the macOS setup scripts:
+Pip path:
 
 ```bash
 chmod +x deploy_scripts/setup_mac.sh
 ./deploy_scripts/setup_mac.sh
 ```
 
-Or with `uv`:
+uv path:
 
 ```bash
 chmod +x deploy_scripts/setup_mac_uv.sh
@@ -81,127 +103,162 @@ chmod +x deploy_scripts/setup_mac_uv.sh
 
 Notes:
 
-- These scripts install Python 3.13.5 and create a local `.venv`.
-- Mosquitto is installed and configured with anonymous access on port 1883.
-- Mosquitto runs in user scope (LaunchAgent + user-owned config/data paths), avoiding `/usr/local/var/*` permission issues.
-- Add Device onboarding uses native macOS Wi-Fi tools (`networksetup`/`airport`); no `nmcli` install is required.
+- The scripts create a local Python environment.
+- Mosquitto is configured in user scope by default.
+- Nodus onboarding uses native macOS Wi-Fi tools.
 - GUI is optional. Set `SENSORIUS_GUI=0` to force headless mode.
-- If `pywebview` is not installed, Sensorius will continue headless.
-- Access the UI in a browser at `http://127.0.0.1:8000` (or `http://<host-ip>:8000` from another device).
+- If `pywebview` is unavailable, Sensorius continues headless.
 
-## Windows Setup (Hub + MQTT Only)
+## Windows
 
-Windows runs Sensorius as an MQTT hub and web UI only. Directly connected sensors and GPIO are not supported on Windows.
+Windows runs Sensorius as an MQTT hub and web UI. Direct sensors and GPIO relay
+hardware are not supported on Windows.
 
-Use one of the Windows setup scripts (run in an elevated PowerShell):
+Run in elevated PowerShell for the default system broker scope:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\deploy_scripts\setup_win.ps1
 ```
 
-Or with `uv`:
+uv path:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\deploy_scripts\setup_win_uv.ps1
 ```
 
-Notes:
-
-- These scripts use `winget`.
-- By default (`BROKER_SCOPE=system`), run in elevated PowerShell (Administrator).
-- For user-level setup, set `BROKER_SCOPE=user` and run in normal PowerShell.
-- Python 3.13.5 is installed via `pyenv-win` (pip script) or `uv` (uv script).
-- Mosquitto is installed and configured with anonymous access on port 1883.
-- Add Device onboarding uses native Windows Wi-Fi tooling (`netsh`); no `nmcli` equivalent install is required.
-- GUI is optional. Set `SENSORIUS_GUI=0` to force headless mode.
-- If `pywebview` is not installed, Sensorius will continue headless.
-- Access the UI in a browser at `http://127.0.0.1:8000` (or `http://<host-ip>:8000` from another device).
-
-Windows scope example:
+User broker scope:
 
 ```powershell
 $env:BROKER_SCOPE = 'user'
 .\deploy_scripts\setup_win_uv.ps1
 ```
 
-## Linux Setup (Debian/Ubuntu, Hub + MQTT Only)
+Notes:
 
-Linux non-Pi hosts run Sensorius as an MQTT hub and web UI only. Directly connected sensors and GPIO are not supported in this setup path.
+- The scripts use `winget`.
+- `BROKER_SCOPE=system` requires Administrator.
+- `BROKER_SCOPE=user` uses user-owned broker config and startup behavior.
+- Nodus onboarding uses native Windows Wi-Fi tooling.
+- Set `INSTALL_PYWEBVIEW=0` to skip pywebview.
 
-Use the Linux setup script:
+## Debian Or Ubuntu Linux
+
+Non-Pi Linux runs Sensorius as an MQTT hub and web UI. Direct sensor/GPIO
+runtime is not supported by this setup path.
 
 ```bash
 chmod +x deploy_scripts/setup_linux.sh
 ./deploy_scripts/setup_linux.sh
 ```
 
-Notes:
-
-- Uses `apt` to install precompiled system packages (`python3`, `mosquitto`, etc.).
-- Installs Python dependencies from `deploy_scripts/setup_reqs_linux.txt`.
-- Requirements now include `astral` for sunrise/sunset automation conditions.
-- Defaults to wheel-only Python installs (`PIP_ONLY_BINARY=1`) to avoid source builds.
-- Set `INSTALL_PYWEBVIEW=0` to skip pywebview and force headless mode.
-- Broker scope defaults to `system`; set `BROKER_SCOPE=user` to use user-owned mosquitto config/data and user service startup.
-- Access the UI in a browser at `http://127.0.0.1:8000` (or `http://<host-ip>:8000` from another device).
-
-Linux scope example:
+User broker scope:
 
 ```bash
 BROKER_SCOPE=user ./deploy_scripts/setup_linux.sh
 ```
 
-## FarmOS Integration Prerequisites
+Notes:
 
-FarmOS export is optional and can be enabled after install from the web UI System Settings.
+- Uses `apt` for system packages.
+- Installs Python dependencies from `deploy_scripts/setup_reqs_linux.txt`.
+- Defaults to wheel-only Python installs where the script supports it.
+- Set `INSTALL_PYWEBVIEW=0` to skip pywebview.
 
-- FarmOS export uses the built-in `httpx` backend only.
-- Python requirements do not include `farmOS.py`.
-- You only need API endpoint/auth access to your farmOS instance.
-- Configure FarmOS URL/auth and run the built-in `Test` action in System Settings before turning `FarmOS.ENABLED` on.
-- See `docs/farmos.md` for key settings and troubleshooting details.
+## Nodus Wi-Fi Guidance
 
-## Astral Automation Note
+Nodus devices use 2.4 GHz Wi-Fi. For Raspberry Pi onboarding:
 
-If you use Astral automation conditions, Sensorius can auto-resolve location from IP (internet required) when `[Astral].AUTO_IP = true` and manual coordinates are not set.
+- Prefer connecting the Pi to a 2.4 GHz SSID before onboarding.
+- If the router combines 2.4 GHz and 5 GHz under one SSID, ethernet is the most
+  reliable Pi connection during onboarding.
+- Disable AP isolation or guest-network isolation for the Sensorius host and
+  Nodus devices.
+- Router band steering and roaming behavior are outside Sensorius setup.
 
-## Web UI Astral Data
+## Manual Runtime Start
 
-When Astral location and timezone are available, the web UI dashboard shows:
-
-- Sun position path with sunrise, noon, and sunset times
-- Moon phase visualization and illumination
-
-Location resolution order is:
-
-- Manual `[Astral].LATITUDE` / `[Astral].LONGITUDE` / `[Astral].TIMEZONE`
-- IP geolocation when `[Astral].AUTO_IP = true`
-
-If manual lat/lon are blank and IP lookup succeeds, Sensorius now persists the discovered coordinates into `[Astral]` for later boots.
-
-## Application Startup
-
-### Manual Start
+From the installed runtime directory:
 
 ```bash
+cd /home/<user>/Sensorius
 python3 Sensorius.py
 ```
 
-### Enable and Start as Service
+On macOS, use `/Users/<user>/Sensorius`. On Windows, use the setup script's
+deployed runtime path, normally `C:\Users\<user>\Sensorius`.
+
+Default UI URLs:
+
+```text
+http://127.0.0.1:8000
+http://<sensorius-host-ip>:8000
+http://<hostname>.local:8000
+```
+
+Health check:
+
+```text
+http://127.0.0.1:8000/healthz
+```
+
+## Service Start
+
+Systemd system service:
 
 ```bash
 sudo systemctl enable sensorius.service
 sudo systemctl start sensorius.service
 ```
 
-## Uninstall Scripts
+Systemd user service:
 
-Optional uninstall helpers are included for local cleanup:
+```bash
+systemctl --user enable sensorius.service
+systemctl --user start sensorius.service
+```
+
+Service files should use the deployed absolute runtime path as their working
+directory so `sensorius_data.db` and logs land in the expected place.
+
+## Optional Integrations
+
+Home Assistant:
+
+- Requires an MQTT broker reachable by Sensorius and Home Assistant.
+- Enable and configure from System Settings.
+- Discovery topics are retained by default.
+
+farmOS:
+
+- Uses the built-in `httpx` JSON:API backend.
+- Does not require `farmOS.py`.
+- Configure URL/auth in System Settings and run the built-in test before
+  enabling continuous export.
+
+Astral automations and dashboard data:
+
+- Use manual `[Astral]` latitude/longitude/timezone when possible.
+- If `[Astral].AUTO_IP = true`, Sensorius may use IP geolocation and persist
+  coordinates when manual values are empty.
+
+WeeWX:
+
+- Configure archive DB path or MQTT topic in System Settings.
+- WeeWX readings are normalized into the same database and dashboard path as
+  other sensors.
+
+## Uninstall Helpers
+
+Interactive cleanup helpers are included:
 
 - Linux: `./deploy_scripts/uninstall_linux.sh`
 - macOS: `./deploy_scripts/uninstall_mac.sh`
-- Windows (PowerShell): `.\deploy_scripts\uninstall_win.ps1`
+- Windows: `.\deploy_scripts\uninstall_win.ps1`
 
-These scripts are interactive and attempt to remove the local venv and optional service/broker setup.
+Review prompts carefully. Back up `/home/<user>/Sensorius/system_settings`,
+`/home/<user>/Sensorius/sensor_settings`,
+`/home/<user>/Sensorius/switch_settings`, and the database before removing a
+production install. Use `/Users/<user>/Sensorius/...` on macOS and
+`C:\Users\<user>\Sensorius\...` on Windows.

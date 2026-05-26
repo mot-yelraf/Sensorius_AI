@@ -1,29 +1,53 @@
 # MQTT
 
-This file is now a short overview. The canonical forward-only contract between
-`cPyNodus_II` and Sensorius lives in
-[docs/sensorius_contract.md](./sensorius_contract.md).
+This page is the operational overview for Sensorius MQTT behavior. The detailed
+forward contract between Nodus firmware and Sensorius is
+`docs/sensorius_contract.md`. If this overview conflicts with the contract,
+the contract wins.
 
-If this page and the contract page ever disagree, `docs/sensorius_contract.md`
-wins.
+## MQTT Roles
 
-## Current Contract Summary
+Sensorius uses MQTT in three ways:
 
-- AP bootstrap uses `/itaot-meta` and `/itaot-init`.
-- Runtime device config uses `nodus/<device_id>/config/set`.
-- Runtime switch config uses `nodus/<channel_id>/config/set`.
-- Calibration uses `nodus/<device_id>/calibration/set`.
-- Nodus publishes retained `nodus/<device_id>/meta` on connect/reconnect.
-- Nodus publishes non-retained `nodus/<device_id>/meta/patch` after accepted
-  runtime changes.
-- `/set` commands should normally be published non-retained. When a `/set`
-  command is intentionally published retained by Sensorius, Sensorius owns
-  clearing it with an empty retained publish to the same topic after successful
-  handling.
-- Sensorius paces ordinary runtime config writes one key at a time per
-  physical Nodus host and waits for `ack` plus successful `result`.
+- Local sensor publishing through `saiMQTTClient.py` when local Pi sensors need
+  to publish to a non-local broker.
+- Remote discovery and ingest through `saiMQTTIngest.py`.
+- Home Assistant discovery, state, availability, and command routing through
+  `saiHomeAssistantMqtt.py`.
+
+The normal Nodus runtime path is MQTT-first. AP-mode HTTP is only for bootstrap
+and diagnostics.
+
+## Broker Settings
+
+Primary Nodus broker settings live in `[SensorNetwork]`:
+
+```toml
+[SensorNetwork]
+BROKER = "localhost"
+MQTTPORT = 1883
+USE_TLS = false
+NODUS_DEBUG_DATA_ONLY = false
+LEGACY_FIRMWARE_HOSTS = []
+LEGACY_POLLER_SUNSET_DATE = "2026-06-30"
+```
+
+Home Assistant can use the same broker or a separate broker through
+`[HomeAssistant].HA_BROKER` and `[HomeAssistant].HA_MQTTPORT`.
+
+## Startup Behavior
+
+- `saiMQTTIngest` starts when `SensorNetwork.BROKER` is set.
+- Local sensor MQTT publishers are skipped when the broker is unset, local, or
+  treated as this host.
+- Ingest subscribes to Nodus topic families, optional base-topic mirrored
+  families, calibration topics, onboarding topics, and optional WeeWX MQTT
+  topics.
+- If Home Assistant uses a separate broker, ingest opens a second Paho client.
 
 ## Current Topic Families
+
+Nodus device topics:
 
 - `nodus/<device_id>/status/heartbeat`
 - `nodus/<device_id>/meta`
@@ -35,67 +59,121 @@ wins.
 - `nodus/<device_id>/calibration/set`
 - `nodus/<device_id>/calibration/ack`
 - `nodus/<device_id>/calibration/result`
+- `nodus/<device_id>/event/calibration_status`
+- `nodus/<device_id>/event/calibration_progress`
+- `nodus/<device_id>/event/calibration_sample`
+- `nodus/<device_id>/event/calibration_result`
+
+Nodus sensor and switch topics:
+
 - `nodus/<sensor_id>/data`
 - `nodus/<sensor_id>/availability`
-- `nodus/<channel_id>/event`
 - `nodus/<channel_id>/state`
+- `nodus/<channel_id>/event`
 - `nodus/<channel_id>/availability`
 - `nodus/<channel_id>/config/set`
 - `nodus/<channel_id>/config/ack`
 - `nodus/<channel_id>/config/result`
 
-## Deprecated Doc Shapes
+Sensorius/Home Assistant topic families use the configured
+`[HomeAssistant].BASE_TOPIC`, default `sensorius`.
 
-The following older doc shapes are deprecated and should not be treated as the
-current contract:
+## Discovery And Shadow State
+
+Retained `nodus/<device_id>/meta` is the authoritative full discovery snapshot.
+Sensorius uses it to:
+
+- Register sensor data topics.
+- Register switch event, state, command, availability, ack, and result topics.
+- Seed or update local shadow settings under `sensor_settings/`,
+  `switch_settings/`, and `system_settings/`.
+- Register switch identities in the database.
+- Publish Home Assistant discovery when enabled.
+
+Accepted runtime changes should produce non-retained `meta/patch` messages.
+Sensorius applies correlated patches to local shadow settings after config or
+calibration commands.
+
+## Commands
+
+Command topics are not state topics.
+
+- Ordinary device config uses `nodus/<device_id>/config/set`.
+- Switch config/control uses `nodus/<channel_id>/config/set`.
+- Calibration uses `nodus/<device_id>/calibration/set`.
+- Publish `/set` commands non-retained by default.
+- If Sensorius intentionally publishes a retained `/set` command, Sensorius
+  owns clearing it with an empty retained payload to the same topic after a
+  successful result.
+
+`saiMQTTIngest.publish_text` refuses retained command publishes to `/set`
+topics unless the payload is an empty retained cleanup payload.
+
+## Switch State Ownership
+
+Remote switch commands should use the shared controller path:
+
+1. UI, Home Assistant, or automation calls `set_state(...)`.
+2. `RemoteSwitchController` resolves the label and channel ID.
+3. `saiMQTTIngest.set_switch(...)` publishes the Nodus command.
+4. Authoritative Nodus state or event topics update ingest caches.
+5. `saiDataLogger.log_switch_event` records transitions in `sw_events`.
+
+Do not write switch state directly to the database or publish ad hoc switch
+topics from route handlers.
+
+## Liveness
+
+Use MQTT liveness for onboarded devices:
+
+- Heartbeats: `nodus/<device_id>/status/heartbeat`
+- Availability: `nodus/<device_id>/availability` and channel availability
+- Retained metadata replay on reconnect
+
+Periodic `/hayd` and `/itaot` polling is deprecated for steady-state health.
+`/itaot-meta` may still be used for AP-mode/bootstrap or user-initiated
+diagnostics.
+
+## Mirroring And Passthrough
+
+Home Assistant settings include:
+
+- `NODUS_PASSTHROUGH`: keep direct Nodus topic subscription behavior enabled in
+  the ingest layer.
+- `MIRROR_NODUS`: mirror discovered Nodus traffic to the HA broker when
+  configured.
+
+Mirroring avoids echoing command topics back to HA.
+
+## Deprecated Shapes
+
+Do not introduce new behavior based on these old shapes:
 
 - `nodus/<channel_id>/set`
-- switch-control docs centered on plain `ON` and `OFF`
-- docs that imply ordinary runtime config writes trigger a full retained
-  `meta` republish
-
-## Runtime Command Ownership
-
-- `/set` topics are command topics, not state topics. Prefer non-retained
-  publishes for commands. If Sensorius publishes any `/set` command retained,
-  Sensorius must clear that retained command by publishing an empty retained
-  payload to that exact topic after successful `result`. Nodus ignores empty
-  `/set` payloads defensively.
-- Startup retained `meta` publishing belongs to startup and reconnect handling.
-- Device config uses `config/set`, `config/ack`, `config/result`, and
-  `meta/patch`. Nodus does not clear device `config/set`; Sensorius owns any
-  retained command cleanup.
-- Switch config uses channel-scoped `config/set`, `config/ack`,
-  `config/result`, retained `state`, and `meta/patch`. Nodus does not clear
-  switch `config/set`; Sensorius owns any retained command cleanup.
-- Calibration uses `calibration/set`, `calibration/ack`,
-  `calibration/result`, and `meta/patch`. Nodus does not clear
-  `calibration/set`; Sensorius owns any retained command cleanup.
-
-## Notes
-
-- Keep publish intervals conservative to reduce power usage.
-- If MQTT is disabled, the device still runs locally.
-- Calibration details remain documented in `docs/calibration_mqtt_contract.md`.
+- Switch-control docs centered on plain `ON` and `OFF` command topics.
+- Runtime config writes that require a full retained `meta` republish.
+- Ongoing health polling through `/hayd` or `/itaot`.
 
 ## Troubleshooting
 
-### MQTT Publish Stall With False Local Success
+No Nodus device appears:
 
-Field testing on Pico 2 W devices has shown a failure mode where:
+- Check broker host/port and credentials.
+- Check retained `nodus/<device_id>/meta`.
+- Check heartbeat recency.
+- Check AP isolation or guest-network isolation.
+- Use the UI retry-discovery action after confirming metadata exists.
 
-- Nodus logs local MQTT publish success (`ok=True`, normal `Published data ...` lines).
-- Broker-observed traffic stops after startup or only retained startup topics arrive.
-- Serial logs may also show repeated `~10s` switch-state or sensor publish timings.
+Remote switch command does not work:
 
-When this specific failure mode appears, a normal CircuitPython reflash by itself may not fix it.
+- Confirm `SWITCH_N_CHANNEL_ID` is present and stable.
+- Confirm command, state, and event topics are present in retained metadata.
+- Confirm no enabled Advanced automation is overriding manual control.
+- Confirm state/event topic feedback arrives after a command.
 
-Observed remediation:
+MQTT publish stall on Pico 2 W:
 
-1. Save the device TOML files.
-2. Flash `flash_nuke.uf2`.
-3. Flash a fresh CircuitPython `9.2.8` UF2.
-4. Deploy a clean Nodus build.
-5. Restore the TOML files.
-
-In recent validation, two separate Nodus devices that exhibited this MQTT publish-stall / broker-mismatch behavior were restored to normal operation only after the full `flash_nuke.uf2` + fresh CircuitPython reflash sequence. A plain CircuitPython reflash alone did not clear the issue.
+- If Nodus logs local publish success but broker-observed traffic stops after
+  startup, save TOML files, flash `flash_nuke.uf2`, flash fresh CircuitPython,
+  deploy a clean Nodus build, and restore TOML files. A plain CircuitPython
+  reflash may not clear this failure mode.

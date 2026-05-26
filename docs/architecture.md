@@ -1,92 +1,212 @@
 # Architecture
 
-This document describes the runtime architecture of Sensorius and how local and remote devices are handled.
+Sensorius is a cross-platform environmental sensing and automation hub. It can
+run as a full Raspberry Pi controller with directly connected sensors and GPIO
+relays, or as a macOS, Windows, or Linux hub that discovers and controls Nodus
+devices over MQTT.
 
-## Runtime Components
+The runtime is intentionally conservative: most work is done with standard
+library components, SQLite, FastAPI, Paho MQTT, and small supervised background
+tasks so the same code can run on low-power Raspberry Pi deployments.
 
-- `Sensorius.py`: process entrypoint and runtime wiring.
-- `saiWebServer.py` + `saiWebRoutes.py`: FastAPI UI/API layer.
-- `saiMQTTIngest.py`: MQTT discovery, ingest, topic registration, and remote state cache.
-- `saiHomeAssistantMqtt.py`: optional Home Assistant MQTT discovery + state bridge.
-- `saiSensor.py`: local directly connected sensor controllers.
-- `saiSwitch.py`: switch controllers and automation monitor loop.
-- `saiDataLogger.py`: SQLite persistence for sensor data, switch events, and switch identities.
-- `saiFarmOSBridge.py`: optional farmOS telemetry export bridge (queue + flush worker).
-- Settings managers: `saiSensorSettingsManager.py`, `saiSwitchSettingsManager.py`, `saiSettings.py`
+## Deployment Modes
 
-## Switch Controller Model
+Raspberry Pi full hub:
 
-Sensorius now uses two switch controller classes behind one interface:
+- Detects local I2C/UART sensors when the Pi sensor runtime is available.
+- Materializes local `sensor_settings/<sensor_id>/sensor.toml` files from
+  factory templates.
+- Detects relay hardware and materializes host switch settings when a relay
+  board is present.
+- Runs the same MQTT ingest, web UI, database, Home Assistant, farmOS, and
+  automation services as other platforms.
 
-- `SwitchController`: local GPIO relay switches.
-- `RemoteSwitchController`: MQTT-backed Nodus/Pico switches.
+macOS, Windows, and non-Pi Linux hub:
 
-Both are created through `build_switch_controller(...)` in `saiSwitch.py`.
+- Skips local GPIO and direct sensor discovery.
+- Runs the web UI, database, MQTT ingest, Nodus onboarding, Home Assistant
+  bridge, farmOS export, WeeWX ingest, and automations for remote devices.
+- Uses native Wi-Fi tooling during Nodus onboarding where supported by the
+  setup scripts.
 
-Shared contract used by UI/routes/automation:
+## Primary Runtime Modules
 
-- `get_switch_names()`
-- `get_state(label)`
-- `set_state(label, on, force=False)`
-- `override_script` map
-- `last_state` map
-- `run_controladora_monitor(...)`
-
-This keeps local and remote switch behavior consistent for automation and dashboard rendering.
+- `Sensorius.py`: entrypoint and runtime wiring.
+- `saiTaskSupervisor.py`: supervised background task runner.
+- `saiWatchdog.py`: task heartbeat monitor and process-exit safety net.
+- `saiGarbageCollection.py`: lightweight GC loop for long-running deployments.
+- `saiWebServer.py`: FastAPI app construction, static/template mounting, and
+  uvicorn launch.
+- `saiWebRoutes.py`: UI, API, onboarding, calibration, settings, and switch
+  routes.
+- `saiSettings.py`: system settings in `system_settings/<device_id>/settings.toml`.
+- `saiSensorSettingsManager.py`: per-sensor settings in
+  `sensor_settings/<sensor_id>/sensor.toml`.
+- `saiSwitchSettingsManager.py`: per-switch settings in
+  `switch_settings/<switch_id>/switch.toml`.
+- `saiDataLogger.py`: SQLite persistence for readings, switch identities,
+  switch events, biodynamic notes, and daily summaries.
+- `saiSensor.py`, `saiSensorFactory.py`, `sensor_modules/`: local sensor
+  runtime.
+- `saiSwitch.py`, `saiSwitchFactory.py`, `saiAutomationManager.py`: local and
+  remote switch control plus Advanced automations.
+- `saiMQTTClient.py`: outbound publisher for local sensors when publishing to a
+  non-local broker.
+- `saiMQTTIngest.py`: MQTT discovery, Nodus topic registration, retained
+  metadata processing, liveness, remote switch state cache, onboarding events,
+  calibration events, and optional Nodus mirroring.
+- `saiHomeAssistantMqtt.py`: Home Assistant discovery, state publishing,
+  availability, and command routing.
+- `saiFarmOSBridge.py`: farmOS JSON:API export queue and flush worker.
+- `saiWeeWX.py`: optional WeeWX archive and MQTT ingest path.
+- `saiNodusOTA.py`: Nodus OTA package and job support used by web routes.
 
 ## Startup Flow
 
-1. `Sensorius.py` initializes settings, supervisor, GC, and network helpers.
-2. Local sensors are detected and instantiated (if present on host hardware).
-3. Switch settings are enumerated and a controller is created per switch via `build_switch_controller(...)`.
-4. MQTT ingest is started and begins remote discovery from retained MQTT metadata and topics (`nodus/<device_id>/meta`, heartbeats, data, and switch topics).
-5. FarmOS bridge task is started and subscribes to new readings from `saiDataLogger`.
-6. Web server starts; dashboard and API routes read from controllers + ingest + DB.
-7. Each switch controller monitor (`run_controladora_monitor`) is scheduled to evaluate automations.
+1. `Sensorius.py` configures logging, starts the async runtime in a thread, and
+   optionally opens a pywebview shell when GUI mode is available.
+2. `saiSettings` loads or seeds `system_settings/<device_id>/settings.toml`,
+   applies live hostname/time values, and may persist Astral IP geolocation
+   when configured.
+3. `TaskSupervisor`, `GCManager`, network helpers, and `saiDataLogger` are
+   created.
+4. Local sensor configs are materialized only if the `board` runtime is
+   available. Remote sensor settings are skipped by the local sensor builder.
+5. Switch settings are enumerated. Local relay settings are materialized only
+   when relay hardware is detected. Each switch is built through
+   `build_switch_controller(...)`, which returns either `SwitchController` or
+   `RemoteSwitchController`.
+6. Runtime objects are attached to `saiWebRoutes` globals and `app.state` so the
+   UI and APIs share the same controller, database, and ingest instances.
+7. Local MQTT publisher tasks are created only for local sensors and only when
+   `SensorNetwork.BROKER` is configured as a non-local broker. If the broker is
+   unset, `localhost`, or this host, local publisher tasks are skipped.
+8. `saiMQTTIngest` starts when `SensorNetwork.BROKER` is set. It subscribes to
+   Nodus, optional mirrored base-topic, calibration, onboarding, and optional
+   WeeWX topics.
+9. If Home Assistant is enabled, the HA bridge waits for MQTT connection,
+   installs command handlers, and publishes retained discovery.
+10. Always-on services are registered: WeeWX ingest, farmOS bridge, daily
+    summary writer, watchdog, GC, local sensor data collection, and switch
+    monitor loops.
+11. `WebServerController` registers FastAPI routes and runs uvicorn. The web
+    server can run with zero local sensors.
 
-## FarmOS Telemetry Path
+## Data Flow
 
-When FarmOS integration is enabled:
+Local sensors:
 
-- `saiFarmOSBridge` listens for newly written sensor readings from `saiDataLogger`.
-- Readings are queued in memory (bounded by `FarmOS.QUEUE_MAX`).
-- A worker loop flushes queued items to farmOS using direct `httpx` JSON:API calls.
-- Failed writes are re-queued for retry, and status/error details are exposed through `/farmos/status`.
+- `SensorController.data_collection` reads a concrete sensor module.
+- `saiDataLogger.log_readings` writes metric rows to `readings`.
+- In-memory latest-value caches are updated for dashboard and fast stats.
+- Readings listeners notify Home Assistant and farmOS when those integrations
+  are enabled.
 
-## Discovery and Identity
+Remote Nodus sensors:
 
-Remote Nodus/Pico switches are discovered through MQTT ingest:
+- Nodus publishes retained `nodus/<device_id>/meta`, runtime data, heartbeat,
+  availability, calibration, and patch topics.
+- `saiMQTTIngest` uses retained metadata to register sensor topics and seed or
+  update local shadow settings.
+- Sensor payloads are normalized and written through `saiDataLogger`, the same
+  path as local readings.
 
-- Retained `nodus/<device_id>/meta` payloads are the primary source of switch id, labels, channel ids, and topic metadata.
-- `itaot-meta/v1` payloads can be normalized when available for AP-mode or diagnostic enrichment, but they are not required for steady-state discovery.
-- Topic maps are cached in ingest.
-- Switch identity records are persisted in DB (`switch_id`, `label`, `channel_id` via switch key).
+WeeWX:
 
-Identity strategy:
+- Archive polling and MQTT ingest are optional.
+- `saiWeeWX.py` normalizes station data into the same sensor settings and
+  database paths as other sensors.
 
-- Human-facing key: `switch_id::label` (UI/automation semantics).
-- Canonical DB key: `channel_id::label` when a channel id exists.
+Switches:
 
-## Automation Evaluation
+- `SwitchController` handles local GPIO relays.
+- `RemoteSwitchController` uses the same public interface while resolving
+  state and commands through `saiMQTTIngest`.
+- Switch state changes must be written through `saiDataLogger.log_switch_event`.
+- `switch_ids` stores switch identity metadata and `sw_events` stores state
+  transitions.
 
-Switch automation is evaluated inside each switch controller monitor:
+Automations:
 
-- Advanced rules from the shared `switch_settings/automations/automations.toml`.
+- Advanced automation rules are stored in
+  `switch_settings/automations/automations.toml`.
+- Each switch controller monitor evaluates enabled rules every few seconds.
+- Evaluation prefers live sensor data, then cached values, then DB-backed
+  fallback behavior where implemented.
+- Manual UI toggles are blocked while an enabled Advanced automation owns the
+  target switch key.
 
-Evaluation uses:
+Home Assistant:
 
-- Live sensor data when available.
-- Cached values and DB fallback when live data is unavailable.
+- `saiHomeAssistantMqtt.rPiHomeAssistantBridge` publishes retained discovery
+  from known sensor metrics and switch identities.
+- New readings and switch events trigger retained state and availability
+  publishes.
+- Commands on `<base>/switch/<switch_id>/<channel_id>/set` are routed back to
+  the shared switch controller path.
 
-So remote switch automation does not require a dedicated remote sensor controller.
+farmOS:
 
-## Dynamic Controller Creation
+- `saiFarmOSBridge` listens for newly written sensor readings.
+- Readings are queued in memory, bounded by `FarmOS.QUEUE_MAX`, and flushed to
+  farmOS JSON:API with `httpx`.
+- Failed writes are retried by pushing the item back onto the queue.
 
-When an automation is saved for a switch discovered after startup, routes can create the controller dynamically:
+## Runtime State And Paths
 
-- Load switch settings.
-- Build controller via `build_switch_controller(...)`.
-- Register it in `switch_controllers`.
-- Start a monitor task for that switch.
+The source checkout is not always the writable runtime root. Bare settings roots
+are resolved by `saiRuntimePaths.resolve_runtime_base_dir(...)`.
 
-This prevents “automation saved but no monitor running” failures.
+- Outside pytest, bare `sensor_settings`, `switch_settings`, and
+  `system_settings` resolve under `/Users/<user>/Sensorius/` on macOS and
+  `/home/<user>/Sensorius/` on Linux.
+- In pytest, relative settings roots remain inside the test working directory
+  to preserve test isolation.
+- Absolute paths are used as-is.
+
+Canonical runtime files:
+
+- `/Users/<user>/Sensorius/system_settings/<device_id>/settings.toml`
+- `/Users/<user>/Sensorius/sensor_settings/<sensor_id>/sensor.toml`
+- `/Users/<user>/Sensorius/switch_settings/<switch_id>/switch.toml`
+- `/Users/<user>/Sensorius/switch_settings/automations/automations.toml`
+- `sensorius_data.db` in the process working directory unless an explicit DB
+  path is passed to `saiDataLogger`.
+
+Factory templates remain in the repository and deployed runtime tree under:
+
+- `system_settings/factory/`
+- `system_settings/factory_nodus/`
+- `sensor_settings/factory/`
+- `sensor_settings/factory_nodus/`
+- `switch_settings/factory/`
+- `switch_settings/factory_nodus/`
+
+## Identity And Compatibility Rules
+
+- Remote Nodus retained `meta` is the authoritative steady-state discovery
+  input.
+- AP/bootstrap HTTP endpoints are limited to onboarding and diagnostics.
+- Ongoing Nodus health should come from MQTT heartbeat and availability topics,
+  not periodic `/hayd` or `/itaot` polling.
+- UI and automation switch keys use the form `<channel_id>::<label>`.
+- The DB canonical switch key also uses `<channel_id>::<label>` when a channel
+  ID exists.
+- MQTT topic shapes, Home Assistant entity IDs, retained discovery payloads,
+  and stored DB keys are compatibility-sensitive.
+
+## Extension Boundaries
+
+Use these ownership boundaries when extending the system:
+
+- Add sensor hardware behavior in `sensor_modules/` and wire detection through
+  `saiSensorFactory.py`.
+- Add switch hardware behavior in `saiSwitchFactory.py` while preserving the
+  `SwitchController` public interface.
+- Put substantial route behavior in supporting modules and keep
+  `saiWebRoutes.py` handlers thin where practical.
+- Add settings through the appropriate manager and factory template, with
+  idempotent migration or defaulting for existing installations.
+- Route all sensor readings and switch events through `saiDataLogger`.
+- Treat MQTT discovery, Home Assistant discovery, switch identity, and DB
+  migrations as high-risk compatibility surfaces.

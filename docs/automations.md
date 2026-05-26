@@ -1,51 +1,118 @@
 # Switch Automations
 
-This guide captures the switch automation overview originally documented in `README.md`.
+Sensorius switch automations are evaluated by each switch controller monitor.
+Local GPIO relays and remote Nodus switches share the same controller contract,
+so automation rules use the same behavior for both.
 
-Switch automations support:
+## Storage
 
-- Rule-level enable/disable (Basic and Advanced rules)
-- Sensor + metric threshold conditions (for example: `Temperature_F > 82`)
-- Threshold hysteresis and minimum interval timing to reduce relay chatter
-- Time-of-day windows (`start` / `end`) and day-based scheduling (`days` in Advanced rules)
-- Astral conditions (`astral_event` + `offset_min`) for sunrise/sunset schedules and day/night windows
-- Timer-based schedules (`duration_min`, `period_min`, legacy `freq_hours`) for periodic active windows
-- Action-level revert behavior via `revert_action` (`previous_state` or `do_nothing`) plus `delay_s`
+Advanced automations are stored in:
 
-Time window notes:
+```text
+switch_settings/automations/automations.toml
+```
 
-- `00:00` to `00:00` is treated as all day.
-- Other time windows are inclusive of the start and exclusive of the end.
+`saiAutomationManager.py` owns this file. The current schema is:
+
+- `[Meta]`: version and notes.
+- `[Advanced]`: named rules with `enabled` and compact JSON `script_json`.
+- `[Scripts]`: optional coarse global toggles.
+
+## Switch Keys
+
+Automation actions target switch keys in the form:
+
+```text
+<channel_id>::<label>
+```
+
+Example:
+
+```text
+S1-sernum::Eastside_Pump
+```
+
+The manager keeps some alias tolerance for older `<switch_id>::<label>` shapes,
+but new rules should use stable channel IDs.
+
+## Rule Capabilities
+
+Advanced rules can express:
+
+- Rule-level enable/disable.
+- Sensor metric thresholds, such as `Temperature_F > 82`.
+- Hysteresis and minimum interval timing to reduce relay chatter.
+- Time-of-day windows.
+- Day-of-week schedules.
+- Sunrise and sunset schedules through Astral settings.
+- Timer windows through `duration_min`, `period_min`, and legacy `freq_hours`.
+- Multi-action rules.
+- Revert behavior through `revert_action`.
+- Optional delayed action application through `delay_s`.
+
+Time window behavior:
+
+- `00:00` to `00:00` is all day.
+- Other windows are inclusive of start and exclusive of end.
 - Wraparound windows such as `22:00` to `06:00` are supported.
 
-Action revert notes:
+Timer behavior:
 
-- `delay_s` is a delay before the action is applied after the rule becomes true.
-- While a rule remains true, the evaluator keeps the target switch at the configured action state.
-- For timer conditions, `duration_min` defines how long that timer window stays active within each period.
-- `duration_min` must be strictly less than the selected repeat interval.
-- Hour-based timer intervals keep their existing on-the-hour alignment.
-- Minute-based timer intervals can use `anchor_epoch` so a newly saved 5/15/30 minute timer starts from save time.
-- If a rule later becomes false and `revert_action = "previous_state"`, the evaluator restores the switch to the state it had before the rule first applied.
-- If a rule later becomes false and `revert_action = "do_nothing"`, the evaluator leaves the switch in its current state.
+- `duration_min` controls how long a timer window stays active.
+- `duration_min` must be less than the repeat interval.
+- Hour-based intervals keep on-the-hour alignment.
+- Minute-based intervals can use `anchor_epoch` so a newly saved rule starts
+  from save time.
 
-Astral conditions require `astral` and use location from:
+Revert behavior:
 
-- Manual settings in `[Astral]` (`LATITUDE`, `LONGITUDE`, `TIMEZONE`), or
-- IP geolocation fallback when `[Astral].AUTO_IP = true` (internet required).
+- `previous_state` restores the state that existed before the rule applied.
+- `do_nothing` leaves the switch in its current state when the rule becomes
+  false.
+- Runtime ownership needed for `previous_state` is persisted in the switch
+  settings runtime block.
 
-Astral sunrise/sunset usage note:
+## Astral Conditions
 
-- `astral_event` supports `sunrise`, `sunset`, `sunrise_to_sunset`, and `sunset_to_sunrise`.
-- Window modes (`sunrise_to_sunset` / `sunset_to_sunrise`) let a single automation with `revert_action = "previous_state"` handle ON at window start and OFF at window end.
+Astral conditions require location and timezone settings from:
 
-## Controller Model
+- Manual `[Astral].LATITUDE`, `[Astral].LONGITUDE`, and
+  `[Astral].TIMEZONE`, or
+- IP geolocation when `[Astral].AUTO_IP = true`.
 
-Switch automation evaluation runs through a common controller interface:
+Supported Astral events include:
 
-- `SwitchController` for directly connected GPIO relays.
-- `RemoteSwitchController` for MQTT-backed Nodus/Pico switches.
+- `sunrise`
+- `sunset`
+- `sunrise_to_sunset`
+- `sunset_to_sunrise`
 
-Both controllers expose the same runtime behavior to the automation engine
-(`get_switch_names`, `get_state`, `set_state`, override flags, and monitor loop),
-so rules execute consistently for local and remote switches.
+Window modes can let one automation turn a channel on at the beginning of a
+window and revert it at the end.
+
+## Runtime Evaluation
+
+Each switch controller runs `run_controladora_monitor(...)` every few seconds.
+
+Evaluation order:
+
+1. Check whether any enabled rule applies to the switch.
+2. Read live bound sensor values when a local sensor is available.
+3. Fall back to cached values or DB-backed data paths where implemented.
+4. Evaluate Advanced rules.
+5. Call `set_state(...)` for actions that should change a switch.
+6. Record state changes through `saiDataLogger.log_switch_event`.
+
+Manual UI toggles are blocked when an enabled Advanced automation owns the same
+switch key. Disable the automation before manual operation.
+
+## Extension Notes
+
+- Add new rule fields through the Advanced JSON schema and
+  `saiAutomationManager.py`, then update the UI and tests.
+- Keep the shared switch controller interface stable:
+  `get_switch_names`, `get_state`, `set_state`, `override_script`,
+  `last_state`, and `run_controladora_monitor`.
+- Use existing tests in `testApparatus/test_automation_contract.py` and
+  `testApparatus/test_sai_switch_trigger_manager_compat.py` as starting points
+  for automation changes.
