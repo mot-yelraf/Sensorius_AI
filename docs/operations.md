@@ -219,13 +219,18 @@ Set to `0` to disable pruning.
 
 1. Stop Sensorius.
 2. Back up settings directories and database.
-3. Deploy updated source into the runtime directory, such as
-   `/home/<user>/Sensorius` or `/Users/<user>/Sensorius`.
-4. Install changed dependencies if requirements changed.
-5. Start Sensorius.
-6. Verify `/healthz`, dashboard load, MQTT ingest, switch controls, and any
+3. For existing installs, prefer `deploy_scripts/deploy_sai.sh --apply` from
+   the source checkout. It preserves `sensorius_data.db*`, `system_settings/`,
+   `sensor_settings/`, and `switch_settings/` while updating application code
+   and factory templates.
+4. Use `install.sh` or platform setup scripts only when doing a first install,
+   repair install, or intentional package/broker/service reconfiguration.
+5. Install changed dependencies in the target runtime environment if
+   requirements changed.
+6. Start Sensorius.
+7. Verify `/healthz`, dashboard load, MQTT ingest, switch controls, and any
    enabled integrations.
-7. Run targeted tests from the source checkout before deploying when practical.
+8. Run targeted tests from the source checkout before deploying when practical.
 
 ## Troubleshooting Quick Reference
 

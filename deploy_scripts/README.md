@@ -9,6 +9,7 @@ This folder contains:
 Requirements files in this folder include:
 
 - `astral` for sunrise/sunset automation scheduling
+- `skyfield` for biodynamic calendar ephemeris calculations
 - `httpx`-based FarmOS integration support (no `farmOS.py` dependency)
 
 ## Setup Entry Points
@@ -66,6 +67,18 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 - Script: `deploy_scripts/deploy_sai.sh`
 - Inventory: `deploy_scripts/sai_hosts.txt` (local, untracked) or fallback `deploy_scripts/sai_hosts.def` (tracked template)
+
+Use this script for routine updates to systems that already have Sensorius
+installed. It is different from `install.sh` and the platform setup scripts:
+setup scripts prepare or repair the Python environment, Mosquitto, service
+files, and autostart behavior, while `deploy_sai.sh` only syncs application
+files and optionally runs a per-host post-deploy command.
+
+The deploy script is intended for existing runtime directories such as
+`/home/<user>/Sensorius` or `/Users/<user>/Sensorius`. It excludes installed
+runtime state, including `sensorius_data.db*`, `system_settings/`,
+`sensor_settings/`, and `switch_settings/`, and explicitly allows factory
+templates under those settings trees to update.
 
 Inventory format:
 

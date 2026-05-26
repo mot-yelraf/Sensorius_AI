@@ -10,6 +10,25 @@ Review setup scripts before running them on production devices. They are
 designed to be idempotent, but platform package managers, service managers, and
 Wi-Fi tooling differ across OS releases.
 
+## Install Versus Deploy
+
+Use `install.sh` or the platform `setup_*.sh` and `setup_*.ps1` scripts for a
+first install, repair install, or intentional reconfiguration of system
+packages, Python environment, Mosquitto, service files, and autostart behavior.
+These scripts prepare a runtime directory and may rewrite installer-managed
+configuration for the target platform.
+
+Use `deploy_scripts/deploy_sai.sh` for routine updates to systems that already
+have Sensorius installed. The deploy script syncs application source into each
+configured runtime directory while preserving installed runtime state,
+including `sensorius_data.db*`, `system_settings/`, `sensor_settings/`, and
+`switch_settings/`. It still updates factory templates under those settings
+trees so new defaults can ship without replacing device-specific files.
+
+When requirements files change, deploy the source update first, then install
+the changed Python dependencies in the target runtime environment before
+restarting Sensorius.
+
 ## Deployment Modes
 
 Raspberry Pi:
