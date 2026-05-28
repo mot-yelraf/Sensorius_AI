@@ -264,7 +264,9 @@ class _FakeIngest:
         out = dict(payload)
         out.setdefault("message_id", message_id)
         if source:
-            out.setdefault("source", source)
+            out_source = str(out.get("source") or "").strip().lower()
+            if out_source != str(source or "").strip().lower():
+                return None
         return out
 
     def get_nodus_calibration_state(self, sensor_id: str):
@@ -1486,6 +1488,181 @@ async def test_device_calibration_apply_for_remote_nodus_uses_mqtt_and_updates_s
     assert ingest.calibration_commands[-1]["payload"]["offsets"][0]["key"] == "Calibration.Device.TEMP_OFFSET"
     saved = sensor_mgr.load("apvpd-test123")
     assert saved["Calibration"]["Device"]["TEMP_OFFSET"] == 1.5
+
+
+@pytest.mark.asyncio
+async def test_device_calibration_apply_for_remote_nodus_uses_meta_patch_fallback_when_ack_missing(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    ingest.next_calibration_ack = None
+    ingest.next_calibration_result = None
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "apvpd-test123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "apvpd-test123",
+            }
+        },
+    )
+    ingest.meta_patches_by_message["test-1"] = {
+        "schema": "nodus-meta-patch/v1",
+        "device_id": "apvpd-test123",
+        "message_id": "test-1",
+        "source": "calibration_set",
+        "updates": [
+            {"section": "Calibration.Device", "key": "TEMP_OFFSET", "value": 2.25},
+        ],
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/calibration/device/apply",
+            json={
+                "sensor_id": "apvpd-test123",
+                "device_kind": "aqi",
+                "offsets": [{"key": "Calibration.Device.TEMP_OFFSET", "value": 2.25}],
+            },
+        )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "success"
+    assert body["shadow_synced"] is True
+    saved = sensor_mgr.load("apvpd-test123")
+    assert saved["Calibration"]["Device"]["TEMP_OFFSET"] == 2.25
+
+
+@pytest.mark.asyncio
+async def test_device_calibration_apply_for_remote_nodus_uses_meta_patch_fallback_when_result_missing(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    ingest.next_calibration_ack = {"accepted": True}
+    ingest.next_calibration_result = None
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "apvpd-test123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "apvpd-test123",
+            }
+        },
+    )
+    ingest.meta_patches_by_message["test-1"] = {
+        "schema": "nodus-meta-patch/v1",
+        "device_id": "apvpd-test123",
+        "message_id": "test-1",
+        "source": "calibration_set",
+        "updates": [
+            {"section": "Calibration.Device", "key": "RH_OFFSET", "value": -1.75},
+        ],
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/calibration/device/apply",
+            json={
+                "sensor_id": "apvpd-test123",
+                "device_kind": "aqi",
+                "offsets": [{"key": "Calibration.Device.RH_OFFSET", "value": -1.75}],
+            },
+        )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "success"
+    assert body["shadow_synced"] is True
+    saved = sensor_mgr.load("apvpd-test123")
+    assert saved["Calibration"]["Device"]["RH_OFFSET"] == -1.75
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("ack_payload", "expected_message"),
+    [
+        (None, "Calibration command was not acknowledged"),
+        ({"accepted": True}, "Timed out waiting for calibration result"),
+    ],
+)
+async def test_device_calibration_apply_for_remote_nodus_without_ack_result_or_patch_still_fails(
+    tmp_path,
+    monkeypatch,
+    ack_payload,
+    expected_message,
+):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    ingest.next_calibration_ack = ack_payload
+    ingest.next_calibration_result = None
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "apvpd-test123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "apvpd-test123",
+            }
+        },
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/calibration/device/apply",
+            json={
+                "sensor_id": "apvpd-test123",
+                "device_kind": "aqi",
+                "offsets": [{"key": "Calibration.Device.TEMP_OFFSET", "value": 1.5}],
+            },
+        )
+
+    assert res.status_code == 502
+    assert res.json()["message"] == expected_message
+    saved = sensor_mgr.load("apvpd-test123")
+    assert "Calibration" not in saved
+
+
+@pytest.mark.asyncio
+async def test_device_calibration_apply_for_remote_nodus_ignores_meta_patch_fallback_with_wrong_source(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    ingest.next_calibration_ack = None
+    ingest.next_calibration_result = None
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "apvpd-test123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "apvpd-test123",
+            }
+        },
+    )
+    ingest.meta_patches_by_message["test-1"] = {
+        "schema": "nodus-meta-patch/v1",
+        "device_id": "apvpd-test123",
+        "message_id": "test-1",
+        "source": "config_set",
+        "updates": [
+            {"section": "Calibration.Device", "key": "TEMP_OFFSET", "value": 2.25},
+        ],
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/calibration/device/apply",
+            json={
+                "sensor_id": "apvpd-test123",
+                "device_kind": "aqi",
+                "offsets": [{"key": "Calibration.Device.TEMP_OFFSET", "value": 2.25}],
+            },
+        )
+
+    assert res.status_code == 502
+    assert res.json()["message"] == "Calibration command was not acknowledged"
+    saved = sensor_mgr.load("apvpd-test123")
+    assert "Calibration" not in saved
 
 
 @pytest.mark.asyncio

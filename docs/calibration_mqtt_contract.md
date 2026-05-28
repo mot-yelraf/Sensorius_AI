@@ -347,6 +347,9 @@ Consumption notes:
 - correlate the patch with the command using `message_id`
 - require `source = "calibration_set"` before treating it as a calibration delta
 - apply each `updates[]` entry as a TOML-style write to Sensorius' mirrored copy
+- for apply-style commands, Sensorius may treat a correlated
+  `source = "calibration_set"` patch as success if `calibration/ack` or
+  `calibration/result` is missed
 - use `sections` only as a quick grouping hint; `updates[]` is the actual delta
 - treat this patch as the accepted calibration write-set, while retained
   `event/calibration_status` and `event/calibration_result` remain the richer
@@ -503,8 +506,11 @@ For offset updates:
 2. Wait for `calibration/ack`.
 3. Wait for `calibration/result`.
 4. Treat `calibration/result` as a compact apply envelope: `message_id`, `applied`, `updated`, `error`.
-5. Apply the correlated `nodus/<device_id>/meta/patch` delta with `source = "calibration_set"` to Sensorius' mirrored TOML state.
-6. Refresh local UI state from the mirrored calibration values or from retained `event/calibration_status`.
+5. If `calibration/ack` or `calibration/result` is missed, a correlated
+   `nodus/<device_id>/meta/patch` delta with `source = "calibration_set"` can
+   be treated as the accepted apply result.
+6. Apply the correlated `meta/patch` delta to Sensorius' mirrored TOML state.
+7. Refresh local UI state from the mirrored calibration values or from retained `event/calibration_status`.
 
 For soil pH session flow:
 

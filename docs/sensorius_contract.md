@@ -355,6 +355,9 @@ Implemented behavior:
 - `action = "apply"`, `"set"`, or `"update"` writes accepted calibration
   values, publishes `calibration/result`, and publishes non-retained
   `meta/patch` with `source = "calibration_set"`.
+- Sensorius may treat the correlated `meta/patch` as the accepted write result
+  for apply-style commands if `calibration/ack` or `calibration/result` is
+  missed.
 - `action = "status"` republishes retained
   `nodus/<sensor_id>/event/calibration_status` and publishes a correlated
   `calibration/result`.

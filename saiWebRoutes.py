@@ -7299,6 +7299,27 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return [], False
         return _apply_remote_calibration_patch_shadow(sensor_id, patch), True
 
+    async def _remote_calibration_meta_patch_fallback(message_id: str, action: str, *, timeout: float = 3.0) -> dict | None:
+        if str(action or "").strip().lower() not in {"apply", "set", "update"}:
+            return None
+        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        if not ingest or not hasattr(ingest, "wait_for_nodus_meta_patch"):
+            return None
+        patch = await ingest.wait_for_nodus_meta_patch(
+            message_id,
+            source="calibration_set",
+            timeout=timeout,
+        )
+        if not isinstance(patch, dict):
+            return None
+        return {
+            "message_id": message_id,
+            "applied": True,
+            "updated": len(patch.get("updates") or []),
+            "error": "",
+            "meta_patch_fallback": True,
+        }
+
     async def _publish_remote_calibration_command(sensor_id: str, *, action: str, payload: dict | None = None, ack_timeout: float = 3.0, result_timeout: float = 8.0) -> tuple[bool, str, dict | None, dict | None]:
         ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
         if not ingest or not hasattr(ingest, "publish_nodus_calibration"):
@@ -7311,10 +7332,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         message_id = str(publish_result.get("message_id") or "").strip()
         ack = await ingest.wait_for_calibration_ack(message_id, timeout=ack_timeout)
         if not ack or not bool(ack.get("accepted", False)):
+            fallback = await _remote_calibration_meta_patch_fallback(message_id, action)
+            if fallback is not None:
+                return True, "", ack, fallback
             return False, "Calibration command was not acknowledged", ack, None
 
         result = await ingest.wait_for_calibration_result(message_id, timeout=result_timeout)
         if result is None:
+            fallback = await _remote_calibration_meta_patch_fallback(message_id, action)
+            if fallback is not None:
+                return True, "", ack, fallback
             return False, "Timed out waiting for calibration result", ack, None
         return True, "", ack, result
 
