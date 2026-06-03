@@ -8,7 +8,7 @@ presentation utilities reused by routes and templates.
 import os
 import re
 from saiUtils import printDM, debug_enabled, html_escape, normalize_hostname_base, mdns_hostname
-from saiBiodynamics import get_biodynamic_payload
+from saiBiodynamics import get_biodynamic_payload, get_skyfield_runtime_if_installed
 from sensor_modules.station_weewx import DEFAULT_SENSOR_ID as WEEWX_DEFAULT_SENSOR_ID, WEEWX_GAUGE_CONFIG
 from collections import defaultdict
 from pathlib import Path
@@ -188,7 +188,24 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     except Exception:
         is_pi_platform = False
 
-    def _moon_phase_name(phase_val: float) -> str:
+    def _traditional_full_moon_name(phase_date) -> str:
+        names_by_month = {
+            1: "Wolf Moon",
+            2: "Snow Moon",
+            3: "Worm Moon",
+            4: "Pink Moon",
+            5: "Flower Moon",
+            6: "Strawberry Moon",
+            7: "Buck Moon",
+            8: "Sturgeon Moon",
+            9: "Harvest Moon",
+            10: "Hunter's Moon",
+            11: "Beaver Moon",
+            12: "Cold Moon",
+        }
+        return names_by_month.get(getattr(phase_date, "month", None), "Full Moon")
+
+    def _moon_phase_name(phase_val: float, phase_date=None) -> str:
         p = phase_val % 28.0
 
         def _circular_dist(a: float, b: float, cycle: float = 28.0) -> float:
@@ -200,7 +217,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         if _circular_dist(p, 7.0) <= 1.0:
             return "1st Quarter"
         if _circular_dist(p, 14.0) <= 1.0:
-            return "Full Moon"
+            return _traditional_full_moon_name(phase_date)
         if _circular_dist(p, 21.0) <= 1.0:
             return "3rd Quarter"
         if 1.0 < p < 6.0:
@@ -272,11 +289,16 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             "sunset": "",
             "sun_noon": "",
             "sun_points": [],
+            "moon_points": [],
             "moon_phase_value": None,
             "moon_phase_label": "",
             "moon_lit_pct": None,
             "moon_rise": "",
             "moon_set": "",
+            "moon_rise_today": "",
+            "moon_set_today": "",
+            "moon_declination": None,
+            "moon_position_source": "",
             "moon_next_phase_label": "",
             "moon_next_phase_date": "",
             "moon_visible_angle": None,
@@ -292,6 +314,18 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         ):
             return out
 
+        def _safe_float(v):
+            try:
+                f = float(v)
+                return f if math.isfinite(f) else None
+            except Exception:
+                return None
+
+        def _hm_for_minute(day_start, minute):
+            if minute >= 1440:
+                return "24:00"
+            return (day_start + timedelta(minutes=minute)).strftime("%H:%M")
+
         resolved_lat = None
         resolved_lon = None
         resolved_tz = ""
@@ -300,6 +334,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             resolved = s.resolve_astral_location(persist_if_auto=False, timeout_sec=2.5)
             resolved_lat = resolved.get("lat")
             resolved_lon = resolved.get("lon")
+            resolved_altitude = _safe_float(resolved.get("altitude"))
             resolved_tz = str(resolved.get("tz") or "").strip()
         except Exception:
             return out
@@ -317,6 +352,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 latitude=resolved_lat,
                 longitude=resolved_lon,
             ).observer
+            if resolved_altitude is not None:
+                obs.elevation = resolved_altitude
             sun_map = _astral_sun(obs, date=now_local.date(), tzinfo=tzinfo)
             sunrise = sun_map.get("sunrise")
             sunset = sun_map.get("sunset")
@@ -324,25 +361,86 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             if not isinstance(sunrise, datetime) or not isinstance(sunset, datetime):
                 return out
 
+            day_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
             pts = []
-            cur = sunrise
-            while cur <= sunset:
+            for minute in range(0, 1441, 10):
+                sample_dt = day_start + timedelta(minutes=minute)
                 try:
-                    elev = float(_astral_elevation(obs, cur))
+                    elev = float(_astral_elevation(obs, sample_dt))
                 except Exception:
                     elev = float("nan")
                 if math.isfinite(elev):
-                    pts.append({"t": cur.strftime("%H:%M"), "e": round(elev, 2)})
-                cur = cur + timedelta(minutes=5)
-            if pts and pts[-1]["t"] != sunset.strftime("%H:%M"):
-                try:
-                    elev_sunset = float(_astral_elevation(obs, sunset))
-                except Exception:
-                    elev_sunset = 0.0
-                pts.append({"t": sunset.strftime("%H:%M"), "e": round(elev_sunset, 2)})
+                    pts.append({"m": minute, "t": _hm_for_minute(day_start, minute), "e": round(elev, 2)})
 
             moon_val = float(_astral_moon.phase(now_local.date()))
             moon_lit_pct = int(round((0.5 * (1 - math.cos((2 * math.pi * (moon_val % 28.0)) / 28.0))) * 100))
+            moon_points = []
+            moon_declination = None
+            moon_position_source = ""
+            try:
+                skyfield_runtime = get_skyfield_runtime_if_installed()
+                if skyfield_runtime is not None:
+                    _loader, ts, eph, _constellation_at = skyfield_runtime
+                    from skyfield.api import wgs84
+
+                    topo = wgs84.latlon(
+                        float(resolved_lat),
+                        float(resolved_lon),
+                        elevation_m=float(resolved_altitude or 0.0),
+                    )
+                    observer = eph["earth"] + topo
+                    moon_body = eph["moon"]
+                    for minute in range(0, 1441, 10):
+                        sample_dt = day_start + timedelta(minutes=minute)
+                        t = ts.from_datetime(sample_dt.astimezone(timezone.utc))
+                        apparent = observer.at(t).observe(moon_body).apparent()
+                        alt, az, _distance = apparent.altaz()
+                        _ra, dec, _radec_distance = apparent.radec()
+                        elev = float(alt.degrees)
+                        azimuth = float(az.degrees)
+                        declination = float(dec.degrees)
+                        if all(math.isfinite(v) for v in (elev, azimuth, declination)):
+                            moon_points.append({
+                                "m": minute,
+                                "t": _hm_for_minute(day_start, minute),
+                                "e": round(elev, 2),
+                                "az": round(azimuth, 2),
+                                "d": round(declination, 2),
+                            })
+                    now_t = ts.from_datetime(now_local.astimezone(timezone.utc))
+                    now_apparent = observer.at(now_t).observe(moon_body).apparent()
+                    _now_ra, now_dec, _now_dist = now_apparent.radec()
+                    now_declination = float(now_dec.degrees)
+                    if math.isfinite(now_declination):
+                        moon_declination = round(now_declination, 2)
+                    if moon_points:
+                        moon_position_source = "skyfield"
+            except Exception:
+                moon_points = []
+                moon_declination = None
+                moon_position_source = ""
+            if not moon_points:
+                try:
+                    moon_az_fn = getattr(_astral_moon, "azimuth", None)
+                    moon_el_fn = getattr(_astral_moon, "elevation", None)
+                    if callable(moon_az_fn) and callable(moon_el_fn):
+                        for minute in range(0, 1441, 10):
+                            sample_dt = day_start + timedelta(minutes=minute)
+                            sample_utc = sample_dt.astimezone(timezone.utc)
+                            elev = float(moon_el_fn(obs, sample_utc))
+                            azimuth = float(moon_az_fn(obs, sample_utc))
+                            if all(math.isfinite(v) for v in (elev, azimuth)):
+                                moon_points.append({
+                                    "m": minute,
+                                    "t": _hm_for_minute(day_start, minute),
+                                    "e": round(elev, 2),
+                                    "az": round(azimuth, 2),
+                                })
+                    if moon_points:
+                        moon_position_source = "astral"
+                except Exception:
+                    moon_points = []
+                    moon_position_source = ""
             moon_visible_angle = None
             moon_reference_angle = None
             try:
@@ -404,9 +502,26 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
 
             moon_rise = ""
             moon_set = ""
+            moon_rise_today = ""
+            moon_set_today = ""
             try:
                 mr_fn = getattr(_astral_moon, "moonrise", None)
                 ms_fn = getattr(_astral_moon, "moonset", None)
+
+                def _event_for_day(fn, d):
+                    if not callable(fn):
+                        return ""
+                    try:
+                        ev = fn(obs, date=d, tzinfo=tzinfo)
+                    except Exception:
+                        return ""
+                    if not isinstance(ev, datetime):
+                        return ""
+                    if ev.tzinfo is None:
+                        ev = ev.replace(tzinfo=tzinfo)
+                    else:
+                        ev = ev.astimezone(tzinfo)
+                    return ev.strftime("%H:%M") if ev.date() == d else ""
 
                 def _pick_nearest_event(fn):
                     if not callable(fn):
@@ -428,11 +543,15 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                     chosen = min(future) if future else max(candidates)
                     return chosen.strftime("%H:%M")
 
+                moon_rise_today = _event_for_day(mr_fn, now_local.date())
+                moon_set_today = _event_for_day(ms_fn, now_local.date())
                 moon_rise = _pick_nearest_event(mr_fn)
                 moon_set = _pick_nearest_event(ms_fn)
             except Exception:
                 moon_rise = ""
                 moon_set = ""
+                moon_rise_today = ""
+                moon_set_today = ""
 
             moon_next_phase_label = ""
             moon_next_phase_date = ""
@@ -471,6 +590,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                         best_date = d
                 if best_date is not None:
                     moon_next_phase_date = best_date.isoformat()
+                    if moon_next_phase_label == "Full Moon":
+                        moon_next_phase_label = _traditional_full_moon_name(best_date)
             except Exception:
                 moon_next_phase_label = ""
                 moon_next_phase_date = ""
@@ -484,11 +605,16 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 "sunset": sunset.strftime("%H:%M"),
                 "sun_noon": noon.strftime("%H:%M") if isinstance(noon, datetime) else "",
                 "sun_points": pts,
+                "moon_points": moon_points,
                 "moon_phase_value": round(moon_val, 2),
-                "moon_phase_label": _moon_phase_name(moon_val),
+                "moon_phase_label": _moon_phase_name(moon_val, now_local.date()),
                 "moon_lit_pct": moon_lit_pct,
                 "moon_rise": moon_rise,
                 "moon_set": moon_set,
+                "moon_rise_today": moon_rise_today,
+                "moon_set_today": moon_set_today,
+                "moon_declination": moon_declination,
+                "moon_position_source": moon_position_source,
                 "moon_next_phase_label": moon_next_phase_label,
                 "moon_next_phase_date": moon_next_phase_date,
                 "moon_visible_angle": moon_visible_angle,
@@ -1402,7 +1528,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ".dash-loc-form{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:.45rem;background:#e6faff;border:1px solid #c9ddff;border-radius:10px;padding:.45rem .65rem .55rem;min-height:160px;min-width:230px;width:230px;box-sizing:border-box;}"
     yield ".dash-loc-head{display:flex;align-items:center;justify-content:space-between;gap:.1rem;}"
     yield ".dash-loc-label{font-size:.78rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;opacity:.85;}"
-    yield ".astro-box{display:flex;align-items:flex-start;justify-content:center;background:#ffffe0;border:1px solid #ccc;border-radius:10px;padding:.45rem .55rem;min-height:160px;box-sizing:border-box;}"
+    yield ".astro-box{display:flex;align-items:flex-start;justify-content:center;background:#ffffe0;border:1px solid #ccc;border-radius:10px;padding:.45rem .55rem;min-height:176px;box-sizing:border-box;}"
     yield ".dash-loc-form select{background:#ffffe0;border:1px solid #ccc;}"
     yield ".astro-card{display:flex;flex-direction:column;align-items:center;gap:.2rem;min-width:132px;}"
     yield ".astro-title{font-size:.78rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;opacity:.8;}"
@@ -1485,16 +1611,18 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ".bio-print-entry-meta{font-size:9pt;color:#4f5961;text-align:right;}"
     yield ".bio-print-label{font-size:8pt;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#4f5961;margin:.4rem 0 .15rem;text-align:left;}"
     yield ".bio-print-block{font-size:9pt;line-height:1.35;color:#27313a;white-space:pre-wrap;overflow-wrap:anywhere;min-height:1.2em;text-align:left;}"
-    yield ".astro-times{width:184px;position:relative;height:1.1em;font-variant-numeric:tabular-nums;margin:0 auto;}"
+    yield ".astro-times{width:204px;position:relative;height:1.1em;min-height:1.1em;font-variant-numeric:tabular-nums;margin:0 auto;}"
     yield ".astro-times span{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap;}"    
-    yield "#sunPathCanvas{display:block;width:184px;height:96px;margin:0 auto;border:1px solid #d5c7a8;border-radius:8px;background:#dff1ff;}"
+    yield ".moon-position-times{height:1.05em;min-height:1.05em;font-size:.7rem;}"
+    yield ".moon-position-title{font-size:.7rem;margin-top:.02rem;}"
+    yield "#sunPathCanvas{display:block;width:204px;height:108px;margin:0 auto;border:1px solid #d5c7a8;border-radius:8px;background:#dff1ff;}"
     yield "#moonPhaseCanvas{width:88px;height:88px;border:1px solid #d5c7a8;border-radius:50%;background:#081322;}"
     yield ".moon-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.25rem;}"
     yield ".moon-head .astro-title{margin-bottom:0;}"
     yield ".moon-view-toggle{display:inline-flex;align-items:center;gap:.14rem;padding:.1rem;border:1px solid #d7cfb8;border-radius:999px;background:#f7f1c9;flex-shrink:0;}"
     yield ".moon-view-btn{border:0;border-radius:999px;background:transparent;color:#4f5961;padding:.12rem .38rem;font-size:.58rem;font-weight:700;letter-spacing:.02em;cursor:pointer;line-height:1.1;}"
     yield ".moon-view-btn.active{background:#2e4f89;color:#fff;box-shadow:0 1px 2px rgba(0,0,0,.18);}"
-    yield "@media (max-width: 760px){.dash-top-row{grid-template-columns:1fr;justify-items:center}.dash-left-col,.dash-right-col,.dash-side-col{display:block;width:100%;align-items:center}#sunPathCanvas{width:184px;height:86px}.astro-times{width:184px}.astro-card{min-width:120px}.dash-loc-form,.astro-box{min-height:unset}#sunBox .astro-card,#moonBox .astro-card,#bioBox .astro-card,.dash-loc-form{width:206px;min-width:0}.moon-layout{grid-template-columns:minmax(0,1fr) 78px minmax(0,1fr);column-gap:.2rem}#moonPhaseCanvas{width:78px;height:78px}.moon-side{font-size:.6rem}#moonMeta{font-size:.64rem}.bio-day{min-height:39px;height:39px}.bio-day-meta{font-size:.45rem}.bio-modal .modal-body{grid-template-columns:1fr}.bio-modal-side{grid-template-columns:1fr}.bio-note-input{height:84px;max-height:84px;font-size:.47rem}.bio-summary-card .bio-summary-output{height:68px;max-height:68px}.bio-summary-output{height:52px;max-height:52px;font-size:.47rem}}"
+    yield "@media (max-width: 760px){.dash-top-row{grid-template-columns:1fr;justify-items:center}.dash-left-col,.dash-right-col,.dash-side-col{display:block;width:100%;align-items:center}#sunPathCanvas{width:184px;height:98px}.astro-times{width:184px}.astro-card{min-width:120px}.dash-loc-form,.astro-box{min-height:unset}#sunBox .astro-card,#moonBox .astro-card,#bioBox .astro-card,.dash-loc-form{width:206px;min-width:0}.moon-layout{grid-template-columns:minmax(0,1fr) 78px minmax(0,1fr);column-gap:.2rem}#moonPhaseCanvas{width:78px;height:78px}.moon-side{font-size:.6rem}#moonMeta{font-size:.64rem}.bio-day{min-height:39px;height:39px}.bio-day-meta{font-size:.45rem}.bio-modal .modal-body{grid-template-columns:1fr}.bio-modal-side{grid-template-columns:1fr}.bio-note-input{height:84px;max-height:84px;font-size:.47rem}.bio-summary-card .bio-summary-output{height:68px;max-height:68px}.bio-summary-output{height:52px;max-height:52px;font-size:.47rem}}"
     yield "@media print{@page{margin:.2in}@page bio-calendar{size:landscape;margin:.2in}@page bio-notes{size:portrait;margin:.35in}body.bio-printing *{visibility:hidden !important}body.bio-printing #bioPrintCalendarSheet,body.bio-printing #bioPrintCalendarSheet *{visibility:visible !important}body.bio-printing #bioPrintNotesSheet,body.bio-printing #bioPrintNotesSheet *{visibility:visible !important}body.bio-printing #bioPrintCalendarSheet,body.bio-printing #bioPrintNotesSheet{display:block !important;position:absolute;left:0;top:0;width:100%;padding:.08in;background:#fff;color:#000;box-sizing:border-box}body.bio-print-calendar-mode #bioPrintCalendarSheet{display:block !important;page:bio-calendar}body.bio-print-calendar-mode #bioPrintNotesSheet{display:none !important}body.bio-print-notes-mode #bioPrintNotesSheet{display:block !important;page:bio-notes}body.bio-print-notes-mode #bioPrintCalendarSheet{display:none !important}body.bio-print-calendar-mode .bio-print-calendar{gap:3px}body.bio-print-calendar-mode .bio-print-day{min-height:54px}body.bio-print-notes-mode .bio-print-sections{gap:.35rem}body.bio-print-notes-mode .bio-print-entry{break-inside:avoid;page-break-inside:avoid}}"
     yield "</style>"
 
@@ -1548,8 +1676,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "<div class='astro-box' id='sunBox' aria-live='polite'>"
     yield "  <div class='astro-card'>"
     yield "    <div class='astro-title'>Sun Position</div>"
-    yield "    <canvas id='sunPathCanvas' width='184' height='96'></canvas>"
     yield "    <div class='astro-meta astro-times' id='sunMeta'><span id='sunTimeRise'>--</span><span id='sunTimeNoon'>--</span><span id='sunTimeSet'>--</span></div>"
+    yield "    <canvas id='sunPathCanvas' width='204' height='108' aria-label='24 hour sun and moon position chart'></canvas>"
+    yield "    <div class='astro-meta astro-times moon-position-times' id='moonPositionMeta'><span id='moonTimeRise'>--</span><span id='moonTimeSet'>--</span></div>"
+    yield "    <div class='astro-title moon-position-title'>Moon Position</div>"
     yield "  </div>"
     yield "</div>"
     # treat any non 'loc:*' as All (back-compat: direct sensor ids will land here)
@@ -1812,13 +1942,20 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  const riseEl = document.getElementById('sunTimeRise');"
     yield "  const noonEl = document.getElementById('sunTimeNoon');"
     yield "  const setEl = document.getElementById('sunTimeSet');"
-    yield "  if (!c || !meta || !riseEl || !noonEl || !setEl) return;"
+    yield "  const moonMeta = document.getElementById('moonPositionMeta');"
+    yield "  const moonRiseEl = document.getElementById('moonTimeRise');"
+    yield "  const moonSetEl = document.getElementById('moonTimeSet');"
+    yield "  if (!c || !meta || !riseEl || !noonEl || !setEl || !moonMeta || !moonRiseEl || !moonSetEl) return;"
     yield "  const ctx = c.getContext('2d');"
     yield "  ctx.clearRect(0,0,c.width,c.height);"
     yield "  const toMin = (hhmm) => {"
+    yield "    if (typeof hhmm === 'number' && Number.isFinite(hhmm)) return Math.max(0, Math.min(1440, hhmm));"
     yield "    const m = String(hhmm || '').match(/^(\\d{1,2}):(\\d{2})$/);"
     yield "    if (!m) return null;"
-    yield "    return Math.max(0, Math.min(1439, (parseInt(m[1], 10) * 60) + parseInt(m[2], 10)));"
+    yield "    const hh = parseInt(m[1], 10);"
+    yield "    const mm = parseInt(m[2], 10);"
+    yield "    if (hh === 24 && mm === 0) return 1440;"
+    yield "    return Math.max(0, Math.min(1440, (hh * 60) + mm));"
     yield "  };"
     yield "  const fmtSun = (hhmm) => {"
     yield "    const m = String(hhmm || '').match(/^(\\d{1,2}):(\\d{2})$/);"
@@ -1829,38 +1966,80 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const h12 = (hh % 12) || 12;"
     yield "    return `${h12}:${mm}${ap}`;"
     yield "  };"
-    yield "  const placeLabel = (el, minutes) => {"
-    yield "    const p = Number.isFinite(minutes) ? (minutes / 1440) : 0.5;"
+    yield "  const placeLabel = (el, minutes, fallback) => {"
+    yield "    const raw = Number.isFinite(minutes) ? minutes : fallback;"
+    yield "    const p = Number.isFinite(raw) ? (raw / 1440) : 0.5;"
     yield "    const clamped = Math.max(0.06, Math.min(0.94, p));"
     yield "    el.style.left = `${(clamped * 100).toFixed(2)}%`;"
+    yield "  };"
+    yield "  const pointMinute = (p) => {"
+    yield "    const raw = Number(p && p.m);"
+    yield "    if (Number.isFinite(raw)) return Math.max(0, Math.min(1440, raw));"
+    yield "    return toMin(p && p.t);"
+    yield "  };"
+    yield "  const pointList = (items) => {"
+    yield "    if (!Array.isArray(items)) return [];"
+    yield "    return items.map((p) => ({m: pointMinute(p), e: Number(p && p.e)})).filter((p) => Number.isFinite(p.m) && Number.isFinite(p.e)).sort((a,b) => a.m - b.m);"
+    yield "  };"
+    yield "  const interpElev = (pts, minutes) => {"
+    yield "    if (!Array.isArray(pts) || !pts.length || !Number.isFinite(minutes)) return NaN;"
+    yield "    if (minutes <= pts[0].m) return pts[0].e;"
+    yield "    for (let i = 1; i < pts.length; i++) {"
+    yield "      if (minutes <= pts[i].m) {"
+    yield "        const a = pts[i-1], b = pts[i];"
+    yield "        const span = Math.max(1, b.m - a.m);"
+    yield "        const f = (minutes - a.m) / span;"
+    yield "        return a.e + ((b.e - a.e) * f);"
+    yield "      }"
+    yield "    }"
+    yield "    return pts[pts.length - 1].e;"
     yield "  };"
     yield "  const sr = toMin(data && data.sunrise);"
     yield "  const ss = toMin(data && data.sunset);"
     yield "  const nn = toMin(data && data.sun_noon);"
+    yield "  const mrTodayRaw = data && typeof data.moon_rise_today === 'string' ? data.moon_rise_today : '';"
+    yield "  const msTodayRaw = data && typeof data.moon_set_today === 'string' ? data.moon_set_today : '';"
+    yield "  const mr = toMin(mrTodayRaw);"
+    yield "  const ms = toMin(msTodayRaw);"
     yield "  riseEl.textContent = fmtSun(data && data.sunrise);"
     yield "  noonEl.textContent = fmtSun(data && data.sun_noon);"
     yield "  setEl.textContent = fmtSun(data && data.sunset);"
-    yield "  placeLabel(riseEl, sr);"
-    yield "  placeLabel(noonEl, Number.isFinite(nn) ? nn : 720);"
-    yield "  placeLabel(setEl, ss);"
+    yield "  moonRiseEl.textContent = fmtSun(mrTodayRaw);"
+    yield "  moonSetEl.textContent = fmtSun(msTodayRaw);"
+    yield "  placeLabel(riseEl, sr, 360);"
+    yield "  placeLabel(noonEl, Number.isFinite(nn) ? nn : 720, 720);"
+    yield "  placeLabel(setEl, ss, 1080);"
+    yield "  placeLabel(moonRiseEl, mr, 390);"
+    yield "  placeLabel(moonSetEl, ms, 1050);"
     yield "  const padX = 8, padY = 8;"
     yield "  const w = c.width - padX*2, h = c.height - padY*2;"
-    yield "  const yBase = padY + (h * 0.5);"
+    yield "  const yBase = padY + (h * 0.54);"
+    yield "  ctx.fillStyle = '#dff1ff';"
+    yield "  ctx.fillRect(padX, padY, w, yBase - padY);"
     yield "  ctx.fillStyle = '#000000';"
     yield "  ctx.fillRect(padX, yBase, w, (c.height - padY) - yBase);"
-    yield "  if (!data || !data.ok || !Number.isFinite(sr) || !Number.isFinite(ss) || sr >= ss){"
-    yield "    ctx.strokeStyle = '#8fa4b3';"
-    yield "    ctx.lineWidth = 1;"
-    yield "    ctx.beginPath();"
-    yield "    ctx.moveTo(padX, yBase);"
-    yield "    ctx.lineTo(c.width - padX, yBase);"
-    yield "    ctx.stroke();"
-    yield "    return;"
-    yield "  }"
+    yield "  ctx.strokeStyle = '#8fa4b3';"
+    yield "  ctx.lineWidth = 1;"
+    yield "  ctx.beginPath();"
+    yield "  ctx.moveTo(padX, yBase);"
+    yield "  ctx.lineTo(c.width - padX, yBase);"
+    yield "  ctx.stroke();"
+    yield "  const sunPoints = pointList(data && data.sun_points);"
+    yield "  const moonPoints = pointList(data && data.moon_points);"
+    yield "  const allElevs = sunPoints.concat(moonPoints).map((p) => p.e).filter((v) => Number.isFinite(v));"
+    yield "  const maxElev = Math.max(20, ...allElevs.filter((v) => v > 0));"
+    yield "  const minElev = Math.min(-18, ...allElevs.filter((v) => v < 0));"
+    yield "  const abovePx = Math.max(1, yBase - padY - 2);"
+    yield "  const belowPx = Math.max(1, (c.height - padY) - yBase - 2);"
+    yield "  const yForElev = (e) => {"
+    yield "    if (!Number.isFinite(e)) return yBase;"
+    yield "    if (e >= 0) return yBase - (Math.min(1, e / maxElev) * abovePx);"
+    yield "    return yBase + (Math.min(1, Math.abs(e) / Math.abs(minElev)) * belowPx);"
+    yield "  };"
     yield "  const dayAmp = h * 0.46;"
     yield "  const nightAmp = h * 0.24;"
     yield "  const xForMin = (m) => padX + ((Math.max(0, Math.min(1440, m)) / 1440) * w);"
-    yield "  const yForMin = (m) => {"
+    yield "  const fallbackSunYForMin = (m) => {"
     yield "    if (m <= sr){"
     yield "      const denom = Math.max(1, sr);"
     yield "      const frac = m / denom;"
@@ -1874,32 +2053,122 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const frac = (m - ss) / denom;"
     yield "    return yBase + (nightAmp * Math.sin((Math.PI * frac) / 2));"
     yield "  };"
-    yield "  ctx.strokeStyle = '#8fa4b3';"
-    yield "  ctx.lineWidth = 1;"
-    yield "  ctx.beginPath();"
-    yield "  ctx.moveTo(padX, yBase);"
-    yield "  ctx.lineTo(c.width - padX, yBase);"
-    yield "  ctx.stroke();"
-    yield "  ctx.strokeStyle = '#7ec8ff';"
-    yield "  ctx.lineWidth = 2;"
-    yield "  ctx.beginPath();"
-    yield "  for (let m = 0; m <= 1440; m += 10){"
-    yield "    const x = xForMin(m);"
-    yield "    const y = yForMin(m);"
-    yield "    if (m === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);"
+    yield "  const buildSunDisplayPoints = () => {"
+    yield "    if (!data || !data.ok || !Number.isFinite(sr) || !Number.isFinite(ss) || sr >= ss) return [];"
+    yield "    const peakMin = Number.isFinite(nn) ? Math.max(sr + 1, Math.min(ss - 1, nn)) : ((sr + ss) / 2);"
+    yield "    const peakElev = Math.max(20, ...sunPoints.map((p) => p.e).filter((v) => Number.isFinite(v)));"
+    yield "    const nightDepth = Math.max(8, Math.abs(Math.min(-8, ...sunPoints.map((p) => p.e).filter((v) => Number.isFinite(v) && v < 0))));"
+    yield "    const built = [];"
+    yield "    for (let m = 0; m <= 1440; m += 5) {"
+    yield "      let e = 0;"
+    yield "      if (m <= sr) {"
+    yield "        const f = sr > 0 ? Math.max(0, Math.min(1, m / sr)) : 1;"
+    yield "        e = -nightDepth * Math.cos((Math.PI * f) / 2);"
+    yield "      } else if (m <= peakMin) {"
+    yield "        const f = Math.max(0, Math.min(1, (m - sr) / Math.max(1, peakMin - sr)));"
+    yield "        e = peakElev * Math.sin((Math.PI * f) / 2);"
+    yield "      } else if (m <= ss) {"
+    yield "        const f = Math.max(0, Math.min(1, (m - peakMin) / Math.max(1, ss - peakMin)));"
+    yield "        e = peakElev * Math.cos((Math.PI * f) / 2);"
+    yield "      } else {"
+    yield "        const f = Math.max(0, Math.min(1, (m - ss) / Math.max(1, 1440 - ss)));"
+    yield "        e = -nightDepth * Math.sin((Math.PI * f) / 2);"
+    yield "      }"
+    yield "      built.push({m, e});"
+    yield "    }"
+    yield "    return built;"
+    yield "  };"
+    yield "  const buildExtremaDisplayPoints = (pts) => {"
+    yield "    if (!Array.isArray(pts) || pts.length < 4) return pts || [];"
+    yield "    let maxP = pts[0];"
+    yield "    let minP = pts[0];"
+    yield "    for (const p of pts) {"
+    yield "      if (p.e > maxP.e) maxP = p;"
+    yield "      if (p.e < minP.e) minP = p;"
+    yield "    }"
+    yield "    const keys = [pts[0], maxP, minP, pts[pts.length - 1]].sort((a, b) => a.m - b.m).filter((p, idx, arr) => idx === 0 || Math.abs(p.m - arr[idx - 1].m) >= 1);"
+    yield "    if (keys.length < 3) return pts;"
+    yield "    const built = [];"
+    yield "    for (let i = 0; i < keys.length - 1; i++) {"
+    yield "      const a = keys[i];"
+    yield "      const b = keys[i + 1];"
+    yield "      const span = Math.max(1, b.m - a.m);"
+    yield "      for (let m = a.m; m < b.m; m += 5) {"
+    yield "        const f = Math.max(0, Math.min(1, (m - a.m) / span));"
+    yield "        const eased = 0.5 - (0.5 * Math.cos(Math.PI * f));"
+    yield "        built.push({m, e: a.e + ((b.e - a.e) * eased)});"
+    yield "      }"
+    yield "    }"
+    yield "    built.push(keys[keys.length - 1]);"
+    yield "    return built;"
+    yield "  };"
+    yield "  const drawPath = (pts, color, width, dash) => {"
+    yield "    if (!Array.isArray(pts) || pts.length < 2) return false;"
+    yield "    ctx.save();"
+    yield "    ctx.strokeStyle = color;"
+    yield "    ctx.lineWidth = width;"
+    yield "    ctx.lineCap = 'round';"
+    yield "    ctx.lineJoin = 'round';"
+    yield "    ctx.setLineDash(Array.isArray(dash) ? dash : []);"
+    yield "    const xy = pts.map((p) => ({x: xForMin(p.m), y: yForElev(p.e)}));"
+    yield "    ctx.beginPath();"
+    yield "    ctx.moveTo(xy[0].x, xy[0].y);"
+    yield "    for (let i = 1; i < xy.length - 1; i++) {"
+    yield "      const p = xy[i];"
+    yield "      const next = xy[i + 1];"
+    yield "      const midX = (p.x + next.x) / 2;"
+    yield "      const midY = (p.y + next.y) / 2;"
+    yield "      ctx.quadraticCurveTo(p.x, p.y, midX, midY);"
+    yield "    }"
+    yield "    const last = xy[xy.length - 1];"
+    yield "    const prev = xy[xy.length - 2];"
+    yield "    ctx.quadraticCurveTo(prev.x, prev.y, last.x, last.y);"
+    yield "    ctx.stroke();"
+    yield "    ctx.restore();"
+    yield "    return true;"
+    yield "  };"
+    yield "  const sunDisplayPoints = buildSunDisplayPoints();"
+    yield "  const moonDisplayPoints = buildExtremaDisplayPoints(moonPoints);"
+    yield "  const drewSun = drawPath(sunDisplayPoints, '#69bdf2', 2.1, []);"
+    yield "  if (!drewSun && data && data.ok && Number.isFinite(sr) && Number.isFinite(ss) && sr < ss){"
+    yield "    ctx.strokeStyle = '#69bdf2';"
+    yield "    ctx.lineWidth = 2.1;"
+    yield "    ctx.lineCap = 'round';"
+    yield "    ctx.beginPath();"
+    yield "    for (let m = 0; m <= 1440; m += 10){"
+    yield "      const x = xForMin(m);"
+    yield "      const y = fallbackSunYForMin(m);"
+    yield "      if (m === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);"
+    yield "    }"
+    yield "    ctx.stroke();"
     yield "  }"
-    yield "  ctx.stroke();"
+    yield "  drawPath(moonDisplayPoints, '#f3d34a', 1.65, []);"
     yield "  const now = new Date();"
     yield "  const curMin = (now.getHours() * 60) + now.getMinutes();"
     yield "  const xNow = xForMin(curMin);"
-    yield "  const yNow = yForMin(curMin);"
+    yield "  const sunElevNow = interpElev(sunDisplayPoints, curMin);"
+    yield "  const yNow = Number.isFinite(sunElevNow) ? yForElev(sunElevNow) : ((Number.isFinite(sr) && Number.isFinite(ss) && sr < ss) ? fallbackSunYForMin(curMin) : yBase);"
     yield "  ctx.fillStyle = '#ffff00';"
     yield "  ctx.beginPath();"
-    yield "  ctx.arc(xNow, yNow, 3.84, 0, Math.PI*2);"
+    yield "  ctx.arc(xNow, yNow, 3.9, 0, Math.PI*2);"
     yield "  ctx.fill();"
     yield "  ctx.strokeStyle = '#ff8c00';"
     yield "  ctx.lineWidth = 1;"
     yield "  ctx.stroke();"
+    yield "  const moonElevNow = interpElev(moonDisplayPoints, curMin);"
+    yield "  if (Number.isFinite(moonElevNow)){"
+    yield "    const yMoonNow = yForElev(moonElevNow);"
+    yield "    ctx.fillStyle = '#fff8df';"
+    yield "    ctx.beginPath();"
+    yield "    ctx.arc(xNow, yMoonNow, 3.2, 0, Math.PI*2);"
+    yield "    ctx.fill();"
+    yield "    ctx.strokeStyle = '#d1b94c';"
+    yield "    ctx.lineWidth = 1;"
+    yield "    ctx.stroke();"
+    yield "  }"
+    yield "  const moonDec = Number(data && data.moon_declination);"
+    yield "  const source = String((data && data.moon_position_source) || '').trim();"
+    yield "  if (Number.isFinite(moonDec)) c.title = `Moon declination ${moonDec.toFixed(1)} deg${source ? ` (${source})` : ''}`; else c.removeAttribute('title');"
     yield "}"
 
     yield "function getMoonViewMode(){"

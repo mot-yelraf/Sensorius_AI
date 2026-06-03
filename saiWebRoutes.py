@@ -87,7 +87,7 @@ from sensor_modules.station_weewx import (
 from saiFastStats import FastStats
 from saiSensorSettingsManager import SensorSettingsManager
 from saiSwitchSettingsManager import SwitchSettingsManager
-from saiBiodynamics import get_biodynamic_payload, get_biodynamic_local_now
+from saiBiodynamics import get_biodynamic_payload, get_biodynamic_local_now, get_skyfield_runtime_if_installed
 from saiDailySummary import DailySummaryService, DEFAULT_FORECAST_DAYS
 from saiNodusOTA import NodusOTAError, NodusOTAService
 from saiAddDevice import HUB_SETTINGS_PATH, _SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR
@@ -594,7 +594,24 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         new_ids = [sid for sid in deduped if sid not in stored]
         return with_saved + new_ids
 
-    def _moon_phase_name(phase_val: float) -> str:
+    def _traditional_full_moon_name(phase_date) -> str:
+        names_by_month = {
+            1: "Wolf Moon",
+            2: "Snow Moon",
+            3: "Worm Moon",
+            4: "Pink Moon",
+            5: "Flower Moon",
+            6: "Strawberry Moon",
+            7: "Buck Moon",
+            8: "Sturgeon Moon",
+            9: "Harvest Moon",
+            10: "Hunter's Moon",
+            11: "Beaver Moon",
+            12: "Cold Moon",
+        }
+        return names_by_month.get(getattr(phase_date, "month", None), "Full Moon")
+
+    def _moon_phase_name(phase_val: float, phase_date=None) -> str:
         p = phase_val % 28.0
 
         def _circular_dist(a: float, b: float, cycle: float = 28.0) -> float:
@@ -606,7 +623,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if _circular_dist(p, 7.0) <= 1.0:
             return "1st Quarter"
         if _circular_dist(p, 14.0) <= 1.0:
-            return "Full Moon"
+            return _traditional_full_moon_name(phase_date)
         if _circular_dist(p, 21.0) <= 1.0:
             return "3rd Quarter"
         if 1.0 < p < 6.0:
@@ -678,11 +695,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "sunset": "",
             "sun_noon": "",
             "sun_points": [],
+            "moon_points": [],
             "moon_phase_value": None,
             "moon_phase_label": "",
             "moon_lit_pct": None,
             "moon_rise": "",
             "moon_set": "",
+            "moon_rise_today": "",
+            "moon_set_today": "",
+            "moon_declination": None,
+            "moon_position_source": "",
             "moon_next_phase_label": "",
             "moon_next_phase_date": "",
             "moon_visible_angle": None,
@@ -697,6 +719,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             or _astral_lmst is None
         ):
             return out
+
+        def _hm_for_minute(day_start: datetime, minute: int) -> str:
+            if minute >= 1440:
+                return "24:00"
+            return (day_start + timedelta(minutes=minute)).strftime("%H:%M")
 
         try:
             s = saiSettings(apply_live=False)
@@ -727,27 +754,92 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             if not isinstance(sunrise, datetime) or not isinstance(sunset, datetime):
                 return out
 
+            day_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
             pts: list[dict[str, object]] = []
-            cur = sunrise
-            while cur <= sunset:
+            for minute in range(0, 1441, 10):
+                sample_dt = day_start + timedelta(minutes=minute)
                 try:
-                    elev = float(_astral_elevation(obs, cur))
+                    elev = float(_astral_elevation(obs, sample_dt))
                 except Exception:
                     elev = float("nan")
                 if math.isfinite(elev):
-                    pts.append({"t": cur.strftime("%H:%M"), "e": round(elev, 2)})
-                cur = cur + timedelta(minutes=5)
-            if pts and pts[-1]["t"] != sunset.strftime("%H:%M"):
-                try:
-                    elev_sunset = float(_astral_elevation(obs, sunset))
-                except Exception:
-                    elev_sunset = 0.0
-                pts.append({"t": sunset.strftime("%H:%M"), "e": round(elev_sunset, 2)})
+                    pts.append({"m": minute, "t": _hm_for_minute(day_start, minute), "e": round(elev, 2)})
 
             moon_val = float(_astral_moon.phase(now_local.date()))
             moon_lit_pct = int(
                 round((0.5 * (1 - math.cos((2 * math.pi * (moon_val % 28.0)) / 28.0))) * 100)
             )
+            moon_points: list[dict[str, object]] = []
+            moon_declination = None
+            moon_position_source = ""
+            try:
+                skyfield_runtime = get_skyfield_runtime_if_installed()
+                if skyfield_runtime is not None:
+                    _loader, ts, eph, _constellation_at = skyfield_runtime
+                    from skyfield.api import wgs84
+
+                    topo = wgs84.latlon(
+                        float(resolved_lat),
+                        float(resolved_lon),
+                        elevation_m=float(resolved_altitude or 0.0),
+                    )
+                    observer_sf = eph["earth"] + topo
+                    moon_body = eph["moon"]
+                    for minute in range(0, 1441, 10):
+                        sample_dt = day_start + timedelta(minutes=minute)
+                        t = ts.from_datetime(sample_dt.astimezone(timezone.utc))
+                        apparent = observer_sf.at(t).observe(moon_body).apparent()
+                        alt, az, _distance = apparent.altaz()
+                        _ra, dec, _radec_distance = apparent.radec()
+                        elev = float(alt.degrees)
+                        azimuth = float(az.degrees)
+                        declination = float(dec.degrees)
+                        if all(math.isfinite(v) for v in (elev, azimuth, declination)):
+                            moon_points.append(
+                                {
+                                    "m": minute,
+                                    "t": _hm_for_minute(day_start, minute),
+                                    "e": round(elev, 2),
+                                    "az": round(azimuth, 2),
+                                    "d": round(declination, 2),
+                                }
+                            )
+                    now_t = ts.from_datetime(now_local.astimezone(timezone.utc))
+                    now_apparent = observer_sf.at(now_t).observe(moon_body).apparent()
+                    _now_ra, now_dec, _now_dist = now_apparent.radec()
+                    now_declination = float(now_dec.degrees)
+                    if math.isfinite(now_declination):
+                        moon_declination = round(now_declination, 2)
+                    if moon_points:
+                        moon_position_source = "skyfield"
+            except Exception:
+                moon_points = []
+                moon_declination = None
+                moon_position_source = ""
+            if not moon_points:
+                try:
+                    moon_az_fn = getattr(_astral_moon, "azimuth", None)
+                    moon_el_fn = getattr(_astral_moon, "elevation", None)
+                    if callable(moon_az_fn) and callable(moon_el_fn):
+                        for minute in range(0, 1441, 10):
+                            sample_dt = day_start + timedelta(minutes=minute)
+                            sample_utc = sample_dt.astimezone(timezone.utc)
+                            elev = float(moon_el_fn(obs, sample_utc))
+                            azimuth = float(moon_az_fn(obs, sample_utc))
+                            if all(math.isfinite(v) for v in (elev, azimuth)):
+                                moon_points.append(
+                                    {
+                                        "m": minute,
+                                        "t": _hm_for_minute(day_start, minute),
+                                        "e": round(elev, 2),
+                                        "az": round(azimuth, 2),
+                                    }
+                                )
+                    if moon_points:
+                        moon_position_source = "astral"
+                except Exception:
+                    moon_points = []
+                    moon_position_source = ""
             moon_visible_angle = None
             moon_reference_angle = None
             try:
@@ -809,9 +901,26 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             moon_rise = ""
             moon_set = ""
+            moon_rise_today = ""
+            moon_set_today = ""
             try:
                 mr_fn = getattr(_astral_moon, "moonrise", None)
                 ms_fn = getattr(_astral_moon, "moonset", None)
+
+                def _event_for_day(fn, d):
+                    if not callable(fn):
+                        return ""
+                    try:
+                        ev = fn(obs, date=d, tzinfo=tzinfo)
+                    except Exception:
+                        return ""
+                    if not isinstance(ev, datetime):
+                        return ""
+                    if ev.tzinfo is None:
+                        ev = ev.replace(tzinfo=tzinfo)
+                    else:
+                        ev = ev.astimezone(tzinfo)
+                    return ev.strftime("%H:%M") if ev.date() == d else ""
 
                 def _pick_nearest_event(fn):
                     if not callable(fn):
@@ -833,11 +942,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     chosen = min(future) if future else max(candidates)
                     return chosen.strftime("%H:%M")
 
+                moon_rise_today = _event_for_day(mr_fn, now_local.date())
+                moon_set_today = _event_for_day(ms_fn, now_local.date())
                 moon_rise = _pick_nearest_event(mr_fn)
                 moon_set = _pick_nearest_event(ms_fn)
             except Exception:
                 moon_rise = ""
                 moon_set = ""
+                moon_rise_today = ""
+                moon_set_today = ""
 
             moon_next_phase_label = ""
             moon_next_phase_date = ""
@@ -876,6 +989,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         best_date = d
                 if best_date is not None:
                     moon_next_phase_date = best_date.isoformat()
+                    if moon_next_phase_label == "Full Moon":
+                        moon_next_phase_label = _traditional_full_moon_name(best_date)
             except Exception:
                 moon_next_phase_label = ""
                 moon_next_phase_date = ""
@@ -890,11 +1005,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     "sunset": sunset.strftime("%H:%M"),
                     "sun_noon": noon.strftime("%H:%M") if isinstance(noon, datetime) else "",
                     "sun_points": pts,
+                    "moon_points": moon_points,
                     "moon_phase_value": round(moon_val, 2),
-                    "moon_phase_label": _moon_phase_name(moon_val),
+                    "moon_phase_label": _moon_phase_name(moon_val, now_local.date()),
                     "moon_lit_pct": moon_lit_pct,
                     "moon_rise": moon_rise,
                     "moon_set": moon_set,
+                    "moon_rise_today": moon_rise_today,
+                    "moon_set_today": moon_set_today,
+                    "moon_declination": moon_declination,
+                    "moon_position_source": moon_position_source,
                     "moon_next_phase_label": moon_next_phase_label,
                     "moon_next_phase_date": moon_next_phase_date,
                     "moon_visible_angle": moon_visible_angle,
@@ -7345,6 +7465,44 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return False, "Timed out waiting for calibration result", ack, None
         return True, "", ack, result
 
+    async def _publish_remote_device_calibration_offsets(sensor_id: str, offsets: list[dict]) -> tuple[bool, str, int, list[str], bool]:
+        target_device = str(sensor_id or "").strip()
+        if not target_device:
+            return False, "Missing sensor_id.", 400, [], False
+
+        applied_keys: list[str] = []
+        shadow_synced = True
+        completed_count = 0
+        total_count = len(offsets or [])
+
+        async with _get_host_lock(target_device):
+            for offset in offsets or []:
+                ok, err, ack, result = await _publish_remote_calibration_command(
+                    sensor_id,
+                    action="apply",
+                    payload=_mqtt_calibration_payload_from_offsets([offset]),
+                    ack_timeout=3.0,
+                    result_timeout=8.0,
+                )
+                if not ok:
+                    if completed_count:
+                        err = f"{err} after applying {completed_count} of {total_count} calibration value(s)."
+                    return False, err, 502, applied_keys, shadow_synced
+                if not bool((result or {}).get("applied", False)):
+                    err = str((result or {}).get("error") or "Calibration update was rejected.")
+                    if completed_count:
+                        err = f"{err} after applying {completed_count} of {total_count} calibration value(s)."
+                    return False, err, 400, applied_keys, shadow_synced
+
+                completed_count += 1
+                message_id = str((result or {}).get("message_id") or (ack or {}).get("message_id") or "").strip()
+                one_applied, one_shadow_synced = await _sync_remote_calibration_shadow(sensor_id, message_id)
+                applied_keys.extend(one_applied)
+                if not one_shadow_synced:
+                    shadow_synced = False
+
+        return True, "", 200, applied_keys, shadow_synced
+
     async def _publish_remote_switch_last_state(
         switch_id: str,
         *,
@@ -8581,25 +8739,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         sensor_type = str(sensor_blk.get("TYPE") or sensor_blk.get("type") or "").strip().lower()
 
         if _is_remote_nodus_type(sensor_type):
-            ok, err, _ack, result = await _publish_remote_calibration_command(
+            ok, err, status_code, applied_keys, shadow_synced = await _publish_remote_device_calibration_offsets(
                 sensor_id,
-                action="apply",
-                payload=_mqtt_calibration_payload_from_offsets(offsets),
-                ack_timeout=3.0,
-                result_timeout=8.0,
+                offsets,
             )
             if not ok:
-                return JSONResponse({"status": "error", "message": err}, status_code=502)
-            if not bool(result.get("applied", False)):
-                return JSONResponse(
-                    {
-                        "status": "error",
-                        "message": str(result.get("error") or "Calibration update was rejected."),
-                    },
-                    status_code=400,
-                )
-            message_id = str((result or {}).get("message_id") or (_ack or {}).get("message_id") or "").strip()
-            applied_keys, shadow_synced = await _sync_remote_calibration_shadow(sensor_id, message_id)
+                body = {"status": "error", "message": err, "shadow_synced": shadow_synced}
+                if applied_keys:
+                    body["applied"] = applied_keys
+                return JSONResponse(body, status_code=status_code)
         else:
             try:
                 applied_keys = _apply_device_offsets_shadow(sensor_id, device_kind, offsets)

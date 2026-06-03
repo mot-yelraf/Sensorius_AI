@@ -349,6 +349,9 @@ Implemented behavior:
 
 - Nodus publishes `calibration/ack` after a valid calibration envelope is
   accepted for handling.
+- Sensorius sends apply-style `offsets` one item per `calibration/set` command
+  and waits for the correlated `ack` plus successful `result` before sending
+  the next calibration value.
 - Duplicate `message_id` values produce `calibration/ack` and
   `calibration/result` with `applied = true`, `updated = 0`, and no
   `meta/patch`.

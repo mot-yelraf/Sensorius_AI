@@ -1756,6 +1756,82 @@ async def test_device_calibration_apply_sends_altitude_even_when_shadow_value_ma
 
 
 @pytest.mark.asyncio
+async def test_device_calibration_apply_for_remote_nodus_sends_each_offset_as_own_command(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(
+        tmp_path,
+        monkeypatch,
+        _HubSettingsWithAltitude("1783.00"),
+    )
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "co2-ykdvea",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "co2",
+                "SENSOR_ID": "co2-ykdvea",
+            },
+            "Calibration": {
+                "Device": {
+                    "CO2_OFFSET": 0.0,
+                    "ALTITUDE_METERS": 1783.0,
+                }
+            },
+        },
+    )
+    ingest.meta_patches_by_message["test-1"] = {
+        "schema": "nodus-meta-patch/v1",
+        "device_id": "co2-ykdvea",
+        "message_id": "test-1",
+        "source": "calibration_set",
+        "updates": [
+            {"section": "Calibration.Device", "key": "CO2_OFFSET", "value": -100.0},
+        ],
+    }
+    ingest.meta_patches_by_message["test-2"] = {
+        "schema": "nodus-meta-patch/v1",
+        "device_id": "co2-ykdvea",
+        "message_id": "test-2",
+        "source": "calibration_set",
+        "updates": [
+            {"section": "Calibration.Device", "key": "ALTITUDE_METERS", "value": 1783.0},
+        ],
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/calibration/device/apply",
+            json={
+                "sensor_id": "co2-ykdvea",
+                "device_kind": "co2",
+                "offsets": [
+                    {"key": "Calibration.Device.CO2_OFFSET", "value": -100.0},
+                    {"key": "Calibration.Device.ALTITUDE_METERS", "value": 9999.0, "force": True},
+                ],
+            },
+        )
+
+    assert res.status_code == 200
+    assert len(ingest.calibration_commands) == 2
+    assert all(len((cmd["payload"] or {}).get("offsets") or []) == 1 for cmd in ingest.calibration_commands)
+    assert ingest.calibration_commands[0]["payload"]["offsets"] == [
+        {"key": "Calibration.Device.CO2_OFFSET", "value": -100.0}
+    ]
+    assert ingest.calibration_commands[1]["payload"]["offsets"] == [
+        {"key": "Calibration.Device.ALTITUDE_METERS", "value": 1783.0}
+    ]
+    body = res.json()
+    assert body["shadow_synced"] is True
+    assert body["applied"] == [
+        "Calibration.Device.CO2_OFFSET",
+        "Calibration.Device.ALTITUDE_METERS",
+    ]
+    saved = sensor_mgr.load("co2-ykdvea")
+    assert saved["Calibration"]["Device"]["CO2_OFFSET"] == -100.0
+    assert saved["Calibration"]["Device"]["ALTITUDE_METERS"] == 1783.0
+
+
+@pytest.mark.asyncio
 async def test_device_calibration_apply_for_remote_nodus_can_update_same_offset_multiple_times(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))

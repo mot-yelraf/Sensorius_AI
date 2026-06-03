@@ -80,7 +80,7 @@ When location and timezone settings are available, Sensorius can show sun and mo
 
 ![Biodynamic calendar](../assets/screenshots/Dashboard%20-%20Biodynamic%20Calendar.png)
 
-This view can include sunrise, solar noon, sunset, moon phase, and illumination details. It is especially useful when automations depend on Astral timing or when environmental patterns follow daylight cycles.
+This view can include sunrise, solar noon, sunset, moonrise, moonset, moon phase, traditional full moon names, moon position, and illumination details. It is especially useful when automations depend on Astral timing or when environmental patterns follow daylight cycles.
 
 <div class="page-break"></div>
 

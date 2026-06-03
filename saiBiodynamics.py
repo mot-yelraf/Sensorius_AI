@@ -158,6 +158,16 @@ def _ephemeris_status() -> dict[str, object]:
     }
 
 
+def get_skyfield_runtime_if_installed() -> tuple[object, object, object, object] | None:
+    """Return the cached Skyfield runtime only when ephemeris data is local."""
+    if not _ephemeris_path().exists():
+        return None
+    try:
+        return _skyfield_runtime()
+    except Exception:
+        return None
+
+
 @lru_cache(maxsize=1)
 def _skyfield_runtime() -> tuple[object, object, object, object]:
     global _ephemeris_last_error, _ephemeris_retry_after_monotonic

@@ -85,6 +85,10 @@ Required fields:
 ## Action: Apply Calibration Values
 
 Use this to write calibration values into the active sensor TOML and hot-reload them.
+Nodus accepts the shapes below for compatibility. Sensorius paces runtime
+calibration writes by sending one `offsets[]` item per `calibration/set` command
+and waiting for the correlated `ack` plus successful `result` before sending the
+next value.
 
 Accepted payload shape A:
 
