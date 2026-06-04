@@ -1519,7 +1519,7 @@ async def test_device_calibration_apply_for_remote_nodus_uses_extended_calibrati
 
     async def _wait_for_calibration_ack(message_id: str, timeout: float = 0):
         ack_timeouts.append(float(timeout))
-        if float(timeout) < 5.0:
+        if float(timeout) < 8.0:
             return None
         return {"message_id": message_id, "accepted": True}
 
@@ -1543,7 +1543,7 @@ async def test_device_calibration_apply_for_remote_nodus_uses_extended_calibrati
         )
 
     assert res.status_code == 200
-    assert ack_timeouts == [5.0]
+    assert ack_timeouts == [8.0]
     assert result_timeouts == [20.0]
     assert sensor_mgr.load("co2-ykdvea")["Calibration"]["Device"]["RH_OFFSET"] == 3.0
 
