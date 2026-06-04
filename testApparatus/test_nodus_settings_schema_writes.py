@@ -1491,6 +1491,64 @@ async def test_device_calibration_apply_for_remote_nodus_uses_mqtt_and_updates_s
 
 
 @pytest.mark.asyncio
+async def test_device_calibration_apply_for_remote_nodus_uses_extended_calibration_timeouts(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "co2-ykdvea",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "co2",
+                "SENSOR_ID": "co2-ykdvea",
+            }
+        },
+    )
+    ingest.meta_patches_by_message["test-1"] = {
+        "schema": "nodus-meta-patch/v1",
+        "device_id": "co2-ykdvea",
+        "message_id": "test-1",
+        "source": "calibration_set",
+        "updates": [
+            {"section": "Calibration.Device", "key": "RH_OFFSET", "value": 3.0},
+        ],
+    }
+
+    ack_timeouts: list[float] = []
+    result_timeouts: list[float] = []
+
+    async def _wait_for_calibration_ack(message_id: str, timeout: float = 0):
+        ack_timeouts.append(float(timeout))
+        if float(timeout) < 5.0:
+            return None
+        return {"message_id": message_id, "accepted": True}
+
+    async def _wait_for_calibration_result(message_id: str, timeout: float = 0):
+        result_timeouts.append(float(timeout))
+        if float(timeout) < 20.0:
+            return None
+        return {"message_id": message_id, "applied": True, "updated": 1, "error": ""}
+
+    ingest.wait_for_calibration_ack = _wait_for_calibration_ack
+    ingest.wait_for_calibration_result = _wait_for_calibration_result
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/calibration/device/apply",
+            json={
+                "sensor_id": "co2-ykdvea",
+                "device_kind": "co2",
+                "offsets": [{"key": "Calibration.Device.RH_OFFSET", "value": 3.0}],
+            },
+        )
+
+    assert res.status_code == 200
+    assert ack_timeouts == [5.0]
+    assert result_timeouts == [20.0]
+    assert sensor_mgr.load("co2-ykdvea")["Calibration"]["Device"]["RH_OFFSET"] == 3.0
+
+
+@pytest.mark.asyncio
 async def test_device_calibration_apply_for_remote_nodus_uses_meta_patch_fallback_when_ack_missing(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     ingest.next_calibration_ack = None

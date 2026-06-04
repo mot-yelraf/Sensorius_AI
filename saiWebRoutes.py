@@ -229,6 +229,8 @@ _DASHBOARD_DISPLAY_SETTINGS_CACHE: tuple[float, dict[str, object]] | None = None
 _BIODYNAMIC_PAYLOAD_CACHE_TTL_SEC: float = 60.0
 _NODUS_CONFIG_ACK_TIMEOUT_SEC: float = 5.0
 _NODUS_CONFIG_RESULT_TIMEOUT_SEC: float = 20.0
+_NODUS_CALIBRATION_ACK_TIMEOUT_SEC: float = 5.0
+_NODUS_CALIBRATION_RESULT_TIMEOUT_SEC: float = 20.0
 _BIODYNAMIC_PAYLOAD_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
 _ASTRO_PAYLOAD_CACHE_TTL_SEC: float = 60.0
 _ASTRO_PAYLOAD_CACHE: tuple[float, dict[str, object]] | None = None
@@ -7440,7 +7442,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "meta_patch_fallback": True,
         }
 
-    async def _publish_remote_calibration_command(sensor_id: str, *, action: str, payload: dict | None = None, ack_timeout: float = 3.0, result_timeout: float = 8.0) -> tuple[bool, str, dict | None, dict | None]:
+    async def _publish_remote_calibration_command(
+        sensor_id: str,
+        *,
+        action: str,
+        payload: dict | None = None,
+        ack_timeout: float = _NODUS_CALIBRATION_ACK_TIMEOUT_SEC,
+        result_timeout: float = _NODUS_CALIBRATION_RESULT_TIMEOUT_SEC,
+    ) -> tuple[bool, str, dict | None, dict | None]:
         ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
         if not ingest or not hasattr(ingest, "publish_nodus_calibration"):
             return False, "MQTT ingest unavailable", None, None
@@ -7481,8 +7490,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     sensor_id,
                     action="apply",
                     payload=_mqtt_calibration_payload_from_offsets([offset]),
-                    ack_timeout=3.0,
-                    result_timeout=8.0,
+                    ack_timeout=_NODUS_CALIBRATION_ACK_TIMEOUT_SEC,
+                    result_timeout=_NODUS_CALIBRATION_RESULT_TIMEOUT_SEC,
                 )
                 if not ok:
                     if completed_count:
@@ -7574,11 +7583,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return False, "Failed to publish soil pH session start", {}
 
         message_id = str(publish_result.get("message_id") or "").strip()
-        ack = await ingest.wait_for_calibration_ack(message_id, timeout=3.0)
+        ack = await ingest.wait_for_calibration_ack(message_id, timeout=_NODUS_CALIBRATION_ACK_TIMEOUT_SEC)
         if not ack or not bool(ack.get("accepted", False)):
             return False, "Calibration command was not acknowledged", {"ack": ack, "message_id": message_id}
 
-        start_result = await ingest.wait_for_calibration_result(message_id, timeout=8.0)
+        start_result = await ingest.wait_for_calibration_result(message_id, timeout=_NODUS_CALIBRATION_RESULT_TIMEOUT_SEC)
         if start_result is None:
             return False, "Timed out waiting for soil pH session start result", {"ack": ack, "message_id": message_id}
         if not bool(start_result.get("applied", False)) or not bool(start_result.get("started", False)):
