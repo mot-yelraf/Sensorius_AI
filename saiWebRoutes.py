@@ -90,6 +90,7 @@ from saiSwitchSettingsManager import SwitchSettingsManager
 from saiBiodynamics import get_biodynamic_payload, get_biodynamic_local_now, get_skyfield_runtime_if_installed
 from saiDailySummary import DailySummaryService, DEFAULT_FORECAST_DAYS
 from saiNodusOTA import NodusOTAError, NodusOTAService
+from saiWeatherForecast import get_weather_forecast_payload
 from saiAddDevice import HUB_SETTINGS_PATH, _SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR
 try:
     from __init__ import __version__ as SAI_APP_VERSION
@@ -4272,6 +4273,44 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             notes_ms=f"{notes_ms:.1f}",
         )
         return JSONResponse(payload)
+
+    @router.get("/api/weather-forecast", response_class=JSONResponse)
+    async def api_weather_forecast(
+        days: int = Query(6, ge=1, le=6),
+        force_refresh: bool = Query(False),
+    ):
+        _route_started = time.monotonic()
+        try:
+            payload = await get_weather_forecast_payload(
+                settings,
+                db_path=str(getattr(data_logger, "db_path", "sensorius_data.db") or "sensorius_data.db"),
+                force_refresh=bool(force_refresh),
+                min_days=int(days),
+                timeout_sec=8.0,
+            )
+            if isinstance(payload.get("days"), list):
+                payload["days"] = payload["days"][:days]
+            _ui_profile_log(
+                "api-weather-forecast",
+                _route_started,
+                ok=bool(payload.get("ok")),
+                provider=str(payload.get("provider") or ""),
+                stale=bool(payload.get("stale", False)),
+            )
+            return JSONResponse(payload)
+        except Exception as exc:
+            if DEBUG:
+                printDM(f"[api_weather_forecast] failed: {exc}", location=MODULE)
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "stale": False,
+                    "reason": "forecast_failed",
+                    "detail": str(exc),
+                    "current_24h": {},
+                    "days": [],
+                }
+            )
 
     @router.post("/api/biodynamic-note", response_class=JSONResponse)
     async def api_biodynamic_note(request: Request):

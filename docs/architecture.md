@@ -117,6 +117,16 @@ WeeWX:
 - `saiWeeWX.py` normalizes station data into the same sensor settings and
   database paths as other sensors.
 
+Weather forecast:
+
+- `saiWeatherForecast.py` resolves the dashboard forecast location from Astral
+  settings or Astral auto-detection.
+- MET Norway Location Forecast is the primary provider; Open-Meteo is used as a
+  fallback when MET Norway is unavailable.
+- Forecast payloads are cached in SQLite in `weather_forecast` and reused for
+  up to six hours. If both providers fail, the dashboard can continue to show
+  the latest cached forecast marked as stale.
+
 Switches:
 
 - `SwitchController` handles local GPIO relays.

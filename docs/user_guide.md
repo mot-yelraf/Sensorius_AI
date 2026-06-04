@@ -82,6 +82,8 @@ When location and timezone settings are available, Sensorius can show sun and mo
 
 This view can include sunrise, solar noon, sunset, moonrise, moonset, moon phase, traditional full moon names, moon position, and illumination details. It is especially useful when automations depend on Astral timing or when environmental patterns follow daylight cycles.
 
+The dashboard also shows a 24-hour weather forecast card next to the biodynamic calendar. The forecast uses the same Astral latitude, longitude, and timezone settings. Click **6 Day Forecast** to open a six-day outlook with daily forecast text, temperature range, wind, and relative humidity range.
+
 <div class="page-break"></div>
 
 ## Sensors and Readings

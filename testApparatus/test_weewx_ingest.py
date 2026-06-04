@@ -244,6 +244,52 @@ def test_weewx_mqtt_ingest_skips_duplicate_payloads():
     assert len(ingest.data_logger.rows) == 1
 
 
+def test_weewx_mqtt_single_field_replay_does_not_relog_snapshot_rain():
+    class _MqttLogger(_Logger):
+        def get_latest_values(self, sensor_id):
+            if not self.rows:
+                return {}
+            return dict(self.rows[-1][2])
+
+    ingest = saiMQTTIngest.__new__(saiMQTTIngest)
+    ingest.weewx_mqtt_enabled = True
+    ingest.weewx_mqtt_topic = "weather/#"
+    ingest.weewx_sensor_id = "weewx-station"
+    ingest.weewx_update_period_sec = 300
+    ingest.data_logger = _MqttLogger()
+    ingest.expected_gauge_map = {}
+    ingest.device_type = {}
+    ingest.device_location = {}
+    ingest.last_mqtt_seen = {}
+    ingest._mark_host_status = lambda *_args, **_kwargs: None
+
+    snapshot = (
+        '{"dateTime":1777943700,"outTemp":68.0,"outHumidity":27,'
+        '"barometer":29.845,"windSpeed":7.0,"windDir":334,'
+        '"rain":0.02,"rainRate":0.0,"dewpoint":32.7}'
+    )
+    assert ingest._maybe_handle_weewx_mqtt("weather/archive", snapshot) is True
+
+    for topic, payload in [
+        ("weather/outTemp", "68.0"),
+        ("weather/outHumidity", "27"),
+        ("weather/barometer", "29.845"),
+        ("weather/windSpeed", "7.0"),
+        ("weather/windDir", "334"),
+        ("weather/rain", "0.02"),
+        ("weather/rainRate", "0.0"),
+        ("weather/dewpoint", "32.7"),
+    ]:
+        assert ingest._maybe_handle_weewx_mqtt(topic, payload) is True
+
+    assert len(ingest.data_logger.rows) == 1
+    assert ingest.data_logger.rows[0][2]["Rain"] == 0.02
+
+    assert ingest._maybe_handle_weewx_mqtt("weather/outTemp", "69.0") is True
+    assert len(ingest.data_logger.rows) == 2
+    assert ingest.data_logger.rows[-1][2] == {"Temperature_F": 69.0}
+
+
 def test_weewx_live_reconfigure_subscribes_runtime_client():
     class _Client:
         def __init__(self):

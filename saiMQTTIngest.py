@@ -60,6 +60,12 @@ def _to_bool(raw, default: bool = False) -> bool:
     if text in {"0", "false", "no", "off"}:
         return False
     return default
+
+def _values_equal(left, right) -> bool:
+    try:
+        return abs(float(left) - float(right)) <= 1e-9
+    except Exception:
+        return left == right
     
 def _norm_label(label: str | None) -> str:
     return (label or "").strip().lower()
@@ -1331,6 +1337,33 @@ class saiMQTTIngest:
         except Exception:
             pass
 
+    def _mark_weewx_station_seen(self, sensor_id: str, display_values: dict) -> None:
+        """Update runtime station identity, display metrics, and liveness state."""
+        values = dict(display_values or {})
+        if "Rain" in values:
+            values.setdefault(WEEWX_RAIN_24H_METRIC, None)
+        self.expected_gauge_map[sensor_id] = [
+            metric for metric in WEEWX_DISPLAY_METRICS if metric in values
+        ]
+        self.device_type[sensor_id] = "weewx"
+        station_location = "Weather Station"
+        try:
+            from saiSensorSettingsManager import SensorSettingsManager
+
+            station_location = (
+                SensorSettingsManager("sensor_settings").get_setting(
+                    sensor_id,
+                    "Sensor.LOCATION",
+                    station_location,
+                )
+                or station_location
+            )
+        except Exception:
+            pass
+        self.device_location[sensor_id] = station_location
+        self.last_mqtt_seen[sensor_id] = time.time()
+        self._mark_host_status(sensor_id, "online")
+
     def _maybe_handle_weewx_mqtt(self, topic: str, payload_text: str) -> bool:
         """Ingest configured WeeWX MQTT publications as a station sensor."""
         try:
@@ -1348,14 +1381,30 @@ class saiMQTTIngest:
 
             sensor_id = self.weewx_sensor_id or WEEWX_DEFAULT_SENSOR_ID
             values = dict(reading.values)
-            try:
-                previous = self.data_logger.get_latest_values(sensor_id) or {}
-                if isinstance(previous, dict) and len(values) == 1:
-                    merged = dict(previous)
-                    merged.update(values)
-                    values = merged
-            except Exception:
-                pass
+            single_field_update = len(values) == 1 and reading.timestamp is None
+            previous_values = {}
+            if single_field_update:
+                try:
+                    previous = self.data_logger.get_latest_values(sensor_id) or {}
+                    previous_values = dict(previous) if isinstance(previous, dict) else {}
+                except Exception:
+                    previous_values = {}
+                if previous_values:
+                    metric_name, metric_value = next(iter(values.items()))
+                    if (
+                        metric_name in previous_values
+                        and _values_equal(previous_values.get(metric_name), metric_value)
+                    ):
+                        display_values = dict(previous_values)
+                        display_values.update(values)
+                        self._mark_weewx_station_seen(sensor_id, display_values)
+                        if DEBUG:
+                            printDM(
+                                f"Skipped duplicate WeeWX MQTT field from {sensor_id}: {metric_name}",
+                                location=MODULE,
+                            )
+                        return True
+
             value_signature = tuple(sorted((str(k), values[k]) for k in values.keys()))
             signature = (sensor_id, reading.timestamp, value_signature)
             burst_signature = (sensor_id, value_signature)
@@ -1379,30 +1428,9 @@ class saiMQTTIngest:
             self._last_weewx_mqtt_signature = signature
             self._last_weewx_mqtt_burst_signature = burst_signature
             self._last_weewx_mqtt_signature_mono = now_mono
-            display_values = dict(values)
-            if "Rain" in display_values:
-                display_values.setdefault(WEEWX_RAIN_24H_METRIC, None)
-            self.expected_gauge_map[sensor_id] = [
-                metric for metric in WEEWX_DISPLAY_METRICS if metric in display_values
-            ]
-            self.device_type[sensor_id] = "weewx"
-            station_location = "Weather Station"
-            try:
-                from saiSensorSettingsManager import SensorSettingsManager
-
-                station_location = (
-                    SensorSettingsManager("sensor_settings").get_setting(
-                        sensor_id,
-                        "Sensor.LOCATION",
-                        station_location,
-                    )
-                    or station_location
-                )
-            except Exception:
-                pass
-            self.device_location[sensor_id] = station_location
-            self.last_mqtt_seen[sensor_id] = time.time()
-            self._mark_host_status(sensor_id, "online")
+            display_values = dict(previous_values) if previous_values else {}
+            display_values.update(values)
+            self._mark_weewx_station_seen(sensor_id, display_values)
             if DEBUG:
                 printDM(f"Stored WeeWX MQTT data from {sensor_id}:{values}", location=MODULE)
             return True

@@ -177,6 +177,7 @@ def test_rain_last_24h_metric_is_derived_from_interval_rain(tmp_path, monkeypatc
     try:
         logger.log_readings("2026-05-23T12:00:00-06:00", "weewx-station", {"Rain": 0.50})
         logger.log_readings("2026-05-24T11:55:00-06:00", "weewx-station", {"Rain": 0.10})
+        logger.log_readings("2026-05-24T11:55:20-06:00", "weewx-station", {"Rain": 0.10})
         logger.log_readings("2026-05-24T12:05:00-06:00", "weewx-station", {"Rain": 0.07})
         logger.log_readings(
             "2026-05-24T12:10:00-06:00",

@@ -3217,6 +3217,35 @@ def test_dashboard_biodynamic_calendar_card_has_calendar_button():
     assert "window.openBiodynamicCalendarModal) window.openBiodynamicCalendarModal();" in html
 
 
+def test_dashboard_weather_forecast_card_has_six_day_button():
+    from saiHtml import get_gauge_config, render_dashboard
+
+    ingest = SimpleNamespace(expected_gauge_map={})
+    gauge_config = get_gauge_config()
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["co2-ykdvea"],
+            {"co2-ykdvea": {"CO2": 718.0}},
+            {"co2-ykdvea": {"CO2": {"min": 700.0, "avg": 718.0, "max": 730.0}}},
+            ingest,
+            gauge_config=gauge_config,
+            expected_gauge_map={"co2-ykdvea": ["CO2"]},
+            expected_display_style_map={"co2-ykdvea": {"METRIC_1": "Gauge"}},
+            display_style="Gauge",
+        )
+    )
+
+    assert "24 Hour Forecast</div>" in html
+    assert "class='forecast-open-btn' id='forecastFiveDayBtn'" in html
+    assert "<span class='forecast-open-btn-label'>6 Day Forecast</span>" in html
+    assert "/api/weather-forecast?days=1" in html
+    assert "/api/weather-forecast?days=6" in html
+    assert "forecastFiveDayBtn.addEventListener('click'" in html
+    assert "window.openWeatherForecastModal) window.openWeatherForecastModal();" in html
+
+
 def test_dashboard_refresh_pauses_during_modal_and_hidden_tab():
     from saiHtml import get_gauge_config, render_dashboard
 

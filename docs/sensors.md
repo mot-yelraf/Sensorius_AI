@@ -64,7 +64,9 @@ Soil metrics:
 - `Soil Fertility Index` - derived NPK sufficiency score, percent.
 
 WeeWX metrics are defined by `sensor_modules/station_weewx.py`. The logger can
-derive rolling `Rain Last 24h` from interval `Rain` readings.
+derive rolling `Rain Last 24h` from interval `Rain` readings. WeeWX MQTT
+single-field replays are treated as incremental updates so repeated station
+fields do not multiply interval rainfall totals.
 
 ## Supported Local Sensor Modules
 

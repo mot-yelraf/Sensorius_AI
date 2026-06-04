@@ -181,20 +181,41 @@ class saiDataLogger:
         *,
         end_epoch: float,
         window_sec: float,
+        dedupe_epoch_minute: bool = False,
     ) -> float | None:
         start_epoch = float(end_epoch) - float(window_sec)
-        row = conn.execute(
-            """
-            SELECT SUM(COALESCE(value, 0))
-            FROM readings
-            WHERE LOWER(sensor_id) = LOWER(?)
-              AND LOWER(metric) = LOWER(?)
-              AND value IS NOT NULL
-              AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) >= ?
-              AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) <= ?
-            """,
-            (sensor_id, metric, start_epoch, float(end_epoch)),
-        ).fetchone()
+        if dedupe_epoch_minute:
+            row = conn.execute(
+                """
+                SELECT SUM(bucket_value)
+                FROM (
+                    SELECT
+                        CAST(COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) / 60 AS INTEGER) AS epoch_minute,
+                        MAX(COALESCE(value, 0)) AS bucket_value
+                    FROM readings
+                    WHERE LOWER(sensor_id) = LOWER(?)
+                      AND LOWER(metric) = LOWER(?)
+                      AND value IS NOT NULL
+                      AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) >= ?
+                      AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) <= ?
+                    GROUP BY epoch_minute
+                )
+                """,
+                (sensor_id, metric, start_epoch, float(end_epoch)),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                """
+                SELECT SUM(COALESCE(value, 0))
+                FROM readings
+                WHERE LOWER(sensor_id) = LOWER(?)
+                  AND LOWER(metric) = LOWER(?)
+                  AND value IS NOT NULL
+                  AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) >= ?
+                  AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) <= ?
+                """,
+                (sensor_id, metric, start_epoch, float(end_epoch)),
+            ).fetchone()
         if not row or row[0] is None:
             return None
         try:
@@ -209,6 +230,7 @@ class saiDataLogger:
         *,
         end_epoch: float | None = None,
         window_sec: float = RAIN_24H_WINDOW_SEC,
+        dedupe_epoch_minute: bool = False,
     ) -> float | None:
         """Return a rolling sum for one metric over an epoch-second window."""
         try:
@@ -220,6 +242,7 @@ class saiDataLogger:
                     metric,
                     end_epoch=end,
                     window_sec=float(window_sec),
+                    dedupe_epoch_minute=bool(dedupe_epoch_minute),
                 )
         except Exception as e:
             if DEBUG:
@@ -242,6 +265,7 @@ class saiDataLogger:
             RAIN_INTERVAL_METRIC,
             end_epoch=float(end_epoch),
             window_sec=RAIN_24H_WINDOW_SEC,
+            dedupe_epoch_minute=True,
         )
         if total is None:
             return {}
@@ -249,11 +273,12 @@ class saiDataLogger:
 
     def _with_fallback_derived_metrics(self, sensor_id: str, values: dict) -> dict:
         out = dict(values or {})
-        if (
-            self._metric_key(out, RAIN_INTERVAL_METRIC) is not None
-            and self._metric_key(out, WEEWX_RAIN_24H_METRIC) is None
-        ):
-            total = self.get_metric_sum_for_window(sensor_id, RAIN_INTERVAL_METRIC)
+        if self._metric_key(out, RAIN_INTERVAL_METRIC) is not None:
+            total = self.get_metric_sum_for_window(
+                sensor_id,
+                RAIN_INTERVAL_METRIC,
+                dedupe_epoch_minute=True,
+            )
             if total is not None:
                 out[WEEWX_RAIN_24H_METRIC] = total
         return out
