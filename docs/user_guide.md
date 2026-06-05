@@ -84,6 +84,8 @@ This view can include sunrise, solar noon, sunset, moonrise, moonset, moon phase
 
 The dashboard also shows a 24-hour weather forecast card next to the biodynamic calendar. The forecast uses the same Astral latitude, longitude, and timezone settings. Click **6 Day Forecast** to open a six-day outlook with daily forecast text, temperature range, wind, and relative humidity range.
 
+When you open the biodynamic calendar, the current day's Daily Summary appends a **24hr Forecast** section from the same weather forecast data. Future days keep only the biodynamic and astral daily summary text.
+
 <div class="page-break"></div>
 
 ## Sensors and Readings

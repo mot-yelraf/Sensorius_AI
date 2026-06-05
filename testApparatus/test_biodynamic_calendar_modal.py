@@ -72,7 +72,7 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert ".bio-day.today:not(.selected){box-shadow:inset 0 0 0 1px rgba(39,49,58,.45);}" in text
     assert ".bio-day.out{opacity:.62;filter:saturate(.42) brightness(1.02);}" in text
     assert ".bio-day-num{font-size:.66rem;font-weight:800;line-height:1;display:inline-flex;align-items:center;justify-content:center;min-width:1.45em;height:1.45em;border-radius:999px;background:rgba(255,253,246,.88);border:1px solid rgba(39,49,58,.18);color:#27313a;box-shadow:0 1px 2px rgba(39,49,58,.18);}" in text
-    assert ".bio-day-meta{width:100%;font-size:.49rem;font-weight:700;line-height:1.05;color:#27313a;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 0 rgba(255,253,246,.55);}" in text
+    assert ".bio-day-meta{" not in text
     assert ".bio-print-day-num{font-size:9pt;font-weight:800;line-height:1;display:inline-flex;align-items:center;justify-content:center;min-width:1.45em;height:1.45em;border-radius:999px;background:rgba(255,253,246,.9);border:1px solid rgba(39,49,58,.18);color:#27313a;}" in text
     assert ".bio-status{" not in text
     assert ".bio-main{display:flex;flex-direction:column;align-items:center;gap:.08rem;width:100%;align-self:center;min-width:0;overflow:hidden;text-align:center;}" in text
@@ -147,9 +147,18 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "window.printBiodynamicNotes = function(){ bioRunPrint('notes'); };" in text
     assert "document.getElementById('bioPrintCalendarBtn').addEventListener('click', () => { if (window.printBiodynamicCalendar) window.printBiodynamicCalendar(); });" in text
     assert "document.getElementById('bioPrintNotesBtn').addEventListener('click', () => { if (window.printBiodynamicNotes) window.printBiodynamicNotes(); });" in text
+    assert "function bioForecastSummaryText(){" in text
+    assert "const lines = ['24hr Forecast'];" in text
+    assert "function bioSummaryWithForecast(dateIso, summaryText){" in text
+    assert "if (dateIso && dateIso === bioTodayIso()) parts.push(bioForecastSummaryText());" in text
+    assert "const summaryText = bioSummaryWithForecast(day.date, summaries[day.date] || '');" in text
+    assert "const summaryText = dateIso ? bioSummaryWithForecast(dateIso, summaries[dateIso] || '') : '';" in text
+    assert "if (typeof bioRefreshOpenSummary === 'function') bioRefreshOpenSummary();" in text
     assert "<button type='button' class='bio-print-btn' id='bioPrintCalendarBtn'>Print Calendar</button>" in text
     assert "<button type='button' class='bio-print-btn' id='bioPrintNotesBtn'>Print Notes</button>" in text
     assert "<div class='bio-note-card bio-summary-card'>" in text
+    assert "<div class='bio-note-title'>Daily Notes</div>" in text
+    assert "<div class='bio-note-title'>Your Notes</div>" not in text
     assert "<div class='bio-print-sheet' id='bioPrintCalendarSheet' aria-hidden='true'></div>" in text
     assert "<div class='bio-print-sheet' id='bioPrintNotesSheet' aria-hidden='true'></div>" in text
     assert "@media print{@page{margin:.2in}@page bio-calendar{size:landscape;margin:.2in}@page bio-notes{size:portrait;margin:.35in}body.bio-printing *{visibility:hidden !important}" in text
@@ -165,8 +174,11 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "dividerStops.push(`transparent ${startPct.toFixed(2)}%`, `rgba(39,49,58,.14) ${startPct.toFixed(2)}%`, `rgba(39,49,58,.14) ${lineEnd.toFixed(2)}%`, `transparent ${lineEnd.toFixed(2)}%`);" in text
     assert "return `${overlay}, ${base}`;" in text
     assert "const style = `background:${bioDayBackground(day)};border-color:${bioEsc(day.dominant_color || '#d7d0bf')};`;" in text
-    assert "const signLabel = String(day.dominant_sign_abbr || day.dominant_sign || '').trim() || '--';" in text
-    assert "<span class='bio-day-meta'>${bioEsc(signLabel)} ${bioEsc(partLabel)}</span>" in text
+    assert "const signLabel = String(day.dominant_sign_abbr || day.dominant_sign || '').trim() || '--';" not in text
+    assert "const partLabel = String(day.dominant_plant_part || '').trim() || '--';" not in text
+    assert "<span class='bio-day-meta'>" not in text
+    assert "class='bio-print-day-part'" not in text
+    assert "class='bio-print-day-meta'" not in text
     assert "<button type='button' class='bio-nav-btn' id='bioPrevMonthBtn' aria-label='Previous month' title='Previous month'>&lt;</button>" in text
     assert "<button type='button' class='bio-nav-btn' id='bioNextMonthBtn' aria-label='Next month' title='Next month'>&gt;</button>" in text
 
