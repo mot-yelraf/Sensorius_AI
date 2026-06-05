@@ -56,3 +56,48 @@ def test_dashboard_micrograph_uses_soil_fertility_gauge_scale():
     assert "isSoilFertilityIndex ? gaugeConfig?.['Soil Fertility Index']" in html
     assert "yScaleOptions.min = cfgMin" in html
     assert "yScaleOptions.max = cfgMax" in html
+
+
+def test_moon_position_footer_falls_back_to_nearest_moon_event():
+    astro_payload = {
+        "ok": True,
+        "lat": 40.0,
+        "lon": -105.0,
+        "tz": "America/Denver",
+        "sunrise": "05:59",
+        "sunset": "20:23",
+        "sun_noon": "13:11",
+        "sun_points": [],
+        "moon_points": [],
+        "moon_phase_value": 18.5,
+        "moon_phase_label": "Waning Gibbous",
+        "moon_lit_pct": 78,
+        "moon_rise": "00:30",
+        "moon_set": "10:32",
+        "moon_rise_today": "",
+        "moon_set_today": "10:32",
+        "moon_declination": None,
+        "moon_position_source": "",
+        "moon_next_phase_label": "3rd Quarter",
+        "moon_next_phase_date": "2026-06-08",
+        "moon_visible_angle": None,
+        "moon_reference_angle": None,
+    }
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            [],
+            {},
+            {},
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=get_gauge_config(),
+            expected_gauge_map={},
+            astro_payload=astro_payload,
+        )
+    )
+
+    assert "const moonEventRaw = (sameDay, nearest) => {" in html
+    assert "const mrRaw = moonEventRaw(data && data.moon_rise_today, data && data.moon_rise);" in html
+    assert "moonRiseEl.textContent = fmtSun(mrRaw);" in html
+    assert '"moon_rise": "00:30"' in html
