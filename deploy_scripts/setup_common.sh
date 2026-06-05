@@ -43,3 +43,38 @@ deploy_project_files() {
 
   echo "Application files deployed to ${PROJECT_DIR}"
 }
+
+install_pi_gui_autostart() {
+  local username="$1"
+  local project_dir="$2"
+  local venv_path="$3"
+  local user_group user_home autostart_dir desktop_file tmp_file
+
+  user_group="$(id -gn "${username}" 2>/dev/null || printf '%s' "${username}")"
+  user_home="$(getent passwd "${username}" 2>/dev/null | cut -d: -f6 || true)"
+  if [[ -z "${user_home}" ]]; then
+    user_home="${HOME}"
+  fi
+
+  autostart_dir="${user_home}/.config/autostart"
+  desktop_file="${autostart_dir}/sensorius-gui.desktop"
+
+  echo "Installing Sensorius desktop autostart at ${desktop_file}..."
+  sudo -u "${username}" mkdir -p "${autostart_dir}"
+
+  tmp_file="$(mktemp)"
+  cat > "${tmp_file}" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Sensorius
+Comment=Open the Sensorius local dashboard
+Exec=${venv_path}/bin/python ${project_dir}/saiGuiLauncher.py
+Path=${project_dir}
+Terminal=false
+X-GNOME-Autostart-enabled=true
+EOF
+
+  sudo install -m 0644 -o "${username}" -g "${user_group}" "${tmp_file}" "${desktop_file}"
+  rm -f "${tmp_file}"
+  echo "Sensorius GUI will open at the next graphical desktop login."
+}

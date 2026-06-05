@@ -21,6 +21,23 @@ function Cleanup {
     }
 }
 
+function Invoke-NativeChecked {
+    param(
+        [scriptblock]$Command,
+        [string]$FailureMessage
+    )
+    & $Command
+    if ($LASTEXITCODE -ne 0) {
+        throw "$FailureMessage (exit $LASTEXITCODE)"
+    }
+}
+
+function Invoke-NativeAllowFailure {
+    param([scriptblock]$Command)
+    & $Command
+    return $LASTEXITCODE
+}
+
 function Deploy-ProjectFiles {
     if ($SourceRepoDir -eq $ProjectDir) {
         Write-Host "Source and target are the same ($ProjectDir); skipping file sync."
@@ -215,25 +232,33 @@ function Install-Requirements {
     . $activate
 
     $venvPython = Join-Path $VenvPath 'Scripts\python.exe'
-    & $venvPython -m pip install --upgrade pip
+    Invoke-NativeChecked { & $venvPython -m pip install --upgrade pip } 'pip upgrade failed'
 
     if ($InstallPywebview -eq '0') {
         Write-Host 'INSTALL_PYWEBVIEW=0 set — installing without pywebview.'
         $tmpReqs = New-TemporaryFile
         Get-Content $ReqFile | Where-Object { $_ -notmatch '^pywebview==' } | Set-Content $tmpReqs
         if ($PipOnlyBinary -eq '1') {
-            Write-Host 'PIP_ONLY_BINARY=1 set — requiring wheel/binary packages only.'
-            & $venvPython -m pip install --only-binary=:all: -r $tmpReqs
+            Write-Host 'PIP_ONLY_BINARY=1 set — trying wheel/binary packages first.'
+            $rc = Invoke-NativeAllowFailure { & $venvPython -m pip install --only-binary=:all: -r $tmpReqs }
+            if ($rc -ne 0) {
+                Write-Host 'Binary-only install failed; retrying with source builds enabled.'
+                Invoke-NativeChecked { & $venvPython -m pip install -r $tmpReqs } 'pip install requirements fallback failed'
+            }
         } else {
-            & $venvPython -m pip install -r $tmpReqs
+            Invoke-NativeChecked { & $venvPython -m pip install -r $tmpReqs } 'pip install requirements failed'
         }
         Remove-Item $tmpReqs
     } else {
         if ($PipOnlyBinary -eq '1') {
-            Write-Host 'PIP_ONLY_BINARY=1 set — requiring wheel/binary packages only.'
-            & $venvPython -m pip install --only-binary=:all: -r $ReqFile
+            Write-Host 'PIP_ONLY_BINARY=1 set — trying wheel/binary packages first.'
+            $rc = Invoke-NativeAllowFailure { & $venvPython -m pip install --only-binary=:all: -r $ReqFile }
+            if ($rc -ne 0) {
+                Write-Host 'Binary-only install failed; retrying with source builds enabled.'
+                Invoke-NativeChecked { & $venvPython -m pip install -r $ReqFile } 'pip install requirements fallback failed'
+            }
         } else {
-            & $venvPython -m pip install -r $ReqFile
+            Invoke-NativeChecked { & $venvPython -m pip install -r $ReqFile } 'pip install requirements failed'
         }
     }
 }

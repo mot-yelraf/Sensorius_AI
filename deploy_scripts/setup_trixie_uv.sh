@@ -8,6 +8,21 @@ VENV_PATH="${VENV_PATH:-${PROJECT_DIR}/.venv}"
 REQ_FILE="${REQ_FILE:-${SCRIPT_DIR}/setup_reqs_trixie.txt}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 HEARTBEAT_SECONDS="${HEARTBEAT_SECONDS:-60}"
+PREFLIGHT_ONLY="${SENSORIUS_PREFLIGHT_ONLY:-0}"
+
+TRIXIE_APT_PKGS=(
+  python3 python3-pip python3-venv python3-dev
+  sqlite3 libopenblas-dev
+  build-essential git chrony locate cmake swig liblgpio-dev
+  logrotate mosquitto mosquitto-clients
+  libgirepository1.0-dev
+  libgtk-3-dev libwebkit2gtk-4.1-dev
+  python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1
+  i2c-tools
+  libffi-dev libssl-dev
+  libjpeg-dev zlib1g-dev libopenjp2-7
+  ca-certificates curl
+)
 
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/setup_common.sh"
@@ -52,18 +67,11 @@ install_system_packages() {
   run_with_heartbeat "APT update" sudo apt-get update
   run_with_heartbeat "APT upgrade" sudo apt-get upgrade -y
 
-  run_with_heartbeat "APT install system dependencies" sudo apt-get install -y \
-    python3 python3-pip python3-venv python3-dev \
-    sqlite3 libatlas-base-dev \
-    build-essential git chrony locate cmake \
-    raspi-gpio logrotate mosquitto mosquitto-clients \
-    libgirepository1.0-dev \
-    libgtk-3-dev libwebkit2gtk-4.1-dev \
-    python3-gi gir1.2-webkit2-4.1 \
-    i2c-tools \
-    libffi-dev libssl-dev \
-    libjpeg-dev zlib1g-dev libopenjp2-7 \
-    ca-certificates curl
+  run_with_heartbeat "APT install system dependencies" sudo apt-get install -y "${TRIXIE_APT_PKGS[@]}"
+
+  if ! command -v pinctrl >/dev/null 2>&1; then
+    echo "Note: Raspberry Pi OS Trixie uses pinctrl instead of the retired raspi-gpio package."
+  fi
 }
 
 ensure_uv() {
@@ -88,14 +96,37 @@ setup_python_env() {
   fi
 
   mkdir -p "$(dirname "${VENV_PATH}")"
-  run_with_heartbeat "Create venv with uv" uv venv "${VENV_PATH}" --python "${PYTHON_BIN}"
+  run_with_heartbeat "Create venv with uv" uv venv "${VENV_PATH}" --python "${PYTHON_BIN}" --system-site-packages
   local venv_python="${VENV_PATH}/bin/python"
 
   run_with_heartbeat "Install Python dependencies with uv" \
     uv pip install -r "${REQ_FILE}" --python "${venv_python}"
 
   run_with_heartbeat "Verify Python runtime imports" \
-    "${venv_python}" -c "import fastapi; import requests; import paho.mqtt.client as mqtt; from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency check passed')"
+    "${venv_python}" -c "import fastapi; import requests; import paho.mqtt.client as mqtt; import lgpio; import webview; import gi; gi.require_version('Gtk','3.0'); gi.require_version('WebKit2','4.1'); import adafruit_scd30; import adafruit_scd4x; from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency check passed')"
+}
+
+preflight_python_env() {
+  if [[ ! -f "${REQ_FILE}" ]]; then
+    echo "ERROR: requirements file not found at ${REQ_FILE}"
+    exit 1
+  fi
+
+  local tmp_root
+  tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/sensorius-trixie-preflight.XXXXXX")"
+  cleanup_preflight() {
+    rm -rf "${tmp_root}"
+  }
+  trap cleanup_preflight EXIT
+
+  run_with_heartbeat "Create preflight venv with uv" uv venv "${tmp_root}/venv" --python "${PYTHON_BIN}" --system-site-packages
+  local preflight_python="${tmp_root}/venv/bin/python"
+
+  run_with_heartbeat "Preflight Python dependency build" \
+    uv pip install -r "${REQ_FILE}" --python "${preflight_python}"
+
+  run_with_heartbeat "Verify preflight runtime imports" \
+    "${preflight_python}" -c "import fastapi; import requests; import paho.mqtt.client as mqtt; import lgpio; import webview; import gi; gi.require_version('Gtk','3.0'); gi.require_version('WebKit2','4.1'); import adafruit_scd30; import adafruit_scd4x; from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency preflight passed')"
 }
 
 configure_system() {
@@ -160,11 +191,13 @@ Group=${user_group}
 Restart=always
 RestartSec=3
 Environment=WEBKIT_DISABLE_COMPOSITING_MODE=1
-Environment=DISPLAY=:0
+Environment=SENSORIUS_GUI=0
 
 [Install]
 WantedBy=multi-user.target
 EOF"
+
+  install_pi_gui_autostart "${username}" "${PROJECT_DIR}" "${VENV_PATH}"
 
   echo "Enabling and starting sensorius.service..."
   sudo systemctl daemon-reexec
@@ -174,7 +207,41 @@ EOF"
   echo "Service installed and will automatically start at system startup."
 }
 
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --preflight|--check)
+        PREFLIGHT_ONLY=1
+        shift
+        ;;
+      -h|--help)
+        echo "Usage: $0 [--preflight]"
+        echo ""
+        echo "  --preflight  Install/check Trixie dependencies in a temporary venv only."
+        exit 0
+        ;;
+      *)
+        echo "ERROR: unknown argument: $1"
+        echo "Usage: $0 [--preflight]"
+        exit 2
+        ;;
+    esac
+  done
+}
+
 main() {
+  parse_args "$@"
+
+  if [[ "${PREFLIGHT_ONLY}" == "1" ]]; then
+    ensure_apt
+    install_system_packages
+    ensure_uv
+    preflight_python_env
+    echo ""
+    echo "Preflight complete. Trixie APT dependencies and Python requirements built successfully."
+    return
+  fi
+
   deploy_project_files
   cd ~
   ensure_apt

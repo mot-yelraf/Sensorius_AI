@@ -55,11 +55,11 @@ install_system_packages() {
   run_with_heartbeat "APT install system dependencies" sudo apt-get install -y \
     python3 python3-pip python3-venv python3-dev \
     sqlite3 libatlas-base-dev \
-    build-essential git chrony locate cmake \
+    build-essential git chrony locate cmake swig liblgpio-dev \
     raspi-gpio logrotate mosquitto mosquitto-clients \
     libgirepository1.0-dev \
     libgtk-3-dev libwebkit2gtk-4.1-dev \
-    python3-gi gir1.2-webkit2-4.1 \
+    python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1 \
     i2c-tools \
     libffi-dev libssl-dev \
     libjpeg-dev zlib1g-dev libopenjp2-7 \
@@ -88,14 +88,14 @@ setup_python_env() {
   fi
 
   mkdir -p "$(dirname "${VENV_PATH}")"
-  run_with_heartbeat "Create venv with uv" uv venv "${VENV_PATH}" --python "${PYTHON_BIN}"
+  run_with_heartbeat "Create venv with uv" uv venv "${VENV_PATH}" --python "${PYTHON_BIN}" --system-site-packages
   local venv_python="${VENV_PATH}/bin/python"
 
   run_with_heartbeat "Install Python dependencies with uv" \
     uv pip install -r "${REQ_FILE}" --python "${venv_python}"
 
   run_with_heartbeat "Verify Python runtime imports" \
-    "${venv_python}" -c "import fastapi; import requests; import paho.mqtt.client as mqtt; import adafruit_scd30; import adafruit_scd4x; from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency check passed')"
+    "${venv_python}" -c "import fastapi; import requests; import paho.mqtt.client as mqtt; import webview; import gi; gi.require_version('Gtk','3.0'); gi.require_version('WebKit2','4.1'); import adafruit_scd30; import adafruit_scd4x; from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency check passed')"
 }
 
 configure_system() {
@@ -160,11 +160,13 @@ Group=${user_group}
 Restart=always
 RestartSec=3
 Environment=WEBKIT_DISABLE_COMPOSITING_MODE=1
-Environment=DISPLAY=:0
+Environment=SENSORIUS_GUI=0
 
 [Install]
 WantedBy=multi-user.target
 EOF"
+
+  install_pi_gui_autostart "${username}" "${PROJECT_DIR}" "${VENV_PATH}"
 
   echo "Enabling and starting sensorius.service..."
   sudo systemctl daemon-reexec

@@ -10,27 +10,67 @@ PROJECT_DIR="${PROJECT_DIR:-$HOME/saiSensorius}"
 PYENV_ROOT="${HOME}/.pyenv"
 VENV_PATH="${VENV_PATH:-${PROJECT_DIR}/.venv}"   # we’ll create this with the selected pyenv Python
 
+install_pi_gui_autostart() {
+  local username="$1"
+  local project_dir="$2"
+  local venv_python="$3"
+  local user_group user_home autostart_dir desktop_file tmp_file
+
+  user_group="$(id -gn "${username}" 2>/dev/null || printf '%s' "${username}")"
+  user_home="$(getent passwd "${username}" 2>/dev/null | cut -d: -f6 || true)"
+  if [[ -z "${user_home}" ]]; then
+    user_home="${HOME}"
+  fi
+
+  autostart_dir="${user_home}/.config/autostart"
+  desktop_file="${autostart_dir}/sensorius-gui.desktop"
+
+  echo "Installing Sensorius desktop autostart at ${desktop_file}..."
+  sudo -u "${username}" mkdir -p "${autostart_dir}"
+
+  tmp_file="$(mktemp)"
+  cat > "${tmp_file}" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Sensorius
+Comment=Open the Sensorius local dashboard
+Exec=${venv_python} ${project_dir}/saiGuiLauncher.py
+Path=${project_dir}
+Terminal=false
+X-GNOME-Autostart-enabled=true
+EOF
+
+  sudo install -m 0644 -o "${username}" -g "${user_group}" "${tmp_file}" "${desktop_file}"
+  rm -f "${tmp_file}"
+  echo "Sensorius GUI will open at the next graphical desktop login."
+}
+
 cd ~
 
 echo "Updating APT and installing system dependencies..."
 sudo apt update
 sudo apt upgrade -y
 
-# Base packages (unchanged from your script, plus Python build deps for pyenv)
-sudo apt install -y \
-  python3 python3-pip python3-venv python3-dev \
-  sqlite3 libatlas-base-dev \
-  build-essential git chrony locate cmake \
-  raspi-gpio logrotate mosquitto mosquitto-clients \
-  libgirepository1.0-dev \
-  libgtk-3-dev libwebkit2gtk-4.1-dev \
-  python3-gi gir1.2-webkit2-4.1 \
-  i2c-tools \
-  libffi-dev libssl-dev \
-  libjpeg-dev zlib1g-dev libopenjp2-7 \
-  # ---- Python-from-source build deps for pyenv ----
-  make libbz2-dev libreadline-dev libsqlite3-dev libncursesw5-dev \
-  xz-utils tk-dev libxml2-dev libxmlsec1-dev lzma
+# Base packages, plus Python build deps for pyenv.
+apt_pkgs=(
+  python3 python3-pip python3-venv python3-dev
+  sqlite3 libopenblas-dev
+  build-essential git chrony locate cmake swig liblgpio-dev
+  logrotate mosquitto mosquitto-clients
+  libgirepository1.0-dev
+  libgtk-3-dev libwebkit2gtk-4.1-dev
+  python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1
+  i2c-tools
+  libffi-dev libssl-dev
+  libjpeg-dev zlib1g-dev libopenjp2-7
+  make libbz2-dev libreadline-dev libsqlite3-dev libncursesw5-dev
+  xz-utils tk-dev libxml2-dev libxmlsec1-dev liblzma-dev
+)
+sudo apt install -y "${apt_pkgs[@]}"
+
+if ! command -v pinctrl >/dev/null 2>&1; then
+  echo "Note: Raspberry Pi OS Trixie uses pinctrl instead of the retired raspi-gpio package."
+fi
 
 # -------- pyenv install / init --------
 if [ ! -d "${PYENV_ROOT}" ]; then
@@ -94,7 +134,7 @@ else
 fi
 
 echo "Verifying Python runtime imports..."
-python -c "import fastapi; import requests; import paho.mqtt.client as mqtt; from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency check passed')"
+python -c "import fastapi; import requests; import paho.mqtt.client as mqtt; import webview; import gi; gi.require_version('Gtk','3.0'); gi.require_version('WebKit2','4.1'); from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency check passed')"
 
 # -------- Mosquitto config (unchanged) --------
 echo "Creating Mosquitto anonymous config at /etc/mosquitto/conf.d/anon.conf..."
@@ -160,11 +200,13 @@ Group=${user_group}
 Restart=always
 RestartSec=3
 Environment=WEBKIT_DISABLE_COMPOSITING_MODE=1
-Environment=DISPLAY=:0
+Environment=SENSORIUS_GUI=0
 
 [Install]
 WantedBy=multi-user.target
 EOF"
+
+  install_pi_gui_autostart "${username}" "${workdir}" "${pyexec}"
 
   echo "Enabling and starting sensorius.service..."
   sudo systemctl daemon-reexec

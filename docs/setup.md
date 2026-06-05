@@ -101,6 +101,36 @@ chmod +x deploy_scripts/setup_trixie_uv.sh
 sudo ./deploy_scripts/setup_trixie_uv.sh
 ```
 
+The Trixie setup scripts use `libopenblas-dev` for BLAS support because
+`libatlas-base-dev` is no longer available in Debian Trixie. Raspberry Pi OS
+Trixie also uses `pinctrl` for command-line GPIO inspection instead of the
+retired `raspi-gpio` package; Sensorius runtime GPIO support uses the Python
+`lgpio`/`rpi-lgpio` stack from the Trixie requirements file.
+
+To validate the Trixie uv path before rewriting the real application venv or
+service configuration, run:
+
+```bash
+./deploy_scripts/setup_trixie_uv.sh --preflight
+```
+
+Or through the root dispatcher:
+
+```bash
+SETUP_PY_MANAGER=uv ./install.sh --preflight
+```
+
+Preflight installs/checks the Trixie APT dependency set, creates a temporary
+venv, installs the full Python requirements there, verifies key imports, and
+then removes the temporary venv.
+
+On Raspberry Pi desktop installs, the backend `sensorius.service` runs
+headless. The setup scripts also install
+`/home/<user>/.config/autostart/sensorius-gui.desktop`, which opens the
+pywebview shell from the user's graphical desktop session. This requires a
+Raspberry Pi OS desktop session or desktop auto-login; headless/Lite images can
+still use the browser UI at `http://127.0.0.1:8000`.
+
 ## macOS
 
 macOS runs Sensorius as an MQTT hub and web UI. Direct sensors and GPIO relay

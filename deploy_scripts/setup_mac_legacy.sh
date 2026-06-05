@@ -55,6 +55,37 @@ run_with_heartbeat() {
   echo "==> Done: ${label}"
 }
 
+run_with_heartbeat_allow_failure() {
+  local label="$1"
+  shift
+
+  echo "==> ${label}"
+  (
+    while true; do
+      sleep "${HEARTBEAT_SECONDS}"
+      printf "… still working on: %s\r\n" "${label}"
+    done
+  ) &
+  local hb_pid=$!
+
+  set +e
+  "$@"
+  local rc=$?
+  set -e
+
+  if [[ -n "${hb_pid}" ]]; then
+    kill "${hb_pid}" >/dev/null 2>&1 || true
+    wait "${hb_pid}" 2>/dev/null || true
+  fi
+
+  if [[ ${rc} -ne 0 ]]; then
+    echo "==> Failed: ${label} (exit ${rc})"
+    return "${rc}"
+  fi
+
+  echo "==> Done: ${label}"
+}
+
 version_ge() {
   # Compare dotted version strings: version_ge 13.1 13.0
   local a="$1" b="$2"
@@ -185,9 +216,13 @@ install_requirements() {
     tmp_reqs="$(mktemp)"
     grep -v '^pywebview==' "${REQ_FILE}" > "${tmp_reqs}"
     if [[ "${PIP_ONLY_BINARY}" == "1" ]]; then
-      echo "PIP_ONLY_BINARY=1 set — requiring wheel/binary packages only."
-      run_with_heartbeat "pip install requirements (without pywebview, binary-only)" \
-        python -m pip install --only-binary=:all: -r "${tmp_reqs}"
+      echo "PIP_ONLY_BINARY=1 set — trying wheel/binary packages first."
+      if ! run_with_heartbeat_allow_failure "pip install requirements (without pywebview, binary-only)" \
+        python -m pip install --only-binary=:all: -r "${tmp_reqs}"; then
+        echo "Binary-only install failed; retrying with source builds enabled."
+        run_with_heartbeat "pip install requirements (without pywebview, fallback)" \
+          python -m pip install -r "${tmp_reqs}"
+      fi
     else
       run_with_heartbeat "pip install requirements (without pywebview)" \
         python -m pip install -r "${tmp_reqs}"
@@ -195,9 +230,13 @@ install_requirements() {
     rm -f "${tmp_reqs}"
   else
     if [[ "${PIP_ONLY_BINARY}" == "1" ]]; then
-      echo "PIP_ONLY_BINARY=1 set — requiring wheel/binary packages only."
-      run_with_heartbeat "pip install requirements (binary-only)" \
-        python -m pip install --only-binary=:all: -r "${REQ_FILE}"
+      echo "PIP_ONLY_BINARY=1 set — trying wheel/binary packages first."
+      if ! run_with_heartbeat_allow_failure "pip install requirements (binary-only)" \
+        python -m pip install --only-binary=:all: -r "${REQ_FILE}"; then
+        echo "Binary-only install failed; retrying with source builds enabled."
+        run_with_heartbeat "pip install requirements (fallback)" \
+          python -m pip install -r "${REQ_FILE}"
+      fi
     else
       run_with_heartbeat "pip install requirements" python -m pip install -r "${REQ_FILE}"
     fi

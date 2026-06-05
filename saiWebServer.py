@@ -133,7 +133,7 @@ async def launch_webview(url: str = "http://127.0.0.1:8000", retries: int = 10, 
 
     if sys.platform.startswith("linux"):
         # Keep caller-provided values; only provide conservative defaults.
-        os.environ.setdefault("GDK_BACKEND", "x11")
+        os.environ.setdefault("GDK_BACKEND", "wayland,x11")
         if "DISPLAY" not in os.environ and "WAYLAND_DISPLAY" not in os.environ:
             os.environ["DISPLAY"] = ":0"
 
