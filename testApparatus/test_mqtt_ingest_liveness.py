@@ -212,6 +212,20 @@ def _build_ingest(monkeypatch, *, sections=None, values=None):
     )
 
 
+def _mark_nodus_online(ingest, host="apvpd-test123", *, peers=None):
+    now_ts = time.time()
+    peer_list = list(peers or [host])
+    ingest.host_to_peer_ids[host] = peer_list
+    ingest.heartbeat_interval_s_by_host[host] = 30.0
+    ingest.heartbeat_interval_s_by_host[f"{host}.local"] = 30.0
+    ingest.last_heartbeat_ts[host] = now_ts
+    ingest.last_heartbeat_ts[f"{host}.local"] = now_ts
+    ingest.last_nodus_report_seen[host] = now_ts
+    ingest.last_nodus_report_seen[f"{host}.local"] = now_ts
+    ingest.device_status[host] = "online"
+    ingest.device_status[f"{host}.local"] = "online"
+
+
 def test_background_http_meta_discovery_defaults_off(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     assert ingest._allow_background_http_meta_discovery() is False
@@ -384,6 +398,7 @@ def test_set_switch_leaves_remote_cache_unchanged_until_confirmation(monkeypatch
         }
     ]
     ingest.nodus_switch_command_topics[("sw1", "S1-sw1")] = "nodus/S1-sw1/set"
+    _mark_nodus_online(ingest, host="sw1", peers=["sw1"])
 
     ok = ingest.set_switch("sw1", "Fan", False, event_origin="manual")
 
@@ -416,6 +431,7 @@ def test_confirmed_nodus_event_persists_after_optimistic_cache_update(monkeypatc
         "label": "Fan",
         "kind": "event",
     }
+    _mark_nodus_online(ingest, host="sw1", peers=["sw1"])
 
     assert ingest.set_switch("sw1", "Fan", False, event_origin="manual") is True
 
@@ -448,6 +464,7 @@ def test_confirmed_nodus_event_uses_pending_rule_name_for_auto_source(monkeypatc
         "label": "Fan",
         "kind": "event",
     }
+    _mark_nodus_online(ingest, host="sw1", peers=["sw1"])
 
     assert ingest.set_switch("sw1", "Fan", False, event_origin="auto", event_label="Desk Cooldown") is True
 
@@ -1044,6 +1061,7 @@ def test_nodus_split_switch_meta_materializes_advertised_channel_topics(monkeypa
 def test_set_switch_by_channel_id_prefers_advertised_config_set_topic(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     ingest.nodus_switch_command_topics[("switch-test123", "S1-test123")] = "nodus/S1-test123/config/set"
+    _mark_nodus_online(ingest, peers=["apvpd-test123", "switch-test123"])
 
     assert ingest.set_switch_by_channel_id("switch-test123", "S1-test123", True) is True
 
@@ -1054,6 +1072,19 @@ def test_set_switch_by_channel_id_prefers_advertised_config_set_topic(monkeypatc
     assert retain is False
     assert payload["payload"]["updates"][0]["key"] == "SWITCH_1_LAST_STATE"
     assert payload["payload"]["updates"][0]["value"] is True
+
+
+def test_set_switch_by_channel_id_blocks_offline_nodus(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    now_ts = time.time()
+    ingest.host_to_peer_ids["apvpd-test123"] = ["apvpd-test123", "switch-test123"]
+    ingest.heartbeat_interval_s_by_host["apvpd-test123"] = 30.0
+    ingest.last_heartbeat_ts["apvpd-test123"] = now_ts - 95.0
+    ingest.device_status["apvpd-test123"] = "online"
+    ingest.nodus_switch_command_topics[("switch-test123", "S1-test123")] = "nodus/S1-test123/config/set"
+
+    assert ingest.set_switch_by_channel_id("switch-test123", "S1-test123", True) is False
+    assert ingest.client.pubs == []
 
 
 def test_nodus_split_switch_meta_writes_all_channels_as_enabled_remote_shadow(tmp_path, monkeypatch):
@@ -1213,6 +1244,7 @@ def test_set_switch_by_channel_id_prefers_channel_scoped_config_target(monkeypat
     ingest = _build_ingest(monkeypatch)
     ingest.mqtt_clients = {"apvpd-test123"}
     ingest.host_to_peer_ids = {"apvpd-test123": ["apvpd-test123", "switch-test123"]}
+    _mark_nodus_online(ingest, peers=["apvpd-test123", "switch-test123"])
 
     ok = ingest.set_switch_by_channel_id("switch-test123", "S1-test123", True)
 
@@ -1247,6 +1279,7 @@ def test_set_switch_does_not_optimistically_mutate_remote_state_cache(monkeypatc
     )
     ingest.mqtt_clients = {"apvpd-test123"}
     ingest.host_to_peer_ids = {"apvpd-test123": ["apvpd-test123", "switch-test123"]}
+    _mark_nodus_online(ingest, peers=["apvpd-test123", "switch-test123"])
 
     ok = ingest.set_switch("switch-test123", "Fan", True, event_origin="manual")
 
@@ -1332,7 +1365,7 @@ def test_confirmed_nodus_event_keeps_origin_after_state_clears_pending(monkeypat
     assert ingest.data_logger.switch_events[-1]["source"] == "mqtt-auto:Desk Cooldown"
 
 
-def test_retained_stale_heartbeat_sets_unknown(monkeypatch):
+def test_retained_stale_heartbeat_sets_offline(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     stale_ts = int(time.time()) - 300
     payload = json.dumps(
@@ -1346,7 +1379,7 @@ def test_retained_stale_heartbeat_sets_unknown(monkeypatch):
     msg = _Msg("nodus/apvpd-test123/status/heartbeat", payload, retain=True)
     ingest._on_message(ingest.client, None, msg)
 
-    assert ingest.device_status.get("apvpd-test123") == "unknown"
+    assert ingest.device_status.get("apvpd-test123") == "offline"
     assert ingest.heartbeat_stale.get("apvpd-test123") is True
     assert "apvpd-test123" not in ingest.last_heartbeat_ts
 
@@ -1370,6 +1403,65 @@ def test_fresh_heartbeat_sets_online_and_ts(monkeypatch):
     assert int(ingest.last_heartbeat_ts.get("apvpd-test123", 0)) == ts_now
 
 
+def test_live_heartbeat_uses_receipt_time_when_payload_clock_is_offset(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    payload = json.dumps(
+        {
+            "device_id": "aht-rvwi73",
+            "status": "online",
+            "timestamp": int(time.time()) - (6 * 60 * 60),
+        }
+    )
+    msg = _Msg("nodus/aht-rvwi73/status/heartbeat", payload, retain=False)
+
+    before = time.time()
+    ingest._on_message(ingest.client, None, msg)
+    after = time.time()
+
+    assert ingest.device_status.get("aht-rvwi73") == "online"
+    assert ingest.heartbeat_stale.get("aht-rvwi73") is False
+    assert before <= float(ingest.last_heartbeat_ts.get("aht-rvwi73", 0.0)) <= after
+
+
+def test_switch_liveness_prefers_sibling_sensor_host_with_same_serial(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    now_ts = time.time()
+    ingest.mqtt_clients.update({"switch-ykdvea", "co2-ykdvea"})
+    ingest.heartbeat_interval_s_by_host["co2-ykdvea"] = 30.0
+    ingest.last_heartbeat_ts["co2-ykdvea"] = now_ts
+    ingest.last_nodus_report_seen["co2-ykdvea"] = now_ts
+    ingest.device_status["co2-ykdvea"] = "online"
+
+    snapshot = ingest.get_nodus_liveness("switch-ykdvea", device_type="switch", now_ts=now_ts)
+
+    assert snapshot["host"] == "co2-ykdvea"
+    assert snapshot["state"] == "online"
+    assert ingest.resolve_nodus_hostname("switch-ykdvea", device_type="switch") == "co2-ykdvea"
+
+
+def test_channel_availability_maps_to_switch_host(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.mqtt_clients.add("co2-ykdvea")
+    ingest.nodus_switch_topic_map["nodus/S1-ykdvea/state"] = {
+        "switch_id": "switch-ykdvea",
+        "channel_id": "S1-ykdvea",
+        "label": "Fan",
+        "kind": "state",
+    }
+    msg = _Msg(
+        "nodus/S1-ykdvea/availability",
+        json.dumps({"channel_id": "S1-ykdvea", "status": "online"}),
+        retain=False,
+    )
+
+    ingest._on_message(ingest.client, None, msg)
+
+    assert ingest.nodus_availability.get("S1-ykdvea") == "online"
+    assert "switch-ykdvea" in ingest.host_to_peer_ids.get("co2-ykdvea", [])
+    assert "S1-ykdvea" in ingest.host_to_peer_ids.get("co2-ykdvea", [])
+    assert ingest.get_nodus_liveness("S1-ykdvea", device_type="switch")["state"] == "degraded"
+
+
 def test_heartbeat_timeout_state_transitions(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     now_ts = time.time()
@@ -1383,6 +1475,42 @@ def test_heartbeat_timeout_state_transitions(monkeypatch):
 
     ingest.last_heartbeat_ts["apvpd-test123"] = now_ts - 95.0
     assert ingest._apply_heartbeat_timeout_state("apvpd-test123", now_ts=now_ts) == "offline"
+
+
+def test_availability_online_does_not_override_stale_heartbeat(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    now_ts = time.time()
+    ingest.heartbeat_interval_s_by_host["apvpd-test123"] = 30.0
+    ingest.last_heartbeat_ts["apvpd-test123"] = now_ts - 95.0
+    ingest.nodus_availability["apvpd-test123"] = "online"
+    ingest.device_status["apvpd-test123"] = "online"
+
+    snapshot = ingest.get_nodus_liveness("apvpd-test123", now_ts=now_ts)
+
+    assert snapshot["state"] == "offline"
+    assert ingest.get_measure_status("apvpd-test123") == "offline"
+
+
+def test_live_availability_online_is_degraded_until_report(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    msg = _Msg("nodus/apvpd-test123/availability", "online", retain=False)
+
+    ingest._on_message(ingest.client, None, msg)
+
+    assert ingest.device_status.get("apvpd-test123") == "degraded"
+    assert ingest.get_measure_status("apvpd-test123") == "degraded"
+    assert "apvpd-test123" not in ingest.last_nodus_report_seen
+
+
+def test_retained_availability_online_does_not_refresh_live_seen(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    msg = _Msg("nodus/apvpd-test123/availability", "online", retain=True)
+
+    ingest._on_message(ingest.client, None, msg)
+
+    assert "apvpd-test123" not in ingest.last_mqtt_seen
+    assert "apvpd-test123" in ingest.retained_mqtt_seen
+    assert ingest.get_measure_status("apvpd-test123") == "unknown"
 
 
 def test_recovery_via_data_marks_online_with_stale_heartbeat(monkeypatch):
@@ -2656,7 +2784,7 @@ def test_no_heartbeat_activity_ages_to_offline(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     now_ts = time.time()
     ingest.heartbeat_interval_s_by_host["apvpd-test123"] = 30.0
-    ingest.last_mqtt_seen["apvpd-test123"] = now_ts - 95.0
+    ingest.last_nodus_report_seen["apvpd-test123"] = now_ts - 95.0
     ingest.device_status["apvpd-test123"] = "online"
 
     assert ingest._apply_heartbeat_timeout_state("apvpd-test123", now_ts=now_ts) == "offline"

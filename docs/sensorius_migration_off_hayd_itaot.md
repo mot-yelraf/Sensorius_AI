@@ -38,9 +38,15 @@ Sensorius should use MQTT for liveness:
 1. Subscribe to:
    - `nodus/+/status/heartbeat`
    - `nodus/+/availability` (and switch availability patterns already in use)
-2. Update `last_seen` on any heartbeat/data/availability message.
-3. Mark device degraded/offline if no heartbeat for `>= 90s` (3x 30s interval), unless a stricter policy is needed.
-4. Prefer heartbeat as canonical liveness; use availability/data as supplemental signals.
+2. Keep retained broker replays separate from live MQTT receipt time.
+3. Update live `last_seen` on non-retained heartbeat/data/state/event traffic.
+4. Treat `availability = offline` as authoritative.
+5. Treat `availability = online` as a weak hint only; it must not override stale
+   heartbeat/data timing.
+6. Mark device degraded/offline if no heartbeat or live data/state/event report
+   arrives for `>= 90s` (3x 30s interval), unless a stricter policy is needed.
+7. Publish retained Home Assistant availability `offline` when Sensorius derives
+   Nodus liveness as anything other than online.
 
 ## Route Usage by Lifecycle
 
@@ -90,4 +96,3 @@ Sensorius should use MQTT for liveness:
 2. Sensorius no longer polls `/itaot` for onboarded devices.
 3. Device liveness state is derived from MQTT heartbeat/availability/data.
 4. Onboarding V2 succeeds using `/itaot-init` + MQTT exchange without `/itaot`.
-

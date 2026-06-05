@@ -212,10 +212,13 @@ class saiMQTTIngest:
         self.nodus_availability: dict[str, str] = {}  # host -> "online"|"offline" (from MQTT /availability)
         self.last_heartbeat_ts: dict[str, float] = {}  # host -> unix epoch seconds from heartbeat payload
         self.last_heartbeat_payload: dict[str, dict] = {}  # host -> last heartbeat payload object
+        self.last_nodus_report_seen: dict[str, float] = {}  # host/peer -> last live heartbeat/data/state/event report
+        self.retained_mqtt_seen: dict[str, float] = {}  # host/peer -> retained broker replay receipt time
         self.nodus_firmware_versions: dict[str, str] = {}  # host/peer id -> firmware version from nodus meta
         self.fwupdate_result_by_device: dict[str, dict] = {}  # device_id/host -> last OTA result payload
         self.heartbeat_interval_s_by_host: dict[str, float] = {}  # host -> advertised interval
         self.heartbeat_stale: dict[str, bool] = {}  # host -> heartbeat freshness diagnostic
+        self._liveness_status_callbacks: list = []
         # Retained startup replays can include stale hosts. Track repeated retained traffic and
         # only promote to discovery after we see sustained retained data from the same host.
         self._retained_data_seen: dict[str, int] = {}
@@ -578,6 +581,293 @@ class saiMQTTIngest:
             return s
         return "unknown"
 
+    def register_liveness_callback(self, callback) -> None:
+        """Register a best-effort callback for Nodus liveness state changes."""
+        if not callable(callback):
+            return
+        if callback not in self._liveness_status_callbacks:
+            self._liveness_status_callbacks.append(callback)
+
+    def _record_mqtt_seen(
+        self,
+        key: str | None,
+        *,
+        ts: float | None = None,
+        retain: bool = False,
+        report: bool = False,
+    ) -> None:
+        key_text = str(key or "").strip()
+        if not key_text:
+            return
+        now_v = float(ts if ts is not None else time.time())
+        target = self.retained_mqtt_seen if retain else self.last_mqtt_seen
+        target[key_text] = now_v
+        if not retain and report:
+            self.last_nodus_report_seen[key_text] = now_v
+
+    def _record_host_seen(
+        self,
+        host_like: str | None,
+        *,
+        ts: float | None = None,
+        retain: bool = False,
+        report: bool = False,
+    ) -> None:
+        base = self._normalize_host_key(host_like)
+        if not base:
+            return
+        self._record_mqtt_seen(base, ts=ts, retain=retain, report=report)
+        self._record_mqtt_seen(f"{base}.local", ts=ts, retain=retain, report=report)
+
+    def _latest_seen(self, keys, source: dict[str, float] | None = None) -> float:
+        source = source or {}
+        latest = 0.0
+        for key in keys or []:
+            try:
+                latest = max(latest, float(source.get(str(key or "").strip(), 0.0) or 0.0))
+            except Exception:
+                continue
+        return latest
+
+    def _switch_id_for_channel_id(self, channel_id: str | None) -> str:
+        ch = str(channel_id or "").strip()
+        if not ch:
+            return ""
+        ch_l = ch.lower()
+        try:
+            for meta in (self.nodus_switch_topic_map or {}).values():
+                if str(meta.get("channel_id") or "").strip().lower() == ch_l:
+                    return str(meta.get("switch_id") or "").strip()
+        except Exception:
+            pass
+        try:
+            for row in (self.data_logger.get_switch_identities() or []):
+                row_ch = str(row.get("channel_id") or "").strip()
+                switch_key = str(row.get("switch_key") or "").strip()
+                if not row_ch and "::" in switch_key:
+                    row_ch = switch_key.split("::", 1)[0].strip()
+                if row_ch.lower() == ch_l:
+                    return str(row.get("switch_id") or "").strip()
+        except Exception:
+            pass
+        return ""
+
+    def _liveness_keys_for(self, device_id: str | None, device_type: str | None = None) -> list[str]:
+        keys: list[str] = []
+
+        def _add(value: str | None) -> None:
+            raw = str(value or "").strip()
+            if not raw:
+                return
+            options = [raw]
+            base = self._normalize_host_key(raw)
+            if base:
+                options.extend([base, f"{base}.local"])
+            for item in options:
+                text = str(item or "").strip()
+                if text and text not in keys:
+                    keys.append(text)
+
+        dev = str(device_id or "").strip()
+        _add(dev)
+
+        channel_switch_id = ""
+        if _looks_like_channel_id(dev):
+            channel_switch_id = self._switch_id_for_channel_id(dev)
+            _add(channel_switch_id)
+
+        resolved_from = channel_switch_id or dev
+        try:
+            _add(self.resolve_nodus_hostname(resolved_from, device_type=device_type))
+        except Exception:
+            pass
+
+        for host, peers in (self.host_to_peer_ids or {}).items():
+            try:
+                peer_set = {str(p or "").strip() for p in (peers or []) if str(p or "").strip()}
+                if dev in peer_set or channel_switch_id in peer_set or host in keys or f"{host}.local" in keys:
+                    _add(host)
+                    for peer in peer_set:
+                        _add(peer)
+            except Exception:
+                continue
+
+        return keys
+
+    def _resolve_liveness_base(self, device_id: str | None, device_type: str | None = None) -> str:
+        keys = self._liveness_keys_for(device_id, device_type=device_type)
+        if (device_type or "").lower() == "switch" or str(device_id or "").strip().startswith("switch-"):
+            for key in keys:
+                base = self._normalize_host_key(key)
+                if not base or base.startswith("switch-"):
+                    continue
+                if (
+                    base in (self.host_to_peer_ids or {})
+                    or base in (self.mqtt_clients or set())
+                    or base in (self.last_heartbeat_ts or {})
+                    or base in (self.last_nodus_report_seen or {})
+                ):
+                    return base
+        for key in keys:
+            base = self._normalize_host_key(key)
+            if base and base in (self.host_to_peer_ids or {}):
+                return base
+        try:
+            resolved = self.resolve_nodus_hostname(str(device_id or "").strip(), device_type=device_type)
+            base = self._normalize_host_key(resolved)
+            if base:
+                return base
+        except Exception:
+            pass
+        return self._normalize_host_key(device_id) or str(device_id or "").strip()
+
+    def get_nodus_liveness(
+        self,
+        device_id: str | None,
+        *,
+        device_type: str | None = None,
+        now_ts: float | None = None,
+    ) -> dict:
+        """
+        Return the canonical Nodus liveness snapshot for UI, HA, and commands.
+
+        Availability "offline" is authoritative. Availability "online" is only
+        a hint; fresh heartbeat or fresh data/state/event traffic is required
+        before the device is considered online.
+        """
+        dev = str(device_id or "").strip()
+        base = self._resolve_liveness_base(dev, device_type=device_type)
+        keys = self._liveness_keys_for(dev or base, device_type=device_type)
+        if base:
+            for item in (base, f"{base}.local"):
+                if item not in keys:
+                    keys.append(item)
+
+        now_v = float(now_ts if now_ts is not None else time.time())
+        state = "unknown"
+        reason = "no_recent_mqtt"
+        availability = None
+        try:
+            for key in keys:
+                availability = self._get_nodus_availability(key)
+                if availability:
+                    break
+        except Exception:
+            availability = None
+
+        interval = DEFAULT_HEARTBEAT_INTERVAL_S
+        try:
+            interval = float(self.heartbeat_interval_s_by_host.get(base, DEFAULT_HEARTBEAT_INTERVAL_S) or DEFAULT_HEARTBEAT_INTERVAL_S)
+        except Exception:
+            interval = DEFAULT_HEARTBEAT_INTERVAL_S
+        if interval < MIN_HEARTBEAT_INTERVAL_S:
+            interval = MIN_HEARTBEAT_INTERVAL_S
+
+        last_seen = self._latest_seen(keys, self.last_mqtt_seen)
+        retained_seen = self._latest_seen(keys, self.retained_mqtt_seen)
+        report_seen = self._latest_seen(keys, self.last_nodus_report_seen)
+        heartbeat_seen = self._latest_seen(keys, self.last_heartbeat_ts)
+        heartbeat_age_s = (now_v - heartbeat_seen) if heartbeat_seen > 0.0 else None
+        report_age_s = (now_v - report_seen) if report_seen > 0.0 else None
+        last_seen_s = (now_v - last_seen) if last_seen > 0.0 else None
+
+        if availability == "offline":
+            state = "offline"
+            reason = "availability_offline"
+        elif heartbeat_seen > 0.0:
+            state = self._apply_heartbeat_timeout_state(base or dev, now_ts=now_v)
+            reason = f"heartbeat_{state}"
+            if self.heartbeat_stale.get(base) and state == "online":
+                state = "degraded"
+                reason = "heartbeat_stale"
+        elif report_seen > 0.0:
+            missed = max(0.0, now_v - report_seen)
+            if missed <= (2.0 * interval):
+                state = "online"
+                reason = "report_recent"
+            elif missed < (3.0 * interval):
+                state = "degraded"
+                reason = "report_stale"
+            else:
+                state = "offline"
+                reason = "report_timeout"
+        elif availability == "online" and last_seen > 0.0:
+            missed = max(0.0, now_v - last_seen)
+            if missed < (3.0 * interval):
+                state = "degraded"
+                reason = "availability_only"
+            else:
+                state = "offline"
+                reason = "availability_timeout"
+        else:
+            stored = self._normalize_liveness_state(
+                self.device_status.get(base)
+                or self.device_status.get(f"{base}.local")
+                or self.device_status.get(dev)
+            )
+            if stored in {"offline", "degraded"}:
+                state = stored
+                reason = "stored_status"
+
+        peers = []
+        try:
+            peers = list((self.host_to_peer_ids or {}).get(base, []) or [])
+        except Exception:
+            peers = []
+        if dev and dev not in peers:
+            peers.append(dev)
+
+        return {
+            "device_id": dev or base,
+            "host": base,
+            "state": self._normalize_liveness_state(state),
+            "reason": reason,
+            "availability": availability,
+            "last_seen_s": round(max(last_seen_s, 0.0), 1) if last_seen_s is not None else None,
+            "last_report_s": round(max(report_age_s, 0.0), 1) if report_age_s is not None else None,
+            "last_heartbeat_s": round(max(heartbeat_age_s, 0.0), 1) if heartbeat_age_s is not None else None,
+            "retained_seen_s": round(max(now_v - retained_seen, 0.0), 1) if retained_seen > 0.0 else None,
+            "heartbeat_stale": bool(self.heartbeat_stale.get(base) or self.heartbeat_stale.get(f"{base}.local")),
+            "heartbeat_interval_s": interval,
+            "peer_ids": peers,
+        }
+
+    def _heartbeat_liveness_timestamp(
+        self,
+        hb_ts: float | None,
+        *,
+        retain: bool,
+        now_ts: float,
+        interval_s: float,
+    ) -> float:
+        if hb_ts is None:
+            return now_ts
+        try:
+            payload_ts = float(hb_ts)
+        except Exception:
+            return now_ts
+        if retain:
+            return payload_ts
+        max_past_drift = max(HEARTBEAT_STALE_AFTER_S, float(interval_s or DEFAULT_HEARTBEAT_INTERVAL_S) * 3.0)
+        if payload_ts < (now_ts - max_past_drift):
+            return now_ts
+        return payload_ts
+
+    def _notify_liveness_status_change(self, base: str, status: str) -> None:
+        callbacks = list(getattr(self, "_liveness_status_callbacks", []) or [])
+        if not callbacks:
+            return
+        try:
+            snapshot = self.get_nodus_liveness(base)
+        except Exception:
+            snapshot = {"device_id": base, "host": base, "state": status}
+        for callback in callbacks:
+            try:
+                callback(base, status, snapshot)
+            except Exception as exc:
+                if DEBUG:
+                    printDM(f"[liveness] callback failed for {base}: {exc}", location=MODULE)
+
     def _derive_heartbeat_interval_s(self, data: dict | None) -> float:
         interval = DEFAULT_HEARTBEAT_INTERVAL_S
         try:
@@ -635,15 +925,17 @@ class saiMQTTIngest:
         if hb_ts:
             missed = max(0.0, now_v - float(hb_ts))
         else:
-            # No heartbeat yet: derive liveness from general MQTT activity so hosts
-            # can still age to OFFLINE when traffic stops.
+            # No heartbeat yet: derive liveness from live Nodus reports
+            # (data/state/event), not from retained broker replays or bare
+            # availability=online hints.
             last_seen = float(
-                self.last_mqtt_seen.get(base)
-                or self.last_mqtt_seen.get(f"{base}.local")
+                self.last_nodus_report_seen.get(base)
+                or self.last_nodus_report_seen.get(f"{base}.local")
                 or 0.0
             )
             if last_seen <= 0.0:
-                return self.device_status.get(base, "unknown")
+                stored = self._normalize_liveness_state(self.device_status.get(base))
+                return stored if stored in {"offline", "degraded"} else "unknown"
             if self._get_nodus_availability(base) == "offline":
                 return "offline"
             missed = max(0.0, now_v - last_seen)
@@ -1489,7 +1781,7 @@ class saiMQTTIngest:
                     printDM(f"[on_message] device parser skipped: {e}", location=MODULE)
             # Nodus switch topics: nodus/<channel_id>/(state|event)
             try:
-                self.handle_nodus_switch_topic(topic, payload_text)
+                self.handle_nodus_switch_topic(topic, payload_text, retain=retain)
             except Exception as e:
                 if DEBUG:
                     printDM(f"[on_message] nodus switch parser skipped: {e}", location=MODULE)
@@ -1606,8 +1898,7 @@ class saiMQTTIngest:
                     self.fwupdate_result_by_device[base] = result
                     self.fwupdate_result_by_device[f"{base}.local"] = result
                     self.fwupdate_result_by_device[nodus_id] = result
-                    self.last_mqtt_seen[base] = result["received_at"]
-                    self.last_mqtt_seen[f"{base}.local"] = result["received_at"]
+                    self._record_host_seen(base, ts=result["received_at"], retain=retain, report=False)
                     phase = str(result.get("phase") or "").strip().lower()
                     if phase in {"applied", "complete", "completed"}:
                         self._mark_host_status(base, "online")
@@ -1638,23 +1929,24 @@ class saiMQTTIngest:
                     stale = self._heartbeat_is_stale(hb_ts, retain=retain, now_ts=now_t)
                     self.heartbeat_stale[base] = bool(stale)
                     self.heartbeat_stale[f"{base}.local"] = bool(stale)
-                    self.last_mqtt_seen[base] = now_t
-                    self.last_mqtt_seen[f"{base}.local"] = now_t
+                    self._record_host_seen(base, ts=now_t, retain=retain, report=(not retain and not stale))
 
                     if isinstance(data, dict):
                         self.last_heartbeat_payload[base] = dict(data)
                         self.last_heartbeat_payload[f"{base}.local"] = dict(data)
 
                     if stale:
-                        self._mark_host_status(base, "unknown")
+                        self._mark_host_status(base, "offline" if retain else "unknown")
                         return
 
-                    if hb_ts is not None:
-                        self.last_heartbeat_ts[base] = float(hb_ts)
-                        self.last_heartbeat_ts[f"{base}.local"] = float(hb_ts)
-                    else:
-                        self.last_heartbeat_ts[base] = now_t
-                        self.last_heartbeat_ts[f"{base}.local"] = now_t
+                    heartbeat_liveness_ts = self._heartbeat_liveness_timestamp(
+                        hb_ts,
+                        retain=retain,
+                        now_ts=now_t,
+                        interval_s=hb_interval,
+                    )
+                    self.last_heartbeat_ts[base] = heartbeat_liveness_ts
+                    self.last_heartbeat_ts[f"{base}.local"] = heartbeat_liveness_ts
 
                     # Keep explicit offline status authoritative, otherwise derive from heartbeat timing.
                     if hb_state == "offline":
@@ -1668,11 +1960,27 @@ class saiMQTTIngest:
 
                 if (not self.nodus_debug_data_only) and len(parts) > id_index + 1 and parts[id_index + 1] == "availability":
                     nodus_id = parts[id_index]
-                    if _looks_like_channel_id(nodus_id):
-                        if DEBUG:
-                            printDM(f"[availability] ignoring channel id as host candidate: {nodus_id}", location=MODULE)
-                        return
                     status = self._parse_availability_payload(payload_text, data)
+                    if _looks_like_channel_id(nodus_id):
+                        if status:
+                            now_t = time.time()
+                            self._record_mqtt_seen(nodus_id, ts=now_t, retain=retain, report=False)
+                            self.nodus_availability[nodus_id] = status
+                            switch_id = self._switch_id_for_channel_id(nodus_id)
+                            if switch_id:
+                                self._record_mqtt_seen(switch_id, ts=now_t, retain=retain, report=False)
+                                host = self.resolve_nodus_hostname(switch_id, device_type="switch")
+                                if host:
+                                    peers = self.host_to_peer_ids.setdefault(host, [])
+                                    for peer in (switch_id, nodus_id):
+                                        if peer and peer not in peers:
+                                            peers.append(peer)
+                                    self._record_host_seen(host, ts=now_t, retain=retain, report=False)
+                                    derived = self.get_nodus_liveness(nodus_id, device_type="switch", now_ts=now_t).get("state", "unknown")
+                                    if derived == "unknown" and status == "online" and not retain:
+                                        derived = "degraded"
+                                    self._mark_host_status(host, derived)
+                        return
                     if status:
                         base = self._host_from_sid_base(nodus_id)
                         if base:
@@ -1681,8 +1989,7 @@ class saiMQTTIngest:
                             else:
                                 self._maybe_promote_retained_host(base, source="availability")
                             now_t = time.time()
-                            self.last_mqtt_seen[base] = now_t
-                            self.last_mqtt_seen[f"{base}.local"] = now_t
+                            self._record_host_seen(base, ts=now_t, retain=retain, report=False)
                             self.nodus_availability[base] = status
                             self.nodus_availability[f"{base}.local"] = status
 
@@ -1692,8 +1999,11 @@ class saiMQTTIngest:
 
                             if status == "online":
                                 self.device_offline_count[base] = 0
-                                self._mark_host_status(base, "online")
-                                # Recovery on fresh availability when heartbeat is stale/missing.
+                                derived = self.get_nodus_liveness(base, now_ts=now_t).get("state", "unknown")
+                                if retain and derived == "degraded":
+                                    derived = "unknown"
+                                self._mark_host_status(base, derived)
+                                # Availability-only recovery is weak until heartbeat/data resumes.
                                 if base not in self.last_heartbeat_ts:
                                     self.heartbeat_stale[base] = True
                                     self.heartbeat_stale[f"{base}.local"] = True
@@ -1728,7 +2038,7 @@ class saiMQTTIngest:
                 }
                 # update time of message received
                 try:
-                    self.last_mqtt_seen[sensor_id] = time.time()
+                    self._record_mqtt_seen(sensor_id, retain=retain, report=(not retain))
                 except Exception:
                     pass
                 # --- FAST LIVENESS PATH: mark host online and refresh host↔peer mapping
@@ -1744,10 +2054,12 @@ class saiMQTTIngest:
                             peers.append(sensor_id)
                             
                         now_t = time.time()
-                        self.last_mqtt_seen[host] = now_t
-                        self.last_mqtt_seen[f"{host}.local"] = now_t 
+                        self._record_host_seen(host, ts=now_t, retain=retain, report=(not retain))
 
-                        self._mark_host_status(host, "online")
+                        if not retain:
+                            self._mark_host_status(host, self.get_nodus_liveness(host, now_ts=now_t).get("state", "online"))
+                        else:
+                            self._mark_host_status(host, self.get_nodus_liveness(host, now_ts=now_t).get("state", "unknown"))
                         if (not self.nodus_debug_data_only) and host not in self.last_heartbeat_ts:
                             self.heartbeat_stale[host] = True
                             self.heartbeat_stale[f"{host}.local"] = True
@@ -1774,12 +2086,11 @@ class saiMQTTIngest:
                     base_id, _pin = split_switch_id_and_pin(sw_part)
                 if base_id:
                     now_t = time.time()
-                    self.last_mqtt_seen[base_id] = now_t
+                    self._record_mqtt_seen(base_id, ts=now_t, retain=retain, report=(not retain))
                     try:
                         host = self._host_from_topic_or_sid(None, base_id)
                         if host:
-                            self.last_mqtt_seen[host] = now_t
-                            self.last_mqtt_seen[f"{host}.local"] = now_t
+                            self._record_host_seen(host, ts=now_t, retain=retain, report=(not retain))
                     except Exception:
                         pass   
                 """
@@ -1805,7 +2116,7 @@ class saiMQTTIngest:
                         peers = self.host_to_peer_ids.setdefault(host, [])
                         if base_id not in peers:
                             peers.append(base_id)
-                        self._mark_host_status(host, "online")
+                        self._mark_host_status(host, self.get_nodus_liveness(host, now_ts=time.time()).get("state", "unknown"))
                 except Exception:
                     pass
     
@@ -2601,8 +2912,11 @@ class saiMQTTIngest:
         if not base:
             return
         s = self._normalize_liveness_state(status)
+        previous = self.device_status.get(base) or self.device_status.get(f"{base}.local")
         self.device_status[base] = s
         self.device_status[f"{base}.local"] = s
+        if previous != s:
+            self._notify_liveness_status_change(base, s)
 
     def _maybe_add_mqtt_client(self, host_like: str | None) -> None:
         """
@@ -2639,16 +2953,8 @@ class saiMQTTIngest:
             elif DEBUG:
                 printDM(f"[retained] defer auto-enroll {base} ({src} seen {n}/2)", location=MODULE)
         elif src == "availability":
-            if base in self._retained_avail_probe_inflight:
-                return
-            self._retained_avail_probe_inflight.add(base)
-            ok = self._schedule_coro(self._validate_retained_availability_and_add(base))
-            if not ok:
-                self._retained_avail_probe_inflight.discard(base)
-                if DEBUG:
-                    printDM(f"[retained] skip auto-enroll for {base} (availability; no loop)", location=MODULE)
-            elif DEBUG:
-                printDM(f"[retained] validating availability before enroll: {base}", location=MODULE)
+            if DEBUG:
+                printDM(f"[retained] skip auto-enroll for {base} (availability-only hint)", location=MODULE)
         elif DEBUG:
             printDM(f"[retained] skip auto-enroll for {base} ({src})", location=MODULE)
 
@@ -2903,8 +3209,7 @@ class saiMQTTIngest:
         if not retain:
             self._maybe_add_mqtt_client(base)
 
-        self.last_mqtt_seen[base] = now_t
-        self.last_mqtt_seen[f"{base}.local"] = now_t
+        self._record_host_seen(base, ts=now_t, retain=retain, report=False)
 
         peer_ids_for_host: list[str] = []
         discovered_sensors: list[dict] = []
@@ -2935,7 +3240,7 @@ class saiMQTTIngest:
             if firmware_version:
                 self.nodus_firmware_versions[sensor_id] = firmware_version
             self.device_type[sensor_id] = "nodus"
-            self.last_mqtt_seen[sensor_id] = now_t
+            self._record_mqtt_seen(sensor_id, ts=now_t, retain=retain, report=False)
             sensor_device = self._infer_sensor_device_name(sensor_blob.get("device"), sensor_id)
             sensor_serial = self._extract_sensor_serial(sensor_blob, meta)
             display_metrics = self._normalize_display_metrics(
@@ -2995,7 +3300,7 @@ class saiMQTTIngest:
             switch_loc = _pick_location(switch_location, resolved_location)
             self.device_type[switch_id] = "nodus"
             self._known_switch_ids.add(switch_id)
-            self.last_mqtt_seen[switch_id] = now_t
+            self._record_mqtt_seen(switch_id, ts=now_t, retain=retain, report=False)
 
             event_topics: dict[str, str] = {}
             state_topics: dict[str, str] = {}
@@ -3034,7 +3339,7 @@ class saiMQTTIngest:
                 channels_with_ids.append((label, channel_id))
                 label_by_channel[channel_id] = label
                 self.nodus_label_to_channel[(switch_id, _norm_label(label))] = channel_id
-                self.last_mqtt_seen[channel_id] = now_t
+                self._record_mqtt_seen(channel_id, ts=now_t, retain=retain, report=False)
 
                 if ev_t:
                     event_topics[str(idx)] = ev_t
@@ -3102,7 +3407,7 @@ class saiMQTTIngest:
                 self.nodus_firmware_versions[switch_id] = firmware_version
             self.device_type[switch_id] = "nodus"
             self._known_switch_ids.add(switch_id)
-            self.last_mqtt_seen[switch_id] = now_t
+            self._record_mqtt_seen(switch_id, ts=now_t, retain=retain, report=False)
             try:
                 channel_count = int(switch_blob.get("channel_count") or 0)
             except Exception:
@@ -3122,7 +3427,10 @@ class saiMQTTIngest:
                 peers.append(pid)
 
         if not retain:
-            self._mark_host_status(base, "online")
+            derived = self.get_nodus_liveness(base, now_ts=now_t).get("state", "unknown")
+            if derived == "unknown":
+                derived = "degraded"
+            self._mark_host_status(base, derived)
 
         try:
             self.discovery_cache[base] = meta
@@ -3450,6 +3758,36 @@ class saiMQTTIngest:
             pass
         return None
 
+    def _command_liveness_snapshot_for_switch(self, switch_id: str, channel_id: str | None = None) -> dict:
+        target = str(switch_id or "").strip()
+        if not target:
+            target = str(channel_id or "").strip()
+        switch_snapshot = self.get_nodus_liveness(target, device_type="switch")
+        if channel_id:
+            try:
+                channel_snapshot = self.get_nodus_liveness(str(channel_id or "").strip(), device_type="switch")
+                channel_state = self._normalize_liveness_state(channel_snapshot.get("state"))
+                if channel_state == "offline":
+                    return channel_snapshot
+                switch_state = self._normalize_liveness_state(switch_snapshot.get("state"))
+                if switch_state != "online" and channel_state == "online":
+                    return channel_snapshot
+            except Exception:
+                pass
+        return switch_snapshot
+
+    def _switch_command_allowed(self, switch_id: str, channel_id: str | None = None) -> bool:
+        snapshot = self._command_liveness_snapshot_for_switch(switch_id, channel_id)
+        state = self._normalize_liveness_state(snapshot.get("state"))
+        if state == "online":
+            return True
+        if DEBUG:
+            printDM(
+                f"[switch-command] blocked {switch_id or channel_id}: liveness={state} reason={snapshot.get('reason')}",
+                location=MODULE,
+            )
+        return False
+
     def set_switch_by_channel_id(self, switch_id: str, channel_id: str, new_state: bool, qos: int = 0, retain: bool = False) -> bool:
         """
         Publish remote switch changes via Nodus config/set by updating
@@ -3459,6 +3797,8 @@ class saiMQTTIngest:
             switch_id_text = str(switch_id or "").strip()
             channel_id_text = str(channel_id or "").strip()
             if not channel_id_text:
+                return False
+            if not self._switch_command_allowed(switch_id_text, channel_id_text):
                 return False
 
             channel_index = self._resolve_switch_channel_index(switch_id_text, channel_id_text)
@@ -3627,11 +3967,10 @@ class saiMQTTIngest:
         Return 'online' | 'degraded' | 'offline' | 'unknown' for either a host ('apvpd-luvk44' or '.local')
         or a peer id ('apvpd-luvk44').
         Rule:
-          - If /availability reported a status, honor it first
-          - If any peer mapped to this host has MQTT within grace_sec → 'online'
-          - Else if we have a device_status for this host → that value
-          - Else if the name itself (peer id) has recent MQTT → 'online'
-          - Else 'unknown'
+          - heartbeat freshness is canonical
+          - live data/state/event reports are supplemental
+          - availability=offline is authoritative
+          - availability=online is only a weak hint
         """
         base = self._normalize_host_key(name) or (name or "").strip()
         if not base:
@@ -3653,33 +3992,14 @@ class saiMQTTIngest:
         except Exception:
             pass
 
-        # 0) Explicit MQTT availability status if present
         try:
-            avail = self._get_nodus_availability(base)
-            if avail in ("online", "offline"):
-                return avail
+            snapshot = self.get_nodus_liveness(base, now_ts=now_ts)
+            status = self._normalize_liveness_state(snapshot.get("state"))
+            if status in {"online", "degraded", "offline", "migration_required"}:
+                return status
         except Exception:
             pass
 
-        # 1) Recent MQTT from any mapped peer → online
-        try:
-            peers = self.host_to_peer_ids.get(base, [])
-            for pid in peers or []:
-                if (now_ts - self.last_mqtt_seen.get(pid, 0.0)) < grace_sec:
-                    return "online"
-        except Exception:
-            pass
-
-        # 2) If the thing we were given is itself a peer id and it's fresh → online
-        try:
-            if (now_ts - self.last_mqtt_seen.get(base, 0.0)) < grace_sec:
-                return "online"
-            if (now_ts - self.last_mqtt_seen.get(f"{base}.local", 0.0)) < grace_sec:
-                return "online"
-        except Exception:
-            pass
-
-        # 3) Fall back to discovery/HTTP opinion
         s = (self.device_status.get(base)
              or self.device_status.get(f"{base}.local")
              or "unknown")
@@ -3709,9 +4029,16 @@ class saiMQTTIngest:
             if (device_type or "").lower() == "switch" or dev.startswith("switch-"):
                 serial = dev.rsplit("-", 1)[-1] if "-" in dev else dev
                 try:
-                    for cand in (self.mqtt_clients or []):  # set of bare hostnames like "aqi-nz6g89"
-                        if str(cand).endswith(f"-{serial}"):
-                            return str(cand)
+                    matches = [
+                        str(cand)
+                        for cand in (self.mqtt_clients or [])
+                        if str(cand).endswith(f"-{serial}") and not _looks_like_channel_id(str(cand))
+                    ]
+                    for cand in matches:
+                        if not cand.startswith("switch-"):
+                            return cand
+                    if matches:
+                        return matches[0]
                 except Exception:
                     pass
                 return None  # do NOT invent "switch-<serial>.local" here—switch host is the sensor's host
@@ -5206,7 +5533,7 @@ class saiMQTTIngest:
         except Exception as e:
             printDM(f"[handle_switch_state_slug] err: {e}", location=MODULE)
 
-    def handle_nodus_switch_topic(self, topic: str, payload: str):
+    def handle_nodus_switch_topic(self, topic: str, payload: str, *, retain: bool = False):
         """
         Nodus state/event topics:
           topic:   "nodus/<channel_id>/state" or "nodus/<channel_id>/event"
@@ -5276,6 +5603,15 @@ class saiMQTTIngest:
 
             if not switch_id or not channel_id or kind not in ("state", "event"):
                 return
+
+            now_t = time.time()
+            self._record_mqtt_seen(str(switch_id), ts=now_t, retain=retain, report=(not retain))
+            try:
+                host = self.resolve_nodus_hostname(str(switch_id), device_type="switch")
+                if host:
+                    self._record_host_seen(host, ts=now_t, retain=retain, report=(not retain))
+            except Exception:
+                host = None
 
             payload_text = "" if payload is None else str(payload).strip()
             is_on: bool | None = None
@@ -5361,6 +5697,11 @@ class saiMQTTIngest:
                     force_write=force_write,
                 )
                 labels = _cache_channel_state(switch_id, channel_id, is_on, hint=label)
+                try:
+                    if host:
+                        self._mark_host_status(host, self.get_nodus_liveness(host, now_ts=now_t).get("state", "unknown"))
+                except Exception:
+                    pass
                 ui_label = labels[0] if labels else (label or channel_id)
                 self._broadcast_switch_event(
                     switch_id=switch_id,
@@ -5382,7 +5723,8 @@ class saiMQTTIngest:
                 labels = _labels_for_channel(switch_id, channel_id, hint=label)
                 self._known_switch_ids.add(switch_id)
                 try:
-                    self.last_mqtt_seen[switch_id] = time.time()
+                    if host:
+                        self._mark_host_status(host, self.get_nodus_liveness(host, now_ts=now_t).get("state", "unknown"))
                 except Exception:
                     pass
                 ui_label = labels[0] if labels else (label or channel_id)
@@ -5653,6 +5995,10 @@ class saiMQTTIngest:
 
         if not hasattr(self, "last_mqtt_seen"):
             self.last_mqtt_seen = {}
+        if not hasattr(self, "last_nodus_report_seen"):
+            self.last_nodus_report_seen = {}
+        if not hasattr(self, "retained_mqtt_seen"):
+            self.retained_mqtt_seen = {}
         if not hasattr(self, "host_to_peer_ids"):
             self.host_to_peer_ids = {}
         if not hasattr(self, "device_status"):
@@ -5690,13 +6036,18 @@ class saiMQTTIngest:
                             self.last_check_time[base] = now_mono
 
                             now_ts = time.time()
-                            derived = self._apply_heartbeat_timeout_state(base, now_ts=now_ts)
-                            if (not self.nodus_debug_data_only) and self.heartbeat_stale.get(base) and derived == "online":
-                                derived = "degraded"
+                            snapshot = self.get_nodus_liveness(base, now_ts=now_ts)
+                            derived = self._normalize_liveness_state(snapshot.get("state"))
 
-                            if derived in {"offline", "unknown"}:
+                            if derived == "offline":
+                                self.device_offline_count[base] = OFFLINE_RETRIES
+                                self.discovery_failures[base] = now_mono
+                                self._mark_host_status(base, "offline")
+                                continue
+
+                            if derived == "unknown":
                                 peers = self.host_to_peer_ids.get(base, [])
-                                recent = any((now_ts - self.last_mqtt_seen.get(pid, 0.0)) < MQTT_GRACE_S for pid in peers)
+                                recent = any((now_ts - self.last_nodus_report_seen.get(pid, 0.0)) < MQTT_GRACE_S for pid in peers)
                                 if recent:
                                     self.device_offline_count[base] = 0
                                     self._mark_host_status(base, "degraded")

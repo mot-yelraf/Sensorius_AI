@@ -95,14 +95,14 @@ def _format_temp_range(hours: list[dict[str, Any]]) -> str:
     if temp_range is None:
         return "--"
     lo_c, hi_c = temp_range
-    return f"{round(_c_to_f(lo_c))}-{round(_c_to_f(hi_c))}\u00b0F / {lo_c:.1f}-{hi_c:.1f}\u00b0C"
+    return f"{lo_c:.1f}-{hi_c:.1f}\u00b0C / {round(_c_to_f(lo_c))}-{round(_c_to_f(hi_c))}\u00b0F"
 
 
 def _format_rh_range(hours: list[dict[str, Any]]) -> str:
     rh_range = _range([float(h["rh"]) for h in hours if _safe_float(h.get("rh")) is not None])
     if rh_range is None:
         return "--"
-    return f"~{round(rh_range[0])}-{round(rh_range[1])}%"
+    return f"{round(rh_range[0])}-{round(rh_range[1])}%"
 
 
 def _wind_descriptor(avg_mps: float) -> str:
@@ -124,8 +124,49 @@ def _format_wind(hours: list[dict[str, Any]]) -> str:
     avg_mps = sum(values) / len(values)
     return (
         f"Mostly {_wind_descriptor(avg_mps)}\n"
-        f"~{round(lo_mps)}-{round(hi_mps)} m/s / {round(_mps_to_mph(lo_mps))}-{round(_mps_to_mph(hi_mps))} mph"
+        f"{round(lo_mps)}-{round(hi_mps)} m/s / {round(_mps_to_mph(lo_mps))}-{round(_mps_to_mph(hi_mps))} mph"
     )
+
+
+def _normalize_forecast_temp_display(value: object) -> str:
+    text = str(value or "").strip().replace("~", "")
+    if not text or text == "--":
+        return "--"
+    f_idx = text.find("\u00b0F")
+    c_idx = text.find("\u00b0C")
+    if f_idx >= 0 and c_idx >= 0 and f_idx < c_idx:
+        parts = [part.strip() for part in text.split("/")]
+        if len(parts) == 2 and parts[0].endswith("\u00b0F") and parts[1].endswith("\u00b0C"):
+            return f"{parts[1]} / {parts[0]}"
+    return text
+
+
+def _normalize_forecast_display_text(value: object) -> str:
+    text = str(value or "").strip().replace("~", "")
+    return text or "--"
+
+
+def normalize_forecast_display_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize cached forecast display strings to the current dashboard format."""
+    if not isinstance(payload, dict):
+        return payload
+
+    def _normalize_summary(summary: object) -> None:
+        if not isinstance(summary, dict):
+            return
+        if "temp_range" in summary:
+            summary["temp_range"] = _normalize_forecast_temp_display(summary.get("temp_range"))
+        if "rh_range" in summary:
+            summary["rh_range"] = _normalize_forecast_display_text(summary.get("rh_range"))
+        if "wind" in summary:
+            summary["wind"] = _normalize_forecast_display_text(summary.get("wind"))
+
+    _normalize_summary(payload.get("current_24h"))
+    days = payload.get("days")
+    if isinstance(days, list):
+        for day in days:
+            _normalize_summary(day)
+    return payload
 
 
 def _cloud_phrase(avg_cloud: float | None) -> str:
@@ -449,7 +490,7 @@ def load_weather_forecast_cache(db_path: str, *, latitude: float, longitude: flo
         payload = json.loads(row[0])
     except Exception:
         return None
-    return payload if isinstance(payload, dict) else None
+    return normalize_forecast_display_payload(payload) if isinstance(payload, dict) else None
 
 
 def _cache_age_sec(payload: dict[str, Any]) -> float | None:

@@ -67,16 +67,16 @@ def test_met_forecast_is_summarized_for_dashboard_card():
 
     current = payload["current_24h"]
     assert payload["ok"] is True
-    assert current["temp_range"] == "58-73°F / 14.3-22.8°C"
-    assert current["wind"] == "Mostly light/moderate\n~2-4 m/s / 4-9 mph"
-    assert current["rh_range"] == "~34-64%"
+    assert current["temp_range"] == "14.3-22.8°C / 58-73°F"
+    assert current["wind"] == "Mostly light/moderate\n2-4 m/s / 4-9 mph"
+    assert current["rh_range"] == "34-64%"
     assert "Cloudy early" in current["overall"]
     assert "light rain/showers afternoon" in current["overall"]
     assert "clearing overnight" in current["overall"]
 
     first_day = payload["days"][0]
     assert first_day["label"] == "Fri Jun 5"
-    assert first_day["temp_range"] == "59-80°F / 15.1-26.5°C"
+    assert first_day["temp_range"] == "15.1-26.5°C / 59-80°F"
 
 
 def test_weather_forecast_cache_round_trip(tmp_path):
@@ -100,3 +100,30 @@ def test_weather_forecast_cache_round_trip(tmp_path):
     assert loaded["current_24h"]["temp_range"] == payload["current_24h"]["temp_range"]
 
     assert load_weather_forecast_cache(str(db_path), latitude=33.0, longitude=-108.2804) is None
+
+
+def test_weather_forecast_cache_normalizes_legacy_display_strings(tmp_path):
+    hourly = normalize_met_forecast(_sample_met_payload(), tz_name="America/Denver")
+    payload = build_forecast_payload(
+        provider="met_no",
+        latitude=32.7701,
+        longitude=-108.2803,
+        tz_name="America/Denver",
+        hourly=hourly,
+        location_source="settings",
+        retrieved_utc="2026-06-04T06:25:00Z",
+    )
+    payload["current_24h"]["temp_range"] = "58-73°F / 14.3-22.8°C"
+    payload["current_24h"]["wind"] = "Mostly light/moderate\n~2-4 m/s / 4-9 mph"
+    payload["current_24h"]["rh_range"] = "~34-64%"
+    payload["days"][0]["temp_range"] = "59-80°F / 15.1-26.5°C"
+    db_path = tmp_path / "forecast.db"
+
+    save_weather_forecast_cache(str(db_path), payload)
+    loaded = load_weather_forecast_cache(str(db_path), latitude=32.7702, longitude=-108.2804)
+
+    assert loaded is not None
+    assert loaded["current_24h"]["temp_range"] == "14.3-22.8°C / 58-73°F"
+    assert loaded["current_24h"]["wind"] == "Mostly light/moderate\n2-4 m/s / 4-9 mph"
+    assert loaded["current_24h"]["rh_range"] == "34-64%"
+    assert loaded["days"][0]["temp_range"] == "15.1-26.5°C / 59-80°F"

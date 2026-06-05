@@ -6205,7 +6205,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 d = getattr(ing, dname, None)
                 if isinstance(d, dict) and key in d:
                     d.pop(key, None); _bump()
-            for dname in ("device_status", "last_mqtt_seen", "nodus_availability", "last_heartbeat_ts", "last_heartbeat_payload", "heartbeat_interval_s_by_host", "heartbeat_stale"):
+            for dname in ("device_status", "last_mqtt_seen", "last_nodus_report_seen", "retained_mqtt_seen", "nodus_availability", "last_heartbeat_ts", "last_heartbeat_payload", "heartbeat_interval_s_by_host", "heartbeat_stale"):
                 d = getattr(ing, dname, None)
                 if isinstance(d, dict) and key in d:
                     d.pop(key, None); _bump()
@@ -11147,6 +11147,36 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 except Exception:
                     return None
 
+            def _remote_liveness_payload(sid: str) -> dict:
+                try:
+                    sid_text = str(sid or "").strip()
+                    if not sid_text:
+                        return {}
+                    dev_map = getattr(mqtt_ingest, "device_type", {}) or {}
+                    host_to_peer_ids = getattr(mqtt_ingest, "host_to_peer_ids", {}) or {}
+                    looks_remote = (
+                        sid_text.startswith("switch-")
+                        or str(dev_map.get(sid_text) or "").strip().lower() == "nodus"
+                        or sid_text in (remote_cache or {})
+                        or any(sid_text in (peers or []) for peers in host_to_peer_ids.values())
+                    )
+                    if not looks_remote:
+                        return {}
+                    getter = getattr(mqtt_ingest, "get_nodus_liveness", None)
+                    if not callable(getter):
+                        return {}
+                    snapshot = getter(sid_text, device_type="switch")
+                    state = str(snapshot.get("state") or "unknown").strip().lower()
+                    return {
+                        "availability": state,
+                        "online": state == "online",
+                        "liveness_reason": str(snapshot.get("reason") or ""),
+                        "last_seen_s": snapshot.get("last_seen_s"),
+                        "last_heartbeat_s": snapshot.get("last_heartbeat_s"),
+                    }
+                except Exception:
+                    return {}
+
             for entry in local_entries:
                 switch_id = str(entry.get("switch_id", "") or "").strip()
                 label = str(entry.get("label", "") or "").strip()
@@ -11184,6 +11214,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     latest_bool = (latest == "On") if latest is not None else False
                 events = _format_events_remote(db_key, limit=5) or _format_events(db_key, None, limit=5)
                 payload = {"state": latest_bool, "time": events}
+                payload.update(_remote_liveness_payload(sid))
                 states[ui_key] = dict(payload)
                 seen_ui_keys.add(ui_key)
                 if "::" in db_key:
@@ -11213,7 +11244,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         latest = data_logger.get_latest_switch_state(db_key)
                         latest_bool = (latest == "On") if latest is not None else (str(human_state).lower() == "on")
                     events = _format_events_remote(db_key, limit=5) or _format_events(db_key, None, limit=5)
-                    states[ui_key] = {"state": latest_bool, "time": events}
+                    payload = {"state": latest_bool, "time": events}
+                    payload.update(_remote_liveness_payload(remote_switch_id))
+                    states[ui_key] = payload
 
             return states
 
@@ -11346,6 +11379,34 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 bool(getattr(ctrl, "switch_topics", None)) or
                 bool(getattr(getattr(ctrl, "switch", None), "switch_topics", None)) or
                 str(getattr(ctrl, "switch_id", "")).startswith("switch-")
+            )
+
+        def _remote_liveness_snapshot(target_id: str | None, *, channel_id: str | None = None) -> dict:
+            try:
+                getter = getattr(mqtt_ingest, "get_nodus_liveness", None)
+                if callable(getter):
+                    return dict(getter(str(target_id or channel_id or "").strip(), device_type="switch") or {})
+            except Exception:
+                pass
+            return {"state": "unknown", "reason": "liveness_unavailable"}
+
+        def _remote_liveness_block_response(target_id: str | None, *, channel_id: str | None = None):
+            snapshot = _remote_liveness_snapshot(target_id, channel_id=channel_id)
+            state = str(snapshot.get("state") or "unknown").strip().lower()
+            if state == "online":
+                return None
+            return JSONResponse(
+                {
+                    "error": "device_offline",
+                    "message": "Nodus device is not reporting; wait for heartbeat or data before toggling.",
+                    "switch_id": str(target_id or ""),
+                    "channel_id": str(channel_id or ""),
+                    "availability": state,
+                    "liveness_reason": str(snapshot.get("reason") or ""),
+                    "last_seen_s": snapshot.get("last_seen_s"),
+                    "last_heartbeat_s": snapshot.get("last_heartbeat_s"),
+                },
+                status_code=503,
             )
 
         # even if the db does not have a state value, set the state
@@ -11541,6 +11602,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                                 current_on = None
 
                         new_state = (not current_on) if current_on is not None else True
+                        blocked = _remote_liveness_block_response(resolved_sid or "", channel_id=channel_id)
+                        if blocked is not None:
+                            return blocked
                         ok = bool(mqtt_ingest.set_switch_by_channel_id(resolved_sid or "", channel_id, new_state))
                         if ok:
                             ts = time.time()
@@ -11703,6 +11767,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
                 # Primary: use ingest helper (finds correct base topic and emits {"set": "..."} JSON)
                 if sid:
+                    try:
+                        channel_id = str((getattr(ctrl, "channel_id_for_label", {}) or {}).get(matched_label, "") or "").strip()
+                    except Exception:
+                        channel_id = ""
+                    blocked = _remote_liveness_block_response(sid, channel_id=channel_id)
+                    if blocked is not None:
+                        return blocked
                     try:
                         ok = bool(mqtt_ingest.set_switch(sid, matched_label, new_state, event_origin="manual"))
                     except Exception as e:

@@ -130,6 +130,12 @@ Use MQTT liveness for onboarded devices:
 - Availability: `nodus/<device_id>/availability` and channel availability
 - Retained metadata replay on reconnect
 
+For non-retained live heartbeats, Sensorius uses broker receipt time for
+liveness if the payload `timestamp` is skewed far enough to look stale, such as
+when a Nodus publishes an epoch shifted by the current GMT offset. Retained
+heartbeats still use the payload timestamp so stale broker replays do not mark a
+device online.
+
 Periodic `/hayd` and `/itaot` polling is deprecated for steady-state health.
 `/itaot-meta` may still be used for AP-mode/bootstrap or user-initiated
 diagnostics.

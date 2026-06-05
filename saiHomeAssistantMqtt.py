@@ -79,6 +79,83 @@ class rPiHomeAssistantBridge:
         self._asyncio_loop: asyncio.AbstractEventLoop | None = None
         self._ha_discovered_sensor_metrics: set[str] = set()
 
+    def _remote_nodus_state(self, device_id: str, *, device_type: str | None = None) -> str | None:
+        try:
+            ing = self.mqtt_clients
+            getter = getattr(ing, "get_nodus_liveness", None)
+            if not callable(getter):
+                return None
+            dev_map = getattr(ing, "device_type", {}) or {}
+            dev_id = str(device_id or "").strip()
+            if not dev_id:
+                return None
+            host_to_peer_ids = getattr(ing, "host_to_peer_ids", {}) or {}
+            looks_remote = (
+                str(dev_map.get(dev_id) or "").strip().lower() == "nodus"
+                or dev_id.startswith("switch-")
+                or any(dev_id in (peers or []) for peers in host_to_peer_ids.values())
+            )
+            if not looks_remote:
+                return None
+            snapshot = getter(dev_id, device_type=device_type)
+            return str(snapshot.get("state") or "").strip().lower() or None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _ha_availability_from_state(state: str | None) -> str:
+        return "online" if str(state or "").strip().lower() == "online" else "offline"
+
+    def _sensor_availability_for_discovery(self, sensor_id: str) -> str:
+        state = self._remote_nodus_state(sensor_id, device_type="sensor")
+        if state is None:
+            return "online"
+        return self._ha_availability_from_state(state)
+
+    def _switch_availability_for_discovery(self, switch_id: str) -> str:
+        state = self._remote_nodus_state(switch_id, device_type="switch")
+        if state is None:
+            return "online"
+        return self._ha_availability_from_state(state)
+
+    def handle_nodus_liveness_change(self, host: str, status: str, snapshot: dict | None = None) -> None:
+        """Publish retained HA availability when MQTT ingest marks a Nodus host online/offline."""
+        if not self.enabled:
+            return
+        state = str((snapshot or {}).get("state") or status or "").strip().lower()
+        if state not in {"online", "degraded", "offline", "unknown", "migration_required"}:
+            return
+        availability = self._ha_availability_from_state(state)
+        peers = []
+        try:
+            peers = list((snapshot or {}).get("peer_ids") or [])
+        except Exception:
+            peers = []
+        host_text = str(host or "").strip()
+        if host_text and host_text not in peers:
+            peers.append(host_text)
+
+        switch_ids: set[str] = set()
+        try:
+            for row in self.data_logger.get_switch_identities() or []:
+                switch_id = str(row.get("switch_id") or "").strip()
+                if switch_id:
+                    switch_ids.add(switch_id)
+        except Exception:
+            switch_ids = set()
+
+        for peer in peers:
+            peer_id = str(peer or "").strip()
+            if not peer_id or (len(peer_id) > 1 and peer_id[0] == "S" and peer_id[1].isdigit()):
+                continue
+            try:
+                if peer_id in switch_ids or peer_id.startswith("switch-"):
+                    self.publish_switch_availability(peer_id, availability)
+                else:
+                    self.publish_sensor_availability(peer_id, availability)
+            except Exception:
+                continue
+
 
     # ------- init helpers --------
     def _build_channel_index(self) -> dict[str, tuple[Any, str, str]]:
@@ -169,9 +246,14 @@ class rPiHomeAssistantBridge:
                 if ok:
                     self._ha_discovered_sensor_metrics.add(metric_key)
 
-            # availability online (retained)
+            # availability retained; Nodus uses heartbeat/data freshness, not retained birth alone.
             avail_topic = self.topic_map.sensor_availability_topic(sensor_id)
-            self.mqtt_clients.publish_text(avail_topic, "online", qos=self.qos, retain=True)
+            self.mqtt_clients.publish_text(
+                avail_topic,
+                self._sensor_availability_for_discovery(sensor_id),
+                qos=self.qos,
+                retain=True,
+            )
             # publish an initial retained state snapshot so HA doesn't sit at "unknown"
             try:
                 latest = self.data_logger.get_latest_readings(sensor_id)  # you may need to implement/adjust this
@@ -217,9 +299,14 @@ class rPiHomeAssistantBridge:
                 if DEBUG and not ok:
                     printDM(f"HA switch discovery publish failed: {discovery_topic}", location=MODULE)
 
-            # availability online (retained)
+            # availability retained; Nodus devices start offline unless liveness is fresh.
             avail_topic = self.topic_map.switch_availability_topic(switch_id)
-            self.mqtt_clients.publish_text(avail_topic, "online", qos=self.qos, retain=True)
+            self.mqtt_clients.publish_text(
+                avail_topic,
+                self._switch_availability_for_discovery(switch_id),
+                qos=self.qos,
+                retain=True,
+            )
 
         # publish retained initial switch states once so HA entities don't remain unknown
         await self.publish_initial_switch_states()

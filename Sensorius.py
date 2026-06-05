@@ -578,6 +578,10 @@ async def main():
                 switch_controllers=switch_controllers,
                 data_logger=data_logger,
             )
+            try:
+                mqtt_ingest_clients.register_liveness_callback(ha_bridge.handle_nodus_liveness_change)
+            except Exception:
+                pass
 
             async def _ha_bootstrap():
                 ok = await mqtt_ingest_clients.wait_until_ha_connected(timeout=10.0)
