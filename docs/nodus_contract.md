@@ -260,6 +260,9 @@ Pacing rules in Sensorius:
 - `Time.TZ`, `Time.TZ_OFFSET`, and `Time.TZ_NAME` updates are valid ordinary
   runtime config writes. Sensorius sends them when its IANA timezone rules move
   the hub between Standard Time and Daylight Saving Time.
+- Auto-generated command `message_id` timestamps use Sensorius local-naive
+  epoch seconds from `[Time].TZ`, matching Nodus MQTT payload timestamps and
+  local data storage.
 
 If a queued update fails, the remaining batch for that route/action stops.
 

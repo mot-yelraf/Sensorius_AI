@@ -66,7 +66,50 @@ def _values_equal(left, right) -> bool:
         return abs(float(left) - float(right)) <= 1e-9
     except Exception:
         return left == right
-    
+
+def _local_epoch_seconds(settings=None, now_epoch: float | None = None) -> int:
+    """Return local-naive epoch seconds for MQTT command identifiers."""
+    try:
+        epoch = float(time.time() if now_epoch is None else now_epoch)
+    except Exception:
+        epoch = time.time()
+    tzname = None
+    if settings is not None:
+        try:
+            tzname = (
+                settings.get_setting("Time", "TZ")
+                or settings.get_setting("Time", "tz")
+            )
+        except Exception:
+            tzname = None
+    try:
+        if not tzname:
+            from saiSettings import saiSettings
+
+            loaded_settings = saiSettings(apply_live=False)
+            tzname = (
+                loaded_settings.get_setting("Time", "TZ")
+                or loaded_settings.get_setting("Time", "tz")
+            )
+    except Exception:
+        pass
+    try:
+        tz = ZoneInfo(str(tzname or "").strip()) if tzname else None
+    except Exception:
+        tz = None
+    try:
+        current = (
+            datetime.fromtimestamp(epoch, tz)
+            if tz
+            else datetime.fromtimestamp(epoch).astimezone()
+        )
+        offset = current.utcoffset()
+        if offset is not None:
+            epoch += offset.total_seconds()
+    except Exception:
+        pass
+    return int(epoch)
+
 def _norm_label(label: str | None) -> str:
     return (label or "").strip().lower()
 
@@ -1234,7 +1277,8 @@ class saiMQTTIngest:
         if not device or not action_name:
             return {"ok": False, "message_id": "", "topic": ""}
         if not message_id:
-            message_id = f"cal-{int(time.time())}-{action_name}-{device[:24]}"
+            local_epoch = _local_epoch_seconds(self.settings)
+            message_id = f"cal-{local_epoch}-{action_name}-{device[:24]}"
         envelope = {
             "message_id": message_id,
             "action": action_name,
@@ -1262,7 +1306,8 @@ class saiMQTTIngest:
         if not device or not isinstance(payload, dict):
             return {"ok": False, "message_id": "", "topic": ""}
         if not message_id:
-            message_id = f"cfg-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+            local_epoch = _local_epoch_seconds(self.settings)
+            message_id = f"cfg-{local_epoch}-{uuid.uuid4().hex[:8]}"
         envelope = {
             "message_id": message_id,
             "payload": dict(payload),
@@ -1302,7 +1347,8 @@ class saiMQTTIngest:
         if not device:
             return {"ok": False, "message_id": "", "topic": ""}
         if not message_id:
-            message_id = f"rst-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+            local_epoch = _local_epoch_seconds(self.settings)
+            message_id = f"rst-{local_epoch}-{uuid.uuid4().hex[:8]}"
         envelope = {
             "message_id": message_id,
             "payload": {},
@@ -3824,7 +3870,8 @@ class saiMQTTIngest:
                 }
                 advertised_topic = self.nodus_switch_command_topics.get((switch_id_text, channel_id_text))
                 if advertised_topic and str(advertised_topic).strip().endswith("/config/set"):
-                    message_id = f"cfg-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+                    local_epoch = _local_epoch_seconds(self.settings)
+                    message_id = f"cfg-{local_epoch}-{uuid.uuid4().hex[:8]}"
                     envelope = {
                         "message_id": message_id,
                         "payload": payload,

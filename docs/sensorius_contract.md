@@ -271,6 +271,9 @@ Implemented behavior:
   runtime updates when the hub observes an IANA timezone offset/name transition.
   These use the same one-update-at-a-time pacing and `ack`/`result` correlation
   as other device config writes.
+- Auto-generated Nodus command `message_id` timestamps use Sensorius
+  local-naive epoch seconds from the configured `[Time].TZ`, matching Nodus
+  MQTT payload timestamps and local data storage.
 - Empty payloads on `nodus/<device_id>/config/set` are ignored. This allows
   Sensorius retained command cleanup publishes to be received safely after
   reconnect.

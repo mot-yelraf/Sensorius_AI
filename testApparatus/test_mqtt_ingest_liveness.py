@@ -10,6 +10,7 @@ import os
 import sys
 import types
 import time
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -319,6 +320,45 @@ def test_publish_nodus_calibration_uses_mqtt_command_topic(monkeypatch):
     assert body["payload"]["offsets"][0]["key"] == "Calibration.Device.TEMP_OFFSET"
     assert qos == 1
     assert retain is False
+
+
+def test_local_epoch_seconds_uses_configured_timezone(monkeypatch):
+    settings = _FakeSettings(values={("Time", "TZ"): "America/Denver"})
+    utc_epoch = datetime(2026, 6, 5, 18, 1, 55, tzinfo=timezone.utc).timestamp()
+
+    assert int(utc_epoch) == 1780682515
+    local_epoch = ingest_mod._local_epoch_seconds(settings, now_epoch=utc_epoch)
+    assert local_epoch == 1780660915
+
+
+def test_publish_nodus_config_uses_local_epoch_message_id(monkeypatch):
+    utc_epoch = datetime(2026, 6, 5, 18, 1, 55, tzinfo=timezone.utc).timestamp()
+    monkeypatch.setattr(ingest_mod.time, "time", lambda: utc_epoch)
+    monkeypatch.setattr(
+        ingest_mod.uuid,
+        "uuid4",
+        lambda: types.SimpleNamespace(hex="abcdef0123456789"),
+    )
+    ingest = _build_ingest(
+        monkeypatch,
+        values={("Time", "TZ"): "America/Denver"},
+    )
+
+    result = ingest.publish_nodus_config(
+        "aht-rvwi73",
+        payload={
+            "updates": [
+                {"section": "Time", "key": "TZ", "value": "America/Denver"}
+            ]
+        },
+    )
+
+    assert result["ok"] is True
+    assert result["message_id"] == "cfg-1780660915-abcdef01"
+    topic, payload, _qos, _retain = ingest.client.pubs[-1]
+    body = json.loads(payload)
+    assert topic == "nodus/aht-rvwi73/config/set"
+    assert body["message_id"] == "cfg-1780660915-abcdef01"
 
 
 def test_publish_text_rejects_non_empty_retained_set_command(monkeypatch):
