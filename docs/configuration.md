@@ -86,6 +86,11 @@ SENSORIUS_GC_JITTER_SEC=0.7
 SENSORIUS_GC_MIN_SLEEP_SEC=1.0
 SENSORIUS_GC_FULL_EVERY_N=10
 
+SENSORIUS_TIME_SYNC_ENABLED=true
+SENSORIUS_TIME_SYNC_INTERVAL_SEC=3600
+SENSORIUS_TIME_SYNC_ACK_TIMEOUT_SEC=5
+SENSORIUS_TIME_SYNC_RESULT_TIMEOUT_SEC=20
+
 SENSORIUS_AUTOSTART_SCOPE=user
 SENSORIUS_AUTOSTART_ENABLED=false
 
@@ -186,6 +191,11 @@ display_style = "Gauge"
 Runtime notes:
 
 - `Network.HOSTNAME` and `[Time]` values may be refreshed from live host state.
+- The Time Sync Manager uses Python `zoneinfo`/IANA timezone rules and the
+  configured `Time.TZ` value to detect Standard Time and Daylight Saving Time
+  offset/name changes. When `Time.TZ_OFFSET` or `Time.TZ_NAME` changes, it
+  updates the hub settings and sends one-key-at-a-time `Time.*` config updates
+  to known Nodus hosts.
 - `SENSORIUS_HTTP_HOST` and `SENSORIUS_HTTP_PORT` override web binding at
   process startup.
 - `Network.HTTPPORT` is the persisted UI setting for the web port.

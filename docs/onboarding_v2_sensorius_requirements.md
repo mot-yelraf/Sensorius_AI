@@ -188,7 +188,9 @@ Duplicate replay behavior (idempotent):
    - `config/set`
 2. Keep token valid until `config/result.applied == true`, then invalidate it.
 3. Reject `config/set` when token is missing/mismatch/expired/already used.
-4. Process `payload.settings` as the canonical full-config shape.
+4. Process `payload.settings` as the canonical full-config shape, including
+   `payload.settings.Time.TZ`, `payload.settings.Time.TZ_OFFSET`, and
+   `payload.settings.Time.TZ_NAME` from the Sensorius hub during onboarding.
 5. Ignore unknown top-level fields in `config/set` (forward compatibility), including:
    - `checksum`
    - `config_version`

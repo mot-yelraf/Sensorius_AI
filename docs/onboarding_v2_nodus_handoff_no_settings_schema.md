@@ -16,6 +16,10 @@ Do **not** add new persistent keys to Nodus `settings.toml` for onboarding state
 5. Nodus acks config receipt, applies config, publishes apply result.
 6. Sensorius marks onboarding complete and invalidates token.
 
+The full config includes `payload.settings.Time` with the Sensorius hub's
+active `TZ`, `TZ_OFFSET`, and `TZ_NAME`. These are ordinary existing `[Time]`
+settings, not onboarding/session metadata.
+
 ## HTTP Contract
 ### Endpoint
 - `POST /itaot-init`
@@ -96,6 +100,8 @@ Do not merge these into persistent config schema.
    - duplicate `message_id` should be safe.
 3. Publish `config/ack` immediately when accepted.
 4. Publish `config/result` after apply attempt.
+5. Apply `payload.settings.Time.TZ`, `payload.settings.Time.TZ_OFFSET`, and
+   `payload.settings.Time.TZ_NAME` when present.
 
 ## Failure Behavior
 1. Invalid/expired token: reject onboarding/config flow and publish negative `config/result` when applicable.

@@ -138,6 +138,11 @@ Canonical onboarding `config/set` envelope from Sensorius:
     "settings": {
       "Network": {},
       "MQTT": {},
+      "Time": {
+        "TZ": "America/Denver",
+        "TZ_OFFSET": -21600,
+        "TZ_NAME": "MDT"
+      },
       "Sensor": {},
       "Switch": {},
       "Display": {},
@@ -146,6 +151,10 @@ Canonical onboarding `config/set` envelope from Sensorius:
   }
 }
 ```
+
+During V2 onboarding, Sensorius includes the hub's active `[Time]` values in
+`payload.settings.Time`. Nodus must apply `TZ`, `TZ_OFFSET`, and `TZ_NAME` to
+its `settings.toml` when present.
 
 ## Runtime Payloads
 
@@ -248,6 +257,9 @@ Pacing rules in Sensorius:
 - wait for `config/ack`
 - wait for successful `config/result`
 - then send the next queued update
+- `Time.TZ`, `Time.TZ_OFFSET`, and `Time.TZ_NAME` updates are valid ordinary
+  runtime config writes. Sensorius sends them when its IANA timezone rules move
+  the hub between Standard Time and Daylight Saving Time.
 
 If a queued update fails, the remaining batch for that route/action stops.
 
@@ -347,4 +359,3 @@ The following doc shapes are deprecated and should not be treated as canonical:
 - `nodus/<channel_id>/set`
 - switch control docs that imply plain `ON`/`OFF` is the primary contract
 - docs that imply runtime config writes trigger a full retained `meta` refresh
-

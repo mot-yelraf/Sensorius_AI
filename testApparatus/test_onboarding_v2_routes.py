@@ -46,6 +46,9 @@ class _FakeSettings:
             ("Onboarding", "RESULT_TIMEOUT_SEC"): 20,
             ("Onboarding", "CONFIG_SET_MAX_ATTEMPTS"): 2,
             ("Onboarding", "CONFIG_SET_BACKOFF_MS"): 50,
+            ("Time", "TZ"): "America/Denver",
+            ("Time", "TZ_OFFSET"): -21600,
+            ("Time", "TZ_NAME"): "MDT",
         }
 
     def get_all_sensor_ids(self):
@@ -644,6 +647,7 @@ async def test_v2_hello_matches_token_valid_session_when_multiple_active(tmp_pat
     monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
     monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
     monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -710,6 +714,7 @@ async def test_v2_config_set_includes_onboard_token_and_settings_payload(tmp_pat
     monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
     monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
     monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -739,6 +744,11 @@ async def test_v2_config_set_includes_onboard_token_and_settings_payload(tmp_pat
         assert isinstance(payload, dict)
         assert "settings" in payload
         assert isinstance(payload.get("settings"), dict)
+        assert payload["settings"].get("Time") == {
+            "TZ": "America/Denver",
+            "TZ_OFFSET": -21600,
+            "TZ_NAME": "MDT",
+        }
 
 
 @pytest.mark.asyncio
@@ -774,6 +784,7 @@ async def test_v2_ack_rejected_marks_failed(tmp_path, monkeypatch):
     monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
     monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
     monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -837,6 +848,7 @@ async def test_v2_ack_correlates_by_message_id_with_same_device(tmp_path, monkey
     monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
     monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
     monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
 
     app = FastAPI()
     settings = _FakeSettings()

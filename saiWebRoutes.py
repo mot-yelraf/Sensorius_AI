@@ -3876,6 +3876,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         mqtt_doc: Dict[str, Any] = {}
         display_doc: Dict[str, Any] = {}
         calibration_doc: Dict[str, Any] = {}
+        time_doc: Dict[str, Any] = {}
 
         try:
             sys_settings = saiSettings(apply_live=False, device_id=device_id)
@@ -3885,6 +3886,22 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             calibration_doc = dict(sys_settings.get_section("Calibration") or {})
         except Exception:
             pass
+        try:
+            raw_tz = settings.get_setting("Time", "TZ", None)
+            raw_offset = settings.get_setting("Time", "TZ_OFFSET", None)
+            raw_name = settings.get_setting("Time", "TZ_NAME", None)
+            if raw_tz is not None or raw_offset is not None or raw_name is not None:
+                try:
+                    tz_offset = int(raw_offset if raw_offset is not None else 0)
+                except Exception:
+                    tz_offset = 0
+                time_doc = {
+                    "TZ": str(raw_tz or ""),
+                    "TZ_OFFSET": tz_offset,
+                    "TZ_NAME": str(raw_name or ""),
+                }
+        except Exception:
+            time_doc = {}
         try:
             sensor_doc = dict(SensorSettingsManager(base_dir_name=_SENSOR_BASE_DIR).load(device_id) or {})
         except Exception:
@@ -3899,6 +3916,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             settings_map["Network"] = _to_jsonable(network_doc)
         if isinstance(mqtt_doc, dict) and mqtt_doc:
             settings_map["MQTT"] = _to_jsonable(mqtt_doc)
+        if isinstance(time_doc, dict) and time_doc:
+            settings_map["Time"] = _to_jsonable(time_doc)
         if isinstance(display_doc, dict) and display_doc:
             settings_map["Display"] = _to_jsonable(display_doc)
         if isinstance(calibration_doc, dict) and calibration_doc:

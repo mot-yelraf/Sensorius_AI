@@ -108,6 +108,11 @@ Bootstrap rules:
 5. Nodus publishes `config/result`.
 6. Nodus publishes retained `nodus/<device_id>/meta`.
 
+The full onboarding config uses `payload.settings` and includes the hub's
+active `[Time]` values as `payload.settings.Time.TZ`,
+`payload.settings.Time.TZ_OFFSET`, and `payload.settings.Time.TZ_NAME`.
+Nodus must persist those keys when present.
+
 Canonical `onboard/hello` payload:
 
 ```json
@@ -262,6 +267,10 @@ Implemented behavior:
   `meta/patch` with `source = "config_set"`.
 - Failed validation or rejected writes publish `config/result` with
   `applied = false` and an error string.
+- Sensorius may send `Time.TZ`, `Time.TZ_OFFSET`, and `Time.TZ_NAME` ordinary
+  runtime updates when the hub observes an IANA timezone offset/name transition.
+  These use the same one-update-at-a-time pacing and `ack`/`result` correlation
+  as other device config writes.
 - Empty payloads on `nodus/<device_id>/config/set` are ignored. This allows
   Sensorius retained command cleanup publishes to be received safely after
   reconnect.

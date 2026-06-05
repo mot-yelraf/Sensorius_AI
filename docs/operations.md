@@ -138,6 +138,9 @@ Steady-state Nodus operation should be MQTT-first:
 - Use heartbeat and availability topics for liveness.
 - Use non-retained `/set` commands unless a cleanup flow explicitly owns the
   retained command cleanup.
+- Timezone/DST changes are handled by the Time Sync Manager. It updates the
+  hub's `[Time]` settings from `Time.TZ` and sends `Time.*` updates to known
+  Nodus hosts over MQTT.
 
 When a Nodus device does not appear:
 
