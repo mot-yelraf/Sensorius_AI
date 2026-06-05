@@ -3087,6 +3087,70 @@ async def test_dashboard_merges_switch_cards_for_same_location(tmp_path, monkeyp
 
 
 @pytest.mark.asyncio
+async def test_dashboard_json_ignores_stale_switch_settings_without_channels(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
+
+    sensor_mgr.save(
+        "aqi-i2c-1-ff-sensorius",
+        {
+            "Sensor": {
+                "TYPE": "local",
+                "DEVICE": "aqi",
+                "SENSOR_ID": "aqi-i2c-1-ff-sensorius",
+                "LOCATION": "Unknown",
+            },
+            "Display": {"METRIC_1": "Air Quality"},
+        },
+    )
+    switch_mgr.save(
+        "switch-test123",
+        {
+            "Switch": {
+                "TYPE": "nodus",
+                "SWITCH_DEVICE_ID": "switch-test123",
+                "SWITCH_LOCATION": "Unknown",
+            },
+        },
+    )
+
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["aqi-i2c-1-ff-sensorius"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso if sid == "aqi-i2c-1-ff-sensorius" else "")
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_latest_values_and_timestamps",
+        lambda ids: (
+            {"aqi-i2c-1-ff-sensorius": {"Air Quality": 95.0}},
+            {"aqi-i2c-1-ff-sensorius": now_iso},
+        ),
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_metrics", lambda sid: ["Air Quality"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(
+        saiWebRoutes.statter,
+        "get_all_stats_fast",
+        lambda: {"aqi-i2c-1-ff-sensorius": {"Air Quality": {"min": 90.0, "avg": 95.0, "max": 100.0}}},
+    )
+    ingest.mqtt_clients = ["aqi-i2c-1-ff-sensorius"]
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        html_res = await client.get("/")
+        json_res = await client.get("/?json_only=true")
+
+    assert html_res.status_code == 200
+    assert json_res.status_code == 200
+    assert "class='switch-metric-container'" not in html_res.text
+    payload = json_res.json()
+    assert payload["available_switches"] == []
+    assert payload["renderable_switches"] == []
+    assert payload["renderable_switches_view"] == []
+
+
+@pytest.mark.asyncio
 async def test_dashboard_display_style_prefers_sensor_settings_over_global_default(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))

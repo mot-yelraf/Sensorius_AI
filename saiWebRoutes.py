@@ -1696,6 +1696,127 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             sensor_settings_mgr = _get_sensor_settings_manager()
             switch_settings_mgr = _get_switch_settings_manager()
 
+            def _switch_enable_field_value(sw_block: dict, idx: int):
+                return sw_block.get(f"SWITCH_{idx}_ENABLE_PIN", sw_block.get(f"SWITCH_{idx}_EN", ""))
+
+            def _switch_has_install_marker(val) -> bool:
+                if val is None:
+                    return False
+                if isinstance(val, bool):
+                    return val
+                return str(val).strip() != ""
+
+            def _switch_labels_from_settings(switch_id: str) -> list[str]:
+                if not switch_settings_mgr:
+                    return []
+                try:
+                    doc = switch_settings_mgr.load(switch_id) or {}
+                    sw_block = doc.get("Switch", {}) if isinstance(doc, dict) else {}
+                    if not isinstance(sw_block, dict):
+                        return []
+
+                    sw_type = str(sw_block.get("TYPE", "") or "").strip().lower()
+                    has_en_keys = (
+                        ("SWITCH_1_ENABLE_PIN" in sw_block)
+                        or ("SWITCH_2_ENABLE_PIN" in sw_block)
+                        or ("SWITCH_1_EN" in sw_block)
+                        or ("SWITCH_2_EN" in sw_block)
+                    )
+                    labels: list[str] = []
+                    if sw_type in ("picow", "pico2w", "nodus", "remote", "mqtt") or has_en_keys:
+                        for idx in range(1, 9):
+                            label = str(sw_block.get(f"SWITCH_{idx}_LABEL", "") or "").strip()
+                            enabled = _switch_has_install_marker(_switch_enable_field_value(sw_block, idx))
+                            if label and enabled:
+                                labels.append(label)
+                    else:
+                        for idx in range(1, 33):
+                            label = str(sw_block.get(f"SWITCH_{idx}_LABEL", "") or "").strip()
+                            pin = sw_block.get(f"SWITCH_{idx}_PIN", None)
+                            if label and isinstance(pin, (int, float)):
+                                labels.append(label)
+                    return labels
+                except Exception:
+                    return []
+
+            def _live_switch_labels_for(switch_id: str) -> list[str]:
+                target = str(switch_id or "").strip().lower()
+                if not target:
+                    return []
+                sc = getattr(app.state, "switch_controllers", None)
+                if sc is None:
+                    import saiWebRoutes as routes
+                    sc = getattr(routes, "switch_controllers", None)
+                ctrls = sc.values() if isinstance(sc, dict) else ([sc] if sc else [])
+                labels: list[str] = []
+                for ctrl in ctrls:
+                    try:
+                        if bool(getattr(ctrl, "is_remote", False)):
+                            continue
+                        sid = str(getattr(ctrl, "switch_id", "") or "").strip().lower()
+                        if sid != target or not getattr(ctrl, "is_present", False):
+                            continue
+                        for label in list(getattr(ctrl, "switches", []) or []):
+                            label_text = str(label or "").strip()
+                            if label_text:
+                                labels.append(label_text)
+                    except Exception:
+                        continue
+                return labels
+
+            def _switch_has_renderable_channels(
+                switch_id: str,
+                *,
+                identity_rows: list[dict],
+                nodus_topic_map: dict,
+                remote_cache: dict,
+            ) -> bool:
+                sw = str(switch_id or "").strip()
+                if not sw:
+                    return False
+                sw_l = sw.lower()
+
+                if _live_switch_labels_for(sw):
+                    return True
+                if _switch_labels_from_settings(sw):
+                    return True
+
+                try:
+                    for cached_id, ch_map in (remote_cache or {}).items():
+                        if str(cached_id or "").strip().lower() != sw_l:
+                            continue
+                        if not isinstance(ch_map, dict):
+                            continue
+                        for key in ch_map.keys():
+                            if str(key or "").strip():
+                                return True
+                except Exception:
+                    pass
+
+                try:
+                    for meta in (nodus_topic_map or {}).values():
+                        if str((meta or {}).get("switch_id", "") or "").strip().lower() != sw_l:
+                            continue
+                        label = str((meta or {}).get("label", "") or "").strip()
+                        channel_id = str((meta or {}).get("channel_id", "") or "").strip()
+                        if label or channel_id:
+                            return True
+                except Exception:
+                    pass
+
+                try:
+                    for row in identity_rows or []:
+                        if str((row or {}).get("switch_id", "") or "").strip().lower() != sw_l:
+                            continue
+                        label = str((row or {}).get("label", "") or "").strip()
+                        channel_id = str((row or {}).get("channel_id", "") or "").strip()
+                        if label or channel_id:
+                            return True
+                except Exception:
+                    pass
+
+                return False
+
             global _DASHBOARD_INVENTORY_CACHE
             inventory_cached = _DASHBOARD_INVENTORY_CACHE
             now_mono = time.monotonic()
@@ -1734,18 +1855,24 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
                     switch_ids_discovered = []
                     switch_ids_discovered_channels = []
+                    nodus_topic_map = {}
                     try:
                         switch_ids_discovered = mqtt_ingest.get_known_switch_devices() or []
                         nodus_topic_map = getattr(mqtt_ingest, "nodus_switch_topic_map", {}) or {}
                         for meta in nodus_topic_map.values():
+                            sw_id = str((meta or {}).get("switch_id", "") or "").strip()
+                            if sw_id:
+                                switch_ids_discovered.append(sw_id)
                             ch_id = str((meta or {}).get("channel_id", "") or "").strip()
                             if ch_id:
                                 switch_ids_discovered_channels.append(_canonical_channel_id(ch_id))
                     except Exception:
                         switch_ids_discovered = []
                         switch_ids_discovered_channels = []
+                        nodus_topic_map = {}
 
                     switch_ids_db = []
+                    switch_identity_rows = []
                     try:
                         switch_identity_rows = await asyncio.to_thread(data_logger.get_switch_identities)
                         for row in (switch_identity_rows or []):
@@ -1754,16 +1881,27 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                                 switch_ids_db.append(_canonical_channel_id(ch_id))
                     except Exception:
                         switch_ids_db = []
+                        switch_identity_rows = []
 
                     nodus_channels = list(switch_ids_discovered_channels) + list(switch_ids_db)
                     available_switches = _normalize_switch_ids(
                         nodus_channels,
                         allowed_extra=set(nodus_channels),
                     )
-                    renderable_switch_controllers = _normalize_switch_ids(
+                    raw_renderable_switch_controllers = _normalize_switch_ids(
                         list(switch_ids_local) + list(switch_ids_live) + list(switch_ids_discovered),
                         allowed_extra=set(list(switch_ids_local) + list(switch_ids_live)),
                     )
+                    remote_cache = getattr(mqtt_ingest, "_switch_state_cache", {}) or {}
+                    renderable_switch_controllers = [
+                        swid for swid in raw_renderable_switch_controllers
+                        if _switch_has_renderable_channels(
+                            swid,
+                            identity_rows=list(switch_identity_rows or []),
+                            nodus_topic_map=nodus_topic_map,
+                            remote_cache=remote_cache,
+                        )
+                    ]
                 except Exception:
                     available_switches = []
                     renderable_switch_controllers = []
