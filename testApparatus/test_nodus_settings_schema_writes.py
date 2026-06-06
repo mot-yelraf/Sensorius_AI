@@ -3798,6 +3798,63 @@ async def test_remove_device_expands_nodus_switch_suffix_cleanup(tmp_path, monke
 
 
 @pytest.mark.asyncio
+async def test_remove_device_expands_nodus_sensor_suffix_cleanup(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
+    monkeypatch.setenv("SAI_WEB_API_KEY", "test-key")
+    monkeypatch.setattr(saiWebRoutes, "_SYS_BASE_DIR", str(system_root))
+    monkeypatch.setattr(saiWebRoutes, "_SENSOR_BASE_DIR", str(sensor_root))
+    monkeypatch.setattr(saiWebRoutes, "_SWITCH_BASE_DIR", str(switch_root))
+    monkeypatch.setattr(saiMQTTIngest, "get_current_ingest", lambda: ingest)
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+
+    sensor_mgr.save(
+        "aqi-x943fm",
+        {
+            "Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "aqi-x943fm", "LOCATION": "TestLab"},
+            "Display": {"METRIC_1": "Air Quality"},
+        },
+    )
+    switch_mgr.save(
+        "switch-x943fm",
+        {
+            "Switch": {
+                "TYPE": "nodus",
+                "DEVICE": "switch",
+                "SWITCH_DEVICE_ID": "switch-x943fm",
+                "SWITCH_LOCATION": "TestLab",
+                "SWITCH_1_LABEL": "Fan",
+                "SWITCH_1_CHANNEL_ID": "S1-x943fm",
+                "SWITCH_2_LABEL": "Pump",
+                "SWITCH_2_CHANNEL_ID": "S2-x943fm",
+            },
+        },
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"x-api-key": "test-key"},
+    ) as client:
+        res = await client.post("/remove-device", json={"device_ids": ["aqi-x943fm"]})
+
+    assert res.status_code == 200
+    assert not (sensor_root / "aqi-x943fm").exists()
+    assert not (switch_root / "switch-x943fm").exists()
+    cleared_topics = {row["topic"] for row in ingest.client.published if row["payload"] == "" and row["retain"] is True}
+    assert "nodus/aqi-x943fm/meta" in cleared_topics
+    assert "nodus/aqi-x943fm/meta/switch" in cleared_topics
+    assert "nodus/aqi-x943fm/status/heartbeat" in cleared_topics
+    assert "nodus/aqi-x943fm/event/calibration_status" in cleared_topics
+    assert "nodus/switch-x943fm/meta" in cleared_topics
+    assert "nodus/S1-x943fm/state" in cleared_topics
+    assert "nodus/S1-x943fm/availability" in cleared_topics
+    assert "nodus/S1-x943fm/config/ack" in cleared_topics
+
+
+@pytest.mark.asyncio
 async def test_switch_status_update_prefers_pending_remote_state_over_stale_cache(tmp_path, monkeypatch):
     app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     saiWebRoutes._switch_status_cache_payload = None

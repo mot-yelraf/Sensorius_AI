@@ -198,6 +198,35 @@ async def test_time_sync_skips_nodus_when_shadow_already_matches(tmp_path):
     assert settings.saved == 0
 
 
+@pytest.mark.asyncio
+async def test_time_sync_skips_combined_sensor_switch_when_host_shadow_matches(tmp_path):
+    system_root = tmp_path / "system_settings"
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    sensor_id = "apvpd-abc123"
+    switch_id = "switch-abc123"
+    _write_nodus_sensor(sensor_root, sensor_id)
+    _write_nodus_switch(switch_root, switch_id)
+    _write_system_settings(system_root, sensor_id, sensor_id, offset=-21600, name="MDT")
+
+    settings = _FakeSettings({("Time", "TZ_OFFSET"): -21600, ("Time", "TZ_NAME"): "MDT"})
+    ingest = _FakeIngest()
+    service = TimeSyncService(
+        settings=settings,
+        mqtt_ingest=ingest,
+        system_base_dir=system_root,
+        sensor_base_dir=sensor_root,
+        switch_base_dir=switch_root,
+        interval_sec=60,
+    )
+
+    result = await service.sync_once(when_utc=datetime(2026, 7, 1, tzinfo=timezone.utc))
+
+    assert result["skipped"] == [sensor_id]
+    assert ingest.published == []
+    assert not (system_root / switch_id / "settings.toml").exists()
+
+
 def test_time_sync_discovers_shared_sensor_switch_host_once(tmp_path):
     system_root = tmp_path / "system_settings"
     sensor_root = tmp_path / "sensor_settings"
@@ -216,4 +245,4 @@ def test_time_sync_discovers_shared_sensor_switch_host_once(tmp_path):
 
     assert len(targets) == 1
     assert targets[0].hostname == "apvpd-abc123"
-    assert targets[0].system_ids == {"apvpd-abc123", "switch-abc123"}
+    assert targets[0].system_ids == {"apvpd-abc123"}

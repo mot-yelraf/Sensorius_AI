@@ -5900,7 +5900,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             """
             Nodus switch and channel IDs are derived from the same short suffix
             as the host sensor ID. If in-memory host_to_peer_ids is already gone,
-            use that suffix to clear retained host meta that could reseed the switch.
+            use that suffix to clear retained host, switch, and channel topics
+            that could reseed the removed device.
             """
             val = str(raw or "").strip()
             if not val or "-" not in val:
@@ -5909,10 +5910,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             prefix_l = prefix.lower()
             if not suffix:
                 return
+            sensor_prefixes = ("apvpd", "avpd", "aqi", "aht", "aht10", "ahtx0", "co2", "lux", "veml", "soil")
             is_switch_peer = prefix_l == "switch" or re.fullmatch(r"s\d+", prefix_l, flags=re.IGNORECASE)
+            is_sensor_peer = prefix_l in sensor_prefixes
+            if is_sensor_peer:
+                _add(f"switch-{suffix}")
+                for idx in range(1, 9):
+                    _add(f"S{idx}-{suffix}")
+                return
             if not is_switch_peer:
                 return
-            for sensor_prefix in ("apvpd", "avpd", "aqi", "aht", "aht10", "ahtx0", "co2", "lux", "veml", "soil"):
+            for sensor_prefix in sensor_prefixes:
                 _add(f"{sensor_prefix}-{suffix}")
             _add(f"switch-{suffix}")
             for idx in range(1, 9):
@@ -6138,20 +6146,34 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if base_topic:
                     topics.add(f"{base_topic}/nodus/{dev_id}/{suffix}")
                     topics.add(f"{base_topic}/switch/{dev_id}/{suffix}")
-            for suffix in ("meta", "meta/patch", "status/heartbeat"):
+            for suffix in (
+                "meta",
+                "meta/switch",
+                "meta/patch",
+                "status/heartbeat",
+                "config/ack",
+                "config/result",
+                "fwupdate/result",
+                "event/calibration_status",
+                "event/calibration_progress",
+                "event/calibration_sample",
+                "event/calibration_result",
+            ):
                 topics.add(f"nodus/{dev_id}/{suffix}")
                 if base_topic:
                     topics.add(f"{base_topic}/nodus/{dev_id}/{suffix}")
         try:
-            for (sw_id, _ch_id), topic in (mqtt_ingest.nodus_switch_command_topics or {}).items():
-                if str(sw_id or "").strip().lower() in ids_l and topic:
-                    topics.add(topic)
-            for (sw_id, _ch_id), topic in (mqtt_ingest.nodus_switch_state_topics or {}).items():
-                if str(sw_id or "").strip().lower() in ids_l and topic:
-                    topics.add(topic)
-            for (sw_id, _ch_id), topic in (mqtt_ingest.nodus_switch_event_topics or {}).items():
-                if str(sw_id or "").strip().lower() in ids_l and topic:
-                    topics.add(topic)
+            for topic_map_name in (
+                "nodus_switch_command_topics",
+                "nodus_switch_state_topics",
+                "nodus_switch_event_topics",
+                "nodus_switch_ack_topics",
+                "nodus_switch_result_topics",
+                "nodus_switch_availability_topics",
+            ):
+                for (sw_id, _ch_id), topic in (getattr(mqtt_ingest, topic_map_name, {}) or {}).items():
+                    if str(sw_id or "").strip().lower() in ids_l and topic:
+                        topics.add(topic)
         except Exception:
             pass
         try:
@@ -6201,7 +6223,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         for key in expanded_keys:
             if not key:
                 continue
-            for dname in ("device_type", "expected_gauge_map", "latest_meta"):
+            for dname in (
+                "device_type",
+                "expected_gauge_map",
+                "latest_meta",
+                "fwupdate_result_by_device",
+                "calibration_status_by_sensor",
+                "calibration_progress_by_sensor",
+                "calibration_sample_by_sensor",
+                "calibration_event_result_by_sensor",
+            ):
                 d = getattr(ing, dname, None)
                 if isinstance(d, dict) and key in d:
                     d.pop(key, None); _bump()

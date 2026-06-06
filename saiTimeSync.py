@@ -371,7 +371,10 @@ def discover_nodus_time_targets(
                 or _read_system_hostname(system_root, switch_id)
                 or switch_id
             )
-            add_target(host, switch_id)
+            # Combined Nodus sensor+switch devices have one physical system
+            # settings shadow keyed by the sensor/host id; the switch id is an
+            # MQTT role alias, not an independent system document.
+            add_target(host, paired_sensor or switch_id)
     except Exception as exc:
         if DEBUG:
             printDM(f"[time-sync] switch target discovery skipped: {exc}", location=MODULE)

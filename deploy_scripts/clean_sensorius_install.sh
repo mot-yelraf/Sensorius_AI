@@ -117,9 +117,48 @@ host_selected() {
   fi
   local wanted
   for wanted in "${SELECTED_HOSTS[@]}"; do
-    [[ "${host}" == "${wanted}" ]] && return 0
+    if [[ "${host}" == "${wanted}" ]]; then
+      return 0
+    fi
+    if is_local_host "${host}" && is_local_host "${wanted}"; then
+      return 0
+    fi
   done
   return 1
+}
+
+is_local_host() {
+  local value
+  value="$(printf '%s' "${1:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')"
+  [[ -n "${value}" ]] || return 1
+  case "${value}" in
+    localhost|localhost.local|127.0.0.1|::1)
+      return 0
+      ;;
+  esac
+
+  local full short
+  full="$(hostname 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)"
+  short="${full%%.*}"
+  if [[ -n "${full}" && "${value}" == "${full}" ]]; then
+    return 0
+  fi
+  if [[ -n "${short}" && ( "${value}" == "${short}" || "${value}" == "${short}.local" ) ]]; then
+    return 0
+  fi
+  return 1
+}
+
+print_available_hosts() {
+  local line host _target _post_cmd
+  echo "Available host aliases in ${HOSTS_FILE}:" >&2
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    line="$(printf '%s' "${line}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    [[ -z "${line}" || "${line}" == \#* ]] && continue
+    IFS='|' read -r host _target _post_cmd <<< "${line}"
+    host="$(printf '%s' "${host:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    [[ -n "${host}" ]] && echo "  ${host}" >&2
+  done < "${HOSTS_FILE}"
 }
 
 run_remote_cleanup() {
@@ -134,8 +173,13 @@ run_remote_cleanup() {
     echo "[APPLY] Cleaning -> ${host}:${target}"
   fi
 
-  if ! "${SSH_BIN}" "${host}" bash -s -- \
-      "${target}" "${DRY_RUN}" "${MQTT_HOST}" "${MQTT_PORT}" "${MQTT_USER}" "${MQTT_PASS}" <<'REMOTE_CLEAN'
+  local -a runner
+  runner=("${SSH_BIN}" "${host}" bash -s -- "${target}" "${DRY_RUN}" "${MQTT_HOST}" "${MQTT_PORT}" "${MQTT_USER}" "${MQTT_PASS}")
+  if is_local_host "${host}"; then
+    runner=(bash -s -- "${target}" "${DRY_RUN}" "${MQTT_HOST}" "${MQTT_PORT}" "${MQTT_USER}" "${MQTT_PASS}")
+  fi
+
+  if ! "${runner[@]}" <<'REMOTE_CLEAN'
 set -euo pipefail
 
 TARGET_DIR="$1"
@@ -406,6 +450,7 @@ done < "${HOSTS_FILE}"
 
 if [[ "${MATCHED}" -eq 0 ]]; then
   echo "No hosts matched selection." >&2
+  print_available_hosts
   exit 1
 fi
 
