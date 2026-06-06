@@ -61,12 +61,18 @@
   padding: .9rem;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 #setupPiModal .settings-pane[hidden] { display: none !important; }
 #setupPiModal .settings-pane {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
+  min-height: var(--system-settings-pane-height, 100%);
+  min-width: 0;
+}
+#setupPiModal #pane-locations,
+#setupPiModal #pane-remove {
+  height: var(--system-settings-pane-height, auto);
 }
 #setupPiModal .pane-title {
   margin: .15rem 0 .75rem 0;
@@ -85,6 +91,14 @@
   grid-template-columns: repeat(2, minmax(220px, 340px));
   gap: .75rem 1rem;
   max-width: 760px;
+  margin-inline: auto;
+}
+#setupPiModal .field-grid-network {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: .75rem 1rem;
+  width: 100%;
+  max-width: 940px;
   margin-inline: auto;
 }
 #setupPiModal .field-grid-top {
@@ -236,6 +250,16 @@
   border-radius: 8px;
   background: #fafdfb;
 }
+#setupPiModal #locations-list,
+#setupPiModal #remove-device-list {
+  flex: 1 1 auto;
+  min-height: 12rem;
+  max-height: none;
+}
+#setupPiModal #pane-locations .pane-footer,
+#setupPiModal #pane-remove .pane-footer {
+  margin-top: .75rem;
+}
 #setupPiModal .location-item {
   border: 1px solid #d6dfd8;
   border-radius: 8px;
@@ -247,10 +271,12 @@
   font-size: 0.9rem;
   margin-bottom: .35rem;
   color: #222;
+  overflow-wrap: anywhere;
 }
 #setupPiModal .location-input {
   width: 100%;
   max-width: none;
+  box-sizing: border-box;
   padding: .45rem .55rem;
 }
 #setupPiModal .remove-item {
@@ -398,6 +424,10 @@
     grid-template-columns: 1fr;
     max-width: 100%;
   }
+  #setupPiModal .field-grid-network {
+    grid-template-columns: 1fr;
+    max-width: 100%;
+  }
   #setupPiModal .field-grid-top {
     grid-template-columns: 1fr;
     max-width: 100%;
@@ -494,7 +524,7 @@
                 </div>
               </div>
 
-              <div class="field-grid-stack">
+              <div class="field-grid-network">
                 <div class="field-stack">
                   <label for="broker">Sensorius Hub</label>
                   <input type="text" id="broker" name="broker" value="{{ broker }}">
@@ -507,6 +537,16 @@
                     <option value="{{ tz_opt }}"></option>
                     {% endfor %}
                   </datalist>
+                </div>
+                <div class="field-stack">
+                  <label for="weather_forecast_provider">Weather Forecast</label>
+                  {% set selected_weather_forecast_provider = weather_forecast_provider | default('met_no') %}
+                  <select id="weather_forecast_provider" name="weather_forecast_provider">
+                    <option value="met_no" {% if selected_weather_forecast_provider == "met_no" %}selected{% endif %}>MET Norway</option>
+                    <option value="us" {% if selected_weather_forecast_provider == "us" %}selected{% endif %}>US</option>
+                    <option value="open_meteo" {% if selected_weather_forecast_provider == "open_meteo" %}selected{% endif %}>Open-Meteo</option>
+                    <option value="none" {% if selected_weather_forecast_provider == "none" %}selected{% endif %}>None</option>
+                  </select>
                 </div>
               </div>
 
@@ -563,11 +603,11 @@
                 </div>
               </div>
 
+              <div class="status-text" id="system-status"></div>
               <div class="pane-footer">
                 <button type="button" class="button black" id="btn-home">Home</button>
                 <button type="submit" class="button blue" id="btn-system-save">Save</button>
               </div>
-              <div class="status-text" id="system-status"></div>
             </form>
           </div>
 
@@ -930,6 +970,7 @@
   root.dataset.initialized = "1";
 
   const shell = root.querySelector(".system-settings-shell");
+  const systemPane = document.getElementById("pane-system");
   const onboardingV2Enabled = String(shell?.dataset?.onboardingV2Enabled || "true").toLowerCase() !== "false";
   const formEl = document.getElementById("systemSettingsForm");
   const menu = document.getElementById("systemSettingsMenu");
@@ -955,9 +996,61 @@
   let otaPackageRef = "";
   let otaCurrentJobId = "";
   let otaPollTimer = null;
+  let paneHeightFrame = null;
+
+  function syncSystemPaneHeight() {
+    if (!root || !systemPane) return;
+    const previousHeight = root.style.getPropertyValue("--system-settings-pane-height");
+    const wasHidden = systemPane.hidden;
+    const previousStyle = {
+      minHeight: systemPane.style.minHeight,
+      position: systemPane.style.position,
+      visibility: systemPane.style.visibility,
+      pointerEvents: systemPane.style.pointerEvents,
+      width: systemPane.style.width
+    };
+
+    root.style.removeProperty("--system-settings-pane-height");
+    systemPane.style.minHeight = "0";
+    if (wasHidden) {
+      systemPane.hidden = false;
+      systemPane.style.position = "absolute";
+      systemPane.style.visibility = "hidden";
+      systemPane.style.pointerEvents = "none";
+      systemPane.style.width = "100%";
+    }
+
+    const measuredHeight = Math.ceil(systemPane.getBoundingClientRect().height);
+
+    if (wasHidden) {
+      systemPane.hidden = true;
+      systemPane.style.minHeight = previousStyle.minHeight;
+      systemPane.style.position = previousStyle.position;
+      systemPane.style.visibility = previousStyle.visibility;
+      systemPane.style.pointerEvents = previousStyle.pointerEvents;
+      systemPane.style.width = previousStyle.width;
+    } else {
+      systemPane.style.minHeight = previousStyle.minHeight;
+    }
+
+    if (measuredHeight > 0) {
+      root.style.setProperty("--system-settings-pane-height", measuredHeight + "px");
+    } else if (previousHeight) {
+      root.style.setProperty("--system-settings-pane-height", previousHeight);
+    }
+  }
+
+  function scheduleSystemPaneHeightSync() {
+    if (paneHeightFrame) cancelAnimationFrame(paneHeightFrame);
+    paneHeightFrame = requestAnimationFrame(() => {
+      paneHeightFrame = null;
+      syncSystemPaneHeight();
+    });
+  }
 
   function openSetupModal() {
     root.style.display = "flex";
+    scheduleSystemPaneHeightSync();
   }
 
   function closeSetupModal() {
@@ -994,6 +1087,7 @@
   }
 
   function setActivePane(paneId) {
+    syncSystemPaneHeight();
     panes.forEach((pane) => {
       pane.hidden = (pane.id !== paneId);
     });
@@ -1046,6 +1140,44 @@
     return String(text || fallbackText || ("HTTP " + resp.status)).trim();
   }
 
+  function normalizeWeatherForecastProvider(raw) {
+    const text = String(raw || "").trim().toLowerCase().replace(/[-\s]+/g, "_");
+    if (!text || text === "met" || text === "met_no" || text === "met_norway" || text === "norway") return "met_no";
+    if (text === "open_meteo" || text === "openmeteo") return "open_meteo";
+    if (text === "us" || text === "usa" || text === "nws" || text === "noaa" || text === "weather_gov") return "us";
+    if (text === "none" || text === "off" || text === "false" || text === "disabled") return "none";
+    return "met_no";
+  }
+
+  function scheduleDashboardReloadAfterSettingsSave() {
+    setStatus("system-status", "Saved. Updating dashboard...");
+    window.setTimeout(() => window.location.reload(), 350);
+  }
+
+  function applyDashboardWeatherForecastChange(rawProvider) {
+    const nextProvider = normalizeWeatherForecastProvider(rawProvider);
+    const previousProvider = normalizeWeatherForecastProvider(window.__weatherForecastProvider || "met_no");
+    const previousEnabled = window.__weatherForecastEnabled !== false;
+    const nextEnabled = nextProvider !== "none";
+    window.__weatherForecastProvider = nextProvider;
+    window.__weatherForecastEnabled = nextEnabled;
+
+    if (previousEnabled !== nextEnabled) {
+      scheduleDashboardReloadAfterSettingsSave();
+      return;
+    }
+    if (!nextEnabled) return;
+    if (!document.getElementById("weatherForecastBox")) {
+      scheduleDashboardReloadAfterSettingsSave();
+      return;
+    }
+    if (typeof window.loadWeatherForecast === "function") {
+      window.loadWeatherForecast(true).catch((err) => console.warn("Weather forecast refresh failed after settings save", err));
+    } else if (nextProvider !== previousProvider) {
+      scheduleDashboardReloadAfterSettingsSave();
+    }
+  }
+
   async function saveSystemSettings() {
     const form = document.getElementById("systemSettingsForm");
     if (!form) return;
@@ -1075,6 +1207,7 @@
       const savedMessage = String(js.message || "Saved.");
       setStatus("system-status", savedMessage);
       if (window.showToast) window.showToast("System settings saved", "ok");
+      applyDashboardWeatherForecastChange(body.get("weather_forecast_provider"));
     } catch (e) {
       console.error(e);
       setStatus("system-status", e && e.message ? e.message : "Failed to save System settings.");
@@ -2528,6 +2661,8 @@
       saveSystemSettings();
     });
   }
+  window.addEventListener("resize", scheduleSystemPaneHeightSync);
+  scheduleSystemPaneHeightSync();
   refreshTimezoneOptionsFromCoords();
 })();
 </script>

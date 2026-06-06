@@ -183,6 +183,9 @@ TIMEZONE = ""
 SOURCE = ""
 PROVIDER = ""
 
+[WeatherForecast]
+PROVIDER = "met_no"
+
 [Display]
 gauge_size = "Small"
 display_style = "Gauge"
@@ -203,6 +206,8 @@ Runtime notes:
   require a service restart.
 - Home Assistant and farmOS secrets are obfuscated at rest by `saiSettings`.
   This is reversible obfuscation, not encryption.
+- `[WeatherForecast].PROVIDER` accepts `met_no`, `open_meteo`, `us`, or `none`.
+  `none` disables the dashboard forecast card.
 
 ## Sensor Settings
 

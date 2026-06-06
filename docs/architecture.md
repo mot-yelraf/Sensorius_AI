@@ -121,11 +121,12 @@ Weather forecast:
 
 - `saiWeatherForecast.py` resolves the dashboard forecast location from Astral
   settings or Astral auto-detection.
-- MET Norway Location Forecast is the primary provider; Open-Meteo is used as a
-  fallback when MET Norway is unavailable.
+- The selected `[WeatherForecast].PROVIDER` controls the forecast source:
+  MET Norway Location Forecast, Open-Meteo, US National Weather Service, or
+  no forecast.
 - Forecast payloads are cached in SQLite in `weather_forecast` and reused for
-  up to six hours. If both providers fail, the dashboard can continue to show
-  the latest cached forecast marked as stale.
+  up to six hours. If the selected provider fails, the dashboard can continue
+  to show the latest cached forecast for that provider marked as stale.
 
 Switches:
 

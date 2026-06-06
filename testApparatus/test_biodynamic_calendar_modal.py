@@ -150,7 +150,7 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "function bioForecastSummaryText(){" in text
     assert "const lines = ['24hr Forecast'];" in text
     assert "function bioSummaryWithForecast(dateIso, summaryText){" in text
-    assert "if (dateIso && dateIso === bioTodayIso()) parts.push(bioForecastSummaryText());" in text
+    assert "if (window.__weatherForecastEnabled !== false && dateIso && dateIso === bioTodayIso()) parts.push(bioForecastSummaryText());" in text
     assert "const summaryText = bioSummaryWithForecast(day.date, summaries[day.date] || '');" in text
     assert "const summaryText = dateIso ? bioSummaryWithForecast(dateIso, summaries[dateIso] || '') : '';" in text
     assert "if (typeof bioRefreshOpenSummary === 'function') bioRefreshOpenSummary();" in text

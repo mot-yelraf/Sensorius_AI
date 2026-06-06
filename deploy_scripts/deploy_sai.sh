@@ -88,6 +88,7 @@ EXCLUDES=(
   ".mypy_cache/"
   ".ruff_cache/"
   ".DS_Store"
+  "*.local/"
   "deploy_scripts/"
   "docs/"
   "testApparatus/"
@@ -102,6 +103,8 @@ EXCLUDES=(
 
 # Keep runtime settings directories excluded, but explicitly include factory templates.
 INCLUDES=(
+  "utils/"
+  "utils/***"
   "system_settings/"
   "system_settings/factory/"
   "system_settings/factory/***"

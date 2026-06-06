@@ -138,7 +138,7 @@ def get_gauge_config():
     gauge_config.update(WEEWX_GAUGE_CONFIG)
     return gauge_config
 
-def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None):
+def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no"):
 
     import json
     import os
@@ -151,6 +151,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     from collections import defaultdict
     from saiUtils import get_timestamp
     from saiSettings import saiSettings
+    from saiWeatherForecast import normalize_weather_forecast_provider
     import saiAddDevice
     from saiSensorSettingsManager import SensorSettingsManager
     from saiHtml import render_graph_modal
@@ -859,6 +860,18 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     except Exception:
         db_switch_rows = []
 
+    def _channel_id_from_switch_row(row: dict) -> str:
+        cid = str((row or {}).get("channel_id", "") or "").strip()
+        if cid:
+            m = re.match(r"^[sS](\d+)-(.+)$", cid)
+            return f"S{m.group(1)}-{m.group(2)}" if m else cid
+        switch_key = str((row or {}).get("switch_key", "") or "").strip()
+        if "::" not in switch_key:
+            return ""
+        candidate = switch_key.split("::", 1)[0].strip()
+        m = re.match(r"^[sS](\d+)-(.+)$", candidate)
+        return f"S{m.group(1)}-{m.group(2)}" if m else ""
+
     # include switches discovered via /itaot even if they haven't emitted state yet
     discovered_switches: dict[str, dict[str, str]] = {}  # switch_id -> {label: channel_id}
     try:
@@ -898,7 +911,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                         if rsid != sid_l:
                             continue
                         lbl = str(row.get("label", "") or "").strip()
-                        cid = str(row.get("channel_id", "") or "").strip()
+                        cid = _channel_id_from_switch_row(row)
                         if lbl and cid:
                             mapped[lbl] = cid
                     if mapped:
@@ -964,7 +977,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 if rsid != sid_l:
                     continue
                 lbl = str(row.get("label", "") or "").strip()
-                cid = str(row.get("channel_id", "") or "").strip()
+                cid = _channel_id_from_switch_row(row)
                 if lbl and cid:
                     out[lbl] = cid
         except Exception:
@@ -1014,6 +1027,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
 
     display_style = (display_style or "Gauge")
     display_style_js = display_style.lower()
+    weather_forecast_provider = normalize_weather_forecast_provider(weather_forecast_provider)
+    weather_forecast_enabled = weather_forecast_provider != "none"
 
     yield "<!DOCTYPE html>"
     yield f"<html><head><title>{APP_NAME_LONG}</title>"
@@ -1654,26 +1669,27 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
 
     yield "<div class='dash-top-row'>"
     yield "<div class='dash-left-col'>"
-    yield "<div class='astro-box' id='weatherForecastBox' aria-live='polite'>"
-    yield "  <div class='astro-card'>"
-    yield "    <div class='astro-title'>24 Hour Forecast</div>"
-    yield "    <div class='forecast-status' id='forecastStatus'>Loading forecast...</div>"
-    yield "    <div class='forecast-current'>"
-    yield "      <div class='forecast-current-summary' id='forecastOverall'>Loading...</div>"
-    yield "      <dl class='forecast-current-grid'>"
-    yield "        <dt>Temp</dt><dd id='forecastTempRange'>--</dd>"
-    yield "        <dt>RH</dt><dd id='forecastRhRange'>--</dd>"
-    yield "        <dt>Wind</dt><dd id='forecastWind' class='forecast-wind-value'>--</dd>"
-    yield "      </dl>"
-    yield "    </div>"
-    yield "    <div class='forecast-card-actions'>"
-    yield "      <button type='button' class='forecast-open-btn' id='forecastFiveDayBtn' aria-label='Open six day weather forecast' title='6 Day Forecast'>"
-    yield "        <span class='spinner' aria-hidden='true'></span>"
-    yield "        <span class='forecast-open-btn-label'>6 Day Forecast</span>"
-    yield "      </button>"
-    yield "    </div>"
-    yield "  </div>"
-    yield "</div>"
+    if weather_forecast_enabled:
+        yield "<div class='astro-box' id='weatherForecastBox' aria-live='polite'>"
+        yield "  <div class='astro-card'>"
+        yield "    <div class='astro-title'>24 Hour Forecast</div>"
+        yield "    <div class='forecast-status' id='forecastStatus'>Loading forecast...</div>"
+        yield "    <div class='forecast-current'>"
+        yield "      <div class='forecast-current-summary' id='forecastOverall'>Loading...</div>"
+        yield "      <dl class='forecast-current-grid'>"
+        yield "        <dt>Temp</dt><dd id='forecastTempRange'>--</dd>"
+        yield "        <dt>RH</dt><dd id='forecastRhRange'>--</dd>"
+        yield "        <dt>Wind</dt><dd id='forecastWind' class='forecast-wind-value'>--</dd>"
+        yield "      </dl>"
+        yield "    </div>"
+        yield "    <div class='forecast-card-actions'>"
+        yield "      <button type='button' class='forecast-open-btn' id='forecastFiveDayBtn' aria-label='Open six day weather forecast' title='6 Day Forecast'>"
+        yield "        <span class='spinner' aria-hidden='true'></span>"
+        yield "        <span class='forecast-open-btn-label'>6 Day Forecast</span>"
+        yield "      </button>"
+        yield "    </div>"
+        yield "  </div>"
+        yield "</div>"
     yield "<div class='astro-box' id='bioBox' aria-live='polite'>"
     yield "  <div class='astro-card'>"
     yield "    <div class='astro-title'>Biodynamic Calendar</div>"
@@ -1948,6 +1964,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield f"const metricCanvasHeight = {int(layout['canvas_height'])};"
     yield f"const astroData = {json.dumps(astro_payload)};"
     yield f"const biodynamicData = {json.dumps(biodynamic_payload)};"
+    yield f"const weatherForecastProvider = {json.dumps(weather_forecast_provider)};"
+    yield f"const weatherForecastEnabled = {str(weather_forecast_enabled).lower()};"
+    yield "window.__weatherForecastEnabled = weatherForecastEnabled;"
+    yield "window.__weatherForecastProvider = weatherForecastProvider;"
     yield f"const isPiPlatform = {str(is_pi_platform).lower()};"
     yield "const lastTimestamps = {};"
     yield "let lastSensorTimestampChangeMs = Date.now();"
@@ -2392,10 +2412,13 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  const provider = String((data && data.provider) || '').trim();"
     yield "  if (provider === 'met_no') return 'MET Norway';"
     yield "  if (provider === 'open_meteo') return 'Open-Meteo';"
+    yield "  if (provider === 'us') return 'US';"
+    yield "  if (provider === 'none') return 'None';"
     yield "  return provider || '';"
     yield "}"
     yield "function forecastUnavailableText(data){"
     yield "  const reason = String((data && data.reason) || '').trim();"
+    yield "  if (reason === 'provider_disabled') return 'Weather forecast disabled.';"
     yield "  if (reason === 'location_unavailable') return 'Set Astral location to enable forecast.';"
     yield "  if (reason === 'provider_unavailable') return 'Forecast provider unavailable.';"
     yield "  if (reason === 'forecast_failed') return 'Forecast unavailable.';"
@@ -2448,9 +2471,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  setForecastText('forecastRhRange', cur.rh_range || '--');"
     yield "  if (typeof bioRefreshOpenSummary === 'function') bioRefreshOpenSummary();"
     yield "}"
-    yield "async function loadWeatherForecast(){"
+    yield "async function loadWeatherForecast(forceRefresh){"
     yield "  try {"
-    yield "    const resp = await fetch('/api/weather-forecast?days=1', { cache:'no-store' });"
+    yield "    const url = forceRefresh ? '/api/weather-forecast?days=1&force_refresh=true' : '/api/weather-forecast?days=1';"
+    yield "    const resp = await fetch(url, { cache:'no-store' });"
     yield "    const payload = await resp.json().catch(() => ({}));"
     yield "    if (!resp.ok) throw new Error(`forecast_${resp.status}`);"
     yield "    renderWeatherForecast(payload);"
@@ -2459,6 +2483,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    renderWeatherForecast({ ok:false, reason:'forecast_failed' });"
     yield "  }"
     yield "}"
+    yield "window.loadWeatherForecast = loadWeatherForecast;"
     yield "function setForecastButtonLoading(isLoading){"
     yield "  const btn = document.getElementById('forecastFiveDayBtn');"
     yield "  if (!btn) return;"
@@ -2834,7 +2859,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  const parts = [];"
     yield "  const body = String(summaryText || '').trim();"
     yield "  if (body) parts.push(body);"
-    yield "  if (dateIso && dateIso === bioTodayIso()) parts.push(bioForecastSummaryText());"
+    yield "  if (window.__weatherForecastEnabled !== false && dateIso && dateIso === bioTodayIso()) parts.push(bioForecastSummaryText());"
     yield "  return parts.join('\\n\\n');"
     yield "}"
     yield "function bioRefreshOpenSummary(){"
@@ -3125,7 +3150,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  if (typeof drawSunPath === 'function') drawSunPath(astroData);"
     yield "  if (typeof drawMoonPhase === 'function') drawMoonPhase(astroData);"
     yield "  if (typeof drawBiodynamic === 'function') drawBiodynamic(biodynamicData);"
-    yield "  if (typeof loadWeatherForecast === 'function') loadWeatherForecast();"
+    yield "  if (weatherForecastEnabled && typeof loadWeatherForecast === 'function') loadWeatherForecast();"
     yield "  const form = document.querySelector('form');"
     yield "  const forecastFiveDayBtn = document.getElementById('forecastFiveDayBtn');"
     yield "  const bioOpenBtn = document.getElementById('bioOpenBtn');"

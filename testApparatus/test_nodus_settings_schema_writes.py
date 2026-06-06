@@ -550,6 +550,30 @@ def test_system_settings_template_has_astral_altitude_field():
     assert text.index('id="astral_lat"') < text.index('id="astral_lon"') < text.index('id="astral_altitude"')
 
 
+def test_system_settings_template_has_weather_forecast_selector_right_of_timezone():
+    source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
+    text = source.read_text(encoding="utf-8")
+
+    assert 'class="field-grid-network"' in text
+    assert '<label for="weather_forecast_provider">Weather Forecast</label>' in text
+    assert 'name="weather_forecast_provider"' in text
+    assert '<option value="met_no"' in text
+    assert '<option value="us"' in text
+    assert '<option value="open_meteo"' in text
+    assert '<option value="none"' in text
+    assert text.index('id="tz"') < text.index('id="weather_forecast_provider"')
+
+
+def test_system_settings_save_applies_dashboard_weather_forecast_change():
+    source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
+    text = source.read_text(encoding="utf-8")
+
+    assert "function applyDashboardWeatherForecastChange" in text
+    assert "body.get(\"weather_forecast_provider\")" in text
+    assert "window.loadWeatherForecast(true)" in text
+    assert "window.location.reload()" in text
+
+
 @pytest.mark.asyncio
 async def test_submit_pi_setup_blank_astral_fields_clear_saved_astral_location(tmp_path, monkeypatch):
     app = await _build_route_app_with_settings(
@@ -768,6 +792,31 @@ async def test_submit_pi_setup_persists_sensornetwork_tls_and_mqtt_port(tmp_path
     assert stored["SensorNetwork"]["BROKER"] == "hub.local"
     assert stored["SensorNetwork"]["MQTTPORT"] == 8883
     assert stored["SensorNetwork"]["USE_TLS"] is True
+
+
+@pytest.mark.asyncio
+async def test_submit_pi_setup_persists_weather_forecast_provider(tmp_path, monkeypatch):
+    app = await _build_route_app_with_settings(tmp_path, monkeypatch, {})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-pi-setup",
+            data={
+                "broker": "",
+                "tz": "America/Denver",
+                "httpport": "8000",
+                "astral_lat": "",
+                "astral_lon": "",
+                "gauge_size": "medium",
+                "display_style": "grid",
+                "weather_forecast_provider": "open_meteo",
+            },
+            follow_redirects=False,
+        )
+
+    assert res.status_code == 303
+    stored = _RouteFakeSaiSettings.STORED_SETTINGS
+    assert stored["WeatherForecast"]["PROVIDER"] == "open_meteo"
 
 
 @pytest.mark.asyncio
@@ -3151,6 +3200,84 @@ async def test_dashboard_json_ignores_stale_switch_settings_without_channels(tmp
 
 
 @pytest.mark.asyncio
+async def test_dashboard_json_reports_switch_only_nodus_discovery_for_layout_refresh(tmp_path, monkeypatch):
+    app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    saiWebRoutes.switch_controllers = {}
+    app.state.switch_controllers = {}
+
+    switch_id = "relay-standalone"
+    channel_id = "S1-standalone"
+    ingest.get_known_switch_devices = lambda: [switch_id]
+    ingest.nodus_switch_topic_map = {
+        f"nodus/{channel_id}/state": {
+            "switch_id": switch_id,
+            "channel_id": channel_id,
+            "label": "Pump",
+            "kind": "state",
+        }
+    }
+    ingest._switch_state_cache = {switch_id: {channel_id: "off", "Pump": "off"}}
+    ingest.device_location = {f"nodus/{channel_id}/state": "Shed"}
+
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_values_and_timestamps", lambda ids: ({}, {}))
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/?json_only=true")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert channel_id in body["available_switches"]
+    assert switch_id in body["renderable_switches"]
+    assert switch_id in body["renderable_switches_view"]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_json_ignores_incomplete_switch_identity_without_channel_id(tmp_path, monkeypatch):
+    app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    saiWebRoutes.switch_controllers = {}
+    app.state.switch_controllers = {}
+
+    ingest.get_known_switch_devices = lambda: ["switch-test123"]
+    ingest.nodus_switch_topic_map = {}
+    ingest._switch_state_cache = {}
+
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_values_and_timestamps", lambda ids: ({}, {}))
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_switch_identities",
+        lambda: [
+            {
+                "switch_id": "switch-test123",
+                "switch_key": "switch-test123::Relay 1",
+                "channel_id": "",
+                "label": "Relay 1",
+                "location": "Unknown",
+            }
+        ],
+    )
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/?json_only=true")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["available_switches"] == []
+    assert body["renderable_switches"] == []
+    assert body["renderable_switches_view"] == []
+
+
+@pytest.mark.asyncio
 async def test_dashboard_display_style_prefers_sensor_settings_over_global_default(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
@@ -3305,9 +3432,39 @@ def test_dashboard_weather_forecast_card_has_six_day_button():
     assert "class='forecast-open-btn' id='forecastFiveDayBtn'" in html
     assert "<span class='forecast-open-btn-label'>6 Day Forecast</span>" in html
     assert "/api/weather-forecast?days=1" in html
+    assert "/api/weather-forecast?days=1&force_refresh=true" in html
     assert "/api/weather-forecast?days=6" in html
+    assert "window.__weatherForecastProvider = weatherForecastProvider;" in html
+    assert "window.loadWeatherForecast = loadWeatherForecast;" in html
     assert "forecastFiveDayBtn.addEventListener('click'" in html
     assert "window.openWeatherForecastModal) window.openWeatherForecastModal();" in html
+
+
+def test_dashboard_weather_forecast_none_hides_forecast_card():
+    from saiHtml import get_gauge_config, render_dashboard
+
+    ingest = SimpleNamespace(expected_gauge_map={})
+    gauge_config = get_gauge_config()
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["co2-ykdvea"],
+            {"co2-ykdvea": {"CO2": 718.0}},
+            {"co2-ykdvea": {"CO2": {"min": 700.0, "avg": 718.0, "max": 730.0}}},
+            ingest,
+            gauge_config=gauge_config,
+            expected_gauge_map={"co2-ykdvea": ["CO2"]},
+            expected_display_style_map={"co2-ykdvea": {"METRIC_1": "Gauge"}},
+            display_style="Gauge",
+            weather_forecast_provider="none",
+        )
+    )
+
+    assert "24 Hour Forecast</div>" not in html
+    assert "id='weatherForecastBox'" not in html
+    assert "const weatherForecastEnabled = false;" in html
+    assert "if (weatherForecastEnabled && typeof loadWeatherForecast === 'function') loadWeatherForecast();" in html
 
 
 def test_dashboard_refresh_pauses_during_modal_and_hidden_tab():

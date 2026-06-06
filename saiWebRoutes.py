@@ -90,7 +90,7 @@ from saiSwitchSettingsManager import SwitchSettingsManager
 from saiBiodynamics import get_biodynamic_payload, get_biodynamic_local_now, get_skyfield_runtime_if_installed
 from saiDailySummary import DailySummaryService, DEFAULT_FORECAST_DAYS
 from saiNodusOTA import NodusOTAError, NodusOTAService
-from saiWeatherForecast import get_weather_forecast_payload
+from saiWeatherForecast import get_weather_forecast_payload, normalize_weather_forecast_provider
 from saiAddDevice import HUB_SETTINGS_PATH, _SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR
 try:
     from __init__ import __version__ as SAI_APP_VERSION
@@ -332,6 +332,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         payload = {
             "gauge_size": fresh_settings.get_setting("Display", "gauge_size") or "Small",
             "display_style": fresh_settings.get_setting("Display", "display_style") or "Gauge",
+            "weather_forecast_provider": normalize_weather_forecast_provider(
+                fresh_settings.get_setting("WeatherForecast", "PROVIDER", "met_no")
+            ),
             "gauge_config": get_gauge_config(),
         }
         _DASHBOARD_DISPLAY_SETTINGS_CACHE = (
@@ -1518,6 +1521,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     return s
                 return f"S{m.group(1)}-{m.group(2)}"
 
+            def _identity_row_channel_id(row: dict) -> str:
+                ch_id = _canonical_channel_id(str((row or {}).get("channel_id", "") or "").strip())
+                if ch_id:
+                    return ch_id
+                switch_key = str((row or {}).get("switch_key", "") or "").strip()
+                if "::" not in switch_key:
+                    return ""
+                candidate = _canonical_channel_id(switch_key.split("::", 1)[0].strip())
+                return candidate if _is_channel_switch_id(candidate) else ""
+
             def _is_valid_sensor_id(name: str) -> bool:
                 s = (name or "").strip()
                 if not s:
@@ -1809,8 +1822,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         if str((row or {}).get("switch_id", "") or "").strip().lower() != sw_l:
                             continue
                         label = str((row or {}).get("label", "") or "").strip()
-                        channel_id = str((row or {}).get("channel_id", "") or "").strip()
-                        if label or channel_id:
+                        channel_id = _identity_row_channel_id(row)
+                        if label and channel_id:
                             return True
                 except Exception:
                     pass
@@ -1872,15 +1885,21 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         nodus_topic_map = {}
 
                     switch_ids_db = []
+                    switch_ids_db_controllers = []
                     switch_identity_rows = []
                     try:
                         switch_identity_rows = await asyncio.to_thread(data_logger.get_switch_identities)
                         for row in (switch_identity_rows or []):
-                            ch_id = str(row.get("channel_id", "")).strip()
+                            sw_id = str(row.get("switch_id", "")).strip()
+                            label = str(row.get("label", "") or "").strip()
+                            ch_id = _identity_row_channel_id(row)
+                            if sw_id and label and ch_id:
+                                switch_ids_db_controllers.append(sw_id)
                             if ch_id:
-                                switch_ids_db.append(_canonical_channel_id(ch_id))
+                                switch_ids_db.append(ch_id)
                     except Exception:
                         switch_ids_db = []
+                        switch_ids_db_controllers = []
                         switch_identity_rows = []
 
                     nodus_channels = list(switch_ids_discovered_channels) + list(switch_ids_db)
@@ -1888,9 +1907,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         nodus_channels,
                         allowed_extra=set(nodus_channels),
                     )
+                    allowed_controller_ids = set(
+                        list(switch_ids_local)
+                        + list(switch_ids_live)
+                        + list(switch_ids_discovered)
+                        + list(switch_ids_db_controllers)
+                    )
                     raw_renderable_switch_controllers = _normalize_switch_ids(
-                        list(switch_ids_local) + list(switch_ids_live) + list(switch_ids_discovered),
-                        allowed_extra=set(list(switch_ids_local) + list(switch_ids_live)),
+                        list(switch_ids_local)
+                        + list(switch_ids_live)
+                        + list(switch_ids_discovered)
+                        + list(switch_ids_db_controllers),
+                        allowed_extra=allowed_controller_ids,
                     )
                     remote_cache = getattr(mqtt_ingest, "_switch_state_cache", {}) or {}
                     renderable_switch_controllers = [
@@ -1986,6 +2014,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         gaugeSize = str(display_settings.get("gauge_size") or "Small")
         gauge_config = dict(display_settings.get("gauge_config") or {})
         displayStyle = str(display_settings.get("display_style") or "Gauge")
+        weatherForecastProvider = normalize_weather_forecast_provider(display_settings.get("weather_forecast_provider") or "met_no")
         try:
             configured_weewx_id = str(
                 settings.get_setting("WeeWX", "SENSOR_ID", WEEWX_DEFAULT_SENSOR_ID)
@@ -2468,6 +2497,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             )
             return JSONResponse(payload)
 
+        dashboard_switch_controllers = globals().get("switch_controllers")
+        if dashboard_switch_controllers is None:
+            dashboard_switch_controllers = getattr(app.state, "switch_controllers", None)
+        if dashboard_switch_controllers is None:
+            dashboard_switch_controllers = {}
+
         render_started = time.monotonic()
         rendered_dashboard = await asyncio.to_thread(
             lambda: "".join(render_dashboard(
@@ -2477,13 +2512,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 all_values, 
                 all_stats, 
                 mqtt_ingest,
-                switch_controllers = switch_controllers,
+                switch_controllers = dashboard_switch_controllers,
                 sensor_locations = sensor_locations,
                 gauge_config=gauge_config, 
                 gauge_size = gaugeSize,
                 expected_gauge_map = expected_gauge_map,
                 expected_display_style_map = expected_display_style_map,
                 display_style = displayStyle,
+                weather_forecast_provider = weatherForecastProvider,
                 astro_payload=_get_cached_astro_payload(),
                 biodynamic_payload=_get_cached_biodynamic_payload(datetime.now().date().replace(day=1)),
             ))
@@ -3078,6 +3114,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         astral_noon = "--"
         gauge_size = settings.get_setting("Display", "gauge_size", "") or "Small"
         display_style = settings.get_setting("Display", "display_style", "") or "Gauge"
+        weather_forecast_provider = normalize_weather_forecast_provider(
+            settings.get_setting("WeatherForecast", "PROVIDER", "met_no")
+        )
         ha_enabled = bool(settings.get_setting("HomeAssistant", "ENABLED", False))
         ha_username = settings.get_setting("HomeAssistant", "HA_USERNAME", "") or ""
         ha_password_raw = settings.get_setting("HomeAssistant", "HA_PASSWORD", "") or ""
@@ -3178,6 +3217,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             tz_options=tz_options,
             gauge_size=gauge_size,
             display_style=display_style,
+            weather_forecast_provider=weather_forecast_provider,
             astral_lat=astral_lat,
             astral_lon=astral_lon,
             astral_altitude=astral_altitude,
@@ -4438,8 +4478,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     ):
         _route_started = time.monotonic()
         try:
+            forecast_settings = saiSettings(make_startup_backup=False, apply_live=False)
             payload = await get_weather_forecast_payload(
-                settings,
+                forecast_settings,
                 db_path=str(getattr(data_logger, "db_path", "sensorius_data.db") or "sensorius_data.db"),
                 force_refresh=bool(force_refresh),
                 min_days=int(days),
@@ -6635,6 +6676,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         raw_altitude = str(form.get("astral_altitude", "") or "").strip()
         gauge_size = str(form.get("gauge_size", "") or "").strip()
         display_style = str(form.get("display_style", "") or "").strip()
+        raw_weather_forecast_provider = str(form.get("weather_forecast_provider", "met_no") or "").strip()
+        weather_forecast_provider = normalize_weather_forecast_provider(raw_weather_forecast_provider)
         astral_reset_requested = not raw_lat and not raw_lon
 
         if not tz:
@@ -6729,6 +6772,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             settings.replace_setting("Astral", "ALTITUDE", altitude_to_store)
         settings.replace_setting("Display", "gauge_size", gauge_size)
         settings.replace_setting("Display", "display_style", display_style)
+        settings.replace_setting("WeatherForecast", "PROVIDER", weather_forecast_provider)
 
         astral_response: dict[str, object] = {
             "ok": False,

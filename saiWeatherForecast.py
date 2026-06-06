@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -28,10 +29,29 @@ DEBUG = debug_enabled(MODULE)
 
 MET_LOCATION_FORECAST_URL = "https://api.met.no/weatherapi/locationforecast/2.0/compact"
 OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+NWS_POINTS_URL = "https://api.weather.gov/points/{latitude:.4f},{longitude:.4f}"
 FORECAST_CACHE_TABLE = "weather_forecast"
 FORECAST_REFRESH_SEC = 6 * 60 * 60
 FORECAST_COORD_TOLERANCE_DEG = 0.05
 USER_AGENT = f"Sensorius/{SAI_APP_VERSION} weather-forecast"
+FORECAST_PROVIDER_MET_NO = "met_no"
+FORECAST_PROVIDER_OPEN_METEO = "open_meteo"
+FORECAST_PROVIDER_US = "us"
+FORECAST_PROVIDER_NONE = "none"
+
+
+def normalize_weather_forecast_provider(value: object) -> str:
+    """Return the configured weather forecast provider key."""
+    text = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if text in {"", "met", "met_no", "met_norway", "norway"}:
+        return FORECAST_PROVIDER_MET_NO
+    if text in {"open_meteo", "openmeteo"}:
+        return FORECAST_PROVIDER_OPEN_METEO
+    if text in {"us", "usa", "nws", "noaa", "weather_gov", "weather.gov"}:
+        return FORECAST_PROVIDER_US
+    if text in {"none", "off", "false", "disabled", "disable"}:
+        return FORECAST_PROVIDER_NONE
+    return FORECAST_PROVIDER_MET_NO
 
 
 def _safe_float(value: object) -> float | None:
@@ -79,8 +99,16 @@ def _c_to_f(value: float) -> float:
     return (value * 9.0 / 5.0) + 32.0
 
 
+def _f_to_c(value: float) -> float:
+    return (value - 32.0) * (5.0 / 9.0)
+
+
 def _mps_to_mph(value: float) -> float:
     return value * 2.2369362921
+
+
+def _mph_to_mps(value: float) -> float:
+    return value / 2.2369362921
 
 
 def _range(values: list[float]) -> tuple[float, float] | None:
@@ -359,6 +387,88 @@ def normalize_open_meteo_forecast(payload: dict[str, Any], *, tz_name: str) -> l
     return sorted(rows, key=lambda row: row["time"])
 
 
+def _nws_temp_c(value: object, unit: object) -> float | None:
+    temp = _safe_float(value)
+    if temp is None:
+        return None
+    unit_text = str(unit or "").strip().upper()
+    if unit_text == "F":
+        return _f_to_c(temp)
+    return temp
+
+
+def _nws_quantitative_value(raw: object) -> float | None:
+    if isinstance(raw, dict):
+        return _safe_float(raw.get("value"))
+    return _safe_float(raw)
+
+
+def _nws_wind_speed_mps(value: object) -> float | None:
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    nums = [_safe_float(part) for part in re.findall(r"\d+(?:\.\d+)?", text)]
+    speeds = [num for num in nums if num is not None]
+    if not speeds:
+        return None
+    speed = sum(speeds) / len(speeds)
+    if "km/h" in text or "kph" in text:
+        return speed / 3.6
+    if "kt" in text or "knot" in text:
+        return speed * 0.514444
+    if "m/s" in text:
+        return speed
+    return _mph_to_mps(speed)
+
+
+def _nws_cloud_fraction(text: object) -> float | None:
+    forecast = str(text or "").strip().lower()
+    if not forecast:
+        return None
+    if any(word in forecast for word in ("thunder", "rain", "shower", "snow", "sleet", "drizzle")):
+        return 85.0
+    if "mostly cloudy" in forecast:
+        return 85.0
+    if "partly cloudy" in forecast or "partly sunny" in forecast:
+        return 55.0
+    if "mostly sunny" in forecast or "mostly clear" in forecast:
+        return 25.0
+    if "cloudy" in forecast or "overcast" in forecast:
+        return 95.0
+    if "sunny" in forecast or "clear" in forecast:
+        return 8.0
+    return None
+
+
+def normalize_nws_forecast(payload: dict[str, Any], *, tz_name: str) -> list[dict[str, Any]]:
+    """Normalize National Weather Service hourly forecast periods."""
+    props = payload.get("properties") if isinstance(payload, dict) else None
+    periods = props.get("periods") if isinstance(props, dict) else None
+    if not isinstance(periods, list):
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for period in periods:
+        if not isinstance(period, dict):
+            continue
+        short_forecast = str(period.get("shortForecast") or "").strip()
+        row = _normalize_hour(
+            {
+                "time": period.get("startTime"),
+                "temp_c": _nws_temp_c(period.get("temperature"), period.get("temperatureUnit")),
+                "rh": _nws_quantitative_value(period.get("relativeHumidity")),
+                "wind_mps": _nws_wind_speed_mps(period.get("windSpeed")),
+                "cloud": _nws_cloud_fraction(short_forecast),
+                "precip_mm": 0.0,
+                "symbol": short_forecast,
+            },
+            tz_name=tz_name,
+        )
+        if row is not None:
+            rows.append(row)
+    return sorted(rows, key=lambda row: row["time"])
+
+
 def build_forecast_payload(
     *,
     provider: str,
@@ -466,19 +576,31 @@ def save_weather_forecast_cache(db_path: str, payload: dict[str, Any]) -> None:
         conn.commit()
 
 
-def load_weather_forecast_cache(db_path: str, *, latitude: float, longitude: float) -> dict[str, Any] | None:
+def load_weather_forecast_cache(
+    db_path: str,
+    *,
+    latitude: float,
+    longitude: float,
+    provider: str | None = None,
+) -> dict[str, Any] | None:
+    provider_key = normalize_weather_forecast_provider(provider) if provider is not None else ""
     try:
         with sqlite3.connect(db_path, timeout=30.0) as conn:
             _ensure_forecast_cache(conn)
+            provider_clause = "AND provider = ?" if provider_key else ""
+            params: list[object] = [latitude, FORECAST_COORD_TOLERANCE_DEG, longitude, FORECAST_COORD_TOLERANCE_DEG]
+            if provider_key:
+                params.append(provider_key)
             row = conn.execute(
                 f"""
                 SELECT forecast_json
                 FROM {FORECAST_CACHE_TABLE}
                 WHERE ABS(latitude - ?) <= ? AND ABS(longitude - ?) <= ?
+                {provider_clause}
                 ORDER BY retrieved_utc DESC, id DESC
                 LIMIT 1
                 """,
-                (latitude, FORECAST_COORD_TOLERANCE_DEG, longitude, FORECAST_COORD_TOLERANCE_DEG),
+                tuple(params),
             ).fetchone()
     except Exception as exc:
         if DEBUG:
@@ -529,6 +651,20 @@ async def _fetch_open_meteo_forecast(latitude: float, longitude: float, *, tz_na
         return normalize_open_meteo_forecast(resp.json(), tz_name=tz_name)
 
 
+async def _fetch_nws_forecast(latitude: float, longitude: float, *, tz_name: str, timeout_sec: float) -> list[dict[str, Any]]:
+    async with httpx.AsyncClient(timeout=timeout_sec, headers={"User-Agent": USER_AGENT}, follow_redirects=True) as client:
+        points_resp = await client.get(NWS_POINTS_URL.format(latitude=latitude, longitude=longitude))
+        points_resp.raise_for_status()
+        points = points_resp.json()
+        props = points.get("properties") if isinstance(points, dict) else None
+        hourly_url = str((props or {}).get("forecastHourly") or "").strip() if isinstance(props, dict) else ""
+        if not hourly_url:
+            raise RuntimeError("NWS hourly forecast URL unavailable")
+        hourly_resp = await client.get(hourly_url)
+        hourly_resp.raise_for_status()
+        return normalize_nws_forecast(hourly_resp.json(), tz_name=tz_name)
+
+
 def _resolve_forecast_location(settings: Any, *, timeout_sec: float) -> dict[str, Any]:
     try:
         resolved = settings.resolve_astral_location(persist_if_auto=False, timeout_sec=timeout_sec) or {}
@@ -557,11 +693,23 @@ async def get_weather_forecast_payload(
     timeout_sec: float = 8.0,
 ) -> dict[str, Any]:
     """Return the dashboard forecast payload using live providers plus cache."""
+    provider_key = normalize_weather_forecast_provider(settings.get_setting("WeatherForecast", "PROVIDER", FORECAST_PROVIDER_MET_NO))
+    if provider_key == FORECAST_PROVIDER_NONE:
+        return {
+            "ok": False,
+            "stale": False,
+            "provider": FORECAST_PROVIDER_NONE,
+            "reason": "provider_disabled",
+            "current_24h": {},
+            "days": [],
+        }
+
     location = _resolve_forecast_location(settings, timeout_sec=2.5)
     if not location.get("ok"):
         return {
             "ok": False,
             "stale": False,
+            "provider": provider_key,
             "reason": location.get("reason") or "location_unavailable",
             "current_24h": {},
             "days": [],
@@ -570,7 +718,7 @@ async def get_weather_forecast_payload(
     lat = float(location["latitude"])
     lon = float(location["longitude"])
     tz_name = str(location["timezone"])
-    cached = load_weather_forecast_cache(db_path, latitude=lat, longitude=lon)
+    cached = load_weather_forecast_cache(db_path, latitude=lat, longitude=lon, provider=provider_key)
     if cached:
         age = _cache_age_sec(cached)
         if age is not None:
@@ -583,10 +731,13 @@ async def get_weather_forecast_payload(
             return cached
 
     provider_errors: list[str] = []
-    providers = (
-        ("met_no", _fetch_met_forecast),
-        ("open_meteo", _fetch_open_meteo_forecast),
-    )
+    provider_fetchers = {
+        FORECAST_PROVIDER_MET_NO: _fetch_met_forecast,
+        FORECAST_PROVIDER_OPEN_METEO: _fetch_open_meteo_forecast,
+        FORECAST_PROVIDER_US: _fetch_nws_forecast,
+    }
+    fetcher = provider_fetchers.get(provider_key)
+    providers = ((provider_key, fetcher),) if fetcher is not None else ()
     for provider, fetcher in providers:
         try:
             hourly = await fetcher(lat, lon, tz_name=tz_name, timeout_sec=timeout_sec)
