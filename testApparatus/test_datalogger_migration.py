@@ -6,6 +6,7 @@ for biodynamic daily summaries.
 
 import sqlite3
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -74,17 +75,85 @@ def test_init_db_migrates_legacy_ts_epoch_columns(tmp_path, monkeypatch: pytest.
             readings_cols = {row[1] for row in cur.fetchall()}
             cur.execute("PRAGMA table_info(sw_events)")
             sw_events_cols = {row[1] for row in cur.fetchall()}
+            cur.execute("PRAGMA table_info(sensor_events)")
+            sensor_events_cols = {row[1] for row in cur.fetchall()}
 
             cur.execute("PRAGMA index_list(readings)")
             readings_indexes = {row[1] for row in cur.fetchall()}
             cur.execute("PRAGMA index_list(sw_events)")
             sw_events_indexes = {row[1] for row in cur.fetchall()}
+            cur.execute("PRAGMA index_list(sensor_events)")
+            sensor_events_indexes = {row[1] for row in cur.fetchall()}
 
         assert "ts_epoch" in readings_cols
         assert "ts_epoch" in sw_events_cols
+        assert {"ts_epoch", "sensor_id", "event_type", "state", "source"}.issubset(sensor_events_cols)
         assert "idx_readings_sid_metric_tse" in readings_indexes
         assert "idx_swe_key_tse" in sw_events_indexes
+        assert "idx_sensor_events_sid_type_state_tse" in sensor_events_indexes
     finally:
+        saiDataLogger._schema_ready = False
+
+
+def test_sensor_offline_event_count_uses_24h_window_and_aliases(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    class _StubSettings:
+        def __init__(self, apply_live=False):
+            self.apply_live = apply_live
+
+        def get_setting(self, section, key):
+            if section == "Time" and key in ("TZ", "tz"):
+                return "America/Denver"
+            return None
+
+    monkeypatch.setattr(saiSettings, "saiSettings", _StubSettings)
+
+    db_path = tmp_path / "sensor-events.db"
+    saiDataLogger._schema_ready = False
+    logger = saiDataLogger(db_path=str(db_path))
+
+    try:
+        logger.log_sensor_event(
+            "apvpd-test123",
+            "liveness",
+            state="offline",
+            timestamp="2026-06-07T12:00:00-06:00",
+            source="test",
+        )
+        logger.log_sensor_event(
+            "apvpd-test123.local",
+            "liveness",
+            state="offline",
+            timestamp="2026-06-07T12:05:00-06:00",
+            source="test",
+        )
+        logger.log_sensor_event(
+            "apvpd-test123",
+            "liveness",
+            state="online",
+            timestamp="2026-06-07T12:10:00-06:00",
+            source="test",
+        )
+        logger.log_sensor_event(
+            "apvpd-test123",
+            "liveness",
+            state="offline",
+            timestamp="2026-06-06T10:00:00-06:00",
+            source="test",
+        )
+
+        end_epoch = datetime.fromisoformat("2026-06-07T12:30:00-06:00").timestamp()
+
+        assert logger.get_sensor_offline_event_count("apvpd-test123", end_epoch=end_epoch) == 1
+        assert (
+            logger.get_sensor_offline_event_count(
+                "apvpd-test123",
+                aliases=["apvpd-test123.local"],
+                end_epoch=end_epoch,
+            )
+            == 2
+        )
+    finally:
+        logger.close()
         saiDataLogger._schema_ready = False
 
 

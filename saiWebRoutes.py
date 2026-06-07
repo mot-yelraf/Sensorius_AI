@@ -219,6 +219,162 @@ def ensure_weewx_sensor_settings(
         mgr.save(sid, doc)
 
 
+def _infer_nodus_sensor_device(sensor_id: str, metrics: list[str] | None = None) -> str:
+    sid = str(sensor_id or "").strip().lower()
+    prefix = sid.split("-", 1)[0].strip() if "-" in sid else ""
+    if prefix and prefix not in {"sensor", "nodus", "remote", "mqtt"}:
+        return prefix
+
+    metric_names = {str(metric or "").strip().lower() for metric in (metrics or [])}
+    if any(name.startswith("soil") for name in metric_names):
+        return "soil"
+    if "co2" in metric_names:
+        return "co2"
+    if "air quality" in metric_names or "gas" in metric_names:
+        return "aqi"
+    if "plant vpd" in metric_names or "plant temperature" in metric_names:
+        return "apvpd"
+    if "light intensity" in metric_names or "estimated ppfd" in metric_names:
+        return "lux"
+    if "ambient vpd" in metric_names and "rel-humidity" in metric_names:
+        return "aht"
+    return ""
+
+
+def _nodus_display_defaults_for_device(device: str) -> list[str]:
+    base_device = str(device or "").split("_", 1)[0].strip().lower()
+    mapping: dict[str, list[str]] = {
+        "apvpd": ["Ambient VPD", "Temperature", "Rel-Humidity", "Plant VPD", "Plant Temperature", "Plant Rel-Humidity"],
+        "aqi": ["Air Quality", "Temperature", "Rel-Humidity", "Ambient VPD", "Dew Point Deficit", "DewVPD Risk"],
+        "avpd": ["Ambient VPD", "Temperature", "Rel-Humidity", "Baro-Pressure", "Dew Point Deficit", "DewVPD Risk"],
+        "aht": ["Ambient VPD", "Temperature", "Rel-Humidity", "Humidity", "Dew Point Deficit", "DewVPD Risk"],
+        "aht10": ["Ambient VPD", "Temperature", "Rel-Humidity", "Humidity", "Dew Point Deficit", "DewVPD Risk"],
+        "ahtx0": ["Ambient VPD", "Temperature", "Rel-Humidity", "Humidity", "Dew Point Deficit", "DewVPD Risk"],
+        "co2": ["CO2", "Temperature", "Rel-Humidity", "Ambient VPD", "Dew Point Deficit", "DewVPD Risk"],
+        "lux": ["Light Intensity", "Auto Light", "Estimated PPFD", "Visible Light Intensity", "", ""],
+        "veml": ["Light Intensity", "Auto Light", "Estimated PPFD", "Visible Light Intensity", "", ""],
+        "soil": ["Soil Moisture", "Soil Moisture Deficit", "Soil Stress Index", "Soil Temp_C", "Soil pH", "Soil EC"],
+    }
+    return list(mapping.get(base_device, ["", "", "", "", "", ""]))
+
+
+def _normalize_six_display_metrics(metrics: list[str] | tuple[str, ...] | None) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for raw in metrics or []:
+        metric = str(raw or "").strip()
+        if not metric or metric in seen:
+            continue
+        ordered.append(metric)
+        seen.add(metric)
+        if len(ordered) >= 6:
+            break
+    while len(ordered) < 6:
+        ordered.append("")
+    return ordered[:6]
+
+
+def _nodus_live_location_for_sensor(sensor_id: str, ingest) -> str:
+    sid = str(sensor_id or "").strip()
+    if not sid or ingest is None:
+        return "Unknown"
+    try:
+        locations = getattr(ingest, "device_location", {}) or {}
+        if not isinstance(locations, dict):
+            return "Unknown"
+        sid_lower = sid.lower()
+        for key, value in locations.items():
+            loc = str(value or "").strip()
+            if _is_unknown_location_value(loc):
+                continue
+            key_text = str(key or "").strip()
+            key_lower = key_text.lower()
+            topic_parts = [part for part in key_lower.split("/") if part]
+            if key_lower == sid_lower or sid_lower in topic_parts:
+                return loc
+    except Exception:
+        pass
+    return "Unknown"
+
+
+def _nodus_expected_metrics_for_sensor(sensor_id: str, ingest) -> list[str]:
+    sid = str(sensor_id or "").strip()
+    if not sid or ingest is None:
+        return []
+    try:
+        expected_map = getattr(ingest, "expected_gauge_map", {}) or {}
+        if isinstance(expected_map, dict):
+            sid_lower = sid.lower()
+            for key, metrics in expected_map.items():
+                if str(key or "").strip().lower() == sid_lower:
+                    return _normalize_six_display_metrics(list(metrics or []))
+    except Exception:
+        pass
+    return []
+
+
+def ensure_live_nodus_sensor_settings(
+    sensor_id: str,
+    *,
+    manager: SensorSettingsManager,
+    observed_metrics: list[str] | None = None,
+    expected_metrics: list[str] | None = None,
+    location: str = "Unknown",
+) -> OrderedDict:
+    """Materialize a Nodus sensor shadow for a live MQTT sensor missing sensor.toml."""
+    sid = str(sensor_id or "").strip()
+    device = _infer_nodus_sensor_device(sid, list(expected_metrics or []) or list(observed_metrics or []))
+    base_dir = Path(getattr(manager, "base_dir", "sensor_settings"))
+    nodus_dir = base_dir / "factory_nodus"
+    use_soil = device == "soil" or sid.lower().startswith("soil")
+    tpl_path = nodus_dir / ("sensor_soil.toml.def" if use_soil else "sensor_i2c.toml.def")
+
+    if tpl_path.exists():
+        doc = manager._parse_toml_from_disk(tpl_path)
+    else:
+        doc = OrderedDict()
+        doc["Sensor"] = OrderedDict()
+        doc["Calibration"] = OrderedDict()
+        doc["Display"] = OrderedDict()
+        doc["Display"]["Style"] = OrderedDict()
+
+    if not isinstance(doc, OrderedDict):
+        doc = OrderedDict(doc)
+
+    sensor_block = doc.get("Sensor")
+    if not isinstance(sensor_block, dict):
+        sensor_block = OrderedDict()
+        doc["Sensor"] = sensor_block
+    sensor_block["TYPE"] = "nodus"
+    sensor_block["DEVICE"] = device
+    sensor_block["SENSOR_ID"] = sid
+    sensor_block["LOCATION"] = location if not _is_unknown_location_value(location) else "Unknown"
+
+    display_block = doc.get("Display")
+    if not isinstance(display_block, dict):
+        display_block = OrderedDict()
+        doc["Display"] = display_block
+    preferred_metrics = _normalize_six_display_metrics(expected_metrics)
+    if not any(preferred_metrics):
+        preferred_metrics = _nodus_display_defaults_for_device(device)
+    if not any(preferred_metrics):
+        preferred_metrics = _normalize_six_display_metrics(observed_metrics)
+    for idx, metric in enumerate(_normalize_six_display_metrics(preferred_metrics), start=1):
+        display_block[f"METRIC_{idx}"] = metric
+
+    style_block = display_block.get("Style")
+    if not isinstance(style_block, dict):
+        style_block = OrderedDict()
+        display_block["Style"] = style_block
+    for idx in range(1, 7):
+        style_block.setdefault(f"METRIC_{idx}", "Graph24hr")
+
+    manager.save(sid, doc)
+    seeded_path = manager.get_path(sid)
+    printDM(f"[edit-sensor] Seeded missing Nodus sensor settings for {sid} at {seeded_path}", location=MODULE)
+    return manager.load(sid)
+
+
 _cdp_debug_last_log: float = 0.0
 _CDP_DEBUG_MIN_INTERVAL_SEC: float = 30.0
 _DASHBOARD_JSON_CACHE_TTL_SEC: float = 2.0
@@ -7933,7 +8089,52 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     ensure_weewx_sensor_settings(normalized_id, manager=manager)
                     settings_dict = manager.load(normalized_id)
                 else:
-                    raise
+                    ingest_for_shadow = getattr(request.app.state, "mqtt_ingest", None) or mqtt_ingest
+                    expected_metrics = _nodus_expected_metrics_for_sensor(normalized_id, ingest_for_shadow)
+                    observed_metrics: list[str] = []
+                    try:
+                        observed_metrics = list(
+                            await asyncio.to_thread(data_logger.get_available_metrics, normalized_id)
+                            or []
+                        )
+                    except Exception:
+                        observed_metrics = []
+                    if not observed_metrics:
+                        try:
+                            latest_values = await asyncio.to_thread(data_logger.get_latest_values, normalized_id)
+                            if isinstance(latest_values, dict):
+                                observed_metrics = [str(k) for k in latest_values.keys() if str(k or "").strip()]
+                        except Exception:
+                            observed_metrics = []
+
+                    known_live_sensor = bool(expected_metrics or observed_metrics)
+                    if not known_live_sensor:
+                        try:
+                            known_ids = list(await asyncio.to_thread(data_logger.get_available_sensors) or [])
+                            known_live_sensor = any(str(sid or "").strip().lower() == normalized_id.lower() for sid in known_ids)
+                        except Exception:
+                            known_live_sensor = False
+                    if not known_live_sensor and ingest_for_shadow is not None:
+                        try:
+                            getter = getattr(ingest_for_shadow, "get_known_devices", None)
+                            known_devices = list(getter() or []) if callable(getter) else []
+                            known_live_sensor = any(str(sid or "").strip().lower() == normalized_id.lower() for sid in known_devices)
+                        except Exception:
+                            known_live_sensor = False
+
+                    if not known_live_sensor:
+                        return HTMLResponse(
+                            f"<h3>No settings found for sensor '{html_escape(sensor_id)}'</h3><a href='/'>Return</a>",
+                            status_code=404,
+                        )
+
+                    settings_dict = ensure_live_nodus_sensor_settings(
+                        normalized_id,
+                        manager=manager,
+                        observed_metrics=observed_metrics,
+                        expected_metrics=expected_metrics,
+                        location=_nodus_live_location_for_sensor(normalized_id, ingest_for_shadow),
+                    )
             if not settings_dict:
                 return HTMLResponse(
                     f"<h3>❌ No settings found for sensor '{html_escape(sensor_id)}'</h3><a href='/'>Return</a>",
@@ -8067,6 +8268,20 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 except Exception:
                     nodus_firmware_version = ""
 
+            offline_events_24h = 0
+            try:
+                counter = getattr(data_logger, "get_sensor_offline_event_count", None)
+                if callable(counter):
+                    base_id = normalize_hostname_base(normalized_id)
+                    aliases = [normalized_id]
+                    if base_id:
+                        aliases.extend([base_id, mdns_hostname(base_id)])
+                    offline_events_24h = await asyncio.to_thread(
+                        lambda: counter(normalized_id, aliases=aliases)
+                    )
+            except Exception:
+                offline_events_24h = 0
+
             cal_mgr = CalibrationManager(data_logger, manager)
             candidate_sensors = await asyncio.to_thread(cal_mgr.get_calibratable_sensors) or []
 
@@ -8089,6 +8304,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 ambient_temp_offset=ambient_temp_offset,
                 ambient_rh_offset=ambient_rh_offset,
                 nodus_firmware_version=nodus_firmware_version,
+                offline_events_24h=offline_events_24h,
                 soil_ph_offset=soil_ph_offset,
                 device_offsets=device_offsets,
                 candidate_sensors=candidate_sensors,

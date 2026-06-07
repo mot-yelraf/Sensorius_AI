@@ -36,3 +36,13 @@ def test_draggable_modal_asset_targets_settings_modal_shells():
     assert ".modal-header, .system-settings-header, .onboard-title" in js
     assert ".system-settings-header" in css
     assert ".onboard-title" in css
+
+
+def test_sensor_settings_location_input_is_centered_and_constrained():
+    repo_root = Path(__file__).resolve().parents[1]
+    css = (repo_root / "ui_static/css/app.css").read_text(encoding="utf-8")
+
+    assert ".sensor-location-input{" in css
+    assert "#sensorSettingsForm .sensor-location-input{" in css
+    assert "width:min(16rem, 100%);" in css
+    assert "margin-inline:auto;" in css

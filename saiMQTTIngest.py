@@ -26,7 +26,7 @@ from collections import defaultdict, OrderedDict
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from saiUtils import printDM, debug_enabled, get_timestamp, normalize_hostname_base, mdns_hostname
-from saiDataLogger import saiDataLogger, build_switch_key
+from saiDataLogger import SENSOR_EVENT_STATE_OFFLINE, SENSOR_EVENT_TYPE_LIVENESS, saiDataLogger, build_switch_key
 from sensor_modules.station_weewx import (
     DEFAULT_MQTT_TOPIC as WEEWX_DEFAULT_MQTT_TOPIC,
     DEFAULT_SENSOR_ID as WEEWX_DEFAULT_SENSOR_ID,
@@ -268,6 +268,8 @@ class saiMQTTIngest:
         self._retained_avail_probe_inflight: set[str] = set()
         self._legacy_firmware_hosts: set[str] = self._load_legacy_firmware_hosts()
         self._legacy_poller_sunset_epoch: float = self._load_legacy_poller_sunset_epoch()
+        self._live_sensor_shadow_seeded: set[str] = set()
+        self._live_sensor_shadow_attempt_at: dict[str, float] = {}
 
         self.last_check_time = defaultdict(lambda: 0)
         self.mqtt_clients = set(self.mqtt_clients or [])
@@ -2073,6 +2075,14 @@ class saiMQTTIngest:
                     if display_metrics:
                         self.expected_gauge_map[sensor_id] = display_metrics
 
+                if not self.nodus_debug_data_only:
+                    self._ensure_shadow_for_live_nodus_sensor_data(
+                        sensor_id=sensor_id,
+                        topic=topic,
+                        values=values,
+                        display_metrics=display_metrics,
+                    )
+
                 # Always use local "now" for stored timestamps; ignore device payload ts.
                 self.data_logger.log_readings(None, sensor_id, values)
     
@@ -2426,6 +2436,94 @@ class saiMQTTIngest:
             raw_value = values[idx] if idx < len(values) else default_style
             ordered.append(_canonical_style(raw_value))
         return ordered
+
+    def _ensure_shadow_for_live_nodus_sensor_data(
+        self,
+        *,
+        sensor_id: str,
+        topic: str,
+        values: dict,
+        display_metrics: list[str] | None = None,
+    ) -> None:
+        """Create missing local shadow settings for a Nodus sensor seen via live data."""
+        sid = str(sensor_id or "").strip()
+        if not sid:
+            return
+
+        key = sid.lower()
+        if key in self._live_sensor_shadow_seeded:
+            return
+
+        now_mono = time.monotonic()
+        last_attempt = float(self._live_sensor_shadow_attempt_at.get(key, 0.0) or 0.0)
+        if last_attempt and now_mono - last_attempt < 300.0:
+            return
+        self._live_sensor_shadow_attempt_at[key] = now_mono
+
+        try:
+            from saiSensorSettingsManager import SensorSettingsManager
+
+            sensor_mgr = SensorSettingsManager()
+            new_path, legacy_path = sensor_mgr.get_candidate_paths(sid)
+            if new_path.exists() or legacy_path.exists():
+                self._live_sensor_shadow_seeded.add(key)
+                return
+        except Exception as exc:
+            if DEBUG:
+                printDM(f"[live-shadow] settings existence check failed for {sid}: {exc}", location=MODULE)
+
+        device_name = self._infer_sensor_device_name("", sid)
+        if not device_name:
+            metric_names = {str(metric or "").strip().lower() for metric in (values or {}).keys()}
+            if any(name.startswith("soil") for name in metric_names):
+                device_name = "soil"
+            elif "co2" in metric_names:
+                device_name = "co2"
+            elif "air quality" in metric_names or "gas" in metric_names:
+                device_name = "aqi"
+            elif "plant vpd" in metric_names or "plant temperature" in metric_names:
+                device_name = "apvpd"
+            elif "light intensity" in metric_names or "estimated ppfd" in metric_names:
+                device_name = "lux"
+            elif "ambient vpd" in metric_names and "rel-humidity" in metric_names:
+                device_name = "aht"
+
+        serial = ""
+        if "-" in sid and "-i2c-" not in sid and sid.count("-") < 3:
+            serial = sid.split("-", 1)[1].strip()
+
+        location = "Unknown"
+        try:
+            for loc_key in (topic, sid):
+                loc = str((self.device_location or {}).get(loc_key, "") or "").strip()
+                if loc and loc.lower() not in {"unknown", "n/a", "na", "none", "-"}:
+                    location = loc
+                    break
+        except Exception:
+            location = "Unknown"
+
+        host = self._host_from_topic_or_sid(topic, sid) or sid
+        try:
+            self._ensure_settings_from_itaot(
+                {"HOSTNAME": host},
+                host,
+                [
+                    {
+                        "sensor_id": sid,
+                        "device_type": "nodus",
+                        "device": device_name,
+                        "sensor_type": "nodus",
+                        "location": location,
+                        "serial": serial,
+                        "display_metrics": list(display_metrics or []),
+                    }
+                ],
+                [],
+            )
+            self._live_sensor_shadow_seeded.add(key)
+        except Exception as exc:
+            if DEBUG:
+                printDM(f"[live-shadow] seed failed for {sid}: {exc}", location=MODULE)
 
     @staticmethod
     def _meta_metric_slot_map(raw_values) -> OrderedDict[str, str]:
@@ -2961,6 +3059,19 @@ class saiMQTTIngest:
         previous = self.device_status.get(base) or self.device_status.get(f"{base}.local")
         self.device_status[base] = s
         self.device_status[f"{base}.local"] = s
+        if previous not in (None, s) and s == SENSOR_EVENT_STATE_OFFLINE:
+            try:
+                writer = getattr(self.data_logger, "log_sensor_event", None)
+                if callable(writer):
+                    writer(
+                        base,
+                        SENSOR_EVENT_TYPE_LIVENESS,
+                        state=SENSOR_EVENT_STATE_OFFLINE,
+                        source="mqtt_liveness",
+                    )
+            except Exception as exc:
+                if DEBUG:
+                    printDM(f"[liveness] failed to record offline event for {base}: {exc}", location=MODULE)
         if previous != s:
             self._notify_liveness_status_change(base, s)
 
@@ -3237,18 +3348,40 @@ class saiMQTTIngest:
         now_t = time.time()
         firmware_version = str(meta.get("version") or "").strip()
 
-        sensor_blob = meta.get("sensor") if isinstance(meta.get("sensor"), dict) else {}
+        sensor_blob = dict(meta.get("sensor")) if isinstance(meta.get("sensor"), dict) else {}
+        if not sensor_blob:
+            top_sensor_id = str(meta.get("sensor_id") or meta.get("SENSOR_ID") or "").strip()
+            top_data_topic = str(meta.get("data_topic") or meta.get("mqtt_sensor_topic") or "").strip()
+            top_has_sensor = bool(
+                top_sensor_id
+                or top_data_topic
+                or meta.get("display_metrics")
+                or meta.get("metrics")
+            )
+            if top_has_sensor:
+                sensor_blob = {
+                    "sensor_id": top_sensor_id or device_id,
+                    "device": meta.get("device") or meta.get("DEVICE") or meta.get("SENSOR_DEVICE") or "",
+                    "type": meta.get("type") or meta.get("TYPE") or "nodus",
+                    "location": meta.get("location") or meta.get("LOCATION") or "",
+                    "serial": meta.get("serial") or meta.get("SERIAL_NUM") or "",
+                    "data_topic": top_data_topic,
+                    "availability_topic": meta.get("availability_topic") or meta.get("mqtt_availability_topic") or "",
+                    "event_topic": meta.get("event_topic") or meta.get("mqtt_event_topic") or "",
+                    "display_metrics": meta.get("display_metrics") or meta.get("metrics") or meta.get("Display") or [],
+                    "display_styles": meta.get("display_styles") or meta.get("styles") or [],
+                }
         switch_blob = meta.get("switch") if isinstance(meta.get("switch"), dict) else {}
         location_group = meta.get("location_group") if isinstance(meta.get("location_group"), dict) else {}
 
-        sensor_id = str(sensor_blob.get("sensor_id") or "").strip()
+        sensor_id = str(sensor_blob.get("sensor_id") or sensor_blob.get("SENSOR_ID") or "").strip()
         switch_id = str(
             switch_blob.get("switch_device_id")
             or switch_blob.get("device_id")
             or ""
         ).strip()
         group_location = str(location_group.get("location") or "").strip()
-        sensor_location = str(sensor_blob.get("location") or "").strip()
+        sensor_location = str(sensor_blob.get("location") or sensor_blob.get("LOCATION") or "").strip()
         switch_location = str(switch_blob.get("location") or "").strip()
         resolved_location = _pick_location(group_location, switch_location, sensor_location)
 
@@ -3287,10 +3420,17 @@ class saiMQTTIngest:
                 self.nodus_firmware_versions[sensor_id] = firmware_version
             self.device_type[sensor_id] = "nodus"
             self._record_mqtt_seen(sensor_id, ts=now_t, retain=retain, report=False)
-            sensor_device = self._infer_sensor_device_name(sensor_blob.get("device"), sensor_id)
+            sensor_device = self._infer_sensor_device_name(
+                sensor_blob.get("device")
+                or sensor_blob.get("DEVICE")
+                or sensor_blob.get("SENSOR_DEVICE"),
+                sensor_id,
+            )
             sensor_serial = self._extract_sensor_serial(sensor_blob, meta)
             display_metrics = self._normalize_display_metrics(
-                sensor_blob.get("display_metrics") or sensor_blob.get("metrics")
+                sensor_blob.get("display_metrics")
+                or sensor_blob.get("metrics")
+                or sensor_blob.get("Display")
             )
             display_styles = self._normalize_display_styles(
                 sensor_blob.get("display_styles") or sensor_blob.get("styles")
@@ -3305,9 +3445,9 @@ class saiMQTTIngest:
                 except Exception:
                     pass
 
-            data_topic = _meta_topic(sensor_blob.get("data_topic"))
-            avail_topic = _meta_topic(sensor_blob.get("availability_topic"))
-            event_topic = _meta_topic(sensor_blob.get("event_topic"))
+            data_topic = _meta_topic(sensor_blob.get("data_topic") or sensor_blob.get("mqtt_sensor_topic"))
+            avail_topic = _meta_topic(sensor_blob.get("availability_topic") or sensor_blob.get("mqtt_availability_topic"))
+            event_topic = _meta_topic(sensor_blob.get("event_topic") or sensor_blob.get("mqtt_event_topic"))
             sensor_loc = _pick_location(sensor_location, resolved_location)
 
             if data_topic:
@@ -3327,7 +3467,7 @@ class saiMQTTIngest:
                 "sensor_id": sensor_id,
                 "device_type": "nodus",
                 "device": sensor_device,
-                "sensor_type": str(sensor_blob.get("type") or "nodus").strip(),
+                "sensor_type": str(sensor_blob.get("type") or sensor_blob.get("TYPE") or "nodus").strip(),
                 "location": sensor_loc,
                 "serial": sensor_serial,
                 "display_metrics": display_metrics,

@@ -86,6 +86,7 @@ class _Logger:
         self.sensors = set()
         self.readings = []
         self.switch_events = []
+        self.sensor_events = []
         self.pruned_switch_identity_calls = []
 
     def log_readings(self, *args, **kwargs):
@@ -100,6 +101,18 @@ class _Logger:
                 "timestamp": timestamp,
                 "source": source,
                 "sensor_id": sensor_id,
+            }
+        )
+        return
+
+    def log_sensor_event(self, sensor_id, event_type, *, state=None, timestamp=None, source=None):
+        self.sensor_events.append(
+            {
+                "sensor_id": sensor_id,
+                "event_type": event_type,
+                "state": state,
+                "timestamp": timestamp,
+                "source": source,
             }
         )
         return
@@ -1443,6 +1456,34 @@ def test_fresh_heartbeat_sets_online_and_ts(monkeypatch):
     assert int(ingest.last_heartbeat_ts.get("apvpd-test123", 0)) == ts_now
 
 
+def test_offline_liveness_transition_records_sensor_event(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.device_status["apvpd-test123"] = "online"
+    ingest.device_status["apvpd-test123.local"] = "online"
+
+    ingest._mark_host_status("apvpd-test123", "offline")
+    ingest._mark_host_status("apvpd-test123", "offline")
+    ingest._mark_host_status("apvpd-test123", "online")
+    ingest._mark_host_status("apvpd-test123", "offline")
+
+    assert ingest.data_logger.sensor_events == [
+        {
+            "sensor_id": "apvpd-test123",
+            "event_type": "liveness",
+            "state": "offline",
+            "timestamp": None,
+            "source": "mqtt_liveness",
+        },
+        {
+            "sensor_id": "apvpd-test123",
+            "event_type": "liveness",
+            "state": "offline",
+            "timestamp": None,
+            "source": "mqtt_liveness",
+        },
+    ]
+
+
 def test_live_heartbeat_uses_receipt_time_when_payload_clock_is_offset(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     payload = json.dumps(
@@ -1618,6 +1659,67 @@ def test_live_nodus_data_updates_expected_gauges_from_display_metrics(monkeypatc
         "Baro-Pressure",
     ]
 
+
+def test_live_nodus_data_seeds_missing_sensor_and_system_shadow(tmp_path, monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    switch_root.mkdir()
+    system_root.mkdir()
+
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    real_settings_cls = saiSettings.saiSettings
+
+    monkeypatch.setattr(
+        saiSensorSettingsManager,
+        "SensorSettingsManager",
+        lambda *_a, **_k: real_sensor_mgr(str(sensor_root)),
+    )
+    monkeypatch.setattr(
+        saiSwitchSettingsManager,
+        "SwitchSettingsManager",
+        lambda *_a, **_k: real_switch_mgr(str(switch_root)),
+    )
+    monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
+
+    msg = _Msg(
+        "nodus/aht-yuk0nv/data",
+        json.dumps(
+            {
+                "values": {
+                    "DewVPD Risk": 29.8,
+                    "Ambient VPD": 1.881,
+                    "Temperature_F": 75.2,
+                    "Humidity": 8.1,
+                    "Rel-Humidity": 37.0,
+                    "Dew Point_F": 47.1,
+                    "Dew Point": 8.41,
+                    "Dew Point Deficit": 15.6,
+                    "Temperature": 24.01,
+                }
+            }
+        ),
+        retain=False,
+    )
+
+    ingest._on_message(ingest.client, None, msg)
+
+    saved = real_sensor_mgr(str(sensor_root)).load("aht-yuk0nv")
+    assert saved["Sensor"]["TYPE"] == "nodus"
+    assert saved["Sensor"]["DEVICE"] == "aht"
+    assert saved["Sensor"]["SENSOR_ID"] == "aht-yuk0nv"
+    assert saved["Sensor"]["SERIAL_NUM"] == "yuk0nv"
+    assert saved["Display"]["METRIC_1"] == "Ambient VPD"
+    assert saved["Display"]["METRIC_2"] == "Temperature"
+    assert saved["Display"]["METRIC_3"] == "Rel-Humidity"
+    assert (system_root / "aht-yuk0nv" / "settings.toml").exists()
+    assert ingest.data_logger.readings
+
+
 def test_existing_manual_nodus_shadow_settings_are_backfilled_from_remote_display_metrics(tmp_path, monkeypatch):
     ingest = _build_ingest(monkeypatch)
 
@@ -1750,6 +1852,61 @@ def test_nodus_shadow_seed_uses_nodus_aligned_defaults_when_display_metrics_miss
     assert 'METRIC_4 = "Ambient VPD"' in saved
     assert 'METRIC_5 = "Dewpoint Deficit"' in saved
     assert 'METRIC_6 = "dewVPD Risk"' in saved
+
+
+def test_retained_top_level_nodus_meta_seeds_missing_sensor_shadow(tmp_path, monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    switch_root.mkdir()
+    system_root.mkdir()
+
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    real_settings_cls = saiSettings.saiSettings
+
+    monkeypatch.setattr(
+        saiSensorSettingsManager,
+        "SensorSettingsManager",
+        lambda *_a, **_k: real_sensor_mgr(str(sensor_root)),
+    )
+    monkeypatch.setattr(
+        saiSwitchSettingsManager,
+        "SwitchSettingsManager",
+        lambda *_a, **_k: real_switch_mgr(str(switch_root)),
+    )
+    monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
+
+    payload = json.dumps(
+        {
+            "schema": "nodus-meta/v1",
+            "device_id": "aht-yuk0nv",
+            "HOSTNAME": "aht-yuk0nv",
+            "TYPE": "nodus",
+            "DEVICE": "aht",
+            "SENSOR_ID": "aht-yuk0nv",
+            "LOCATION": "Propagation Tent",
+            "SERIAL_NUM": "yuk0nv",
+            "mqtt_sensor_topic": "nodus/aht-yuk0nv/data",
+        }
+    )
+
+    ingest._on_message(ingest.client, None, _Msg("nodus/aht-yuk0nv/meta", payload, retain=True))
+
+    saved = real_sensor_mgr(str(sensor_root)).load("aht-yuk0nv")
+    assert saved["Sensor"]["TYPE"] == "nodus"
+    assert saved["Sensor"]["DEVICE"] == "aht"
+    assert saved["Sensor"]["SENSOR_ID"] == "aht-yuk0nv"
+    assert saved["Sensor"]["LOCATION"] == "Propagation Tent"
+    assert saved["Sensor"]["SERIAL_NUM"] == "yuk0nv"
+    assert saved["Display"]["METRIC_1"] == "Ambient VPD"
+    assert saved["Display"]["METRIC_2"] == "Temperature"
+    assert saved["Display"]["METRIC_3"] == "Rel-Humidity"
+    assert (system_root / "aht-yuk0nv" / "settings.toml").exists()
+    assert ingest.nodus_sensor_topics["aht-yuk0nv"] == "nodus/aht-yuk0nv/data"
 
 
 def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_path, monkeypatch):

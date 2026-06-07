@@ -1218,6 +1218,7 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
         ambient_temp_offset=0.0,
         ambient_rh_offset=0.0,
         nodus_firmware_version="v1.2.3",
+        offline_events_24h=7,
         soil_ph_offset=0.0,
         device_offsets=[],
         candidate_sensors=[],
@@ -1226,11 +1227,85 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
     )
 
     assert "Sensor Settings v1.2.3" in html
+    assert "24hr Offline Events: 7" in html
+    assert 'class="sensor-location-input"' in html
+    assert 'class="sensor-settings-form"' in html
     assert html.index("Home") < html.index("Restart Device") < html.index("Save")
     assert 'name="metric_display_mode"' in html
     assert 'value="All" selected' in html
     assert 'name="display_style_1"' in html
     assert 'name="display_style_3"' in html
+
+
+@pytest.mark.asyncio
+async def test_sensor_settings_modal_uses_recorded_offline_event_count(tmp_path, monkeypatch):
+    app, _ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    app.state.templates = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "apvpd-test123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "apvpd",
+                "SENSOR_ID": "apvpd-test123",
+                "LOCATION": "Veg Tent",
+            },
+            "Display": {"METRIC_1": "Temperature"},
+        },
+    )
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_sensor_offline_event_count",
+        lambda sid, **_kwargs: 4 if sid == "apvpd-test123" else 0,
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/edit-sensor", params={"sensor_id": "apvpd-test123", "embed": "1"})
+
+    assert res.status_code == 200
+    assert "24hr Offline Events: 4" in res.text
+
+
+@pytest.mark.asyncio
+async def test_sensor_settings_modal_seeds_live_nodus_sensor_without_shadow(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    app.state.templates = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
+    ingest.device_location["sensor/aht-yuk0nv/data"] = "Propagation Tent"
+
+    observed_metrics = [
+        "DewVPD Risk",
+        "Ambient VPD",
+        "Temperature_F",
+        "Humidity",
+        "Rel-Humidity",
+        "Dew Point_F",
+        "Dew Point",
+        "Dew Point Deficit",
+        "Temperature",
+    ]
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_available_metrics",
+        lambda sid: list(observed_metrics) if sid == "aht-yuk0nv" else [],
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_values", lambda _sid: {})
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_sensor_offline_event_count", lambda *_a, **_k: 0)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/edit-sensor", params={"sensor_id": "aht-yuk0nv", "embed": "1"})
+
+    assert res.status_code == 200
+    assert "aht-yuk0nv" in res.text
+
+    saved = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root)).load("aht-yuk0nv")
+    assert saved["Sensor"]["TYPE"] == "nodus"
+    assert saved["Sensor"]["DEVICE"] == "aht"
+    assert saved["Sensor"]["LOCATION"] == "Propagation Tent"
+    assert saved["Display"]["METRIC_1"] == "Ambient VPD"
+    assert saved["Display"]["METRIC_2"] == "Temperature"
+    assert saved["Display"]["METRIC_3"] == "Rel-Humidity"
+    assert saved["Display"]["METRIC_4"] == "Humidity"
 
 
 @pytest.mark.asyncio

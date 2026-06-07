@@ -37,100 +37,104 @@
 
         <section class="panel">
           <div class="sensor-pane-view" id="sensor-settings-pane" style="display:flex; flex:1; flex-direction:column; min-height:0;">
-            <div class="list-header">
+            <div class="list-header sensor-pane-header">
               <span>Sensor Settings{% if nodus_firmware_version %} {{ nodus_firmware_version }}{% endif %}</span>
+              <span class="sensor-offline-count">24hr Offline Events: {{ offline_events_24h | default(0) }}</span>
             </div>
-            <form method="POST" action="/submit-sensor-settings" class="form" id="sensorSettingsForm" style="padding-bottom:0; flex:1; min-height:0; overflow:auto;">
+            <form method="POST" action="/submit-sensor-settings" class="sensor-settings-form" id="sensorSettingsForm">
               <input type="hidden" name="sensor_id" value="{{ sensor_id }}" />
 
-              <div class="section">
-                <h4 class="section-title">Location</h4>
-                <input
-                  type="text"
-                  id="location"
-                  name="location"
-                  value="{{ location or 'Unknown' }}"
-                />
+              <div class="form sensor-pane-scroll">
+                <div class="section">
+                  <h4 class="section-title">Location</h4>
+                  <input
+                    type="text"
+                    id="location"
+                    name="location"
+                    class="sensor-location-input"
+                    value="{{ location or 'Unknown' }}"
+                  />
+                </div>
+
+                <div class="section">
+                  <h4 class="section-title">Display Metrics</h4>
+                  {% set metric_display_mode = current_metric_display_mode | default('Pick 6', true) %}
+
+                  <div class="row three">
+                    <div></div>
+                    <div>
+                      <label for="metric_display_mode">Metric Set</label>
+                      <select name="metric_display_mode" id="metric_display_mode">
+                        <option value="Pick 6" {% if metric_display_mode == 'Pick 6' %}selected{% endif %}>Pick 6</option>
+                        <option value="All" {% if metric_display_mode == 'All' %}selected{% endif %}>All</option>
+                      </select>
+                    </div>
+                    <div></div>
+                  </div>
+
+                  <div class="row three">
+                    {% for i in range(1, 4) %}
+                    <div>
+                      <label for="metric_{{ i }}">Metric {{ i }}</label>
+                      <select name="metric_{{ i }}" id="metric_{{ i }}">
+                        {% for opt in metric_options %}
+                        {% set val = opt or '' %}
+                        {% set label = opt if opt else 'Empty' %}
+                        <option
+                          value="{{ val | e }}"
+                          {% if val == current_metrics[i-1] %}selected{% endif %}
+                        >
+                          {{ label | e }}
+                        </option>
+                        {% endfor %}
+                      </select>
+                      <select name="display_style_{{ i }}" id="display_style_{{ i }}" aria-label="Metric {{ i }} display style">
+                        {% for style in display_style_options %}
+                        <option
+                          value="{{ style }}"
+                          {% if style == current_metric_styles[i-1] %}selected{% endif %}
+                        >
+                          {{ style }}
+                        </option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    {% endfor %}
+                  </div>
+
+                  <div class="row three">
+                    {% for i in range(4, 7) %}
+                    <div>
+                      <label for="metric_{{ i }}">Metric {{ i }}</label>
+                      <select name="metric_{{ i }}" id="metric_{{ i }}">
+                        {% for opt in metric_options %}
+                        {% set val = opt or '' %}
+                        {% set label = opt if opt else 'Empty' %}
+                        <option
+                          value="{{ val | e }}"
+                          {% if val == current_metrics[i-1] %}selected{% endif %}
+                        >
+                          {{ label | e }}
+                        </option>
+                        {% endfor %}
+                      </select>
+                      <select name="display_style_{{ i }}" id="display_style_{{ i }}" aria-label="Metric {{ i }} display style">
+                        {% for style in display_style_options %}
+                        <option
+                          value="{{ style }}"
+                          {% if style == current_metric_styles[i-1] %}selected{% endif %}
+                        >
+                          {{ style }}
+                        </option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    {% endfor %}
+                  </div>
+                </div>
               </div>
 
-              <div class="section">
-                <h4 class="section-title">Display Metrics</h4>
-                {% set metric_display_mode = current_metric_display_mode | default('Pick 6', true) %}
-
-                <div class="row three">
-                  <div></div>
-                  <div>
-                    <label for="metric_display_mode">Metric Set</label>
-                    <select name="metric_display_mode" id="metric_display_mode">
-                      <option value="Pick 6" {% if metric_display_mode == 'Pick 6' %}selected{% endif %}>Pick 6</option>
-                      <option value="All" {% if metric_display_mode == 'All' %}selected{% endif %}>All</option>
-                    </select>
-                  </div>
-                  <div></div>
-                </div>
-
-                <div class="row three">
-                  {% for i in range(1, 4) %}
-                  <div>
-                    <label for="metric_{{ i }}">Metric {{ i }}</label>
-                    <select name="metric_{{ i }}" id="metric_{{ i }}">
-                      {% for opt in metric_options %}
-                      {% set val = opt or '' %}
-                      {% set label = opt if opt else 'Empty' %}
-                      <option
-                        value="{{ val | e }}"
-                        {% if val == current_metrics[i-1] %}selected{% endif %}
-                      >
-                        {{ label | e }}
-                      </option>
-                      {% endfor %}
-                    </select>
-                    <select name="display_style_{{ i }}" id="display_style_{{ i }}" aria-label="Metric {{ i }} display style">
-                      {% for style in display_style_options %}
-                      <option
-                        value="{{ style }}"
-                        {% if style == current_metric_styles[i-1] %}selected{% endif %}
-                      >
-                        {{ style }}
-                      </option>
-                      {% endfor %}
-                    </select>
-                  </div>
-                  {% endfor %}
-                </div>
-
-                <div class="row three">
-                  {% for i in range(4, 7) %}
-                  <div>
-                    <label for="metric_{{ i }}">Metric {{ i }}</label>
-                    <select name="metric_{{ i }}" id="metric_{{ i }}">
-                      {% for opt in metric_options %}
-                      {% set val = opt or '' %}
-                      {% set label = opt if opt else 'Empty' %}
-                      <option
-                        value="{{ val | e }}"
-                        {% if val == current_metrics[i-1] %}selected{% endif %}
-                      >
-                        {{ label | e }}
-                      </option>
-                      {% endfor %}
-                    </select>
-                    <select name="display_style_{{ i }}" id="display_style_{{ i }}" aria-label="Metric {{ i }} display style">
-                      {% for style in display_style_options %}
-                      <option
-                        value="{{ style }}"
-                        {% if style == current_metric_styles[i-1] %}selected{% endif %}
-                      >
-                        {{ style }}
-                      </option>
-                      {% endfor %}
-                    </select>
-                  </div>
-                  {% endfor %}
-                </div>
-              </div>
-
-              <div class="modal-footer" style="margin-top:auto;">
+              <div class="modal-footer sensor-pane-footer">
                 <div class="footer-buttons footer-buttons-restart-layout">
                   <button
                     type="button"
@@ -158,17 +162,18 @@
                     ></span>
                   </button>
                 </div>
+                <div id="sensorSettingsStatus" class="muted sensor-pane-footer-status"></div>
               </div>
-              <div id="sensorSettingsStatus" class="muted" style="font-size:0.8rem; min-height:1.2rem; margin-top:0.35rem; text-align:right;"></div>
             </form>
           </div>
 
           {% if supports_device_calibration | default(true) %}
           <div class="sensor-pane-view" id="sensor-calibration-pane" style="display:none; flex:1; flex-direction:column; min-height:0;">
-            <div class="list-header">
+            <div class="list-header sensor-pane-header">
               <span>Sensor Calibration</span>
+              <span class="sensor-offline-count">24hr Offline Events: {{ offline_events_24h | default(0) }}</span>
             </div>
-            <div class="form" style="flex:1; min-height:0; overflow:auto;">
+            <div class="form sensor-pane-scroll">
               <div class="section">
                 <p class="muted" style="margin-top:0;">
                   You are calibrating this device:
@@ -253,10 +258,6 @@
                   </table>
                   {% endif %}
 
-                  <div style="display:flex; justify-content:flex-end; margin-top:0.25rem; min-height:1.25rem;">
-                    <span id="devCalStatus" class="muted" style="font-size:0.8rem;"></span>
-                  </div>
-
                   <hr style="margin:0.75rem 0;">
 
                   <h4 class="section-title">Plant Sensor Calibration</h4>
@@ -313,10 +314,6 @@
                     </tbody>
                   </table>
 
-                  <div style="display:flex; justify-content:flex-end; margin-top:0.25rem; min-height:1.25rem;">
-                    <span id="devCalStatus" class="muted" style="font-size:0.8rem;"></span>
-                  </div>
-
                 {% elif device_offsets %}
                   <h4 class="section-title">Offsets</h4>
                   <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
@@ -344,43 +341,41 @@
                     </tbody>
                   </table>
 
-                  <div style="display:flex; justify-content:flex-end; margin-top:0.25rem; min-height:1.25rem;">
-                    <span id="devCalStatus" class="muted" style="font-size:0.8rem;"></span>
-                  </div>
-
                 {% else %}
                   <p class="muted" style="margin-top:0;">
                     This device does not expose per-metric offsets yet.
                   </p>
                 {% endif %}
               </div>
-              <div class="modal-footer" style="margin-top:auto; display:flex; flex-direction:column; align-items:stretch;">
-                <div style="display:flex; gap:0.75rem; justify-content:space-between; align-items:center;">
-                  <button
-                    type="button"
-                    class="button black"
-                    data-pane-target="sensor-settings-pane"
-                    onclick="var modal=this.closest('#sensorSettingsModal'); if(window.initSensorSettingsModal && modal && typeof window.initSensorSettingsModal==='function'){ if(typeof modal.__showSensorPane==='function'){ modal.__showSensorPane('sensor-settings-pane'); return; } } var panes=(modal||document).querySelectorAll('.sensor-pane-view'); panes.forEach(function(p){ p.style.display=(p.id==='sensor-settings-pane'?'flex':'none'); }); var menu=(modal||document).querySelector('#sensorSettingsMenu'); if(menu){ menu.querySelectorAll('button[data-pane-target], .list-item[data-pane-target]').forEach(function(item){ item.classList.toggle('active', (item.getAttribute('data-pane-target')||'')==='sensor-settings-pane'); }); }"
-                  >
-                    Back
-                  </button>
-                  {% if is_apvpd or is_soil or device_offsets %}
-                  <button type="button" class="button blue" id="devCalApplyBtn">
-                    Apply Device Calibration
-                  </button>
-                  {% endif %}
-                </div>
+            </div>
+            <div class="modal-footer sensor-pane-footer">
+              <div class="sensor-pane-footer-row">
+                <button
+                  type="button"
+                  class="button black"
+                  data-pane-target="sensor-settings-pane"
+                  onclick="var modal=this.closest('#sensorSettingsModal'); if(window.initSensorSettingsModal && modal && typeof window.initSensorSettingsModal==='function'){ if(typeof modal.__showSensorPane==='function'){ modal.__showSensorPane('sensor-settings-pane'); return; } } var panes=(modal||document).querySelectorAll('.sensor-pane-view'); panes.forEach(function(p){ p.style.display=(p.id==='sensor-settings-pane'?'flex':'none'); }); var menu=(modal||document).querySelector('#sensorSettingsMenu'); if(menu){ menu.querySelectorAll('button[data-pane-target], .list-item[data-pane-target]').forEach(function(item){ item.classList.toggle('active', (item.getAttribute('data-pane-target')||'')==='sensor-settings-pane'); }); }"
+                >
+                  Back
+                </button>
+                {% if is_apvpd or is_soil or device_offsets %}
+                <button type="button" class="button blue" id="devCalApplyBtn">
+                  Apply Device Calibration
+                </button>
+                {% endif %}
               </div>
+              <div id="devCalStatus" class="muted sensor-pane-footer-status"></div>
             </div>
           </div>
           {% endif %}
 
           {% if supports_system_calibration | default(true) %}
           <div class="sensor-pane-view" id="system-calibration-pane" style="display:none; flex:1; flex-direction:column; min-height:0;">
-            <div class="list-header">
+            <div class="list-header sensor-pane-header">
               <span>System Calibration</span>
+              <span class="sensor-offline-count">24hr Offline Events: {{ offline_events_24h | default(0) }}</span>
             </div>
-            <div class="form" style="flex:1; min-height:0; overflow:auto;">
+            <div class="form sensor-pane-scroll">
               <div class="row" style="grid-template-columns:1fr 160px;">
                 <div>
                   <label for="sysCalRefSensor">Choose reference sensor</label>
@@ -440,8 +435,8 @@
                 </table>
               </div>
             </div>
-            <div class="modal-footer" style="margin-top:auto; display:flex; flex-direction:column; align-items:stretch;">
-              <div style="display:flex; gap:0.75rem; justify-content:space-between; align-items:center;">
+            <div class="modal-footer sensor-pane-footer">
+              <div class="sensor-pane-footer-row">
                 <button
                   type="button"
                   class="button black"
@@ -450,16 +445,16 @@
                 >
                   Back
                 </button>
-                <div style="display:flex; gap:0.75rem; justify-content:flex-end; align-items:center;">
-                <button type="button" class="button blue" id="sysCalPreviewBtn">
-                  Preview Calibration
-                </button>
-                <button type="button" class="button green" id="sysCalApplyBtn" disabled>
-                  Apply Calibration
-                </button>
+                <div class="sensor-pane-footer-actions">
+                  <button type="button" class="button blue" id="sysCalPreviewBtn">
+                    Preview Calibration
+                  </button>
+                  <button type="button" class="button green" id="sysCalApplyBtn" disabled>
+                    Apply Calibration
+                  </button>
                 </div>
               </div>
-              <div id="sysCalStatus" class="muted" style="font-size:0.8rem; line-height:1.3; margin-top:0.35rem; min-height:1.2rem; text-align:right;"></div>
+              <div id="sysCalStatus" class="muted sensor-pane-footer-status"></div>
             </div>
           </div>
           {% endif %}

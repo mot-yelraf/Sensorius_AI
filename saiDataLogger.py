@@ -38,6 +38,9 @@ LOCAL_TIMEZONE = ZoneInfo("America/Denver")
 RAIN_INTERVAL_METRIC = "Rain"
 RAIN_24H_WINDOW_SEC = 24 * 60 * 60
 RAIN_24H_PRECISION = 3
+SENSOR_EVENT_TYPE_LIVENESS = "liveness"
+SENSOR_EVENT_STATE_OFFLINE = "offline"
+SENSOR_OFFLINE_EVENT_WINDOW_SEC = 24 * 60 * 60
 
 # ---- legacy prefixes kept for optional migration only -----------------------
 SW_EVENT_PREFIX = "switch_event::"
@@ -348,6 +351,32 @@ class saiDataLogger:
                             ON readings(sensor_id COLLATE NOCASE, metric COLLATE NOCASE, timestamp)
                         """)
 
+                        # ---- sensor liveness/events -------------------------------
+                        cur.execute("""
+                            CREATE TABLE IF NOT EXISTS sensor_events (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                timestamp  TEXT NOT NULL,         -- ISO8601
+                                ts_epoch   REAL,                  -- epoch seconds (UTC comparable)
+                                sensor_id  TEXT NOT NULL,
+                                event_type TEXT NOT NULL,         -- 'liveness', etc.
+                                state      TEXT,                  -- 'offline', 'online', etc.
+                                source     TEXT                   -- 'mqtt_liveness', etc.
+                            )
+                        """)
+                        cur.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_sensor_events_sid_type_state_tse
+                            ON sensor_events(
+                                sensor_id COLLATE NOCASE,
+                                event_type COLLATE NOCASE,
+                                state COLLATE NOCASE,
+                                ts_epoch DESC
+                            )
+                        """)
+                        cur.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_sensor_events_tse
+                            ON sensor_events(ts_epoch DESC)
+                        """)
+
                         # ---- switch registry -----------------------------------
                         cur.execute("""
                             CREATE TABLE IF NOT EXISTS switch_ids (
@@ -633,13 +662,22 @@ class saiDataLogger:
                 (cutoff_epoch,),
             )
             sw_events_deleted = int(cur.rowcount or 0)
-            if readings_deleted or sw_events_deleted:
+            cur.execute(
+                """
+                DELETE FROM sensor_events
+                WHERE COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) < ?
+                """,
+                (cutoff_epoch,),
+            )
+            sensor_events_deleted = int(cur.rowcount or 0)
+            if readings_deleted or sw_events_deleted or sensor_events_deleted:
                 self._writer_conn.commit()
                 if DEBUG:
                     printDM(
                         (
                             f"[retention] pruned readings={readings_deleted}, "
-                            f"sw_events={sw_events_deleted}, days={self._db_retention_days}"
+                            f"sw_events={sw_events_deleted}, "
+                            f"sensor_events={sensor_events_deleted}, days={self._db_retention_days}"
                         ),
                         location=MODULE,
                     )
@@ -838,6 +876,95 @@ class saiDataLogger:
                 self._on_readings_written.append(listener)
         except Exception:
             pass
+
+    def log_sensor_event(
+        self,
+        sensor_id: str,
+        event_type: str,
+        *,
+        state: str | None = None,
+        timestamp: str | None = None,
+        source: str | None = None,
+    ) -> None:
+        """Append a lightweight sensor event row for liveness/history counters."""
+        sid = str(sensor_id or "").strip()
+        typ = str(event_type or "").strip().lower()
+        st = str(state or "").strip().lower()
+        src = str(source or "").strip() or None
+        if not sid or not typ:
+            return
+
+        self._ensure_writer()
+        timestamp, ts_epoch = _normalize_timestamp_input(
+            timestamp, getattr(self, "local_tz", LOCAL_TIMEZONE)
+        )
+        try:
+            with self._writer_lock:
+                self._writer_conn.execute(
+                    """
+                    INSERT INTO sensor_events(timestamp, ts_epoch, sensor_id, event_type, state, source)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (timestamp, ts_epoch, sid, typ, st or None, src),
+                )
+                self._writer_conn.commit()
+                self._maybe_prune_old_rows_locked()
+            if DEBUG:
+                printDM(
+                    f"[log_sensor_event] sid={sid} type={typ} state={st or '-'} src={src or '-'}",
+                    location=MODULE,
+                )
+        except Exception as e:
+            printDM(f"[log_sensor_event] write error: {e}", location=MODULE)
+
+    def get_sensor_offline_event_count(
+        self,
+        sensor_id: str,
+        *,
+        window_sec: float = SENSOR_OFFLINE_EVENT_WINDOW_SEC,
+        end_epoch: float | None = None,
+        aliases: list[str] | tuple[str, ...] | None = None,
+    ) -> int:
+        """Return recorded offline liveness events for a sensor over a rolling window."""
+        candidates: list[str] = []
+        for raw in (sensor_id, *(aliases or ())):
+            sid = str(raw or "").strip()
+            if sid and sid.lower() not in {s.lower() for s in candidates}:
+                candidates.append(sid)
+        if not candidates:
+            return 0
+
+        try:
+            end = float(time.time() if end_epoch is None else end_epoch)
+            start = end - float(window_sec)
+            placeholders = ",".join("?" for _ in candidates)
+            with self._open_conn() as conn:
+                row = conn.execute(
+                    f"""
+                    SELECT COUNT(*)
+                    FROM sensor_events
+                    WHERE sensor_id COLLATE NOCASE IN ({placeholders})
+                      AND event_type = ? COLLATE NOCASE
+                      AND state = ? COLLATE NOCASE
+                      AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) >= ?
+                      AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) <= ?
+                    """,
+                    (
+                        *candidates,
+                        SENSOR_EVENT_TYPE_LIVENESS,
+                        SENSOR_EVENT_STATE_OFFLINE,
+                        start,
+                        end,
+                    ),
+                ).fetchone()
+            return int((row or [0])[0] or 0)
+        except Exception as e:
+            if DEBUG:
+                printDM(
+                    f"[get_sensor_offline_event_count] query error for {sensor_id}: {e}",
+                    location=MODULE,
+                )
+            return 0
 
     def get_latest_values(self, sensor_id):
         if sensor_id in self.sensor_values and self.sensor_values[sensor_id]:
