@@ -103,6 +103,57 @@ data_logger = saiDataLogger()
 statter = saiStats()
 _ALL_IANA_TIMEZONES: tuple[str, ...] = tuple(sorted(available_timezones()))
 
+def _format_stats_duration(seconds: float | int | None) -> str:
+    """Format a compact uptime duration for statistics panes."""
+    if seconds is None:
+        return "No offline events"
+    try:
+        total = max(0, int(float(seconds)))
+    except Exception:
+        return "No offline events"
+    days, rem = divmod(total, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+    parts: list[str] = []
+    if days:
+        parts.append(f"{days}d")
+    if hours or parts:
+        parts.append(f"{hours}h")
+    if minutes or parts:
+        parts.append(f"{minutes}m")
+    parts.append(f"{secs}s")
+    return " ".join(parts)
+
+def _format_stats_age(epoch: float | int | None, *, empty: str = "No events") -> str:
+    """Format a compact age from an epoch timestamp."""
+    if epoch is None:
+        return empty
+    try:
+        return f"{_format_stats_duration(time.time() - float(epoch))} ago"
+    except Exception:
+        return empty
+
+def _format_stats_timestamp(epoch: float | int | None, *, empty: str = "No events") -> str:
+    """Format a local timestamp for statistics panes."""
+    if epoch is None:
+        return empty
+    try:
+        dt = datetime.fromtimestamp(float(epoch)).astimezone()
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return empty
+
+def _format_switch_state_label(state: object) -> str:
+    """Normalize a persisted switch state into a short UI label."""
+    if isinstance(state, bool):
+        return "On" if state else "Off"
+    text = str(state if state is not None else "").strip().lower()
+    if text in {"1", "true", "on", "yes"}:
+        return "On"
+    if text in {"0", "false", "off", "no"}:
+        return "Off"
+    return str(state or "").strip() or "Unknown"
+
 # In-memory calibration state per sensor_id.
 # This never touches disk and is lost on Sensorius restart (which is fine).
 # Shape:
@@ -8060,6 +8111,85 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
 
     # --- Edit Sensor (modal / template) ---
+    async def _build_sensor_statistics_payload(sensor_id_value: str) -> dict[str, Any]:
+        normalized_id = normalize_sensor_id(str(sensor_id_value or ""))
+        offline_events_24h = 0
+        last_offline_epoch = None
+        data_packets_received = 0
+        last_packet_epoch = None
+        stats_now = time.time()
+        base_id = normalize_hostname_base(normalized_id)
+        sensor_stat_aliases = [normalized_id]
+        if base_id:
+            sensor_stat_aliases.extend([base_id, mdns_hostname(base_id)])
+
+        try:
+            counter = getattr(data_logger, "get_sensor_offline_event_count", None)
+            if callable(counter):
+                offline_events_24h = await asyncio.to_thread(
+                    lambda: counter(normalized_id, aliases=sensor_stat_aliases)
+                )
+        except Exception:
+            offline_events_24h = 0
+        try:
+            last_offline = getattr(data_logger, "get_sensor_last_offline_event_epoch", None)
+            if callable(last_offline):
+                last_offline_epoch = await asyncio.to_thread(
+                    lambda: last_offline(normalized_id, aliases=sensor_stat_aliases)
+                )
+        except Exception:
+            last_offline_epoch = None
+        try:
+            packet_counter = getattr(data_logger, "get_sensor_packet_count", None)
+            if callable(packet_counter):
+                data_packets_received = await asyncio.to_thread(
+                    lambda: packet_counter(normalized_id, aliases=sensor_stat_aliases)
+                )
+        except Exception:
+            data_packets_received = 0
+        try:
+            last_packet = getattr(data_logger, "get_sensor_last_packet_epoch", None)
+            if callable(last_packet):
+                last_packet_epoch = await asyncio.to_thread(
+                    lambda: last_packet(normalized_id, aliases=sensor_stat_aliases)
+                )
+        except Exception:
+            last_packet_epoch = None
+
+        return {
+            "offline_events_24h": offline_events_24h,
+            "last_offline_epoch": last_offline_epoch,
+            "uptime_since_last_offline_label": _format_stats_duration(
+                (stats_now - float(last_offline_epoch))
+                if last_offline_epoch is not None
+                else None
+            ),
+            "last_offline_event_label": _format_stats_timestamp(
+                last_offline_epoch,
+                empty="No offline events",
+            ),
+            "data_packets_received": data_packets_received,
+            "last_packet_epoch": last_packet_epoch,
+            "last_packet_received_label": _format_stats_age(
+                last_packet_epoch,
+                empty="No packets",
+            ),
+        }
+
+    @router.get("/sensor-settings/statistics", response_class=JSONResponse)
+    async def sensor_settings_statistics(
+        request: Request,
+        sensor_id: str = Query(...),
+    ):
+        _require_protected_access(request, require_csrf=True)
+        normalized_id = normalize_sensor_id(sensor_id)
+        if not normalized_id:
+            return JSONResponse({"ok": False, "error": "Missing sensor_id"}, status_code=400)
+        payload = await _build_sensor_statistics_payload(normalized_id)
+        payload["ok"] = True
+        payload["sensor_id"] = normalized_id
+        return JSONResponse(payload)
+
     @router.get("/edit-sensor", response_class=HTMLResponse)
     async def edit_sensor_page(
         request: Request,
@@ -8268,19 +8398,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 except Exception:
                     nodus_firmware_version = ""
 
-            offline_events_24h = 0
-            try:
-                counter = getattr(data_logger, "get_sensor_offline_event_count", None)
-                if callable(counter):
-                    base_id = normalize_hostname_base(normalized_id)
-                    aliases = [normalized_id]
-                    if base_id:
-                        aliases.extend([base_id, mdns_hostname(base_id)])
-                    offline_events_24h = await asyncio.to_thread(
-                        lambda: counter(normalized_id, aliases=aliases)
-                    )
-            except Exception:
-                offline_events_24h = 0
+            sensor_statistics = await _build_sensor_statistics_payload(normalized_id)
 
             cal_mgr = CalibrationManager(data_logger, manager)
             candidate_sensors = await asyncio.to_thread(cal_mgr.get_calibratable_sensors) or []
@@ -8304,7 +8422,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 ambient_temp_offset=ambient_temp_offset,
                 ambient_rh_offset=ambient_rh_offset,
                 nodus_firmware_version=nodus_firmware_version,
-                offline_events_24h=offline_events_24h,
                 soil_ph_offset=soil_ph_offset,
                 device_offsets=device_offsets,
                 candidate_sensors=candidate_sensors,
@@ -8312,6 +8429,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 supports_device_calibration=not is_weewx,
                 supports_system_calibration=not is_weewx,
                 can_restart_device=(sensor_type in ("picow", "pico2w", "nodus", "remote", "mqtt")),
+                **sensor_statistics,
             )
 
             if embed:
@@ -10031,6 +10149,171 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 pass
         return f"{ch_id}::{lab}"
 
+    def _switch_channel_display_name(channel: dict) -> str:
+        channel_id = str((channel or {}).get("channel_id") or "").strip()
+        index = str((channel or {}).get("index") or "").strip()
+        label = str((channel or {}).get("label") or "").strip()
+        if channel_id and "-" in channel_id:
+            prefix = channel_id.split("-", 1)[0].strip()
+            if prefix:
+                return prefix.upper()
+        if index:
+            return f"S{index}"
+        return label or "Switch"
+
+    def _switch_channels_from_settings(settings_dict: dict) -> list[dict]:
+        sw_section = (settings_dict or {}).get("Switch", {}) or {}
+
+        def _has_install_marker(val) -> bool:
+            if val is None:
+                return False
+            if isinstance(val, bool):
+                return val
+            return str(val).strip() != ""
+
+        sw_type = str(sw_section.get("TYPE", "") or "").strip().lower()
+        has_en_keys = (
+            ("SWITCH_1_ENABLE_PIN" in sw_section) or ("SWITCH_2_ENABLE_PIN" in sw_section)
+            or ("SWITCH_1_EN" in sw_section) or ("SWITCH_2_EN" in sw_section)
+        )
+
+        def _enable_value(i: int):
+            return sw_section.get(f"SWITCH_{i}_ENABLE_PIN", sw_section.get(f"SWITCH_{i}_EN", ""))
+
+        indices_found: set[int] = set()
+        for key in sw_section.keys():
+            m = re.match(r"^SWITCH_(\d+)(?:_LABEL|_ENABLE_PIN|_EN|_PIN|_Trigger)?$", str(key))
+            if m:
+                indices_found.add(int(m.group(1)))
+        if not indices_found:
+            indices_found.add(1)
+
+        render_indices: list[int] = []
+        for i in sorted(indices_found):
+            label_key = f"SWITCH_{i}_LABEL"
+            pin_key = f"SWITCH_{i}_PIN"
+            if sw_type in ("picow", "pico2w") or has_en_keys:
+                if _has_install_marker(_enable_value(i)):
+                    render_indices.append(i)
+            else:
+                if str(sw_section.get(label_key, "")).strip() and str(sw_section.get(pin_key, "")).strip():
+                    render_indices.append(i)
+        channel_indices = render_indices or [1]
+        return [
+            {
+                "index": idx,
+                "label": str(sw_section.get(f"SWITCH_{idx}_LABEL", "") or ""),
+                "channel_id": str(sw_section.get(f"SWITCH_{idx}_CHANNEL_ID", "") or ""),
+            }
+            for idx in channel_indices
+        ]
+
+    async def _build_switch_statistics_payload(switch_id_value: str, channels: list[dict]) -> dict[str, Any]:
+        sid = str(switch_id_value or "").strip()
+        offline_events_24h = 0
+        last_offline_epoch = None
+        last_packet_epoch = None
+        stats_now = time.time()
+        base_id = normalize_hostname_base(sid)
+        switch_stat_aliases = [sid]
+        if base_id:
+            switch_stat_aliases.extend([base_id, mdns_hostname(base_id)])
+        for ch in channels or []:
+            channel_id = str((ch or {}).get("channel_id") or "").strip()
+            if channel_id:
+                switch_stat_aliases.append(channel_id)
+                channel_base = normalize_hostname_base(channel_id)
+                if channel_base:
+                    switch_stat_aliases.extend([channel_base, mdns_hostname(channel_base)])
+
+        try:
+            counter = getattr(data_logger, "get_sensor_offline_event_count", None)
+            if callable(counter):
+                offline_events_24h = await asyncio.to_thread(
+                    lambda: counter(sid, aliases=switch_stat_aliases)
+                )
+        except Exception:
+            offline_events_24h = 0
+        try:
+            last_offline = getattr(data_logger, "get_sensor_last_offline_event_epoch", None)
+            if callable(last_offline):
+                last_offline_epoch = await asyncio.to_thread(
+                    lambda: last_offline(sid, aliases=switch_stat_aliases)
+                )
+        except Exception:
+            last_offline_epoch = None
+
+        channel_state_stats: list[dict[str, Any]] = []
+        channel_last_event = getattr(data_logger, "get_switch_last_event_for_channel", None)
+        for ch in channels or []:
+            channel_id = str((ch or {}).get("channel_id") or "").strip()
+            display_name = _switch_channel_display_name(ch)
+            event = None
+            if channel_id and callable(channel_last_event):
+                try:
+                    event = await asyncio.to_thread(lambda cid=channel_id: channel_last_event(cid))
+                except Exception:
+                    event = None
+            event_epoch = event.get("ts_epoch") if isinstance(event, dict) else None
+            state_value = _format_switch_state_label(event.get("state")) if isinstance(event, dict) else ""
+            if event_epoch is not None:
+                try:
+                    last_packet_epoch = max(float(last_packet_epoch or 0.0), float(event_epoch))
+                except Exception:
+                    pass
+            channel_state_stats.append(
+                {
+                    "channel_id": channel_id,
+                    "label": str((ch or {}).get("label") or "").strip(),
+                    "display_name": display_name,
+                    "row_label": f"{display_name} current state, age:",
+                    "state": state_value,
+                    "state_epoch": event_epoch,
+                    "state_age_label": (
+                        f"{state_value}, {_format_stats_duration(stats_now - float(event_epoch))}"
+                        if event_epoch is not None
+                        else "No state changes"
+                    ),
+                }
+            )
+
+        return {
+            "offline_events_24h": offline_events_24h,
+            "last_offline_epoch": last_offline_epoch,
+            "uptime_since_last_offline_label": _format_stats_duration(
+                (stats_now - float(last_offline_epoch))
+                if last_offline_epoch is not None
+                else None
+            ),
+            "last_offline_event_label": _format_stats_timestamp(
+                last_offline_epoch,
+                empty="No offline events",
+            ),
+            "switch_last_packet_epoch": last_packet_epoch,
+            "switch_last_packet_received_label": _format_stats_age(
+                last_packet_epoch,
+                empty="No packets",
+            ),
+            "switch_channel_state_stats": channel_state_stats,
+        }
+
+    @router.get("/switch-settings/statistics", response_class=JSONResponse)
+    async def switch_settings_statistics(
+        request: Request,
+        switch_id: str = Query(...),
+    ):
+        _require_protected_access(request, require_csrf=True)
+        sid = str(switch_id or "").strip()
+        if not sid:
+            return JSONResponse({"ok": False, "error": "Missing switch_id"}, status_code=400)
+        manager = SwitchSettingsManager("switch_settings")
+        settings_dict = await asyncio.to_thread(lambda: manager.load(sid) or {})
+        channels = _switch_channels_from_settings(settings_dict)
+        payload = await _build_switch_statistics_payload(sid, channels)
+        payload["ok"] = True
+        payload["switch_id"] = sid
+        return JSONResponse(payload)
+
     @router.get("/edit-switch", response_class=HTMLResponse)
     async def edit_switch_page(
         request: Request,
@@ -10053,53 +10336,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             )
             return HTMLResponse(html, status_code=404)
 
-        # ---- helper: extract enabled channel indices (same semantics as saiHtml._extract_channel_indices) ----
         sw = (settings_dict or {}).get("Switch", {}) or {}
-
-        def _has_install_marker(val) -> bool:
-            if val is None:
-                return False
-            if isinstance(val, bool):
-                return val
-            return str(val).strip() != ""
-
-        def _extract_channel_indices(sw_section: dict) -> list[int]:
-            sw_type = str(sw_section.get("TYPE", "") or "").strip().lower()
-            has_en_keys = (
-                ("SWITCH_1_ENABLE_PIN" in sw_section) or ("SWITCH_2_ENABLE_PIN" in sw_section)
-                or ("SWITCH_1_EN" in sw_section) or ("SWITCH_2_EN" in sw_section)
-            )
-
-            def _enable_value(i: int):
-                return sw_section.get(f"SWITCH_{i}_ENABLE_PIN", sw_section.get(f"SWITCH_{i}_EN", ""))
-            indices_found: set[int] = set()
-            for key in sw_section.keys():
-                m = re.match(r"^SWITCH_(\d+)(?:_LABEL|_ENABLE_PIN|_EN|_PIN|_Trigger)?$", str(key))
-                if m:
-                    indices_found.add(int(m.group(1)))
-            if not indices_found:
-                return [1]
-
-            render_indices: list[int] = []
-            for i in sorted(indices_found):
-                label_key = f"SWITCH_{i}_LABEL"
-                pin_key = f"SWITCH_{i}_PIN"
-                if sw_type in ("picow", "pico2w") or has_en_keys:
-                    if _has_install_marker(_enable_value(i)):
-                        render_indices.append(i)
-                else:
-                    if str(sw_section.get(label_key, "")).strip() and str(sw_section.get(pin_key, "")).strip():
-                        render_indices.append(i)
-            return render_indices or [1]
-
-        channel_indices = _extract_channel_indices(sw)
-        channels = [
-            {
-                "index": idx,
-                "label": str(sw.get(f"SWITCH_{idx}_LABEL", "") or ""),
-            }
-            for idx in channel_indices
-        ]
+        channels = _switch_channels_from_settings(settings_dict)
+        channel_indices = [int(ch.get("index") or 1) for ch in channels]
 
         ingest = getattr(request.app.state, "mqtt_ingest", None) or mqtt_ingest
         nodus_firmware_version = ""
@@ -10116,6 +10355,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             except Exception:
                 nodus_firmware_version = ""
 
+        switch_statistics = await _build_switch_statistics_payload(switch_id, channels)
+
         # ---- render Jinja template to an HTML snippet ----
         templates = request.app.state.templates
         template = templates.get_template("modals/switch_settings.html")
@@ -10126,6 +10367,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             channels=channels,
             nodus_firmware_version=nodus_firmware_version,
             can_restart_device=(switch_type in ("picow", "pico2w", "nodus", "remote", "mqtt")),
+            **switch_statistics,
         )
 
         # ---- embed=1 → just the modal markup (used by dashboard JS) ----

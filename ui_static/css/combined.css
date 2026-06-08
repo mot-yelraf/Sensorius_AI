@@ -323,6 +323,32 @@ input[type="text"], input[type="number"], input[type="time"], select{
 .section{ border:1px dashed var(--line); border-radius:12px; padding:.8rem; background:#fff; }
 .section-title{ font-weight:700; margin:0 0 .5rem 0; font-size:.98rem }
 .muted{ color:var(--muted); font-size:.85rem; }
+.statistics-list{
+  display:grid;
+  gap:.65rem;
+  max-width:560px;
+}
+[data-stat-channel-list]{
+  display:grid;
+  gap:.65rem;
+}
+.statistics-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:1rem;
+  padding:.55rem .65rem;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:#fff;
+}
+.statistics-row span{
+  color:var(--muted);
+}
+.statistics-row strong{
+  font-variant-numeric:tabular-nums;
+  text-align:right;
+}
 
 /* Condition groups */
 .cond-group{
@@ -383,6 +409,7 @@ select.op-select{ max-width:80px; width:100%; }
 /* Footer / misc */
 .footer-buttons{ display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap:.75rem; width:100%; }
 .footer-buttons-left{ justify-content:flex-start; }
+.footer-buttons-split{ justify-content:space-between; }
 .footer-buttons-restart-layout{
   display:grid;
   grid-template-columns:minmax(0, 1fr) auto minmax(0, 1fr);

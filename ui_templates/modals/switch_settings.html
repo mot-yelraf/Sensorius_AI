@@ -25,6 +25,9 @@
           <button class="switch-menu-btn" type="button" id="switchMenuAutomations" aria-selected="false">
             Automations
           </button>
+          <button class="switch-menu-btn" type="button" id="switchMenuStatistics" aria-selected="false">
+            Statistics
+          </button>
         </aside>
 
         <section class="panel switch-dialog-content">
@@ -163,6 +166,68 @@
                   </div>
                 </div>
               </form>
+            </div>
+          </div>
+
+          <div
+            id="switchStatisticsPane"
+            class="switch-pane"
+            hidden
+            data-stat-panel="switch"
+            data-stat-id="{{ switch_id | e }}"
+            data-stats-url="/switch-settings/statistics?switch_id={{ switch_id | e }}"
+            data-offline-events-24h="{{ offline_events_24h | default(0) }}"
+            data-last-offline-epoch="{{ last_offline_epoch if last_offline_epoch is defined and last_offline_epoch is not none else '' }}"
+            data-last-packet-epoch="{{ switch_last_packet_epoch if switch_last_packet_epoch is defined and switch_last_packet_epoch is not none else '' }}"
+          >
+            <div class="list-header">
+              <span>Statistics</span>
+            </div>
+            <div class="form">
+              <div class="section">
+                <div class="statistics-list">
+                  <div class="statistics-row">
+                    <span>Last 24hr offline events:</span>
+                    <strong data-stat-value="offline-events">{{ offline_events_24h | default(0) }}</strong>
+                  </div>
+                  <div class="statistics-row">
+                    <span>Uptime since last offline event:</span>
+                    <strong data-stat-value="uptime">{{ uptime_since_last_offline_label | default('No offline events') }}</strong>
+                  </div>
+                  <div class="statistics-row">
+                    <span>Last offline event time:</span>
+                    <strong data-stat-value="last-offline">{{ last_offline_event_label | default('No offline events') }}</strong>
+                  </div>
+                  <div class="statistics-row">
+                    <span>Last packet received:</span>
+                    <strong data-stat-value="last-packet">{{ switch_last_packet_received_label | default('No packets') }}</strong>
+                  </div>
+                  <div data-stat-channel-list>
+                    {% for channel_stat in switch_channel_state_stats | default([]) %}
+                    <div
+                      class="statistics-row"
+                      data-stat-channel-row
+                      data-channel-id="{{ channel_stat.channel_id | default('') | e }}"
+                      data-state="{{ channel_stat.state | default('') | e }}"
+                      data-state-epoch="{{ channel_stat.state_epoch if channel_stat.state_epoch is defined and channel_stat.state_epoch is not none else '' }}"
+                    >
+                      <span>{{ channel_stat.row_label | default('Switch current state, age:') }}</span>
+                      <strong data-stat-channel-value>{{ channel_stat.state_age_label | default('No state changes') }}</strong>
+                    </div>
+                    {% endfor %}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer" style="margin-top:.25rem;">
+              <div class="footer-buttons footer-buttons-split">
+                <button class="button black" type="button" data-switch-pane-target="settings">
+                  Back
+                </button>
+                <button class="button red" type="button" data-stat-reset>
+                  Clear
+                </button>
+              </div>
             </div>
           </div>
         </section>

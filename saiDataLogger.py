@@ -917,6 +917,26 @@ class saiDataLogger:
         except Exception as e:
             printDM(f"[log_sensor_event] write error: {e}", location=MODULE)
 
+    @staticmethod
+    def _dedupe_identifiers(*values) -> list[str]:
+        """Return non-empty identifiers in input order, deduped case-insensitively."""
+        candidates: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            if value is None:
+                continue
+            if isinstance(value, (list, tuple, set)):
+                iterable = value
+            else:
+                iterable = (value,)
+            for raw in iterable:
+                item = str(raw or "").strip()
+                key = item.lower()
+                if item and key not in seen:
+                    candidates.append(item)
+                    seen.add(key)
+        return candidates
+
     def get_sensor_offline_event_count(
         self,
         sensor_id: str,
@@ -926,11 +946,7 @@ class saiDataLogger:
         aliases: list[str] | tuple[str, ...] | None = None,
     ) -> int:
         """Return recorded offline liveness events for a sensor over a rolling window."""
-        candidates: list[str] = []
-        for raw in (sensor_id, *(aliases or ())):
-            sid = str(raw or "").strip()
-            if sid and sid.lower() not in {s.lower() for s in candidates}:
-                candidates.append(sid)
+        candidates = self._dedupe_identifiers(sensor_id, aliases or ())
         if not candidates:
             return 0
 
@@ -965,6 +981,134 @@ class saiDataLogger:
                     location=MODULE,
                 )
             return 0
+
+    def get_sensor_last_offline_event_epoch(
+        self,
+        sensor_id: str,
+        *,
+        aliases: list[str] | tuple[str, ...] | None = None,
+    ) -> Optional[float]:
+        """Return the newest recorded offline liveness event epoch for a sensor."""
+        candidates = self._dedupe_identifiers(sensor_id, aliases or ())
+        if not candidates:
+            return None
+
+        try:
+            placeholders = ",".join("?" for _ in candidates)
+            with self._open_conn() as conn:
+                row = conn.execute(
+                    f"""
+                    SELECT ts_epoch, timestamp
+                    FROM sensor_events
+                    WHERE sensor_id COLLATE NOCASE IN ({placeholders})
+                      AND event_type = ? COLLATE NOCASE
+                      AND state = ? COLLATE NOCASE
+                    ORDER BY COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL), 0.0) DESC
+                    LIMIT 1
+                    """,
+                    (
+                        *candidates,
+                        SENSOR_EVENT_TYPE_LIVENESS,
+                        SENSOR_EVENT_STATE_OFFLINE,
+                    ),
+                ).fetchone()
+            if not row:
+                return None
+            return _timestamp_to_epoch(
+                row[0] if row[0] is not None else row[1],
+                getattr(self, "local_tz", LOCAL_TIMEZONE),
+            )
+        except Exception as e:
+            if DEBUG:
+                printDM(
+                    f"[get_sensor_last_offline_event_epoch] query error for {sensor_id}: {e}",
+                    location=MODULE,
+                )
+            return None
+
+    def get_sensor_packet_count(
+        self,
+        sensor_id: str,
+        *,
+        aliases: list[str] | tuple[str, ...] | None = None,
+        since_epoch: float | None = None,
+        end_epoch: float | None = None,
+    ) -> int:
+        """Return distinct reading packet timestamps for a sensor."""
+        candidates = self._dedupe_identifiers(sensor_id, aliases or ())
+        if not candidates:
+            return 0
+
+        try:
+            placeholders = ",".join("?" for _ in candidates)
+            where = [f"sensor_id COLLATE NOCASE IN ({placeholders})"]
+            params: list = [*candidates]
+            if since_epoch is not None:
+                where.append("COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) >= ?")
+                params.append(float(since_epoch))
+            if end_epoch is not None:
+                where.append("COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) <= ?")
+                params.append(float(end_epoch))
+
+            with self._open_conn() as conn:
+                row = conn.execute(
+                    f"""
+                    SELECT COUNT(*)
+                    FROM (
+                        SELECT COALESCE(CAST(ts_epoch AS TEXT), timestamp) AS packet_key
+                        FROM readings
+                        WHERE {" AND ".join(where)}
+                        GROUP BY packet_key
+                    )
+                    """,
+                    tuple(params),
+                ).fetchone()
+            return int((row or [0])[0] or 0)
+        except Exception as e:
+            if DEBUG:
+                printDM(
+                    f"[get_sensor_packet_count] query error for {sensor_id}: {e}",
+                    location=MODULE,
+                )
+            return 0
+
+    def get_sensor_last_packet_epoch(
+        self,
+        sensor_id: str,
+        *,
+        aliases: list[str] | tuple[str, ...] | None = None,
+    ) -> Optional[float]:
+        """Return the newest reading packet epoch for a sensor."""
+        candidates = self._dedupe_identifiers(sensor_id, aliases or ())
+        if not candidates:
+            return None
+
+        try:
+            placeholders = ",".join("?" for _ in candidates)
+            with self._open_conn() as conn:
+                row = conn.execute(
+                    f"""
+                    SELECT ts_epoch, timestamp
+                    FROM readings
+                    WHERE sensor_id COLLATE NOCASE IN ({placeholders})
+                    ORDER BY COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL), 0.0) DESC
+                    LIMIT 1
+                    """,
+                    tuple(candidates),
+                ).fetchone()
+            if not row:
+                return None
+            return _timestamp_to_epoch(
+                row[0] if row[0] is not None else row[1],
+                getattr(self, "local_tz", LOCAL_TIMEZONE),
+            )
+        except Exception as e:
+            if DEBUG:
+                printDM(
+                    f"[get_sensor_last_packet_epoch] query error for {sensor_id}: {e}",
+                    location=MODULE,
+                )
+            return None
 
     def get_latest_values(self, sensor_id):
         if sensor_id in self.sensor_values and self.sensor_values[sensor_id]:
@@ -1660,6 +1804,190 @@ class saiDataLogger:
                 )
         except Exception as e:
             printDM(f"[log_switch_event] write error: {e}", location=MODULE)
+
+    def get_switch_packet_count(
+        self,
+        switch_id: str,
+        *,
+        switch_keys: list[str] | tuple[str, ...] | None = None,
+        aliases: list[str] | tuple[str, ...] | None = None,
+        since_epoch: float | None = None,
+        end_epoch: float | None = None,
+    ) -> int:
+        """Return persisted switch event packets for a switch/controller."""
+        switch_ids = self._dedupe_identifiers(switch_id, aliases or ())
+        keys = self._dedupe_identifiers(switch_keys or ())
+        if not switch_ids and not keys:
+            return 0
+
+        try:
+            with self._open_conn() as conn:
+                if switch_ids:
+                    id_placeholders = ",".join("?" for _ in switch_ids)
+                    rows = conn.execute(
+                        f"""
+                        SELECT switch_key
+                        FROM switch_ids
+                        WHERE switch_id COLLATE NOCASE IN ({id_placeholders})
+                        """,
+                        tuple(switch_ids),
+                    ).fetchall()
+                    keys = self._dedupe_identifiers(keys, [r[0] for r in rows or []])
+
+                key_clauses: list[str] = []
+                params: list = []
+                if keys:
+                    key_placeholders = ",".join("?" for _ in keys)
+                    key_clauses.append(f"switch_key COLLATE NOCASE IN ({key_placeholders})")
+                    params.extend(keys)
+                if switch_ids:
+                    sid_placeholders = ",".join("?" for _ in switch_ids)
+                    key_clauses.append(f"sensor_id COLLATE NOCASE IN ({sid_placeholders})")
+                    params.extend(switch_ids)
+                if not key_clauses:
+                    return 0
+
+                where = ["(" + " OR ".join(key_clauses) + ")"]
+                if since_epoch is not None:
+                    where.append("COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) >= ?")
+                    params.append(float(since_epoch))
+                if end_epoch is not None:
+                    where.append("COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) <= ?")
+                    params.append(float(end_epoch))
+
+                row = conn.execute(
+                    f"""
+                    SELECT COUNT(*)
+                    FROM sw_events
+                    WHERE {" AND ".join(where)}
+                    """,
+                    tuple(params),
+                ).fetchone()
+            return int((row or [0])[0] or 0)
+        except Exception as e:
+            if DEBUG:
+                printDM(
+                    f"[get_switch_packet_count] query error for {switch_id}: {e}",
+                    location=MODULE,
+                )
+            return 0
+
+    def get_switch_last_event(
+        self,
+        switch_id: str,
+        *,
+        switch_keys: list[str] | tuple[str, ...] | None = None,
+        aliases: list[str] | tuple[str, ...] | None = None,
+    ) -> dict | None:
+        """Return the newest persisted switch event row for a switch/controller."""
+        switch_ids = self._dedupe_identifiers(switch_id, aliases or ())
+        keys = self._dedupe_identifiers(switch_keys or ())
+        if keys:
+            expanded_keys: list[str] = []
+            for key in keys:
+                expanded_keys.extend(self._switch_key_alias_candidates(key) or [key])
+            keys = self._dedupe_identifiers(expanded_keys)
+        if not switch_ids and not keys:
+            return None
+
+        try:
+            with self._open_conn() as conn:
+                if switch_ids:
+                    id_placeholders = ",".join("?" for _ in switch_ids)
+                    rows = conn.execute(
+                        f"""
+                        SELECT switch_key
+                        FROM switch_ids
+                        WHERE switch_id COLLATE NOCASE IN ({id_placeholders})
+                        """,
+                        tuple(switch_ids),
+                    ).fetchall()
+                    keys = self._dedupe_identifiers(keys, [r[0] for r in rows or []])
+
+                key_clauses: list[str] = []
+                params: list = []
+                if keys:
+                    key_placeholders = ",".join("?" for _ in keys)
+                    key_clauses.append(f"switch_key COLLATE NOCASE IN ({key_placeholders})")
+                    params.extend(keys)
+                if switch_ids:
+                    sid_placeholders = ",".join("?" for _ in switch_ids)
+                    key_clauses.append(f"sensor_id COLLATE NOCASE IN ({sid_placeholders})")
+                    params.extend(switch_ids)
+                if not key_clauses:
+                    return None
+
+                row = conn.execute(
+                    f"""
+                    SELECT switch_key, state, timestamp, ts_epoch, source, sensor_id
+                    FROM sw_events
+                    WHERE {" OR ".join(key_clauses)}
+                    ORDER BY COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL), 0.0) DESC
+                    LIMIT 1
+                    """,
+                    tuple(params),
+                ).fetchone()
+            if not row:
+                return None
+            epoch = _timestamp_to_epoch(
+                row[3] if row[3] is not None else row[2],
+                getattr(self, "local_tz", LOCAL_TIMEZONE),
+            )
+            return {
+                "switch_key": row[0],
+                "state": row[1],
+                "timestamp": row[2],
+                "ts_epoch": epoch,
+                "source": row[4],
+                "sensor_id": row[5],
+            }
+        except Exception as e:
+            if DEBUG:
+                printDM(
+                    f"[get_switch_last_event] query error for {switch_id}: {e}",
+                    location=MODULE,
+                )
+            return None
+
+    def get_switch_last_event_for_channel(self, channel_id: str) -> dict | None:
+        """Return the newest persisted switch event row for a stable channel ID."""
+        ch_id = str(channel_id or "").strip()
+        if not ch_id:
+            return None
+
+        try:
+            with self._open_conn() as conn:
+                row = conn.execute(
+                    """
+                    SELECT switch_key, state, timestamp, ts_epoch, source, sensor_id
+                    FROM sw_events
+                    WHERE switch_key LIKE ?
+                    ORDER BY COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL), 0.0) DESC
+                    LIMIT 1
+                    """,
+                    (f"{ch_id}{SW_KEY_DELIM}%",),
+                ).fetchone()
+            if not row:
+                return None
+            epoch = _timestamp_to_epoch(
+                row[3] if row[3] is not None else row[2],
+                getattr(self, "local_tz", LOCAL_TIMEZONE),
+            )
+            return {
+                "switch_key": row[0],
+                "state": row[1],
+                "timestamp": row[2],
+                "ts_epoch": epoch,
+                "source": row[4],
+                "sensor_id": row[5],
+            }
+        except Exception as e:
+            if DEBUG:
+                printDM(
+                    f"[get_switch_last_event_for_channel] query error for {channel_id}: {e}",
+                    location=MODULE,
+                )
+            return None
 
     def _switch_key_alias_candidates(self, switch_key: str) -> list[str]:
         key = str(switch_key or "").strip()

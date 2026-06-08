@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import saiSettings
 from saiCalibration import CalibrationManager
-from saiDataLogger import saiDataLogger
+from saiDataLogger import build_switch_key, saiDataLogger
 from sensor_modules.station_weewx import WEEWX_RAIN_24H_METRIC
 
 
@@ -152,6 +152,83 @@ def test_sensor_offline_event_count_uses_24h_window_and_aliases(tmp_path, monkey
             )
             == 2
         )
+        assert logger.get_sensor_last_offline_event_epoch("apvpd-test123") == datetime.fromisoformat(
+            "2026-06-07T12:00:00-06:00"
+        ).timestamp()
+    finally:
+        logger.close()
+        saiDataLogger._schema_ready = False
+
+
+def test_statistics_packet_counts_use_persisted_sensor_and_switch_rows(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    class _StubSettings:
+        def __init__(self, apply_live=False):
+            self.apply_live = apply_live
+
+        def get_setting(self, section, key):
+            if section == "Time" and key in ("TZ", "tz"):
+                return "America/Denver"
+            return None
+
+    monkeypatch.setattr(saiSettings, "saiSettings", _StubSettings)
+
+    db_path = tmp_path / "stats-packets.db"
+    saiDataLogger._schema_ready = False
+    logger = saiDataLogger(db_path=str(db_path))
+
+    try:
+        logger.log_readings(
+            "2026-06-07T12:00:00-06:00",
+            "apvpd-test123",
+            {"Temperature": 21.5, "Rel-Humidity": 55.0},
+        )
+        logger.log_readings(
+            "2026-06-07T12:05:00-06:00",
+            "apvpd-test123",
+            {"Temperature": 21.8},
+        )
+        logger.log_readings(
+            "2026-06-07T12:10:00-06:00",
+            "aqi-other",
+            {"AQI": 12},
+        )
+
+        switch_key = build_switch_key("S1-test123", "Fan")
+        logger.upsert_switch_identity(
+            switch_key=switch_key,
+            switch_id="switch-test123",
+            label="Fan",
+            location="Veg Tent",
+        )
+        logger.log_switch_event(
+            switch_key,
+            True,
+            timestamp="2026-06-07T12:00:00-06:00",
+            sensor_id="switch-test123",
+            source="mqtt",
+        )
+        logger.log_switch_event(
+            switch_key,
+            False,
+            timestamp="2026-06-07T12:05:00-06:00",
+            sensor_id="switch-test123",
+            source="mqtt",
+        )
+
+        assert logger.get_sensor_packet_count("apvpd-test123") == 2
+        assert logger.get_sensor_packet_count("apvpd-test123", since_epoch=datetime.fromisoformat(
+            "2026-06-07T12:03:00-06:00"
+        ).timestamp()) == 1
+        assert logger.get_sensor_last_packet_epoch("apvpd-test123") == datetime.fromisoformat(
+            "2026-06-07T12:05:00-06:00"
+        ).timestamp()
+        assert logger.get_switch_packet_count("switch-test123") == 2
+        assert logger.get_switch_packet_count("switch-test123", switch_keys=[switch_key]) == 2
+        last_event = logger.get_switch_last_event("switch-test123", switch_keys=[switch_key])
+        assert last_event is not None
+        assert last_event["switch_key"] == switch_key
+        assert last_event["state"] == 0
+        assert last_event["ts_epoch"] == datetime.fromisoformat("2026-06-07T12:05:00-06:00").timestamp()
     finally:
         logger.close()
         saiDataLogger._schema_ready = False

@@ -32,6 +32,9 @@
               <span class="item-name">System Calibration</span>
             </button>
             {% endif %}
+            <button type="button" class="switch-menu-btn list-item" data-pane-target="sensor-statistics-pane">
+              <span class="item-name">Statistics</span>
+            </button>
           </div>
         </aside>
 
@@ -39,7 +42,6 @@
           <div class="sensor-pane-view" id="sensor-settings-pane" style="display:flex; flex:1; flex-direction:column; min-height:0;">
             <div class="list-header sensor-pane-header">
               <span>Sensor Settings{% if nodus_firmware_version %} {{ nodus_firmware_version }}{% endif %}</span>
-              <span class="sensor-offline-count">24hr Offline Events: {{ offline_events_24h | default(0) }}</span>
             </div>
             <form method="POST" action="/submit-sensor-settings" class="sensor-settings-form" id="sensorSettingsForm">
               <input type="hidden" name="sensor_id" value="{{ sensor_id }}" />
@@ -171,7 +173,6 @@
           <div class="sensor-pane-view" id="sensor-calibration-pane" style="display:none; flex:1; flex-direction:column; min-height:0;">
             <div class="list-header sensor-pane-header">
               <span>Sensor Calibration</span>
-              <span class="sensor-offline-count">24hr Offline Events: {{ offline_events_24h | default(0) }}</span>
             </div>
             <div class="form sensor-pane-scroll">
               <div class="section">
@@ -373,7 +374,6 @@
           <div class="sensor-pane-view" id="system-calibration-pane" style="display:none; flex:1; flex-direction:column; min-height:0;">
             <div class="list-header sensor-pane-header">
               <span>System Calibration</span>
-              <span class="sensor-offline-count">24hr Offline Events: {{ offline_events_24h | default(0) }}</span>
             </div>
             <div class="form sensor-pane-scroll">
               <div class="row" style="grid-template-columns:1fr 160px;">
@@ -458,6 +458,59 @@
             </div>
           </div>
           {% endif %}
+
+          <div
+            class="sensor-pane-view"
+            id="sensor-statistics-pane"
+            style="display:none; flex:1; flex-direction:column; min-height:0;"
+            data-stat-panel="sensor"
+            data-stat-id="{{ sensor_id | e }}"
+            data-stats-url="/sensor-settings/statistics?sensor_id={{ sensor_id | e }}"
+            data-offline-events-24h="{{ offline_events_24h | default(0) }}"
+            data-last-offline-epoch="{{ last_offline_epoch if last_offline_epoch is defined and last_offline_epoch is not none else '' }}"
+            data-last-packet-epoch="{{ last_packet_epoch if last_packet_epoch is defined and last_packet_epoch is not none else '' }}"
+            data-packets-received="{{ data_packets_received | default(0) }}"
+          >
+            <div class="list-header sensor-pane-header">
+              <span>Statistics</span>
+            </div>
+            <div class="form sensor-pane-scroll">
+              <div class="section">
+                <div class="statistics-list">
+                  <div class="statistics-row">
+                    <span>Last 24hr offline events:</span>
+                    <strong data-stat-value="offline-events">{{ offline_events_24h | default(0) }}</strong>
+                  </div>
+                  <div class="statistics-row">
+                    <span>Uptime since last offline event:</span>
+                    <strong data-stat-value="uptime">{{ uptime_since_last_offline_label | default('No offline events') }}</strong>
+                  </div>
+                  <div class="statistics-row">
+                    <span>Last offline event time:</span>
+                    <strong data-stat-value="last-offline">{{ last_offline_event_label | default('No offline events') }}</strong>
+                  </div>
+                  <div class="statistics-row">
+                    <span>Last packet received:</span>
+                    <strong data-stat-value="last-packet">{{ last_packet_received_label | default('No packets') }}</strong>
+                  </div>
+                  <div class="statistics-row">
+                    <span>Data packets received:</span>
+                    <strong data-stat-value="packets">{{ data_packets_received | default(0) }}</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer sensor-pane-footer">
+              <div class="sensor-pane-footer-row">
+                <button type="button" class="button black" data-pane-target="sensor-settings-pane">
+                  Back
+                </button>
+                <button type="button" class="button red" data-stat-reset>
+                  Clear
+                </button>
+              </div>
+            </div>
+          </div>
         </section>
       </div>
     </div>

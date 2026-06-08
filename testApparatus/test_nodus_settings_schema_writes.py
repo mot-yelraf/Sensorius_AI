@@ -574,6 +574,17 @@ def test_system_settings_save_applies_dashboard_weather_forecast_change():
     assert "window.location.reload()" in text
 
 
+def test_remove_device_success_reloads_dashboard():
+    root = Path(__file__).resolve().parents[1] / "ui_templates" / "modals"
+    system_settings = (root / "system_settings.html").read_text(encoding="utf-8")
+    standalone_remove = (root / "system_remove_device.html").read_text(encoding="utf-8")
+
+    for text in (system_settings, standalone_remove):
+        assert "Reloading dashboard" in text
+        assert "window.location.reload()" in text
+        assert "await loadRemovableDevices();" not in text
+
+
 @pytest.mark.asyncio
 async def test_submit_pi_setup_blank_astral_fields_clear_saved_astral_location(tmp_path, monkeypatch):
     app = await _build_route_app_with_settings(
@@ -1219,6 +1230,12 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
         ambient_rh_offset=0.0,
         nodus_firmware_version="v1.2.3",
         offline_events_24h=7,
+        last_offline_epoch=1780783200.0,
+        uptime_since_last_offline_label="12m 4s",
+        last_offline_event_label="2026-06-06 12:00:00",
+        data_packets_received=42,
+        last_packet_epoch=1780783260.0,
+        last_packet_received_label="11m 4s ago",
         soil_ph_offset=0.0,
         device_offsets=[],
         candidate_sensors=[],
@@ -1227,7 +1244,14 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
     )
 
     assert "Sensor Settings v1.2.3" in html
-    assert "24hr Offline Events: 7" in html
+    assert "24hr Offline Events:" not in html
+    assert "Last 24hr offline events:" in html
+    assert "Last offline event time:" in html
+    assert "Last packet received:" in html
+    assert "Data packets received:" in html
+    assert "Data packets last 24hr:" not in html
+    assert 'data-stat-value="offline-events">7</strong>' in html
+    assert 'data-stat-value="packets">42</strong>' in html
     assert 'class="sensor-location-input"' in html
     assert 'class="sensor-settings-form"' in html
     assert html.index("Home") < html.index("Restart Device") < html.index("Save")
@@ -1235,6 +1259,50 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
     assert 'value="All" selected' in html
     assert 'name="display_style_1"' in html
     assert 'name="display_style_3"' in html
+
+
+@pytest.mark.asyncio
+async def test_switch_settings_modal_shows_statistics_pane(tmp_path, monkeypatch):
+    env = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
+    template = env.get_template("modals/switch_settings.html")
+
+    html = template.render(
+        switch_id="switch-test123",
+        settings={"Switch": {"SWITCH_LOCATION": "Veg Tent"}},
+        channel_indices=[1],
+        channels=[{"index": 1, "label": "Fan", "channel_id": "S1-test123"}],
+        nodus_firmware_version="v1.2.3",
+        can_restart_device=True,
+        offline_events_24h=3,
+        last_offline_epoch=1780783200.0,
+        uptime_since_last_offline_label="12m 4s",
+        last_offline_event_label="2026-06-06 12:00:00",
+        switch_last_packet_epoch=1780783260.0,
+        switch_last_packet_received_label="11m 4s ago",
+        switch_channel_state_stats=[
+            {
+                "channel_id": "S1-test123",
+                "state": "Off",
+                "state_epoch": 1780783260.0,
+                "row_label": "S1 current state, age:",
+                "state_age_label": "Off, 11m 4s",
+            }
+        ],
+    )
+
+    assert "Switch Settings v1.2.3" in html
+    assert "Statistics" in html
+    assert "Last 24hr offline events:" in html
+    assert "Last offline event time:" in html
+    assert "Last packet received:" in html
+    assert "S1 current state, age:" in html
+    assert "Switch packets received:" not in html
+    assert "Switch packets last 24hr:" not in html
+    assert "Last state change:" not in html
+    assert "State changes last 24hr:" not in html
+    assert "Current state age:" not in html
+    assert "Data packets received:" not in html
+    assert 'data-stat-value="offline-events">3</strong>' in html
 
 
 @pytest.mark.asyncio
@@ -1264,7 +1332,9 @@ async def test_sensor_settings_modal_uses_recorded_offline_event_count(tmp_path,
         res = await client.get("/edit-sensor", params={"sensor_id": "apvpd-test123", "embed": "1"})
 
     assert res.status_code == 200
-    assert "24hr Offline Events: 4" in res.text
+    assert "24hr Offline Events:" not in res.text
+    assert "Last 24hr offline events:" in res.text
+    assert 'data-stat-value="offline-events">4</strong>' in res.text
 
 
 @pytest.mark.asyncio

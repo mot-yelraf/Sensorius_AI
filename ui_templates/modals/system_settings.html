@@ -2302,12 +2302,16 @@
         body: JSON.stringify({ device_ids: ids })
       });
       const js = await resp.json();
+      if (!resp.ok || (js && js.error)) {
+        throw new Error((js && (js.error || js.message)) || ("HTTP " + resp.status));
+      }
       const ok = (js && js.summary) || "Done";
-      setRemoveStatus(ok);
-      await loadRemovableDevices();
+      setRemoveStatus(ok + " Reloading dashboard...");
+      window.setTimeout(() => window.location.reload(), 500);
     } catch (e) {
       console.error(e);
       setRemoveStatus("Failed: " + e);
+      toggleRemoveEnable();
     }
   }
 
