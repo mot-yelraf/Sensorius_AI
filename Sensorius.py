@@ -699,8 +699,8 @@ if __name__ == "__main__":
         gui_env_force_off = gui_env_normalized in {"0", "false", "no", "off"}
 
         # On macOS, DISPLAY is not typically set; allow GUI by default.
-        # On Linux, require DISPLAY to avoid headless/TTY environments.
-        want_gui = is_macos or os.environ.get("DISPLAY")
+        # On Linux, require an active X11 or Wayland display to avoid TTY/headless sessions.
+        want_gui = is_macos or bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
         if gui_env_force_on:
             want_gui = True
         elif gui_env_force_off:

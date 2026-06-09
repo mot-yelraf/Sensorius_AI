@@ -48,12 +48,35 @@ install_pi_gui_autostart() {
   local username="$1"
   local project_dir="$2"
   local venv_path="$3"
-  local user_group user_home autostart_dir desktop_file tmp_file
+  local user_group user_home labwc_dir labwc_file autostart_dir desktop_file tmp_file gui_exec
 
   user_group="$(id -gn "${username}" 2>/dev/null || printf '%s' "${username}")"
   user_home="$(getent passwd "${username}" 2>/dev/null | cut -d: -f6 || true)"
   if [[ -z "${user_home}" ]]; then
     user_home="${HOME}"
+  fi
+
+  gui_exec="env WEBKIT_DISABLE_COMPOSITING_MODE=1 GDK_BACKEND=wayland,x11 SENSORIUS_GUI_Y=48 ${venv_path}/bin/python ${project_dir}/saiGuiLauncher.py"
+  labwc_dir="${user_home}/.config/labwc"
+  labwc_file="${labwc_dir}/autostart"
+
+  if [[ -d "${labwc_dir}" ]] || command -v labwc >/dev/null 2>&1; then
+    echo "Installing Sensorius labwc autostart at ${labwc_file}..."
+    sudo -u "${username}" mkdir -p "${labwc_dir}"
+
+    tmp_file="$(mktemp)"
+    if [[ -f "${labwc_file}" ]]; then
+      grep -v 'saiGuiLauncher.py' "${labwc_file}" > "${tmp_file}" || true
+    fi
+    {
+      printf '\n# Sensorius GUI\n'
+      printf '( sleep 8; %s ) >/tmp/sensorius-gui.log 2>&1 &\n' "${gui_exec}"
+    } >> "${tmp_file}"
+
+    sudo install -m 0755 -o "${username}" -g "${user_group}" "${tmp_file}" "${labwc_file}"
+    rm -f "${tmp_file}"
+    echo "Sensorius GUI will open at the next labwc desktop login."
+    return
   fi
 
   autostart_dir="${user_home}/.config/autostart"
@@ -68,7 +91,7 @@ install_pi_gui_autostart() {
 Type=Application
 Name=Sensorius
 Comment=Open the Sensorius local dashboard
-Exec=${venv_path}/bin/python ${project_dir}/saiGuiLauncher.py
+Exec=${gui_exec}
 Path=${project_dir}
 Terminal=false
 X-GNOME-Autostart-enabled=true

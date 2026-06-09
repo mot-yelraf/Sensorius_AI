@@ -8,6 +8,11 @@ import time
 import urllib.error
 import urllib.request
 
+DEFAULT_WINDOW_X = 0
+DEFAULT_WINDOW_Y = 48
+DEFAULT_WINDOW_WIDTH = 1920
+DEFAULT_WINDOW_HEIGHT = 1000
+
 
 def _base_url() -> str:
     configured = os.environ.get("SENSORIUS_GUI_URL")
@@ -15,6 +20,25 @@ def _base_url() -> str:
         return configured.rstrip("/") + "/"
     port = os.environ.get("SENSORIUS_HTTP_PORT", "8000")
     return f"http://127.0.0.1:{port}/"
+
+
+def _int_env(name: str, default: int) -> int:
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return default
+    try:
+        return int(raw_value)
+    except ValueError:
+        return default
+
+
+def _window_geometry() -> dict[str, int]:
+    return {
+        "width": _int_env("SENSORIUS_GUI_WIDTH", DEFAULT_WINDOW_WIDTH),
+        "height": _int_env("SENSORIUS_GUI_HEIGHT", DEFAULT_WINDOW_HEIGHT),
+        "x": _int_env("SENSORIUS_GUI_X", DEFAULT_WINDOW_X),
+        "y": _int_env("SENSORIUS_GUI_Y", DEFAULT_WINDOW_Y),
+    }
 
 
 def _wait_for_health(base_url: str) -> bool:
@@ -53,13 +77,14 @@ def main() -> int:
         print(f"Sensorius GUI not started: {base_url.rstrip('/')} did not become ready.")
         return 1
 
+    geometry = _window_geometry()
     webview.create_window(
         "Sensorius Automatio Instrumentorum",
         base_url,
-        width=1920,
-        height=1000,
-        x=0,
-        y=0,
+        width=geometry["width"],
+        height=geometry["height"],
+        x=geometry["x"],
+        y=geometry["y"],
         resizable=True,
         frameless=False,
         confirm_close=True,

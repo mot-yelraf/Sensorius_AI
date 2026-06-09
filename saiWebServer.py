@@ -134,8 +134,9 @@ async def launch_webview(url: str = "http://127.0.0.1:8000", retries: int = 10, 
     if sys.platform.startswith("linux"):
         # Keep caller-provided values; only provide conservative defaults.
         os.environ.setdefault("GDK_BACKEND", "wayland,x11")
-        if "DISPLAY" not in os.environ and "WAYLAND_DISPLAY" not in os.environ:
-            os.environ["DISPLAY"] = ":0"
+        if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+            printDM("DISPLAY/WAYLAND_DISPLAY not set; skipping GUI.", location="saiWebServer")
+            return None
 
     if DEBUG:
         printDM("Launching webview...", location="saiWebServer")
@@ -169,10 +170,22 @@ async def launch_webview(url: str = "http://127.0.0.1:8000", retries: int = 10, 
 
     # --- Launch pywebview ---
     try:
+        def _int_env(name: str, default: int) -> int:
+            raw_value = os.environ.get(name)
+            if raw_value is None:
+                return default
+            try:
+                return int(raw_value)
+            except ValueError:
+                return default
+
         window = webview.create_window(
             "Sensorius Automatio Instrumentorum",
             initial_url,
-            width=1920, height=1000, x=0, y=0,
+            width=_int_env("SENSORIUS_GUI_WIDTH", 1920),
+            height=_int_env("SENSORIUS_GUI_HEIGHT", 1000),
+            x=_int_env("SENSORIUS_GUI_X", 0),
+            y=_int_env("SENSORIUS_GUI_Y", 48),
             resizable=True, frameless=False, confirm_close=True
         )
         if DEBUG:

@@ -133,11 +133,17 @@ venv, installs the full Python requirements there, verifies key imports, and
 then removes the temporary venv.
 
 On Raspberry Pi desktop installs, the backend `sensorius.service` runs
-headless. The setup scripts also install
-`/home/<user>/.config/autostart/sensorius-gui.desktop`, which opens the
-pywebview shell from the user's graphical desktop session. This requires a
+headless. On Trixie/labwc desktops, the setup scripts install the GUI command in
+`/home/<user>/.config/labwc/autostart`, which opens the pywebview shell from the
+user's graphical desktop session. On older desktops without labwc, setup falls
+back to `/home/<user>/.config/autostart/sensorius-gui.desktop`. This requires a
 Raspberry Pi OS desktop session or desktop auto-login; headless/Lite images can
 still use the browser UI at `http://127.0.0.1:8000`.
+
+On Trixie, do not force `DISPLAY=:0` or clear `WAYLAND_DISPLAY` in
+`sensorius.service` to make pywebview appear. Let the labwc autostart entry
+inherit the graphical session display, use `GDK_BACKEND=wayland,x11`, and keep
+`SENSORIUS_GUI_Y=48` so the GTK window decorations stay reachable.
 
 ## macOS
 

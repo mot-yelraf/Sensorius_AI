@@ -104,14 +104,19 @@ GUI behavior:
 - `1`, `true`, `yes`, or `on` forces GUI.
 - `0`, `false`, `no`, or `off` forces headless mode.
 
-Linux display hints used by setup scripts and GUI launch:
+Linux GUI hints used by setup scripts and GUI launch:
 
 ```env
-DISPLAY=:0
-WAYLAND_DISPLAY=
-GDK_BACKEND=x11
 WEBKIT_DISABLE_COMPOSITING_MODE=1
+GDK_BACKEND=wayland,x11
+SENSORIUS_GUI_Y=48
 ```
+
+On Raspberry Pi OS Trixie, leave `DISPLAY` and `WAYLAND_DISPLAY` inherited from
+the graphical desktop session. Do not force `DISPLAY=:0` or clear
+`WAYLAND_DISPLAY` in `sensorius.service`; the backend service should remain
+headless and the labwc autostart entry should launch the pywebview shell from
+`/home/<user>/.config/labwc/autostart`.
 
 ## System Settings
 
