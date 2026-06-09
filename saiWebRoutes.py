@@ -25,7 +25,6 @@ from typing import Dict, Any, Set
 from uuid import uuid4
 import json
 import socket
-import ipaddress
 import asyncio
 import subprocess
 import time
@@ -5261,32 +5260,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         return None
 
-    def _strip_host_port(value: str | None) -> str:
-        text = str(value or "").strip()
-        if not text:
-            return ""
-        if "://" in text:
-            try:
-                parsed = urlparse(text)
-                return str(parsed.hostname or text).strip()
-            except Exception:
-                return text
-        if text.count(":") == 1 and not text.startswith("["):
-            host, port = text.rsplit(":", 1)
-            if port.isdigit():
-                return host.strip()
-        return text.strip("[]")
-
-    def _is_ip_literal(value: str | None) -> bool:
-        text = _strip_host_port(value)
-        if not text:
-            return False
-        try:
-            ipaddress.ip_address(text)
-            return True
-        except Exception:
-            return False
-
     def _read_system_settings_doc(system_root: str, device_id: str | None) -> dict[str, Any]:
         dev = normalize_hostname_base(str(device_id or "").strip()) or str(device_id or "").strip()
         if not dev:
@@ -5330,47 +5303,43 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         except Exception:
             return ""
 
-    def _cached_host_ip(hostname: str | None, ingest=None) -> str:
-        host = str(hostname or "").strip()
-        base = normalize_hostname_base(host) or _strip_host_port(host)
-        if _is_ip_literal(base):
-            return _strip_host_port(base)
-        candidates = []
-        for value in (host, base, mdns_hostname(base) if base else ""):
-            text = str(value or "").strip()
-            if text and text not in candidates:
-                candidates.append(text)
-        if ingest:
-            for attr in ("_host_ipv4addr", "_host_ip_cache"):
-                try:
-                    mapping = getattr(ingest, attr, {}) or {}
-                except Exception:
-                    mapping = {}
-                if not isinstance(mapping, dict):
-                    continue
-                for key in candidates:
-                    value = str(mapping.get(key) or "").strip()
-                    if value:
-                        return _strip_host_port(value)
-        return ""
+    def _broker_health_status(broker: str, ingest=None) -> str:
+        if not str(broker or "").strip():
+            return "Not configured"
+        if ingest is None:
+            return "Unavailable"
 
-    def _resolve_ip_sync(hostname: str | None) -> str:
-        host = _strip_host_port(hostname)
-        if not host:
-            return ""
-        if _is_ip_literal(host):
-            return host
+        connected: bool | None = None
         try:
-            return socket.gethostbyname(host)
+            client = getattr(ingest, "client", None)
+            checker = getattr(client, "is_connected", None)
+            if callable(checker):
+                connected = bool(checker())
         except Exception:
-            return ""
+            connected = None
+
+        if connected is None:
+            try:
+                event = getattr(ingest, "_connected_evt", None)
+                is_set = getattr(event, "is_set", None)
+                if callable(is_set):
+                    connected = bool(is_set())
+            except Exception:
+                connected = None
+
+        if connected is True:
+            return "Connected"
+        if connected is False:
+            return "Disconnected"
+        return "Unknown"
 
     async def _build_device_network_info(device_id: str, *, device_type: str) -> dict[str, str]:
         """
-        Build read-only network details for the Info panes.
+        Build read-only broker details for the Info panes.
 
         Switches on a combined sensor+switch Nodus use the paired sensor host,
-        matching the settings push/restart behavior for that physical device.
+        matching the settings push/restart behavior when locating the broker
+        setting for that physical device.
         """
         sid = str(device_id or "").strip()
         ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
@@ -5390,26 +5359,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         doc = _read_system_settings_doc(system_root, host_base)
         if not doc and sid and sid != host_base:
             doc = _read_system_settings_doc(system_root, sid)
-        network_doc = doc.get("Network") if isinstance(doc, dict) else {}
-        host_name = (
-            _settings_value(network_doc, "HOSTNAME", "hostname")
-            or host_base
-            or sid
-        )
         broker = _broker_from_network_doc(doc)
 
-        ip_address = _cached_host_ip(host_name, ingest) or _cached_host_ip(host_base, ingest)
-        broker_ip = _cached_host_ip(broker, ingest)
-        if not broker_ip and broker:
-            broker_host = _strip_host_port(broker)
-            if broker_host == "localhost" or _is_ip_literal(broker_host) or not broker_host.endswith(".local"):
-                broker_ip = await asyncio.to_thread(_resolve_ip_sync, broker_host)
-
         return {
-            "host_name": host_name or "Unknown",
-            "ip_address": ip_address or "Unknown",
             "broker": broker or "Unknown",
-            "broker_ip": broker_ip or "Unknown",
+            "broker_status": _broker_health_status(broker, ingest),
         }
     
     async def push_nodus_setting_simple(

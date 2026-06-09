@@ -1244,10 +1244,8 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
         last_packet_epoch=1780783260.0,
         last_packet_received_label="11m 4s ago",
         network_info={
-            "host_name": "apvpd-test123",
-            "ip_address": "192.168.4.23",
             "broker": "broker.local",
-            "broker_ip": "10.0.0.10",
+            "broker_status": "Connected",
         },
         soil_ph_offset=0.0,
         device_offsets=[],
@@ -1259,14 +1257,13 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
     assert "Sensor Settings v1.2.3" in html
     assert "Sensor Info" in html
     assert html.index('<h4 class="section-title">Network</h4>') < html.index('<h4 class="section-title">Statistics</h4>')
-    assert "Host Name:" in html
-    assert "apvpd-test123" in html
-    assert "IP Address:" in html
-    assert "192.168.4.23" in html
     assert "Broker:" in html
     assert "broker.local" in html
-    assert "Broker IP:" in html
-    assert "10.0.0.10" in html
+    assert "Broker Status:" in html
+    assert "Connected" in html
+    assert "Host Name:" not in html
+    assert "IP Address:" not in html
+    assert "Broker IP:" not in html
     assert "24hr Offline Events:" not in html
     assert "Last 24hr offline events:" in html
     assert "Last offline event time:" in html
@@ -1312,10 +1309,8 @@ async def test_switch_settings_modal_shows_statistics_pane(tmp_path, monkeypatch
             }
         ],
         network_info={
-            "host_name": "co2-test123",
-            "ip_address": "192.168.4.24",
             "broker": "broker.local",
-            "broker_ip": "10.0.0.10",
+            "broker_status": "Connected",
         },
     )
 
@@ -1323,14 +1318,13 @@ async def test_switch_settings_modal_shows_statistics_pane(tmp_path, monkeypatch
     assert "Switch Info" in html
     assert "Statistics" in html
     assert html.index('<h4 class="section-title">Network</h4>') < html.index('<h4 class="section-title">Statistics</h4>')
-    assert "Host Name:" in html
-    assert "co2-test123" in html
-    assert "IP Address:" in html
-    assert "192.168.4.24" in html
     assert "Broker:" in html
     assert "broker.local" in html
-    assert "Broker IP:" in html
-    assert "10.0.0.10" in html
+    assert "Broker Status:" in html
+    assert "Connected" in html
+    assert "Host Name:" not in html
+    assert "IP Address:" not in html
+    assert "Broker IP:" not in html
     assert "Last 24hr offline events:" in html
     assert "Last offline event time:" in html
     assert "Last packet received:" in html
@@ -1362,8 +1356,7 @@ async def test_sensor_settings_modal_shows_network_info_and_recorded_statistics(
         },
     )
     _write_system_settings(system_root, "apvpd-test123", "apvpd-test123", broker="broker.local")
-    ingest._host_ipv4addr["apvpd-test123"] = "192.168.4.23"
-    ingest._host_ip_cache["broker.local"] = "10.0.0.10"
+    ingest.client.is_connected = lambda: True
     monkeypatch.setattr(
         saiWebRoutes.data_logger,
         "get_sensor_offline_event_count",
@@ -1376,21 +1369,20 @@ async def test_sensor_settings_modal_shows_network_info_and_recorded_statistics(
     assert res.status_code == 200
     assert "Sensor Info" in res.text
     assert res.text.index('<h4 class="section-title">Network</h4>') < res.text.index('<h4 class="section-title">Statistics</h4>')
-    assert "Host Name:" in res.text
-    assert "apvpd-test123" in res.text
-    assert "IP Address:" in res.text
-    assert "192.168.4.23" in res.text
     assert "Broker:" in res.text
     assert "broker.local" in res.text
-    assert "Broker IP:" in res.text
-    assert "10.0.0.10" in res.text
+    assert "Broker Status:" in res.text
+    assert "Connected" in res.text
+    assert "Host Name:" not in res.text
+    assert "IP Address:" not in res.text
+    assert "Broker IP:" not in res.text
     assert "24hr Offline Events:" not in res.text
     assert "Last 24hr offline events:" in res.text
     assert 'data-stat-value="offline-events">4</strong>' in res.text
 
 
 @pytest.mark.asyncio
-async def test_switch_settings_modal_uses_paired_sensor_network_info(tmp_path, monkeypatch):
+async def test_switch_settings_modal_uses_paired_sensor_broker_info(tmp_path, monkeypatch):
     app, ingest, system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
     app.state.templates = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
@@ -1420,8 +1412,7 @@ async def test_switch_settings_modal_uses_paired_sensor_network_info(tmp_path, m
         },
     )
     _write_system_settings(system_root, "co2-ykdvea", "co2-ykdvea", broker="broker.local")
-    ingest._host_ipv4addr["co2-ykdvea"] = "192.168.4.44"
-    ingest._host_ip_cache["broker.local"] = "10.0.0.10"
+    ingest.client.is_connected = lambda: True
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.get("/edit-switch", params={"switch_id": "switch-ykdvea", "embed": "1"})
@@ -1429,15 +1420,13 @@ async def test_switch_settings_modal_uses_paired_sensor_network_info(tmp_path, m
     assert res.status_code == 200
     assert "Switch Info" in res.text
     assert res.text.index('<h4 class="section-title">Network</h4>') < res.text.index('<h4 class="section-title">Statistics</h4>')
-    assert "Host Name:" in res.text
-    assert "co2-ykdvea" in res.text
-    assert "switch-ykdvea</strong>" not in res.text
-    assert "IP Address:" in res.text
-    assert "192.168.4.44" in res.text
     assert "Broker:" in res.text
     assert "broker.local" in res.text
-    assert "Broker IP:" in res.text
-    assert "10.0.0.10" in res.text
+    assert "Broker Status:" in res.text
+    assert "Connected" in res.text
+    assert "Host Name:" not in res.text
+    assert "IP Address:" not in res.text
+    assert "Broker IP:" not in res.text
 
 
 @pytest.mark.asyncio

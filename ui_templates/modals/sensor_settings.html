@@ -479,20 +479,12 @@
                 <h4 class="section-title">Network</h4>
                 <div class="statistics-list">
                   <div class="statistics-row">
-                    <span>Host Name:</span>
-                    <strong>{{ (network_info | default({})).host_name | default('Unknown') }}</strong>
-                  </div>
-                  <div class="statistics-row">
-                    <span>IP Address:</span>
-                    <strong>{{ (network_info | default({})).ip_address | default('Unknown') }}</strong>
-                  </div>
-                  <div class="statistics-row">
                     <span>Broker:</span>
                     <strong>{{ (network_info | default({})).broker | default('Unknown') }}</strong>
                   </div>
                   <div class="statistics-row">
-                    <span>Broker IP:</span>
-                    <strong>{{ (network_info | default({})).broker_ip | default('Unknown') }}</strong>
+                    <span>Broker Status:</span>
+                    <strong>{{ (network_info | default({})).broker_status | default('Unknown') }}</strong>
                   </div>
                 </div>
               </div>
