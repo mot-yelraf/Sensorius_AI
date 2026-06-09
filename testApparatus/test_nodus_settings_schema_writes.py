@@ -442,13 +442,20 @@ class _RecordingAsyncClient:
         return _RecordedResponse()
 
 
-def _write_system_settings(root: Path, device_id: str, hostname: str) -> None:
+def _write_system_settings(root: Path, device_id: str, hostname: str, *, broker: str = "") -> None:
     target = root / device_id
     target.mkdir(parents=True, exist_ok=True)
-    (target / "settings.toml").write_text(
-        f'[Network]\nHOSTNAME = "{hostname}"\n',
-        encoding="utf-8",
-    )
+    lines = [
+        "[Network]",
+        f'HOSTNAME = "{hostname}"',
+    ]
+    if broker:
+        lines.extend([
+            "",
+            "[MQTT]",
+            f'BROKER = "{broker}"',
+        ])
+    (target / "settings.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 async def _build_app(tmp_path, monkeypatch, hub_settings=None):
@@ -1236,6 +1243,12 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
         data_packets_received=42,
         last_packet_epoch=1780783260.0,
         last_packet_received_label="11m 4s ago",
+        network_info={
+            "host_name": "apvpd-test123",
+            "ip_address": "192.168.4.23",
+            "broker": "broker.local",
+            "broker_ip": "10.0.0.10",
+        },
         soil_ph_offset=0.0,
         device_offsets=[],
         candidate_sensors=[],
@@ -1244,6 +1257,16 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
     )
 
     assert "Sensor Settings v1.2.3" in html
+    assert "Sensor Info" in html
+    assert html.index('<h4 class="section-title">Network</h4>') < html.index('<h4 class="section-title">Statistics</h4>')
+    assert "Host Name:" in html
+    assert "apvpd-test123" in html
+    assert "IP Address:" in html
+    assert "192.168.4.23" in html
+    assert "Broker:" in html
+    assert "broker.local" in html
+    assert "Broker IP:" in html
+    assert "10.0.0.10" in html
     assert "24hr Offline Events:" not in html
     assert "Last 24hr offline events:" in html
     assert "Last offline event time:" in html
@@ -1288,10 +1311,26 @@ async def test_switch_settings_modal_shows_statistics_pane(tmp_path, monkeypatch
                 "state_age_label": "Off, 11m 4s",
             }
         ],
+        network_info={
+            "host_name": "co2-test123",
+            "ip_address": "192.168.4.24",
+            "broker": "broker.local",
+            "broker_ip": "10.0.0.10",
+        },
     )
 
     assert "Switch Settings v1.2.3" in html
+    assert "Switch Info" in html
     assert "Statistics" in html
+    assert html.index('<h4 class="section-title">Network</h4>') < html.index('<h4 class="section-title">Statistics</h4>')
+    assert "Host Name:" in html
+    assert "co2-test123" in html
+    assert "IP Address:" in html
+    assert "192.168.4.24" in html
+    assert "Broker:" in html
+    assert "broker.local" in html
+    assert "Broker IP:" in html
+    assert "10.0.0.10" in html
     assert "Last 24hr offline events:" in html
     assert "Last offline event time:" in html
     assert "Last packet received:" in html
@@ -1306,8 +1345,8 @@ async def test_switch_settings_modal_shows_statistics_pane(tmp_path, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_sensor_settings_modal_uses_recorded_offline_event_count(tmp_path, monkeypatch):
-    app, _ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+async def test_sensor_settings_modal_shows_network_info_and_recorded_statistics(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     app.state.templates = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
@@ -1322,6 +1361,9 @@ async def test_sensor_settings_modal_uses_recorded_offline_event_count(tmp_path,
             "Display": {"METRIC_1": "Temperature"},
         },
     )
+    _write_system_settings(system_root, "apvpd-test123", "apvpd-test123", broker="broker.local")
+    ingest._host_ipv4addr["apvpd-test123"] = "192.168.4.23"
+    ingest._host_ip_cache["broker.local"] = "10.0.0.10"
     monkeypatch.setattr(
         saiWebRoutes.data_logger,
         "get_sensor_offline_event_count",
@@ -1332,9 +1374,70 @@ async def test_sensor_settings_modal_uses_recorded_offline_event_count(tmp_path,
         res = await client.get("/edit-sensor", params={"sensor_id": "apvpd-test123", "embed": "1"})
 
     assert res.status_code == 200
+    assert "Sensor Info" in res.text
+    assert res.text.index('<h4 class="section-title">Network</h4>') < res.text.index('<h4 class="section-title">Statistics</h4>')
+    assert "Host Name:" in res.text
+    assert "apvpd-test123" in res.text
+    assert "IP Address:" in res.text
+    assert "192.168.4.23" in res.text
+    assert "Broker:" in res.text
+    assert "broker.local" in res.text
+    assert "Broker IP:" in res.text
+    assert "10.0.0.10" in res.text
     assert "24hr Offline Events:" not in res.text
     assert "Last 24hr offline events:" in res.text
     assert 'data-stat-value="offline-events">4</strong>' in res.text
+
+
+@pytest.mark.asyncio
+async def test_switch_settings_modal_uses_paired_sensor_network_info(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    app.state.templates = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "co2-ykdvea",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "co2",
+                "SENSOR_ID": "co2-ykdvea",
+                "LOCATION": "Veg Tent",
+            },
+            "Display": {"METRIC_1": "CO2"},
+        },
+    )
+    switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
+    switch_mgr.save(
+        "switch-ykdvea",
+        {
+            "Switch": {
+                "TYPE": "nodus",
+                "SWITCH_LOCATION": "Veg Tent",
+                "SWITCH_1_LABEL": "Fan",
+                "SWITCH_1_CHANNEL_ID": "S1-ykdvea",
+                "SWITCH_1_PIN": "GP15",
+            },
+        },
+    )
+    _write_system_settings(system_root, "co2-ykdvea", "co2-ykdvea", broker="broker.local")
+    ingest._host_ipv4addr["co2-ykdvea"] = "192.168.4.44"
+    ingest._host_ip_cache["broker.local"] = "10.0.0.10"
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/edit-switch", params={"switch_id": "switch-ykdvea", "embed": "1"})
+
+    assert res.status_code == 200
+    assert "Switch Info" in res.text
+    assert res.text.index('<h4 class="section-title">Network</h4>') < res.text.index('<h4 class="section-title">Statistics</h4>')
+    assert "Host Name:" in res.text
+    assert "co2-ykdvea" in res.text
+    assert "switch-ykdvea</strong>" not in res.text
+    assert "IP Address:" in res.text
+    assert "192.168.4.44" in res.text
+    assert "Broker:" in res.text
+    assert "broker.local" in res.text
+    assert "Broker IP:" in res.text
+    assert "10.0.0.10" in res.text
 
 
 @pytest.mark.asyncio

@@ -33,7 +33,7 @@
             </button>
             {% endif %}
             <button type="button" class="switch-menu-btn list-item" data-pane-target="sensor-statistics-pane">
-              <span class="item-name">Statistics</span>
+              <span class="item-name">Sensor Info</span>
             </button>
           </div>
         </aside>
@@ -472,10 +472,33 @@
             data-packets-received="{{ data_packets_received | default(0) }}"
           >
             <div class="list-header sensor-pane-header">
-              <span>Statistics</span>
+              <span>Sensor Info</span>
             </div>
             <div class="form sensor-pane-scroll">
               <div class="section">
+                <h4 class="section-title">Network</h4>
+                <div class="statistics-list">
+                  <div class="statistics-row">
+                    <span>Host Name:</span>
+                    <strong>{{ (network_info | default({})).host_name | default('Unknown') }}</strong>
+                  </div>
+                  <div class="statistics-row">
+                    <span>IP Address:</span>
+                    <strong>{{ (network_info | default({})).ip_address | default('Unknown') }}</strong>
+                  </div>
+                  <div class="statistics-row">
+                    <span>Broker:</span>
+                    <strong>{{ (network_info | default({})).broker | default('Unknown') }}</strong>
+                  </div>
+                  <div class="statistics-row">
+                    <span>Broker IP:</span>
+                    <strong>{{ (network_info | default({})).broker_ip | default('Unknown') }}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div class="section">
+                <h4 class="section-title">Statistics</h4>
                 <div class="statistics-list">
                   <div class="statistics-row">
                     <span>Last 24hr offline events:</span>

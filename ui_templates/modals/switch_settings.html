@@ -26,7 +26,7 @@
             Automations
           </button>
           <button class="switch-menu-btn" type="button" id="switchMenuStatistics" aria-selected="false">
-            Statistics
+            Switch Info
           </button>
         </aside>
 
@@ -181,10 +181,33 @@
             data-last-packet-epoch="{{ switch_last_packet_epoch if switch_last_packet_epoch is defined and switch_last_packet_epoch is not none else '' }}"
           >
             <div class="list-header">
-              <span>Statistics</span>
+              <span>Switch Info</span>
             </div>
             <div class="form">
               <div class="section">
+                <h4 class="section-title">Network</h4>
+                <div class="statistics-list">
+                  <div class="statistics-row">
+                    <span>Host Name:</span>
+                    <strong>{{ (network_info | default({})).host_name | default('Unknown') }}</strong>
+                  </div>
+                  <div class="statistics-row">
+                    <span>IP Address:</span>
+                    <strong>{{ (network_info | default({})).ip_address | default('Unknown') }}</strong>
+                  </div>
+                  <div class="statistics-row">
+                    <span>Broker:</span>
+                    <strong>{{ (network_info | default({})).broker | default('Unknown') }}</strong>
+                  </div>
+                  <div class="statistics-row">
+                    <span>Broker IP:</span>
+                    <strong>{{ (network_info | default({})).broker_ip | default('Unknown') }}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div class="section">
+                <h4 class="section-title">Statistics</h4>
                 <div class="statistics-list">
                   <div class="statistics-row">
                     <span>Last 24hr offline events:</span>

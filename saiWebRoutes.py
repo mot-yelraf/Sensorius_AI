@@ -25,6 +25,7 @@ from typing import Dict, Any, Set
 from uuid import uuid4
 import json
 import socket
+import ipaddress
 import asyncio
 import subprocess
 import time
@@ -5259,6 +5260,157 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     pass
 
         return None
+
+    def _strip_host_port(value: str | None) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        if "://" in text:
+            try:
+                parsed = urlparse(text)
+                return str(parsed.hostname or text).strip()
+            except Exception:
+                return text
+        if text.count(":") == 1 and not text.startswith("["):
+            host, port = text.rsplit(":", 1)
+            if port.isdigit():
+                return host.strip()
+        return text.strip("[]")
+
+    def _is_ip_literal(value: str | None) -> bool:
+        text = _strip_host_port(value)
+        if not text:
+            return False
+        try:
+            ipaddress.ip_address(text)
+            return True
+        except Exception:
+            return False
+
+    def _read_system_settings_doc(system_root: str, device_id: str | None) -> dict[str, Any]:
+        dev = normalize_hostname_base(str(device_id or "").strip()) or str(device_id or "").strip()
+        if not dev:
+            return {}
+        root = _normalize_system_settings_root(system_root)
+        path = os.path.join(root, dev, "settings.toml")
+        if not os.path.isfile(path):
+            return {}
+        try:
+            with open(path, "rb") as f:
+                data = tomllib.load(f) or {}
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _settings_value(section: dict | None, *keys: str) -> str:
+        if not isinstance(section, dict):
+            return ""
+        for key in keys:
+            value = section.get(key)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                return text
+        return ""
+
+    def _broker_from_network_doc(doc: dict[str, Any]) -> str:
+        mqtt_doc = doc.get("MQTT") if isinstance(doc, dict) else {}
+        sensor_network_doc = doc.get("SensorNetwork") if isinstance(doc, dict) else {}
+        network_doc = doc.get("Network") if isinstance(doc, dict) else {}
+        broker = (
+            _settings_value(mqtt_doc, "BROKER", "broker")
+            or _settings_value(sensor_network_doc, "BROKER", "broker")
+            or _settings_value(network_doc, "BROKER", "broker")
+        )
+        if broker:
+            return broker
+        try:
+            return str(settings.get_setting("SensorNetwork", "BROKER", "") or "").strip()
+        except Exception:
+            return ""
+
+    def _cached_host_ip(hostname: str | None, ingest=None) -> str:
+        host = str(hostname or "").strip()
+        base = normalize_hostname_base(host) or _strip_host_port(host)
+        if _is_ip_literal(base):
+            return _strip_host_port(base)
+        candidates = []
+        for value in (host, base, mdns_hostname(base) if base else ""):
+            text = str(value or "").strip()
+            if text and text not in candidates:
+                candidates.append(text)
+        if ingest:
+            for attr in ("_host_ipv4addr", "_host_ip_cache"):
+                try:
+                    mapping = getattr(ingest, attr, {}) or {}
+                except Exception:
+                    mapping = {}
+                if not isinstance(mapping, dict):
+                    continue
+                for key in candidates:
+                    value = str(mapping.get(key) or "").strip()
+                    if value:
+                        return _strip_host_port(value)
+        return ""
+
+    def _resolve_ip_sync(hostname: str | None) -> str:
+        host = _strip_host_port(hostname)
+        if not host:
+            return ""
+        if _is_ip_literal(host):
+            return host
+        try:
+            return socket.gethostbyname(host)
+        except Exception:
+            return ""
+
+    async def _build_device_network_info(device_id: str, *, device_type: str) -> dict[str, str]:
+        """
+        Build read-only network details for the Info panes.
+
+        Switches on a combined sensor+switch Nodus use the paired sensor host,
+        matching the settings push/restart behavior for that physical device.
+        """
+        sid = str(device_id or "").strip()
+        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        system_root = _resolve_system_settings_root()
+        sys_host_index = _build_system_hostname_index(system_root)
+        source_host = _read_hostname_from_system_settings(
+            sid,
+            system_root=system_root,
+            device_type=device_type,
+            sys_host_index=sys_host_index,
+        )
+        source_host = str(source_host or "").strip()
+        if not source_host:
+            source_host = normalize_hostname_base(sid) or sid
+        host_base = normalize_hostname_base(source_host) or source_host
+
+        doc = _read_system_settings_doc(system_root, host_base)
+        if not doc and sid and sid != host_base:
+            doc = _read_system_settings_doc(system_root, sid)
+        network_doc = doc.get("Network") if isinstance(doc, dict) else {}
+        host_name = (
+            _settings_value(network_doc, "HOSTNAME", "hostname")
+            or host_base
+            or sid
+        )
+        broker = _broker_from_network_doc(doc)
+
+        ip_address = _cached_host_ip(host_name, ingest) or _cached_host_ip(host_base, ingest)
+        broker_ip = _cached_host_ip(broker, ingest)
+        if not broker_ip and broker:
+            broker_host = _strip_host_port(broker)
+            if broker_host == "localhost" or _is_ip_literal(broker_host) or not broker_host.endswith(".local"):
+                broker_ip = await asyncio.to_thread(_resolve_ip_sync, broker_host)
+
+        return {
+            "host_name": host_name or "Unknown",
+            "ip_address": ip_address or "Unknown",
+            "broker": broker or "Unknown",
+            "broker_ip": broker_ip or "Unknown",
+        }
     
     async def push_nodus_setting_simple(
         *,
@@ -8398,6 +8550,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 except Exception:
                     nodus_firmware_version = ""
 
+            network_info = await _build_device_network_info(normalized_id, device_type="sensor")
             sensor_statistics = await _build_sensor_statistics_payload(normalized_id)
 
             cal_mgr = CalibrationManager(data_logger, manager)
@@ -8429,6 +8582,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 supports_device_calibration=not is_weewx,
                 supports_system_calibration=not is_weewx,
                 can_restart_device=(sensor_type in ("picow", "pico2w", "nodus", "remote", "mqtt")),
+                network_info=network_info,
                 **sensor_statistics,
             )
 
@@ -10355,6 +10509,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             except Exception:
                 nodus_firmware_version = ""
 
+        network_info = await _build_device_network_info(switch_id, device_type="switch")
         switch_statistics = await _build_switch_statistics_payload(switch_id, channels)
 
         # ---- render Jinja template to an HTML snippet ----
@@ -10367,6 +10522,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             channels=channels,
             nodus_firmware_version=nodus_firmware_version,
             can_restart_device=(switch_type in ("picow", "pico2w", "nodus", "remote", "mqtt")),
+            network_info=network_info,
             **switch_statistics,
         )
 
