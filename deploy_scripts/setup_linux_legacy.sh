@@ -253,6 +253,23 @@ EOF
     return
   fi
 
+  local conf_dir="/etc/mosquitto/conf.d"
+  local backup_suffix
+  backup_suffix="disabled-by-sensorius-$(date +%Y%m%d%H%M%S)"
+
+  run_with_heartbeat "Ensure mosquitto conf.d directory" \
+    sudo install -d -m 0755 "${conf_dir}"
+
+  shopt -s nullglob
+  local conf_file
+  for conf_file in "${conf_dir}"/*.conf; do
+    if [[ "${conf_file}" != "${conf_dir}/anon.conf" ]]; then
+      echo "Disabling existing Mosquitto drop-in ${conf_file}"
+      sudo mv "${conf_file}" "${conf_file}.${backup_suffix}"
+    fi
+  done
+  shopt -u nullglob
+
   local conf_tmp
   conf_tmp="$(mktemp)"
   cat > "${conf_tmp}" <<'EOF'
@@ -261,7 +278,7 @@ allow_anonymous true
 EOF
 
   run_with_heartbeat "Configure mosquitto anonymous listener" \
-    sudo install -m 0644 "${conf_tmp}" /etc/mosquitto/conf.d/anon.conf
+    sudo install -m 0644 "${conf_tmp}" "${conf_dir}/anon.conf"
   rm -f "${conf_tmp}"
 
   if command -v systemctl >/dev/null 2>&1; then

@@ -343,9 +343,17 @@ allow_anonymous true
     }
 
     $confText = Get-Content $mosqConf -Raw
-    if ($confText -notmatch '^include_dir .*conf\.d' -and $confText -notmatch '^include_dir .*conf.d') {
+    if ($confText -notmatch '(?m)^\s*include_dir\s+.*conf[.]d\b') {
         Add-Content $mosqConf "`ninclude_dir $mosqConfDir"
     }
+
+    $backupSuffix = "disabled-by-sensorius-{0:yyyyMMddHHmmss}" -f (Get-Date)
+    Get-ChildItem -Path $mosqConfDir -Filter '*.conf' -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne 'anon.conf' } |
+        ForEach-Object {
+            Write-Host "Disabling existing Mosquitto drop-in $($_.FullName)"
+            Rename-Item -Path $_.FullName -NewName "$($_.Name).$backupSuffix" -Force
+        }
 
     @"
 listener 1883

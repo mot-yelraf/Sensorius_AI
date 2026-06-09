@@ -36,6 +36,28 @@ EOF
   echo "Sensorius GUI will open at the next graphical desktop login."
 }
 
+configure_mosquitto_anon_only() {
+  local conf_dir="/etc/mosquitto/conf.d"
+  local backup_suffix
+  backup_suffix="disabled-by-sensorius-$(date +%Y%m%d%H%M%S)"
+
+  echo "Configuring Mosquitto with only /etc/mosquitto/conf.d/anon.conf active..."
+  sudo install -d -m 0755 "${conf_dir}"
+  shopt -s nullglob
+  local conf_file
+  for conf_file in "${conf_dir}"/*.conf; do
+    if [[ "${conf_file}" != "${conf_dir}/anon.conf" ]]; then
+      echo "Disabling existing Mosquitto drop-in ${conf_file}"
+      sudo mv "${conf_file}" "${conf_file}.${backup_suffix}"
+    fi
+  done
+  shopt -u nullglob
+
+  sudo install -m 0644 /dev/null "${conf_dir}/anon.conf"
+  printf 'listener 1883\nallow_anonymous true\n' | sudo tee "${conf_dir}/anon.conf" >/dev/null
+  sudo systemctl restart mosquitto
+}
+
 cd ~
 
 echo "Updating APT and installing system dependencies..."
@@ -76,9 +98,8 @@ else
   exit 1
 fi
 
-echo "Creating Mosquitto anonymous config at /etc/mosquitto/conf.d/anon.conf..."
-sudo bash -c 'echo -e "listener 1883\nallow_anonymous true" > /etc/mosquitto/conf.d/anon.conf'
-sudo systemctl restart mosquitto
+echo "Configuring Mosquitto anonymous listener..."
+configure_mosquitto_anon_only
 
 echo "Ensure i2c-dev kernel module loads at boot"
 if ! grep -q "^i2c-dev" /etc/modules; then

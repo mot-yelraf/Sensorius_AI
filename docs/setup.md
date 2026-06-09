@@ -18,6 +18,14 @@ packages, Python environment, Mosquitto, service files, and autostart behavior.
 These scripts prepare a runtime directory and may rewrite installer-managed
 configuration for the target platform.
 
+When setup scripts configure a system Mosquitto broker, they leave only the
+Sensorius-managed anonymous listener drop-in active. On Linux and Raspberry Pi
+that file is `/etc/mosquitto/conf.d/anon.conf`; on Windows machine-scope
+installs it is `conf.d\anon.conf` under the Mosquitto install directory.
+Existing active `.conf` files in that Mosquitto `conf.d` directory are moved
+aside with a `.disabled-by-sensorius-<timestamp>` suffix before Mosquitto is
+restarted.
+
 Use `deploy_scripts/deploy_sai.sh` for routine updates to systems that already
 have Sensorius installed. The deploy script syncs application source into each
 configured runtime directory while preserving installed runtime state,

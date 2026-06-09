@@ -129,15 +129,35 @@ preflight_python_env() {
     "${preflight_python}" -c "import fastapi; import requests; import paho.mqtt.client as mqtt; import lgpio; import webview; import gi; gi.require_version('Gtk','3.0'); gi.require_version('WebKit2','4.1'); import adafruit_scd30; import adafruit_scd4x; from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency preflight passed')"
 }
 
+configure_mosquitto_anon_only() {
+  local conf_dir="/etc/mosquitto/conf.d"
+  local backup_suffix
+  backup_suffix="disabled-by-sensorius-$(date +%Y%m%d%H%M%S)"
+
+  echo "Configuring Mosquitto with only /etc/mosquitto/conf.d/anon.conf active..."
+  sudo install -d -m 0755 "${conf_dir}"
+  shopt -s nullglob
+  local conf_file
+  for conf_file in "${conf_dir}"/*.conf; do
+    if [[ "${conf_file}" != "${conf_dir}/anon.conf" ]]; then
+      echo "Disabling existing Mosquitto drop-in ${conf_file}"
+      sudo mv "${conf_file}" "${conf_file}.${backup_suffix}"
+    fi
+  done
+  shopt -u nullglob
+
+  sudo install -m 0644 /dev/null "${conf_dir}/anon.conf"
+  printf 'listener 1883\nallow_anonymous true\n' | sudo tee "${conf_dir}/anon.conf" >/dev/null
+  sudo systemctl restart mosquitto
+}
+
 configure_system() {
   local username
   username="$(whoami)"
   sudo usermod -aG i2c,gpio,dialout "${username}" || true
   echo "Added ${username} to groups: i2c,gpio,dialout (log out/in to take effect)"
 
-  echo "Creating Mosquitto anonymous config at /etc/mosquitto/conf.d/anon.conf..."
-  sudo bash -c 'echo -e "listener 1883\nallow_anonymous true" > /etc/mosquitto/conf.d/anon.conf'
-  sudo systemctl restart mosquitto || true
+  configure_mosquitto_anon_only
 
   echo "Ensure i2c-dev kernel module loads at boot"
   if ! grep -q "^i2c-dev" /etc/modules; then
