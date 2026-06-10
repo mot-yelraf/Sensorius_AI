@@ -922,6 +922,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "moon_next_phase_date": "",
             "moon_visible_angle": None,
             "moon_reference_angle": None,
+            "position_29d": [],
         }
         if (
             LocationInfo is None
@@ -1208,6 +1209,104 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 moon_next_phase_label = ""
                 moon_next_phase_date = ""
 
+            position_29d: list[dict[str, object]] = []
+            try:
+                sample_minutes = range(0, 1441, 120)
+                range_start = day_start
+                moon_el_fn = getattr(_astral_moon, "elevation", None)
+                position_ts = None
+                position_observer = None
+                position_moon_body = None
+                try:
+                    skyfield_runtime = get_skyfield_runtime_if_installed()
+                    if skyfield_runtime is not None:
+                        _loader, position_ts, position_eph, _constellation_at = skyfield_runtime
+                        from skyfield.api import wgs84
+
+                        topo = wgs84.latlon(
+                            float(resolved_lat),
+                            float(resolved_lon),
+                            elevation_m=float(resolved_altitude or 0.0),
+                        )
+                        position_observer = position_eph["earth"] + topo
+                        position_moon_body = position_eph["moon"]
+                except Exception:
+                    position_ts = None
+                    position_observer = None
+                    position_moon_body = None
+
+                for day_offset in range(29):
+                    graph_day_start = range_start + timedelta(days=day_offset)
+                    sun_day: list[list[float | int]] = []
+                    moon_day: list[list[float | int]] = []
+                    graph_date = graph_day_start.date()
+                    graph_moon_phase: float | None = None
+                    graph_moon_lit_pct: int | None = None
+                    graph_moon_visible_angle: float | None = None
+                    for minute in sample_minutes:
+                        sample_dt = graph_day_start + timedelta(minutes=minute)
+                        try:
+                            sun_elev = float(_astral_elevation(obs, sample_dt))
+                        except Exception:
+                            sun_elev = float("nan")
+                        if math.isfinite(sun_elev):
+                            sun_day.append([minute, round(sun_elev, 2)])
+
+                        moon_elev = float("nan")
+                        try:
+                            if position_ts is not None and position_observer is not None and position_moon_body is not None:
+                                t = position_ts.from_datetime(sample_dt.astimezone(timezone.utc))
+                                apparent = position_observer.at(t).observe(position_moon_body).apparent()
+                                alt, _az, _distance = apparent.altaz()
+                                moon_elev = float(alt.degrees)
+                            elif callable(moon_el_fn):
+                                moon_elev = float(moon_el_fn(obs, sample_dt.astimezone(timezone.utc)))
+                        except Exception:
+                            moon_elev = float("nan")
+                        if math.isfinite(moon_elev):
+                            moon_day.append([minute, round(moon_elev, 2)])
+
+                    try:
+                        graph_moon_phase = float(_astral_moon.phase(graph_date))
+                        graph_moon_lit_pct = int(
+                            round((0.5 * (1 - math.cos((2 * math.pi * (graph_moon_phase % 28.0)) / 28.0))) * 100)
+                        )
+                    except Exception:
+                        graph_moon_phase = None
+                        graph_moon_lit_pct = None
+
+                    try:
+                        moon_az_fn = getattr(_astral_moon, "azimuth", None)
+                        moon_el_fn_for_angle = getattr(_astral_moon, "elevation", None)
+                        graph_moon_dt = graph_day_start.astimezone(timezone.utc)
+                        graph_moon_az = float(moon_az_fn(obs, graph_moon_dt)) if callable(moon_az_fn) else float("nan")
+                        graph_moon_el = (
+                            float(moon_el_fn_for_angle(obs, graph_moon_dt))
+                            if callable(moon_el_fn_for_angle)
+                            else float("nan")
+                        )
+                        graph_sun_az = float(_astral_azimuth(obs, graph_day_start))
+                        graph_sun_el = float(_astral_elevation(obs, graph_day_start))
+                        graph_angle = _moon_local_canvas_angle(graph_moon_az, graph_moon_el, graph_sun_az, graph_sun_el)
+                        if graph_angle is not None:
+                            graph_moon_visible_angle = round(graph_angle, 2)
+                    except Exception:
+                        graph_moon_visible_angle = None
+
+                    position_29d.append(
+                        {
+                            "date": graph_date.isoformat(),
+                            "label": graph_day_start.strftime("%b%d"),
+                            "sun": sun_day,
+                            "moon": moon_day,
+                            "moon_phase_value": round(graph_moon_phase, 2) if graph_moon_phase is not None else None,
+                            "moon_lit_pct": graph_moon_lit_pct,
+                            "moon_visible_angle": graph_moon_visible_angle,
+                        }
+                    )
+            except Exception:
+                position_29d = []
+
             out.update(
                 {
                     "ok": True,
@@ -1232,6 +1331,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     "moon_next_phase_date": moon_next_phase_date,
                     "moon_visible_angle": moon_visible_angle,
                     "moon_reference_angle": moon_reference_angle,
+                    "position_29d": position_29d,
                 }
             )
             return out

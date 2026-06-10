@@ -101,3 +101,76 @@ def test_moon_position_footer_falls_back_to_nearest_moon_event():
     assert "const mrRaw = moonEventRaw(data && data.moon_rise_today, data && data.moon_rise);" in html
     assert "moonRiseEl.textContent = fmtSun(mrRaw);" in html
     assert '"moon_rise": "00:30"' in html
+
+
+def test_sun_position_card_renders_29_day_overlay():
+    astro_payload = {
+        "ok": True,
+        "lat": 40.0,
+        "lon": -105.0,
+        "tz": "America/Denver",
+        "sunrise": "05:59",
+        "sunset": "20:23",
+        "sun_noon": "13:11",
+        "sun_points": [],
+        "moon_points": [],
+        "moon_phase_value": 18.5,
+        "moon_phase_label": "Waning Gibbous",
+        "moon_lit_pct": 78,
+        "moon_rise": "",
+        "moon_set": "",
+        "moon_rise_today": "",
+        "moon_set_today": "",
+        "moon_declination": None,
+        "moon_position_source": "",
+        "moon_next_phase_label": "3rd Quarter",
+        "moon_next_phase_date": "2026-06-08",
+        "moon_visible_angle": None,
+        "moon_reference_angle": None,
+        "position_29d": [
+            {
+                "date": "2026-06-10",
+                "label": "Jun10",
+                "sun": [[0, -20.1], [720, 68.2]],
+                "moon": [[0, 12.4], [720, -6.5]],
+                "moon_phase_value": 24.1,
+                "moon_lit_pct": 39,
+                "moon_visible_angle": 128.5,
+            },
+            {
+                "date": "2026-06-11",
+                "label": "Jun11",
+                "sun": [[0, -20.2], [720, 68.3]],
+                "moon": [[0, 2.4], [720, 8.5]],
+                "moon_phase_value": 25.1,
+                "moon_lit_pct": 27,
+                "moon_visible_angle": 131.5,
+            },
+        ],
+    }
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            [],
+            {},
+            {},
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=get_gauge_config(),
+            expected_gauge_map={},
+            astro_payload=astro_payload,
+        )
+    )
+
+    assert "id='sunBox' aria-live='polite' role='button'" in html
+    assert "id='sunMoon29Canvas'" in html
+    assert "29 Day Sun/Moon Position" in html
+    assert "function drawSunMoon29Day(data)" in html
+    assert "const drawTinyMoonPhase = (day, cx, cy) => {" in html
+    assert "const r = (moonPhaseCardSize * 0.15) / 2;" in html
+    assert "ctx.rotate((rotationDeg * Math.PI) / 180);" in html
+    assert "const days = Array.isArray(data && data.position_29d)" in html
+    assert "window.openSunMoon29Day = openSunMoon29Day;" in html
+    assert "window.closeSunMoon29Day = closeSunMoon29Day;" in html
+    assert '"label": "Jun10"' in html
+    assert '"moon_visible_angle": 128.5' in html

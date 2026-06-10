@@ -82,6 +82,8 @@ When location and timezone settings are available, Sensorius can show sun and mo
 
 This view can include sunrise, solar noon, sunset, moonrise, moonset, moon phase, traditional full moon names, moon position, and illumination details. It is especially useful when automations depend on Astral timing or when environmental patterns follow daylight cycles.
 
+Click the Sun/Moon Position card to overlay a 29-day position graph. The expanded graph labels each date at midnight, includes a small local-sky moon phase for each day, and closes when you click it.
+
 The dashboard can show a 24-hour weather forecast card next to the biodynamic calendar. In **System Settings**, choose **Weather Forecast** to use MET Norway, Open-Meteo, US National Weather Service, or **None**. The forecast uses the same Astral latitude, longitude, and timezone settings. Click **6 Day Forecast** to open a six-day outlook with daily forecast text, temperature range, wind, and relative humidity range. Choosing **None** hides the forecast card.
 
 When you open the biodynamic calendar, the current day's Daily Summary appends a **24hr Forecast** section from the same weather forecast data. Future days keep only the biodynamic and astral daily summary text.
