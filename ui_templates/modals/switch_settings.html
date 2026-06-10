@@ -186,12 +186,16 @@
             <div class="form">
               <div class="section">
                 <h4 class="section-title">Network</h4>
-                <div class="statistics-list">
-                  <div class="statistics-row">
+                <div class="network-info-grid">
+                  <div class="network-info-cell">
+                    <span>IP Address:</span>
+                    <strong>{{ (network_info | default({})).ip_address | default('Unknown') }}</strong>
+                  </div>
+                  <div class="network-info-cell">
                     <span>Broker:</span>
                     <strong>{{ (network_info | default({})).broker | default('Unknown') }}</strong>
                   </div>
-                  <div class="statistics-row">
+                  <div class="network-info-cell">
                     <span>Broker Status:</span>
                     <strong>{{ (network_info | default({})).broker_status | default('Unknown') }}</strong>
                   </div>

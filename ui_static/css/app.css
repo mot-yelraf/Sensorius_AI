@@ -563,6 +563,29 @@ canvas{
   gap:.65rem;
   max-width:560px;
 }
+.network-info-grid{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0, 1fr));
+  gap:.65rem;
+  max-width:100%;
+}
+.network-info-cell{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:.25rem;
+  padding:.55rem .65rem;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:#fff;
+}
+.network-info-cell span{
+  color:var(--muted);
+}
+.network-info-cell strong{
+  font-variant-numeric:tabular-nums;
+  overflow-wrap:anywhere;
+}
 [data-stat-channel-list]{
   display:grid;
   gap:.65rem;

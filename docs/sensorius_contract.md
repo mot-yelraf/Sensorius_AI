@@ -182,7 +182,7 @@ The payload must include:
 - top-level `schema`, `device_id`, `hostname`, `serial`, `version`, `type`
 - `capabilities`
 - `status.heartbeat_topic`
-- `network.ssid`, `network.password`, `network.hostname`
+- `network.ssid`, `network.password`, `network.hostname`, `network.ipv4addr`
 - `profile.active_profile`
 - `mqtt.broker`, `mqtt.broker_ip`, `mqtt.active_broker`, `mqtt.port`,
   `mqtt.use_tls`, `mqtt.username`, `mqtt.password`, `mqtt.base_topic`
@@ -194,6 +194,10 @@ The payload must include:
 - per-channel `index`, `label`, `channel_id`, `enable_pin`, `pin`,
   `state`, `event_topic`, `state_topic`, `set_topic`, `result_topic`,
   `availability_topic`
+
+`network.ipv4addr` is the current runtime station IPv4 address. Sensorius uses
+it for live device information displays, but it is not a TOML setting and must
+not be persisted into Nodus `settings.toml`.
 
 Password fields in retained `meta` use the same `obf1:` obfuscation format as
 persisted TOML password fields. They are not plaintext.

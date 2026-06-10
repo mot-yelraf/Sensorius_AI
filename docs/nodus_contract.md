@@ -209,6 +209,7 @@ The payload must include the routing and identity fields Sensorius needs:
 - top-level `schema`, `device_id`, `hostname`, `serial`, `version`, `type`
 - `capabilities`
 - `status.heartbeat_topic`
+- `network.ipv4addr`
 - `mqtt.broker`, `mqtt.broker_ip`, `mqtt.active_broker`, `mqtt.port`
 - `location_group.location`, `location_group.members`
 - `sensor.sensor_id`, `sensor.location`, `sensor.data_topic`,
@@ -216,6 +217,9 @@ The payload must include the routing and identity fields Sensorius needs:
 - `switch.device_id`, `switch.location`
 - per-channel `index`, `label`, `channel_id`, `enable_pin`, `pin`,
   `state_topic`, `set_topic`, `result_topic`, `availability_topic`
+
+`network.ipv4addr` is volatile runtime state used for live Sensorius device
+information displays. It is not persisted into Nodus `settings.toml`.
 
 ## Ordinary `config/set`
 

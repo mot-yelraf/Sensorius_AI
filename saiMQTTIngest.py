@@ -67,6 +67,38 @@ def _values_equal(left, right) -> bool:
     except Exception:
         return left == right
 
+def _norm_ipv4addr(addr) -> str | None:
+    raw = str(addr or "").strip()
+    if not raw:
+        return None
+    parts = raw.split(".")
+    if len(parts) != 4:
+        return None
+    for part in parts:
+        if not part.isdigit():
+            return None
+        try:
+            val = int(part)
+        except Exception:
+            return None
+        if val < 0 or val > 255:
+            return None
+    return raw
+
+def _extract_runtime_ipv4addr(payload: dict | None) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    for key in ("ipv4addr", "IPV4ADDR", "IPv4Addr", "ipv4"):
+        ip = _norm_ipv4addr(payload.get(key))
+        if ip:
+            return ip
+    for key, val in payload.items():
+        if isinstance(key, str) and key.lower() in {"ipv4addr", "ipv4"}:
+            ip = _norm_ipv4addr(val)
+            if ip:
+                return ip
+    return None
+
 def _local_epoch_seconds(settings=None, now_epoch: float | None = None) -> int:
     """Return local-naive epoch seconds for MQTT command identifiers."""
     try:
@@ -246,6 +278,7 @@ class saiMQTTIngest:
             self.nodus_debug_data_only = False
         self.expected_gauge_map = {}
         self._host_ip_cache: dict[str, str] = {}
+        self._host_ipv4addr: dict[str, str] = {}
         self.discovery_failures = {}  # track failures by hostname, time.monotonic()
         self.device_status = {}       # track device status by hostname → "online"/"degraded"/"offline"/"unknown"
         self.device_offline_count = defaultdict(int)  # track device offline by hostname 
@@ -2886,6 +2919,8 @@ class saiMQTTIngest:
             }.get(section)
             if not block_name:
                 continue
+            if block_name == "Network" and key.strip().lower() in {"ipv4addr", "ipv4"}:
+                continue
             block = system_patch_info.get(block_name)
             if not isinstance(block, dict):
                 block = {}
@@ -3372,6 +3407,7 @@ class saiMQTTIngest:
                     "display_styles": meta.get("display_styles") or meta.get("styles") or [],
                 }
         switch_blob = meta.get("switch") if isinstance(meta.get("switch"), dict) else {}
+        network_meta = meta.get("network") if isinstance(meta.get("network"), dict) else {}
         location_group = meta.get("location_group") if isinstance(meta.get("location_group"), dict) else {}
 
         sensor_id = str(sensor_blob.get("sensor_id") or sensor_blob.get("SENSOR_ID") or "").strip()
@@ -3612,6 +3648,18 @@ class saiMQTTIngest:
             if pid and pid not in peers:
                 peers.append(pid)
 
+        runtime_ipv4 = _extract_runtime_ipv4addr(network_meta) or _extract_runtime_ipv4addr(meta)
+        if runtime_ipv4:
+            for raw_key in (base, device_id, sensor_id, switch_id):
+                key = str(raw_key or "").strip()
+                if not key:
+                    continue
+                self._host_ipv4addr[key] = runtime_ipv4
+                normalized_key = self._normalize_host_key(key)
+                if normalized_key:
+                    self._host_ipv4addr[normalized_key] = runtime_ipv4
+                    self._host_ipv4addr[f"{normalized_key}.local"] = runtime_ipv4
+
         if not retain:
             derived = self.get_nodus_liveness(base, now_ts=now_t).get("state", "unknown")
             if derived == "unknown":
@@ -3625,7 +3673,6 @@ class saiMQTTIngest:
 
         try:
             if discovered_sensors or discovered_switches:
-                network_meta = meta.get("network") if isinstance(meta.get("network"), dict) else {}
                 profile_meta = meta.get("profile") if isinstance(meta.get("profile"), dict) else {}
                 mqtt_meta = meta.get("mqtt") if isinstance(meta.get("mqtt"), dict) else {}
                 settings_info = {

@@ -2019,6 +2019,7 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
                 "ssid": "ExampleWiFi",
                 "password": "obf1:BASE64NONCE:BASE64CIPHER",
                 "hostname": "apvpd-test123",
+                "ipv4addr": "10.0.0.42",
             },
             "profile": {"active_profile": "sensorius"},
             "mqtt": {
@@ -2071,6 +2072,10 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
     assert 'BROKER = "sensorius.local"' in settings_saved
     assert 'USE_TLS = false' in settings_saved
     assert 'BASE_TOPIC = "nodus"' in settings_saved
+    assert "ipv4addr" not in settings_saved
+    assert "IPV4ADDR" not in settings_saved
+    assert ingest._host_ipv4addr["apvpd-test123"] == "10.0.0.42"
+    assert ingest._host_ipv4addr["switch-test123"] == "10.0.0.42"
 
     sensor_saved = (sensor_dir / "sensor.toml").read_text(encoding="utf-8")
     assert 'DEVICE = "apvpd"' in sensor_saved
@@ -2151,11 +2156,12 @@ def test_nodus_meta_patch_updates_cached_sensor_meta_and_shadow_settings(tmp_pat
             "message_id": "cfg-123",
             "timestamp": 1763859551,
             "source": "config_set",
-            "sections": ["Display", "Profile"],
+            "sections": ["Display", "Profile", "Network"],
             "updates": [
                 {"section": "Display", "key": "METRIC_1", "value": "Ambient VPD"},
                 {"section": "Display", "key": "METRIC_4", "value": "Baro-Pressure"},
                 {"section": "Profile", "key": "ACTIVE_PROFILE", "value": "nodusweb"},
+                {"section": "Network", "key": "IPV4ADDR", "value": "10.0.0.44"},
             ],
         }
     )
@@ -2175,9 +2181,13 @@ def test_nodus_meta_patch_updates_cached_sensor_meta_and_shadow_settings(tmp_pat
 
     settings_saved = (system_root / "apvpd-test123" / "settings.toml").read_text(encoding="utf-8")
     assert 'ACTIVE_PROFILE = "nodusweb"' in settings_saved
+    assert "IPV4ADDR" not in settings_saved
+    assert "ipv4addr" not in settings_saved
+    assert ingest._host_ipv4addr["apvpd-test123"] == "10.0.0.44"
 
     cached = ingest.discovery_cache["apvpd-test123"]
     assert cached["profile"]["active_profile"] == "nodusweb"
+    assert cached["network"]["ipv4addr"] == "10.0.0.44"
     assert cached["sensor"]["display_metrics"]["METRIC_4"] == "Baro-Pressure"
     assert cached["timestamp"] == 1763859551
 

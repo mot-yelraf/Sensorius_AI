@@ -1244,6 +1244,7 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
         last_packet_epoch=1780783260.0,
         last_packet_received_label="11m 4s ago",
         network_info={
+            "ip_address": "10.0.0.23",
             "broker": "broker.local",
             "broker_status": "Connected",
         },
@@ -1257,12 +1258,13 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
     assert "Sensor Settings v1.2.3" in html
     assert "Sensor Info" in html
     assert html.index('<h4 class="section-title">Network</h4>') < html.index('<h4 class="section-title">Statistics</h4>')
+    assert "IP Address:" in html
+    assert "10.0.0.23" in html
     assert "Broker:" in html
     assert "broker.local" in html
     assert "Broker Status:" in html
     assert "Connected" in html
     assert "Host Name:" not in html
-    assert "IP Address:" not in html
     assert "Broker IP:" not in html
     assert "24hr Offline Events:" not in html
     assert "Last 24hr offline events:" in html
@@ -1309,6 +1311,7 @@ async def test_switch_settings_modal_shows_statistics_pane(tmp_path, monkeypatch
             }
         ],
         network_info={
+            "ip_address": "10.0.0.24",
             "broker": "broker.local",
             "broker_status": "Connected",
         },
@@ -1318,12 +1321,13 @@ async def test_switch_settings_modal_shows_statistics_pane(tmp_path, monkeypatch
     assert "Switch Info" in html
     assert "Statistics" in html
     assert html.index('<h4 class="section-title">Network</h4>') < html.index('<h4 class="section-title">Statistics</h4>')
+    assert "IP Address:" in html
+    assert "10.0.0.24" in html
     assert "Broker:" in html
     assert "broker.local" in html
     assert "Broker Status:" in html
     assert "Connected" in html
     assert "Host Name:" not in html
-    assert "IP Address:" not in html
     assert "Broker IP:" not in html
     assert "Last 24hr offline events:" in html
     assert "Last offline event time:" in html
@@ -1356,6 +1360,7 @@ async def test_sensor_settings_modal_shows_network_info_and_recorded_statistics(
         },
     )
     _write_system_settings(system_root, "apvpd-test123", "apvpd-test123", broker="broker.local")
+    ingest._host_ipv4addr["apvpd-test123"] = "10.0.0.25"
     ingest.client.is_connected = lambda: True
     monkeypatch.setattr(
         saiWebRoutes.data_logger,
@@ -1369,12 +1374,13 @@ async def test_sensor_settings_modal_shows_network_info_and_recorded_statistics(
     assert res.status_code == 200
     assert "Sensor Info" in res.text
     assert res.text.index('<h4 class="section-title">Network</h4>') < res.text.index('<h4 class="section-title">Statistics</h4>')
+    assert "IP Address:" in res.text
+    assert "10.0.0.25" in res.text
     assert "Broker:" in res.text
     assert "broker.local" in res.text
     assert "Broker Status:" in res.text
     assert "Connected" in res.text
     assert "Host Name:" not in res.text
-    assert "IP Address:" not in res.text
     assert "Broker IP:" not in res.text
     assert "24hr Offline Events:" not in res.text
     assert "Last 24hr offline events:" in res.text
@@ -1412,6 +1418,7 @@ async def test_switch_settings_modal_uses_paired_sensor_broker_info(tmp_path, mo
         },
     )
     _write_system_settings(system_root, "co2-ykdvea", "co2-ykdvea", broker="broker.local")
+    ingest._host_ipv4addr["co2-ykdvea"] = "10.0.0.26"
     ingest.client.is_connected = lambda: True
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1420,12 +1427,13 @@ async def test_switch_settings_modal_uses_paired_sensor_broker_info(tmp_path, mo
     assert res.status_code == 200
     assert "Switch Info" in res.text
     assert res.text.index('<h4 class="section-title">Network</h4>') < res.text.index('<h4 class="section-title">Statistics</h4>')
+    assert "IP Address:" in res.text
+    assert "10.0.0.26" in res.text
     assert "Broker:" in res.text
     assert "broker.local" in res.text
     assert "Broker Status:" in res.text
     assert "Connected" in res.text
     assert "Host Name:" not in res.text
-    assert "IP Address:" not in res.text
     assert "Broker IP:" not in res.text
 
 

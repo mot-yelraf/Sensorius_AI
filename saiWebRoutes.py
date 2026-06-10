@@ -5433,6 +5433,150 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return "Disconnected"
         return "Unknown"
 
+    def _runtime_ipv4_from_ingest(
+        device_id: str,
+        *,
+        device_type: str,
+        source_host: str,
+        host_base: str,
+        ingest=None,
+    ) -> str:
+        if ingest is None:
+            return ""
+
+        def _norm_ipv4(value) -> str:
+            raw = str(value or "").strip()
+            if not raw:
+                return ""
+            parts = raw.split(".")
+            if len(parts) != 4:
+                return ""
+            for part in parts:
+                if not part.isdigit():
+                    return ""
+                try:
+                    num = int(part)
+                except Exception:
+                    return ""
+                if num < 0 or num > 255:
+                    return ""
+            return raw
+
+        def _add_candidate(raw_value, bucket: list[str]) -> None:
+            raw = str(raw_value or "").strip()
+            if not raw:
+                return
+            for value in (raw, normalize_hostname_base(raw), mdns_hostname(normalize_hostname_base(raw) or raw)):
+                text = str(value or "").strip()
+                if text and text not in bucket:
+                    bucket.append(text)
+
+        candidates: list[str] = []
+        _add_candidate(device_id, candidates)
+        _add_candidate(source_host, candidates)
+        _add_candidate(host_base, candidates)
+        try:
+            _add_candidate(ingest.resolve_nodus_hostname(device_id, device_type=device_type), candidates)
+        except Exception:
+            pass
+
+        try:
+            candidate_set = {str(item or "").strip() for item in candidates if str(item or "").strip()}
+            candidate_bases = {normalize_hostname_base(item) or item for item in candidate_set}
+            for host, peers in (getattr(ingest, "host_to_peer_ids", {}) or {}).items():
+                peer_set = {str(peer or "").strip() for peer in (peers or []) if str(peer or "").strip()}
+                host_base_candidate = normalize_hostname_base(str(host or "")) or str(host or "").strip()
+                peer_bases = {normalize_hostname_base(peer) or peer for peer in peer_set}
+                if (
+                    host in candidate_set
+                    or host_base_candidate in candidate_bases
+                    or bool(peer_set & candidate_set)
+                    or bool(peer_bases & candidate_bases)
+                ):
+                    _add_candidate(host, candidates)
+                    for peer in peer_set:
+                        _add_candidate(peer, candidates)
+        except Exception:
+            pass
+
+        for attr in ("_host_ipv4addr",):
+            try:
+                mapping = getattr(ingest, attr, {}) or {}
+                for key in candidates:
+                    ip = _norm_ipv4(mapping.get(key))
+                    if ip:
+                        return ip
+            except Exception:
+                pass
+
+        def _meta_ipv4(meta: dict | None) -> str:
+            if not isinstance(meta, dict):
+                return ""
+            network_meta = meta.get("network") if isinstance(meta.get("network"), dict) else {}
+            for container in (network_meta, meta):
+                for key in ("ipv4addr", "IPV4ADDR", "IPv4Addr", "ipv4"):
+                    ip = _norm_ipv4(container.get(key))
+                    if ip:
+                        return ip
+            return ""
+
+        def _meta_has_identifier(meta: dict, raw_value: str) -> bool:
+            want = str(raw_value or "").strip().lower()
+            if not want or not isinstance(meta, dict):
+                return False
+            observed: set[str] = set()
+
+            def _observe(value) -> None:
+                text = str(value or "").strip()
+                if not text:
+                    return
+                observed.add(text.lower())
+                normalized = normalize_hostname_base(text)
+                if normalized:
+                    observed.add(normalized.lower())
+
+            _observe(meta.get("device_id"))
+            _observe(meta.get("hostname"))
+            sensor_meta = meta.get("sensor") if isinstance(meta.get("sensor"), dict) else {}
+            _observe(sensor_meta.get("sensor_id"))
+            switch_meta = meta.get("switch") if isinstance(meta.get("switch"), dict) else {}
+            _observe(switch_meta.get("device_id"))
+            _observe(switch_meta.get("switch_device_id"))
+            channels = switch_meta.get("channels")
+            if isinstance(channels, list):
+                for row in channels:
+                    if isinstance(row, dict):
+                        _observe(row.get("channel_id"))
+            return want in observed
+
+        try:
+            cache = getattr(ingest, "discovery_cache", {}) or {}
+            for key in candidates:
+                meta = cache.get(key) or cache.get(normalize_hostname_base(key) or key)
+                ip = _meta_ipv4(meta)
+                if ip:
+                    return ip
+            for meta in cache.values():
+                if not isinstance(meta, dict):
+                    continue
+                if any(_meta_has_identifier(meta, key) for key in candidates):
+                    ip = _meta_ipv4(meta)
+                    if ip:
+                        return ip
+        except Exception:
+            pass
+
+        try:
+            mapping = getattr(ingest, "_host_ip_cache", {}) or {}
+            for key in candidates:
+                ip = _norm_ipv4(mapping.get(key))
+                if ip:
+                    return ip
+        except Exception:
+            pass
+
+        return ""
+
     async def _build_device_network_info(device_id: str, *, device_type: str) -> dict[str, str]:
         """
         Build read-only broker details for the Info panes.
@@ -5460,8 +5604,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if not doc and sid and sid != host_base:
             doc = _read_system_settings_doc(system_root, sid)
         broker = _broker_from_network_doc(doc)
+        ip_address = _runtime_ipv4_from_ingest(
+            sid,
+            device_type=device_type,
+            source_host=source_host,
+            host_base=host_base,
+            ingest=ingest,
+        )
 
         return {
+            "ip_address": ip_address or "Unknown",
             "broker": broker or "Unknown",
             "broker_status": _broker_health_status(broker, ingest),
         }
