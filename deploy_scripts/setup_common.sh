@@ -15,6 +15,21 @@ deploy_project_files() {
 
   if command -v rsync >/dev/null 2>&1; then
     rsync -a --delete \
+      --include 'system_settings/' \
+      --include 'system_settings/factory/' \
+      --include 'system_settings/factory/***' \
+      --include 'system_settings/factory_nodus/' \
+      --include 'system_settings/factory_nodus/***' \
+      --include 'sensor_settings/' \
+      --include 'sensor_settings/factory/' \
+      --include 'sensor_settings/factory/***' \
+      --include 'sensor_settings/factory_nodus/' \
+      --include 'sensor_settings/factory_nodus/***' \
+      --include 'switch_settings/' \
+      --include 'switch_settings/factory/' \
+      --include 'switch_settings/factory/***' \
+      --include 'switch_settings/factory_nodus/' \
+      --include 'switch_settings/factory_nodus/***' \
       --exclude '.git/' \
       --exclude '.env' \
       --exclude '.venv/' \
@@ -25,6 +40,13 @@ deploy_project_files() {
       --exclude '*.pyc' \
       --exclude '*.pyo' \
       --exclude 'sensor_data.db' \
+      --exclude 'sensordata.db' \
+      --exclude 'sensorius_data.db*' \
+      --exclude '*.local/' \
+      --exclude '*.local/***' \
+      --exclude 'system_settings/***' \
+      --exclude 'sensor_settings/***' \
+      --exclude 'switch_settings/***' \
       --exclude '*.log' \
       --exclude '*.md' \
       --exclude 'docs/' \
@@ -38,6 +60,11 @@ deploy_project_files() {
     rm -rf "${PROJECT_DIR}/.git" "${PROJECT_DIR}/deploy_scripts"
     rm -f "${PROJECT_DIR}/.env"
     rm -rf "${PROJECT_DIR}/docs" "${PROJECT_DIR}/testApparatus"
+    rm -rf "${PROJECT_DIR}"/*.local
+    rm -f "${PROJECT_DIR}/sensor_data.db" "${PROJECT_DIR}/sensordata.db" "${PROJECT_DIR}"/sensorius_data.db*
+    find "${PROJECT_DIR}/system_settings" -mindepth 1 -maxdepth 1 ! -name 'factory' ! -name 'factory_nodus' ! -name '__init__.py' -exec rm -rf {} + 2>/dev/null || true
+    find "${PROJECT_DIR}/sensor_settings" -mindepth 1 -maxdepth 1 ! -name 'factory' ! -name 'factory_nodus' ! -name '__init__.py' -exec rm -rf {} + 2>/dev/null || true
+    find "${PROJECT_DIR}/switch_settings" -mindepth 1 -maxdepth 1 ! -name 'factory' ! -name 'factory_nodus' ! -name '__init__.py' -exec rm -rf {} + 2>/dev/null || true
     find "${PROJECT_DIR}" -type f -name '*.md' -delete
   fi
 

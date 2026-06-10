@@ -11,6 +11,7 @@ sensorius_data.*
 __pycache__/
 *.pyc
 *.log
+*.local/
 .env
 sai_hosts.txt
 

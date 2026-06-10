@@ -95,3 +95,9 @@ deploy_scripts/deploy_sai.sh
 ```bash
 deploy_scripts/deploy_sai.sh --apply
 ```
+
+To update one configured host without touching the rest of the inventory:
+
+```bash
+deploy_scripts/deploy_sai.sh --apply --host sensorius-hub-1
+```

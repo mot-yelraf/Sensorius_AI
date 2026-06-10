@@ -58,6 +58,34 @@ def test_dashboard_micrograph_uses_soil_fertility_gauge_scale():
     assert "yScaleOptions.max = cfgMax" in html
 
 
+def test_dashboard_switch_layout_drift_does_not_abort_gauge_update():
+    gauge_config = get_gauge_config()
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["avpd-2k7r1y"],
+            {"avpd-2k7r1y": {"Ambient VPD": 2.8}},
+            {"avpd-2k7r1y": {"Ambient VPD": {"min": 2.6, "avg": 3.1, "max": 4.0}}},
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=gauge_config,
+            expected_gauge_map={"avpd-2k7r1y": ["Ambient VPD"]},
+            expected_display_style_map={"avpd-2k7r1y": {"METRIC_1": "Graph24hr"}},
+            display_style="Graph24hr",
+        )
+    )
+
+    start = html.index("async function updateGauges()")
+    end = html.index("function refreshOnceAfterSensorAdded")
+    block = html[start:end]
+
+    assert "if (reason.startsWith('switch:')) {" in block
+    assert "console.info('[layout-refresh-switch]', reason);" in block
+    assert "} else {      if (scheduleLayoutRefresh(layoutDrift.reason, sig)) return;    }" in block
+    assert block.count("for (const sid of available)") == 1
+    assert block.count("const values     = d.values") == 1
+
+
 def test_moon_position_footer_falls_back_to_nearest_moon_event():
     astro_payload = {
         "ok": True,

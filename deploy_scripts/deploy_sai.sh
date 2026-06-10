@@ -4,11 +4,12 @@ set -euo pipefail
 usage() {
   cat <<'HELP'
 Usage:
-  deploy_scripts/deploy_sai.sh [--apply] [--dry-run] [--hosts FILE] [--source DIR] [--rsync-bin PATH]
+  deploy_scripts/deploy_sai.sh [--apply] [--dry-run] [--host HOST_ALIAS] [--hosts FILE] [--source DIR] [--rsync-bin PATH]
 
 Options:
   --apply            Perform deploy (default is dry-run)
   --dry-run          Force dry-run mode
+  --host HOST_ALIAS  Deploy only the matching inventory host_alias
   --hosts FILE       Inventory file (default: deploy_scripts/sai_hosts.txt, fallback: deploy_scripts/sai_hosts.def)
   --source DIR       Source directory to sync (default: repo root)
   --rsync-bin PATH   rsync binary path (default: /opt/homebrew/bin/rsync, fallback: rsync)
@@ -32,6 +33,7 @@ if [[ ! -f "${HOSTS_FILE}" ]]; then
   HOSTS_FILE="${REPO_ROOT}/deploy_scripts/sai_hosts.def"
 fi
 SOURCE_DIR="${REPO_ROOT}"
+ONLY_HOST=""
 
 if [[ -x "/opt/homebrew/bin/rsync" ]]; then
   RSYNC_BIN="/opt/homebrew/bin/rsync"
@@ -48,6 +50,10 @@ while [[ $# -gt 0 ]]; do
     --dry-run)
       DRY_RUN=1
       shift
+      ;;
+    --host|--only)
+      ONLY_HOST="$2"
+      shift 2
       ;;
     --hosts)
       HOSTS_FILE="$2"
@@ -89,11 +95,13 @@ EXCLUDES=(
   ".ruff_cache/"
   ".DS_Store"
   "*.local/"
+  "*.local/***"
   "deploy_scripts/"
   "docs/"
   "testApparatus/"
   "*.md"
   "sensor_data.db"
+  "sensordata.db"
   "sensorius_data.db*"
   "system_settings/***"
   "sensor_settings/***"
@@ -138,6 +146,7 @@ done
 
 FAILURES=0
 LINE_NO=0
+MATCHED_HOSTS=0
 while IFS= read -r raw_line || [[ -n "${raw_line}" ]]; do
   LINE_NO=$((LINE_NO + 1))
   line="$(printf '%s' "${raw_line}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
@@ -145,6 +154,10 @@ while IFS= read -r raw_line || [[ -n "${raw_line}" ]]; do
 
   IFS='|' read -r host target post_cmd <<< "${line}"
   host="$(printf '%s' "${host:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  if [[ -n "${ONLY_HOST}" && "${host}" != "${ONLY_HOST}" ]]; then
+    continue
+  fi
+  MATCHED_HOSTS=$((MATCHED_HOSTS + 1))
   target="$(printf '%s' "${target:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
   post_cmd="$(printf '%s' "${post_cmd:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 
@@ -172,6 +185,12 @@ while IFS= read -r raw_line || [[ -n "${raw_line}" ]]; do
     fi
   fi
 done < "${HOSTS_FILE}"
+
+if [[ -n "${ONLY_HOST}" && "${MATCHED_HOSTS}" -eq 0 ]]; then
+  echo
+  echo "No inventory entry matched --host ${ONLY_HOST}" >&2
+  exit 1
+fi
 
 if [[ "${FAILURES}" -gt 0 ]]; then
   echo
