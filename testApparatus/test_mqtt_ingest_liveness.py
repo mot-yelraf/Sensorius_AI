@@ -1603,6 +1603,18 @@ def test_recovery_via_data_marks_online_with_stale_heartbeat(monkeypatch):
     assert ingest.heartbeat_stale.get("apvpd-test123") is True
 
 
+def test_live_nodus_data_broadcasts_dashboard_inventory_once(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    events = []
+    ingest._broadcast_dashboard_inventory_changed = lambda **kwargs: events.append(dict(kwargs))
+    msg = _Msg("nodus/apvpd-test123/data", json.dumps({"values": {"Temperature": 21.2}}), retain=False)
+
+    ingest._on_message(ingest.client, None, msg)
+    ingest._on_message(ingest.client, None, msg)
+
+    assert events == [{"host": "apvpd-test123", "sensor_id": "apvpd-test123"}]
+
+
 def test_debug_data_only_data_path_does_not_mark_heartbeat_stale(monkeypatch):
     ingest = _build_ingest(
         monkeypatch,

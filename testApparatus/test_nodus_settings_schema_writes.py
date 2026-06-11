@@ -88,6 +88,7 @@ class _FakeIngest:
         self.device_location: dict[str, str] = {}
         self.expected_gauge_map: dict[str, list[str]] = {}
         self.device_status: dict[str, str] = {}
+        self.nodus_liveness: dict[str, dict] = {}
         self.nodus_switch_topic_map: dict[str, dict] = {}
         self.nodus_firmware_versions: dict[str, str] = {}
         self._switch_state_cache: dict[str, dict] = {}
@@ -139,6 +140,9 @@ class _FakeIngest:
 
     def get_measure_status(self, _sid: str):
         return "online"
+
+    def get_nodus_liveness(self, device_id: str, **_kwargs):
+        return dict(self.nodus_liveness.get(str(device_id or "").strip(), {"state": "unknown"}))
 
     def add_client(self, host: str):
         self.added.append(host)
@@ -3483,6 +3487,94 @@ async def test_dashboard_json_reports_switch_only_nodus_discovery_for_layout_ref
 
 
 @pytest.mark.asyncio
+async def test_dashboard_json_reports_live_nodus_shadow_without_db_rows(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "co2-pmoopn",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "co2",
+                "SENSOR_ID": "co2-pmoopn",
+                "LOCATION": "Propagation Tent",
+            },
+            "Display": {"METRIC_1": "CO2", "METRIC_2": "Temperature"},
+        },
+    )
+
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    saiWebRoutes._sensor_ids_cache_payload = None
+    saiWebRoutes._sensor_ids_cache_until = 0.0
+    ingest.nodus_liveness["co2-pmoopn"] = {
+        "state": "degraded",
+        "last_seen_s": 1.0,
+        "last_report_s": None,
+    }
+
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda _sid: "")
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_values_and_timestamps", lambda ids: ({}, {}))
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_metrics", lambda _sid: [])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/?json_only=true")
+        ids_res = await client.get("/sensor-ids")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert "co2-pmoopn" in body["available"]
+    assert body["expected_gauge_map"]["co2-pmoopn"][:2] == ["CO2", "Temperature"]
+    assert ids_res.status_code == 200
+    assert "co2-pmoopn" in ids_res.json()
+
+
+@pytest.mark.asyncio
+async def test_dashboard_json_hides_retained_only_nodus_shadow_without_db_rows(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "co2-stale",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "co2",
+                "SENSOR_ID": "co2-stale",
+                "LOCATION": "Propagation Tent",
+            },
+            "Display": {"METRIC_1": "CO2"},
+        },
+    )
+
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    saiWebRoutes._sensor_ids_cache_payload = None
+    saiWebRoutes._sensor_ids_cache_until = 0.0
+    ingest.nodus_liveness["co2-stale"] = {
+        "state": "unknown",
+        "retained_seen_s": 1.0,
+        "last_seen_s": None,
+        "last_report_s": None,
+    }
+
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda _sid: "")
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_values_and_timestamps", lambda ids: ({}, {}))
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_metrics", lambda _sid: [])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/?json_only=true")
+
+    assert res.status_code == 200
+    assert "co2-stale" not in res.json()["available"]
+
+
+@pytest.mark.asyncio
 async def test_dashboard_json_ignores_incomplete_switch_identity_without_channel_id(tmp_path, monkeypatch):
     app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
 
@@ -3735,9 +3827,10 @@ def test_dashboard_refresh_pauses_during_modal_and_hidden_tab():
     assert "function dashboardRefreshPaused() {" in html
     assert "window.ModalBusyCursor.isBusy && window.ModalBusyCursor.isBusy()" in html
     assert "const ignoreVisibility = !!(options && options.ignoreVisibility);" in html
+    assert "const ignoreModal = !!(options && options.ignoreModal);" in html
     assert "document.visibilityState === 'hidden'" in html
     assert "return { begin, end, isBusy, untilPaint };" in html
-    assert "dashboardRefreshPaused({ ignoreVisibility })" in html
+    assert "dashboardRefreshPaused({ ignoreVisibility, ignoreModal })" in html
     assert "if (typeof dashboardRefreshPaused === 'function' && dashboardRefreshPaused()) {" in html
 
 

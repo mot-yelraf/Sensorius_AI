@@ -303,6 +303,7 @@ class saiMQTTIngest:
         self._legacy_poller_sunset_epoch: float = self._load_legacy_poller_sunset_epoch()
         self._live_sensor_shadow_seeded: set[str] = set()
         self._live_sensor_shadow_attempt_at: dict[str, float] = {}
+        self._dashboard_inventory_notified_sensors: set[str] = set()
 
         self.last_check_time = defaultdict(lambda: 0)
         self.mqtt_clients = set(self.mqtt_clients or [])
@@ -1053,6 +1054,39 @@ class saiMQTTIngest:
             pass
         try:
             coro.close()
+        except Exception:
+            pass
+
+    def _broadcast_dashboard_inventory_changed(
+        self,
+        *,
+        host: str | None = None,
+        sensor_id: str | None = None,
+        switch_id: str | None = None,
+    ) -> None:
+        """Tell dashboard clients to re-check sensor/switch inventory."""
+        try:
+            import saiWebRoutes as routes
+
+            switch_broadcast = getattr(getattr(routes, "app", object()), "state", object()).switch_broadcast
+            if not switch_broadcast:
+                return
+
+            payload = {
+                "type": "dashboard_inventory_changed",
+                "timestamp": get_timestamp(),
+            }
+            host_text = str(host or "").strip()
+            sensor_text = str(sensor_id or "").strip()
+            switch_text = str(switch_id or "").strip()
+            if host_text:
+                payload["host"] = host_text
+            if sensor_text:
+                payload["sensor_id"] = sensor_text
+            if switch_text:
+                payload["switch_id"] = switch_text
+
+            self._schedule_coro(switch_broadcast(payload))
         except Exception:
             pass
 
@@ -2130,6 +2164,15 @@ class saiMQTTIngest:
                     self._record_mqtt_seen(sensor_id, retain=retain, report=(not retain))
                 except Exception:
                     pass
+                if not retain:
+                    try:
+                        notify_key = str(sensor_id or "").strip().lower()
+                        if notify_key and notify_key not in self._dashboard_inventory_notified_sensors:
+                            self._dashboard_inventory_notified_sensors.add(notify_key)
+                            notify_host = self._host_from_topic_or_sid(topic, sensor_id)
+                            self._broadcast_dashboard_inventory_changed(host=notify_host, sensor_id=sensor_id)
+                    except Exception:
+                        pass
                 # --- FAST LIVENESS PATH: mark host online and refresh host↔peer mapping
                 try:
                     host = self._host_from_topic_or_sid(topic, sensor_id)
@@ -3707,16 +3750,16 @@ class saiMQTTIngest:
         except Exception as e:
             printDM(f"[nodus-meta] settings seed failed: {e}", location=MODULE)
 
-        if discovered_switches:
+        if discovered_sensors or discovered_switches:
             try:
-                import saiWebRoutes as routes
-                switch_broadcast = getattr(getattr(routes, "app", object()), "state", object()).switch_broadcast
-                if switch_broadcast:
-                    self._schedule_coro(switch_broadcast({
-                        "type": "switch_inventory_changed",
-                        "host": base,
-                        "timestamp": get_timestamp(),
-                    }))
+                for sensor in discovered_sensors:
+                    sensor_id_text = str((sensor or {}).get("sensor_id") or "").strip()
+                    if sensor_id_text:
+                        self._dashboard_inventory_notified_sensors.add(sensor_id_text.lower())
+                        self._broadcast_dashboard_inventory_changed(host=base, sensor_id=sensor_id_text)
+                for switch in discovered_switches:
+                    switch_id_text = str((switch or {}).get("switch_id") or "").strip()
+                    self._broadcast_dashboard_inventory_changed(host=base, switch_id=switch_id_text)
             except Exception:
                 pass
 
@@ -4821,18 +4864,17 @@ class saiMQTTIngest:
                 self.host_to_peer_ids[base] = peer_ids_for_host
             # Nudge dashboard clients to re-evaluate layout immediately when
             # discovery adds switch/sensor metadata, instead of waiting for poll.
-            if subscribed:
-                try:
-                    import saiWebRoutes as routes
-                    switch_broadcast = getattr(getattr(routes, "app", object()), "state", object()).switch_broadcast
-                    if switch_broadcast:
-                        self._schedule_coro(switch_broadcast({
-                            "type": "switch_inventory_changed",
-                            "host": base,
-                            "timestamp": get_timestamp(),
-                        }))
-                except Exception:
-                    pass
+            try:
+                for sensor in discovered_sensors:
+                    sensor_id_text = str((sensor or {}).get("sensor_id") or "").strip()
+                    if sensor_id_text:
+                        self._dashboard_inventory_notified_sensors.add(sensor_id_text.lower())
+                        self._broadcast_dashboard_inventory_changed(host=base, sensor_id=sensor_id_text)
+                for switch in discovered_switches:
+                    switch_id_text = str((switch or {}).get("switch_id") or "").strip()
+                    self._broadcast_dashboard_inventory_changed(host=base, switch_id=switch_id_text)
+            except Exception:
+                pass
 
         # ---------- ensure settings files from itaot ----------
         try:

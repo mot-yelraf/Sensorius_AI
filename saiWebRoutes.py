@@ -478,10 +478,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     def _invalidate_dashboard_caches() -> None:
         global _DASHBOARD_INVENTORY_CACHE, _DASHBOARD_DISPLAY_SETTINGS_CACHE, _ASTRO_PAYLOAD_CACHE
+        global _sensor_ids_cache_payload, _sensor_ids_cache_until
         _DASHBOARD_JSON_CACHE.clear()
         _DASHBOARD_INVENTORY_CACHE = None
         _DASHBOARD_DISPLAY_SETTINGS_CACHE = None
         _ASTRO_PAYLOAD_CACHE = None
+        _sensor_ids_cache_payload = None
+        _sensor_ids_cache_until = 0.0
         _BIODYNAMIC_PAYLOAD_CACHE.clear()
         try:
             from saiBiodynamics import clear_biodynamic_payload_cache
@@ -652,6 +655,75 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return False
         return bool(re.match(r"^[A-Za-z0-9._-]+$", s))
 
+    def _sensor_shadow_is_remote_nodus(sid: str) -> bool:
+        sid_text = str(sid or "").strip()
+        if not sid_text:
+            return False
+        mgr = _get_sensor_settings_manager()
+        if mgr is None:
+            return False
+        try:
+            doc = mgr.load(sid_text) or {}
+        except Exception:
+            return False
+        sensor_block = doc.get("Sensor") if isinstance(doc, dict) else {}
+        if not isinstance(sensor_block, dict):
+            return False
+        sensor_type = str(sensor_block.get("TYPE") or "").strip().lower()
+        return sensor_type in {"nodus", "picow", "pico2w", "remote", "mqtt"}
+
+    def _get_remote_nodus_sensor_shadow_ids() -> list[str]:
+        mgr = _get_sensor_settings_manager()
+        if mgr is None or not hasattr(mgr, "list_ids"):
+            return []
+        out: list[str] = []
+        try:
+            ids = mgr.list_ids() or []
+        except Exception:
+            return []
+        for raw_sid in ids:
+            sid = str(raw_sid or "").strip()
+            if not _is_valid_sensor_id(sid):
+                continue
+            if _sensor_shadow_is_remote_nodus(sid):
+                out.append(sid)
+        return out
+
+    def _mqtt_sensor_looks_live(sid: str) -> bool:
+        sid_text = str(sid or "").strip()
+        if not sid_text:
+            return False
+        ing = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        if ing is None:
+            return False
+        try:
+            getter = getattr(ing, "get_nodus_liveness", None)
+            if not callable(getter):
+                return False
+            snapshot = getter(sid_text) or {}
+        except Exception:
+            return False
+        if not isinstance(snapshot, dict):
+            return False
+        state = str(snapshot.get("state") or "").strip().lower()
+        if state in {"online", "degraded"}:
+            return True
+        for key in ("last_report_s", "last_heartbeat_s", "last_seen_s"):
+            raw_age = snapshot.get(key)
+            if raw_age is None:
+                continue
+            try:
+                if float(raw_age) <= 600.0:
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def _is_dashboard_visible_sensor(sid: str) -> bool:
+        if _is_recent_sensor(sid):
+            return True
+        return _sensor_shadow_is_remote_nodus(sid) and _mqtt_sensor_looks_live(sid)
+
     def _normalize_available_sensor_ids(sensor_ids_local: list[str], discovered: list[str]) -> list[str]:
         order_preserve: list[str] = []
         seen_local: set[str] = set()
@@ -701,8 +773,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         for sid in (sensors_from_logger or []):
             if sid and sid not in merged_local:
                 merged_local.append(sid)
+        for sid in _get_remote_nodus_sensor_shadow_ids():
+            if sid and sid not in merged_local:
+                merged_local.append(sid)
         available = _normalize_available_sensor_ids(merged_local, list(mqtt_discovered or []))
-        return [sid for sid in available if _is_recent_sensor(sid)]
+        return [sid for sid in available if _is_dashboard_visible_sensor(sid)]
 
     def _load_metric_position_section() -> OrderedDict[str, int]:
         fresh_settings = saiSettings(apply_live=False)
@@ -2156,10 +2231,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 for sid in (sensors_from_logger or []):
                     if sid and sid not in merged_local:
                         merged_local.append(sid)
+                for sid in _get_remote_nodus_sensor_shadow_ids():
+                    if sid and sid not in merged_local:
+                        merged_local.append(sid)
                 available = _normalize_available(merged_local, list(mqtt_discovered))
 
-                # Filter to sensors with recent data only.
-                available = [sid for sid in available if _is_recent_sensor(sid)]
+                # Keep recent local sensors plus live Nodus shadows learned over MQTT.
+                available = [sid for sid in available if _is_dashboard_visible_sensor(sid)]
 
                 # Build a switch inventory for debug visibility (local + discovered + DB identities).
                 available_switches = []
@@ -7858,14 +7936,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 seen.add(x)
                 merged.append(x)
 
-        for src in (local_ids, discovered, logged_ids):
+        shadow_ids = _get_remote_nodus_sensor_shadow_ids()
+        if DEBUG:
+            printDM(f"[{MODULE}] #3b - nodus shadows {shadow_ids}", location=MODULE)
+
+        for src in (local_ids, discovered, logged_ids, shadow_ids):
             for sid in src:
                 _add(sid)
                 
         if DEBUG:
             printDM(f"[{MODULE}] #4 - merged sensors {merged}", location=MODULE)
 
-        merged = sorted(_filter_recent_sensors(merged))
+        merged = sorted([sid for sid in merged if _is_dashboard_visible_sensor(sid)])
         _sensor_ids_cache_payload = list(merged)
         _sensor_ids_cache_until = time.monotonic() + _SENSOR_IDS_CACHE_TTL_SEC
         return JSONResponse(merged)
