@@ -56,6 +56,13 @@ Sensorius -> User: Device onboarded
   "mqtt": {
     "broker_host": "sensorius-broker.local",
     "broker_port": 1883
+  },
+  "time": {
+    "TZ": "America/Denver",
+    "TZ_OFFSET": -21600,
+    "TZ_NAME": "MDT",
+    "NTP_SERVER": "us.pool.ntp.org",
+    "NTP_SERVER_IP": "132.163.96.6"
   }
 }
 ```
@@ -67,6 +74,10 @@ Sensorius -> User: Device onboarded
 4. `hostname`
 5. `mqtt.broker_host`
 6. `mqtt.broker_port`
+
+Sensorius must include available hub `[Time]` values in `time`. Nodus must
+persist supported Time keys when present; missing Time keys must not block
+bootstrap.
 
 ### Expected Success Response (example)
 ```json
@@ -188,9 +199,9 @@ Duplicate replay behavior (idempotent):
    - `config/set`
 2. Keep token valid until `config/result.applied == true`, then invalidate it.
 3. Reject `config/set` when token is missing/mismatch/expired/already used.
-4. Process `payload.settings` as the canonical full-config shape, including
-   `payload.settings.Time.TZ`, `payload.settings.Time.TZ_OFFSET`, and
-   `payload.settings.Time.TZ_NAME` from the Sensorius hub during onboarding.
+4. Process `/itaot-init.time` and `payload.settings` as canonical onboarding
+   config shapes. Time values from the Sensorius hub must be accepted in both
+   `/itaot-init.time` and `payload.settings.Time`.
 5. Ignore unknown top-level fields in `config/set` (forward compatibility), including:
    - `checksum`
    - `config_version`

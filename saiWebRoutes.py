@@ -4118,6 +4118,26 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "detail": detail,      # optional
         })
 
+    def _build_v2_time_payload() -> Dict[str, Any]:
+        time_doc: Dict[str, Any] = {}
+        for key in ("TZ", "TZ_NAME", "NTP_SERVER", "NTP_SERVER_IP"):
+            try:
+                raw = settings.get_setting("Time", key, None)
+            except Exception:
+                raw = None
+            if raw is not None:
+                time_doc[key] = str(raw or "")
+        try:
+            raw_offset = settings.get_setting("Time", "TZ_OFFSET", None)
+        except Exception:
+            raw_offset = None
+        if raw_offset is not None:
+            try:
+                time_doc["TZ_OFFSET"] = int(raw_offset)
+            except Exception:
+                time_doc["TZ_OFFSET"] = 0
+        return time_doc
+
     def _build_v2_bootstrap_payload(
         *,
         onboard_token: str,
@@ -4158,6 +4178,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "broker_port": broker_port,
             },
         }
+        time_doc = _build_v2_time_payload()
+        if time_doc:
+            payload["time"] = time_doc
         return payload
 
     def _onboarding_v2_enabled() -> bool:
@@ -4233,22 +4256,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             calibration_doc = dict(sys_settings.get_section("Calibration") or {})
         except Exception:
             pass
-        try:
-            raw_tz = settings.get_setting("Time", "TZ", None)
-            raw_offset = settings.get_setting("Time", "TZ_OFFSET", None)
-            raw_name = settings.get_setting("Time", "TZ_NAME", None)
-            if raw_tz is not None or raw_offset is not None or raw_name is not None:
-                try:
-                    tz_offset = int(raw_offset if raw_offset is not None else 0)
-                except Exception:
-                    tz_offset = 0
-                time_doc = {
-                    "TZ": str(raw_tz or ""),
-                    "TZ_OFFSET": tz_offset,
-                    "TZ_NAME": str(raw_name or ""),
-                }
-        except Exception:
-            time_doc = {}
+        time_doc = _build_v2_time_payload()
         try:
             sensor_doc = dict(SensorSettingsManager(base_dir_name=_SENSOR_BASE_DIR).load(device_id) or {})
         except Exception:

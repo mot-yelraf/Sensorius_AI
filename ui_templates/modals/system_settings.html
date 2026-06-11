@@ -1920,7 +1920,7 @@
     if (state === "WAITING_REBOOT") {
       markOnboardStep(1, true, "Connected to Nodus setup AP", "Connected to Nodus setup network");
       markOnboardStep(2, true, "Bootstrap sent to Nodus", "Bootstrap accepted");
-      markOnboardStep(3, localSsid, `Sensorius rejoined ${localSsid}`);
+      markOnboardStep(3, true, localSsid, "Local Wi-Fi restored");
       markPendingStep(4, "Waiting for Nodus to reboot and connect", "Waiting for Nodus reboot");
       startOnboardCountdown(session?.hello_deadline_at || ((Date.now() / 1000) + 240));
       return;
@@ -1928,7 +1928,7 @@
     if (state === "WAITING_MQTT_HELLO") {
       markOnboardStep(1, true, "Connected to Nodus setup AP", "Connected to Nodus setup network");
       markOnboardStep(2, true, "Bootstrap sent to Nodus", "Bootstrap accepted");
-      markOnboardStep(3, localSsid, `Sensorius rejoined ${localSsid}`);
+      markOnboardStep(3, true, localSsid, "Local Wi-Fi restored");
       markPendingStep(4, "Waiting for Nodus to reboot and connect", "Waiting for MQTT hello");
       startOnboardCountdown(session?.hello_deadline_at || ((Date.now() / 1000) + 240));
       return;
@@ -1936,7 +1936,7 @@
     if (state === "CONFIG_SENDING" || state === "WAITING_CONFIG_ACK") {
       markOnboardStep(1, true, "Connected to Nodus setup AP", "Connected to Nodus setup network");
       markOnboardStep(2, true, "Bootstrap sent to Nodus", "Bootstrap accepted");
-      markOnboardStep(3, localSsid, `Sensorius rejoined ${localSsid}`);
+      markOnboardStep(3, true, localSsid, "Local Wi-Fi restored");
       markPendingStep(4, "Waiting for Nodus to reboot and connect", "MQTT hello received, sending config");
       startOnboardCountdown(session?.hello_deadline_at || ((Date.now() / 1000) + 240));
       return;
@@ -1944,7 +1944,7 @@
     if (state === "WAITING_CONFIG_RESULT") {
       markOnboardStep(1, true, "Connected to Nodus setup AP", "Connected to Nodus setup network");
       markOnboardStep(2, true, "Bootstrap sent to Nodus", "Bootstrap accepted");
-      markOnboardStep(3, localSsid, `Sensorius rejoined ${localSsid}`);
+      markOnboardStep(3, true, localSsid, "Local Wi-Fi restored");
       markPendingStep(4, "Waiting for Nodus to reboot and connect", "Config ACK received, waiting for apply result");
       startOnboardCountdown(session?.hello_deadline_at || ((Date.now() / 1000) + 240));
       return;
@@ -1952,7 +1952,7 @@
     if (state === "ONLINE") {
       markOnboardStep(1, true, "Connected to Nodus setup AP", "Connected to Nodus setup network");
       markOnboardStep(2, true, "Bootstrap sent to Nodus", "Bootstrap accepted");
-      markOnboardStep(3, localSsid, `Sensorius rejoined ${localSsid}`);
+      markOnboardStep(3, true, localSsid, "Local Wi-Fi restored");
       markOnboardStep(4, true, "Waiting for Nodus to reboot and connect", "Device online");
       stopOnboardCountdown();
       setOnboardBadge("Device onboarded successfully.", "ok");

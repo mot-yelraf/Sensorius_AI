@@ -34,13 +34,21 @@ settings, not onboarding/session metadata.
   "mqtt": {
     "broker_host": "sensorius-broker.local",
     "broker_port": 1883
+  },
+  "time": {
+    "TZ": "America/Denver",
+    "TZ_OFFSET": -21600,
+    "TZ_NAME": "MDT",
+    "NTP_SERVER": "us.pool.ntp.org",
+    "NTP_SERVER_IP": "132.163.96.6"
   }
 }
 ```
 
 ### Required behavior on Nodus
 1. Validate required fields and types.
-2. Apply only existing settings fields already supported by current settings model.
+2. Apply only existing settings fields already supported by current settings model,
+   including supported `time` keys.
 3. Do not persist onboarding protocol metadata into `settings.toml`.
 4. Return JSON success ack before reboot when possible:
 ```json

@@ -33,6 +33,13 @@ Canonical `/itaot-init` request:
   "mqtt": {
     "broker_host": "samhain.local",
     "broker_port": 1883
+  },
+  "time": {
+    "TZ": "America/Denver",
+    "TZ_OFFSET": -21600,
+    "TZ_NAME": "MDT",
+    "NTP_SERVER": "us.pool.ntp.org",
+    "NTP_SERVER_IP": "132.163.96.6"
   }
 }
 ```
@@ -49,10 +56,12 @@ Canonical success response:
 Bootstrap rules:
 
 - Validate required fields and types.
-- Persist only supported Network, MQTT, and Profile settings.
+- Persist only supported Network, MQTT, Profile, and Time settings.
 - Keep onboarding protocol state out of normal TOML config schema.
 - If `mqtt.active_profile` is omitted and `mqtt.broker_host` is present,
   infer `ACTIVE_PROFILE = "sensorius"`.
+- Sensorius sends available hub `[Time]` values in `time`; Nodus persists
+  supported keys when present.
 
 ## MQTT Topics
 
@@ -108,10 +117,9 @@ Bootstrap rules:
 5. Nodus publishes `config/result`.
 6. Nodus publishes retained `nodus/<device_id>/meta`.
 
-The full onboarding config uses `payload.settings` and includes the hub's
-active `[Time]` values as `payload.settings.Time.TZ`,
-`payload.settings.Time.TZ_OFFSET`, and `payload.settings.Time.TZ_NAME`.
-Nodus must persist those keys when present.
+The AP bootstrap and full onboarding config both carry hub `[Time]` values.
+The bootstrap uses top-level `time`. The full onboarding config uses
+`payload.settings.Time`. Nodus must persist supported keys when present.
 
 Canonical `onboard/hello` payload:
 

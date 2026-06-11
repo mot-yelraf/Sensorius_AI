@@ -899,6 +899,35 @@ def persist_switch_toml(switch_id: str, encoding: str, data_b64: str) -> Optiona
         return None
 
 # ---------- HTTP helpers (sync) ----------
+def _build_hub_time_payload() -> Dict[str, Any]:
+    if "saiSettings" not in globals():
+        return {}
+    try:
+        hub_settings = saiSettings(apply_live=False)
+    except Exception:
+        return {}
+
+    time_doc: Dict[str, Any] = {}
+    for key in ("TZ", "TZ_NAME", "NTP_SERVER", "NTP_SERVER_IP"):
+        try:
+            raw = hub_settings.get_setting("Time", key, None)
+        except Exception:
+            raw = None
+        if raw is not None:
+            time_doc[key] = str(raw or "")
+
+    try:
+        raw_offset = hub_settings.get_setting("Time", "TZ_OFFSET", None)
+    except Exception:
+        raw_offset = None
+    if raw_offset is not None:
+        try:
+            time_doc["TZ_OFFSET"] = int(raw_offset)
+        except Exception:
+            time_doc["TZ_OFFSET"] = 0
+    return time_doc
+
+
 def _build_itaot_init_payload(
     *,
     ssid: str,
@@ -915,7 +944,7 @@ def _build_itaot_init_payload(
     if broker_port <= 0:
         broker_port = 1883
 
-    return {
+    payload = {
         "onboard_token": str(onboard_token or "").strip(),
         "ssid": str(ssid or "").strip(),
         "password": str(password or ""),
@@ -925,6 +954,10 @@ def _build_itaot_init_payload(
             "broker_port": broker_port,
         },
     }
+    time_doc = _build_hub_time_payload()
+    if time_doc:
+        payload["time"] = time_doc
+    return payload
 
 
 def _hub_broker_hostname(preferred_broker: str = "", hub_hostname: str = "") -> str:

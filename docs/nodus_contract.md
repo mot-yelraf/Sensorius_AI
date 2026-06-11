@@ -38,6 +38,13 @@ Canonical `/itaot-init` request:
   "mqtt": {
     "broker_host": "samhain.local",
     "broker_port": 1883
+  },
+  "time": {
+    "TZ": "America/Denver",
+    "TZ_OFFSET": -21600,
+    "TZ_NAME": "MDT",
+    "NTP_SERVER": "us.pool.ntp.org",
+    "NTP_SERVER_IP": "132.163.96.6"
   }
 }
 ```
@@ -55,6 +62,8 @@ Bootstrap payload rules:
 
 - `onboard_token`, `ssid`, `password`, `hostname`, `mqtt.broker_host`, and
   `mqtt.broker_port` are required.
+- Sensorius must include available hub `[Time]` values in `time`. Nodus must
+  persist supported Time keys when present.
 - If `mqtt.active_profile` is omitted but `mqtt.broker_host` is present,
   Nodus should infer `ACTIVE_PROFILE = "sensorius"`.
 - Onboarding protocol state must stay out of persistent TOML schema.

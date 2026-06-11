@@ -49,6 +49,8 @@ class _FakeSettings:
             ("Time", "TZ"): "America/Denver",
             ("Time", "TZ_OFFSET"): -21600,
             ("Time", "TZ_NAME"): "MDT",
+            ("Time", "NTP_SERVER"): "us.pool.ntp.org",
+            ("Time", "NTP_SERVER_IP"): "132.163.96.6",
         }
 
     def get_all_sensor_ids(self):
@@ -258,6 +260,13 @@ async def test_v2_start_prefers_itaot_meta_device_id_and_hub_mdns_broker(tmp_pat
     assert init_payloads
     assert init_payloads[0]["hostname"] == "aqi-meta-123"
     assert init_payloads[0]["mqtt"]["broker_host"] == "sensoria-hub-0.local"
+    assert init_payloads[0]["time"] == {
+        "TZ": "America/Denver",
+        "TZ_OFFSET": -21600,
+        "TZ_NAME": "MDT",
+        "NTP_SERVER": "us.pool.ntp.org",
+        "NTP_SERVER_IP": "132.163.96.6",
+    }
 
 
 @pytest.mark.asyncio
@@ -748,6 +757,8 @@ async def test_v2_config_set_includes_onboard_token_and_settings_payload(tmp_pat
             "TZ": "America/Denver",
             "TZ_OFFSET": -21600,
             "TZ_NAME": "MDT",
+            "NTP_SERVER": "us.pool.ntp.org",
+            "NTP_SERVER_IP": "132.163.96.6",
         }
 
 
