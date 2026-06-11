@@ -58,7 +58,7 @@ def test_dashboard_micrograph_uses_soil_fertility_gauge_scale():
     assert "yScaleOptions.max = cfgMax" in html
 
 
-def test_dashboard_switch_layout_drift_does_not_abort_gauge_update():
+def test_dashboard_switch_layout_drift_schedules_layout_refresh():
     gauge_config = get_gauge_config()
     html = "".join(
         render_dashboard(
@@ -81,6 +81,7 @@ def test_dashboard_switch_layout_drift_does_not_abort_gauge_update():
 
     assert "if (reason.startsWith('switch:')) {" in block
     assert "console.info('[layout-refresh-switch]', reason);" in block
+    assert "if (scheduleLayoutRefresh(reason, sig)) return;" in block
     assert "} else {      if (scheduleLayoutRefresh(layoutDrift.reason, sig)) return;    }" in block
     assert block.count("for (const sid of available)") == 1
     assert block.count("const values     = d.values") == 1
