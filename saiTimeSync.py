@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import socket
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -181,6 +182,22 @@ def _value_matches(key: str, current: Any, desired: Any) -> bool:
         except Exception:
             return False
     return str(current or "") == str(desired or "")
+
+
+def _time_patch_confirms_key(patch: dict | None, key: str, value: Any) -> bool:
+    if not isinstance(patch, dict):
+        return False
+    want_key = str(key or "").strip().upper()
+    if not want_key:
+        return False
+    for update in patch.get("updates") or []:
+        if not isinstance(update, dict):
+            continue
+        section = str(update.get("section") or "").strip().lower()
+        update_key = str(update.get("key") or "").strip().upper()
+        if section == "time" and update_key == want_key:
+            return _value_matches(want_key, update.get("value"), value)
+    return False
 
 
 def _settings_time_values(settings: Any) -> dict[str, Any]:
@@ -398,12 +415,56 @@ def target_shadow_matches(system_root: Path, target: NodusTimeTarget, desired: d
     return saw_doc
 
 
-def update_target_shadow(system_root: Path, target: NodusTimeTarget, desired: dict[str, Any]) -> None:
+def target_shadow_key_matches(system_root: Path, target: NodusTimeTarget, key: str, value: Any) -> bool:
+    """Return True when every known mirrored system doc already has one Time key."""
+
+    if not target.system_ids:
+        return False
+    saw_doc = False
+    for system_id in sorted(target.system_ids):
+        path = _system_settings_path(system_root, system_id)
+        if not path.exists():
+            return False
+        saw_doc = True
+        if not _value_matches(key, _read_system_time(system_root, system_id).get(key), value):
+            return False
+    return saw_doc
+
+
+def _seed_target_shadow_if_missing(system_root: Path, system_id: str) -> bool:
+    path = _system_settings_path(system_root, system_id)
+    if path.exists():
+        return False
+    templates = (
+        system_root / "factory_nodus" / f"{saiSettings.STANDARD_FILENAME}.def",
+        system_root / "factory" / saiSettings.STANDARD_FILENAME,
+    )
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        for template in templates:
+            if template.exists():
+                shutil.copy2(template, path)
+                return True
+    except Exception as exc:
+        if DEBUG:
+            printDM(f"[time-sync] shadow seed failed for {system_id}: {exc}", location=MODULE)
+    return False
+
+
+def update_target_shadow(
+    system_root: Path,
+    target: NodusTimeTarget,
+    desired: dict[str, Any],
+    *,
+    keys: tuple[str, ...] = TIME_KEYS,
+) -> None:
     """Update local mirrored Nodus system settings after confirmed apply."""
 
     for system_id in sorted(target.system_ids):
-        if not _system_settings_path(system_root, system_id).exists():
-            continue
+        path = _system_settings_path(system_root, system_id)
+        existed_before = path.exists()
+        if not existed_before:
+            _seed_target_shadow_if_missing(system_root, system_id)
         try:
             mgr = saiSettings(
                 apply_live=False,
@@ -411,7 +472,13 @@ def update_target_shadow(system_root: Path, target: NodusTimeTarget, desired: di
                 base_dir=str(system_root),
                 device_id=system_id,
             )
-            mgr.set_many_in_memory([("Time", key, desired[key]) for key in TIME_KEYS])
+            updates = []
+            if not existed_before:
+                updates.append(("Network", "HOSTNAME", target.hostname or system_id))
+            updates.extend(("Time", key, desired[key]) for key in keys if key in desired)
+            if not updates:
+                continue
+            mgr.set_many_in_memory(updates)
             mgr.save_settings()
         except Exception as exc:
             if DEBUG:
@@ -471,26 +538,37 @@ class TimeSyncService:
         if not message_id:
             return False
 
+        ack = None
         if hasattr(ingest, "wait_for_config_ack"):
             ack = await ingest.wait_for_config_ack(message_id, timeout=self.ack_timeout_sec)
-            if not isinstance(ack, dict) or not bool(ack.get("accepted", False)):
+            if isinstance(ack, dict) and not bool(ack.get("accepted", False)):
                 return False
 
         if hasattr(ingest, "wait_for_config_result"):
             result = await ingest.wait_for_config_result(message_id, timeout=self.result_timeout_sec)
-            if not isinstance(result, dict) or result.get("applied") is not True:
-                return False
+            if isinstance(result, dict):
+                return result.get("applied") is True
 
-        return True
+        if hasattr(ingest, "wait_for_nodus_meta_patch"):
+            patch = await ingest.wait_for_nodus_meta_patch(message_id, source="config_set", timeout=3.0)
+            if _time_patch_confirms_key(patch, key, value):
+                return True
+
+        if hasattr(ingest, "wait_for_config_result"):
+            return False
+
+        return isinstance(ack, dict) and bool(ack.get("accepted", False))
 
     async def _push_target_time(self, target: NodusTimeTarget, desired: dict[str, Any]) -> bool:
         for key in TIME_KEYS:
+            if target_shadow_key_matches(self.system_root, target, key, desired[key]):
+                continue
             self._feed_watchdog()
             ok = await self._push_update(target, key, desired[key])
             self._feed_watchdog(error=not ok)
             if not ok:
                 return False
-        update_target_shadow(self.system_root, target, desired)
+            update_target_shadow(self.system_root, target, desired, keys=(key,))
         return True
 
     async def sync_once(self, *, when_utc: datetime | None = None, push_nodus: bool = True) -> dict[str, Any]:
