@@ -499,6 +499,45 @@ def test_confirmed_nodus_event_persists_after_optimistic_cache_update(monkeypatc
     assert ingest.data_logger.switch_events[-1]["timestamp"] is None
 
 
+def test_confirmed_nodus_event_accepts_top_level_state(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.data_logger.switch_identities = [
+        {
+            "switch_key": "S1-sw1::Fan",
+            "switch_id": "sw1",
+            "label": "Fan",
+            "channel_id": "S1-sw1",
+            "location": "lab",
+        }
+    ]
+    ingest.nodus_switch_topic_map["nodus/S1-sw1/event"] = {
+        "switch_id": "sw1",
+        "channel_id": "S1-sw1",
+        "label": "Fan",
+        "kind": "event",
+    }
+    _mark_nodus_online(ingest, host="sw1", peers=["sw1"])
+
+    ingest.handle_nodus_switch_topic(
+        "nodus/S1-sw1/event",
+        json.dumps(
+            {
+                "schema": "nodus-switch-event/v1",
+                "device_id": "sw1",
+                "channel_id": "S1-sw1",
+                "label": "Fan",
+                "state": "ON",
+                "timestamp": 1773318167,
+            }
+        ),
+    )
+
+    assert ingest.data_logger.switch_events[-1]["switch_key"] == "S1-sw1::Fan"
+    assert ingest.data_logger.switch_events[-1]["is_on"] is True
+    assert ingest.data_logger.switch_events[-1]["source"] == "mqtt-nodus"
+    assert ingest.data_logger.switch_events[-1]["timestamp"] is None
+
+
 def test_confirmed_nodus_event_uses_pending_rule_name_for_auto_source(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     ingest.data_logger.switch_identities = [

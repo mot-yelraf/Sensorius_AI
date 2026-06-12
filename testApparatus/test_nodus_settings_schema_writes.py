@@ -224,6 +224,20 @@ class _FakeIngest:
         )
         return bool(self.next_switch_command_ok)
 
+    def set_switch(self, switch_id: str, channel_label: str, new_state: bool, qos: int = 0, retain: bool = False, *, event_origin: str | None = None, event_label: str | None = None):
+        self.switch_commands.append(
+            {
+                "switch_id": switch_id,
+                "channel_label": channel_label,
+                "new_state": bool(new_state),
+                "qos": qos,
+                "retain": retain,
+                "event_origin": event_origin,
+                "event_label": event_label,
+            }
+        )
+        return bool(self.next_switch_command_ok)
+
     async def wait_for_calibration_ack(self, message_id: str, timeout: float = 0):
         if self.next_calibration_ack is None:
             return None
@@ -4449,6 +4463,106 @@ async def test_switch_toggle_returns_recent_events_for_immediate_ui_refresh(tmp_
     assert body["state"] is True
     assert body["events"] == ["On 2026-03-31 11:30:03 (manual)"]
     assert body["time"] == ""
+
+
+@pytest.mark.asyncio
+async def test_switch_toggle_channel_fallback_returns_requested_state(tmp_path, monkeypatch):
+    app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    saiWebRoutes._switch_status_cache_payload = None
+    saiWebRoutes._switch_status_cache_until = 0.0
+    saiWebRoutes.switch_controllers = {}
+    app.state.switch_controllers = {}
+
+    ingest._switch_state_cache = {"switch-ykdvea": {"S1-ykdvea": "on", "Fan": "on"}}
+    ingest.nodus_liveness["switch-ykdvea"] = {"state": "online"}
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_switch_identities",
+        lambda: [
+            {
+                "switch_id": "switch-ykdvea",
+                "switch_key": "S1-ykdvea::Fan",
+                "channel_id": "S1-ykdvea",
+                "label": "Fan",
+                "location": "OfficeDesk",
+            }
+        ],
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_switch_state", lambda _switch_key: None)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"referer": "http://test/"},
+    ) as client:
+        res = await client.post("/switch/toggle?switch_name=Fan&switch_id=S1-ykdvea")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert ingest.switch_commands[-1]["switch_id"] == "switch-ykdvea"
+    assert ingest.switch_commands[-1]["channel_id"] == "S1-ykdvea"
+    assert ingest.switch_commands[-1]["new_state"] is False
+    assert body["state"] is False
+
+
+@pytest.mark.asyncio
+async def test_switch_toggle_remote_controller_prefers_live_state_over_stale_db(tmp_path, monkeypatch):
+    app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    saiWebRoutes._switch_status_cache_payload = None
+    saiWebRoutes._switch_status_cache_until = 0.0
+
+    class _RemoteCtrl:
+        switch_id = "switch-ykdvea"
+        location = "OfficeDesk"
+        switch_topics = {"Fan": "nodus/S1-ykdvea/config/set"}
+        channel_id_for_label = {"Fan": "S1-ykdvea"}
+
+        def __init__(self):
+            self.last_state = {"Fan": True}
+            self.last_set_time = {"Fan": 0.0}
+
+        def get_switch_names(self):
+            return ["Fan"]
+
+        def get_state(self, label):
+            return bool(self.last_state[label])
+
+        def sync_manual_toggle_result(self, label, is_on, *, previous_state):
+            self.last_state[label] = bool(is_on)
+
+        def _switch_key(self, label):
+            return f"S1-ykdvea::{label}"
+
+        def get_auto_off_status(self, label):
+            return {
+                "timer_seconds": 0,
+                "timer_enabled": False,
+                "timer_deadline_epoch": None,
+                "timer_remaining_s": 0,
+            }
+
+    ctrl = _RemoteCtrl()
+    saiWebRoutes.switch_controllers = {"switch-ykdvea": ctrl}
+    app.state.switch_controllers = dict(saiWebRoutes.switch_controllers)
+    ingest.nodus_liveness["switch-ykdvea"] = {"state": "online"}
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_switch_state", lambda _switch_key: "Off")
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_last_switch_events", lambda *_a, **_k: [])
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"referer": "http://test/"},
+    ) as client:
+        res = await client.post("/switch/toggle?switch_name=Fan&switch_id=switch-ykdvea")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert ingest.switch_commands[-1]["switch_id"] == "switch-ykdvea"
+    assert ingest.switch_commands[-1]["channel_label"] == "Fan"
+    assert ingest.switch_commands[-1]["new_state"] is False
+    assert body["state"] is False
+    assert ctrl.last_state["Fan"] is False
 
 
 @pytest.mark.asyncio

@@ -12400,12 +12400,30 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             )
 
         # even if the db does not have a state value, set the state
-        def _desired_toggle_from_db(data_logger, switch_id: str | None, label: str, ctrl) -> bool:
+        def _desired_toggle_from_db(
+            data_logger,
+            switch_id: str | None,
+            label: str,
+            ctrl,
+            *,
+            prefer_live_current: bool = False,
+            live_current: bool | None = None,
+        ) -> bool:
             """
             Returns desired new_state:
-            - If DB has a latest state (using the controller's canonical DB key): flip it.
+            - For remote/Nodus switches, flip the live/cache state first.
+            - Else if DB has a latest state (using the controller's canonical DB key): flip it.
             - Else: flip the *actual controller* state so the first click always changes something.
             """
+            if prefer_live_current and live_current is not None:
+                new_state = not bool(live_current)
+                if DEBUG:
+                    printDM(
+                        f"[toggle_switch] live state {switch_id}::{label}={bool(live_current)!r} -> new_state={new_state}",
+                        location="saiWebRoutes",
+                    )
+                return new_state
+
             # 1) Prefer DB if present, using ctrl._switch_key() so the key matches what logging uses
             try:
                 switch_key = None
@@ -12603,7 +12621,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                             # Invalidate short-lived switch status cache after a state change request.
                             _switch_status_cache_payload = None
                             _switch_status_cache_until = 0.0
-                            return {"state": bool(current_on) if current_on is not None else False, "time": ts}
+                            return {"state": bool(new_state), "time": ts}
                 except Exception as e:
                     printDM(f"[toggle_switch] channel fallback failed: {e}", location=MODULE)
 
@@ -12643,6 +12661,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             except Exception:
                 current = bool((getattr(ctrl, "last_state", {}) or {}).get(matched_label, False))
 
+            # Decide path: direct GPIO vs remote/MQTT. Remote toggles should
+            # invert the live Nodus cache/controller state before consulting
+            # historical DB rows, because old bad parses or missed retained
+            # events can leave sw_events stale.
+            remote = _looks_remote(ctrl)
+
             # Manual toggles are blocked while any Advanced automation for this switch is enabled.
             try:
                 from saiAutomationManager import AutomationManager
@@ -12670,11 +12694,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             except Exception:
                 pass
 
-            new_state = _desired_toggle_from_db(data_logger, sid, matched_label, ctrl)
+            new_state = _desired_toggle_from_db(
+                data_logger,
+                sid,
+                matched_label,
+                ctrl,
+                prefer_live_current=remote,
+                live_current=current,
+            )
             response_state = bool(new_state)
 
-            # Decide path: direct GPIO vs remote/MQTT
-            remote = _looks_remote(ctrl)
             ok = False
 
             def _event_origin_tag(source: object) -> str:

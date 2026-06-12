@@ -5903,6 +5903,9 @@ class saiMQTTIngest:
             elif pending_origin == "auto":
                 source = f"mqtt-auto:{pending_label}" if pending_label else "mqtt-auto"
 
+            def _state_value_is_on(value: object) -> bool:
+                return str(value).strip().lower() in ("on", "1", "true", "t", "yes", "y")
+
             # JSON payload (preferred)
             if payload_text.startswith("{") and payload_text.endswith("}"):
                 try:
@@ -5915,9 +5918,13 @@ class saiMQTTIngest:
                     if isinstance(obj.get("source"), str) and not pending_origin:
                         source = obj.get("source") or source
 
-                    # extract ON/OFF from "event" dict
+                    # Preferred Nodus switch event/state shape uses top-level state.
+                    if obj.get("state") is not None:
+                        is_on = _state_value_is_on(obj.get("state"))
+
+                    # Backward-compatible shape: extract ON/OFF from "event" dict.
                     ev = obj.get("event") or {}
-                    if isinstance(ev, dict) and ev:
+                    if is_on is None and isinstance(ev, dict) and ev:
                         # Prefer a key that matches the channel label or SWITCH_n
                         state_val = None
                         if label and label in ev:
@@ -5929,7 +5936,7 @@ class saiMQTTIngest:
                             except Exception:
                                 state_val = None
                         if state_val is not None:
-                            is_on = str(state_val).strip().lower() in ("on", "1", "true", "t", "yes", "y")
+                            is_on = _state_value_is_on(state_val)
 
             # Legacy plain-text payload
             if is_on is None:
