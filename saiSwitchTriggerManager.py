@@ -41,6 +41,8 @@ except Exception as e:  # pragma: no cover
 
 import logging
 
+from saiRuntimePaths import resolve_runtime_base_dir
+
 logger = logging.getLogger("saiSwitchTriggerManager")
 
 
@@ -57,7 +59,7 @@ class SwitchTriggerManager:
     """Compatibility manager for Advanced automation rules."""
 
     def __init__(self, base_dir: str = TRIGGERS_BASE_DIR) -> None:
-        self.base_dir = Path(base_dir)
+        self.base_dir = resolve_runtime_base_dir(base_dir)
         self._lock = threading.RLock()
 
     # ---------- path helpers ----------

@@ -40,6 +40,7 @@ from uuid import uuid4
 from xml.sax.saxutils import escape as xml_escape
 
 from saiUtils import get_pi_network_info, printDM, debug_enabled, mdns_hostname
+from saiRuntimePaths import resolve_runtime_base_dir
 
 MODULE = "saiAddDevice"
 DEBUG = debug_enabled(MODULE)
@@ -66,7 +67,27 @@ except Exception:
     _SYS_BASE_DIR     = r"system_settings"
     _SYS_STD_FILENAME = "settings.toml"
 
-HUB_SETTINGS_PATH = str(Path(_SYS_BASE_DIR) / PI_HOSTNAME / _SYS_STD_FILENAME)
+def _runtime_base_dir(base_dir: str | Path) -> Path:
+    return resolve_runtime_base_dir(base_dir)
+
+
+def _system_settings_base_dir() -> Path:
+    return _runtime_base_dir(_SYS_BASE_DIR)
+
+
+def _sensor_settings_base_dir() -> Path:
+    return _runtime_base_dir(_SENSOR_BASE_DIR)
+
+
+def _switch_settings_base_dir() -> Path:
+    return _runtime_base_dir(_SWITCH_BASE_DIR)
+
+
+def get_hub_settings_path() -> str:
+    return str(_system_settings_base_dir() / PI_HOSTNAME / _SYS_STD_FILENAME)
+
+
+HUB_SETTINGS_PATH = get_hub_settings_path()
 
 try:
     from saiSensorSettingsManager import SensorSettingsManager
@@ -798,7 +819,7 @@ def persist_system_settings_by_device_id(updates: list[Dict[str, Any]]) -> Optio
             return None
 
         safe_device_id = _sanitize_for_fs(str(device_id).strip())
-        system_dir = Path(_SYS_BASE_DIR) / safe_device_id
+        system_dir = _system_settings_base_dir() / safe_device_id
         _ensure_dir(system_dir)
 
         network_values: Dict[str, Any] = {}
@@ -868,7 +889,7 @@ def persist_sensor_toml(sensor_id: str, toml_name: str, encoding: str, data_b64:
         if not sensor_id:
             printDM("No SENSOR_ID; skipping sensor file persist.", location=f"{MODULE}.persist_sensor")
             return None
-        sensor_dir = Path(_SENSOR_BASE_DIR) / _sanitize_for_fs(sensor_id)
+        sensor_dir = _sensor_settings_base_dir() / _sanitize_for_fs(sensor_id)
         _ensure_dir(sensor_dir)
         canonical = _canonical_sensor_filename(toml_name)
         raw = _decode_bytes(data_b64, encoding)
@@ -887,7 +908,7 @@ def persist_switch_toml(switch_id: str, encoding: str, data_b64: str) -> Optiona
         if not switch_id:
             printDM("No SWITCH_ID; skipping switch file persist.", location=f"{MODULE}.persist_switch")
             return None
-        switch_dir = Path(_SWITCH_BASE_DIR) / _sanitize_for_fs(switch_id)
+        switch_dir = _switch_settings_base_dir() / _sanitize_for_fs(switch_id)
         _ensure_dir(switch_dir)
         raw = _decode_bytes(data_b64, encoding)
         dest = switch_dir / _SWITCH_STD_FILENAME
@@ -1217,7 +1238,7 @@ async def onboard_picow() -> bool:
 
     if ok2 and sensor_id:
         try:
-            update_hub_clients(HUB_SETTINGS_PATH, sensor_id)
+            update_hub_clients(get_hub_settings_path(), sensor_id)
         except Exception as e:
             printDM(f"Failed to update hub CLIENTS: {e}", location=f"{MODULE}.onboard_picow")
 

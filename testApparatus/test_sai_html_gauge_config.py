@@ -87,6 +87,29 @@ def test_dashboard_switch_layout_drift_schedules_layout_refresh():
     assert block.count("const values     = d.values") == 1
 
 
+def test_dashboard_gauge_refresh_applies_sensor_statuses():
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["aht-rvwi73"],
+            {"aht-rvwi73": {"Temperature": 25.2}},
+            {"aht-rvwi73": {"Temperature": {"min": 24.0, "avg": 25.0, "max": 26.0}}},
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=get_gauge_config(),
+            expected_gauge_map={"aht-rvwi73": ["Temperature"]},
+            expected_display_style_map={"aht-rvwi73": {"METRIC_1": "Graph24hr"}},
+            display_style="Graph24hr",
+        )
+    )
+
+    assert "function applySensorStatuses(data){" in html
+    start = html.index("async function updateGauges()")
+    end = html.index("function refreshOnceAfterSensorAdded")
+    block = html[start:end]
+    assert "if (typeof applySensorStatuses === 'function') applySensorStatuses(d);" in block
+
+
 def test_moon_position_footer_falls_back_to_nearest_moon_event():
     astro_payload = {
         "ok": True,

@@ -68,6 +68,7 @@ from saiUtils import (
     mdns_hostname,
 )
 from saiSettings import saiSettings
+from saiRuntimePaths import resolve_runtime_base_dir
 from saiOnboardingStore import OnboardingSessionStore, OnboardingStates
 from saiOnboardingToken import OnboardingTokenManager
 from saiDataLogger import saiDataLogger
@@ -91,7 +92,7 @@ from saiBiodynamics import get_biodynamic_payload, get_biodynamic_local_now, get
 from saiDailySummary import DailySummaryService, DEFAULT_FORECAST_DAYS
 from saiNodusOTA import NodusOTAError, NodusOTAService
 from saiWeatherForecast import get_weather_forecast_payload, normalize_weather_forecast_provider
-from saiAddDevice import HUB_SETTINGS_PATH, _SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR
+from saiAddDevice import _SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR, get_hub_settings_path
 try:
     from __init__ import __version__ as SAI_APP_VERSION
 except Exception:
@@ -102,6 +103,9 @@ DEBUG = debug_enabled(MODULE)
 data_logger = saiDataLogger()
 statter = saiStats()
 _ALL_IANA_TIMEZONES: tuple[str, ...] = tuple(sorted(available_timezones()))
+
+def _settings_base_path(base_dir: str | Path) -> Path:
+    return resolve_runtime_base_dir(base_dir)
 
 def _format_stats_duration(seconds: float | int | None) -> str:
     """Format a compact uptime duration for statistics panes."""
@@ -4115,7 +4119,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
                 # Include each local sensor's sensor.toml
                 for sensor_id in sensor_ids:
-                    sensor_toml_path = Path(r"sensor_settings") / sensor_id / "sensor.toml"
+                    sensor_toml_path = _settings_base_path("sensor_settings") / sensor_id / "sensor.toml"
                     sensor_blob = _compressed_b64_or_none(sensor_toml_path, redact_secrets=True)
                     if sensor_blob:
                         files_payload.append({
@@ -4130,7 +4134,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 try:
                     for switch in (switches_payload or []):
                         switch_id = switch["SWITCH_DEVICE_ID"]
-                        switch_toml_path = Path(r"switch_settings") / switch_id / "switch.toml"
+                        switch_toml_path = _settings_base_path("switch_settings") / switch_id / "switch.toml"
                         switch_blob = _compressed_b64_or_none(switch_toml_path, redact_secrets=True)
                         if switch_blob:
                             files_payload.append({
@@ -5174,7 +5178,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             if ok2 and sensor_id_for_step:
                 try:
-                    saiAddDevice.update_hub_clients(saiAddDevice.HUB_SETTINGS_PATH, sensor_id_for_step)
+                    saiAddDevice.update_hub_clients(saiAddDevice.get_hub_settings_path(), sensor_id_for_step)
                 except Exception as e:
                     printDM(f"[onboard] update_hub_clients failed: {e}", location="saiWebRoutes")
                 # Nudge ingest discovery immediately (no restart required)
@@ -5207,9 +5211,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         text = str(system_root or "").strip()
         if not text:
-            return "system_settings"
+            return str(_settings_base_path("system_settings"))
         try:
-            root = os.path.abspath(text)
+            root_path = _settings_base_path(text)
+            root = str(root_path)
         except Exception:
             return text
         if os.path.basename(root) == "system_settings":
@@ -6377,7 +6382,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     def _enumerate_dirs(base_dir:str)->list[str]:
         try:
-            p=Path(base_dir)
+            p=_settings_base_path(base_dir)
             if not p.exists(): return []
             return [d.name for d in p.iterdir() if d.is_dir()]
         except Exception:
@@ -6450,7 +6455,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # do not list hub host folder (our own hostname)
         try:
-            hub_name = Path(HUB_SETTINGS_PATH).parent.name
+            hub_name = Path(get_hub_settings_path()).parent.name
             if hub_name:
                 ids.discard(hub_name)
                 ids.discard(_normalize_dev_id(hub_name) or hub_name)
@@ -7109,9 +7114,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     def _delete_device_dirs(device_id:str)->dict:
         removed={"sensor":False,"switch":False,"system":False, "ids_deleted":[]}
         targets = [
-            ("sensor", _safe_child_path(Path(_SENSOR_BASE_DIR), device_id)),
-            ("switch", _safe_child_path(Path(_SWITCH_BASE_DIR), device_id)),
-            ("system", _safe_child_path(Path(_SYS_BASE_DIR), device_id)),
+            ("sensor", _safe_child_path(_settings_base_path(_SENSOR_BASE_DIR), device_id)),
+            ("switch", _safe_child_path(_settings_base_path(_SWITCH_BASE_DIR), device_id)),
+            ("system", _safe_child_path(_settings_base_path(_SYS_BASE_DIR), device_id)),
         ]
         for key, path in targets:
             try:

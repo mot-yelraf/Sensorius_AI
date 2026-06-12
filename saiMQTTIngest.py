@@ -27,6 +27,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from saiUtils import printDM, debug_enabled, get_timestamp, normalize_hostname_base, mdns_hostname
 from saiDataLogger import SENSOR_EVENT_STATE_OFFLINE, SENSOR_EVENT_TYPE_LIVENESS, saiDataLogger, build_switch_key
+from saiRuntimePaths import resolve_runtime_base_dir
 from sensor_modules.station_weewx import (
     DEFAULT_MQTT_TOPIC as WEEWX_DEFAULT_MQTT_TOPIC,
     DEFAULT_SENSOR_ID as WEEWX_DEFAULT_SENSOR_ID,
@@ -5032,10 +5033,11 @@ class saiMQTTIngest:
         # ---- system_settings/<HOSTNAME>/settings.toml ----
         system_id = _strip_local(str((info or {}).get("HOSTNAME") or hostname or ""))
         if system_id:
-            sys_path = Path(saiSettings.DEFAULT_BASE_DIR) / system_id / saiSettings.STANDARD_FILENAME
+            system_base_dir = resolve_runtime_base_dir(saiSettings.DEFAULT_BASE_DIR)
+            sys_path = system_base_dir / system_id / saiSettings.STANDARD_FILENAME
             existed_before = sys_path.exists()
-            nodus_tpl = Path(saiSettings.DEFAULT_BASE_DIR) / "factory_nodus" / f"{saiSettings.STANDARD_FILENAME}.def"
-            fallback_tpl = Path(saiSettings.DEFAULT_BASE_DIR) / "factory" / saiSettings.STANDARD_FILENAME
+            nodus_tpl = system_base_dir / "factory_nodus" / f"{saiSettings.STANDARD_FILENAME}.def"
+            fallback_tpl = system_base_dir / "factory" / saiSettings.STANDARD_FILENAME
             tpl_path = nodus_tpl if nodus_tpl.exists() else (fallback_tpl if fallback_tpl.exists() else None)
 
             settings_doc = _parse_simple_toml(sys_path) if existed_before else (_parse_simple_toml(tpl_path) if tpl_path else OrderedDict())

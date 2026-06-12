@@ -1866,6 +1866,29 @@ def test_nodus_shadow_seed_uses_nodus_aligned_defaults_when_display_metrics_miss
     assert 'METRIC_6 = "dewVPD Risk"' in saved
 
 
+def test_ensure_settings_from_itaot_uses_runtime_root_for_bare_system_settings(tmp_path, monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    home = tmp_path / "home"
+    checkout = tmp_path / "checkout"
+    home.mkdir()
+    checkout.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.chdir(checkout)
+    monkeypatch.setattr(saiSettings.saiSettings, "DEFAULT_BASE_DIR", "system_settings")
+
+    ingest._ensure_settings_from_itaot(
+        {"HOSTNAME": "apvpd-test123"},
+        "apvpd-test123",
+        [],
+        [],
+    )
+
+    runtime_shadow = home / "Sensorius" / "system_settings" / "apvpd-test123" / "settings.toml"
+    assert runtime_shadow.exists()
+    assert not (checkout / "system_settings").exists()
+
+
 def test_retained_top_level_nodus_meta_seeds_missing_sensor_shadow(tmp_path, monkeypatch):
     ingest = _build_ingest(monkeypatch)
 

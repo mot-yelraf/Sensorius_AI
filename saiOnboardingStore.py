@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from saiRuntimePaths import resolve_runtime_base_dir
 from saiUtils import debug_enabled, printDM
 
 MODULE = "saiOnboardingStore"
@@ -39,7 +40,7 @@ class OnboardingStates:
 class OnboardingSessionStore:
     def __init__(self, base_dir: str = "system_settings"):
         hub_host = socket.gethostname().strip() or "sensorius"
-        self._root = Path(base_dir).expanduser().resolve() / hub_host / "onboarding_sessions"
+        self._root = resolve_runtime_base_dir(base_dir) / hub_host / "onboarding_sessions"
         self._root.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
 

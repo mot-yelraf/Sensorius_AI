@@ -44,6 +44,7 @@ try:
 except Exception as e:  # pragma: no cover
     raise RuntimeError("Python 3.11+ required: tomllib is missing") from e
 
+from saiRuntimePaths import resolve_runtime_base_dir
 from saiUtils import debug_enabled, printDM
 
 MODULE = "saiAutomationManager"
@@ -82,7 +83,7 @@ class AutomationManager:
     _shared_cache: dict[str, dict[str, Any]] = {}
 
     def __init__(self, base_dir: str = TRIGGERS_BASE_DIR) -> None:
-        self.base_dir = Path(base_dir)
+        self.base_dir = resolve_runtime_base_dir(base_dir)
         self._lock = threading.RLock()
 
     # ---------- path helpers ----------
