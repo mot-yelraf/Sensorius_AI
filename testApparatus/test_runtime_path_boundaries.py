@@ -33,6 +33,20 @@ def test_bare_settings_roots_resolve_to_runtime_home_outside_pytest(tmp_path, mo
     assert not (checkout / "switch_settings").exists()
 
 
+def test_bare_settings_roots_use_test_runtime_root_inside_pytest(tmp_path, monkeypatch):
+    checkout = tmp_path / "checkout"
+    runtime = tmp_path / "pytest-runtime"
+    checkout.mkdir()
+    monkeypatch.chdir(checkout)
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "test_runtime_path_boundaries.py::test")
+    monkeypatch.setenv("SENSORIUS_TEST_RUNTIME_ROOT", str(runtime))
+
+    assert resolve_runtime_base_dir("system_settings") == runtime / "system_settings"
+    assert resolve_runtime_base_dir("sensor_settings") == runtime / "sensor_settings"
+    assert resolve_runtime_base_dir("switch_settings") == runtime / "switch_settings"
+    assert resolve_runtime_base_dir("relative_data") == checkout / "relative_data"
+
+
 def test_onboarding_and_automation_writers_use_runtime_roots(tmp_path, monkeypatch):
     home, checkout = _non_pytest_runtime(tmp_path, monkeypatch)
     runtime = home / "Sensorius"

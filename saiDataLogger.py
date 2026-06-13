@@ -1639,9 +1639,49 @@ class saiDataLogger:
           - `label` is the user-visible name ("Fan","Light",...) and may change
             over time without changing switch_key.
         """
+        switch_key = str(switch_key or "").strip()
+        switch_id = str(switch_id or "").strip()
+        label = str(label or "").strip()
+        if not switch_key or not switch_id or not label:
+            return
+
         try:
-            with self._open_conn() as conn:
-                conn.execute(
+            channel_id = ""
+            parts = switch_key.split(SW_KEY_DELIM, 1)
+            if len(parts) == 2:
+                channel_id = parts[0].strip()
+
+            with self._writer_lock:
+                self._ensure_writer()
+                cur = self._writer_conn.cursor()
+
+                if channel_id:
+                    stale_rows = cur.execute(
+                        """
+                        SELECT switch_key
+                        FROM switch_ids
+                        WHERE switch_id = ? COLLATE NOCASE
+                        """,
+                        (switch_id,),
+                    ).fetchall()
+                    for row in stale_rows or []:
+                        old_key = str((row or [""])[0] or "").strip()
+                        if not old_key or old_key.lower() == switch_key.lower():
+                            continue
+                        old_parts = old_key.split(SW_KEY_DELIM, 1)
+                        old_channel_id = old_parts[0].strip() if len(old_parts) == 2 else ""
+                        if old_channel_id.lower() != channel_id.lower():
+                            continue
+                        cur.execute(
+                            "UPDATE sw_events SET switch_key = ? WHERE switch_key = ? COLLATE NOCASE",
+                            (switch_key, old_key),
+                        )
+                        cur.execute(
+                            "DELETE FROM switch_ids WHERE switch_key = ? COLLATE NOCASE",
+                            (old_key,),
+                        )
+
+                cur.execute(
                     """
                     INSERT INTO switch_ids(switch_key, switch_id, label, location)
                     VALUES(?, ?, ?, ?)
@@ -1652,7 +1692,7 @@ class saiDataLogger:
                     """,
                     (switch_key, switch_id, label, location)
                 )
-                conn.commit()
+                self._writer_conn.commit()
                 self._switch_identities_cache = None
         except Exception as e:
             printDM(f"[upsert_switch_identity] {switch_key} error: {e}", location=MODULE)

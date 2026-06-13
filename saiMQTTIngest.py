@@ -5631,6 +5631,7 @@ class saiMQTTIngest:
         sensor_lineage: str | None = None,
         force_write: bool = False,
         update_cache: bool = True,
+        label_hint: str | None = None,
     ):
         """
         Persist a switch event *only if* it represents a state change relative to cache.
@@ -5646,14 +5647,15 @@ class saiMQTTIngest:
 
             switch_id_str  = str(switch_id)
             channel_id_str = str(channel_id)
+            label_hint_text = str(label_hint or "").strip()
 
             last_cache = self._switch_state_cache.setdefault(switch_id_str, {})
             new_state  = "on" if is_on else "off"
             state_key = (switch_id_str, channel_id_str)
 
-            last_state = str(self._last_persisted_switch_state.get(state_key, "")).lower()
-            if last_state not in ("on", "off"):
-                label_resolved = None
+            label_resolved = label_hint_text
+            location_resolved = None
+            if not label_resolved:
                 try:
                     for row in (self.data_logger.get_switch_identities() or []):
                         rsid = str(row.get("switch_id", "") or "").strip()
@@ -5661,11 +5663,39 @@ class saiMQTTIngest:
                         rlab = str(row.get("label", "") or "").strip()
                         if rsid == switch_id_str and rch == channel_id_str and rlab:
                             label_resolved = rlab
+                            location_resolved = row.get("location")
                             break
                 except Exception:
-                    label_resolved = None
-                if not label_resolved:
-                    label_resolved = channel_id_str
+                    label_resolved = ""
+                    location_resolved = None
+            else:
+                try:
+                    for row in (self.data_logger.get_switch_identities() or []):
+                        rsid = str(row.get("switch_id", "") or "").strip()
+                        rch = str(row.get("channel_id", "") or "").strip()
+                        if rsid == switch_id_str and rch == channel_id_str:
+                            location_resolved = row.get("location")
+                            break
+                except Exception:
+                    location_resolved = None
+            if not label_resolved:
+                label_resolved = channel_id_str
+
+            if label_hint_text:
+                try:
+                    upsert_identity = getattr(self.data_logger, "upsert_switch_identity", None)
+                    if callable(upsert_identity):
+                        upsert_identity(
+                            switch_key=build_switch_key(channel_id_str, label_resolved),
+                            switch_id=switch_id_str,
+                            label=label_resolved,
+                            location=location_resolved,
+                        )
+                except Exception:
+                    pass
+
+            last_state = str(self._last_persisted_switch_state.get(state_key, "")).lower()
+            if last_state not in ("on", "off"):
                 try:
                     latest = self.data_logger.get_latest_switch_state(
                         build_switch_key(channel_id_str, label_resolved),
@@ -5682,20 +5712,6 @@ class saiMQTTIngest:
             if update_cache:
                 last_cache[channel_id_str] = new_state
                 self._known_switch_ids.add(switch_id_str)
-
-            label_resolved = None
-            try:
-                for row in (self.data_logger.get_switch_identities() or []):
-                    rsid = str(row.get("switch_id", "") or "").strip()
-                    rch = str(row.get("channel_id", "") or "").strip()
-                    rlab = str(row.get("label", "") or "").strip()
-                    if rsid == switch_id_str and rch == channel_id_str and rlab:
-                        label_resolved = rlab
-                        break
-            except Exception:
-                label_resolved = None
-            if not label_resolved:
-                label_resolved = channel_id_str
 
             writer = getattr(self.data_logger, "log_switch_event", None)
             if callable(writer):
@@ -5887,6 +5903,7 @@ class saiMQTTIngest:
 
             payload_text = "" if payload is None else str(payload).strip()
             is_on: bool | None = None
+            payload_label: str | None = None
             # Nodus switch payload timestamps are not trusted; persist with hub-local time.
             ts_iso: str | None = None
             source = "mqtt-nodus"
@@ -5908,6 +5925,9 @@ class saiMQTTIngest:
                     obj = None
 
                 if isinstance(obj, dict):
+                    if isinstance(obj.get("label"), str):
+                        payload_label = str(obj.get("label") or "").strip() or None
+
                     # optional source
                     if isinstance(obj.get("source"), str) and not pending_origin:
                         source = obj.get("source") or source
@@ -5940,8 +5960,10 @@ class saiMQTTIngest:
                 # Persist state transitions too; dedupe prevents retained-state spam.
                 force_write = False
                 try:
-                    label_resolved = None
+                    label_resolved = payload_label
                     for row in (self.data_logger.get_switch_identities() or []):
+                        if label_resolved:
+                            break
                         rsid = str(row.get("switch_id", "") or "").strip()
                         rch = str(row.get("channel_id", "") or "").strip()
                         rlab = str(row.get("label", "") or "").strip()
@@ -5974,8 +5996,9 @@ class saiMQTTIngest:
                     ),
                     sensor_lineage=f"Switch_{switch_id}",
                     force_write=force_write,
+                    label_hint=payload_label,
                 )
-                labels = _cache_channel_state(switch_id, channel_id, is_on, hint=label)
+                labels = _cache_channel_state(switch_id, channel_id, is_on, hint=(payload_label or label))
                 try:
                     if host:
                         self._mark_host_status(host, self.get_nodus_liveness(host, now_ts=now_t).get("state", "unknown"))
@@ -5998,8 +6021,9 @@ class saiMQTTIngest:
                     source=source,
                     sensor_lineage=f"Switch_{switch_id}",
                     update_cache=False,
+                    label_hint=payload_label,
                 )
-                labels = _labels_for_channel(switch_id, channel_id, hint=label)
+                labels = _labels_for_channel(switch_id, channel_id, hint=(payload_label or label))
                 self._known_switch_ids.add(switch_id)
                 try:
                     if host:
