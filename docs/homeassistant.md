@@ -79,6 +79,32 @@ Discovery:
 <discovery_prefix>/switch/<node_id>/<object_id>/config
 ```
 
+## Metric Units
+
+Sensor discovery payloads include `unit_of_measurement` for known Sensorius
+metrics. The unit source is the normalized metric name used in the readings DB,
+not the Home Assistant display name.
+
+Common HA units:
+
+- `CO2`: `ppm`
+- `Temperature`, `Dew Point`: `°C`
+- `Temperature_F`, `Dew Point_F`: `°F`
+- `Rel-Humidity`: `%`
+- `Humidity`: `g/m³` absolute humidity
+- `Ambient VPD` and `Plant VPD`: `kPa`
+- `Dew Point Deficit`: `°C`
+- `DewVPD Risk`: `%`
+- `Baro-Pressure`: `hPa`
+- `Rain` and `Rain Last 24h`: `in`
+- `Rain Rate`: `in/h`
+- `Wind Speed`: `mph`
+- `Wind Direction`: `°`
+
+If HA shows an old or incorrect unit after a Sensorius update, reload the MQTT
+integration or delete the retained discovery config for that entity so HA reads
+the current retained discovery payload.
+
 ## Operations
 
 After enabling HA:

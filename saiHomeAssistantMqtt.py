@@ -636,113 +636,169 @@ class rPiHomeAssistantBridge:
                 if ctrl:
                     yield ctrl
                 
-# This is intentionally conservative; extend as you like.
-# Keys MUST match your existing metric names exactly.
-METRIC_META = {
-    "Temperature": {
-        "unit": "°C",
-        "device_class": "temperature",
-        "state_class": "measurement",
-        "precision": 2,
-    },
-    "Temperature_F": {
-        "unit": "°F",
-        "device_class": "temperature",
-        "state_class": "measurement",
-        "precision": 1,
-    },
-    "Rel-Humidity": {
-        "unit": "%",
-        "device_class": "humidity",
-        "state_class": "measurement",
-        "precision": 1,
-    },
-    "Ambient VPD": {
-        "unit": "kPa",
-        "state_class": "measurement",
-        "precision": 2,
-    },
-    "Plant VPD": {
-        "unit": "kPa",
-        "state_class": "measurement",
-        "precision": 2,
-    },
-    "Baro-Pressure": {
-        "unit": "hPa",   # if you store hPa; change to "Pa" if you store Pa
-        "device_class": "pressure",
-        "state_class": "measurement",
-        "precision": 1,
-    },
-    "CO2": {
-        "unit": "ppm",
-        "device_class": "carbon_dioxide",
-        "state_class": "measurement",
-        "precision": 0,
-    },
-    "Air Quality": {
-        # HA has no universal "AQI" device_class across all versions;
-        # keep it generic and just set unit.
-        "unit": "AQI",
-        "state_class": "measurement",
-        "precision": 0,
-    },
-    "Gas": {
-        "unit": "Ω",
-        "state_class": "measurement",
-        "precision": 0,
-    },
-    "Humidity": {
-        # You appear to compute absolute humidity (g/m³) in some flows.
-        # If instead this is something else, adjust unit.
-        "unit": "g/m³",
-        "state_class": "measurement",
-        "precision": 2,
-    },
-    # --- VEML7700 / light metrics ---
-    "Light Intensity": {
-        "unit": "lx",                 # HA commonly uses "lx" for lux
-        "device_class": "illuminance",
-        "state_class": "measurement",
-        "precision": 1,
-    },
-    "Auto Light": {
-        "unit": "lx",
-        "device_class": "illuminance",
-        "state_class": "measurement",
-        "precision": 1,
-    },
-    "Estimated PPFD": {
-        "unit": "µmol/m²/s",
-        "state_class": "measurement",
-        "precision": 0,
-    },
-    "Visible Light Intensity": {
-        "unit": "mol/m²/day",
-        "state_class": "measurement",
-        "precision": 2,
-    },}
+def _metric_meta(
+    unit: str,
+    *,
+    device_class: str | None = None,
+    state_class: str = "measurement",
+    precision: int | None = None,
+) -> dict:
+    meta = {"unit": unit, "state_class": state_class}
+    if device_class:
+        meta["device_class"] = device_class
+    if precision is not None:
+        meta["precision"] = precision
+    return meta
 
-def ha_value_template_for_metric(metric_name: str, *, precision: int | None = None) -> str:
+def _normalized_metric_key(metric_name: str) -> str:
+    return "".join(ch for ch in str(metric_name or "").strip().lower() if ch.isalnum())
+
+# Home Assistant discovery metadata for Sensorius metric names.
+# Units mirror the local sensor modules and normalized Nodus/WeeWX metric names.
+METRIC_META = {
+    "Temperature": _metric_meta("°C", device_class="temperature", precision=2),
+    "Temperature_F": _metric_meta("°F", device_class="temperature", precision=1),
+    "Rel-Humidity": _metric_meta("%", device_class="humidity", precision=1),
+    "Humidity": _metric_meta("g/m³", device_class="absolute_humidity", precision=2),
+    "Dew Point": _metric_meta("°C", device_class="temperature", precision=2),
+    "Dew Point_F": _metric_meta("°F", device_class="temperature", precision=1),
+    "Dew Point Deficit": _metric_meta("°C", device_class="temperature_delta", precision=2),
+    "DewVPD Risk": _metric_meta("%", precision=1),
+    "Ambient VPD": _metric_meta("kPa", precision=2),
+    "Baro-Pressure": _metric_meta("hPa", device_class="atmospheric_pressure", precision=1),
+    "CO2": _metric_meta("ppm", device_class="carbon_dioxide", precision=0),
+    "Air Quality": _metric_meta("AQI", precision=0),
+    "Gas": _metric_meta("Ω", precision=0),
+    "Plant Temperature": _metric_meta("°C", device_class="temperature", precision=2),
+    "Plant Temperature_F": _metric_meta("°F", device_class="temperature", precision=1),
+    "Plant Rel-Humidity": _metric_meta("%", device_class="humidity", precision=1),
+    "Plant Humidity": _metric_meta("g/m³", device_class="absolute_humidity", precision=2),
+    "Plant Dew Point": _metric_meta("°C", device_class="temperature", precision=2),
+    "Plant Dew Point_F": _metric_meta("°F", device_class="temperature", precision=1),
+    "Plant Dew Point Deficit": _metric_meta("°C", device_class="temperature_delta", precision=2),
+    "Plant Dewpoint Deficit": _metric_meta("°C", device_class="temperature_delta", precision=2),
+    "Plant DewVPD Risk": _metric_meta("%", precision=1),
+    "Plant VPD": _metric_meta("kPa", precision=2),
+    "Plant Baro-Pressure": _metric_meta("hPa", device_class="atmospheric_pressure", precision=1),
+    "Light Intensity": _metric_meta("lx", device_class="illuminance", precision=1),
+    "Auto Light": _metric_meta("lx", device_class="illuminance", precision=1),
+    "Estimated PPFD": _metric_meta("µmol/m²/s", precision=0),
+    "Visible Light Intensity": _metric_meta("mol/m²/day", precision=2),
+    "Soil Moisture": _metric_meta("%", device_class="moisture", precision=1),
+    "Soil-Moisture": _metric_meta("%", device_class="moisture", precision=1),
+    "Soil Moisture Deficit": _metric_meta("%", precision=1),
+    "SMD": _metric_meta("%", precision=1),
+    "Soil Stress Index": _metric_meta("%", precision=1),
+    "SSI": _metric_meta("%", precision=1),
+    "Soil Temp_C": _metric_meta("°C", device_class="temperature", precision=2),
+    "Soil-Temp": _metric_meta("°C", device_class="temperature", precision=2),
+    "Soil Temp_F": _metric_meta("°F", device_class="temperature", precision=1),
+    "Soil-Temp_F": _metric_meta("°F", device_class="temperature", precision=1),
+    "Soil pH": _metric_meta("pH", precision=2),
+    "Soil-pH": _metric_meta("pH", precision=2),
+    "Soil EC": _metric_meta("mS/cm", device_class="conductivity", precision=2),
+    "Soil-EC": _metric_meta("mS/cm", device_class="conductivity", precision=2),
+    "Soil Nitrogen": _metric_meta("mg/kg", precision=0),
+    "Soil Phosphorus": _metric_meta("mg/kg", precision=0),
+    "Soil Potassium": _metric_meta("mg/kg", precision=0),
+    "Soil Fertility Index": _metric_meta("%", precision=1),
+    "PM1": _metric_meta("µg/m³", device_class="pm1", precision=1),
+    "PM2.5": _metric_meta("µg/m³", device_class="pm25", precision=1),
+    "PM4": _metric_meta("µg/m³", device_class="pm4", precision=1),
+    "PM10": _metric_meta("µg/m³", device_class="pm10", precision=1),
+    "Wind Speed": _metric_meta("mph", device_class="wind_speed", precision=1),
+    "Wind Direction": _metric_meta("°", device_class="wind_direction", state_class="measurement_angle", precision=0),
+    "Rain": _metric_meta("in", device_class="precipitation", precision=2),
+    "Rain Last 24h": _metric_meta("in", device_class="precipitation", precision=2),
+    "Rain Rate": _metric_meta("in/h", device_class="precipitation_intensity", precision=2),
+}
+
+METRIC_ALIAS_NAMES = [
+    ("Dew-Point", "Dew Point"),
+    ("Dew-Point_F", "Dew Point_F"),
+    ("Dewpoint Deficit", "Dew Point Deficit"),
+    ("Dewpoint Depression", "Dew Point Deficit"),
+    ("dewVPD Risk", "DewVPD Risk"),
+    ("Bar-Pressure", "Baro-Pressure"),
+    ("Plant Dewpoint Deficit", "Plant Dew Point Deficit"),
+    ("Plant dewVPD Risk", "Plant DewVPD Risk"),
+]
+METRIC_ALIASES = {
+    _normalized_metric_key(alias): canonical
+    for alias, canonical in METRIC_ALIAS_NAMES
+}
+
+def canonical_metric_name_for_ha(metric_name: str) -> str:
+    """Return the metadata key used for HA discovery without changing DB metric names."""
+    name = str(metric_name or "").strip()
+    if name in METRIC_META:
+        return name
+    normalized = _normalized_metric_key(name)
+    aliased = METRIC_ALIASES.get(normalized)
+    if aliased in METRIC_META:
+        return aliased
+    for known_name in METRIC_META.keys():
+        if _normalized_metric_key(known_name) == normalized:
+            return known_name
+    return name
+
+def metric_meta_for_metric(metric_name: str) -> dict:
+    return dict(METRIC_META.get(canonical_metric_name_for_ha(metric_name), {}))
+
+def metric_value_lookup_names(metric_name: str) -> list[str]:
+    """Return equivalent state-payload keys for old and canonical metric spellings."""
+    name = str(metric_name or "").strip()
+    canonical = canonical_metric_name_for_ha(name)
+    normalized = _normalized_metric_key(canonical)
+    names: list[str] = []
+    for candidate in [name, canonical]:
+        if candidate and candidate not in names:
+            names.append(candidate)
+    for known_name in METRIC_META.keys():
+        if _normalized_metric_key(known_name) == normalized and known_name not in names:
+            names.append(known_name)
+    for alias, alias_canonical in METRIC_ALIAS_NAMES:
+        if (
+            _normalized_metric_key(alias_canonical) == normalized
+            and alias not in names
+        ):
+            names.append(alias)
+    return names
+
+def _escape_template_key(metric_name: str) -> str:
+    return str(metric_name or "").replace("\\", "\\\\").replace('"', '\\"')
+
+def ha_value_template_for_metric(
+    metric_name: str,
+    *,
+    precision: int | None = None,
+    lookup_names: list[str] | None = None,
+) -> str:
     """
     HA Jinja value_template for:
       - Nested JSON: {"values": {"Temperature": 21.1, ...}, ...}
       - Flat JSON:   {"Temperature": 21.1, ...}
     """
-    m = (metric_name or "").replace('"', '\\"')
+    metric_names = []
+    for candidate in [metric_name, *(lookup_names or [])]:
+        text = str(candidate or "").strip()
+        if text and text not in metric_names:
+            metric_names.append(text)
+    if not metric_names:
+        metric_names = [str(metric_name or "")]
 
-    # Important: set v to the raw JSON value (not a rendered {{ ... }} string)
-    # Use .get() to avoid undefined exceptions.
-    tmpl = (
-        '{% set v = none %}'
-        '{% if value_json is defined %}'
-        '{% if value_json.values is defined and value_json.values is mapping %}'
-        '{% set v = value_json.values.get("' + m + '") %}'
-        '{% endif %}'
-        '{% if v is none and value_json is mapping %}'
-        '{% set v = value_json.get("' + m + '") %}'
-        '{% endif %}'
-        '{% endif %}'
-    )
+    tmpl = '{% set v = none %}{% if value_json is defined %}'
+    for candidate in metric_names:
+        m = _escape_template_key(candidate)
+        tmpl += (
+            '{% if v is none and value_json.values is defined and value_json.values is mapping %}'
+            '{% set v = value_json.values.get("' + m + '") %}'
+            '{% endif %}'
+            '{% if v is none and value_json is mapping %}'
+            '{% set v = value_json.get("' + m + '") %}'
+            '{% endif %}'
+        )
+    tmpl += '{% endif %}'
 
     if isinstance(precision, int) and precision >= 0:
         # Convert to float when possible so rounding works even if broker sends numeric strings.
@@ -790,7 +846,7 @@ def build_sensor_metric_discovery_payload(
     state_topic = state_topic_override or topic_map.sensor_state_topic(sensor_id)
     avail_topic = availability_topic_override or topic_map.sensor_availability_topic(sensor_id)
 
-    meta = METRIC_META.get(metric_name, {})
+    meta = metric_meta_for_metric(metric_name)
     unit = meta.get("unit")
     device_class = meta.get("device_class")
     state_class = meta.get("state_class", "measurement")
@@ -800,7 +856,11 @@ def build_sensor_metric_discovery_payload(
         "name": metric_name,  # preserve your existing metric name for HA display
         "unique_id": unique_id,
         "state_topic": state_topic,
-        "value_template": ha_value_template_for_metric(metric_name, precision=precision),
+        "value_template": ha_value_template_for_metric(
+            metric_name,
+            precision=precision,
+            lookup_names=metric_value_lookup_names(metric_name),
+        ),
         "availability_topic": avail_topic,
         "payload_available": "online",
         "payload_not_available": "offline",

@@ -8,9 +8,15 @@ import os
 import sys
 import asyncio
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from saiHomeAssistantMqtt import HomeAssistantTopicMap, rPiHomeAssistantBridge
+from saiHomeAssistantMqtt import (
+    HomeAssistantTopicMap,
+    build_sensor_metric_discovery_payload,
+    rPiHomeAssistantBridge,
+)
 
 
 class _FakeSettings:
@@ -55,6 +61,60 @@ class _FakeController:
 class _FakeDataLogger:
     def get_switch_identities(self):
         return []
+
+
+def _sensor_discovery_payload_for(metric_name):
+    _, payload = build_sensor_metric_discovery_payload(
+        topic_map=HomeAssistantTopicMap(node_id="node-1"),
+        sensor_id="co2-ph244",
+        sensor_name="co2-ph244",
+        metric_name=metric_name,
+    )
+    return payload
+
+
+@pytest.mark.parametrize(
+    "metric_name,unit,device_class,state_class",
+    [
+        ("CO2", "ppm", "carbon_dioxide", "measurement"),
+        ("Rel-Humidity", "%", "humidity", "measurement"),
+        ("Humidity", "g/m³", "absolute_humidity", "measurement"),
+        ("Temperature", "°C", "temperature", "measurement"),
+        ("Temperature_F", "°F", "temperature", "measurement"),
+        ("Dew Point", "°C", "temperature", "measurement"),
+        ("Dew Point_F", "°F", "temperature", "measurement"),
+        ("Dew Point Deficit", "°C", "temperature_delta", "measurement"),
+        ("DewVPD Risk", "%", None, "measurement"),
+        ("Ambient VPD", "kPa", None, "measurement"),
+        ("Baro-Pressure", "hPa", "atmospheric_pressure", "measurement"),
+        ("Plant Rel-Humidity", "%", "humidity", "measurement"),
+        ("Plant VPD", "kPa", None, "measurement"),
+        ("Wind Speed", "mph", "wind_speed", "measurement"),
+        ("Wind Direction", "°", "wind_direction", "measurement_angle"),
+        ("Rain Last 24h", "in", "precipitation", "measurement"),
+        ("Rain Rate", "in/h", "precipitation_intensity", "measurement"),
+        ("Soil EC", "mS/cm", "conductivity", "measurement"),
+        ("PM2.5", "µg/m³", "pm25", "measurement"),
+    ],
+)
+def test_sensor_discovery_publishes_metric_units(metric_name, unit, device_class, state_class):
+    payload = _sensor_discovery_payload_for(metric_name)
+
+    assert payload["unit_of_measurement"] == unit
+    assert payload["state_class"] == state_class
+    if device_class is None:
+        assert "device_class" not in payload
+    else:
+        assert payload["device_class"] == device_class
+
+
+def test_sensor_discovery_metadata_handles_legacy_dewvpd_alias():
+    payload = _sensor_discovery_payload_for("dewVPD Risk")
+
+    assert payload["unit_of_measurement"] == "%"
+    assert "device_class" not in payload
+    assert 'value_json.values.get("dewVPD Risk")' in payload["value_template"]
+    assert 'value_json.values.get("DewVPD Risk")' in payload["value_template"]
 
 
 def test_switch_command_refreshes_index_after_label_rename():
