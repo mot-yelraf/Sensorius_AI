@@ -149,9 +149,11 @@ def test_moon_position_footer_falls_back_to_nearest_moon_event():
         )
     )
 
-    assert "const moonEventRaw = (sameDay, nearest) => {" in html
-    assert "const mrRaw = moonEventRaw(data && data.moon_rise_today, data && data.moon_rise);" in html
+    assert "function pickMoonEventRaw(sameDay, nearest){" in html
+    assert "const mrRaw = pickMoonEventRaw(data && data.moon_rise_today, data && data.moon_rise);" in html
     assert "moonRiseEl.textContent = fmtSun(mrRaw);" in html
+    assert "const moonPhaseRiseRaw = pickMoonEventRaw(data && data.moon_rise_today, data && data.moon_rise);" in html
+    assert "riseEl.textContent = fmtMoonTime(moonPhaseRiseRaw);" in html
     assert '"moon_rise": "00:30"' in html
 
 
@@ -218,6 +220,14 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "id='sunMoon29Canvas'" in html
     assert "29 Day Sun/Moon Position" in html
     assert "function drawSunMoon29Day(data)" in html
+    assert "function makeSmoothSkyYMapper(yBase, topY, bottomY, maxElev, minElev)" in html
+    assert "const buildSunCurveKeys = () => {" in html
+    assert "const buildMoonDisplayPoints = () => {" in html
+    assert "built.push({m, y: sunYForMin(m)});" in html
+    assert "built.push({m, y: yAt(m)});" in html
+    assert "const moonDisplayPoints = buildMoonDisplayPoints();" in html
+    assert "const yForElev = makeSmoothSkyYMapper(yBase, padY + 2, c.height - padY - 2, maxElev, minElev);" in html
+    assert "const yForElev = makeSmoothSkyYMapper(yBase, padT + 2, padT + graphH - 2, maxElev, minElev);" in html
     assert "const drawTinyMoonPhase = (day, cx, cy) => {" in html
     assert "const r = (moonPhaseCardSize * 0.15) / 2;" in html
     assert "ctx.rotate((rotationDeg * Math.PI) / 180);" in html
