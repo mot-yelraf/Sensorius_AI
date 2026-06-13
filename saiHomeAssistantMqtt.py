@@ -103,20 +103,25 @@ class rPiHomeAssistantBridge:
             return None
 
     @staticmethod
-    def _ha_availability_from_state(state: str | None) -> str:
-        return "online" if str(state or "").strip().lower() == "online" else "offline"
+    def _ha_availability_from_state(state: str | None) -> str | None:
+        state_text = str(state or "").strip().lower()
+        if state_text in {"online", "degraded"}:
+            return "online"
+        if state_text in {"offline", "migration_required"}:
+            return "offline"
+        return None
 
     def _sensor_availability_for_discovery(self, sensor_id: str) -> str:
         state = self._remote_nodus_state(sensor_id, device_type="sensor")
         if state is None:
             return "online"
-        return self._ha_availability_from_state(state)
+        return self._ha_availability_from_state(state) or "online"
 
     def _switch_availability_for_discovery(self, switch_id: str) -> str:
         state = self._remote_nodus_state(switch_id, device_type="switch")
         if state is None:
             return "online"
-        return self._ha_availability_from_state(state)
+        return self._ha_availability_from_state(state) or "online"
 
     def handle_nodus_liveness_change(self, host: str, status: str, snapshot: dict | None = None) -> None:
         """Publish retained HA availability when MQTT ingest marks a Nodus host online/offline."""
@@ -126,6 +131,8 @@ class rPiHomeAssistantBridge:
         if state not in {"online", "degraded", "offline", "unknown", "migration_required"}:
             return
         availability = self._ha_availability_from_state(state)
+        if availability is None:
+            return
         peers = []
         try:
             peers = list((snapshot or {}).get("peer_ids") or [])

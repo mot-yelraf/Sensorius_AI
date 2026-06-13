@@ -854,13 +854,7 @@ class saiMQTTIngest:
         if availability == "offline":
             state = "offline"
             reason = "availability_offline"
-        elif heartbeat_seen > 0.0:
-            state = self._apply_heartbeat_timeout_state(base or dev, now_ts=now_v)
-            reason = f"heartbeat_{state}"
-            if self.heartbeat_stale.get(base) and state == "online":
-                state = "degraded"
-                reason = "heartbeat_stale"
-        elif report_seen > 0.0:
+        elif report_seen > 0.0 and (heartbeat_seen <= 0.0 or report_seen >= heartbeat_seen):
             missed = max(0.0, now_v - report_seen)
             if missed <= (2.0 * interval):
                 state = "online"
@@ -871,6 +865,12 @@ class saiMQTTIngest:
             else:
                 state = "offline"
                 reason = "report_timeout"
+        elif heartbeat_seen > 0.0:
+            state = self._apply_heartbeat_timeout_state(base or dev, now_ts=now_v)
+            reason = f"heartbeat_{state}"
+            if self.heartbeat_stale.get(base) and state == "online":
+                state = "degraded"
+                reason = "heartbeat_stale"
         elif availability == "online" and last_seen > 0.0:
             missed = max(0.0, now_v - last_seen)
             if missed < (3.0 * interval):
@@ -1681,12 +1681,6 @@ class saiMQTTIngest:
             self.client.loop_start()
         except Exception as e:
             printDM(f"MQTT Ingest start error: {e}", location=MODULE)
-        if self.ha_client is self.client:
-            try:
-                if self._loop:
-                    self._loop.call_soon_threadsafe(self._ha_connected_evt.set)
-            except Exception:
-                pass
 
     def _start_ha_loop(self):
         if DEBUG:
@@ -1702,17 +1696,17 @@ class saiMQTTIngest:
             if DEBUG:
                 printDM(f"Connected to MQTT Broker: {self.broker}", location=MODULE)
                     
-            # signal ready (thread-safe)
-            try:
-                if self._loop:
-                    self._loop.call_soon_threadsafe(self._connected_evt.set)
-            except Exception:
-                pass  
-                      
             for topic in self.registered_topics:
                 client.subscribe(topic)
                 if DEBUG:
                     printDM(f"Subscribed to topic: {topic}", location=MODULE)
+
+            # signal ready after baseline subscriptions have been registered
+            try:
+                if self._loop:
+                    self._loop.call_soon_threadsafe(self._connected_evt.set)
+            except Exception:
+                pass
 
         else:
             printDM(f"Connection failed with code {rc}", location=MODULE)

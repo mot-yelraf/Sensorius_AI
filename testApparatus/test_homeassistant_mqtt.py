@@ -150,6 +150,21 @@ def test_nodus_sensor_discovery_availability_uses_liveness_offline():
     assert bridge._sensor_availability_for_discovery("aqi-test123") == "offline"
 
 
+def test_nodus_sensor_discovery_unknown_startup_does_not_publish_offline():
+    mqtt = _FakeMqttClients()
+    mqtt.device_type["aqi-test123"] = "nodus"
+    mqtt.liveness["aqi-test123"] = {"state": "unknown"}
+    bridge = rPiHomeAssistantBridge(
+        mqtt_clients=mqtt,
+        settings=_FakeSettings(),
+        topic_map=HomeAssistantTopicMap(node_id="node-1"),
+        switch_controllers={},
+        data_logger=_FakeDataLogger(),
+    )
+
+    assert bridge._sensor_availability_for_discovery("aqi-test123") == "online"
+
+
 def test_local_switch_discovery_availability_stays_online_without_nodus_liveness():
     bridge = rPiHomeAssistantBridge(
         mqtt_clients=_FakeMqttClients(),
@@ -162,7 +177,7 @@ def test_local_switch_discovery_availability_stays_online_without_nodus_liveness
     assert bridge._switch_availability_for_discovery("sensoria-hub-0") == "online"
 
 
-def test_nodus_liveness_degraded_publishes_ha_offline():
+def test_nodus_liveness_degraded_publishes_ha_online():
     mqtt = _FakeMqttClients()
     bridge = rPiHomeAssistantBridge(
         mqtt_clients=mqtt,
@@ -180,7 +195,26 @@ def test_nodus_liveness_degraded_publishes_ha_offline():
 
     assert mqtt.text_publishes[-1] == {
         "topic": "sensorius/sensor/aqi-test123/availability",
-        "payload": "offline",
+        "payload": "online",
         "qos": 0,
         "retain": True,
     }
+
+
+def test_nodus_liveness_unknown_does_not_publish_ha_availability():
+    mqtt = _FakeMqttClients()
+    bridge = rPiHomeAssistantBridge(
+        mqtt_clients=mqtt,
+        settings=_FakeSettings(),
+        topic_map=HomeAssistantTopicMap(node_id="node-1"),
+        switch_controllers={},
+        data_logger=_FakeDataLogger(),
+    )
+
+    bridge.handle_nodus_liveness_change(
+        "aqi-test123",
+        "unknown",
+        {"state": "unknown", "peer_ids": ["aqi-test123"]},
+    )
+
+    assert mqtt.text_publishes == []

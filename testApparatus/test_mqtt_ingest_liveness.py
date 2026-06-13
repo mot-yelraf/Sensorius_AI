@@ -271,6 +271,23 @@ def test_registered_topics_include_heartbeat(monkeypatch):
     assert "sensorius/nodus/+/event/calibration_result" in ingest.registered_topics
 
 
+def test_shared_ha_client_waits_for_mqtt_on_connect(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    async def _run():
+        await ingest.start()
+        assert ingest.ha_client is ingest.client
+        assert ingest._ha_connected_evt.is_set() is False
+
+        ingest._on_connect(ingest.client, None, None, 0)
+        assert ingest.client.subs
+        await asyncio.sleep(0)
+
+        assert ingest._ha_connected_evt.is_set() is True
+
+    asyncio.run(_run())
+
+
 def test_debug_data_only_registered_topics(monkeypatch):
     ingest = _build_ingest(
         monkeypatch,
@@ -1640,6 +1657,24 @@ def test_recovery_via_data_marks_online_with_stale_heartbeat(monkeypatch):
 
     assert ingest.device_status.get("apvpd-test123") == "online"
     assert ingest.heartbeat_stale.get("apvpd-test123") is True
+
+
+def test_fresh_data_overrides_older_stale_heartbeat(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    now_ts = time.time()
+    ingest.heartbeat_interval_s_by_host["apvpd-test123"] = 30.0
+    ingest.last_heartbeat_ts["apvpd-test123"] = now_ts - 95.0
+    ingest.heartbeat_stale["apvpd-test123"] = True
+    ingest.device_status["apvpd-test123"] = "offline"
+
+    msg = _Msg("nodus/apvpd-test123/data", json.dumps({"values": {"Temperature": 21.2}}), retain=False)
+    ingest._on_message(ingest.client, None, msg)
+
+    snapshot = ingest.get_nodus_liveness("apvpd-test123")
+    assert snapshot["state"] == "online"
+    assert snapshot["reason"] == "report_recent"
+    assert ingest.get_measure_status("apvpd-test123") == "online"
+    assert ingest.device_status.get("apvpd-test123") == "online"
 
 
 def test_live_nodus_data_broadcasts_dashboard_inventory_once(monkeypatch):
