@@ -6,6 +6,7 @@ These are the canonical operating documents for Sensorius.
 - Setup and installation: `docs/setup.md`
 - Operations: `docs/operations.md`
 - System architecture: `docs/architecture.md`
+- Biodynamic Calendar companion app: `docs/biodynamic_calendar_companion.md`
 - Configuration: `docs/configuration.md`
 - MQTT and Nodus runtime contract overview: `docs/mqtt.md`
 - Home Assistant integration: `docs/homeassistant.md`

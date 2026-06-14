@@ -81,6 +81,8 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "#bioDateLine{font-size:.74rem;" in text
     assert "#bioWindow{font-size:.70rem;" in text
     assert "white-space:pre;overflow-wrap:normal;word-break:normal;font-variant-numeric:tabular-nums;" in text
+    assert "#bioBox{width:230px;box-sizing:border-box;overflow:hidden;align-items:stretch;}" in text
+    assert "#bioBox .astro-card{width:100%;min-width:0;align-items:stretch;box-sizing:border-box;height:100%;}" in text
     assert "#bioBox .astro-title,#bioCurrentSign,#bioCurrentElement,.bio-window,#bioUpcoming{width:100%;box-sizing:border-box;}" in text
     assert "<div class='bio-main' id='bioCurrentPanel'>" in text
     assert "<button type='button' class='bio-open-btn' id='bioOpenBtn' aria-label='Open biodynamic calendar' title='View Calendar'>" in text
@@ -88,7 +90,7 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "<button type='button' class='moon-view-btn active' id='moonViewLocal' data-moon-view='local' aria-pressed='true' title='Local sky view or Reference moon diagram'>Local</button>" in text
     assert "<button type='button' class='moon-view-btn' id='moonViewReference' data-moon-view='reference' aria-pressed='false' title='Local sky view or Reference moon diagram'>Ref</button>" in text
     assert text.index("<div class='astro-title'>Biodynamic Calendar</div>") < text.index("<div class='bio-window' id='bioDateLine'>Loading biodynamic date...</div>") < text.index("<div class='bio-main' id='bioCurrentPanel'>")
-    assert text.index("<div class='astro-box' id='moonBox' aria-live='polite'>") < text.index("<div class='astro-box' id='sunBox' aria-live='polite'>")
+    assert text.index("<div class='astro-box' id='moonBox' aria-live='polite'>") < text.index("<div class='astro-box' id='sunBox' aria-live='polite' role='button'")
     assert "#bioCurrentBadge" not in text
     assert "openBtn.style.background = color;" in text
     assert "openBtn.style.color = textOnHex(color);" in text
@@ -161,6 +163,21 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "<div class='bio-note-title'>Your Notes</div>" not in text
     assert "<div class='bio-print-sheet' id='bioPrintCalendarSheet' aria-hidden='true'></div>" in text
     assert "<div class='bio-print-sheet' id='bioPrintNotesSheet' aria-hidden='true'></div>" in text
+    assert "function biodynamicCompanionUrl(){" in text
+    assert "url.protocol = 'http:';" in text
+    assert "url.port = '8765';" in text
+    assert "url.search = '?source=sensorius';" in text
+    assert ".bd-companion-overlay{position:fixed;inset:0;z-index:9999;" in text
+    assert ".bd-companion-frame{width:100%;min-width:0;flex:1 1 auto;border:0;background:#fff;}" in text
+    assert "window.closeBiodynamicCompanion = function(){" in text
+    assert "function openBiodynamicCompanion(url){" in text
+    assert "closeBtn.textContent = 'Back to Sensorius';" in text
+    assert "frame.src = url;" in text
+    assert "window.openBiodynamicCalendar = async function(){" in text
+    assert "fetch('/api/biodynamic-calendar-companion', { cache:'no-store' });" in text
+    assert "openBiodynamicCompanion(biodynamicCompanionUrl());" in text
+    assert "window.location.assign(biodynamicCompanionUrl());" not in text
+    assert "if (window.openBiodynamicCalendarModal) await window.openBiodynamicCalendarModal(); else setBioOpenButtonLoading(false);" in text
     assert "@media print{@page{margin:.2in}@page bio-calendar{size:landscape;margin:.2in}@page bio-notes{size:portrait;margin:.35in}body.bio-printing *{visibility:hidden !important}" in text
     assert "@page bio-calendar{size:landscape;margin:.2in}" in text
     assert "@page bio-notes{size:portrait;margin:.35in}" in text
@@ -232,6 +249,70 @@ async def test_biodynamic_calendar_api_default_month_uses_biodynamic_local_time(
     assert captured[0].isoformat() == "2026-03-01"
     assert captured[-1].isoformat() == "2026-04-01"
     assert window_calls == [("2026-03-01", saiWebRoutes.DEFAULT_FORECAST_DAYS, True)]
+
+
+@pytest.mark.asyncio
+async def test_biodynamic_calendar_companion_status_endpoint(monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    async def _fake_probe():
+        return {"ok": True, "port": 8765, "health_path": "/healthz", "source_query": "source=sensorius"}
+
+    monkeypatch.setattr(saiWebRoutes, "_probe_biodynamic_companion_app", _fake_probe)
+
+    app = FastAPI()
+    await saiWebRoutes.register_routes(app, _HubSettings(), _FakeNetMgr(), _FakeGcMgr(), _FakeIngest())
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/api/biodynamic-calendar-companion")
+
+    assert res.status_code == 200
+    assert res.json() == {
+        "ok": True,
+        "port": 8765,
+        "health_path": "/healthz",
+        "source_query": "source=sensorius",
+    }
+
+
+@pytest.mark.asyncio
+async def test_biodynamic_calendar_companion_probe_accepts_root_page_when_health_missing(monkeypatch):
+    class _Resp:
+        def __init__(self, status_code, text):
+            self.status_code = status_code
+            self.text = text
+
+    responses = [
+        _Resp(404, '{"detail":"Not Found"}'),
+        _Resp(200, "<title>Biodynamic Calendar</title><section class='calendar-shell'></section>"),
+    ]
+    seen_urls = []
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url):
+            seen_urls.append(url)
+            return responses.pop(0)
+
+    monkeypatch.setattr(saiWebRoutes.httpx, "AsyncClient", _FakeAsyncClient)
+
+    payload = await saiWebRoutes._probe_biodynamic_companion_app()
+
+    assert payload["ok"] is True
+    assert payload["probe_path"] == "/?source=sensorius"
+    assert payload["health_status_code"] == 404
+    assert seen_urls == [
+        "http://127.0.0.1:8765/healthz",
+        "http://127.0.0.1:8765/?source=sensorius",
+    ]
 
 
 @pytest.mark.asyncio

@@ -178,6 +178,49 @@ _sensor_ids_cache_until: float = 0.0
 _SENSOR_IDS_CACHE_TTL_SEC = 10.0
 _dynamic_switch_monitor_tasks: dict[str, asyncio.Task] = {}
 _SWITCH_STATUS_CACHE_TTL_SEC: float = 1.5
+_BIODYNAMIC_COMPANION_PORT = 8765
+_BIODYNAMIC_COMPANION_BASE_URL = f"http://127.0.0.1:{_BIODYNAMIC_COMPANION_PORT}"
+_BIODYNAMIC_COMPANION_HEALTH_URL = f"{_BIODYNAMIC_COMPANION_BASE_URL}/healthz"
+_BIODYNAMIC_COMPANION_TIMEOUT = httpx.Timeout(connect=0.35, read=0.75, write=0.35, pool=0.35)
+
+
+async def _probe_biodynamic_companion_app() -> dict[str, object]:
+    """Return whether the local standalone BD Calendar companion is reachable."""
+    try:
+        async with httpx.AsyncClient(timeout=_BIODYNAMIC_COMPANION_TIMEOUT) as client:
+            resp = await client.get(_BIODYNAMIC_COMPANION_HEALTH_URL)
+        body = str(resp.text or "").strip().lower()
+        ok = resp.status_code == 200 and body == "ok"
+        if not ok:
+            async with httpx.AsyncClient(timeout=_BIODYNAMIC_COMPANION_TIMEOUT) as client:
+                root_resp = await client.get(f"{_BIODYNAMIC_COMPANION_BASE_URL}/?source=sensorius")
+            root_body = str(root_resp.text or "").lower()
+            ok = root_resp.status_code == 200 and "biodynamic calendar" in root_body and "calendar-shell" in root_body
+            if ok:
+                return {
+                    "ok": True,
+                    "port": _BIODYNAMIC_COMPANION_PORT,
+                    "health_path": "/healthz",
+                    "source_query": "source=sensorius",
+                    "probe_path": "/?source=sensorius",
+                    "status_code": root_resp.status_code,
+                    "health_status_code": resp.status_code,
+                }
+        return {
+            "ok": ok,
+            "port": _BIODYNAMIC_COMPANION_PORT,
+            "health_path": "/healthz",
+            "source_query": "source=sensorius",
+            "status_code": resp.status_code,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "port": _BIODYNAMIC_COMPANION_PORT,
+            "health_path": "/healthz",
+            "source_query": "source=sensorius",
+            "reason": exc.__class__.__name__,
+        }
 
 
 def _sensor_latest_age_sec(latest_timestamp: object, *, tz_name: str = "America/Denver") -> float | None:
@@ -4865,6 +4908,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             summary_ms=f"{summary_ms:.1f}",
             payload_ms=f"{payload_ms:.1f}",
             notes_ms=f"{notes_ms:.1f}",
+        )
+        return JSONResponse(payload)
+
+    @router.get("/api/biodynamic-calendar-companion", response_class=JSONResponse)
+    async def api_biodynamic_calendar_companion():
+        _route_started = time.monotonic()
+        payload = await _probe_biodynamic_companion_app()
+        _ui_profile_log(
+            "api-biodynamic-calendar-companion",
+            _route_started,
+            ok=bool(payload.get("ok")),
+            port=str(payload.get("port") or ""),
         )
         return JSONResponse(payload)
 
