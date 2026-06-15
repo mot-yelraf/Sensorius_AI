@@ -48,7 +48,7 @@
       <button id="btn-ha-cancel" class="button black" title="Go back">Back</button>
       <button id="btn-ha-save" class="button blue" title="Save Home Assistant settings">Save</button>
     </div>
-    <div id="ha-save-status" class="muted" style="margin-top:8px; min-height:1.2rem;"></div>
+    <div id="ha-save-status" class="sai-live-status" aria-live="polite"></div>
   </div>
 </div>
 
@@ -156,8 +156,9 @@ document.addEventListener("click", async (ev) => {
     } catch (e) {
       console.error(e);
       const statusEl = document.getElementById("ha-save-status");
-      if (statusEl) statusEl.textContent = e && e.message ? e.message : "Failed to save Home Assistant settings.";
-      if (window.showToast) window.showToast("Failed to save Home Assistant settings", "error");
+      const msg = e && e.message ? e.message : "Failed to save Home Assistant settings.";
+      if (statusEl) statusEl.textContent = msg;
+      if (window.showToast) window.showToast(msg, "error");
     } finally {
       const saveBtn = document.getElementById("btn-ha-save");
       if (saveBtn) {

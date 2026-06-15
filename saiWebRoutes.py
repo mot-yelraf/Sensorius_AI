@@ -11506,54 +11506,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             printDM(f"/advanced/automations/delete error: {exc}", location="saiWebRoutes")
             return JSONResponse({"error": str(exc)}, status_code=500)
 
-    @router.get("/switch-advanced", response_class=JSONResponse)
-    async def get_advanced_script(switch_id: str = Query(...), channel: int = Query(1)):
-        """
-        Returns the current Advanced script JSON (normalized) for SWITCH_<channel>_Advanced,
-        or {} if not present.
-        """
-        from saiAutomationManager import AutomationManager
-
-        def _coerce_int(x, default=1):
-            try: return int(str(x).strip())
-            except Exception: return default
-
-        ch = _coerce_int(channel, 1)
-        mgr = AutomationManager("switch_settings")
-        data = mgr.load(switch_id) or {}
-
-        # We use the naming convention SWITCH_<n>_Advanced
-        rule_id = f"SWITCH_{ch}_Advanced"
-        adv = (data.get("Advanced") or {})
-        raw = adv.get(rule_id)
-
-        # Older files might store a string (already compact JSON), or a dict
-        import json as _json
-        normalized = {}
-        try:
-            if isinstance(raw, dict):
-                normalized = raw
-            elif isinstance(raw, str) and raw.strip():
-                normalized = _json.loads(raw)
-        except Exception:
-            normalized = {}
-
-        # Ensure shape {logic, conditions[], actions[]}
-        logic = str((normalized.get("logic") or "AND")).upper()
-        logic = "OR" if logic == "OR" else "AND"
-        conditions = list(normalized.get("conditions") or [])
-        actions = list(normalized.get("actions") or [])
-
-        return JSONResponse({"script": {"logic": logic, "conditions": conditions, "actions": actions}})
-
-    @router.get("/ui/modal/advanced-automation", response_class=HTMLResponse)
-    async def modal_advanced_automation(request: Request, switch_id: str = Query(...)):
-        templates = request.app.state.templates
-        return templates.TemplateResponse(
-            "modals/advanced_automation.html",
-            {"request": request, "switch_id": switch_id},
-        )
-
     @router.post("/submit-advanced-trigger")
     async def submit_advanced_trigger(request: Request):
         """
@@ -11565,7 +11517,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
           - switch_id       (required)
           - channel         (e.g., "1") OR switch_selector (fallback)
           - rule_id         (optional; default: "SWITCH_<channel>_Advanced"; made unique if collides)
-          - script_json     (required) JSON string built in the Advanced modal
+          - script_json     (required) JSON string built in the Switch Automations pane
           - enabled         (optional; default: true)
         """
         global _switch_status_cache_payload, _switch_status_cache_until

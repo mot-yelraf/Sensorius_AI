@@ -108,21 +108,25 @@ window.initSystemCalibrationModal = async function(modalEl) {
         const status = String(result.status || "").toLowerCase();
 
         if (status === "success" || status === "ok") {
+          const msg = result.message || "Device calibration updated.";
           if (devCalStatus) {
-            devCalStatus.textContent =
-              result.message || "Device calibration updated.";
+            devCalStatus.textContent = msg;
           }
+          if (typeof window.showToast === "function") window.showToast(msg, "ok");
         } else {
+          const msg = result.message || "Failed to apply device calibration.";
           if (devCalStatus) {
-            devCalStatus.textContent =
-              result.message || "Failed to apply device calibration.";
+            devCalStatus.textContent = msg;
           }
+          if (typeof window.showToast === "function") window.showToast(msg, "error");
         }
       } catch (err) {
         console.error("Device calibration apply error", err);
+        const msg = err && err.message ? err.message : "Error applying device calibration.";
         if (devCalStatus) {
-          devCalStatus.textContent = err && err.message ? err.message : "Error applying device calibration.";
+          devCalStatus.textContent = msg;
         }
+        if (typeof window.showToast === "function") window.showToast(msg, "error");
       } finally {
         devCalApplyBtn.disabled = false;
       }
@@ -164,14 +168,17 @@ window.initSystemCalibrationModal = async function(modalEl) {
       if (soilPhCalStatus) {
         const measured = Number(result.measured_ph);
         const offset = Number(result.soil_ph_offset);
-        soilPhCalStatus.textContent =
-          `Measured ${Number.isFinite(measured) ? measured.toFixed(3) : "?"}, offset ${Number.isFinite(offset) ? offset.toFixed(4) : "?"}.`;
+        const msg = `Measured ${Number.isFinite(measured) ? measured.toFixed(3) : "?"}, offset ${Number.isFinite(offset) ? offset.toFixed(4) : "?"}.`;
+        soilPhCalStatus.textContent = msg;
+        if (typeof window.showToast === "function") window.showToast(msg, "ok");
       }
     } catch (err) {
       console.error("Soil pH buffer calibration error", err);
+      const msg = err && err.message ? err.message : "Error applying pH calibration.";
       if (soilPhCalStatus) {
-        soilPhCalStatus.textContent = err && err.message ? err.message : "Error applying pH calibration.";
+        soilPhCalStatus.textContent = msg;
       }
+      if (typeof window.showToast === "function") window.showToast(msg, "error");
     } finally {
       soilPhBufferBtns.forEach((btn) => { btn.disabled = false; });
     }
@@ -245,14 +252,18 @@ window.initSystemCalibrationModal = async function(modalEl) {
       const result = await resp.json().catch(() => ({ status: "error" }));
       const status = String(result.status || "").toLowerCase();
       if (status === "success" || status === "started") {
+        if (typeof window.showToast === "function") window.showToast("Plant calibration started", "ok");
         if (plantPollTimer) clearTimeout(plantPollTimer);
         pollPlantCalibrationStatus();
       } else {
         setPlantCalVisual("Not Calibrated");
+        if (typeof window.showToast === "function") window.showToast("Failed to start plant calibration", "error");
         plantCalBtn.disabled = false;
       }
     } catch (err) {
       setPlantCalVisual("Not Calibrated");
+      const msg = err && err.message ? err.message : "Failed to start plant calibration";
+      if (typeof window.showToast === "function") window.showToast(msg, "error");
       plantCalBtn.disabled = false;
     }
   }
@@ -383,9 +394,11 @@ window.initSystemCalibrationModal = async function(modalEl) {
       });
     } catch (err) {
       console.error("[SystemCal] preview fetch error:", err);
+      const msg = "Failed to contact server for system calibration preview.";
       if (statusEl) {
-        statusEl.textContent = "Failed to contact server for system calibration preview.";
+        statusEl.textContent = msg;
       }
+      if (typeof window.showToast === "function") window.showToast(msg, "error");
       return;
     }
 
@@ -394,9 +407,11 @@ window.initSystemCalibrationModal = async function(modalEl) {
       data = await resp.json();
     } catch (err) {
       console.error("[SystemCal] preview JSON error:", err);
+      const msg = "Server returned an invalid preview payload.";
       if (statusEl) {
-        statusEl.textContent = "Server returned an invalid preview payload.";
+        statusEl.textContent = msg;
       }
+      if (typeof window.showToast === "function") window.showToast(msg, "error");
       return;
     }
 
@@ -407,6 +422,7 @@ window.initSystemCalibrationModal = async function(modalEl) {
       if (statusEl) {
         statusEl.textContent = msg;
       }
+      if (typeof window.showToast === "function") window.showToast(msg, "error");
       return;
     }
 
@@ -414,6 +430,7 @@ window.initSystemCalibrationModal = async function(modalEl) {
     scLastPreview = data;
     scRenderPreviewStatus(data);
     scUpdateTableFromPreview(data);
+    if (typeof window.showToast === "function") window.showToast("System calibration preview ready", "ok");
     if (applyBtn) {
       applyBtn.disabled = false;
     }
@@ -425,9 +442,11 @@ window.initSystemCalibrationModal = async function(modalEl) {
   // -----------------------
   async function scDoApply() {
     if (!scLastPreview || !Array.isArray(scLastPreview.sensors)) {
+      const msg = "Run Preview before applying system calibration.";
       if (statusEl) {
-        statusEl.textContent = "Run Preview before applying system calibration.";
+        statusEl.textContent = msg;
       }
+      if (typeof window.showToast === "function") window.showToast(msg, "error");
       return;
     }
 
@@ -439,9 +458,11 @@ window.initSystemCalibrationModal = async function(modalEl) {
     }
 
     if (!sensors.length) {
+      const msg = "No sensors selected to calibrate.";
       if (statusEl) {
-        statusEl.textContent = "No sensors selected to calibrate.";
+        statusEl.textContent = msg;
       }
+      if (typeof window.showToast === "function") window.showToast(msg, "error");
       return;
     }
 
@@ -473,6 +494,7 @@ window.initSystemCalibrationModal = async function(modalEl) {
           "System calibration apply failed.";
         console.error("[SystemCal] apply error:", msg);
         if (statusEl) statusEl.textContent = msg;
+        if (typeof window.showToast === "function") window.showToast(msg, "error");
         return;
       }
 
@@ -487,13 +509,16 @@ window.initSystemCalibrationModal = async function(modalEl) {
       if (statusEl) {
         statusEl.textContent = msg;
       }
+      if (typeof window.showToast === "function") window.showToast(msg, failCount ? "error" : "ok");
 
       console.debug("[SystemCal] apply result", data);
     } catch (err) {
       console.error("[SystemCal] apply exception:", err);
+      const msg = err && err.message ? err.message : "Error applying system calibration.";
       if (statusEl) {
-        statusEl.textContent = "Error applying system calibration.";
+        statusEl.textContent = msg;
       }
+      if (typeof window.showToast === "function") window.showToast(msg, "error");
     } finally {
       if (applyBtn) applyBtn.disabled = false;
     }

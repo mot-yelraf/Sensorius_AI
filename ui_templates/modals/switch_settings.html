@@ -68,14 +68,14 @@
                 </div>
               </div>
 
-              <div class="modal-footer switch-form-footer">
+              <div class="modal-footer switch-form-footer sensor-pane-footer">
                 <div class="footer-buttons footer-buttons-restart-layout">
                   <button
                     class="button black footer-home"
                     type="button"
                     onclick="window.closeSwitchSettingsModal && window.closeSwitchSettingsModal();"
                   >
-                    Home
+                    Dashboard
                   </button>
                   {% if can_restart_device %}
                   <button
@@ -92,7 +92,7 @@
                   </button>
                 </div>
               </div>
-              <div id="switchSettingsStatus" class="muted" style="font-size:0.8rem; min-height:1.2rem; margin-top:0.35rem; text-align:right;"></div>
+              <div id="switchSettingsStatus" class="sai-live-status" aria-live="polite"></div>
             </form>
           </div>
 
@@ -103,14 +103,14 @@
                 <button class="button green" type="button" id="btnNewFromList">New</button>
               </div>
               <div class="list" id="automationList"></div>
-              <div class="modal-footer" style="margin-top:.25rem;">
+              <div class="modal-footer sensor-pane-footer" style="margin-top:.25rem;">
                 <div class="footer-buttons footer-buttons-left">
                   <button
                     class="button black"
                     type="button"
-                    data-switch-pane-target="settings"
+                    onclick="window.closeSwitchSettingsModal && window.closeSwitchSettingsModal();"
                   >
-                    Back
+                    Dashboard
                   </button>
                 </div>
               </div>
@@ -154,12 +154,11 @@
                 <div class="row single">
                   <button class="button green" type="button" id="btnSetAutomation">Save</button>
                 </div>
-                <div id="automationSaveStatus" class="muted" style="font-size:0.8rem; min-height:1.2rem; margin-top:0.2rem;"></div>
-                <div class="json-preview" id="jsonPreview" hidden></div>
+                <div id="automationSaveStatus" class="sai-live-status" aria-live="polite"></div>
 
-                <div class="modal-footer" style="margin-top:.25rem;">
+                <div class="modal-footer sensor-pane-footer" style="margin-top:.25rem;">
                   <div class="footer-buttons">
-                    <button class="button black" type="button" data-switch-pane-target="settings">Back</button>
+                    <button class="button black" type="button" onclick="window.closeSwitchSettingsModal && window.closeSwitchSettingsModal();">Dashboard</button>
                     <button class="button black" type="button" id="btnSavedAutomations">Saved Automations</button>
                     <button class="button green" type="button" id="btnNewAutomation">New</button>
                     <button class="button red" type="button" id="btnRemove">Remove</button>
@@ -183,7 +182,7 @@
             <div class="list-header">
               <span>Switch Info</span>
             </div>
-            <div class="form">
+            <div class="form compact-info-form">
               <div class="section">
                 <h4 class="section-title">Network</h4>
                 <div class="network-info-grid">
@@ -238,10 +237,10 @@
                 </div>
               </div>
             </div>
-            <div class="modal-footer" style="margin-top:.25rem;">
+            <div class="modal-footer sensor-pane-footer" style="margin-top:.25rem;">
               <div class="footer-buttons footer-buttons-split">
-                <button class="button black" type="button" data-switch-pane-target="settings">
-                  Back
+                <button class="button black" type="button" onclick="window.closeSwitchSettingsModal && window.closeSwitchSettingsModal();">
+                  Dashboard
                 </button>
                 <button class="button red" type="button" data-stat-reset>
                   Clear
@@ -318,7 +317,7 @@
     } catch (err) {
       const msg = err && err.message ? err.message : "Failed to save switch settings.";
       setStatus(msg);
-      if (typeof window.showToast === "function") window.showToast("Failed to save switch settings", "error");
+      if (typeof window.showToast === "function") window.showToast(msg, "error");
     } finally {
       setBusy(false);
     }
@@ -330,7 +329,9 @@
       const switchIdInput = form.querySelector('input[name="switch_id"]');
       const switchId = (switchIdInput && switchIdInput.value) ? String(switchIdInput.value) : String(modal.dataset.switchId || "");
       if (!switchId) {
-        setStatus("Missing switch id.");
+        const msg = "Missing switch id.";
+        setStatus(msg);
+        if (typeof window.showToast === "function") window.showToast(msg, "error");
         return;
       }
       if (!window.confirm("Restart this device now? Unsaved changes in this modal will not be applied.")) {
@@ -362,7 +363,7 @@
         const msg = err && err.message ? err.message : "Failed to restart device.";
         setRestartPending(false);
         setStatus(msg);
-        if (typeof window.showToast === "function") window.showToast("Failed to restart device", "error");
+        if (typeof window.showToast === "function") window.showToast(msg, "error");
       } finally {
         setBusy(false);
       }

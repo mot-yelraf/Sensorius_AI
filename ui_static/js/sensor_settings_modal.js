@@ -268,7 +268,7 @@ window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
       } catch (err) {
         const msg = err && err.message ? err.message : "Failed to save sensor settings.";
         setStatus(msg);
-        if (typeof window.showToast === "function") window.showToast("Failed to save sensor settings", "error");
+        if (typeof window.showToast === "function") window.showToast(msg, "error");
       } finally {
         setBusy(false);
       }
@@ -282,7 +282,9 @@ window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
           ? String(sensorIdInput.value)
           : String(modalEl.dataset.sensorId || "");
         if (!sensorId) {
-          setStatus("Missing sensor id.");
+          const msg = "Missing sensor id.";
+          setStatus(msg);
+          if (typeof window.showToast === "function") window.showToast(msg, "error");
           return;
         }
         if (!window.confirm("Restart this device now? Unsaved changes in this modal will not be applied.")) {
@@ -314,7 +316,7 @@ window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
           const msg = err && err.message ? err.message : "Failed to restart device.";
           setRestartPending(false);
           setStatus(msg);
-          if (typeof window.showToast === "function") window.showToast("Failed to restart device", "error");
+          if (typeof window.showToast === "function") window.showToast(msg, "error");
         } finally {
           setBusy(false);
         }

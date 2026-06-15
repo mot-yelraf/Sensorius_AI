@@ -77,7 +77,7 @@
       <button id="btn-locations-cancel" class="button black" title="Go back">Back</button>
       <button id="btn-locations-save" class="button blue" title="Save locations">Save</button>
     </div>
-    <div id="locations-save-status" class="muted" style="margin-top:8px; min-height:1.2rem;"></div>
+    <div id="locations-save-status" class="sai-live-status" aria-live="polite"></div>
   </div>
 </div>
 
@@ -217,8 +217,9 @@ document.addEventListener("click", async (ev) => {
     } catch (e) {
       console.error(e);
       const statusEl = document.getElementById("locations-save-status");
-      if (statusEl) statusEl.textContent = e && e.message ? e.message : "Failed to save locations.";
-      if (window.showToast) window.showToast("Failed to Save","error");
+      const msg = e && e.message ? e.message : "Failed to save locations.";
+      if (statusEl) statusEl.textContent = msg;
+      if (window.showToast) window.showToast(msg,"error");
     } finally {
       const saveBtn = document.getElementById("btn-locations-save");
       if (saveBtn) {

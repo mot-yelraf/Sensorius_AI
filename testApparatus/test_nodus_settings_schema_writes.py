@@ -589,6 +589,37 @@ def test_system_settings_template_has_weather_forecast_selector_right_of_timezon
     assert text.index('id="tz"') < text.index('id="weather_forecast_provider"')
 
 
+def test_system_settings_template_uses_compact_field_spacing():
+    source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
+    text = source.read_text(encoding="utf-8")
+
+    assert "#setupPiModal .field-stack {\n  display: flex;\n  flex-direction: column;\n  gap: .16rem;" in text
+    assert "#setupPiModal .field-stack label {\n  font-weight: 600;\n  margin: 0;\n  line-height: 1.1;" in text
+    assert "min-height: 2.72rem;" in text
+    assert "gap: .5rem .9rem;" in text
+
+
+def test_system_settings_weewx_pane_omits_inline_mqtt_instructions():
+    source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
+    text = source.read_text(encoding="utf-8")
+
+    assert "id=\"pane-weewx\"" in text
+    assert "id=\"weewx-conf-example\"" not in text
+    assert "Configure the WeeWX MQTT extension" not in text
+    assert "[StdRESTful]" not in text
+
+
+def test_system_settings_dashboard_buttons_close_modal():
+    source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
+    text = source.read_text(encoding="utf-8")
+
+    assert '<button type="button" class="button black" id="btn-home">Dashboard</button>' in text
+    assert '<button type="button" class="button black btn-back-system">Dashboard</button>' in text
+    assert 'ev.target.id === "btn-home") {\n      goHomeFromSettings();' in text
+    assert 'classList.contains("btn-back-system")) {\n      if (document.getElementById("pane-add")' in text
+    assert "      goHomeFromSettings();\n    }" in text
+
+
 def test_system_settings_save_applies_dashboard_weather_forecast_change():
     source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
     text = source.read_text(encoding="utf-8")
@@ -1294,7 +1325,8 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
     assert 'data-stat-value="packets">42</strong>' in html
     assert 'class="sensor-location-input"' in html
     assert 'class="sensor-settings-form"' in html
-    assert html.index("Home") < html.index("Restart Device") < html.index("Save")
+    assert html.index("Dashboard") < html.index("Restart Device") < html.index("Save")
+    assert "window.closeSensorSettingsModal && window.closeSensorSettingsModal();" in html
     assert 'name="metric_display_mode"' in html
     assert 'value="All" selected' in html
     assert 'name="display_style_1"' in html
@@ -1599,7 +1631,8 @@ def test_switch_settings_modal_shows_nodus_firmware_version_in_settings_pane_tit
     )
 
     assert "Switch Settings v1.2.3" in html
-    assert html.index("Home") < html.index("Restart Device") < html.index("Save")
+    assert html.index("Dashboard") < html.index("Restart Device") < html.index("Save")
+    assert "window.closeSwitchSettingsModal && window.closeSwitchSettingsModal();" in html
     assert "Device Restarting..." in html
 
 

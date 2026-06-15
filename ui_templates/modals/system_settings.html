@@ -3,14 +3,17 @@
 <style>
 #setupPiModal .system-settings-shell {
   width: min(1080px, 96vw);
+  height: min(46rem, 90vh);
   max-height: 90vh;
-  overflow: auto;
+  overflow: hidden;
   background: #F5FFFA;
   border-radius: 14px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, .18);
+  display: flex;
+  flex-direction: column;
 }
 #setupPiModal .system-settings-header {
-  padding: 1rem 1.25rem;
+  padding: .85rem 1.15rem;
   border-bottom: 1px solid var(--line, #d6dfd8);
   display: flex;
   align-items: center;
@@ -21,27 +24,33 @@
   font-size: 1.1rem;
 }
 #setupPiModal .system-settings-body {
-  padding: 1rem 1.25rem;
+  padding: .85rem 1.15rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 #setupPiModal .system-settings-split {
   display: grid;
-  gap: 1rem;
+  gap: .85rem;
   grid-template-columns: 240px 1fr;
-  min-height: 560px;
+  height: 100%;
+  min-height: 0;
 }
 #setupPiModal .system-settings-menu {
   background: #ecf5ee;
   border: 1px solid #d6dfd8;
   border-radius: 12px;
-  padding: .75rem;
+  padding: .65rem;
   display: flex;
   flex-direction: column;
-  gap: .5rem;
+  gap: .42rem;
+  min-height: 0;
+  overflow: auto;
 }
 #setupPiModal .system-menu-btn {
   width: 100%;
   text-align: left;
-  padding: .65rem .75rem;
+  padding: .56rem .72rem;
   border-radius: 10px;
   border: 1px solid transparent;
   background: #fff;
@@ -58,24 +67,30 @@
   background: #fff;
   border: 1px solid #d6dfd8;
   border-radius: 12px;
-  padding: .9rem;
+  padding: .75rem .85rem;
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   position: relative;
 }
 #setupPiModal .settings-pane[hidden] { display: none !important; }
 #setupPiModal .settings-pane {
   display: flex;
   flex-direction: column;
-  min-height: var(--system-settings-pane-height, 100%);
+  height: 100%;
+  min-height: 0;
   min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 #setupPiModal #pane-locations,
 #setupPiModal #pane-remove {
-  height: var(--system-settings-pane-height, auto);
+  height: 100%;
 }
 #setupPiModal .pane-title {
-  margin: .15rem 0 .75rem 0;
+  margin: .05rem 0 .55rem 0;
   font-size: 1.05rem;
 }
 #setupPiModal .pane-footer {
@@ -83,20 +98,23 @@
   display: flex;
   justify-content: space-between;
   gap: .65rem;
-  padding-top: .75rem;
+  padding: .75rem .85rem;
+  margin-left: -.85rem;
+  margin-right: -.85rem;
+  margin-bottom: -.75rem;
   border-top: 1px solid #e6ece8;
 }
 #setupPiModal .field-grid-stack {
   display: grid;
   grid-template-columns: repeat(2, minmax(220px, 340px));
-  gap: .75rem 1rem;
+  gap: .5rem .9rem;
   max-width: 760px;
   margin-inline: auto;
 }
 #setupPiModal .field-grid-network {
   display: grid;
   grid-template-columns: repeat(3, minmax(180px, 1fr));
-  gap: .75rem 1rem;
+  gap: .5rem .9rem;
   width: 100%;
   max-width: 940px;
   margin-inline: auto;
@@ -104,7 +122,7 @@
 #setupPiModal .field-grid-top {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: .75rem 1rem;
+  gap: .5rem .9rem;
   width: 100%;
   max-width: 700px;
   margin-inline: auto;
@@ -112,21 +130,21 @@
 #setupPiModal .field-grid-single {
   display: grid;
   grid-template-columns: minmax(220px, 340px);
-  gap: .75rem 1rem;
+  gap: .5rem .9rem;
   max-width: 340px;
   margin-inline: auto;
 }
 #setupPiModal .field-grid-astral {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: .75rem 1rem;
+  gap: .5rem .9rem;
   max-width: 760px;
   margin-inline: auto;
 }
 #setupPiModal .field-grid-advanced {
   display: grid;
   grid-template-columns: repeat(3, minmax(220px, 1fr));
-  gap: 3rem 1rem;
+  gap: 1.8rem .9rem;
   max-width: 980px;
   margin-inline: auto;
   align-items: start;
@@ -143,12 +161,12 @@
 #setupPiModal .ha-enabled-wrap {
   display: flex;
   justify-content: center;
-  margin: .1rem 0 .8rem 0;
-  gap: 1.25rem;
+  margin: 0 0 .55rem 0;
+  gap: 1rem;
 }
 #setupPiModal .ha-enabled-wrap .field-stack {
   align-items: center;
-  gap: .4rem;
+  gap: .16rem;
   min-width: 120px;
 }
 #setupPiModal .ha-enabled-wrap .field-stack input[type="checkbox"] {
@@ -157,14 +175,14 @@
 #setupPiModal .ha-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(220px, 340px));
-  gap: .75rem 1rem;
+  gap: .5rem .9rem;
   max-width: 760px;
   margin-inline: auto;
 }
 #setupPiModal .ha-subgrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: .75rem 1rem;
+  gap: .5rem .9rem;
   width: 100%;
 }
 #setupPiModal .ha-grid .field-stack {
@@ -176,18 +194,20 @@
 #setupPiModal .field-stack {
   display: flex;
   flex-direction: column;
-  gap: .35rem;
+  gap: .16rem;
 }
 #setupPiModal .field-stack label {
   font-weight: 600;
+  margin: 0;
+  line-height: 1.1;
 }
 #setupPiModal .field-stack input:not([type="checkbox"]),
 #setupPiModal .field-stack select {
   width: 100%;
-  padding: .5rem .6rem;
+  padding: .4rem .55rem;
   box-sizing: border-box;
   min-width: 0;
-  min-height: 3.2rem;
+  min-height: 2.72rem;
   border: 1px solid #c9d1cc;
   border-radius: 12px;
   background: #fff;
@@ -232,7 +252,7 @@
   background: #fafdfb;
 }
 #setupPiModal .subhead {
-  margin: 1rem 0 .5rem 0;
+  margin: .72rem 0 .32rem 0;
   font-weight: 700;
 }
 #setupPiModal .inline-actions {
@@ -292,6 +312,17 @@
   color: #444;
   min-height: 1.25rem;
 }
+#setupPiModal .sai-live-status {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
 #setupPiModal .onboard-steps {
   list-style: none;
   padding: 0;
@@ -317,28 +348,6 @@
 #setupPiModal .detail {
   font-size: .88rem;
   color: #444;
-}
-#setupPiModal .instructions-box {
-  max-width: 760px;
-  margin: .85rem auto 0 auto;
-  padding: .75rem .85rem;
-  border: 1px solid #d6dfd8;
-  border-radius: 10px;
-  background: #f8fbf9;
-}
-#setupPiModal .instructions-box p {
-  margin: .25rem 0 .55rem 0;
-  color: #333;
-}
-#setupPiModal .instructions-box pre {
-  margin: .5rem 0;
-  padding: .7rem .85rem;
-  overflow-x: auto;
-  border-radius: 8px;
-  background: #101820;
-  color: #e8f3ef;
-  font-size: .84rem;
-  line-height: 1.35;
 }
 #setupPiModal .integration-state {
   max-width: 760px;
@@ -418,7 +427,17 @@
 @media (max-width: 900px) {
   #setupPiModal .system-settings-split {
     grid-template-columns: 1fr;
-    min-height: unset;
+    height: auto;
+  }
+  #setupPiModal .system-settings-body {
+    overflow: auto;
+  }
+  #setupPiModal .system-settings-content {
+    min-height: 32rem;
+  }
+  #setupPiModal .settings-pane {
+    height: auto;
+    min-height: 32rem;
   }
   #setupPiModal .field-grid-stack {
     grid-template-columns: 1fr;
@@ -501,7 +520,7 @@
         <section class="system-settings-content">
           <div class="settings-pane" id="pane-system">
             <h3 class="pane-title">System Settings</h3>
-            <form method="POST" action="/submit-pi-setup" id="systemSettingsForm" style="display:flex;flex-direction:column;gap:.5rem;flex:1;min-height:0;">
+            <form method="POST" action="/submit-pi-setup" id="systemSettingsForm" style="display:flex;flex-direction:column;gap:.42rem;flex:1;min-height:0;">
               <div class="field-grid-top">
                 <div class="field-stack">
                   <label for="hostname">Hostname</label>
@@ -603,9 +622,9 @@
                 </div>
               </div>
 
-              <div class="status-text" id="system-status"></div>
+              <div class="status-text sai-live-status" id="system-status" aria-live="polite"></div>
               <div class="pane-footer">
-                <button type="button" class="button black" id="btn-home">Home</button>
+                <button type="button" class="button black" id="btn-home">Dashboard</button>
                 <button type="submit" class="button blue" id="btn-system-save">Save</button>
               </div>
             </form>
@@ -654,10 +673,10 @@
               </div>
             </div>
 
-            <div class="status-text" id="ha-status"></div>
+            <div class="status-text sai-live-status" id="ha-status" aria-live="polite"></div>
 
             <div class="pane-footer">
-              <button type="button" class="button black btn-back-system">Back</button>
+              <button type="button" class="button black btn-back-system">Dashboard</button>
               <button type="button" class="button blue" id="btn-ha-save">Save</button>
             </div>
           </div>
@@ -705,16 +724,10 @@
               </div>
             </div>
 
-            <div class="instructions-box">
-              <p>Configure the WeeWX MQTT extension to publish station archive updates to the Sensorius broker.</p>
-              <pre id="weewx-conf-example"></pre>
-              <p>After saving, restart Sensorius so the MQTT subscription is registered. Restart WeeWX after changing <code>/etc/weewx/weewx.conf</code>.</p>
-            </div>
-
-            <div class="status-text" id="weewx-status"></div>
+            <div class="status-text sai-live-status" id="weewx-status" aria-live="polite"></div>
 
             <div class="pane-footer">
-              <button type="button" class="button black btn-back-system">Back</button>
+              <button type="button" class="button black btn-back-system">Dashboard</button>
               <button type="button" class="button blue" id="btn-weewx-save">Save</button>
             </div>
           </div>
@@ -778,10 +791,10 @@
               </div>
             </div>
 
-            <div class="status-text" id="farm-status"></div>
+            <div class="status-text sai-live-status" id="farm-status" aria-live="polite"></div>
 
             <div class="pane-footer">
-              <button type="button" class="button black btn-back-system">Back</button>
+              <button type="button" class="button black btn-back-system">Dashboard</button>
               <button type="button" class="button neutral" id="btn-farm-test">Test Connection</button>
               <button type="button" class="button blue" id="btn-farm-save">Save</button>
             </div>
@@ -792,9 +805,9 @@
             <div class="locations-scroll" id="locations-list">
               <div style="opacity:.7; padding:8px;">Select this pane to load locations.</div>
             </div>
-            <div class="status-text" id="locations-status"></div>
+            <div class="status-text sai-live-status" id="locations-status" aria-live="polite"></div>
             <div class="pane-footer">
-              <button type="button" class="button black btn-back-system">Back</button>
+              <button type="button" class="button black btn-back-system">Dashboard</button>
               <button type="button" class="button blue" id="btn-locations-save">Save</button>
             </div>
           </div>
@@ -828,7 +841,7 @@
             <div id="onboard-terminal-badge" class="onboard-badge" hidden></div>
             <div class="pane-footer">
               <div class="inline-actions">
-                <button type="button" class="button black btn-back-system">Back</button>
+                <button type="button" class="button black btn-back-system">Dashboard</button>
               </div>
               <div class="inline-actions">
                 <button type="button" class="button yellow" id="btn-onboard-retry">Retry</button>
@@ -881,7 +894,7 @@
             <div id="ota-job-history" class="detail" style="margin-top:.45rem;"></div>
             <div class="status-text" id="ota-status"></div>
             <div class="pane-footer">
-              <button type="button" class="button black btn-back-system">Back</button>
+              <button type="button" class="button black btn-back-system">Dashboard</button>
               <div class="inline-actions">
                 <button type="button" class="button yellow" id="btn-ota-cancel" disabled>Cancel Job</button>
                 <button type="button" class="button blue" id="btn-ota-start" disabled>Update Device(s)</button>
@@ -900,7 +913,7 @@
               I understand this deletes settings and data
             </label>
             <div class="pane-footer">
-              <button type="button" class="button black btn-back-system">Back</button>
+              <button type="button" class="button black btn-back-system">Dashboard</button>
               <button id="remove-device-run" disabled class="button red">Remove Selected</button>
             </div>
           </div>
@@ -951,9 +964,9 @@
                 <button type="button" class="button red" id="btn-clear-db">Clear Database</button>
               </div>
             </div>
-            <div class="status-text" id="adv-status" style="margin-top:.5rem;"></div>
+            <div class="status-text sai-live-status" id="adv-status" aria-live="polite"></div>
             <div class="pane-footer">
-              <button type="button" class="button black btn-back-system">Back</button>
+              <button type="button" class="button black btn-back-system">Dashboard</button>
               <button type="button" class="button blue" id="btn-advanced-save">Save</button>
             </div>
           </div>
@@ -970,7 +983,6 @@
   root.dataset.initialized = "1";
 
   const shell = root.querySelector(".system-settings-shell");
-  const systemPane = document.getElementById("pane-system");
   const onboardingV2Enabled = String(shell?.dataset?.onboardingV2Enabled || "true").toLowerCase() !== "false";
   const formEl = document.getElementById("systemSettingsForm");
   const menu = document.getElementById("systemSettingsMenu");
@@ -996,61 +1008,8 @@
   let otaPackageRef = "";
   let otaCurrentJobId = "";
   let otaPollTimer = null;
-  let paneHeightFrame = null;
-
-  function syncSystemPaneHeight() {
-    if (!root || !systemPane) return;
-    const previousHeight = root.style.getPropertyValue("--system-settings-pane-height");
-    const wasHidden = systemPane.hidden;
-    const previousStyle = {
-      minHeight: systemPane.style.minHeight,
-      position: systemPane.style.position,
-      visibility: systemPane.style.visibility,
-      pointerEvents: systemPane.style.pointerEvents,
-      width: systemPane.style.width
-    };
-
-    root.style.removeProperty("--system-settings-pane-height");
-    systemPane.style.minHeight = "0";
-    if (wasHidden) {
-      systemPane.hidden = false;
-      systemPane.style.position = "absolute";
-      systemPane.style.visibility = "hidden";
-      systemPane.style.pointerEvents = "none";
-      systemPane.style.width = "100%";
-    }
-
-    const measuredHeight = Math.ceil(systemPane.getBoundingClientRect().height);
-
-    if (wasHidden) {
-      systemPane.hidden = true;
-      systemPane.style.minHeight = previousStyle.minHeight;
-      systemPane.style.position = previousStyle.position;
-      systemPane.style.visibility = previousStyle.visibility;
-      systemPane.style.pointerEvents = previousStyle.pointerEvents;
-      systemPane.style.width = previousStyle.width;
-    } else {
-      systemPane.style.minHeight = previousStyle.minHeight;
-    }
-
-    if (measuredHeight > 0) {
-      root.style.setProperty("--system-settings-pane-height", measuredHeight + "px");
-    } else if (previousHeight) {
-      root.style.setProperty("--system-settings-pane-height", previousHeight);
-    }
-  }
-
-  function scheduleSystemPaneHeightSync() {
-    if (paneHeightFrame) cancelAnimationFrame(paneHeightFrame);
-    paneHeightFrame = requestAnimationFrame(() => {
-      paneHeightFrame = null;
-      syncSystemPaneHeight();
-    });
-  }
-
   function openSetupModal() {
     root.style.display = "flex";
-    scheduleSystemPaneHeightSync();
   }
 
   function closeSetupModal() {
@@ -1087,7 +1046,6 @@
   }
 
   function setActivePane(paneId) {
-    syncSystemPaneHeight();
     panes.forEach((pane) => {
       pane.hidden = (pane.id !== paneId);
     });
@@ -1210,8 +1168,9 @@
       applyDashboardWeatherForecastChange(body.get("weather_forecast_provider"));
     } catch (e) {
       console.error(e);
-      setStatus("system-status", e && e.message ? e.message : "Failed to save System settings.");
-      if (window.showToast) window.showToast("Failed to save System settings", "error");
+      const msg = e && e.message ? e.message : "Failed to save System settings.";
+      setStatus("system-status", msg);
+      if (window.showToast) window.showToast(msg, "error");
     } finally {
       setButtonBusy("btn-system-save", false);
     }
@@ -1312,8 +1271,9 @@
       if (window.showToast) window.showToast("Home Assistant settings saved", "ok");
     } catch (e) {
       console.error(e);
-      setStatus("ha-status", e && e.message ? e.message : "Failed to save Home Assistant settings.");
-      if (window.showToast) window.showToast("Failed to save Home Assistant settings", "error");
+      const msg = e && e.message ? e.message : "Failed to save Home Assistant settings.";
+      setStatus("ha-status", msg);
+      if (window.showToast) window.showToast(msg, "error");
     } finally {
       setButtonBusy("btn-ha-save", false);
     }
@@ -1335,7 +1295,6 @@
     const topicEl = document.getElementById("weewx-mqtt-topic");
     const updatePeriodEl = document.getElementById("weewx-update-period");
     const brokerEl = document.getElementById("weewx-broker-display");
-    const exampleEl = document.getElementById("weewx-conf-example");
 
     if (enabledEl) enabledEl.value = enabled ? "true" : "false";
     if (dbPathEl) dbPathEl.value = dbPath;
@@ -1343,18 +1302,6 @@
     if (topicEl) topicEl.value = topic;
     if (updatePeriodEl) updatePeriodEl.value = updatePeriod;
     if (brokerEl) brokerEl.value = `${broker}:${port}`;
-    if (exampleEl) {
-      const cleanTopic = String(topic || "weewx/#").replace(/\/#$/, "").replace(/\/$/, "") || "weewx";
-      exampleEl.textContent = [
-        "[StdRESTful]",
-        "    [[MQTT]]",
-        "        server_url = mqtt://" + broker + ":" + port + "/",
-        "        topic = " + cleanTopic,
-        "        unit_system = US",
-        "        binding = archive",
-        "        aggregation = aggregate"
-      ].join("\n");
-    }
     setStatus("weewx-status", "");
     loadWeeWXStatus();
   }
@@ -1432,12 +1379,14 @@
       shell.dataset.weewxUpdatePeriod = String(update_period_sec);
       hydrateWeeWXFromData();
       await loadWeeWXStatus();
-      setStatus("weewx-status", "Saved. Restart Sensorius for MQTT subscription changes to take effect.");
-      if (window.showToast) window.showToast("WeeWX settings saved", "ok");
+      const msg = "WeeWX settings saved. Restart Sensorius for MQTT subscription changes to take effect.";
+      setStatus("weewx-status", msg);
+      if (window.showToast) window.showToast(msg, "ok");
     } catch (e) {
       console.error(e);
-      setStatus("weewx-status", e && e.message ? e.message : "Failed to save WeeWX settings.");
-      if (window.showToast) window.showToast("Failed to save WeeWX settings", "error");
+      const msg = e && e.message ? e.message : "Failed to save WeeWX settings.";
+      setStatus("weewx-status", msg);
+      if (window.showToast) window.showToast(msg, "error");
     } finally {
       setButtonBusy("btn-weewx-save", false);
     }
@@ -1533,8 +1482,9 @@
       if (window.showToast) window.showToast("FarmOS settings saved", "ok");
     } catch (e) {
       console.error(e);
-      setStatus("farm-status", e && e.message ? e.message : "Failed to save FarmOS settings.");
-      if (window.showToast) window.showToast("Failed to save FarmOS settings", "error");
+      const msg = e && e.message ? e.message : "Failed to save FarmOS settings.";
+      setStatus("farm-status", msg);
+      if (window.showToast) window.showToast(msg, "error");
     } finally {
       setButtonBusy("btn-farm-save", false);
     }
@@ -1570,17 +1520,20 @@
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok || !data.ok) {
         const msg = data.error || ("HTTP " + resp.status);
-        setStatus("farm-status", "Connection failed: " + msg);
-        if (window.showToast) window.showToast("FarmOS test failed", "error");
+        const displayMsg = "Connection failed: " + msg;
+        setStatus("farm-status", displayMsg);
+        if (window.showToast) window.showToast(displayMsg, "error");
         return;
       }
-      setStatus("farm-status", `Connection OK (${data.status_code || 200})`);
-      if (window.showToast) window.showToast("FarmOS connection OK", "ok");
+      const displayMsg = `Connection OK (${data.status_code || 200})`;
+      setStatus("farm-status", displayMsg);
+      if (window.showToast) window.showToast(displayMsg, "ok");
       await loadFarmStatus();
     } catch (e) {
       console.error(e);
-      setStatus("farm-status", "Connection failed.");
-      if (window.showToast) window.showToast("FarmOS test failed", "error");
+      const msg = e && e.message ? "Connection failed: " + e.message : "Connection failed.";
+      setStatus("farm-status", msg);
+      if (window.showToast) window.showToast(msg, "error");
     }
   }
 
@@ -1656,8 +1609,9 @@
       if (window.showToast) window.showToast("Locations saved", "ok");
     } catch (e) {
       console.error(e);
-      setStatus("locations-status", e && e.message ? e.message : "Failed to save locations.");
-      if (window.showToast) window.showToast("Failed to save", "error");
+      const msg = e && e.message ? e.message : "Failed to save locations.";
+      setStatus("locations-status", msg);
+      if (window.showToast) window.showToast(msg, "error");
     } finally {
       setButtonBusy("btn-locations-save", false);
     }
@@ -1701,6 +1655,7 @@
     } catch (e) {
       console.error(e);
       setStatus("adv-status", "Failed to load Advanced settings.");
+      if (window.showToast) window.showToast("Failed to load Advanced settings.", "error");
     }
   }
 
@@ -1729,15 +1684,18 @@
         throw new Error(js.error || ("HTTP " + resp.status));
       }
       if (js.status === "partial") {
-        setStatus("adv-status", "Saved, but auto-start update had an issue: " + (js.autostart_message || "unknown"));
+        const msg = "Saved, but auto-start update had an issue: " + (js.autostart_message || "unknown");
+        setStatus("adv-status", msg);
+        if (window.showToast) window.showToast(msg, "error");
       } else {
         setStatus("adv-status", "Saved.");
+        if (window.showToast) window.showToast("Advanced settings saved", "ok");
       }
-      if (window.showToast) window.showToast("Advanced settings saved", "ok");
     } catch (e) {
       console.error(e);
-      setStatus("adv-status", e && e.message ? e.message : "Failed to save Advanced settings.");
-      if (window.showToast) window.showToast("Failed to save Advanced settings", "error");
+      const msg = e && e.message ? e.message : "Failed to save Advanced settings.";
+      setStatus("adv-status", msg);
+      if (window.showToast) window.showToast(msg, "error");
     } finally {
       setButtonBusy("btn-advanced-save", false);
     }
@@ -2639,7 +2597,7 @@
       if (document.getElementById("pane-add") && !document.getElementById("pane-add").hidden) {
         stopAddScan();
       }
-      setActivePane("pane-system");
+      goHomeFromSettings();
     }
   });
 
@@ -2665,8 +2623,6 @@
       saveSystemSettings();
     });
   }
-  window.addEventListener("resize", scheduleSystemPaneHeightSync);
-  scheduleSystemPaneHeightSync();
   refreshTimezoneOptionsFromCoords();
 })();
 </script>

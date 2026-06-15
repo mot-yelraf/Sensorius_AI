@@ -82,7 +82,7 @@ When location and timezone settings are available, Sensorius can show sun and mo
 
 This view can include sunrise, solar noon, sunset, moonrise, moonset, moon phase, traditional full moon names, moon position, and illumination details. It is especially useful when automations depend on Astral timing or when environmental patterns follow daylight cycles.
 
-Click the Sun/Moon Position card to overlay a 29-day position graph. The expanded graph labels each date at midnight, includes a small local-sky moon phase for each day, and closes when you click it.
+Click the Sun/Moon Position or Moon Phase card to overlay a 29-day position graph. The expanded graph labels each date at midnight, includes a small local-sky moon phase for each day, and closes when you click it.
 
 The dashboard can show a 24-hour weather forecast card next to the biodynamic calendar. In **System Settings**, choose **Weather Forecast** to use MET Norway, Open-Meteo, US National Weather Service, or **None**. The forecast uses the same Astral latitude, longitude, and timezone settings. Click **6 Day Forecast** to open a six-day outlook with daily forecast text, temperature range, wind, and relative humidity range. Choosing **None** hides the forecast card.
 
@@ -119,6 +119,24 @@ Typical sensor settings include:
 - Sensor-specific configuration provided by the device metadata or local settings.
 
 Keep names and locations clear. Good location labels make the dashboard easier to scan and make automation rules easier to understand later.
+
+## WeeWX Integration
+
+Sensorius can ingest WeeWX station readings through MQTT and display them as a normal dashboard sensor. In **System Settings**, open **WeeWX**, set **MQTT Interface** to **Enabled**, confirm the **MQTT Topic Filter** and **Sensorius Sensor ID**, then save. Restart Sensorius after saving WeeWX MQTT subscription changes.
+
+Configure WeeWX to publish archive updates to the Sensorius MQTT broker. On a typical WeeWX host, edit `/etc/weewx/weewx.conf` and add or update the MQTT section under `[StdRESTful]`:
+
+```ini
+[StdRESTful]
+    [[MQTT]]
+        server_url = mqtt://<sensorius-host>:1883/
+        topic = weewx
+        unit_system = US
+        binding = archive
+        aggregation = aggregate
+```
+
+The default Sensorius topic filter is `weewx/#`, which matches the `topic = weewx` example above. If you use a different WeeWX topic, update the **MQTT Topic Filter** in the WeeWX settings pane to match it. Restart WeeWX after changing `/etc/weewx/weewx.conf`.
 
 ## Calibration
 

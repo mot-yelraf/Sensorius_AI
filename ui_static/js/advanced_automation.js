@@ -62,12 +62,11 @@ async function deleteAutomation(ruleId) {
   }
 }
 
-// Returns the inner modal (#automationManagerModal) reliably from any descendant/backdrop
+// Returns the Switch Settings modal reliably from any descendant/backdrop.
 function getModalRoot(fromEl) {
   return (
-    (fromEl && fromEl.closest && fromEl.closest("#automationManagerModal, #switchSettingsModal")) ||
-    (fromEl && fromEl.querySelector && fromEl.querySelector("#automationManagerModal, #switchSettingsModal")) ||
-    document.querySelector("#automationManagerModal") ||
+    (fromEl && fromEl.closest && fromEl.closest("#switchSettingsModal")) ||
+    (fromEl && fromEl.querySelector && fromEl.querySelector("#switchSettingsModal")) ||
     document.querySelector("#switchSettingsModal")
   );
 }
@@ -219,13 +218,6 @@ function renderList(rootLike) {
     item.append(name, badge);
     list.appendChild(item);
   });
-}
-
-function showPreview(modal, obj) {
-  const box = q(modal, "#jsonPreview");
-  if (!box) return;
-  box.hidden = false;
-  box.textContent = JSON.stringify(obj, null, 2);
 }
 
 function _pad2(num) {
@@ -762,7 +754,6 @@ function loadSelectedIntoForm(rootLike){
   if (!normalizedActions.length) addAction(modal, {});
   else normalizedActions.forEach(a => addAction(modal, a));
 
-  showPreview(modal, auto);
   updateAstralDependencyWarning(modal);
 }
 
@@ -1017,7 +1008,6 @@ async function saveCurrent(modal){
   renderList(modal);
   loadSelectedIntoForm(modal);
   await loadAutomationsListInto(modal, { preserveSelection: true, openEditor: true });
-  showPreview(modal, nextDoc);
   if (typeof window.refreshAndApplySwitchStatus === "function") {
     window.setTimeout(() => window.refreshAndApplySwitchStatus().catch?.(() => {}), 0);
   }
@@ -1098,8 +1088,9 @@ window.initAdvancedAutomationModal = async function (modalEl) {
     if (btnAddAction) btnAddAction.onclick = () => addAction(modalRoot, {});
     if (btnSave) btnSave.onclick = () => saveCurrent(modalRoot).catch((e) => {
       const statusEl = modalRoot.querySelector("#automationSaveStatus");
-      if (statusEl) statusEl.textContent = e && e.message ? e.message : "Save failed";
-      if (typeof window.showToast === "function") window.showToast("Failed to save automation", "error");
+      const msg = e && e.message ? e.message : "Save failed";
+      if (statusEl) statusEl.textContent = msg;
+      if (typeof window.showToast === "function") window.showToast(msg, "error");
       if (btnSave) {
         btnSave.disabled = false;
         btnSave.textContent = btnSave.dataset.baseLabel || "Save";

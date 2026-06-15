@@ -143,7 +143,7 @@
                     class="button black footer-home"
                     onclick="window.closeSensorSettingsModal && window.closeSensorSettingsModal();"
                   >
-                    Home
+                    Dashboard
                   </button>
                   {% if can_restart_device %}
                   <button
@@ -164,7 +164,7 @@
                     ></span>
                   </button>
                 </div>
-                <div id="sensorSettingsStatus" class="muted sensor-pane-footer-status"></div>
+                <div id="sensorSettingsStatus" class="sai-live-status" aria-live="polite"></div>
               </div>
             </form>
           </div>
@@ -270,9 +270,7 @@
                       Calibrate Plant Sensor
                     </button>
                   </div>
-                  <div style="display:flex; justify-content:flex-end; margin-top:0.25rem; min-height:1.25rem;">
-                    <span id="plantCalStatus" class="muted" style="font-size:0.8rem;"></span>
-                  </div>
+                  <span id="plantCalStatus" class="sai-live-status" aria-live="polite"></span>
 
                 {% elif is_soil %}
                   <h4 class="section-title">Soil Offsets</h4>
@@ -285,9 +283,7 @@
                     <button type="button" class="button green soilPhBufferBtn" data-buffer-ph="7.0">Calibrate pH 7.0</button>
                     <button type="button" class="button green soilPhBufferBtn" data-buffer-ph="10.0">Calibrate pH 10.0</button>
                   </div>
-                  <div style="min-height:1.25rem; margin-bottom:0.5rem;">
-                    <span id="soilPhCalStatus" class="muted" style="font-size:0.8rem;"></span>
-                  </div>
+                  <span id="soilPhCalStatus" class="sai-live-status" aria-live="polite"></span>
 
                   <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
                     <tbody>
@@ -354,10 +350,9 @@
                 <button
                   type="button"
                   class="button black"
-                  data-pane-target="sensor-settings-pane"
-                  onclick="var modal=this.closest('#sensorSettingsModal'); if(window.initSensorSettingsModal && modal && typeof window.initSensorSettingsModal==='function'){ if(typeof modal.__showSensorPane==='function'){ modal.__showSensorPane('sensor-settings-pane'); return; } } var panes=(modal||document).querySelectorAll('.sensor-pane-view'); panes.forEach(function(p){ p.style.display=(p.id==='sensor-settings-pane'?'flex':'none'); }); var menu=(modal||document).querySelector('#sensorSettingsMenu'); if(menu){ menu.querySelectorAll('button[data-pane-target], .list-item[data-pane-target]').forEach(function(item){ item.classList.toggle('active', (item.getAttribute('data-pane-target')||'')==='sensor-settings-pane'); }); }"
+                  onclick="window.closeSensorSettingsModal && window.closeSensorSettingsModal();"
                 >
-                  Back
+                  Dashboard
                 </button>
                 {% if is_apvpd or is_soil or device_offsets %}
                 <button type="button" class="button blue" id="devCalApplyBtn">
@@ -365,7 +360,7 @@
                 </button>
                 {% endif %}
               </div>
-              <div id="devCalStatus" class="muted sensor-pane-footer-status"></div>
+              <div id="devCalStatus" class="sai-live-status" aria-live="polite"></div>
             </div>
           </div>
           {% endif %}
@@ -440,10 +435,9 @@
                 <button
                   type="button"
                   class="button black"
-                  data-pane-target="sensor-settings-pane"
-                  onclick="var modal=this.closest('#sensorSettingsModal'); if(window.initSensorSettingsModal && modal && typeof window.initSensorSettingsModal==='function'){ if(typeof modal.__showSensorPane==='function'){ modal.__showSensorPane('sensor-settings-pane'); return; } } var panes=(modal||document).querySelectorAll('.sensor-pane-view'); panes.forEach(function(p){ p.style.display=(p.id==='sensor-settings-pane'?'flex':'none'); }); var menu=(modal||document).querySelector('#sensorSettingsMenu'); if(menu){ menu.querySelectorAll('button[data-pane-target], .list-item[data-pane-target]').forEach(function(item){ item.classList.toggle('active', (item.getAttribute('data-pane-target')||'')==='sensor-settings-pane'); }); }"
+                  onclick="window.closeSensorSettingsModal && window.closeSensorSettingsModal();"
                 >
-                  Back
+                  Dashboard
                 </button>
                 <div class="sensor-pane-footer-actions">
                   <button type="button" class="button blue" id="sysCalPreviewBtn">
@@ -454,7 +448,7 @@
                   </button>
                 </div>
               </div>
-              <div id="sysCalStatus" class="muted sensor-pane-footer-status"></div>
+              <div id="sysCalStatus" class="sai-live-status" aria-live="polite"></div>
             </div>
           </div>
           {% endif %}
@@ -474,7 +468,7 @@
             <div class="list-header sensor-pane-header">
               <span>Sensor Info</span>
             </div>
-            <div class="form sensor-pane-scroll">
+            <div class="form sensor-pane-scroll compact-info-form">
               <div class="section">
                 <h4 class="section-title">Network</h4>
                 <div class="network-info-grid">
@@ -521,8 +515,8 @@
             </div>
             <div class="modal-footer sensor-pane-footer">
               <div class="sensor-pane-footer-row">
-                <button type="button" class="button black" data-pane-target="sensor-settings-pane">
-                  Back
+                <button type="button" class="button black" onclick="window.closeSensorSettingsModal && window.closeSensorSettingsModal();">
+                  Dashboard
                 </button>
                 <button type="button" class="button red" data-stat-reset>
                   Clear
@@ -615,7 +609,7 @@
     } catch (err) {
       const msg = err && err.message ? err.message : "Failed to save sensor settings.";
       setStatus(msg);
-      if (typeof window.showToast === "function") window.showToast("Failed to save sensor settings", "error");
+      if (typeof window.showToast === "function") window.showToast(msg, "error");
     } finally {
       setBusy(false);
     }
@@ -627,7 +621,9 @@
       const sensorIdInput = form.querySelector('input[name="sensor_id"]');
       const sensorId = (sensorIdInput && sensorIdInput.value) ? String(sensorIdInput.value) : String(modal.dataset.sensorId || "");
       if (!sensorId) {
-        setStatus("Missing sensor id.");
+        const msg = "Missing sensor id.";
+        setStatus(msg);
+        if (typeof window.showToast === "function") window.showToast(msg, "error");
         return;
       }
       if (!window.confirm("Restart this device now? Unsaved changes in this modal will not be applied.")) {
@@ -659,7 +655,7 @@
         const msg = err && err.message ? err.message : "Failed to restart device.";
         setRestartPending(false);
         setStatus(msg);
-        if (typeof window.showToast === "function") window.showToast("Failed to restart device", "error");
+        if (typeof window.showToast === "function") window.showToast(msg, "error");
       } finally {
         setBusy(false);
       }

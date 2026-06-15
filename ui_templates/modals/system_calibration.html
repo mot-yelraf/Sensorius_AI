@@ -110,11 +110,9 @@
                           id="devCalApplyBtn">
                     Apply Device Calibration
                   </button>
-                  <div style="display:flex; gap:0.75rem; align-items:center;">
-                    <span id="devCalStatus"
-                          class="muted"
-                          style="font-size:0.8rem;"></span>
-                  </div>
+                  <span id="devCalStatus"
+                        class="sai-live-status"
+                        aria-live="polite"></span>
                 </div>
 
                 <hr style="margin:0.75rem 0;">
@@ -128,8 +126,8 @@
                     Calibrate Plant Sensor
                   </button>
                   <span id="plantCalStatus"
-                        class="muted"
-                        style="font-size:0.8rem;"></span>
+                        class="sai-live-status"
+                        aria-live="polite"></span>
                 </div>
               </div>
 
@@ -144,11 +142,9 @@
                 <button type="button" class="button green soilPhBufferBtn" data-buffer-ph="7.0">Calibrate pH 7.0</button>
                 <button type="button" class="button green soilPhBufferBtn" data-buffer-ph="10.0">Calibrate pH 10.0</button>
               </div>
-              <div style="min-height:1.25rem; margin-bottom:0.5rem;">
-                <span id="soilPhCalStatus"
-                      class="muted"
-                      style="font-size:0.8rem;"></span>
-              </div>
+              <span id="soilPhCalStatus"
+                    class="sai-live-status"
+                    aria-live="polite"></span>
 
               <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
                 <tbody>
@@ -182,11 +178,9 @@
                         id="devCalApplyBtn">
                   Apply Device Calibration
                 </button>
-                <div style="margin-top:0.75rem; display:flex; gap:0.75rem; align-items:center;">
-                  <span id="devCalStatus"
-                        class="muted"
-                        style="font-size:0.8rem;"></span>
-                </div>
+                <span id="devCalStatus"
+                      class="sai-live-status"
+                      aria-live="polite"></span>
               </div>
 
             {# --- Non-APVPD devices: generic offsets list if provided --- #}
@@ -223,11 +217,9 @@
                         id="devCalApplyBtn">
                   Apply Device Calibration
                 </button>
-                <div style="margin-top:0.75rem; display:flex; gap:0.75rem; align-items:center;">
-                  <span id="devCalStatus"
-                        class="muted"
-                        style="font-size:0.8rem;"></span>
-                </div>
+                <span id="devCalStatus"
+                      class="sai-live-status"
+                      aria-live="polite"></span>
               </div>
 
             {% else %}
@@ -315,15 +307,9 @@
                 Apply Calibration
               </button>
             </div>
-            <!-- Full-width status / preview text below the buttons -->
             <div id="sysCalStatus"
-                  class="muted"
-                  style="font-size:0.8rem; line-height:1.3;">
-              <!-- JS (scRenderPreviewStatus) will write:
-                    Reference: ... · Window: ...
-                    apvpd-luvk44: Temp: ...; RH: ...; pairs=...
-              -->
-            </div>
+                 class="sai-live-status"
+                 aria-live="polite"></div>
           </div>
 
           <div class="modal-footer">

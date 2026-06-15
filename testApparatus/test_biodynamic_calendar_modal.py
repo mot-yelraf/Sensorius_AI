@@ -90,7 +90,7 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "<button type='button' class='moon-view-btn active' id='moonViewLocal' data-moon-view='local' aria-pressed='true' title='Local sky view or Reference moon diagram'>Local</button>" in text
     assert "<button type='button' class='moon-view-btn' id='moonViewReference' data-moon-view='reference' aria-pressed='false' title='Local sky view or Reference moon diagram'>Ref</button>" in text
     assert text.index("<div class='astro-title'>Biodynamic Calendar</div>") < text.index("<div class='bio-window' id='bioDateLine'>Loading biodynamic date...</div>") < text.index("<div class='bio-main' id='bioCurrentPanel'>")
-    assert text.index("<div class='astro-box' id='moonBox' aria-live='polite'>") < text.index("<div class='astro-box' id='sunBox' aria-live='polite' role='button'")
+    assert text.index("<div class='astro-box' id='moonBox' aria-live='polite' role='button'") < text.index("<div class='astro-box' id='sunBox' aria-live='polite' role='button'")
     assert "#bioCurrentBadge" not in text
     assert "openBtn.style.background = color;" in text
     assert "openBtn.style.color = textOnHex(color);" in text

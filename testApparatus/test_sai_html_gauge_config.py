@@ -217,6 +217,9 @@ def test_sun_position_card_renders_29_day_overlay():
     )
 
     assert "id='sunBox' aria-live='polite' role='button'" in html
+    assert "id='moonBox' aria-live='polite' role='button'" in html
+    assert "#sunBox,#moonBox{cursor:pointer;}" in html
+    assert "target.closest('#sunBox,#moonBox')" in html
     assert "id='sunMoon29Canvas'" in html
     assert "29 Day Sun/Moon Position" in html
     assert "function drawSunMoon29Day(data)" in html
