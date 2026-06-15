@@ -3,7 +3,8 @@
 This module provides a SQLite (WAL) backed data logger that records:
 1. Sensor readings in ``readings`` (timestamped metric values by sensor ID).
 2. Switch identity metadata in ``switch_ids``.
-3. Switch state transitions in ``sw_events``.
+3. Sensor liveness/events in ``sensor_events``.
+4. Switch state transitions in ``sw_events``.
 
 It also exposes read/query helpers used by runtime services and the web UI:
 - time-series retrieval for calibration and graphing
@@ -515,8 +516,8 @@ class saiDataLogger:
              the corresponding switch_key and copy that.
 
         New schema:
-          - canonical switch_key is "<switch_id>::<channel_id>" where channel_id
-            is the stable SWITCH_N_ID (e.g. "S1-123456").
+          - canonical switch_key is "<channel_id>::<label>" where channel_id
+            is the stable SWITCH_N_CHANNEL_ID (e.g. "S1-123456").
           - This migration path is strictly for older DBs.
         We guard with a tiny marker table so we don't repeat work.
         """

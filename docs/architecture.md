@@ -44,8 +44,8 @@ macOS, Windows, and non-Pi Linux hub:
   `sensor_settings/<sensor_id>/sensor.toml`.
 - `saiSwitchSettingsManager.py`: per-switch settings in
   `switch_settings/<switch_id>/switch.toml`.
-- `saiDataLogger.py`: SQLite persistence for readings, switch identities,
-  switch events, biodynamic notes, and daily summaries.
+- `saiDataLogger.py`: SQLite persistence for readings, sensor liveness events,
+  switch identities, switch events, biodynamic notes, and daily summaries.
 - `saiSensor.py`, `saiSensorFactory.py`, `sensor_modules/`: local sensor
   runtime.
 - `saiSwitch.py`, `saiSwitchFactory.py`, `saiAutomationManager.py`: local and
@@ -58,7 +58,11 @@ macOS, Windows, and non-Pi Linux hub:
 - `saiHomeAssistantMqtt.py`: Home Assistant discovery, state publishing,
   availability, and command routing.
 - `saiFarmOSBridge.py`: farmOS JSON:API export queue and flush worker.
-- `saiWeeWX.py`: optional WeeWX archive and MQTT ingest path.
+- `saiWeeWX.py`: optional WeeWX SQLite archive ingest.
+- `saiTimeSync.py`: timezone/DST synchronization for hub settings and known
+  Nodus devices.
+- `saiWeatherForecast.py`: dashboard weather forecast provider and SQLite
+  cache helpers.
 - `saiNodusOTA.py`: Nodus OTA package and job support used by web routes.
 
 ## Startup Flow
@@ -86,9 +90,10 @@ macOS, Windows, and non-Pi Linux hub:
    WeeWX topics.
 9. If Home Assistant is enabled, the HA bridge waits for MQTT connection,
    installs command handlers, and publishes retained discovery.
-10. Always-on services are registered: WeeWX ingest, farmOS bridge, daily
-    summary writer, watchdog, GC, local sensor data collection, and switch
-    monitor loops.
+10. Always-on services are registered: WeeWX archive ingest, farmOS bridge,
+    daily summary writer, Time Sync Manager, watchdog, GC, local sensor data
+    collection, and switch monitor loops. A lightweight loop-lag monitor is
+    also started.
 11. `WebServerController` registers FastAPI routes and runs uvicorn. The web
     server can run with zero local sensors.
 
@@ -114,8 +119,11 @@ Remote Nodus sensors:
 WeeWX:
 
 - Archive polling and MQTT ingest are optional.
-- `saiWeeWX.py` normalizes station data into the same sensor settings and
-  database paths as other sensors.
+- `saiWeeWX.py` polls a configured SQLite archive database.
+- `saiMQTTIngest.py` handles configured WeeWX MQTT publications.
+- Both paths use `sensor_modules/station_weewx.py` helpers and normalize
+  station data into the same sensor settings and database paths as other
+  sensors.
 
 Weather forecast:
 
@@ -162,6 +170,13 @@ farmOS:
 - Readings are queued in memory, bounded by `FarmOS.QUEUE_MAX`, and flushed to
   farmOS JSON:API with `httpx`.
 - Failed writes are retried by pushing the item back onto the queue.
+
+Time sync:
+
+- `saiTimeSync.TimeSyncService` derives current `Time.TZ_OFFSET` and
+  `Time.TZ_NAME` from `Time.TZ` or `Astral.TIMEZONE` using Python `zoneinfo`.
+- When local hub time values change, the service persists them and sends
+  paced `Time.*` config updates to known Nodus MQTT targets.
 
 ## Runtime State And Paths
 

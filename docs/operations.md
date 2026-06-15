@@ -113,6 +113,7 @@ Restart Sensorius after changes to:
 
 - HTTP host or port.
 - MQTT broker host, port, TLS, or auth that affects startup wiring.
+- Home Assistant enablement or HA broker/discovery topic settings.
 - Service/autostart scope.
 - Local GPIO relay hardware settings.
 - Python dependencies or deployed source files.
@@ -123,8 +124,10 @@ A restart is usually not required for:
 - Sensor display names and locations.
 - Switch labels and locations after the web route completes.
 - Advanced automation edits.
-- farmOS or Home Assistant enablement after the bridge has a live MQTT
-  connection, although a restart is a useful diagnostic if discovery was missed.
+- farmOS enablement; the bridge is always registered and reads its enabled flag
+  while running.
+- WeeWX MQTT setting changes when the save response reports
+  `restart_required=false`.
 - Calibration values after the UI applies the update and reloads the runtime
   sensor where supported.
 
@@ -200,15 +203,19 @@ Operational rules:
 ## Database Operations
 
 The database uses SQLite WAL mode and additive migrations. `saiDataLogger`
-creates tables and indexes at startup.
+creates core telemetry tables and indexes at startup; `saiWeatherForecast`
+creates the forecast cache table on first forecast use.
 
 Key tables:
 
 - `readings`: sensor metric samples.
+- `sensor_events`: sensor liveness and related event rows.
 - `switch_ids`: switch/channel identity records.
 - `sw_events`: switch state transitions.
 - `biodynamic_notes`: calendar note text.
 - `biodynamic_daily_summaries`: generated daily summaries.
+- `weather_forecast`: cached dashboard forecast payloads, created by the
+  weather forecast helper when forecasts are used.
 
 Retention is controlled by:
 
@@ -217,6 +224,7 @@ SENSORIUS_DB_RETENTION_DAYS=90
 ```
 
 Set to `0` to disable pruning.
+Pruning applies to `readings`, `sw_events`, and `sensor_events`.
 
 ## Upgrade Checklist
 

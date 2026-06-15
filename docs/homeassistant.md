@@ -6,7 +6,8 @@ topics for Home Assistant through `saiHomeAssistantMqtt.py`.
 ## Runtime Flow
 
 1. Configure `[SensorNetwork]` so Sensorius can connect to the Nodus broker.
-2. Enable `[HomeAssistant]`.
+2. Enable `[HomeAssistant]` before startup, or restart Sensorius after enabling
+   it.
 3. `saiMQTTIngest` connects to the MQTT broker.
 4. `rPiHomeAssistantBridge` waits for the HA MQTT connection.
 5. The bridge installs command handlers and publishes retained discovery.
@@ -109,7 +110,8 @@ the current retained discovery payload.
 
 After enabling HA:
 
-1. Restart Sensorius if the broker connection changed.
+1. Restart Sensorius after enabling the bridge or changing HA broker/topic
+   settings.
 2. Verify Sensorius MQTT ingest is connected.
 3. Confirm retained discovery exists under `homeassistant/.../config`.
 4. Restart Home Assistant or reload MQTT entities if discovery was missed.

@@ -50,8 +50,8 @@ obfuscation, not encryption.
 
 ## APIs
 
-- `GET /farmos/status`: enabled flag, queue depth, token state, last success,
-  and last error.
+- `GET /farmos/status`: enabled flag, base URL, TLS verification state, log
+  bundle, queue depth, static/runtime token state, and last error.
 - `POST /farmos/test`: best-effort connectivity and auth test.
 
 Use the test endpoint before enabling continuous export.

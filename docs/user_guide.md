@@ -102,7 +102,7 @@ Sensorius supports direct Raspberry Pi sensors and MQTT-discovered Nodus sensors
 - Air quality and barometric pressure.
 - Soil moisture, soil temperature, soil pH, soil EC, soil moisture deficit, and soil stress index.
 
-Readings are stored in the local SQLite database so the app can show history and full-screen charts. Timestamps are stored in UTC and localized in the UI using the configured timezone.
+Readings are stored in the local SQLite database so the app can show history and full-screen charts. Each row stores an ISO8601 timestamp plus an epoch column used for timezone-safe comparisons, and the UI localizes display using the configured timezone.
 
 ## Sensor Settings
 
@@ -122,7 +122,7 @@ Keep names and locations clear. Good location labels make the dashboard easier t
 
 ## WeeWX Integration
 
-Sensorius can ingest WeeWX station readings through MQTT and display them as a normal dashboard sensor. In **System Settings**, open **WeeWX**, set **MQTT Interface** to **Enabled**, confirm the **MQTT Topic Filter** and **Sensorius Sensor ID**, then save. Restart Sensorius after saving WeeWX MQTT subscription changes.
+Sensorius can ingest WeeWX station readings through MQTT and display them as a normal dashboard sensor. In **System Settings**, open **WeeWX**, set **MQTT Interface** to **Enabled**, confirm the **MQTT Topic Filter** and **Sensorius Sensor ID**, then save. Sensorius applies WeeWX MQTT changes to the running ingest client when possible; restart Sensorius only if the save response indicates a restart is required or new readings do not arrive.
 
 Configure WeeWX to publish archive updates to the Sensorius MQTT broker. On a typical WeeWX host, edit `/etc/weewx/weewx.conf` and add or update the MQTT section under `[StdRESTful]`:
 

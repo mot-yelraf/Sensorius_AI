@@ -292,6 +292,8 @@ Home Assistant:
 - Requires an MQTT broker reachable by Sensorius and Home Assistant.
 - Enable and configure from System Settings.
 - Discovery topics are retained by default.
+- Restart Sensorius after enabling Home Assistant or changing HA broker/topic
+  settings because the bridge is wired during startup.
 
 farmOS:
 

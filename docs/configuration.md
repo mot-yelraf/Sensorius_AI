@@ -191,6 +191,16 @@ PROVIDER = ""
 [WeatherForecast]
 PROVIDER = "met_no"
 
+[WeeWX]
+ENABLED = false
+AUTO_DISCOVER = false
+DB_PATH = "/var/lib/weewx/weewx.sdb"
+SENSOR_ID = "weewx-station"
+POLL_INTERVAL_SEC = 60
+MQTT_ENABLED = false
+MQTT_TOPIC = "weewx/#"
+UPDATE_PERIOD_SEC = 300
+
 [Display]
 gauge_size = "Small"
 display_style = "Gauge"
@@ -209,6 +219,11 @@ Runtime notes:
 - `Network.HTTPPORT` is the persisted UI setting for the web port.
 - Changing HTTP binding, MQTT broker wiring, or service/autostart settings may
   require a service restart.
+- Home Assistant bridge creation is part of startup; restart Sensorius after
+  enabling Home Assistant or changing HA broker/topic settings.
+- WeeWX MQTT settings are applied live through the running MQTT ingest client
+  when available. The save API reports `restart_required` if live reconfigure
+  could not be applied.
 - Home Assistant and farmOS secrets are obfuscated at rest by `saiSettings`.
   This is reversible obfuscation, not encryption.
 - `[WeatherForecast].PROVIDER` accepts `met_no`, `open_meteo`, `us`, or `none`.
@@ -313,8 +328,8 @@ sends runtime config over MQTT and expects Nodus to publish retained metadata.
 SENSORIUS_DB_RETENTION_DAYS=90
 ```
 
-Set it to `0` to disable pruning. Retention applies to `readings` and
-`sw_events` and is throttled during normal writes.
+Set it to `0` to disable pruning. Retention applies to `readings`,
+`sw_events`, and `sensor_events` and is throttled during normal writes.
 
 ## Configuration Change Checklist
 
