@@ -21,6 +21,7 @@ Operational characteristics:
 
 import sqlite3
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 from saiUtils import printDM, debug_enabled
 import threading
@@ -154,6 +155,42 @@ class saiDataLogger:
                 except Exception:
                     pass
                 self._writer_conn = None
+
+    def create_database_archive(self, archive_dir: str | os.PathLike | None = None) -> Path:
+        """Create a consistent SQLite snapshot and return the archive path."""
+        source_path = Path(self.db_path).expanduser()
+        if not source_path.is_absolute():
+            source_path = Path.cwd() / source_path
+        source_path = source_path.resolve()
+        if not source_path.exists():
+            raise FileNotFoundError(f"database not found: {source_path}")
+
+        target_dir = Path(archive_dir).expanduser() if archive_dir else source_path.parent / "database_archives"
+        if not target_dir.is_absolute():
+            target_dir = Path.cwd() / target_dir
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        archive_stamp = datetime.now(getattr(self, "local_tz", LOCAL_TIMEZONE)).strftime("%Y%m%d-%H%M%S")
+        archive_base = f"{source_path.stem}-{archive_stamp}"
+        archive_path = target_dir / f"{archive_base}.sqlite3"
+        suffix = 2
+        while archive_path.exists():
+            archive_path = target_dir / f"{archive_base}-{suffix}.sqlite3"
+            suffix += 1
+
+        try:
+            with self._writer_lock:
+                self._ensure_writer()
+                self._writer_conn.commit()
+                with sqlite3.connect(str(archive_path)) as dest:
+                    self._writer_conn.backup(dest)
+            return archive_path.resolve()
+        except Exception:
+            try:
+                archive_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise
 
     def __del__(self):
         try:

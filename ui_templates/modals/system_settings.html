@@ -158,6 +158,12 @@
 #setupPiModal .adv-span-all {
   grid-column: 1 / -1;
 }
+#setupPiModal .adv-db-actions {
+  flex-direction: row;
+  justify-content: center;
+  gap: .75rem;
+  flex-wrap: wrap;
+}
 #setupPiModal .ha-enabled-wrap {
   display: flex;
   justify-content: center;
@@ -935,8 +941,8 @@
               </div>
 
               <div class="field-stack">
-                <label for="adv-db-retention">Maximum Days of Data (30-180)</label>
-                <input type="number" id="adv-db-retention" min="30" max="180" step="1" value="90">
+                <label for="adv-db-retention">Maximum Days of Data (30-365)</label>
+                <input type="number" id="adv-db-retention" min="30" max="365" step="1" value="90">
               </div>
 
               <div class="field-stack adv-center">
@@ -960,7 +966,8 @@
                 <div id="adv-debug-modules" class="adv-debug-scroll"></div>
               </div>
 
-              <div class="field-stack adv-span-all adv-center">
+              <div class="field-stack adv-span-all adv-center adv-db-actions">
+                <button type="button" class="button neutral" id="btn-archive-db">Archive Database</button>
                 <button type="button" class="button red" id="btn-clear-db">Clear Database</button>
               </div>
             </div>
@@ -2513,6 +2520,56 @@
     window.location.href = "/clear-data";
   }
 
+  async function archiveDatabase() {
+    if (!window.confirm("Create and download a database archive?")) return;
+
+    setStatus("adv-status", "Creating database archive...");
+    setButtonBusy("btn-archive-db", true, "Archiving...");
+    try {
+      const resp = await fetch("/advanced/database/archive", { method: "POST" });
+      if (!resp.ok) {
+        throw new Error(await readErrorMessage(resp, "Failed to create database archive."));
+      }
+
+      const blob = await resp.blob();
+      const disposition = String(resp.headers.get("content-disposition") || "");
+      let filename = "sensorius_data_archive.sqlite3";
+      const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+      const quotedMatch = disposition.match(/filename="([^"]+)"/i);
+      const plainMatch = disposition.match(/filename=([^;]+)/i);
+      if (utf8Match) {
+        try {
+          filename = decodeURIComponent(utf8Match[1]);
+        } catch (_e) {
+          filename = utf8Match[1];
+        }
+      } else if (quotedMatch) {
+        filename = quotedMatch[1];
+      } else if (plainMatch) {
+        filename = plainMatch[1].trim();
+      }
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+      setStatus("adv-status", "Database archive downloaded.");
+      if (window.showToast) window.showToast("Database archive downloaded", "ok");
+    } catch (e) {
+      console.error(e);
+      const msg = e && e.message ? e.message : "Failed to create database archive.";
+      setStatus("adv-status", msg);
+      if (window.showToast) window.showToast(msg, "error");
+    } finally {
+      setButtonBusy("btn-archive-db", false);
+    }
+  }
+
   menu.addEventListener("click", (ev) => {
     const btn = ev.target.closest(".system-menu-btn");
     if (!btn) return;
@@ -2586,6 +2643,9 @@
     }
     if (ev.target && ev.target.id === "remove-device-run") {
       submitRemoveDevices();
+    }
+    if (ev.target && ev.target.id === "btn-archive-db") {
+      archiveDatabase();
     }
     if (ev.target && ev.target.id === "btn-clear-db") {
       clearDatabase();

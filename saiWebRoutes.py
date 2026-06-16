@@ -9,7 +9,7 @@ Responsibilities:
 from __future__ import annotations #must be first in line
 
 from fastapi import Request, Form, Query, HTTPException, UploadFile, File
-from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse, PlainTextResponse, Response
+from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse, PlainTextResponse, Response, FileResponse
 from fastapi.routing import APIRouter
 from starlette.responses import StreamingResponse
 try:
@@ -103,6 +103,16 @@ DEBUG = debug_enabled(MODULE)
 data_logger = saiDataLogger()
 statter = saiStats()
 _ALL_IANA_TIMEZONES: tuple[str, ...] = tuple(sorted(available_timezones()))
+_DB_RETENTION_MIN_DAYS = 30
+_DB_RETENTION_MAX_DAYS = 365
+_DB_RETENTION_DEFAULT_DAYS = 90
+
+def _clamp_db_retention_days(raw: object, default: int = _DB_RETENTION_DEFAULT_DAYS) -> int:
+    try:
+        days = int(str(raw if raw is not None else default))
+    except Exception:
+        days = int(default)
+    return max(_DB_RETENTION_MIN_DAYS, min(_DB_RETENTION_MAX_DAYS, days))
 
 def _settings_base_path(base_dir: str | Path) -> Path:
     return resolve_runtime_base_dir(base_dir)
@@ -7793,11 +7803,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         dbg_raw = str(env_map.get("SENSORIUS_DEBUG_MODULES", "") or "")
         debug_modules = [m.strip() for m in dbg_raw.split(",") if m.strip()]
 
-        try:
-            retention_days = int(str(env_map.get("SENSORIUS_DB_RETENTION_DAYS", "90") or "90"))
-        except Exception:
-            retention_days = 90
-        retention_days = max(30, min(180, retention_days))
+        retention_days = _clamp_db_retention_days(env_map.get("SENSORIUS_DB_RETENTION_DAYS", _DB_RETENTION_DEFAULT_DAYS))
 
         autostart_scope = str(env_map.get("SENSORIUS_AUTOSTART_SCOPE", "user") or "user").strip().lower()
         if autostart_scope not in {"user", "system"}:
@@ -7862,7 +7868,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             retention_days = int(body.get("db_retention_days", 90))
         except Exception:
             return JSONResponse({"error": "invalid_db_retention_days"}, status_code=400)
-        if retention_days < 30 or retention_days > 180:
+        if retention_days < _DB_RETENTION_MIN_DAYS or retention_days > _DB_RETENTION_MAX_DAYS:
             return JSONResponse({"error": "invalid_db_retention_days_range"}, status_code=400)
 
         updates = {
@@ -7885,6 +7891,23 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "autostart_applied": bool(ok),
             "autostart_message": msg,
         })
+
+    @router.post("/advanced/database/archive")
+    async def advanced_database_archive(request: Request):
+        _require_protected_access(request, require_csrf=True)
+        try:
+            archive_path = await asyncio.to_thread(data_logger.create_database_archive)
+            archive_path = Path(archive_path)
+        except Exception as ex:
+            printDM(f"Database archive failed: {ex}", location=MODULE)
+            return JSONResponse({"ok": False, "error": str(ex) or "archive_failed"}, status_code=500)
+
+        return FileResponse(
+            str(archive_path),
+            media_type="application/vnd.sqlite3",
+            filename=archive_path.name,
+            headers={"X-Sensorius-Archive-Path": str(archive_path)},
+        )
 
     @router.get("/scan-nodus-setup")
     async def scan_nodus_setup(ssid: str = Query(None)):

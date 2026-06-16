@@ -391,7 +391,7 @@ Suggest service restart steps only when they are actually needed.
 
 ## Versioning Rule
 
-When you make a code or repository content change, update `__version__` in
+When you make a code content change, update `__version__` in
 `__init__.py` using:
 
 ```text

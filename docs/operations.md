@@ -107,6 +107,10 @@ directory, back up that `sensorius_data.db` file instead. SQLite WAL files may
 also exist during active runtime; stop the service before copying the database
 for the cleanest backup.
 
+The Advanced settings pane can also create an on-demand database archive. It
+uses SQLite backup semantics, saves the snapshot under `database_archives/`
+next to the active database, and downloads the same `.sqlite3` file.
+
 ## Restart Requirements
 
 Restart Sensorius after changes to:
@@ -225,6 +229,7 @@ SENSORIUS_DB_RETENTION_DAYS=90
 
 Set to `0` to disable pruning.
 Pruning applies to `readings`, `sw_events`, and `sensor_events`.
+The web UI retention selector accepts 30 to 365 days.
 
 ## Upgrade Checklist
 

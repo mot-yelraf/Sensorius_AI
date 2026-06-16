@@ -328,8 +328,9 @@ sends runtime config over MQTT and expects Nodus to publish retained metadata.
 SENSORIUS_DB_RETENTION_DAYS=90
 ```
 
-Set it to `0` to disable pruning. Retention applies to `readings`,
-`sw_events`, and `sensor_events` and is throttled during normal writes.
+The web UI accepts 30 to 365 days. Set the environment value to `0` to disable
+pruning. Retention applies to `readings`, `sw_events`, and `sensor_events` and
+is throttled during normal writes.
 
 ## Configuration Change Checklist
 

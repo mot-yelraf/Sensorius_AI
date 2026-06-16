@@ -1,327 +1,622 @@
 # Sensorius User Guide
 
-Sensorius Automatio Instrumentorum, also called Sensorius AI or Sensorius, is an environmental sensing and automation hub for live dashboards, historical readings, switch control, calibration, and optional integrations with Home Assistant and farmOS. It can run as a full Raspberry Pi hub with directly connected sensors and relays, or as a macOS, Windows, or Linux hub for MQTT-backed Nodus sensors and switches.
+Sensorius Automatio Instrumentorum, also called Sensorius AI or Sensorius, is an environmental sensing and automation hub for gardens, greenhouses, grow rooms, small farms, and other places where local conditions matter. It gives you live readings, historical graphs, switch control, calibration tools, biodynamic calendar information, and optional connections to Home Assistant, WeeWX, and farmOS.
 
-This guide is written for day-to-day users of the Sensorius web app. For installation scripts, hardware wiring, and deployment notes, see the setup and hardware documents in this folder.
+Sensorius can run as a full Raspberry Pi hub with directly connected sensors and relays. It can also run on macOS, Windows, or Linux as a hub for MQTT-backed Nodus sensors and switches. In normal use, both kinds of devices appear together in the same dashboard.
+
+This guide is written for day-to-day users. You do not need to understand MQTT, SQLite, or Python to use the app, but the guide explains where information comes from so you can make good decisions when something looks wrong.
 
 ## Opening Sensorius
 
-During setup, Sensorius may be configured to run as a background service and start automatically when the host starts. If you selected that option during installation, wait for the host to finish booting and then open the web UI.
+If Sensorius was installed as a service, wait for the host computer or Raspberry Pi to finish starting, then open the web UI.
 
-If you did not configure Sensorius to run as a service, start it manually from the installed Sensorius folder:
+If you start Sensorius manually, run this from the installed Sensorius folder:
 
 ```bash
 python3 Sensorius.py
 ```
 
-Then open the web UI:
+Then open one of these addresses:
 
-- On the same computer: `http://127.0.0.1:8000`
-- By host name on many local networks: `http://<hostname>.local:8000`
-- From another device on the same network: `http://<sensorius-host-ip>:8000`
+- Same computer: `http://127.0.0.1:8000`
+- Local network hostname: `http://<hostname>.local:8000`
+- Another device on the same network: `http://<sensorius-host-ip>:8000`
 
-For service installs, the web UI is normally available after the service starts. For manual runs, keep the terminal process running while you use the app.
+Keep the terminal process running for manual starts. Service installs keep running in the background.
 
-<div class="page-break"></div>
+## Where Sensorius Gets Its Information
+
+Live sensor readings come from local Raspberry Pi sensor controllers and from MQTT-discovered Nodus devices. Sensor readings are written to the local SQLite database, `sensorius_data.db`, in the Sensorius process working directory unless the service or caller passes a different database path. Many service installs use the runtime directory, such as `/Users/<user>/Sensorius/sensorius_data.db` on macOS or `/home/<user>/Sensorius/sensorius_data.db` on Linux.
+
+Sensor and switch names, locations, display choices, calibration offsets, and channel labels come from Sensorius settings files under the runtime settings folder:
+
+- System settings: `/Users/<user>/Sensorius/system_settings/<device_id>/settings.toml`
+- Sensor settings: `/Users/<user>/Sensorius/sensor_settings/<sensor_id>/sensor.toml`
+- Switch settings: `/Users/<user>/Sensorius/switch_settings/<switch_id>/switch.toml`
+- Advanced automations: `/Users/<user>/Sensorius/switch_settings/automations/automations.toml`
+
+For Nodus devices, Sensorius also listens for MQTT metadata and state messages. That metadata tells Sensorius what a device is, which readings or channels it provides, whether it is online, and which remote settings can be updated.
 
 ## Dashboard Overview
 
-The dashboard is the main operating view. It shows live sensor readings, switch state, device status, location groups, and graph controls.
+The dashboard is the main operating view. It is where you check current conditions, see switch state, open settings, and review quick trends.
 
-![Sensorius sensor dashboard](../assets/screenshots/Dashboard%20-%20sensor.png)
+| Dashboard overview | Dashboard lower sections |
+| --- | --- |
+| ![Dashboard overview](../assets/screenshots/Dashboard-1.png) | ![Dashboard lower sections](../assets/screenshots/Dashboard-3.png) |
 
-Use the dashboard to:
+The dashboard presents:
 
-- Check current environmental readings such as temperature, humidity, CO2, VPD, air quality, soil moisture, and pressure.
-- See whether a sensor is online, offline, or pending.
-- Filter readings by location.
-- Open sensor settings and calibration tools.
-- Switch between gauge, 6-hour micrograph, and 24-hour micrograph views.
-- Open full-screen history graphs for closer review.
+- Sensor cards grouped by device and location.
+- Switch cards with live channel state and recent events.
+- Sun, moon, biodynamic, and optional weather forecast cards when Astral location is available.
+- Buttons for System Settings, graph setup, sensor settings, switch settings, and calendar views.
 
-Each sensor card is based on the metrics reported by that device. Local Raspberry Pi sensors and discovered Nodus sensors appear together once Sensorius knows their identity and metadata.
+Dashboard data comes from the latest values in the live runtime cache and from the local database. If a device is offline, the latest stored reading may still be visible, but the online/offline state comes from live device status, MQTT heartbeat or availability messages, and recent packets.
 
-<div class="page-break"></div>
+### Sensor Cards
 
-### Metric Display Styles
+Each sensor card shows the sensor ID or name, its location, and the selected metrics for that sensor. The metric names come from the sensor's settings and the measurements that the device reports. Common metrics include temperature, relative humidity, absolute humidity, CO2, VPD, dew point, barometric pressure, soil moisture, soil temperature, soil pH, soil EC, soil nutrients, light, and PPFD.
 
-Each dashboard metric can be shown as a gauge, a 6-hour micrograph, or a 24-hour micrograph. Click a metric on the dashboard to rotate through the available display styles for that metric.
+Each metric tile can appear as:
 
-Gauge view emphasizes the current reading as instrument panels. The 6-hour micrograph keeps recent movement visible without leaving the main dashboard. The 24-hour micrograph gives more daily context while still keeping the metric compact.
+- **Gauge**: shows the current value against a colored range.
+- **6Hr Graph**: shows the last six hours inside the dashboard tile.
+- **24Hr Graph**: shows the last 24 hours inside the dashboard tile.
 
-Display style can also be set globally in System Settings or adjusted for an individual sensor in Sensor Setup. Use the global setting when you want a consistent dashboard style, and use Sensor Setup when one sensor needs its own presentation.
+Click a metric tile to rotate through its display styles. The global default comes from **System Settings > Display Style**. Sensor-specific choices come from **Sensor Settings > Sensor Settings**.
 
-<div class="page-break"></div>
+The current value comes from the latest reading for that metric. The small history graph comes from `/graph-data`, which reads stored samples from the local database for that sensor and metric.
 
-## Graphs and History
+### Switch Cards
 
-Sensor cards can show recent history, and the full-screen graph view gives more room for reviewing trends.
+Switch cards show local Raspberry Pi relay channels and remote Nodus switch channels through the same interface. Each channel has a label, current state, and recent state changes. Manual toggles send commands through the shared switch controller. For Nodus switches, commands are sent through MQTT and Sensorius waits for state to return from the device.
 
-![Full-screen graph](../assets/screenshots/Full%20Screen%20Graph.png)
+If an enabled Advanced automation owns a switch channel, Sensorius blocks manual toggles for that channel so the automation remains in control.
 
-Use full-screen graphs to:
-
-- Compare changes across time.
-- Look for environmental drift.
-- Review the effect of switch or automation activity.
-- Investigate spikes, dropouts, or slow changes.
-
-The graph setup panel controls the graph view and overlays.
-
-![Full-screen graph setup](../assets/screenshots/Full%20Screen%20Graph%20Setup.png)
-
-Switch event overlays can help connect relay activity to sensor changes, such as irrigation events affecting soil moisture or ventilation events affecting temperature and humidity.
-
-<div class="page-break"></div>
-
-## Biodynamic Calendar
-
-When location and timezone settings are available, Sensorius can show sun and moon context in the dashboard.
-
-![Biodynamic calendar](../assets/screenshots/Dashboard%20-%20Biodynamic%20Calendar.png)
-
-This view can include sunrise, solar noon, sunset, moonrise, moonset, moon phase, traditional full moon names, moon position, and illumination details. It is especially useful when automations depend on Astral timing or when environmental patterns follow daylight cycles.
-
-Click the Sun/Moon Position or Moon Phase card to overlay a 29-day position graph. The expanded graph labels each date at midnight, includes a small local-sky moon phase for each day, and closes when you click it.
-
-The dashboard can show a 24-hour weather forecast card next to the biodynamic calendar. In **System Settings**, choose **Weather Forecast** to use MET Norway, Open-Meteo, US National Weather Service, or **None**. The forecast uses the same Astral latitude, longitude, and timezone settings. Click **6 Day Forecast** to open a six-day outlook with daily forecast text, temperature range, wind, and relative humidity range. Choosing **None** hides the forecast card.
-
-When you open the biodynamic calendar, the current day's Daily Summary appends a **24hr Forecast** section from the same weather forecast data. Future days keep only the biodynamic and astral daily summary text.
-
-<div class="page-break"></div>
-
-## Sensors and Readings
-
-Sensorius supports direct Raspberry Pi sensors and MQTT-discovered Nodus sensors. The available readings depend on the sensor type, but common metrics include:
-
-- Temperature in Celsius and Fahrenheit.
-- Relative humidity and absolute humidity.
-- CO2 concentration.
-- Ambient or plant VPD.
-- Dew point and dew point risk indicators.
-- Air quality and barometric pressure.
-- Soil moisture, soil temperature, soil pH, soil EC, soil moisture deficit, and soil stress index.
-
-Readings are stored in the local SQLite database so the app can show history and full-screen charts. Each row stores an ISO8601 timestamp plus an epoch column used for timezone-safe comparisons, and the UI localizes display using the configured timezone.
-
-## Sensor Settings
-
-Open a sensor settings panel from the dashboard when you need to rename, organize, or adjust how a sensor appears.
-
-![Sensor settings](../assets/screenshots/Sensor%20Setup%20-%20Sensor.png)
-
-Typical sensor settings include:
-
-- Display name or label.
-- Location assignment.
-- Enabled or visible metrics.
-- Sensor-level display style, when a sensor should differ from the global dashboard style.
-- Sensor-specific configuration provided by the device metadata or local settings.
-
-Keep names and locations clear. Good location labels make the dashboard easier to scan and make automation rules easier to understand later.
-
-## WeeWX Integration
-
-Sensorius can ingest WeeWX station readings through MQTT and display them as a normal dashboard sensor. In **System Settings**, open **WeeWX**, set **MQTT Interface** to **Enabled**, confirm the **MQTT Topic Filter** and **Sensorius Sensor ID**, then save. Sensorius applies WeeWX MQTT changes to the running ingest client when possible; restart Sensorius only if the save response indicates a restart is required or new readings do not arrive.
-
-Configure WeeWX to publish archive updates to the Sensorius MQTT broker. On a typical WeeWX host, edit `/etc/weewx/weewx.conf` and add or update the MQTT section under `[StdRESTful]`:
-
-```ini
-[StdRESTful]
-    [[MQTT]]
-        server_url = mqtt://<sensorius-host>:1883/
-        topic = weewx
-        unit_system = US
-        binding = archive
-        aggregation = aggregate
-```
-
-The default Sensorius topic filter is `weewx/#`, which matches the `topic = weewx` example above. If you use a different WeeWX topic, update the **MQTT Topic Filter** in the WeeWX settings pane to match it. Restart WeeWX after changing `/etc/weewx/weewx.conf`.
-
-## Calibration
-
-Calibration tools help align readings with trusted reference measurements. In the Sensor Setup left menu, Device Calibration is listed before System Calibration.
-
-![Device calibration](../assets/screenshots/Sensor%20Setup%20-%20Device%20Calibration.png)
-
-Device calibration is useful when one physical sensor needs its own correction. Apply calibration changes carefully, then watch the dashboard and graphs to confirm that readings now track the expected values.
-
-![System calibration](../assets/screenshots/Sensor%20Setup%20-%20System%20Calibration.png)
-
-System calibration is useful when you want a shared correction strategy for a class of readings.
-
-<div class="page-break"></div>
-
-## Switches
-
-Switches can be local GPIO relays on a Raspberry Pi or remote Nodus MQTT switches. Sensorius presents both through the same dashboard and automation model.
-
-![Switch dashboard](../assets/screenshots/Dashboard%20-%20switches.png)
-
-Use the switch dashboard to:
-
-- See current switch state.
-- Toggle channels manually.
-- Review switch location and channel labels.
-- Confirm that remote commands are being reflected back through MQTT state updates.
-
-Switch state changes are written to the local database. This makes switch behavior available for history, graph overlays, and automation review.
-
-## Switch Settings
-
-Open switch settings when you need to edit channel labels, location, and switch behavior.
-
-![Switch settings](../assets/screenshots/Switch%20Setup%20-%20Switch%20Settings.png)
-
-Use stable, meaningful channel labels. Sensorius uses switch keys internally in the form `<channel_id>::<label>`, so labels should be descriptive and consistent once automations or external integrations depend on them.
-
-## Automations
-
-Sensorius can automate switches from sensor thresholds, time windows, day schedules, timer cycles, and sunrise or sunset conditions.
-
-![Switch automations](../assets/screenshots/Switch%20Settings%20-%20Automations.png)
-
-Automation rules can include:
-
-- Sensor metric thresholds, such as turning on a fan when temperature rises above a target.
-- Hysteresis and minimum interval timing to reduce rapid relay chatter.
-- Time-of-day windows and selected days.
-- Sunrise or sunset offsets when Astral location settings are available.
-- Timer-based active windows for recurring cycles.
-- Revert behavior when a rule is no longer true.
-
-After saving an automation, confirm the expected behavior from the switch dashboard. For critical equipment, test with a harmless load first.
-
-<div class="page-break"></div>
+Switch state history comes from `saiDataLogger.log_switch_event`, not from synthetic sensor readings. This is why switch events can be overlaid on historical graphs.
 
 ## System Settings
 
-System Settings contains hub-level configuration for the Sensorius app, MQTT, display options, timezone, location, integrations, and maintenance tools. The sections below follow the top-down order of the System Settings left menu.
+System Settings contains hub-level settings, device onboarding, integrations, locations, firmware updates, and maintenance tools.
 
-![Sensorius system settings](../assets/screenshots/System%20Setup%20-%20Sensorius.png)
+### System Settings Pane
 
-Common settings include:
+![System settings pane](<../assets/screenshots/System Settings - System Settings.png>)
 
-- HTTP port for the web app.
-- Sensorius MQTT broker host and port.
-- Timezone.
-- Astral latitude and longitude.
-- Gauge size and global dashboard display style.
-- Integration panels for Home Assistant and farmOS.
+Fields and selectors:
 
-Changing the web app port or MQTT broker settings may require a service restart or a page refresh, depending on the setting and deployment mode.
+- **Hostname**: read-only host name for this Sensorius hub. It comes from the active system settings and host runtime.
+- **HTTP Port**: web UI port. Valid range is 1 to 65535. The default is usually 8000. Changing it may require a restart or opening the new URL.
+- **TLS Enable**: MQTT TLS setting for the Sensorius sensor network. Options are **No** and **Yes**. Use Yes only when the broker is configured for TLS.
+- **MQTT Port**: MQTT broker port. Valid range is 1 to 65535. Common values are 1883 without TLS and 8883 with TLS.
+- **Sensorius Hub**: MQTT broker hostname or IP used by Sensorius and Nodus devices.
+- **Time Zone**: IANA timezone name, such as `America/Denver`. It controls dashboard time labels, graph time labels, Astral timing, and calendar day boundaries.
+- **Weather Forecast**: forecast provider for the dashboard and current-day biodynamic summary. Options are **MET Norway**, **US**, **Open-Meteo**, and **None**.
+- **Latitude**: Astral latitude. Leave both Latitude and Longitude empty, then Save, to re-detect automatically.
+- **Longitude**: Astral longitude. Latitude and Longitude must both be filled for manual coordinates.
+- **Altitude (m)**: altitude in meters. Valid range is -500 to 10000.
+- **Sunrise**: read-only calculated sunrise for the current Astral location.
+- **Sunset**: read-only calculated sunset.
+- **Daylight Hours**: read-only daylight duration.
+- **Sun Peak Time**: read-only solar noon.
+- **Gauge Size**: dashboard gauge size. Options are **Small** and **Large**.
+- **Display Style**: default dashboard metric display. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
+- **Dashboard**: returns to the dashboard.
+- **Save**: writes system settings to `system_settings/<device_id>/settings.toml`.
 
-## Home Assistant
+If the Astral fields are wrong, biodynamic timing, sunrise/sunset automations, and weather forecast placement may also be wrong.
 
-Sensorius can publish MQTT discovery and state topics for Home Assistant.
+### Edit Locations Pane
 
-![Home Assistant settings](../assets/screenshots/System%20Setup%20-%20Home%20Asssistant.png)
+![Edit locations pane](<../assets/screenshots/System Settings - Edit Locations.png>)
 
-Use the Home Assistant panel to configure:
+The Edit Locations pane lists sensors and switches together.
 
-- Enabled state.
-- MQTT broker host and port.
-- Username and password, if your broker requires them.
-- Discovery and state publishing behavior from advanced settings.
+Fields:
 
-Expected flow:
+- **Device row label**: shows whether the row is a sensor or switch and shows its ID. Data comes from sensor and switch settings managers.
+- **Location input**: updates that device's location. Sensor rows write to `sensor_settings/<sensor_id>/sensor.toml`; switch rows write to `switch_settings/<switch_id>/switch.toml`.
+- **Save**: writes all non-empty location changes.
 
-1. Configure broker and Home Assistant settings.
-2. Start MQTT ingest.
-3. Let Sensorius advertise entities.
-4. Let Home Assistant observe and control through MQTT topics.
+Locations should describe places people recognize: Greenhouse 1, West Bed, Seedling Bench, Main Pump, Hoop House, or Barn Weather Station.
 
-If entities do not appear in Home Assistant, verify that integration is enabled, broker settings are correct, credentials match the broker, and retained discovery publishing is enabled.
+### Add Device Pane
 
-## FarmOS
+![Add device pane](<../assets/screenshots/System Settings - Add Device.png>)
 
-Sensorius can export sensor readings to farmOS as log records.
+Use Add Device to onboard a factory-bootstrapped Nodus device.
 
-![FarmOS settings](../assets/screenshots/System%20Setup%20-%20FarmOS.png)
+Fields and status rows:
 
-Use the FarmOS panel to configure:
+- **Scanning for Nodus_Setup**: Sensorius scans for the Nodus setup access point.
+- **Connected to Nodus setup AP**: confirms Sensorius or the host joined the Nodus setup network.
+- **Bootstrap sent to Nodus**: confirms Wi-Fi and broker bootstrap information was sent.
+- **Sensorius rejoined your Wi-Fi**: confirms the hub returned to the normal network.
+- **Waiting for Nodus to reboot and connect**: waits for the Nodus device to reboot, join Wi-Fi, connect to MQTT, and send its hello/config result.
+- **Retry**: retries the current onboarding session.
+- **Add**: starts onboarding when the setup AP is available or manual joining is required.
 
-- Enabled state.
-- Base farmOS URL.
-- TLS verification.
-- Access token or username/password authentication.
-- Log bundle.
+On macOS, the pane may instruct you to join `Nodus_Setup` manually from Wi-Fi settings, then return and click Add. For Raspberry Pi deployments that onboard over Wi-Fi, use a 2.4 GHz network path. If the router combines 2.4 GHz and 5 GHz under one SSID, ethernet on the Raspberry Pi is usually the most reliable setup.
 
-Use the built-in test action before enabling continuous export. If writes fail, check the FarmOS status response for queue depth, token state, and the last error.
+### Update Device Pane
 
-## Locations
+![Update device pane](<../assets/screenshots/System Settings - Update Device.png>)
 
-Locations help organize sensors and switches by room, cabinet, zone, greenhouse, rack, or field area.
+Use Update Device for Nodus OTA firmware packages.
 
-![Edit locations](../assets/screenshots/System%20Setup%20-%20Edit%20Locations.png)
+Fields and controls:
 
-Use locations to keep the dashboard readable. A clear location model also makes it easier to build automations and interpret historical graphs.
+- **Package Zip**: local `.zip` package selected from your browser.
+- **Package summary**: package inspection status after selection or inspection.
+- **Package Path**: absolute path to a package on the Sensorius host.
+- **Inspect Package**: reads package metadata and validates that Sensorius can use it.
+- **Concurrent Updates**: number of devices to update at once. Options are numeric values from 1 to 4.
+- **Device list**: Nodus devices available for update. Data comes from known Nodus metadata and OTA endpoints.
+- **Refresh Devices**: reloads the device list.
+- **Job panel**: active update status and progress.
+- **Job history**: recent update result information.
+- **Cancel Job**: cancels an active update job when available.
+- **Update Device(s)**: starts an OTA update for selected devices after a valid package and target selection are available.
 
-## Adding Nodus Devices
+Only update devices when power and network are stable.
 
-Use `System Settings > Add Device` to onboard a factory-bootstrapped Nodus device.
+### Remove Device Pane
 
-![Add device](../assets/screenshots/System%20Setup%20-%20Add%20Device.png)
+![Remove device pane](<../assets/screenshots/System Settings - Remove Device.png>)
 
-During onboarding, the Nodus device is operating in AP mode. Sensorius already knows the AP credentials needed to join the Nodus access point, connect to the device, and provision it for the same network that Sensorius is using. Sensorius also sends the broker hostname and tells Nodus to use the `sensorius` profile.
+Use Remove Device when a sensor or switch should no longer appear in Sensorius.
 
-After provisioning, Nodus reboots, joins the configured network, connects back to Sensorius AI through MQTT, and publishes its metadata. Sensorius then uses that metadata to identify the device, subscribe to its topics, place it in the dashboard, and store its readings or switch events.
+Fields and controls:
 
-For Raspberry Pi deployments that onboard Nodus devices over Wi-Fi, use a 2.4 GHz network path. If your router combines 2.4 GHz and 5 GHz under one SSID, connecting the Raspberry Pi by ethernet is usually the most reliable approach because Nodus devices remain on 2.4 GHz Wi-Fi.
+- **Device checkbox list**: removable devices known from settings, discovery, and runtime state.
+- **Device detail**: may show URL or last-seen age when known.
+- **I understand this deletes settings and data**: required confirmation checkbox.
+- **Remove Selected**: deletes selected device settings and related local data, clears related runtime caches, and attempts to clear retained MQTT/Home Assistant topics.
 
-## Removing Devices
+Before removing a device, update any automations, Home Assistant dashboards, farmOS expectations, or written operating procedures that depend on it.
 
-Use the remove-device workflow when a sensor or switch should no longer appear in the app.
+### Home Assistant Pane
 
-![Remove device](../assets/screenshots/System%20Setup%20-%20Remove%20Device.png)
+![Home Assistant pane](<../assets/screenshots/System Settings - HomeAssistant.png>)
 
-Before removing a device, confirm that any automations, Home Assistant entities, or farmOS expectations that depend on it have been updated.
+Fields and selectors:
 
-## Advanced Settings
+- **Enabled**: turns Home Assistant integration on or off. Options are **No** and **Yes**.
+- **Broker**: Home Assistant MQTT broker hostname or IP.
+- **TLS Enable**: whether to use TLS for the Home Assistant broker. Options are **No** and **Yes**.
+- **Port**: broker port, from 1 to 65535.
+- **Username**: MQTT username if required.
+- **Password**: MQTT password if required. Stored through Sensorius secret obfuscation.
+- **Show**: temporarily reveals the password in the browser.
+- **Save**: writes the `[HomeAssistant]` settings.
 
-Advanced settings are intended for users who understand their deployment and MQTT environment.
+Expected flow: configure the broker, enable the integration, let Sensorius publish retained discovery topics, then let Home Assistant observe sensors and switches through MQTT.
 
-![Advanced settings](../assets/screenshots/System%20Setup%20-%20Advance.png)
+### WeeWX Pane
 
-Use this panel cautiously. Changes to broker behavior, topic publishing, discovery, or low-level runtime settings can affect dashboards, Home Assistant discovery, and device control.
+![WeeWX pane](<../assets/screenshots/System Settings - WeeWx.png>)
+
+Fields and selectors:
+
+- **MQTT Interface**: enables or disables WeeWX MQTT ingest. Options are **Disabled** and **Enabled**.
+- **Runtime state**: shows whether Sensorius is receiving WeeWX data, the latest sample, age, and offline timing.
+- **WeeWX Database**: read-only database path, normally `/var/lib/weewx/weewx.sdb` for a WeeWX host.
+- **Sensorius Sensor ID**: sensor ID Sensorius uses for WeeWX readings. Default is `weewx-station`.
+- **MQTT Topic Filter**: MQTT subscription filter for WeeWX messages. Default is `weewx/#`.
+- **Update Period Seconds**: expected update period, from 15 to 3600 seconds.
+- **Sensorius Broker**: read-only broker host and port used by Sensorius.
+- **Save**: writes the `[WeeWX]` settings and creates WeeWX sensor settings if needed.
+
+If the MQTT topic changes, restart Sensorius if the save message says the running subscription needs it or if new WeeWX readings do not arrive.
+
+### FarmOS Pane
+
+![FarmOS pane](<../assets/screenshots/System Settings - FarmOS.png>)
+
+Fields and selectors:
+
+- **Enabled**: turns farmOS export on or off. Options are **No** and **Yes**.
+- **Verify TLS**: verifies the farmOS HTTPS certificate. Options are **Yes** and **No**. Leave Yes unless you are testing a private certificate.
+- **Base URL**: farmOS site URL, such as `https://farmos.example.com`.
+- **Log Bundle**: farmOS log bundle name. Default is `observation`.
+- **Access Token (optional)**: static token, if you use token-based auth.
+- **Client ID**: OAuth client ID. Default is `farm`.
+- **Client Secret**: OAuth client secret.
+- **Username**: farmOS username for password-based auth.
+- **Password**: farmOS password for password-based auth.
+- **Show** buttons: temporarily reveal hidden secret fields in the browser.
+- **Test Connection**: calls the farmOS test endpoint and reports success or the last error.
+- **Save**: writes the `[FarmOS]` settings.
+
+farmOS export listens for new readings written by Sensorius. Check the FarmOS status if exports stop; it reports enabled state, queue depth, token state, and last error.
+
+### Advanced Pane
+
+![Advanced settings pane](<../assets/screenshots/System Settings - Advanced.png>)
+
+Advanced settings affect startup, logging, and stored data. Change them only when you understand the impact.
+
+Fields and controls:
+
+- **Auto-start Sensorius on login**: creates or removes an auto-start entry for Sensorius.
+- **Auto-start scope**: **User-level (default)** starts for the current user. **System-level** is for system service style installs and may require elevated permissions outside the web UI.
+- **Maximum Days of Data (30-365)**: database retention window. Valid range is 30 to 365 days. This affects how much history graphs can show.
+- **SENSORIUS_FILE_LOG**: enables file logging when checked.
+- **SENSORIUS_LOG_LEVEL**: logging detail. Options are **DEBUG**, **INFO**, **WARNING**, **ERROR**, and **CRITICAL**.
+- **SENSORIUS_DEBUG_MODULES**: module-specific debug checkboxes. Options are loaded from the app's advanced status endpoint.
+- **Archive Database**: creates a SQLite database snapshot under `database_archives/` next to the active database and downloads the snapshot.
+- **Clear Database**: clears stored Sensorius data. Use only after backup or when intentionally resetting history.
+- **Save**: writes advanced settings.
+
+## Sensor Settings
+
+Open Sensor Settings from a sensor card when you need to organize a sensor, choose which readings appear on the dashboard, calibrate readings, or check device health.
+
+### Sensor Settings Pane
+
+![Sensor settings pane](<../assets/screenshots/Sensor Settings - Sensor Settings.png>)
+
+Fields and selectors:
+
+- **Location**: the practical place where the sensor is installed, such as Greenhouse, Seed Rack, Bed 2, Propagation Tent, or North Field. This is saved in that sensor's `sensor.toml` and is also used by the dashboard, location editor, and automation selector labels.
+- **Metric Set**: controls how many dashboard metrics are shown. **Pick 6** shows the six selected metric slots. **All** shows all metrics that Sensorius knows for the sensor.
+- **Metric 1-6**: dashboard metric slots. Options come from the sensor's available metric list. That list is built from device metadata, known database metrics, and Sensorius gauge configuration.
+- **Display Style 1-6**: display style for each selected metric. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
+- **Dashboard**: closes the modal and returns to the dashboard.
+- **Restart Device**: appears for devices that support remote restart, such as supported Nodus devices. It sends a restart request to the device.
+- **Save**: writes the changes to `sensor_settings/<sensor_id>/sensor.toml`. For remote Nodus devices, Sensorius also pushes a correlated settings update over MQTT when needed.
+
+Use clear location names. They are visible to nontechnical users and make later automation rules easier to understand.
+
+### Sensor Calibration Pane
+
+![Sensor calibration pane](<../assets/screenshots/Sensor Settings - Sensor Calibration.png>)
+
+The Sensor Calibration pane adjusts the selected physical device. It is meant for cases where one sensor is consistently high or low compared with a trusted reference.
+
+Common fields and controls:
+
+- **Sensor ID**: the Sensorius identifier for this sensor.
+- **Device**: device type or label from local settings or Nodus metadata.
+- **Location**: the sensor location from Sensor Settings.
+- **Ambient Temperature Offset (C)**: correction added to the ambient temperature channel on APVPD-style devices.
+- **Ambient RH Offset (%)**: correction added to the ambient relative humidity channel on APVPD-style devices.
+- **Altitude Calibration / Offsets**: device-specific numeric offsets exposed by the sensor. Available fields depend on the sensor type and firmware metadata.
+- **Calibrate Plant Sensor**: runs the APVPD plant-sensor calibration routine when the device supports it.
+- **Calibrate pH 4.0 / 7.0 / 10.0**: soil-sensor pH buffer calibration buttons. Use the matching buffer solution and wait for the probe to stabilize before applying.
+- **Soil Offsets**: manual numeric offsets for soil sensor channels such as pH or other exposed calibration values.
+- **Apply Device Calibration**: saves the device calibration. For Nodus devices, the command is sent to the device and the local settings shadow is updated.
+
+Calibration data comes from the sensor's `Calibration` section, Nodus metadata, and device-specific calibration endpoints. Apply small changes, then watch the dashboard and graphs to confirm the readings now track your trusted reference.
+
+### System Calibration Pane
+
+![System calibration pane](<../assets/screenshots/Sensor Settings - System Calibration.png>)
+
+System Calibration compares multiple temperature/RH sensors to a reference sensor over recent history.
+
+Fields and selectors:
+
+- **Choose reference sensor**: the trusted sensor used as the baseline. Options come from sensors that report temperature and relative humidity.
+- **Cal Range (hours)**: the history window used for comparison. Options are numeric values from 24 to 72 hours.
+- **Use**: checkbox for each candidate sensor. Checked sensors are included in the preview and apply step.
+- **Sensor ID**: candidate sensor name.
+- **Delta Temp (C)**: previewed temperature correction needed to align with the reference.
+- **Delta RH (%)**: previewed relative-humidity correction needed to align with the reference.
+- **Preview Calibration**: calculates corrections from stored readings without applying them.
+- **Apply Calibration**: applies the previewed corrections. It is disabled until a valid preview is available.
+
+This tool reads historical samples from the SQLite database. It works best when sensors have been near each other long enough to collect comparable data.
+
+### Sensor Info Pane
+
+![Sensor info pane](<../assets/screenshots/Sensor Settings - Sensor Info.png>)
+
+The Sensor Info pane is a health and diagnostics view.
+
+Fields shown:
+
+- **IP Address**: the last known device IP address from Nodus metadata or runtime network information. Local sensors may show Unknown.
+- **Broker**: MQTT broker the remote device is using, when known.
+- **Broker Status**: remote broker connection status, when reported.
+- **Last 24hr offline events**: offline transitions recorded during the last 24 hours.
+- **Uptime since last offline event**: time since the latest offline event, or since you cleared local counters.
+- **Last offline event time**: timestamp of the last offline event.
+- **Last packet received**: age or timestamp of the most recent packet from the sensor.
+- **Data packets received**: packet count known to Sensorius.
+- **Clear**: clears the browser-side display baseline for these counters. It does not delete historical database rows.
+
+Use this pane when a sensor appears stale, missing, or unstable.
+
+## Switch Settings
+
+Switches control things such as pumps, fans, lights, valves, heaters, vents, and other relay-driven equipment. A switch may be a local Raspberry Pi relay board or a remote Nodus switch. Sensorius presents both through the same dashboard and settings screens.
+
+Switch state changes are stored as switch events. These events are available for dashboard state, recent-event lists, full-screen graph overlays, and automation review.
+
+Open Switch Settings from a switch card when you need to label channels, set the switch location, build automations, or check switch health.
+
+### Switch Settings Pane
+
+![Switch settings pane](<../assets/screenshots/Switch Settings - Switch Settings.png>)
+
+Fields and controls:
+
+- **Location**: where the switch device or relay box is installed. This is saved in `switch_settings/<switch_id>/switch.toml` and is shown on the dashboard and location editor.
+- **Channel label for switch_N**: friendly label for each channel, such as Exhaust Fan, Irrigation Pump, Heat Mat, North Vent, or Lights. Labels are saved in switch settings.
+- **Dashboard**: closes the modal.
+- **Restart Device**: appears for supported remote switches and sends a restart request.
+- **Save**: writes changes to switch settings. For remote Nodus switches, Sensorius also sends a settings update over MQTT when needed.
+
+Keep labels stable once automations or Home Assistant depend on them. Internally, Sensorius uses switch keys in the form `<channel_id>::<label>`.
+
+### Automations Pane
+
+![Switch automations pane](<../assets/screenshots/Switch Settings - Automations.png>)
+
+The Automations pane first shows saved automations for the selected switch. Each item shows the automation name and whether it is enabled.
+
+Controls:
+
+- **New**: opens a new automation definition.
+- **Saved Automations**: returns from the editor to the saved list.
+- **Remove**: deletes the selected automation.
+- **Enable** in the editor: sets whether the rule is active. Options are **Yes** and **No**.
+
+Automation rules are stored in `switch_settings/automations/automations.toml`. The editor loads sensor choices from `/sensor-directory`, metric choices from `/sensor-metrics`, switch labels from `/switch-info`, and existing automation rules from `/advanced/automations`.
+
+### Automation Definition Pane
+
+![Switch automation definition pane](<../assets/screenshots/Switch Settings - Automation Definition.png>)
+
+Top-level fields:
+
+- **Automation Name**: friendly name shown in the saved automation list.
+- **Enable**: **Yes** activates the automation, **No** saves it but does not run it.
+- **Add Condition**: adds another condition row.
+- **Add Action**: adds another action row.
+- **Save**: saves the automation.
+
+Condition **Type** options:
+
+- **sensor**: compares a sensor metric to a threshold.
+- **time of day**: active only inside a daily time window.
+- **astral**: uses sunrise or sunset timing from Astral location.
+- **timer**: active for a repeated duration, such as 5 minutes every hour.
+- **or**: separates groups of conditions. Conditions within a group are AND; groups separated by OR are OR.
+
+Sensor condition fields:
+
+- **Sensor**: sensor to watch. Options are dashboard-visible sensors.
+- **Metric**: metric from the selected sensor.
+- **Operator**: comparison operator. Options are `>`, `<`, `==`, and `!=`.
+- **Threshold**: numeric value used by the comparison.
+- **Hysteresis**: buffer around the threshold to reduce rapid on/off cycling.
+
+Time-of-day condition fields:
+
+- **Start Time**: beginning of the active window.
+- **Stop Time**: end of the active window.
+- **Days**: weekdays when the condition can be true. Options are Mon through Sun.
+
+Astral condition fields:
+
+- **Event**: sunrise/sunset mode. Options are **sunrise to sunset**, **sunset to sunrise**, **sunrise**, and **sunset**.
+- **Offset (minutes)**: shifts the event by -120 to 120 minutes. Negative starts before the event; positive starts after.
+- **Days**: weekdays when the Astral rule can run.
+
+Timer condition fields:
+
+- **Every**: repeat interval. Options are 5 minutes, 15 minutes, 30 minutes, 1 hour, 3 hours, 6 hours, 12 hours, and 24 hours.
+- **Duration**: active duration in minutes, from 1 to 60. Duration must be less than the Every interval.
+
+Action fields:
+
+- **Switch**: channel to control. Options come from labeled channels on this switch and use the stable switch key behind the scenes.
+- **State**: **On** or **Off**.
+- **Revert Action**: **Previous State** returns the switch to its previous state when the rule is no longer true. **Do Nothing** leaves the switch where the action put it.
+- **Delay Before Action (secs)**: waits 0 to 60 seconds after the rule becomes true before applying the action.
+
+For critical loads, test automations with harmless equipment first. A short delay and hysteresis can prevent relay chatter when readings hover near a threshold.
+
+### Switch Info Pane
+
+![Switch info pane](<../assets/screenshots/Switch Settings - Switch Info.png>)
+
+The Switch Info pane shows:
+
+- **IP Address**: last known IP address for a remote switch.
+- **Broker**: MQTT broker reported by the switch.
+- **Broker Status**: remote broker connection status.
+- **Last 24hr offline events**: offline transitions during the last 24 hours.
+- **Uptime since last offline event**: time since the latest offline event or local clear baseline.
+- **Last offline event time**: timestamp of the last offline event.
+- **Last packet received**: age or timestamp of the most recent packet.
+- **Switch current state, age**: per-channel state and how long that state has been known.
+- **Clear**: clears the browser-side display baseline for statistics.
+
+Use this pane when commands do not seem to reach a switch or when a remote relay appears to drop offline.
+
+## Graph & History
+
+Open the graph tool when you want to compare readings over time, investigate spikes, or see whether a switch action changed the environment.
+
+![Full-screen VPD graph](<../assets/screenshots/Full Screen VPD Graph.png>)
+
+The full-screen graph displays one to three metric series. The first selected metric uses the left axis. The second and third selected metrics use the right axis. Average lines are shown when average data is available. VPD graphs show VPD range coloring, and some metrics show gauge-zone background bands.
+
+Switch event overlays appear as vertical lines. The legend shows which colors mean ON and OFF for each selected switch channel.
+
+### Graph Definition Modal
+
+![Full-screen graph definition modal](<../assets/screenshots/Full-Screen Graph Definition Modal.png>)
+
+The graph definition modal has these panes and fields:
+
+- **Saved Graph Setups**: saved graph configurations. These are stored in system settings under the `GraphModal` section. Click a saved setup to load its sensors, metrics, time range, and switch overlay choices.
+- **Remove**: deletes the selected saved graph setup.
+- **Left Y-Axis sensor selector**: chooses the sensor for the left-axis metric. Options come from `/sensor-ids`, which combines dashboard-visible local and MQTT-discovered sensors.
+- **Left Y-Axis metric selector**: chooses the metric for the left axis. Options come from `/sensor-metrics`, first from the database's known metric names and then from live sensor metadata if needed.
+- **Right Y-Axis A sensor and metric selectors**: optional second metric. It is useful for comparing related readings such as temperature and humidity.
+- **Right Y-Axis B sensor and metric selectors**: optional third metric.
+- **Time Range**: preset history windows. The available day ranges depend on the configured database retention period. Common options are 1Hr, 3Hr, 6Hr, 12Hr, 24Hr, 3Day, 7Day, and the configured maximum day range.
+- **Custom**: lets you enter exact start and end date/time values. Both must be filled before graphing.
+- **Switch Transitions switch selector**: optional switch whose events should be shown on the graph. Options come from switch settings.
+- **Channel checkboxes**: optional switch channels to overlay. Options come from the selected switch's channel labels.
+- **Home**: closes the graph setup modal.
+- **Save**: saves the current graph setup after asking for a setup name.
+- **Graph It**: loads data from `/graph-data` and opens the full-screen graph.
+- **Close** on the full-screen graph: returns to the dashboard.
+
+Use switch overlays to answer practical questions: whether a fan cooled the greenhouse, whether irrigation raised soil moisture, or whether lights changed VPD.
+
+## BD Calendar
+
+Sensorius includes a built-in biodynamic calendar and can also open the standalone Biodynamic Calendar app when that app is running on the same host.
+
+The built-in calendar is part of the Sensorius dashboard. It uses Sensorius Astral settings for latitude, longitude, altitude, and timezone. Calendar notes and daily summaries are stored in the Sensorius SQLite database in `biodynamic_notes` and `biodynamic_daily_summaries`.
+
+The standalone app lives at `~/Projects/Biodynamic_Calendar`, which is `/Users/twfarley/Projects/Biodynamic_Calendar` for this installation. It can run beside Sensorius on port `8765`. When you click the dashboard **Calendar** button, Sensorius checks `http://127.0.0.1:8765/healthz`. If the companion app is available, Sensorius opens it in an overlay at:
+
+```text
+http://<sensorius-host>:8765/?source=sensorius
+```
+
+If the companion app is not available, Sensorius opens the built-in calendar modal.
+
+### Built-In Calendar
+
+The built-in calendar shows:
+
+- Current biodynamic sign, element, and plant focus.
+- Current day's biodynamic windows.
+- Month navigation.
+- Day cells colored by dominant biodynamic influence.
+- Daily Summary for the selected day.
+- Daily Notes for the selected day.
+- Save Note.
+- Print Calendar and Print Notes.
+
+Daily summaries come from Sensorius' biodynamic summary storage. For the current day, the summary may include a **24hr Forecast** section if weather forecast data is enabled in System Settings.
+
+The built-in calendar is best for quick dashboard use: checking today's planting focus, adding a note, printing a month, and reviewing daily summaries without leaving Sensorius.
+
+### Companion Biodynamic Calendar App
+
+![Biodynamic Calendar app overview](<../assets/screenshots/BD Calendar App - 1.png>)
+
+![Biodynamic Calendar month view](<../assets/screenshots/BD Calendar App -2.png>)
+
+![Biodynamic Calendar detail view](<../assets/screenshots/BD Calendar App -3.png>)
+
+![Biodynamic Calendar planting tools](<../assets/screenshots/BD Calendar App - 4.png>)
+
+![Biodynamic Calendar notes and print tools](<../assets/screenshots/BD Calendar App - 5.png>)
+
+The companion app has more capabilities than the built-in calendar:
+
+- A full standalone calendar UI.
+- Sun/Moon Position panel with a 24-hour position graph.
+- Clickable 29-day Sun/Moon position and moon phase overlay.
+- Moon Phase panel with **Local** and **Ref** modes.
+- Manual and automatic location management.
+- Next 12 Months overview.
+- Planting records with crop details.
+- Notes and print reports.
+- Sensorius SQLite storage support when started with `SENSORIUS_DB_PATH` or `BD_CALENDAR_STORE=sensorius`.
+
+Companion app fields and controls:
+
+- **Latitude**: manual latitude for calendar and Astral calculations. If the app is using Sensorius storage, this can come from Sensorius Astral settings.
+- **Longitude**: manual longitude. Latitude and longitude must both be filled for manual location.
+- **Timezone**: IANA timezone name such as `America/Denver`. It controls day boundaries and displayed times.
+- **Save Location**: stores the entered latitude, longitude, and timezone.
+- **Reset Location**: clears manual location and re-runs auto-detection. Auto-detection prefers Sensorius Astral settings, then IP geolocation, then a timezone-city fallback.
+- **Local / Ref** in Moon Phase: switches between the local visual moon orientation and a reference moon phase view.
+- **Previous / Next month arrows**: move the main month calendar.
+- **Calendar day cells**: select a day. The selected day drives the Daily Summary, selected facts, notes, and planting context.
+- **Next 12 Months**: shows a longer planning range. It comes from the companion app's calendar range API and uses the same location.
+- **Daily Summary**: explains the selected day, including biodynamic focus and relevant timing.
+- **Plant**: crop or plant name, such as Tomato.
+- **Variety**: cultivar or variety name.
+- **Focus**: biodynamic plant focus. Options are Auto, Root, Leaf, Flower, and Fruit. Auto lets the app infer the focus from crop information when possible.
+- **Start**: start method. Options are Seed and Transplant.
+- **Start Date**: planned or actual seeding/transplant date.
+- **Harvest**: expected harvest date.
+- **Days to Maturity**: optional number from 1 to 730 days.
+- **Location**: bed, greenhouse, field, tray, or other practical planting location.
+- **Plant Type**: descriptive crop class, such as fruiting vegetable.
+- **Attributes**: free-form notes for spacing, succession, hardening, trellis, harvest window, or other crop details.
+- **Save Planting**: stores or updates the planting record.
+- **Clear**: clears the planting form.
+- **Edit / Delete** in the planting list: updates or removes an existing planting record.
+- **Your Notes**: free-form note for the selected day.
+- **Save Note**: stores the note for that date.
+- **Print**: prints the selected calendar/report view.
+
+Run the companion app on the same host as Sensorius:
+
+```bash
+cd /Users/twfarley/Projects/Biodynamic_Calendar
+SENSORIUS_DB_PATH=/Users/<user>/Sensorius/sensorius_data.db \
+PYTHONPATH=src uvicorn biodynamic_calendar_app.app:app --host 0.0.0.0 --port 8765
+```
+
+Adjust `SENSORIUS_DB_PATH` if your active Sensorius database is in a different working directory. For direct use, open `http://127.0.0.1:8765/` on the host or `http://<sensorius-host-ip>:8765/` from another device on the same network.
 
 ## Good Operating Habits
 
-- Keep sensor, switch, and location names consistent.
-- Test switch automations with low-risk equipment before controlling critical loads.
-- Watch graphs after calibration changes to confirm the adjustment behaved as expected.
-- Keep MQTT broker details stable once Home Assistant or remote devices depend on them.
-- Restart the Sensorius service after changes that affect startup configuration, host binding, or broker wiring.
-- Back up `sensor_settings/`, `switch_settings/`, `system_settings/`, and the SQLite database before major deployment changes.
+- Use names and locations that match how people talk about the garden or farm.
+- Test automations with harmless loads before connecting pumps, heaters, valves, or lights.
+- Use hysteresis and short delays on threshold rules.
+- Watch graphs after calibration changes.
+- Keep MQTT broker addresses stable once Nodus devices or Home Assistant depend on them.
+- Back up `sensor_settings/`, `switch_settings/`, `system_settings/`, and `sensorius_data.db` before major changes.
+- Restart Sensorius after changes that affect startup, host binding, service setup, or MQTT subscriptions when the UI or save message indicates a restart is needed.
 
 ## Troubleshooting
 
 If a sensor does not appear:
 
-- Confirm that Sensorius is running and the web UI is reachable.
-- For Nodus devices, confirm that the MQTT broker is reachable and the device has published metadata.
-- Check that the device is powered and on the expected network.
-- Refresh the dashboard after the device publishes metadata.
+- Confirm Sensorius is running and the dashboard is reachable.
+- For Nodus devices, confirm the device is powered, on the expected Wi-Fi, and publishing MQTT metadata.
+- Check **Sensor Info** for last packet and offline events.
+- Refresh the dashboard after onboarding or metadata changes.
+
+If readings look wrong:
+
+- Confirm the sensor is in the intended location.
+- Compare against a trusted reference before calibrating.
+- Use **Sensor Calibration** for one device and **System Calibration** for groups of similar temperature/RH sensors.
+- Check whether the metric shown is the one you intended in **Sensor Settings > Metric 1-6**.
 
 If switch control does not work:
 
-- Confirm that the switch is online.
-- Check that channel labels match the configured switch.
-- For Nodus switches, confirm that command and state topics are flowing through MQTT.
-- Review automations for rules that may immediately restore or override manual changes.
-
-If Home Assistant does not show entities:
-
-- Confirm Home Assistant integration is enabled.
-- Verify broker host, port, username, and password.
-- Confirm retained discovery publishing is enabled.
-- Restart Home Assistant or reload MQTT entities if needed.
+- Confirm the switch is online in **Switch Info**.
+- Check channel labels in **Switch Settings**.
+- For Nodus switches, confirm MQTT command and state topics are flowing.
+- Check whether an enabled Advanced automation is controlling the same channel.
 
 If graphs have gaps:
 
 - Confirm the sensor was online during the missing period.
-- Check whether the host or service restarted.
-- Verify the local database is writable and retention settings have not pruned older data.
+- Check whether Sensorius or the host restarted.
+- Check database retention in **System Settings > Advanced**.
+- Confirm the selected metric exists for the selected sensor.
+
+If Home Assistant does not show entities:
+
+- Confirm Home Assistant integration is enabled.
+- Verify broker host, port, TLS, username, and password.
+- Confirm Home Assistant's MQTT integration is running.
+- Restart Home Assistant or reload MQTT entities if retained discovery was recently changed.
+
+If the Biodynamic Calendar is unavailable:
+
+- Confirm latitude, longitude, and timezone in **System Settings > System Settings**.
+- If using the companion app, confirm `http://127.0.0.1:8765/healthz` returns `ok` on the Sensorius host.
+- If using the built-in calendar, confirm Sensorius can write to the SQLite database for notes and summaries.
 
 ## Related Documentation
 
@@ -333,5 +628,6 @@ If graphs have gaps:
 - Switch automations: `docs/automations.md`
 - MQTT: `docs/mqtt.md`
 - Home Assistant: `docs/homeassistant.md`
-- FarmOS: `docs/farmos.md`
+- farmOS: `docs/farmos.md`
 - Hardware: `docs/hardware.md`
+- Biodynamic companion notes: `docs/biodynamic_calendar_companion.md`
