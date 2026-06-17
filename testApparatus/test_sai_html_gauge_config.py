@@ -110,6 +110,39 @@ def test_dashboard_gauge_refresh_applies_sensor_statuses():
     assert "if (typeof applySensorStatuses === 'function') applySensorStatuses(d);" in block
 
 
+def test_dashboard_metric_refresh_isolates_bad_cards():
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["aqi-a", "aqi-b", "aqi-c"],
+            {
+                "aqi-a": {"Temperature": 72.0},
+                "aqi-b": {"Temperature": None},
+                "aqi-c": {"Temperature": 74.0},
+            },
+            {},
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=get_gauge_config(),
+            expected_gauge_map={
+                "aqi-a": ["Temperature"],
+                "aqi-b": ["Temperature"],
+                "aqi-c": ["Temperature"],
+            },
+        )
+    )
+
+    assert "initGauge: metric card init failed" in html
+    start = html.index("async function updateGauges()")
+    end = html.index("function refreshOnceAfterSensorAdded")
+    block = html[start:end]
+    assert "updateGauges: status update failed" in block
+    assert "updateGauges: layout drift check failed" in block
+    assert "updateGauges: sensor UI sync failed" in block
+    assert "updateGauges: metric update failed" in block
+    assert "updateGauges: sensor update failed" in block
+
+
 def test_moon_position_footer_falls_back_to_nearest_moon_event():
     astro_payload = {
         "ok": True,

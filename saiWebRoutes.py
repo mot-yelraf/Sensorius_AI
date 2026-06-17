@@ -503,6 +503,17 @@ _SENSOR_LOCATION_CACHE_TTL_SEC: float = 5.0
 _SENSOR_LOCATION_CACHE: dict[str, tuple[float, str]] = {}
 
 
+def _dashboard_json_safe(value):
+    """Return a JSONResponse-safe dashboard payload fragment."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {str(k): _dashboard_json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_dashboard_json_safe(v) for v in value]
+    return value
+
+
 def _is_unknown_location_value(value: object) -> bool:
     text = str(value or "").strip().lower()
     return text in {"", "unknown", "n/a", "na", "none", "-"}
@@ -2432,24 +2443,122 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 printDM(f"[cdp] No sensor object found for '{sensor_id}' (map type: {type(sm).__name__})", location=f"{MODULE}")
 
         # -------- values & stats (compute ONCE) --------
-        async def _values_for(sid: str):
-            v = await asyncio.to_thread(data_logger.get_latest_values, sid)
-            return sid, (v or {})
+        async def _latest_values_for_sensor_ids(sensor_ids: list[str]) -> tuple[dict[str, dict], dict[str, str]]:
+            clean_ids: list[str] = []
+            seen_ids: set[str] = set()
+            for raw_sid in sensor_ids or []:
+                sid_text = str(raw_sid or "").strip()
+                sid_key = sid_text.lower()
+                if not sid_text or sid_key in seen_ids:
+                    continue
+                seen_ids.add(sid_key)
+                clean_ids.append(sid_text)
+            if not clean_ids:
+                return {}, {}
+
+            try:
+                values, timestamps = await asyncio.to_thread(
+                    data_logger.get_latest_values_and_timestamps,
+                    clean_ids,
+                )
+                return values or {}, timestamps or {}
+            except Exception as exc:
+                printDM(
+                    f"[dashboard] bulk latest values failed; falling back per sensor: {exc}",
+                    location=MODULE,
+                )
+
+            async def _latest_for_one(sid_text: str):
+                try:
+                    values = await asyncio.to_thread(data_logger.get_latest_values, sid_text)
+                    values = values or {}
+                except Exception as exc:
+                    printDM(
+                        f"[dashboard] latest values failed for {sid_text}: {exc}",
+                        location=MODULE,
+                    )
+                    values = {}
+
+                try:
+                    timestamp = await asyncio.to_thread(data_logger.get_latest_timestamp, sid_text)
+                    timestamp = timestamp or ""
+                except Exception as exc:
+                    printDM(
+                        f"[dashboard] latest timestamp failed for {sid_text}: {exc}",
+                        location=MODULE,
+                    )
+                    timestamp = ""
+
+                return sid_text, values, timestamp
+
+            pairs = await asyncio.gather(
+                *[_latest_for_one(sid_text) for sid_text in clean_ids],
+                return_exceptions=True,
+            )
+            values_out: dict[str, dict] = {}
+            timestamps_out: dict[str, str] = {}
+            for item in pairs:
+                if isinstance(item, Exception):
+                    printDM(f"[dashboard] per-sensor latest fallback failed: {item}", location=MODULE)
+                    continue
+                sid_text, values, timestamp = item
+                values_out[sid_text] = values or {}
+                if timestamp:
+                    timestamps_out[sid_text] = timestamp
+            return values_out, timestamps_out
+
+        async def _stats_for_sensor_ids(sensor_ids: list[str], *, prefer_fast: bool = True) -> dict[str, dict]:
+            clean_ids = [str(sid or "").strip() for sid in (sensor_ids or []) if str(sid or "").strip()]
+            if not clean_ids:
+                return {}
+
+            if prefer_fast:
+                try:
+                    all_stats_fast = await asyncio.to_thread(statter.get_all_stats_fast)
+                    all_stats_fast = all_stats_fast or {}
+                    return {sid: (all_stats_fast.get(sid) or {}) for sid in clean_ids}
+                except Exception as exc:
+                    printDM(
+                        f"[dashboard] fast stats failed; falling back per sensor: {exc}",
+                        location=MODULE,
+                    )
+
+            async def _stats_for_one(sid_text: str):
+                try:
+                    stats = await asyncio.to_thread(statter.get_24hr_stats, sid_text)
+                    return sid_text, (stats or {})
+                except Exception as exc:
+                    printDM(
+                        f"[dashboard] stats failed for {sid_text}: {exc}",
+                        location=MODULE,
+                    )
+                    return sid_text, {}
+
+            pairs = await asyncio.gather(
+                *[_stats_for_one(sid_text) for sid_text in clean_ids],
+                return_exceptions=True,
+            )
+            stats_out: dict[str, dict] = {}
+            for item in pairs:
+                if isinstance(item, Exception):
+                    printDM(f"[dashboard] per-sensor stats fallback failed: {item}", location=MODULE)
+                    continue
+                sid_text, stats = item
+                stats_out[sid_text] = stats or {}
+            return stats_out
 
         bulk_values: dict[str, dict] = {}
         bulk_timestamps: dict[str, str] = {}
         if not sensor_id or sensor_id == "All" or (isinstance(sensor_id, str) and sensor_id.startswith("loc:")):
-            bulk_values, bulk_timestamps = await asyncio.to_thread(data_logger.get_latest_values_and_timestamps, available)
-            all_stats_fast = await asyncio.to_thread(statter.get_all_stats_fast)
+            bulk_values, bulk_timestamps = await _latest_values_for_sensor_ids(available)
             all_values = {sid: (bulk_values.get(sid) or {}) for sid in available}
-            all_stats  = {sid: (all_stats_fast.get(sid) or {}) for sid in available}
+            all_stats = await _stats_for_sensor_ids(available, prefer_fast=True)
         else:
             sid = sensor_id
-            bulk_values, bulk_timestamps = await asyncio.to_thread(data_logger.get_latest_values_and_timestamps, [sid])
+            bulk_values, bulk_timestamps = await _latest_values_for_sensor_ids([sid])
             v_sid, v = sid, (bulk_values.get(sid) or {})
-            s = await asyncio.to_thread(statter.get_24hr_stats, sid)
             all_values = {v_sid: (v or {})}
-            all_stats  = {sid: (s or {})}
+            all_stats = await _stats_for_sensor_ids([sid], prefer_fast=False)
         phase_ms["values_stats"] = (time.monotonic() - _phase_started) * 1000.0 - phase_ms.get("inventory", 0.0)
 
         display_settings = _get_cached_display_settings()
@@ -2918,6 +3027,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             else:
                 phase_ms["extras"] = 0.0
 
+            payload = _dashboard_json_safe(payload)
             _DASHBOARD_JSON_CACHE[cache_key] = (
                 now_mono + _DASHBOARD_JSON_CACHE_TTL_SEC,
                 payload,

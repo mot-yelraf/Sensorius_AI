@@ -143,12 +143,12 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert ".bio-print-block{font-size:9pt;line-height:1.35;color:#27313a;white-space:pre-wrap;overflow-wrap:anywhere;min-height:1.2em;text-align:left;}" in text
     assert ".bio-summary-card .bio-summary-output{height:78px;max-height:78px;}" in text
     assert "document.body.classList.add('bio-printing');" in text
-    assert "document.body.classList.add(mode === 'calendar' ? 'bio-print-calendar-mode' : 'bio-print-notes-mode');" in text
     assert "window.print();" in text
-    assert "window.printBiodynamicCalendar = function(){ bioRunPrint('calendar'); };" in text
-    assert "window.printBiodynamicNotes = function(){ bioRunPrint('notes'); };" in text
-    assert "document.getElementById('bioPrintCalendarBtn').addEventListener('click', () => { if (window.printBiodynamicCalendar) window.printBiodynamicCalendar(); });" in text
-    assert "document.getElementById('bioPrintNotesBtn').addEventListener('click', () => { if (window.printBiodynamicNotes) window.printBiodynamicNotes(); });" in text
+    assert "function bioRunPrint(){" in text
+    assert "window.printBiodynamicReport = function(){ bioRunPrint(); };" in text
+    assert "window.printBiodynamicCalendar" not in text
+    assert "window.printBiodynamicNotes" not in text
+    assert "document.getElementById('bioPrintReportBtn').addEventListener('click', () => { if (window.printBiodynamicReport) window.printBiodynamicReport(); });" in text
     assert "function bioForecastSummaryText(){" in text
     assert "const lines = ['24hr Forecast'];" in text
     assert "function bioSummaryWithForecast(dateIso, summaryText){" in text
@@ -156,13 +156,19 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "const summaryText = bioSummaryWithForecast(day.date, summaries[day.date] || '');" in text
     assert "const summaryText = dateIso ? bioSummaryWithForecast(dateIso, summaries[dateIso] || '') : '';" in text
     assert "if (typeof bioRefreshOpenSummary === 'function') bioRefreshOpenSummary();" in text
-    assert "<button type='button' class='bio-print-btn' id='bioPrintCalendarBtn'>Print Calendar</button>" in text
-    assert "<button type='button' class='bio-print-btn' id='bioPrintNotesBtn'>Print Notes</button>" in text
+    assert "<button type='button' class='bio-print-btn' id='bioPrintReportBtn'>Print Report</button>" in text
+    assert "<button type='button' class='bio-print-btn' id='bioPrintCalendarBtn'>Print Calendar</button>" not in text
+    assert "<button type='button' class='bio-print-btn' id='bioPrintNotesBtn'>Print Notes</button>" not in text
+    assert text.index("<button type='button' class='bio-save-btn' id='bioSaveNoteBtn'>Save Note</button>") < text.index("<button type='button' class='bio-print-btn' id='bioPrintReportBtn'>Print Report</button>")
     assert "<div class='bio-note-card bio-summary-card'>" in text
     assert "<div class='bio-note-title'>Daily Notes</div>" in text
     assert "<div class='bio-note-title'>Your Notes</div>" not in text
-    assert "<div class='bio-print-sheet' id='bioPrintCalendarSheet' aria-hidden='true'></div>" in text
-    assert "<div class='bio-print-sheet' id='bioPrintNotesSheet' aria-hidden='true'></div>" in text
+    assert "<div class='bio-print-sheet' id='bioPrintReportSheet' aria-hidden='true'></div>" in text
+    assert "<div class='bio-print-sheet' id='bioPrintCalendarSheet' aria-hidden='true'></div>" not in text
+    assert "<div class='bio-print-sheet' id='bioPrintNotesSheet' aria-hidden='true'></div>" not in text
+    assert "const reportEl = document.getElementById('bioPrintReportSheet');" in text
+    assert "<div class='bio-print-title'>Biodynamic Calendar Report</div>" in text
+    assert "<div class='bio-print-section-title'>Calendar</div><div class='bio-print-calendar'>${grid}</div><div class='bio-print-section-title'>Daily Summary and Notes</div>" in text
     assert "function biodynamicCompanionUrl(){" in text
     assert "url.protocol = 'http:';" in text
     assert "url.port = '8765';" in text
@@ -178,11 +184,10 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "openBiodynamicCompanion(biodynamicCompanionUrl());" in text
     assert "window.location.assign(biodynamicCompanionUrl());" not in text
     assert "if (window.openBiodynamicCalendarModal) await window.openBiodynamicCalendarModal(); else setBioOpenButtonLoading(false);" in text
-    assert "@media print{@page{margin:.2in}@page bio-calendar{size:landscape;margin:.2in}@page bio-notes{size:portrait;margin:.35in}body.bio-printing *{visibility:hidden !important}" in text
-    assert "@page bio-calendar{size:landscape;margin:.2in}" in text
-    assert "@page bio-notes{size:portrait;margin:.35in}" in text
-    assert "body.bio-print-calendar-mode #bioPrintCalendarSheet{display:block !important;page:bio-calendar}" in text
-    assert "body.bio-print-notes-mode #bioPrintNotesSheet{display:block !important;page:bio-notes}" in text
+    assert "@media print{@page{size:portrait;margin:.35in}@page bio-report{size:portrait;margin:.35in}body.bio-printing *{visibility:hidden !important}" in text
+    assert "body.bio-printing #bioPrintReportSheet{display:block !important;position:absolute;left:0;top:0;width:100%;padding:.08in;background:#fff;color:#000;box-sizing:border-box;page:bio-report}" in text
+    assert "bio-print-calendar-mode" not in text
+    assert "bio-print-notes-mode" not in text
     assert "function hasOpenBackdropModal() {" in text
     assert "if (hasOpenBackdropModal()) {" in text
     assert "deferredLayoutRefresh = false;" in text

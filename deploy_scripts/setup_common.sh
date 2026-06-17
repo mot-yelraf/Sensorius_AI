@@ -48,6 +48,7 @@ deploy_project_files() {
       --exclude 'sensor_settings/***' \
       --exclude 'switch_settings/***' \
       --exclude '*.log' \
+      --exclude 'assets/screenshots/' \
       --exclude '*.md' \
       --exclude 'docs/' \
       --exclude 'testApparatus/' \
@@ -59,6 +60,7 @@ deploy_project_files() {
     cp -a "${SOURCE_REPO_DIR}/." "${PROJECT_DIR}/"
     rm -rf "${PROJECT_DIR}/.git" "${PROJECT_DIR}/deploy_scripts"
     rm -f "${PROJECT_DIR}/.env"
+    rm -rf "${PROJECT_DIR}/assets/screenshots"
     rm -rf "${PROJECT_DIR}/docs" "${PROJECT_DIR}/testApparatus"
     rm -rf "${PROJECT_DIR}"/*.local
     rm -f "${PROJECT_DIR}/sensor_data.db" "${PROJECT_DIR}/sensordata.db" "${PROJECT_DIR}"/sensorius_data.db*

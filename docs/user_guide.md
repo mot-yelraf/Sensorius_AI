@@ -496,11 +496,11 @@ The built-in calendar shows:
 - Daily Summary for the selected day.
 - Daily Notes for the selected day.
 - Save Note.
-- Print Calendar and Print Notes.
+- Print Report for the selected month calendar with dated daily summaries and notes.
 
 Daily summaries come from Sensorius' biodynamic summary storage. For the current day, the summary may include a **24hr Forecast** section if weather forecast data is enabled in System Settings.
 
-The built-in calendar is best for quick dashboard use: checking today's planting focus, adding a note, printing a month, and reviewing daily summaries without leaving Sensorius.
+The built-in calendar is best for quick dashboard use: checking today's planting focus, adding a note, printing a monthly report, and reviewing daily summaries without leaving Sensorius.
 
 ### Companion Biodynamic Calendar App
 

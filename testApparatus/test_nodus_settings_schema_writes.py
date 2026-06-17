@@ -7,6 +7,7 @@ handling, and Nodus-facing config payload generation.
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import sys
 import time
@@ -3258,6 +3259,108 @@ async def test_dashboard_read_does_not_rewrite_metric_positions_for_offline_sens
         "aqi-b": 2,
         "aqi-c": 3,
     }
+
+
+@pytest.mark.asyncio
+async def test_dashboard_json_sanitizes_sideways_sensor_and_keeps_other_values(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    app.state.sensor_map = []
+    saiWebRoutes.sensor_map = []
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    for sid in ("aqi-a", "aqi-b", "aqi-c"):
+        sensor_mgr.save(
+            sid,
+            {
+                "Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": sid, "LOCATION": sid},
+                "Display": {"METRIC_1": "Temperature"},
+            },
+        )
+
+    now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["aqi-a", "aqi-b", "aqi-c"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso)
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_latest_values_and_timestamps",
+        lambda ids: (
+            {
+                "aqi-a": {"Temperature": 72.0},
+                "aqi-b": {"Temperature": math.nan},
+                "aqi-c": {"Temperature": 74.0},
+            },
+            {sid: now_iso for sid in ids},
+        ),
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_metrics", lambda sid: ["Temperature"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: (_ for _ in ()).throw(RuntimeError("stats down")))
+    monkeypatch.setattr(saiWebRoutes.statter, "get_24hr_stats", lambda sid: {})
+    ingest.mqtt_clients = []
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/", params={"json_only": "true"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["values"]["aqi-a"]["Temperature"] == 72.0
+    assert body["values"]["aqi-b"]["Temperature"] is None
+    assert body["values"]["aqi-c"]["Temperature"] == 74.0
+    assert body["stats"] == {"aqi-a": {}, "aqi-b": {}, "aqi-c": {}}
+
+
+@pytest.mark.asyncio
+async def test_dashboard_json_falls_back_per_sensor_when_bulk_latest_values_fail(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    app.state.sensor_map = []
+    saiWebRoutes.sensor_map = []
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    for sid in ("aqi-a", "aqi-b", "aqi-c"):
+        sensor_mgr.save(
+            sid,
+            {
+                "Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": sid, "LOCATION": sid},
+                "Display": {"METRIC_1": "Temperature"},
+            },
+        )
+
+    now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
+    values_by_sid = {
+        "aqi-a": {"Temperature": 72.0},
+        "aqi-b": RuntimeError("sensor read failed"),
+        "aqi-c": {"Temperature": 74.0},
+    }
+
+    def _latest_values(sid):
+        item = values_by_sid[sid]
+        if isinstance(item, Exception):
+            raise item
+        return dict(item)
+
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["aqi-a", "aqi-b", "aqi-c"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso)
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_latest_values_and_timestamps",
+        lambda ids: (_ for _ in ()).throw(RuntimeError("bulk latest failed")),
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_values", _latest_values)
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_metrics", lambda sid: ["Temperature"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {"aqi-a": {}, "aqi-b": {}, "aqi-c": {}})
+    ingest.mqtt_clients = []
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/", params={"json_only": "true"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["values"]["aqi-a"]["Temperature"] == 72.0
+    assert body["values"]["aqi-b"] == {}
+    assert body["values"]["aqi-c"]["Temperature"] == 74.0
 
 
 @pytest.mark.asyncio
