@@ -6872,6 +6872,7 @@ def render_graph_modal(switch_installed=None):
       width:16px;height:16px;border:2px solid #ccc;border-top:2px solid #333;border-radius:50%;
       animation:spin 1s linear infinite; display:inline-block;vertical-align:middle
     }
+    #graphButton:disabled{ opacity:.55; cursor:not-allowed; }
     @keyframes spin { to{ transform:rotate(360deg) } }
 
     .axis-grid{
@@ -7062,7 +7063,7 @@ def render_graph_modal(switch_installed=None):
         "onclick=\"document.getElementById('graphModal').style.display='none'\">Home</button>"
     )
     yield "      <button id='graphSaveButton' class='button green' title='Save graph setup' onclick='saveGraphSetup(event)'>Save</button>"
-    yield "      <button id='graphButton' class='button blue' title='Load graph' onclick='loadGraph(event)'>"
+    yield "      <button id='graphButton' class='button blue' title='Select at least one sensor and metric' onclick='loadGraph(event)' disabled>"
     yield "        <span class='spinner' style='display:none;margin-right:6px;'></span>"
     yield "        <span class='button-text'>Graph It</span>"
     yield "      </button>"
@@ -7176,6 +7177,11 @@ def render_graph_modal(switch_installed=None):
     let GRAPH_SETUPS = [];
     let GRAPH_LAST_USED = '';
     let GRAPH_ACTIVE_SETUP = '';
+    const GRAPH_SENSOR_METRIC_PAIRS = [
+      ['sensor1_select', 'metric1_select'],
+      ['sensor2_select', 'metric2_select'],
+      ['sensor3_select', 'metric3_select']
+    ];
 
     async function fetchJSON(url){
       const r = await fetch(url, {cache: 'no-store'});
@@ -7210,6 +7216,7 @@ def render_graph_modal(switch_installed=None):
           sel.appendChild(o);
         });
       }
+      updateGraphButtonState();
     }
 
     async function populateMetricsFor(sensorSelId, metricSelId){
@@ -7218,21 +7225,49 @@ def render_graph_modal(switch_installed=None):
       const msel = document.getElementById(metricSelId);
       if(!msel) return;
       msel.innerHTML = "<option value=''>-- Select Metric --</option>";
+      updateGraphButtonState();
       if(!sid) return;
 
-      const payload = await fetchJSON(`/sensor-metrics?sensor_id=${encodeURIComponent(sid)}`);
-      let metricNames = [];
-      if(Array.isArray(payload)) metricNames = payload;
-      else if(payload && typeof payload === 'object'){
-        if(Array.isArray(payload.metrics)) metricNames = payload.metrics;
-        else metricNames = Object.keys(payload);
+      try{
+        const payload = await fetchJSON(`/sensor-metrics?sensor_id=${encodeURIComponent(sid)}`);
+        let metricNames = [];
+        if(Array.isArray(payload)) metricNames = payload;
+        else if(payload && typeof payload === 'object'){
+          if(Array.isArray(payload.metrics)) metricNames = payload.metrics;
+          else metricNames = Object.keys(payload);
+        }
+        metricNames.forEach(name => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          msel.appendChild(opt);
+        });
+      }finally{
+        updateGraphButtonState();
       }
-      metricNames.forEach(name => {
-        const opt = document.createElement('option');
-        opt.value = name;
-        opt.textContent = name;
-        msel.appendChild(opt);
+    }
+
+    function hasGraphSensorMetricSelection(){
+      return GRAPH_SENSOR_METRIC_PAIRS.some(function(pair){
+        const sensor = (document.getElementById(pair[0])?.value || '').trim();
+        const metric = (document.getElementById(pair[1])?.value || '').trim();
+        return !!(sensor && metric);
       });
+    }
+
+    function updateGraphButtonState(){
+      const btn = document.getElementById('graphButton');
+      if(!btn) return false;
+      const hasSelection = hasGraphSensorMetricSelection();
+      const isLoading = btn.dataset.loading === '1';
+      btn.disabled = isLoading || !hasSelection;
+      btn.setAttribute('aria-disabled', btn.disabled ? 'true' : 'false');
+      if(isLoading){
+        btn.title = 'Preparing graph';
+      }else{
+        btn.title = hasSelection ? 'Load graph' : 'Select at least one sensor and metric';
+      }
+      return hasSelection;
     }
 
     function renderSwitchChannels(){
@@ -7318,6 +7353,7 @@ def render_graph_modal(switch_installed=None):
       if(m1) m1.value = String(c.metric1_select || '');
       if(m2) m2.value = String(c.metric2_select || '');
       if(m3) m3.value = String(c.metric3_select || '');
+      updateGraphButtonState();
 
       setRangeSelection(String(c.range || '24h'));
       const startEl = document.getElementById('start_time');
@@ -7400,6 +7436,7 @@ def render_graph_modal(switch_installed=None):
       }catch(e){
         console.warn('Failed to set last-used graph setup', e);
       }
+      updateGraphButtonState();
     }
 
     async function saveGraphSetup(event){
@@ -7486,6 +7523,12 @@ def render_graph_modal(switch_installed=None):
         await populateMetricsFor('sensor1_select','metric1_select');
         await populateMetricsFor('sensor2_select','metric2_select');
         await populateMetricsFor('sensor3_select','metric3_select');
+        const m1 = document.getElementById('metric1_select');
+        const m2 = document.getElementById('metric2_select');
+        const m3 = document.getElementById('metric3_select');
+        if(m1) m1.onchange = updateGraphButtonState;
+        if(m2) m2.onchange = updateGraphButtonState;
+        if(m3) m3.onchange = updateGraphButtonState;
 
         const swSel = document.getElementById('switch_select');
         if(swSel){
@@ -7506,16 +7549,24 @@ def render_graph_modal(switch_installed=None):
         }
       }catch(e){
         console.error('Graph builder init failed', e);
+      }finally{
+        updateGraphButtonState();
       }
     }
 
     function loadGraph(event){
-      const button = event.target.closest('button');
+      if(!hasGraphSensorMetricSelection()){
+        updateGraphButtonState();
+        return;
+      }
+      const button = event && event.target ? event.target.closest('button') : document.getElementById('graphButton');
+      if(!button) return;
       const spinner = button.querySelector('.spinner');
       const text = button.querySelector('.button-text');
+      button.dataset.loading = '1';
       button.disabled = true;
-      spinner.style.display='inline-block';
-      text.textContent='Preparing Graph...';
+      if(spinner) spinner.style.display='inline-block';
+      if(text) text.textContent='Preparing Graph...';
 
       const s1 = document.getElementById('sensor1_select').value;
       const s2 = document.getElementById('sensor2_select').value;
@@ -7545,9 +7596,10 @@ def render_graph_modal(switch_installed=None):
       if(rangeVal === 'custom'){
         if(!start || !end){
           alert('Enter start and end times.');
-          button.disabled=false;
-          spinner.style.display='none';
-          text.textContent='Graph It';
+          delete button.dataset.loading;
+          if(spinner) spinner.style.display='none';
+          if(text) text.textContent='Graph It';
+          updateGraphButtonState();
           return;
         }
         params.set('start', start);
@@ -7585,9 +7637,10 @@ def render_graph_modal(switch_installed=None):
           alert('Graph load failed');
         })
         .finally(() => {
-          button.disabled=false;
-          spinner.style.display='none';
-          text.textContent='Graph It';
+          delete button.dataset.loading;
+          if(spinner) spinner.style.display='none';
+          if(text) text.textContent='Graph It';
+          updateGraphButtonState();
         });
     }
 

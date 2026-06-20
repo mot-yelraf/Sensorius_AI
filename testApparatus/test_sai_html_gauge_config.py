@@ -60,6 +60,21 @@ def test_fullscreen_graph_modal_has_astral_selector_and_sky_panel():
     assert "astral: astralSel ? normalizeAstralMode(astralSel.value || 'none') : 'none'" in html
 
 
+def test_fullscreen_graph_it_requires_sensor_metric_selection():
+    html = "".join(render_graph_modal(switch_installed=False))
+
+    assert (
+        "id='graphButton' class='button blue' title='Select at least one sensor and metric' "
+        "onclick='loadGraph(event)' disabled"
+    ) in html
+    assert "const GRAPH_SENSOR_METRIC_PAIRS = [" in html
+    assert "function hasGraphSensorMetricSelection(){" in html
+    assert "function updateGraphButtonState(){" in html
+    assert "btn.disabled = isLoading || !hasSelection;" in html
+    assert "if(m1) m1.onchange = updateGraphButtonState;" in html
+    assert "if(!hasGraphSensorMetricSelection()){" in html
+
+
 def test_dashboard_micrograph_uses_soil_fertility_gauge_scale():
     gauge_config = get_gauge_config()
     html = "".join(
