@@ -92,6 +92,7 @@ class _FakeIngest:
         self.nodus_liveness: dict[str, dict] = {}
         self.nodus_switch_topic_map: dict[str, dict] = {}
         self.nodus_firmware_versions: dict[str, str] = {}
+        self.nodus_board_types: dict[str, str] = {}
         self._switch_state_cache: dict[str, dict] = {}
         self._host_ip_cache: dict[str, str] = {}
         self._host_ipv4addr: dict[str, str] = {}
@@ -297,6 +298,12 @@ class _FakeIngest:
         if not dev:
             return ""
         return str(self.nodus_firmware_versions.get(dev) or "")
+
+    def get_nodus_board_type(self, device_id: str | None, device_type: str | None = None):
+        dev = str(device_id or "").strip()
+        if not dev:
+            return ""
+        return str(self.nodus_board_types.get(dev) or "")
 
 
 class _FakeSaiSettings:
@@ -1286,6 +1293,7 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
         ambient_temp_offset=0.0,
         ambient_rh_offset=0.0,
         nodus_firmware_version="v1.2.3",
+        nodus_board_type="pico2w",
         offline_events_24h=7,
         last_offline_epoch=1780783200.0,
         uptime_since_last_offline_label="12m 4s",
@@ -1306,6 +1314,7 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
     )
 
     assert "Sensor Settings v1.2.3" in html
+    assert "apvpd-test123 (pico2w)" in html
     assert "Sensor Info" in html
     assert html.index('<h4 class="section-title">Network</h4>') < html.index('<h4 class="section-title">Statistics</h4>')
     assert "IP Address:" in html
@@ -1345,6 +1354,7 @@ async def test_switch_settings_modal_shows_statistics_pane(tmp_path, monkeypatch
         channel_indices=[1],
         channels=[{"index": 1, "label": "Fan", "channel_id": "S1-test123"}],
         nodus_firmware_version="v1.2.3",
+        nodus_board_type="xesp32s3",
         can_restart_device=True,
         offline_events_24h=3,
         last_offline_epoch=1780783200.0,
@@ -1369,6 +1379,7 @@ async def test_switch_settings_modal_shows_statistics_pane(tmp_path, monkeypatch
     )
 
     assert "Switch Settings v1.2.3" in html
+    assert "switch-test123 (xesp32s3)" in html
     assert "Switch Info" in html
     assert "Statistics" in html
     assert html.index('<h4 class="section-title">Network</h4>') < html.index('<h4 class="section-title">Statistics</h4>')
@@ -1406,6 +1417,7 @@ async def test_sensor_settings_modal_shows_network_info_and_recorded_statistics(
                 "DEVICE": "apvpd",
                 "SENSOR_ID": "apvpd-test123",
                 "LOCATION": "Veg Tent",
+                "MCU": "xesp32s3",
             },
             "Display": {"METRIC_1": "Temperature"},
         },
@@ -1423,6 +1435,7 @@ async def test_sensor_settings_modal_shows_network_info_and_recorded_statistics(
         res = await client.get("/edit-sensor", params={"sensor_id": "apvpd-test123", "embed": "1"})
 
     assert res.status_code == 200
+    assert "apvpd-test123 (xesp32s3)" in res.text
     assert "Sensor Info" in res.text
     assert res.text.index('<h4 class="section-title">Network</h4>') < res.text.index('<h4 class="section-title">Statistics</h4>')
     assert "IP Address:" in res.text
@@ -1462,6 +1475,7 @@ async def test_switch_settings_modal_uses_paired_sensor_broker_info(tmp_path, mo
             "Switch": {
                 "TYPE": "nodus",
                 "SWITCH_LOCATION": "Veg Tent",
+                "MCU": "pico2w",
                 "SWITCH_1_LABEL": "Fan",
                 "SWITCH_1_CHANNEL_ID": "S1-ykdvea",
                 "SWITCH_1_PIN": "GP15",
@@ -1476,6 +1490,7 @@ async def test_switch_settings_modal_uses_paired_sensor_broker_info(tmp_path, mo
         res = await client.get("/edit-switch", params={"switch_id": "switch-ykdvea", "embed": "1"})
 
     assert res.status_code == 200
+    assert "switch-ykdvea (pico2w)" in res.text
     assert "Switch Info" in res.text
     assert res.text.index('<h4 class="section-title">Network</h4>') < res.text.index('<h4 class="section-title">Statistics</h4>')
     assert "IP Address:" in res.text
@@ -1517,7 +1532,7 @@ async def test_sensor_settings_modal_seeds_live_nodus_sensor_without_shadow(tmp_
         res = await client.get("/edit-sensor", params={"sensor_id": "aht-yuk0nv", "embed": "1"})
 
     assert res.status_code == 200
-    assert "aht-yuk0nv" in res.text
+    assert "aht-yuk0nv (pico2w)" in res.text
 
     saved = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root)).load("aht-yuk0nv")
     assert saved["Sensor"]["TYPE"] == "nodus"
@@ -1628,10 +1643,12 @@ def test_switch_settings_modal_shows_nodus_firmware_version_in_settings_pane_tit
         channel_indices=[1],
         channels=[{"index": 1, "label": "Fan"}],
         nodus_firmware_version="v1.2.3",
+        nodus_board_type="pico2w",
         can_restart_device=True,
     )
 
     assert "Switch Settings v1.2.3" in html
+    assert "switch-test123 (pico2w)" in html
     assert html.index("Dashboard") < html.index("Restart Device") < html.index("Save")
     assert "window.closeSwitchSettingsModal && window.closeSwitchSettingsModal();" in html
     assert "Device Restarting..." in html

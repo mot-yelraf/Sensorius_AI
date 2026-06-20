@@ -51,6 +51,7 @@ Nodus device topics:
 
 - `nodus/<device_id>/status/heartbeat`
 - `nodus/<device_id>/meta`
+- `nodus/<device_id>/meta/switch`
 - `nodus/<device_id>/meta/patch`
 - `nodus/<device_id>/onboard/hello`
 - `nodus/<device_id>/config/set`
@@ -63,6 +64,9 @@ Nodus device topics:
 - `nodus/<device_id>/event/calibration_progress`
 - `nodus/<device_id>/event/calibration_sample`
 - `nodus/<device_id>/event/calibration_result`
+- `nodus/<device_id>/fwupdate`
+- `nodus/<device_id>/fwupdate/ack`
+- `nodus/<device_id>/fwupdate/result`
 
 Nodus sensor and switch topics:
 
@@ -80,8 +84,9 @@ Sensorius/Home Assistant topic families use the configured
 
 ## Discovery And Shadow State
 
-Retained `nodus/<device_id>/meta` is the authoritative full discovery snapshot.
-Sensorius uses it to:
+Retained `nodus/<device_id>/meta` is the compact authoritative startup
+snapshot. Retained `nodus/<device_id>/meta/switch` is the authoritative switch
+channel topic map when switch channels are present. Sensorius uses them to:
 
 - Register sensor data topics.
 - Register switch event, state, command, availability, ack, and result topics.
@@ -166,6 +171,7 @@ No Nodus device appears:
 
 - Check broker host/port and credentials.
 - Check retained `nodus/<device_id>/meta`.
+- For switches, check retained `nodus/<device_id>/meta/switch`.
 - Check heartbeat recency.
 - Check AP isolation or guest-network isolation.
 - Use the UI retry-discovery action after confirming metadata exists.
@@ -173,7 +179,7 @@ No Nodus device appears:
 Remote switch command does not work:
 
 - Confirm `SWITCH_N_CHANNEL_ID` is present and stable.
-- Confirm command, state, and event topics are present in retained metadata.
+- Confirm command, state, and event topics are present in retained `meta/switch`.
 - Confirm no enabled Advanced automation is overriding manual control.
 - Confirm state/event topic feedback arrives after a command.
 

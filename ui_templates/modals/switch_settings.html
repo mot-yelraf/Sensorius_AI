@@ -19,6 +19,9 @@
 
       <div class="split switch-dialog-split">
         <aside class="panel switch-dialog-menu" aria-label="Switch dialog sections">
+          <div class="list-header">
+            <span>{{ switch_id }}{% if nodus_board_type %} ({{ nodus_board_type }}){% endif %}</span>
+          </div>
           <button class="switch-menu-btn active" type="button" id="switchMenuSettings" aria-selected="true">
             Switch Settings
           </button>

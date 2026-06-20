@@ -122,7 +122,8 @@ Sensorius must treat non-200 or malformed response as `INIT_FAILED` and stop pro
   "device_id": "aqi-x943fm",
   "hostname": "aqi-x943fm",
   "serial": "x943fm",
-  "type": "pico2w",
+  "type": "nodus",
+  "mcu": "pico2w",
   "version": "v0.26.055.0",
   "capabilities": {
     "sensor": true,
@@ -226,8 +227,12 @@ Use stable short error strings to keep UI and recovery behavior predictable:
 ### `meta` Payload Field Notes
 `nodus/<device_id>/meta` (`schema = "nodus-meta/v1"`) includes:
 1. `sensor.display_metrics` for Sensorius TOML `[Display]` materialization.
-2. `switch.channels[*]` with `channel_id`, `event_topic`, `state_topic`, `set_topic`, and `availability_topic`.
-3. `location_group` grouping metadata.
+2. Top-level `mcu`, where `type` remains the device class (`nodus`). If `mcu`
+   is absent, Sensorius treats the board target as `pico2w` for legacy
+   compatibility.
+3. `switch.channel_count` and `switch.meta_topic` when switch channels are present.
+4. Retained `nodus/<device_id>/meta/switch` carries `switch.channels[*]` with `channel_id`, `event_topic`, `state_topic`, `set_topic`, and `availability_topic`.
+5. `location_group` grouping metadata.
 
 Sensorius should treat `meta` as eventual (it may be deferred briefly on low memory) and should not block onboarding success on immediate meta arrival.
 

@@ -109,10 +109,11 @@ Local sensors:
 
 Remote Nodus sensors:
 
-- Nodus publishes retained `nodus/<device_id>/meta`, runtime data, heartbeat,
-  availability, calibration, and patch topics.
-- `saiMQTTIngest` uses retained metadata to register sensor topics and seed or
-  update local shadow settings.
+- Nodus publishes retained compact `nodus/<device_id>/meta`, retained
+  `nodus/<device_id>/meta/switch` when switch channels are present, runtime
+  data, heartbeat, availability, calibration, and patch topics.
+- `saiMQTTIngest` uses retained metadata to register sensor and switch topics
+  and seed or update local shadow settings.
 - Sensor payloads are normalized and written through `saiDataLogger`, the same
   path as local readings.
 

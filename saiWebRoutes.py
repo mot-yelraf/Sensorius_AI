@@ -6055,6 +6055,27 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "broker": broker or "Unknown",
             "broker_status": _broker_health_status(broker, ingest),
         }
+
+    def _display_nodus_board_type(device_id: str, *, device_type: str, settings_block: dict | None = None) -> str:
+        board_type = ""
+        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        if ingest and hasattr(ingest, "get_nodus_board_type"):
+            try:
+                board_type = str(
+                    ingest.get_nodus_board_type(device_id, device_type=device_type)
+                ).strip()
+            except Exception:
+                board_type = ""
+        if not board_type and isinstance(settings_block, dict):
+            for key in ("MCU", "mcu", "BOARD_TYPE", "board_type", "BOARDTYPE", "boardtype", "BOARD", "board"):
+                board_type = str(settings_block.get(key) or "").strip()
+                if board_type:
+                    break
+        if not board_type and isinstance(settings_block, dict):
+            device_class = str(settings_block.get("TYPE") or settings_block.get("type") or "").strip().lower()
+            if device_class in {"nodus", "picow", "pico2w", "remote", "mqtt"}:
+                board_type = "pico2w"
+        return board_type
     
     async def push_nodus_setting_simple(
         *,
@@ -9210,6 +9231,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     ).strip()
                 except Exception:
                     nodus_firmware_version = ""
+            nodus_board_type = _display_nodus_board_type(
+                normalized_id,
+                device_type="sensor",
+                settings_block=sensor_section,
+            )
 
             network_info = await _build_device_network_info(normalized_id, device_type="sensor")
             sensor_statistics = await _build_sensor_statistics_payload(normalized_id)
@@ -9236,6 +9262,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 ambient_temp_offset=ambient_temp_offset,
                 ambient_rh_offset=ambient_rh_offset,
                 nodus_firmware_version=nodus_firmware_version,
+                nodus_board_type=nodus_board_type,
                 soil_ph_offset=soil_ph_offset,
                 device_offsets=device_offsets,
                 candidate_sensors=candidate_sensors,
@@ -11169,6 +11196,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 ).strip()
             except Exception:
                 nodus_firmware_version = ""
+        nodus_board_type = _display_nodus_board_type(
+            switch_id,
+            device_type="switch",
+            settings_block=sw,
+        )
 
         network_info = await _build_device_network_info(switch_id, device_type="switch")
         switch_statistics = await _build_switch_statistics_payload(switch_id, channels)
@@ -11182,6 +11214,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             channel_indices=channel_indices,
             channels=channels,
             nodus_firmware_version=nodus_firmware_version,
+            nodus_board_type=nodus_board_type,
             can_restart_device=(switch_type in ("picow", "pico2w", "nodus", "remote", "mqtt")),
             network_info=network_info,
             **switch_statistics,

@@ -140,7 +140,10 @@ A restart is usually not required for:
 Steady-state Nodus operation should be MQTT-first:
 
 - Do not use periodic `/hayd` or `/itaot` polling for onboarded devices.
-- Use retained `nodus/<device_id>/meta` for full discovery.
+- Use retained compact `nodus/<device_id>/meta` for device and sensor
+  discovery.
+- Use retained `nodus/<device_id>/meta/switch` for switch channel topic maps
+  when switch channels are present.
 - Use `nodus/<device_id>/meta/patch` for accepted runtime changes.
 - Use heartbeat and availability topics for liveness.
 - Use non-retained `/set` commands unless a cleanup flow explicitly owns the
@@ -154,8 +157,10 @@ When a Nodus device does not appear:
 1. Confirm the broker configured in `[SensorNetwork]` is reachable.
 2. Confirm the device is on the same network path as the broker.
 3. Confirm retained `nodus/<device_id>/meta` exists.
-4. Confirm heartbeat updates are recent.
-5. Use the web UI retry-discovery action if metadata arrived before Sensorius
+4. For switch-capable devices, confirm retained `nodus/<device_id>/meta/switch`
+   exists.
+5. Confirm heartbeat updates are recent.
+6. Use the web UI retry-discovery action if metadata arrived before Sensorius
    subscribed.
 
 ## Switch Operations

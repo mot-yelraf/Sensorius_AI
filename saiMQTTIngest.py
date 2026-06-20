@@ -100,6 +100,18 @@ def _extract_runtime_ipv4addr(payload: dict | None) -> str | None:
                 return ip
     return None
 
+def _extract_nodus_board_type(payload: dict | None) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("mcu", "MCU", "board_type", "BOARD_TYPE", "boardtype", "BOARDTYPE", "board", "BOARD"):
+        value = str(payload.get(key) or "").strip()
+        if value:
+            return value
+    legacy_type = str(payload.get("type") or payload.get("TYPE") or "").strip()
+    if legacy_type and legacy_type.lower() not in {"nodus", "remote", "mqtt"}:
+        return legacy_type
+    return "pico2w"
+
 def _local_epoch_seconds(settings=None, now_epoch: float | None = None) -> int:
     """Return local-naive epoch seconds for MQTT command identifiers."""
     try:
@@ -292,6 +304,7 @@ class saiMQTTIngest:
         self.last_nodus_report_seen: dict[str, float] = {}  # host/peer -> last live heartbeat/data/state/event report
         self.retained_mqtt_seen: dict[str, float] = {}  # host/peer -> retained broker replay receipt time
         self.nodus_firmware_versions: dict[str, str] = {}  # host/peer id -> firmware version from nodus meta
+        self.nodus_board_types: dict[str, str] = {}  # host/peer id -> MCU/board target from nodus meta
         self.fwupdate_result_by_device: dict[str, dict] = {}  # device_id/host -> last OTA result payload
         self.heartbeat_interval_s_by_host: dict[str, float] = {}  # host -> advertised interval
         self.heartbeat_stale: dict[str, bool] = {}  # host -> heartbeat freshness diagnostic
@@ -1610,6 +1623,8 @@ class saiMQTTIngest:
                             "topic": topic,
                             "received_at": now,
                         }
+                elif family == "onboard" and leaf == "hello":
+                    self._record_nodus_board_type(_extract_nodus_board_type(payload), device_id)
             event = {
                 "event_type": event_type,
                 "topic": topic,
@@ -3420,6 +3435,7 @@ class saiMQTTIngest:
         base = self._normalize_host_key(device_id) or device_id
         now_t = time.time()
         firmware_version = str(meta.get("version") or "").strip()
+        board_type = _extract_nodus_board_type(meta)
 
         sensor_blob = dict(meta.get("sensor")) if isinstance(meta.get("sensor"), dict) else {}
         if not sensor_blob:
@@ -3484,6 +3500,7 @@ class saiMQTTIngest:
             self.nodus_firmware_versions[base] = firmware_version
             self.nodus_firmware_versions[f"{base}.local"] = firmware_version
             self.nodus_firmware_versions[device_id] = firmware_version
+        self._record_nodus_board_type(board_type, base, f"{base}.local", device_id)
 
         # sensor metadata
         if sensor_id:
@@ -3492,6 +3509,7 @@ class saiMQTTIngest:
                 peer_ids_for_host.append(sensor_id)
             if firmware_version:
                 self.nodus_firmware_versions[sensor_id] = firmware_version
+            self._record_nodus_board_type(board_type, sensor_id)
             self.device_type[sensor_id] = "nodus"
             self._record_mqtt_seen(sensor_id, ts=now_t, retain=retain, report=False)
             sensor_device = self._infer_sensor_device_name(
@@ -3544,6 +3562,7 @@ class saiMQTTIngest:
                 "sensor_type": str(sensor_blob.get("type") or sensor_blob.get("TYPE") or "nodus").strip(),
                 "location": sensor_loc,
                 "serial": sensor_serial,
+                "mcu": board_type,
                 "display_metrics": display_metrics,
                 "display_styles": display_styles,
             })
@@ -3556,6 +3575,7 @@ class saiMQTTIngest:
                 peer_ids_for_host.append(switch_id)
             if firmware_version:
                 self.nodus_firmware_versions[switch_id] = firmware_version
+            self._record_nodus_board_type(board_type, switch_id)
 
             switch_loc = _pick_location(switch_location, resolved_location)
             self.device_type[switch_id] = "nodus"
@@ -3646,6 +3666,7 @@ class saiMQTTIngest:
                     "switch_payload": switch_payload,
                     "switch_type": "nodus",
                     "serial": str(switch_blob.get("serial") or "").strip(),
+                    "mcu": board_type,
                 })
                 new_subs = self._register_nodus_switch_topics(
                     switch_id,
@@ -3665,6 +3686,7 @@ class saiMQTTIngest:
                 peer_ids_for_host.append(switch_id)
             if firmware_version:
                 self.nodus_firmware_versions[switch_id] = firmware_version
+            self._record_nodus_board_type(board_type, switch_id)
             self.device_type[switch_id] = "nodus"
             self._known_switch_ids.add(switch_id)
             self._record_mqtt_seen(switch_id, ts=now_t, retain=retain, report=False)
@@ -3884,6 +3906,7 @@ class saiMQTTIngest:
         return {
             "schema": "nodus-meta/v1",
             "device_id": device_id,
+            "mcu": _extract_nodus_board_type(payload),
             "sensor": {
                 "sensor_id": sensor_id,
                 "device": self._infer_sensor_device_name(sensor_blob.get("device"), sensor_id),
@@ -4277,6 +4300,20 @@ class saiMQTTIngest:
              or "unknown")
         return self._normalize_liveness_state(s)
 
+    def _record_nodus_board_type(self, board_type: str | None, *device_ids: str | None) -> None:
+        board = str(board_type or "").strip()
+        if not board:
+            return
+        for raw in device_ids:
+            key = str(raw or "").strip()
+            if not key:
+                continue
+            self.nodus_board_types[key] = board
+            normalized = self._normalize_host_key(key)
+            if normalized:
+                self.nodus_board_types[normalized] = board
+                self.nodus_board_types[f"{normalized}.local"] = board
+
     def resolve_nodus_hostname(self, device_id: str, device_type: str | None = None) -> str | None:
         """
         Public resolver for WebRoutes:
@@ -4370,6 +4407,56 @@ class saiMQTTIngest:
             version = str((self.nodus_firmware_versions or {}).get(key) or "").strip()
             if version:
                 return version
+        return ""
+
+    def get_nodus_board_type(self, device_id: str | None, device_type: str | None = None) -> str:
+        """
+        Resolve a Nodus MCU/board target captured from hello/meta for a sensor, switch, or host id.
+        """
+        dev = str(device_id or "").strip()
+        if not dev:
+            return ""
+
+        candidates: list[str] = []
+
+        def _add_candidate(value: str | None) -> None:
+            raw = str(value or "").strip()
+            if not raw:
+                return
+            options = [raw]
+            if raw.endswith(".local"):
+                options.append(raw[:-6])
+            for item in options:
+                key = str(item or "").strip()
+                if key and key not in candidates:
+                    candidates.append(key)
+
+        _add_candidate(dev)
+        _add_candidate(self.resolve_nodus_hostname(dev, device_type=device_type))
+
+        for host, peers in (self.host_to_peer_ids or {}).items():
+            try:
+                if dev in (peers or []):
+                    _add_candidate(host)
+                    for peer in (peers or []):
+                        _add_candidate(peer)
+            except Exception:
+                continue
+
+        if (device_type or "").lower() == "switch" or dev.startswith("switch-"):
+            serial = dev.rsplit("-", 1)[-1] if "-" in dev else dev
+            suffix = f"-{serial}"
+            for key in (self.nodus_board_types or {}).keys():
+                text = str(key or "").strip()
+                if not text or text == dev or text.startswith("switch-"):
+                    continue
+                if text.endswith(suffix):
+                    _add_candidate(text)
+
+        for key in candidates:
+            board = str((self.nodus_board_types or {}).get(key) or "").strip()
+            if board:
+                return board
         return ""
 
     async def _send_nodus_restart(self, hostname: str, restart: str = "hard", *, port: int = 8000, timeout_sec: float = 4.0) -> bool:
@@ -5087,6 +5174,7 @@ class saiMQTTIngest:
                 )
                 location = (s.get("location") or "Unknown")
                 serial = (s.get("serial") or "")
+                board_type = str(s.get("mcu") or s.get("MCU") or "").strip()
                 remote_display_metrics = self._normalize_display_metrics(
                     s.get("display_metrics") or s.get("metrics")
                 )
@@ -5111,6 +5199,9 @@ class saiMQTTIngest:
                         changed = True
                     if serial and str(sb.get("SERIAL_NUM", "") or "").strip() != serial:
                         sb["SERIAL_NUM"] = serial
+                        changed = True
+                    if board_type and str(sb.get("MCU", "") or "").strip() != board_type:
+                        sb["MCU"] = board_type
                         changed = True
                     canonical_location = _canonical_location(location)
                     if str(sb.get("LOCATION", "") or "").strip() != canonical_location:
@@ -5172,6 +5263,8 @@ class saiMQTTIngest:
                     sb["LOCATION"] = _canonical_location(location)
                     if serial:
                         sb["SERIAL_NUM"] = serial
+                    if board_type:
+                        sb["MCU"] = board_type
 
                     if "Display" not in data or not isinstance(data["Display"], dict):
                         data["Display"] = OrderedDict()
@@ -5200,6 +5293,8 @@ class saiMQTTIngest:
                     sb["LOCATION"] = _canonical_location(location)
                     if serial:
                         sb["SERIAL_NUM"] = serial
+                    if board_type:
+                        sb["MCU"] = board_type
 
                     data["Display"] = OrderedDict()
                     chosen_metrics = remote_display_metrics or _display_defaults_for_device(device_name or device_type)
@@ -5231,6 +5326,7 @@ class saiMQTTIngest:
                 switch_loc = sw.get("switch_location") or "Unknown"
                 switch_type = (sw.get("switch_type") or "").strip()
                 switch_serial = (sw.get("serial") or "").strip()
+                board_type = str(sw.get("mcu") or sw.get("MCU") or "").strip()
                 switch_payload = sw.get("switch_payload") if isinstance(sw, dict) else None
 
                 nodus_dir = switch_mgr.base_dir / "factory_nodus"
@@ -5263,6 +5359,9 @@ class saiMQTTIngest:
                     changed = True
                 if switch_serial and str(sb.get("DEVICE_SERIAL_NUM", "") or "").strip() != switch_serial:
                     sb["DEVICE_SERIAL_NUM"] = switch_serial
+                    changed = True
+                if board_type and str(sb.get("MCU", "") or "").strip() != board_type:
+                    sb["MCU"] = board_type
                     changed = True
                 # Overlay indexed switch fields from metadata so rendering tracks
                 # authoritative channel IDs, labels, last state, and mqtt wiring.

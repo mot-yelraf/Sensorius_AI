@@ -93,7 +93,8 @@ Do not merge these into persistent config schema.
   "device_id": "aqi-x943fm",
   "hostname": "aqi-x943fm",
   "serial": "x943fm",
-  "type": "pico2w",
+  "type": "nodus",
+  "mcu": "pico2w",
   "version": "v0.26.053.0",
   "capabilities": {
     "sensor": true,

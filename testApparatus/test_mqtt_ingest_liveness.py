@@ -880,6 +880,7 @@ def test_nodus_meta_materializes_switch_mappings(monkeypatch):
         {
             "schema": "nodus-meta/v1",
             "version": "v1.2.3",
+            "mcu": "xesp32s3",
             "serial": "abc123",
             "sensor": {
                 "sensor_id": "apvpd-test123",
@@ -920,6 +921,8 @@ def test_nodus_meta_materializes_switch_mappings(monkeypatch):
     assert ingest.expected_gauge_map.get("apvpd-test123") == ["Temperature", "Rel-Humidity", "Ambient VPD"]
     assert ingest.get_nodus_firmware_version("apvpd-test123", device_type="sensor") == "v1.2.3"
     assert ingest.get_nodus_firmware_version("switch-test123", device_type="switch") == "v1.2.3"
+    assert ingest.get_nodus_board_type("apvpd-test123", device_type="sensor") == "xesp32s3"
+    assert ingest.get_nodus_board_type("switch-test123", device_type="switch") == "xesp32s3"
 
 
 def test_switch_firmware_version_falls_back_to_combo_host_suffix(monkeypatch):
@@ -1273,7 +1276,10 @@ def test_nodus_split_switch_meta_writes_all_channels_as_enabled_remote_shadow(tm
     ingest._parse_and_subscribe_from_nodus_meta(compact, topic_device_id="co2-ykdvea", retain=True)
     ingest._parse_and_subscribe_from_nodus_switch_meta(split, topic_device_id="co2-ykdvea", retain=True)
 
+    saved_sensor = real_sensor_mgr(str(sensor_root)).load("co2-ykdvea")
+    assert saved_sensor["Sensor"]["MCU"] == "pico2w"
     saved = switch_mgr.load("switch-ykdvea")
+    assert saved["Switch"]["MCU"] == "pico2w"
     assert saved["Switch"]["SWITCH_1_LABEL"] == "Fan"
     assert saved["Switch"]["SWITCH_1_ENABLE_PIN"] == "S1-ykdvea"
     assert saved["Switch"]["SWITCH_2_LABEL"] == "Humidifier"
@@ -3112,7 +3118,7 @@ def test_prefixed_onboarding_topics_are_parsed(monkeypatch):
     ingest.set_onboarding_event_handler(lambda event: received.append(event))
     msg = _Msg(
         "sensorius/nodus/apvpd-test123/onboard/hello",
-        json.dumps({"onboard_token": "abc"}),
+        json.dumps({"onboard_token": "abc", "type": "nodus"}),
         retain=False,
     )
     ingest._on_message(ingest.client, None, msg)
@@ -3120,3 +3126,4 @@ def test_prefixed_onboarding_topics_are_parsed(monkeypatch):
     assert len(received) == 1
     assert received[0].get("event_type") == "onboarding_hello"
     assert received[0].get("device_id") == "apvpd-test123"
+    assert ingest.get_nodus_board_type("apvpd-test123", device_type="sensor") == "pico2w"
