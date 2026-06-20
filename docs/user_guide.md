@@ -364,7 +364,7 @@ Controls:
 - **Remove**: deletes the selected automation.
 - **Enable** in the editor: sets whether the rule is active. Options are **Yes** and **No**.
 
-Automation rules are stored in `switch_settings/automations/automations.toml`. The editor loads sensor choices from `/sensor-directory`, metric choices from `/sensor-metrics`, switch labels from `/switch-info`, and existing automation rules from `/advanced/automations`.
+Automation rules are stored under the Sensorius runtime directory, such as `/Users/<user>/Sensorius/switch_settings/automations/automations.toml` on macOS or `/home/<user>/Sensorius/switch_settings/automations/automations.toml` on Linux. The editor loads sensor choices from `/sensor-directory`, metric choices from `/sensor-metrics`, switch labels from `/switch-info`, and existing automation rules from `/advanced/automations`.
 
 ### Automation Definition Pane
 
@@ -417,6 +417,18 @@ Action fields:
 - **State**: **On** or **Off**.
 - **Revert Action**: **Previous State** returns the switch to its previous state when the rule is no longer true. **Do Nothing** leaves the switch where the action put it.
 - **Delay Before Action (secs)**: waits 0 to 60 seconds after the rule becomes true before applying the action.
+
+Actions set absolute states, not toggle or invert commands. All actions in one automation share the same condition groups. **Previous State** is captured when an action actually changes a switch; if the switch is already at the requested state, there is no new previous state for that action to restore.
+
+To alternate two switch channels in one timer automation:
+
+1. Disable the automation.
+2. Put the channels in their normal baseline state manually. For example, set Green **On** and Yellow **Off**.
+3. In the automation action rows, choose the state wanted during the timer window. For example, set Green **Off** and Yellow **On**.
+4. Set **Revert Action** to **Previous State** for both rows.
+5. Save and enable the automation.
+
+With that setup, the timer window applies the action states, and the end of the window restores the manually set baseline state.
 
 For critical loads, test automations with harmless equipment first. A short delay and hysteresis can prevent relay chatter when readings hover near a threshold.
 

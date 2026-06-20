@@ -6754,9 +6754,44 @@ def render_graph_modal(switch_installed=None):
     #fullscreen_graph_container {
       display: none; position: fixed; top:0; left:0; width:100%; height:100vh;
       background:white; z-index:1001; flex-direction:column; justify-content:flex-start;
-      padding-top:3rem; padding-bottom:4rem; overflow:hidden; box-sizing:border-box;
+      padding:2.75rem 1rem 3.5rem 1rem; overflow:hidden; box-sizing:border-box;
     }
-    #fullscreen_graph { flex:1; width:100%; }
+    #fullscreen_graph_stack{
+      flex:1;
+      min-height:0;
+      width:100%;
+      display:flex;
+      flex-direction:column;
+      gap:.45rem;
+    }
+    .fullscreen-chart-panel{
+      position:relative;
+      flex:1 1 auto;
+      min-height:0;
+      width:100%;
+    }
+    #fullscreen_data_panel{ flex:1 1 auto; }
+    #fullscreen_astral_panel{
+      display:none;
+      flex:0 0 clamp(120px, 18vh, 190px);
+      min-height:120px;
+      border:1px solid #d5c7a8;
+      border-radius:8px;
+      overflow:hidden;
+      background:#dff1ff;
+    }
+    #fullscreen_graph_container.has-astral #fullscreen_data_panel{
+      flex:1 1 auto;
+      min-height:0;
+    }
+    #fullscreen_graph_container.has-astral{ padding-bottom:5.75rem; }
+    #fullscreen_graph_container.has-astral #fullscreen_astral_panel{ display:block; }
+    #fullscreen_graph,
+    #fullscreen_astral_graph{
+      width:100% !important;
+      height:100% !important;
+      display:block;
+    }
     #graphModal {
       display:none; position:fixed; top:0; left:0; width:100%; height:100%;
       background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;
@@ -6822,7 +6857,7 @@ def render_graph_modal(switch_installed=None):
     #graphModal .graph-right-body{
       flex:1;
       overflow:auto;
-      padding:0.95rem 1rem 0.6rem 1rem;
+      padding:0.7rem 1rem 0.45rem 1rem;
     }
     #graphModal .graph-actions{
       border-top:1px solid #e6ece8;
@@ -6842,11 +6877,43 @@ def render_graph_modal(switch_installed=None):
     .axis-grid{
       display:grid;
       grid-template-columns:1fr 1fr;
-      gap:.5rem 1rem;
-      margin-bottom:.75rem
+      gap:.35rem .8rem;
+      margin-bottom:.5rem
     }
-    .axis-grid h3{grid-column:1/3;margin:.25rem 0 .25rem 0}
-    .axis-grid label{font-size:.9rem}
+    .axis-grid h3{grid-column:1/3;margin:.05rem 0 .1rem 0;font-size:1rem}
+    .axis-grid label{font-size:.88rem}
+    #graphModal select,
+    #graphModal input[type='datetime-local']{
+      font-size:.92rem;
+      padding:.32rem .45rem;
+      min-height:2.1rem;
+      box-sizing:border-box;
+    }
+    #graphModal label{font-size:.88rem;line-height:1.2}
+    .graph-section{margin:.5rem 0 .4rem 0}
+    .graph-section-label{
+      margin:0 0 .25rem 0;
+      font-size:.9rem;
+      font-weight:700;
+      color:#657080;
+    }
+    .time-range-grid{display:flex;flex-direction:column;gap:.28rem;margin-bottom:.25rem}
+    .time-range-row{display:flex;flex-wrap:wrap;gap:.38rem .7rem;align-items:center}
+    .custom-time-inputs{
+      display:grid;
+      grid-template-columns:auto minmax(0, 1fr);
+      gap:.3rem .5rem;
+      align-items:center;
+      margin-top:.35rem;
+    }
+    .astral-field{
+      display:grid;
+      grid-template-columns:auto minmax(150px, 220px);
+      gap:.5rem;
+      align-items:center;
+      margin:.45rem 0 .35rem 0;
+    }
+    .astral-field .graph-section-label{margin:0}
     @media (max-width: 980px){
       #graphModal .modal-content{
         grid-template-columns: 1fr;
@@ -6889,36 +6956,60 @@ def render_graph_modal(switch_installed=None):
     yield "    </div>"
 
     # Time ranges
-    yield "    <label>Time Range:</label><br>"
-    yield "    <div style='display:flex; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.5rem;'>"
-    range_options = [
-        ("1Hr", "1h"),
-        ("3Hr", "3h"),
-        ("6Hr", "6h"),
-        ("12Hr", "12h"),
-        ("24Hr", "24h"),
+    yield "    <div class='graph-section time-range-block'>"
+    yield "      <div class='graph-section-label'>Time Range:</div>"
+    yield "      <div class='time-range-grid'>"
+    range_rows = [
+        [
+            ("1Hr", "1h"),
+            ("3Hr", "3h"),
+            ("6Hr", "6h"),
+            ("12Hr", "12h"),
+            ("24Hr", "24h"),
+            ("3Day", "3d"),
+            ("7Day", "7d"),
+            ("14Day", "14d"),
+        ],
+        [
+            ("30Day", "30d"),
+            ("60Day", "60d"),
+            ("90Day", "90d"),
+            ("Custom", "custom"),
+        ],
     ]
-    if max_days >= 3:
-        range_options.append(("3Day", "3d"))
-    if max_days >= 7:
-        range_options.append(("7Day", "7d"))
-    if max_days > 1 and max_days not in (3, 7):
-        range_options.append((f"{max_days}Day", f"{max_days}d"))
-    for label, val in range_options:
-        checked_attr = " checked" if val == "24h" else ""
-        yield (
-            f"      <label><input type='radio' name='range' value='{val}'"
-            f"{checked_attr} onchange='toggleCustomTime(false)'>{label}</label>"
-        )
-    yield "    </div>"
-    yield f"    <div style='font-size:0.85rem; opacity:0.8; margin-bottom:0.5rem;'>Max range: {max_days} days</div>"
 
-    yield "    <div style='display:flex; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.5rem;'>"
-    yield "      <label><input type='radio' name='range' value='custom' onchange='toggleCustomTime(true)'>Custom</label>"
+    def _range_visible(value: str) -> bool:
+        match = re.fullmatch(r"(\d+)d", value)
+        return not match or int(match.group(1)) <= max_days
+
+    for range_options in range_rows:
+        visible_options = [(label, val) for label, val in range_options if val == "custom" or _range_visible(val)]
+        if not visible_options:
+            continue
+        yield "        <div class='time-range-row'>"
+        for label, val in visible_options:
+            checked_attr = " checked" if val == "24h" else ""
+            custom_flag = "true" if val == "custom" else "false"
+            yield (
+                f"          <label><input type='radio' name='range' value='{val}'"
+                f"{checked_attr} onchange='toggleCustomTime({custom_flag})'>{label}</label>"
+            )
+        yield "        </div>"
+    yield "      </div>"
+    yield "      <div id='custom_time_inputs' class='custom-time-inputs' style='display:none;'>"
+    yield "        <label for='start_time'>Start:</label><input type='datetime-local' id='start_time'>"
+    yield "        <label for='end_time'>End:</label><input type='datetime-local' id='end_time'>"
+    yield "      </div>"
     yield "    </div>"
-    yield "    <div id='custom_time_inputs' style='display:none;'>"
-    yield "      <label>Start:</label><input type='datetime-local' id='start_time'><br>"
-    yield "      <label>End:</label><input type='datetime-local' id='end_time'>"
+
+    yield "    <div class='graph-section astral-field'>"
+    yield "      <label for='astral_select' class='graph-section-label'>Astral:</label>"
+    yield "      <select id='astral_select' title='Astral graph selection'>"
+    yield "        <option value='none'>None</option>"
+    yield "        <option value='sun'>Sun</option>"
+    yield "        <option value='moon'>Moon</option>"
+    yield "        <option value='sun_moon'>Sun &amp; Moon</option>"
+    yield "      </select>"
     yield "    </div>"
 
     # ---------- Switch section ----------
@@ -6989,14 +7080,21 @@ def render_graph_modal(switch_installed=None):
                 style="position:absolute;bottom:1rem;left:50%;transform:translateX(-50%);z-index:1002;">
             Close
         </button>
-        <canvas id="fullscreen_graph" style="width:100%; height:90vh;"></canvas>
+        <div id="fullscreen_graph_stack">
+            <div id="fullscreen_data_panel" class="fullscreen-chart-panel">
+                <canvas id="fullscreen_graph"></canvas>
+            </div>
+            <div id="fullscreen_astral_panel" class="fullscreen-chart-panel">
+                <canvas id="fullscreen_astral_graph" aria-label="Astral sun and moon position graph"></canvas>
+            </div>
+        </div>
         <div id="switch_legend" style="display:flex; justify-content:center; gap:1rem; margin-bottom:0.5rem;"></div>
     </div>
     """
 
     # ---------- Scripts ----------
     yield "<script>"
-    yield "function toggleCustomTime(enabled){ document.getElementById('custom_time_inputs').style.display = enabled ? 'block' : 'none'; }"
+    yield "function toggleCustomTime(enabled){ document.getElementById('custom_time_inputs').style.display = enabled ? 'grid' : 'none'; }"
 
     # Timezone injection
     yield f"const TZ_OFFSET_S = {tz_offset};"
@@ -7153,6 +7251,14 @@ def render_graph_modal(switch_installed=None):
       });
     }
 
+    function normalizeAstralMode(raw){
+      const value = String(raw || 'none').trim().toLowerCase().replace(/[\s-]+/g, '_').replace(/&/g, '_');
+      if (value === 'sun') return 'sun';
+      if (value === 'moon') return 'moon';
+      if (value === 'sun_moon' || value === 'sun__moon' || value === 'both' || value === 'sunmoon') return 'sun_moon';
+      return 'none';
+    }
+
     function setRangeSelection(rangeVal){
       const normalized = (rangeVal || '24h').trim().toLowerCase();
       const target = document.querySelector("input[name='range'][value='" + normalized + "']");
@@ -7177,6 +7283,7 @@ def render_graph_modal(switch_installed=None):
         metric2_select: (document.getElementById('metric2_select')?.value || '').trim(),
         metric3_select: (document.getElementById('metric3_select')?.value || '').trim(),
         range: range,
+        astral_select: (document.getElementById('astral_select')?.value || 'none').trim(),
         start_time: (document.getElementById('start_time')?.value || '').trim(),
         end_time: (document.getElementById('end_time')?.value || '').trim(),
         switch_select: (document.getElementById('switch_select')?.value || '').trim(),
@@ -7217,6 +7324,8 @@ def render_graph_modal(switch_installed=None):
       const endEl = document.getElementById('end_time');
       if(startEl) startEl.value = String(c.start_time || '');
       if(endEl) endEl.value = String(c.end_time || '');
+      const astralEl = document.getElementById('astral_select');
+      if(astralEl) astralEl.value = normalizeAstralMode(c.astral_select || 'none');
 
       const swSel = document.getElementById('switch_select');
       if(swSel){
@@ -7419,6 +7528,7 @@ def render_graph_modal(switch_installed=None):
       const rangeVal = rangeEl ? rangeEl.value : '24h';
       const start = document.getElementById('start_time') ? document.getElementById('start_time').value : "";
       const end   = document.getElementById('end_time')   ? document.getElementById('end_time').value   : "";
+      const astralSel = document.getElementById('astral_select');
 
       const params = new URLSearchParams({
         sensor_id: s1 || '',
@@ -7428,7 +7538,8 @@ def render_graph_modal(switch_installed=None):
         sensor_id1: s1 || '',
         sensor_id2: s2 || '',
         sensor_id3: s3 || '',
-        range: rangeVal
+        range: rangeVal,
+        astral: astralSel ? normalizeAstralMode(astralSel.value || 'none') : 'none'
       });
 
       if(rangeVal === 'custom'){
@@ -7561,11 +7672,293 @@ def render_graph_modal(switch_installed=None):
       }
     };
 
+    function graphSkyYMapper(yBase, topY, bottomY, maxElev, minElev){
+      const rawTop = Number(topY);
+      const rawBottom = Number(bottomY);
+      const top = Number.isFinite(rawTop) ? Math.min(yBase - 1, rawTop) : yBase - 1;
+      const bottom = Number.isFinite(rawBottom) ? Math.max(yBase + 1, rawBottom) : yBase + 1;
+      const abovePx = Math.max(1, yBase - top);
+      const belowPx = Math.max(1, bottom - yBase);
+      const maxE = Math.max(1, Math.abs(Number(maxElev) || 1));
+      const minE = Math.max(1, Math.abs(Number(minElev) || 1));
+      const posScale = abovePx / maxE;
+      const negScale = belowPx / minE;
+      const bandLimit = Math.max(1, Math.min(maxE, minE));
+      const band = Math.max(0.5, Math.min(bandLimit, 12, Math.max(5, bandLimit * 0.35)));
+      const hermite = (t, y0, m0, y1, m1, span) => {
+        const tt = Math.max(0, Math.min(1, t));
+        const t2 = tt * tt;
+        const t3 = t2 * tt;
+        return ((2 * t3 - 3 * t2 + 1) * y0) + ((t3 - 2 * t2 + tt) * span * m0) + ((-2 * t3 + 3 * t2) * y1) + ((t3 - t2) * span * m1);
+      };
+      const midSlope = -((posScale + negScale) / 2);
+      return (e) => {
+        const elev = Number(e);
+        if (!Number.isFinite(elev)) return yBase;
+        if (elev >= band) return yBase - (Math.min(elev, maxE) * posScale);
+        if (elev <= -band) return yBase - (Math.max(elev, -minE) * negScale);
+        if (elev < 0) {
+          const t = (elev + band) / band;
+          return hermite(t, yBase + (band * negScale), -negScale, yBase, midSlope, band);
+        }
+        return hermite(elev / band, yBase, midSlope, yBase - (band * posScale), -posScale, band);
+      };
+    }
+
+    function fullscreenAstralSeriesPoints(series){
+      const ts = Array.isArray(series && series.ts) ? series.ts : [];
+      const vals = Array.isArray(series && series.vals) ? series.vals : [];
+      const points = [];
+      for (let i = 0; i < ts.length; i++){
+        const x = toLocalMs(ts[i]);
+        const e = Number(vals[i]);
+        if (Number.isFinite(x) && Number.isFinite(e)){
+          points.push({ x: x, e: e });
+        }
+      }
+      return points;
+    }
+
+    function resizeFullscreenCanvasToDisplay(canvas){
+      const rect = canvas.getBoundingClientRect();
+      const w = Math.max(1, Math.round(rect.width || canvas.clientWidth || 1));
+      const h = Math.max(1, Math.round(rect.height || canvas.clientHeight || 1));
+      if (canvas.width !== w || canvas.height !== h){
+        canvas.width = w;
+        canvas.height = h;
+      }
+      return { w: w, h: h };
+    }
+
+    function fullscreenAstralTickValues(xMin, xMax, targetCount){
+      const min = Number(xMin);
+      const max = Number(xMax);
+      if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return [];
+      const count = Math.max(2, Math.min(8, Number(targetCount) || 5));
+      const out = [];
+      for (let i = 0; i < count; i++){
+        out.push(min + (((max - min) * i) / (count - 1)));
+      }
+      return out;
+    }
+
+    function fullscreenAstralLabel(ms, spanMs){
+      const d = new Date(ms);
+      if (!Number.isFinite(d.getTime())) return '';
+      if (spanMs <= 36 * 3600 * 1000){
+        return d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+      }
+      return d.toLocaleDateString(undefined, { month:'short', day:'numeric' });
+    }
+
+    function drawFullscreenAstralGraph(payload, xMin, xMax){
+      const canvas = document.getElementById('fullscreen_astral_graph');
+      if (!canvas) return;
+      const size = resizeFullscreenCanvasToDisplay(canvas);
+      const ctx = canvas.getContext('2d');
+      const w = size.w;
+      const h = size.h;
+      const padL = 44;
+      const padR = 16;
+      const padT = 12;
+      const padB = 34;
+      const graphW = Math.max(1, w - padL - padR);
+      const graphH = Math.max(48, h - padT - padB);
+      const yBase = padT + (graphH * 0.56);
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#fff9d6';
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#dff1ff';
+      ctx.fillRect(padL, padT, graphW, Math.max(1, yBase - padT));
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(padL, yBase, graphW, Math.max(1, (padT + graphH) - yBase));
+      ctx.strokeStyle = '#8fa4b3';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(padL, yBase);
+      ctx.lineTo(w - padR, yBase);
+      ctx.stroke();
+
+      const series = (payload && payload.series) || {};
+      const sunPoints = fullscreenAstralSeriesPoints(series.sun);
+      const moonPoints = fullscreenAstralSeriesPoints(series.moon);
+      const allPoints = sunPoints.concat(moonPoints);
+      const minX = Number.isFinite(Number(xMin)) ? Number(xMin) : Math.min(...allPoints.map((p) => p.x));
+      const maxX = Number.isFinite(Number(xMax)) ? Number(xMax) : Math.max(...allPoints.map((p) => p.x));
+      const spanMs = Math.max(1, maxX - minX);
+      const ticks = fullscreenAstralTickValues(minX, maxX, w < 700 ? 4 : 6);
+      const xForMs = (ms) => padL + (((Math.max(minX, Math.min(maxX, ms)) - minX) / spanMs) * graphW);
+
+      ctx.save();
+      ctx.strokeStyle = 'rgba(39, 49, 58, 0.22)';
+      ctx.fillStyle = '#27313a';
+      ctx.font = '10px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textBaseline = 'top';
+      ticks.forEach((tick, idx) => {
+        const x = xForMs(tick);
+        ctx.beginPath();
+        ctx.moveTo(x, padT);
+        ctx.lineTo(x, padT + graphH);
+        ctx.stroke();
+        ctx.textAlign = idx === 0 ? 'left' : (idx === ticks.length - 1 ? 'right' : 'center');
+        ctx.fillText(fullscreenAstralLabel(tick, spanMs), idx === 0 ? x + 2 : (idx === ticks.length - 1 ? x - 2 : x), padT + graphH + 5);
+      });
+      ctx.restore();
+
+      const elevs = allPoints.map((p) => p.e).filter((v) => Number.isFinite(v));
+      if (!elevs.length){
+        ctx.fillStyle = '#27313a';
+        ctx.font = '13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const detail = String((payload && payload.detail) || 'Astral data unavailable');
+        ctx.fillText(detail, padL + (graphW / 2), padT + (graphH / 2));
+        return;
+      }
+
+      const posElevs = elevs.filter((v) => v > 0);
+      const negElevs = elevs.filter((v) => v < 0);
+      const maxElev = Math.max(20, ...(posElevs.length ? posElevs : [20]));
+      const minElev = Math.min(-18, ...(negElevs.length ? negElevs : [-18]));
+      const yForElev = graphSkyYMapper(yBase, padT + 2, padT + graphH - 2, maxElev, minElev);
+      const curveHermite = (t, y0, s0, y1, s1, span) => {
+        const tt = Math.max(0, Math.min(1, t));
+        const t2 = tt * tt;
+        const t3 = t2 * tt;
+        return ((2 * t3 - 3 * t2 + 1) * y0) + ((t3 - 2 * t2 + tt) * span * s0) + ((-2 * t3 + 3 * t2) * y1) + ((t3 - t2) * span * s1);
+      };
+
+      const buildSmoothAstralKeys = (points) => {
+        const sorted = Array.isArray(points)
+          ? points.filter((p) => Number.isFinite(p && p.x) && Number.isFinite(p && p.e)).sort((a, b) => a.x - b.x)
+          : [];
+        if (sorted.length < 2) return [];
+        const enriched = [sorted[0]];
+        for (let i = 1; i < sorted.length; i++){
+          const prev = sorted[i - 1];
+          const next = sorted[i];
+          if (prev.x < next.x && prev.e !== 0 && next.e !== 0 && ((prev.e < 0 && next.e > 0) || (prev.e > 0 && next.e < 0))){
+            const f = Math.max(0, Math.min(1, (0 - prev.e) / (next.e - prev.e)));
+            enriched.push({ x: prev.x + ((next.x - prev.x) * f), e: 0, crossing: true });
+          }
+          enriched.push(next);
+        }
+        const boundaryIndexes = [];
+        enriched.forEach((p, idx) => {
+          if (idx === 0 || idx === enriched.length - 1 || p.crossing) boundaryIndexes.push(idx);
+        });
+        const keys = [];
+        const pushKey = (raw, kind) => {
+          if (!raw || !Number.isFinite(raw.x) || !Number.isFinite(raw.e)) return;
+          const y = raw.crossing || Math.abs(raw.e) < 0.0001 ? yBase : yForElev(raw.e);
+          const last = keys[keys.length - 1];
+          const key = { x: raw.x, y: y, e: raw.e, kind: kind || (raw.crossing ? 'crossing' : 'point'), s: 0 };
+          if (last && Math.abs(last.x - key.x) < 1) {
+            keys[keys.length - 1] = key;
+          } else {
+            keys.push(key);
+          }
+        };
+        for (let b = 0; b < boundaryIndexes.length - 1; b++){
+          const startIdx = boundaryIndexes[b];
+          const endIdx = boundaryIndexes[b + 1];
+          const seg = enriched.slice(startIdx, endIdx + 1).filter((p) => Number.isFinite(p && p.x) && Number.isFinite(p && p.e));
+          if (seg.length < 2) continue;
+          pushKey(seg[0], seg[0].crossing ? 'crossing' : 'point');
+          const inner = seg.filter((p) => !p.crossing && p.x > seg[0].x && p.x < seg[seg.length - 1].x);
+          if (inner.length){
+            const signProbe = inner.reduce((acc, p) => acc + p.e, 0);
+            const positiveLobe = signProbe >= 0;
+            let extreme = inner[0];
+            inner.forEach((p) => {
+              if (positiveLobe ? p.e > extreme.e : p.e < extreme.e) extreme = p;
+            });
+            pushKey(extreme, 'extreme');
+          }
+          pushKey(seg[seg.length - 1], seg[seg.length - 1].crossing ? 'crossing' : 'point');
+        }
+        if (keys.length < 2) return [];
+        keys.sort((a, b) => a.x - b.x);
+        for (let i = 0; i < keys.length; i++){
+          const key = keys[i];
+          if (key.kind === 'extreme'){
+            key.s = 0;
+            continue;
+          }
+          const prev = keys[i - 1];
+          const next = keys[i + 1];
+          if (key.kind === 'crossing' && prev && next && prev.x < key.x && key.x < next.x){
+            const leftMag = (Math.abs(key.y - prev.y) * Math.PI) / (2 * Math.max(1, key.x - prev.x));
+            const rightMag = (Math.abs(next.y - key.y) * Math.PI) / (2 * Math.max(1, next.x - key.x));
+            const sign = next.y < prev.y ? -1 : 1;
+            key.s = sign * Math.min(leftMag, rightMag);
+          } else if (prev && next && prev.x < next.x) {
+            key.s = (next.y - prev.y) / (next.x - prev.x);
+          } else if (next && key.x < next.x) {
+            key.s = (next.y - key.y) / (next.x - key.x);
+          } else if (prev && prev.x < key.x) {
+            key.s = (key.y - prev.y) / (key.x - prev.x);
+          } else {
+            key.s = 0;
+          }
+        }
+        return keys;
+      };
+
+      const drawPath = (points, color, width) => {
+        if (!Array.isArray(points) || points.length < 2) return;
+        const keys = buildSmoothAstralKeys(points)
+          .filter((p) => p.x >= minX && p.x <= maxX && Number.isFinite(p.y) && Number.isFinite(p.s));
+        if (keys.length < 2) return;
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(xForMs(keys[0].x), keys[0].y);
+        const pxStepMs = Math.max(1, spanMs / Math.max(80, Math.min(600, graphW)));
+        for (let i = 0; i < keys.length - 1; i++){
+          const a = keys[i];
+          const b = keys[i + 1];
+          const span = Math.max(1, b.x - a.x);
+          for (let x = a.x + pxStepMs; x < b.x; x += pxStepMs){
+            ctx.lineTo(xForMs(x), curveHermite((x - a.x) / span, a.y, a.s, b.y, b.s, span));
+          }
+          ctx.lineTo(xForMs(b.x), b.y);
+        }
+        ctx.stroke();
+        ctx.restore();
+      };
+
+      drawPath(sunPoints, '#f3d34a', 2.1);
+      drawPath(moonPoints, '#69bdf2', 1.75);
+
+      ctx.save();
+      ctx.font = '11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textBaseline = 'top';
+      ctx.textAlign = 'right';
+      let labelX = w - padR - 4;
+      if (sunPoints.length){
+        ctx.fillStyle = '#8d7115';
+        ctx.fillText('Sun', labelX - (moonPoints.length ? 44 : 0), padT + 4);
+      }
+      if (moonPoints.length){
+        ctx.fillStyle = '#2e78a9';
+        ctx.fillText('Moon', labelX, padT + 4);
+      }
+      ctx.fillStyle = '#27313a';
+      ctx.textAlign = 'left';
+      ctx.fillText('Astral Position', padL + 4, padT + 4);
+      ctx.restore();
+    }
+
     function renderGraphFullscreen_V2(data){
       const canvas = document.getElementById('fullscreen_graph');
       if (!canvas) return;
       const ctx = canvas.getContext('2d');
-      document.getElementById('fullscreen_graph_container').style.display = 'block';
+      const fullscreenContainer = document.getElementById('fullscreen_graph_container');
+      if (fullscreenContainer) fullscreenContainer.style.display = 'flex';
 
       const win = (data && data.window) || {};
       const xMin = localOrUndef(
@@ -7716,6 +8109,19 @@ def render_graph_modal(switch_installed=None):
         window.graphChart.destroy();
       }
 
+      const astralPayload = (data && data.astral) || null;
+      const astralMode = normalizeAstralMode(astralPayload && astralPayload.mode);
+      const showAstral = astralMode !== 'none';
+      if (fullscreenContainer) fullscreenContainer.classList.toggle('has-astral', showAstral);
+      if (!showAstral){
+        window.__lastFullscreenAstralGraph = null;
+        const astralCanvas = document.getElementById('fullscreen_astral_graph');
+        if (astralCanvas){
+          const astralCtx = astralCanvas.getContext('2d');
+          astralCtx.clearRect(0, 0, astralCanvas.width, astralCanvas.height);
+        }
+      }
+
       const axisTitles = {
         y1: (data.axis_titles && data.axis_titles.y1) || 'Left',
         y2: (data.axis_titles && data.axis_titles.y2) ||
@@ -7818,15 +8224,34 @@ def render_graph_modal(switch_installed=None):
         },
         plugins: pluginsArr
       });
+      if (showAstral){
+        window.__lastFullscreenAstralGraph = { payload: astralPayload, xMin: xMin, xMax: xMax };
+        requestAnimationFrame(function(){
+          drawFullscreenAstralGraph(astralPayload, xMin, xMax);
+          if (window.graphChart && typeof window.graphChart.resize === 'function') window.graphChart.resize();
+        });
+      }
     }
 
     function closeFullscreenGraph(){
       const cont = document.getElementById('fullscreen_graph_container');
       if (cont) cont.style.display = 'none';
+      if (cont) cont.classList.remove('has-astral');
       if (window.graphChart){
         window.graphChart.destroy();
         window.graphChart = null;
       }
+      window.__lastFullscreenAstralGraph = null;
+    }
+
+    if (!window.__fullscreenAstralResizeBound){
+      window.__fullscreenAstralResizeBound = true;
+      window.addEventListener('resize', function(){
+        const cont = document.getElementById('fullscreen_graph_container');
+        if (!cont || window.getComputedStyle(cont).display === 'none') return;
+        const last = window.__lastFullscreenAstralGraph;
+        if (last) drawFullscreenAstralGraph(last.payload, last.xMin, last.xMax);
+      });
     }
 
     window.openGraphModal = async function(){

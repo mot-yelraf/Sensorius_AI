@@ -12,6 +12,11 @@ Advanced automations are stored in:
 switch_settings/automations/automations.toml
 ```
 
+At runtime this resolves under the Sensorius runtime directory, for example
+`/Users/<user>/Sensorius/switch_settings/automations/automations.toml` on
+macOS or `/home/<user>/Sensorius/switch_settings/automations/automations.toml`
+on Linux.
+
 `saiAutomationManager.py` owns this file. The current schema is:
 
 - `[Meta]`: version and notes.
@@ -71,6 +76,36 @@ Revert behavior:
   false.
 - Runtime ownership needed for `previous_state` is persisted in the switch
   settings runtime block.
+- Actions set absolute states. They are not toggle or invert commands.
+- `previous_state` is captured when an action actually changes a channel. If
+  the channel is already at the requested state, the action is skipped and
+  there is no new previous-state value for that action to restore.
+
+## Paired Timer Example
+
+Use one timer automation for paired outputs, such as alternating two LEDs or
+two relay channels, by separating the baseline state from the active-window
+state.
+
+To run Green normally on and Yellow normally off, then flip them for 8 minutes
+every 15 minutes:
+
+1. Disable the automation so manual control is allowed.
+2. Set the baseline state manually: Green on, Yellow off.
+3. Edit the automation condition to `timer`, Every `15 minutes`, Duration `8`.
+4. Set the action rows to the active-window state: Green off, Yellow on.
+5. Set both action rows to `Previous State`.
+6. Save and enable the automation.
+
+During the timer window Sensorius applies the action states. When the window
+ends, `Previous State` restores the baseline state that existed before the
+actions changed the channels.
+
+Do not encode the baseline as the action state. If the action rows are Green on
+and Yellow off, the timer window enforces Green on and Yellow off. Also note
+that all action rows in a rule share the same condition groups; adding a second
+condition row does not bind one condition to one action and another condition
+to another action.
 
 ## Astral Conditions
 

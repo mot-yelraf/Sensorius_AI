@@ -298,6 +298,11 @@ Advanced switch automations are stored in:
 switch_settings/automations/automations.toml
 ```
 
+At runtime this is under the Sensorius runtime directory, such as
+`/Users/<user>/Sensorius/switch_settings/automations/automations.toml` on
+macOS or `/home/<user>/Sensorius/switch_settings/automations/automations.toml`
+on Linux.
+
 `saiAutomationManager.py` owns this file. The current schema uses:
 
 - `[Meta]` for schema notes and version.
@@ -307,6 +312,11 @@ switch_settings/automations/automations.toml
 Switch controller monitors evaluate enabled Advanced rules. Do not bypass the
 manager with broad text replacement because rule IDs, switch keys, and compact
 JSON payloads are compatibility-sensitive.
+
+Automation action rows are absolute target states, not toggles. For paired
+timer behavior, disable the rule, set the normal baseline switch states
+manually, then configure action rows as the active timer-window states with
+`revert_action` set to `previous_state`.
 
 ## Nodus Factory Defaults
 

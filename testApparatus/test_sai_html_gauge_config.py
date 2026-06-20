@@ -36,6 +36,30 @@ def test_fullscreen_graph_uses_soil_fertility_gauge_zone_backgrounds():
     assert "y1Opts.min = gaugeAxisBounds.y1.min" in html
 
 
+def test_fullscreen_graph_modal_has_astral_selector_and_sky_panel():
+    html = "".join(render_graph_modal(switch_installed=False))
+
+    assert "<select id='astral_select' title='Astral graph selection'>" in html
+    assert "<option value='sun_moon'>Sun &amp; Moon</option>" in html
+    assert "value='14d'" in html
+    assert "value='30d'" in html
+    assert "value='60d'" in html
+    assert "value='90d'" in html
+    assert "Max range:" not in html
+    assert 'id="fullscreen_astral_graph"' in html
+    assert "function drawFullscreenAstralGraph(payload, xMin, xMax)" in html
+    assert "flex:0 0 clamp(120px, 18vh, 190px);" in html
+    assert "#fullscreen_graph_container.has-astral{ padding-bottom:5.75rem; }" in html
+    assert "const padB = 34;" in html
+    assert "const buildSmoothAstralKeys = (points) => {" in html
+    assert "key.s = sign * Math.min(leftMag, rightMag);" in html
+    assert "curveHermite((x - a.x) / span, a.y, a.s, b.y, b.s, span)" in html
+    assert "const yForElev = graphSkyYMapper(yBase, padT + 2, padT + graphH - 2, maxElev, minElev);" in html
+    assert "ctx.fillStyle = '#dff1ff';" in html
+    assert "ctx.fillStyle = '#000000';" in html
+    assert "astral: astralSel ? normalizeAstralMode(astralSel.value || 'none') : 'none'" in html
+
+
 def test_dashboard_micrograph_uses_soil_fertility_gauge_scale():
     gauge_config = get_gauge_config()
     html = "".join(
