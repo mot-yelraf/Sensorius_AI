@@ -84,6 +84,7 @@ from sensor_modules.station_weewx import (
     DEFAULT_SENSOR_ID as WEEWX_DEFAULT_SENSOR_ID,
     DEFAULT_UPDATE_PERIOD_SEC as WEEWX_DEFAULT_UPDATE_PERIOD_SEC,
     WEEWX_DISPLAY_METRICS,
+    apply_weewx_station_metadata,
 )
 from saiFastStats import FastStats
 from saiSensorSettingsManager import SensorSettingsManager
@@ -300,6 +301,8 @@ def ensure_weewx_sensor_settings(
             changed = True
     if not str(sensor_block.get("LOCATION", "") or "").strip():
         sensor_block["LOCATION"] = location or "Weather Station"
+        changed = True
+    if apply_weewx_station_metadata(sensor_block):
         changed = True
 
     display_block = doc.get("Display")
@@ -6091,7 +6094,92 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             device_class = str(settings_block.get("TYPE") or settings_block.get("type") or "").strip().lower()
             if device_class in {"nodus", "picow", "pico2w", "remote", "mqtt"}:
                 board_type = "pico2w"
+            elif device_type == "sensor" and device_class == "pi":
+                board_type = "rPi"
         return board_type
+
+    def _resolve_sensor_controller(sensor_id: str):
+        sid_norm = normalize_sensor_id(sensor_id)
+        smap = _get_dashboard_sensor_map()
+        if smap is None:
+            return None
+        if hasattr(smap, "get"):
+            try:
+                hit = smap.get(sensor_id) or smap.get(sid_norm) or smap.get(sid_norm.lower())
+                if hit:
+                    return hit
+            except Exception:
+                pass
+            try:
+                for key, value in smap.items():
+                    if normalize_sensor_id(str(key or "")) == sid_norm:
+                        return value
+            except Exception:
+                pass
+        try:
+            for item in smap:
+                controller = item
+                candidate = getattr(item, "sensor_id", None)
+                sensor_obj = getattr(item, "sensor", None)
+                if not candidate and sensor_obj is not None:
+                    candidate = getattr(sensor_obj, "sensor_id", None)
+                if candidate and normalize_sensor_id(str(candidate)) == sid_norm:
+                    return controller
+        except TypeError:
+            return None
+        except Exception:
+            return None
+        return None
+
+    def _local_sensor_hardware_from_controller(sensor_id: str) -> str:
+        controller = _resolve_sensor_controller(sensor_id)
+        sensor_obj = getattr(controller, "sensor", None) if controller is not None else None
+        if sensor_obj is None:
+            sensor_obj = controller
+        if sensor_obj is None:
+            return ""
+
+        for attr in ("hardware", "sensor_hardware", "model", "sensor_model", "_co2_model"):
+            value = str(getattr(sensor_obj, attr, "") or "").strip()
+            if value:
+                return value
+
+        if getattr(sensor_obj, "bme680", None) is not None:
+            return "BME680"
+        if getattr(sensor_obj, "thp280_plant", None) is not None:
+            return "BME280"
+        if getattr(sensor_obj, "thp280", None) is not None:
+            return "BME280"
+        if getattr(sensor_obj, "aht", None) is not None:
+            return "AHTx0"
+        if getattr(sensor_obj, "veml", None) is not None:
+            return "VEML7700"
+        return ""
+
+    def _local_sensor_hardware_from_settings(settings_block: dict | None) -> str:
+        if not isinstance(settings_block, dict):
+            return ""
+        device_kind = str(settings_block.get("DEVICE") or settings_block.get("device") or "").strip().lower()
+        hardware_by_device = {
+            "apvpd": "BME280",
+            "avpd": "BME280",
+            "vpd": "BME280",
+            "bme280": "BME280",
+            "aqi": "BME680",
+            "bme680": "BME680",
+            "bme688": "BME688",
+            "aht": "AHTx0",
+            "aht10": "AHT10",
+            "ahtx0": "AHTx0",
+            "co2": "SCD30/SCD4x",
+            "scd30": "SCD30",
+            "scd4x": "SCD4x",
+            "veml": "VEML7700",
+            "lux": "VEML7700",
+            "dummy": "Dummy",
+            "test": "Dummy",
+        }
+        return hardware_by_device.get(device_kind, "")
 
     def _display_nodus_sensor_hardware(device_id: str, *, settings_block: dict | None = None) -> str:
         sensor_hardware = ""
@@ -6108,6 +6196,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 sensor_hardware = str(settings_block.get(key) or "").strip()
                 if sensor_hardware:
                     break
+        if not sensor_hardware and isinstance(settings_block, dict):
+            device_class = str(settings_block.get("TYPE") or settings_block.get("type") or "").strip().lower()
+            if device_class == "pi":
+                sensor_hardware = _local_sensor_hardware_from_controller(device_id)
+                if not sensor_hardware:
+                    sensor_hardware = _local_sensor_hardware_from_settings(settings_block)
         return sensor_hardware
     
     async def push_nodus_setting_simple(
@@ -9139,6 +9233,22 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     status_code=404,
                 )
 
+            pre_sensor_section = settings_dict.get("Sensor", {}) or {}
+            pre_sensor_type = str(pre_sensor_section.get("TYPE", "") or "").strip().lower()
+            pre_device_kind = str(pre_sensor_section.get("DEVICE", "") or "").strip().lower()
+            pre_is_weewx = (
+                pre_sensor_type == "weewx"
+                or pre_device_kind == "weewx"
+                or normalized_id.lower().startswith("weewx")
+            )
+            if pre_is_weewx:
+                try:
+                    ensure_weewx_sensor_settings(normalized_id, manager=manager)
+                    settings_dict = manager.load(normalized_id)
+                except Exception as exc:
+                    if DEBUG:
+                        printDM(f"WeeWX sensor metadata refresh failed for {normalized_id}: {exc}", location=MODULE)
+
             # --- Build metric options (from DB, fallback to Display block) ---
             gauge_config = get_gauge_config()
             available_metrics = [
@@ -9274,6 +9384,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 normalized_id,
                 settings_block=sensor_section,
             )
+            weewx_station_model = ""
+            if is_weewx:
+                for key in ("STATION_MODEL", "station_model", "MODEL", "model", "STATION_TYPE", "station_type"):
+                    weewx_station_model = str(sensor_section.get(key) or "").strip()
+                    if weewx_station_model:
+                        break
 
             network_info = await _build_device_network_info(normalized_id, device_type="sensor")
             sensor_statistics = await _build_sensor_statistics_payload(normalized_id)
@@ -9302,6 +9418,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 nodus_firmware_version=nodus_firmware_version,
                 nodus_board_type=nodus_board_type,
                 nodus_sensor_hardware=nodus_sensor_hardware,
+                weewx_station_model=weewx_station_model,
                 soil_ph_offset=soil_ph_offset,
                 device_offsets=device_offsets,
                 candidate_sensors=candidate_sensors,

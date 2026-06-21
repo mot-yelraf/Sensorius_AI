@@ -247,6 +247,9 @@ Important sections and keys:
 - `[Sensor]`: type, device, serial number, sensor ID, location.
 - `[Sensor].HARDWARE`: concrete remote Nodus sensor hardware family when
   advertised by retained metadata.
+- `[Sensor].STATION_MODEL`, `[Sensor].STATION_TYPE`, and
+  `[Sensor].STATION_DRIVER`: WeeWX station identity copied from the local
+  WeeWX config when the station sensor is materialized or refreshed.
 - `[Calibration]`: high-level calibration status.
 - `[Calibration.System]`: reference-sensor calibration fields.
 - `[Calibration.Device]`: per-device offsets and altitude.

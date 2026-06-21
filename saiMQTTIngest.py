@@ -34,6 +34,7 @@ from sensor_modules.station_weewx import (
     DEFAULT_UPDATE_PERIOD_SEC as WEEWX_DEFAULT_UPDATE_PERIOD_SEC,
     WEEWX_DISPLAY_METRICS,
     WEEWX_RAIN_24H_METRIC,
+    apply_weewx_station_metadata,
     mqtt_topic_matches as weewx_topic_matches,
     normalize_weewx_mqtt_payload,
 )
@@ -535,6 +536,8 @@ class saiMQTTIngest:
                     changed = True
             if not str(sensor_block.get("LOCATION", "") or "").strip():
                 sensor_block["LOCATION"] = "Weather Station"
+                changed = True
+            if apply_weewx_station_metadata(sensor_block):
                 changed = True
 
             display_block = doc.get("Display")

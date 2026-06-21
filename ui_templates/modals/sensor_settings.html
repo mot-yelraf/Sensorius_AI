@@ -466,7 +466,7 @@
             data-packets-received="{{ data_packets_received | default(0) }}"
           >
             <div class="list-header sensor-pane-header">
-              <span>Sensor Info{% if nodus_board_type %}: Board Type: {{ nodus_board_type }}{% endif %}{% if nodus_sensor_hardware %}{% if nodus_board_type %} {% else %}: {% endif %}Sensor:{{ nodus_sensor_hardware }}{% endif %}</span>
+              <span>Sensor Info{% if nodus_board_type %}: Board Type: {{ nodus_board_type }}{% endif %}{% if nodus_sensor_hardware %}{% if nodus_board_type %} {% else %}: {% endif %}Sensor:{{ nodus_sensor_hardware }}{% endif %}{% if weewx_station_model %}{% if nodus_board_type or nodus_sensor_hardware %} {% else %}: {% endif %}Station: {{ weewx_station_model }}{% endif %}</span>
             </div>
             <div class="form sensor-pane-scroll compact-info-form">
               <div class="section">

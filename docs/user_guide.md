@@ -208,6 +208,11 @@ Fields and selectors:
 - **Sensorius Broker**: read-only broker host and port used by Sensorius.
 - **Save**: writes the `[WeeWX]` settings and creates WeeWX sensor settings if needed.
 
+When WeeWX runs on the same host and `/etc/weewx/weewx.conf` or
+`/home/weewx/weewx.conf` is readable, Sensorius records the active station
+model in the WeeWX station sensor settings. The Sensor Settings **Sensor Info**
+pane shows it as `Station: <model>`.
+
 If the MQTT topic changes, restart Sensorius if the save message says the running subscription needs it or if new WeeWX readings do not arrive.
 
 ### FarmOS Pane

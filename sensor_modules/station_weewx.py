@@ -3,10 +3,12 @@
 import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 DEFAULT_SENSOR_ID = "weewx-station"
 DEFAULT_DB_PATH = "/var/lib/weewx/weewx.sdb"
+DEFAULT_CONFIG_PATHS = ("/etc/weewx/weewx.conf", "/home/weewx/weewx.conf")
 DEFAULT_POLL_INTERVAL_SEC = 60.0
 DEFAULT_MQTT_TOPIC = "weewx/#"
 DEFAULT_UPDATE_PERIOD_SEC = 300.0
@@ -113,6 +115,95 @@ class WeeWXReading:
 
     timestamp: Any
     values: dict[str, float]
+
+
+@dataclass(frozen=True)
+class WeeWXStationMetadata:
+    """Station identity read from a local WeeWX configuration file."""
+
+    config_path: str
+    station_type: str = ""
+    driver: str = ""
+    model: str = ""
+
+
+def _clean_weewx_config_value(value: str) -> str:
+    text = str(value or "").split("#", 1)[0].strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
+        text = text[1:-1].strip()
+    return text
+
+
+def _parse_weewx_config_sections(text: str) -> dict[str, dict[str, str]]:
+    sections: dict[str, dict[str, str]] = {}
+    current_section = ""
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            if line.startswith("[["):
+                current_section = ""
+                continue
+            current_section = line.strip("[]").strip()
+            if current_section:
+                sections.setdefault(current_section, {})
+            continue
+        if not current_section or "=" not in line:
+            continue
+        key, raw_value = line.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        sections.setdefault(current_section, {})[key] = _clean_weewx_config_value(raw_value)
+    return sections
+
+
+def parse_weewx_station_metadata(config_text: str, *, config_path: str = "") -> WeeWXStationMetadata:
+    """Parse the active WeeWX station type, driver, and model from config text."""
+    sections = _parse_weewx_config_sections(config_text)
+    station_type = sections.get("Station", {}).get("station_type", "").strip()
+    station_section = sections.get(station_type, {}) if station_type else {}
+    return WeeWXStationMetadata(
+        config_path=str(config_path or "").strip(),
+        station_type=station_type,
+        driver=str(station_section.get("driver", "") or "").strip(),
+        model=str(station_section.get("model", "") or "").strip(),
+    )
+
+
+def read_weewx_station_metadata(config_paths: list[str | Path] | tuple[str | Path, ...] | None = None) -> WeeWXStationMetadata | None:
+    """Return local WeeWX station metadata when a readable config is present."""
+    for raw_path in config_paths or DEFAULT_CONFIG_PATHS:
+        path = Path(raw_path).expanduser()
+        if not path.exists() or not path.is_file():
+            continue
+        try:
+            return parse_weewx_station_metadata(path.read_text(errors="replace"), config_path=str(path))
+        except Exception:
+            continue
+    return None
+
+
+def apply_weewx_station_metadata(sensor_block: dict[str, Any], metadata: WeeWXStationMetadata | None = None) -> bool:
+    """Copy WeeWX station identity into a Sensorius [Sensor] block."""
+    if not isinstance(sensor_block, dict):
+        return False
+    station = metadata or read_weewx_station_metadata()
+    if station is None:
+        return False
+
+    changed = False
+    for key, value in (
+        ("STATION_MODEL", station.model),
+        ("STATION_TYPE", station.station_type),
+        ("STATION_DRIVER", station.driver),
+    ):
+        text = str(value or "").strip()
+        if text and sensor_block.get(key) != text:
+            sensor_block[key] = text
+            changed = True
+    return changed
 
 
 def _to_float(value: Any) -> float | None:

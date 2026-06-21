@@ -1454,6 +1454,78 @@ async def test_sensor_settings_modal_shows_network_info_and_recorded_statistics(
 
 
 @pytest.mark.asyncio
+async def test_sensor_settings_modal_shows_local_pi_board_and_sensor_type(tmp_path, monkeypatch):
+    app, _ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    app.state.templates = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
+    sensor_id = "co2-i2c-1-sensorius-hub-3"
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        sensor_id,
+        {
+            "Sensor": {
+                "TYPE": "pi",
+                "DEVICE": "co2",
+                "SENSOR_ID": sensor_id,
+                "LOCATION": "Veg Tent",
+            },
+            "Display": {"METRIC_1": "CO2"},
+        },
+    )
+    app.state.sensor_map = [
+        SimpleNamespace(
+            sensor_id=sensor_id,
+            sensor=SimpleNamespace(sensor_id=sensor_id, _co2_model="SCD4x"),
+        )
+    ]
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_sensor_offline_event_count",
+        lambda sid, **_kwargs: 0,
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/edit-sensor", params={"sensor_id": sensor_id, "embed": "1"})
+
+    assert res.status_code == 200
+    assert "Sensor Info: Board Type: rPi Sensor:SCD4x" in res.text
+    assert f"{sensor_id} (rPi)" not in res.text
+
+
+@pytest.mark.asyncio
+async def test_sensor_settings_modal_shows_weewx_station_model(tmp_path, monkeypatch):
+    app, _ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    app.state.templates = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "weewx-station",
+        {
+            "Sensor": {
+                "TYPE": "weewx",
+                "DEVICE": "weewx",
+                "SENSOR_ID": "weewx-station",
+                "LOCATION": "Weather Station",
+                "STATION_MODEL": "AcuRite 01536",
+                "STATION_TYPE": "AcuRite",
+                "STATION_DRIVER": "weewx.drivers.acurite",
+            },
+            "Display": {"METRIC_1": "Temperature_F"},
+        },
+    )
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_sensor_offline_event_count",
+        lambda sid, **_kwargs: 0,
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/edit-sensor", params={"sensor_id": "weewx-station", "embed": "1"})
+
+    assert res.status_code == 200
+    assert "Sensor Info: Station: AcuRite 01536" in res.text
+    assert "Station: AcuRite</span>" not in res.text
+
+
+@pytest.mark.asyncio
 async def test_switch_settings_modal_uses_paired_sensor_broker_info(tmp_path, monkeypatch):
     app, ingest, system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
     app.state.templates = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))

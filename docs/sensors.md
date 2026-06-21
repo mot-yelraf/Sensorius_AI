@@ -27,6 +27,8 @@ WeeWX station ingest:
 
 - Optional archive or MQTT ingest.
 - Materializes a station sensor config when enabled.
+- Copies the WeeWX station model, station type, and driver into the station
+  sensor config when a readable WeeWX config exists on the host.
 - Adds station metrics to the same dashboard and DB paths.
 
 ## Common Metrics
