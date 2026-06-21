@@ -16,7 +16,7 @@
       <div class="split" style="grid-template-columns:260px 1fr; min-height:560px;">
         <aside class="panel switch-dialog-menu">
           <div class="list-header">
-            <span>{{ sensor_id }}{% if nodus_board_type %} ({{ nodus_board_type }}){% endif %}</span>
+            <span>{{ sensor_id }}</span>
           </div>
           <div id="sensorSettingsMenu" style="display:flex; flex-direction:column; gap:.5rem;">
             <button type="button" class="switch-menu-btn list-item active" data-pane-target="sensor-settings-pane">
@@ -466,7 +466,7 @@
             data-packets-received="{{ data_packets_received | default(0) }}"
           >
             <div class="list-header sensor-pane-header">
-              <span>Sensor Info</span>
+              <span>Sensor Info{% if nodus_board_type %}: Board Type: {{ nodus_board_type }}{% endif %}</span>
             </div>
             <div class="form sensor-pane-scroll compact-info-form">
               <div class="section">

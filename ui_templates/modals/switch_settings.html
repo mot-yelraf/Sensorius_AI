@@ -20,7 +20,7 @@
       <div class="split switch-dialog-split">
         <aside class="panel switch-dialog-menu" aria-label="Switch dialog sections">
           <div class="list-header">
-            <span>{{ switch_id }}{% if nodus_board_type %} ({{ nodus_board_type }}){% endif %}</span>
+            <span>{{ switch_id }}</span>
           </div>
           <button class="switch-menu-btn active" type="button" id="switchMenuSettings" aria-selected="true">
             Switch Settings
@@ -183,7 +183,7 @@
             data-last-packet-epoch="{{ switch_last_packet_epoch if switch_last_packet_epoch is defined and switch_last_packet_epoch is not none else '' }}"
           >
             <div class="list-header">
-              <span>Switch Info</span>
+              <span>Switch Info{% if nodus_board_type %}: Board Type: {{ nodus_board_type }}{% endif %}</span>
             </div>
             <div class="form compact-info-form">
               <div class="section">
