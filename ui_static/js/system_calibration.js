@@ -41,11 +41,48 @@ window.initSystemCalibrationModal = async function(modalEl) {
 
   // Keep the last preview payload so Apply can reuse it
   let scLastPreview = null;
+  let calibrationToastEl = null;
+  let calibrationToastTimer = null;
 
   function close() {
     if (backdrop && backdrop.parentNode) {
       backdrop.parentNode.removeChild(backdrop);
     }
+  }
+
+  function showCalibrationNotice(message, type, autoDismiss) {
+    if (!message) return;
+    let container = document.querySelector(".toast-container");
+    if (!container) {
+      container = document.createElement("div");
+      container.className = "toast-container";
+      document.body.appendChild(container);
+    }
+    if (!calibrationToastEl || !calibrationToastEl.isConnected) {
+      calibrationToastEl = document.createElement("div");
+      container.appendChild(calibrationToastEl);
+    } else if (calibrationToastEl.parentNode !== container) {
+      container.appendChild(calibrationToastEl);
+    }
+    if (calibrationToastTimer) {
+      window.clearTimeout(calibrationToastTimer);
+      calibrationToastTimer = null;
+    }
+    calibrationToastEl.className = `toast calibration-toast ${type || ""}`.trim();
+    calibrationToastEl.textContent = message;
+    if (autoDismiss) {
+      calibrationToastTimer = window.setTimeout(() => {
+        if (calibrationToastEl) calibrationToastEl.remove();
+        calibrationToastEl = null;
+        calibrationToastTimer = null;
+        if (container && !container.children.length) container.remove();
+      }, 2500);
+    }
+  }
+
+  function setCalibrationStatus(statusNode, message, type, autoDismiss) {
+    if (statusNode) statusNode.textContent = message;
+    showCalibrationNotice(message, type, autoDismiss);
   }
 
   if (closeBtn) closeBtn.addEventListener("click", close);
@@ -88,7 +125,7 @@ window.initSystemCalibrationModal = async function(modalEl) {
       }
 
       devCalApplyBtn.disabled = true;
-      if (devCalStatus) devCalStatus.textContent = "Applying device calibration…";
+      setCalibrationStatus(devCalStatus, "Calibration in progress...", "", false);
 
       try {
         const resp = await fetch("/calibration/device/apply", {
@@ -109,24 +146,15 @@ window.initSystemCalibrationModal = async function(modalEl) {
 
         if (status === "success" || status === "ok") {
           const msg = result.message || "Device calibration updated.";
-          if (devCalStatus) {
-            devCalStatus.textContent = msg;
-          }
-          if (typeof window.showToast === "function") window.showToast(msg, "ok");
+          setCalibrationStatus(devCalStatus, msg, "ok", true);
         } else {
           const msg = result.message || "Failed to apply device calibration.";
-          if (devCalStatus) {
-            devCalStatus.textContent = msg;
-          }
-          if (typeof window.showToast === "function") window.showToast(msg, "error");
+          setCalibrationStatus(devCalStatus, msg, "error", true);
         }
       } catch (err) {
         console.error("Device calibration apply error", err);
         const msg = err && err.message ? err.message : "Error applying device calibration.";
-        if (devCalStatus) {
-          devCalStatus.textContent = msg;
-        }
-        if (typeof window.showToast === "function") window.showToast(msg, "error");
+        setCalibrationStatus(devCalStatus, msg, "error", true);
       } finally {
         devCalApplyBtn.disabled = false;
       }
@@ -474,9 +502,7 @@ window.initSystemCalibrationModal = async function(modalEl) {
     };
 
     if (applyBtn) applyBtn.disabled = true;
-    if (statusEl) {
-      statusEl.textContent = "Applying system calibration…";
-    }
+    setCalibrationStatus(statusEl, "Calibration in progress...", "", false);
 
     try {
       const resp = await fetch("/system-calibration/apply", {
@@ -493,8 +519,7 @@ window.initSystemCalibrationModal = async function(modalEl) {
           resp.statusText ||
           "System calibration apply failed.";
         console.error("[SystemCal] apply error:", msg);
-        if (statusEl) statusEl.textContent = msg;
-        if (typeof window.showToast === "function") window.showToast(msg, "error");
+        setCalibrationStatus(statusEl, msg, "error", true);
         return;
       }
 
@@ -506,19 +531,13 @@ window.initSystemCalibrationModal = async function(modalEl) {
         msg += ` ${failCount} sensor(s) failed.`;
       }
 
-      if (statusEl) {
-        statusEl.textContent = msg;
-      }
-      if (typeof window.showToast === "function") window.showToast(msg, failCount ? "error" : "ok");
+      setCalibrationStatus(statusEl, msg, failCount ? "error" : "ok", true);
 
       console.debug("[SystemCal] apply result", data);
     } catch (err) {
       console.error("[SystemCal] apply exception:", err);
       const msg = err && err.message ? err.message : "Error applying system calibration.";
-      if (statusEl) {
-        statusEl.textContent = msg;
-      }
-      if (typeof window.showToast === "function") window.showToast(msg, "error");
+      setCalibrationStatus(statusEl, msg, "error", true);
     } finally {
       if (applyBtn) applyBtn.disabled = false;
     }
