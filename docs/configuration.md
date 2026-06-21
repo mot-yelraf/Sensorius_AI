@@ -242,9 +242,11 @@ Local Raspberry Pi sensors are detected and seeded from
 Remote Nodus sensors are seeded or updated from retained MQTT metadata and
 patches. WeeWX can also materialize a station-style sensor config.
 
-Important sections:
+Important sections and keys:
 
 - `[Sensor]`: type, device, serial number, sensor ID, location.
+- `[Sensor].HARDWARE`: concrete remote Nodus sensor hardware family when
+  advertised by retained metadata.
 - `[Calibration]`: high-level calibration status.
 - `[Calibration.System]`: reference-sensor calibration fields.
 - `[Calibration.Device]`: per-device offsets and altitude.

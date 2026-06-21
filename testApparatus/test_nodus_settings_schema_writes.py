@@ -1294,6 +1294,7 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
         ambient_rh_offset=0.0,
         nodus_firmware_version="v1.2.3",
         nodus_board_type="pico2w",
+        nodus_sensor_hardware="BME280",
         offline_events_24h=7,
         last_offline_epoch=1780783200.0,
         uptime_since_last_offline_label="12m 4s",
@@ -1315,7 +1316,7 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
 
     assert "Sensor Settings v1.2.3" in html
     assert "apvpd-test123 (pico2w)" not in html
-    assert "Sensor Info: Board Type: pico2w" in html
+    assert "Sensor Info: Board Type: pico2w Sensor:BME280" in html
     assert html.index('<h4 class="section-title">Network</h4>') < html.index('<h4 class="section-title">Statistics</h4>')
     assert "IP Address:" in html
     assert "10.0.0.23" in html
@@ -1418,6 +1419,7 @@ async def test_sensor_settings_modal_shows_network_info_and_recorded_statistics(
                 "SENSOR_ID": "apvpd-test123",
                 "LOCATION": "Veg Tent",
                 "MCU": "xesp32s3",
+                "HARDWARE": "SCD4x",
             },
             "Display": {"METRIC_1": "Temperature"},
         },
@@ -1436,7 +1438,7 @@ async def test_sensor_settings_modal_shows_network_info_and_recorded_statistics(
 
     assert res.status_code == 200
     assert "apvpd-test123 (xesp32s3)" not in res.text
-    assert "Sensor Info: Board Type: xesp32s3" in res.text
+    assert "Sensor Info: Board Type: xesp32s3 Sensor:SCD4x" in res.text
     assert res.text.index('<h4 class="section-title">Network</h4>') < res.text.index('<h4 class="section-title">Statistics</h4>')
     assert "IP Address:" in res.text
     assert "10.0.0.25" in res.text
@@ -1534,6 +1536,7 @@ async def test_sensor_settings_modal_seeds_live_nodus_sensor_without_shadow(tmp_
     assert res.status_code == 200
     assert "aht-yuk0nv (pico2w)" not in res.text
     assert "Sensor Info: Board Type: pico2w" in res.text
+    assert "Sensor Info: Board Type: pico2w Sensor:" not in res.text
 
     saved = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root)).load("aht-yuk0nv")
     assert saved["Sensor"]["TYPE"] == "nodus"

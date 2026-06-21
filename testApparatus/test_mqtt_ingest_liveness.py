@@ -1337,6 +1337,7 @@ def test_nodus_meta_writes_display_styles_to_sensor_toml(tmp_path, monkeypatch):
         "sensor": {
             "sensor_id": "apvpd-test123",
             "location": "East House",
+            "hardware": "BME280",
             "display_metrics": ["Air Quality", "Temperature", "Rel-Humidity"],
             "display_styles": ["graph24hr", "gauge", "invalid-style"],
             "data_topic": "nodus/apvpd-test123/data",
@@ -1349,6 +1350,8 @@ def test_nodus_meta_writes_display_styles_to_sensor_toml(tmp_path, monkeypatch):
 
     assert ok is True
     saved = real_sensor_manager(str(sensor_root)).load("apvpd-test123")
+    assert saved["Sensor"]["HARDWARE"] == "BME280"
+    assert ingest.get_nodus_sensor_hardware("apvpd-test123", device_type="sensor") == "BME280"
     assert saved["Display"]["Style"]["METRIC_1"] == "Graph24hr"
     assert saved["Display"]["Style"]["METRIC_2"] == "Gauge"
     assert saved["Display"]["Style"]["METRIC_3"] == "Graph24hr"
@@ -3118,7 +3121,7 @@ def test_prefixed_onboarding_topics_are_parsed(monkeypatch):
     ingest.set_onboarding_event_handler(lambda event: received.append(event))
     msg = _Msg(
         "sensorius/nodus/apvpd-test123/onboard/hello",
-        json.dumps({"onboard_token": "abc", "type": "nodus"}),
+        json.dumps({"onboard_token": "abc", "type": "nodus", "sensor": {"hardware": "BME280"}}),
         retain=False,
     )
     ingest._on_message(ingest.client, None, msg)
@@ -3127,3 +3130,4 @@ def test_prefixed_onboarding_topics_are_parsed(monkeypatch):
     assert received[0].get("event_type") == "onboarding_hello"
     assert received[0].get("device_id") == "apvpd-test123"
     assert ingest.get_nodus_board_type("apvpd-test123", device_type="sensor") == "pico2w"
+    assert ingest.get_nodus_sensor_hardware("apvpd-test123", device_type="sensor") == "BME280"

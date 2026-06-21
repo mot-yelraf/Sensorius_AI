@@ -112,6 +112,21 @@ def _extract_nodus_board_type(payload: dict | None) -> str:
         return legacy_type
     return "pico2w"
 
+def _extract_nodus_sensor_hardware(payload: dict | None) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    containers: list[dict] = []
+    sensor_blob = payload.get("sensor")
+    if isinstance(sensor_blob, dict):
+        containers.append(sensor_blob)
+    containers.append(payload)
+    for container in containers:
+        for key in ("hardware", "HARDWARE", "sensor_hardware", "SENSOR_HARDWARE"):
+            value = str(container.get(key) or "").strip()
+            if value:
+                return value
+    return ""
+
 def _local_epoch_seconds(settings=None, now_epoch: float | None = None) -> int:
     """Return local-naive epoch seconds for MQTT command identifiers."""
     try:
@@ -305,6 +320,7 @@ class saiMQTTIngest:
         self.retained_mqtt_seen: dict[str, float] = {}  # host/peer -> retained broker replay receipt time
         self.nodus_firmware_versions: dict[str, str] = {}  # host/peer id -> firmware version from nodus meta
         self.nodus_board_types: dict[str, str] = {}  # host/peer id -> MCU/board target from nodus meta
+        self.nodus_sensor_hardware: dict[str, str] = {}  # host/peer id -> concrete sensor hardware from nodus meta
         self.fwupdate_result_by_device: dict[str, dict] = {}  # device_id/host -> last OTA result payload
         self.heartbeat_interval_s_by_host: dict[str, float] = {}  # host -> advertised interval
         self.heartbeat_stale: dict[str, bool] = {}  # host -> heartbeat freshness diagnostic
@@ -1625,6 +1641,13 @@ class saiMQTTIngest:
                         }
                 elif family == "onboard" and leaf == "hello":
                     self._record_nodus_board_type(_extract_nodus_board_type(payload), device_id)
+                    sensor_payload = payload.get("sensor") if isinstance(payload.get("sensor"), dict) else {}
+                    self._record_nodus_sensor_hardware(
+                        _extract_nodus_sensor_hardware(payload),
+                        device_id,
+                        payload.get("hostname"),
+                        sensor_payload.get("sensor_id"),
+                    )
             event = {
                 "event_type": event_type,
                 "topic": topic,
@@ -3457,6 +3480,13 @@ class saiMQTTIngest:
                     "data_topic": top_data_topic,
                     "availability_topic": meta.get("availability_topic") or meta.get("mqtt_availability_topic") or "",
                     "event_topic": meta.get("event_topic") or meta.get("mqtt_event_topic") or "",
+                    "hardware": (
+                        meta.get("hardware")
+                        or meta.get("HARDWARE")
+                        or meta.get("sensor_hardware")
+                        or meta.get("SENSOR_HARDWARE")
+                        or ""
+                    ),
                     "display_metrics": meta.get("display_metrics") or meta.get("metrics") or meta.get("Display") or [],
                     "display_styles": meta.get("display_styles") or meta.get("styles") or [],
                 }
@@ -3474,6 +3504,7 @@ class saiMQTTIngest:
         sensor_location = str(sensor_blob.get("location") or sensor_blob.get("LOCATION") or "").strip()
         switch_location = str(switch_blob.get("location") or "").strip()
         resolved_location = _pick_location(group_location, switch_location, sensor_location)
+        sensor_hardware = _extract_nodus_sensor_hardware({"sensor": sensor_blob}) or _extract_nodus_sensor_hardware(meta)
 
         if not retain:
             self._maybe_add_mqtt_client(base)
@@ -3510,6 +3541,7 @@ class saiMQTTIngest:
             if firmware_version:
                 self.nodus_firmware_versions[sensor_id] = firmware_version
             self._record_nodus_board_type(board_type, sensor_id)
+            self._record_nodus_sensor_hardware(sensor_hardware, base, f"{base}.local", device_id, sensor_id)
             self.device_type[sensor_id] = "nodus"
             self._record_mqtt_seen(sensor_id, ts=now_t, retain=retain, report=False)
             sensor_device = self._infer_sensor_device_name(
@@ -3563,6 +3595,7 @@ class saiMQTTIngest:
                 "location": sensor_loc,
                 "serial": sensor_serial,
                 "mcu": board_type,
+                "hardware": sensor_hardware,
                 "display_metrics": display_metrics,
                 "display_styles": display_styles,
             })
@@ -3911,6 +3944,7 @@ class saiMQTTIngest:
                 "sensor_id": sensor_id,
                 "device": self._infer_sensor_device_name(sensor_blob.get("device"), sensor_id),
                 "serial": self._extract_sensor_serial(sensor_blob, payload),
+                "hardware": _extract_nodus_sensor_hardware(payload),
                 "location": str(sensor_blob.get("location") or location).strip(),
                 "data_topic": f"nodus/{sensor_id}/data" if sensor_id else "",
                 "event_topic": f"nodus/{sensor_id}/event" if sensor_id else "",
@@ -4314,6 +4348,20 @@ class saiMQTTIngest:
                 self.nodus_board_types[normalized] = board
                 self.nodus_board_types[f"{normalized}.local"] = board
 
+    def _record_nodus_sensor_hardware(self, hardware: str | None, *device_ids: str | None) -> None:
+        sensor_hardware = str(hardware or "").strip()
+        if not sensor_hardware:
+            return
+        for raw in device_ids:
+            key = str(raw or "").strip()
+            if not key:
+                continue
+            self.nodus_sensor_hardware[key] = sensor_hardware
+            normalized = self._normalize_host_key(key)
+            if normalized:
+                self.nodus_sensor_hardware[normalized] = sensor_hardware
+                self.nodus_sensor_hardware[f"{normalized}.local"] = sensor_hardware
+
     def resolve_nodus_hostname(self, device_id: str, device_type: str | None = None) -> str | None:
         """
         Public resolver for WebRoutes:
@@ -4457,6 +4505,46 @@ class saiMQTTIngest:
             board = str((self.nodus_board_types or {}).get(key) or "").strip()
             if board:
                 return board
+        return ""
+
+    def get_nodus_sensor_hardware(self, device_id: str | None, device_type: str | None = None) -> str:
+        """
+        Resolve concrete Nodus sensor hardware captured from hello/meta.
+        """
+        dev = str(device_id or "").strip()
+        if not dev:
+            return ""
+
+        candidates: list[str] = []
+
+        def _add_candidate(value: str | None) -> None:
+            raw = str(value or "").strip()
+            if not raw:
+                return
+            options = [raw]
+            if raw.endswith(".local"):
+                options.append(raw[:-6])
+            for item in options:
+                key = str(item or "").strip()
+                if key and key not in candidates:
+                    candidates.append(key)
+
+        _add_candidate(dev)
+        _add_candidate(self.resolve_nodus_hostname(dev, device_type=device_type))
+
+        for host, peers in (self.host_to_peer_ids or {}).items():
+            try:
+                if dev == host or dev in (peers or []):
+                    _add_candidate(host)
+                    for peer in (peers or []):
+                        _add_candidate(peer)
+            except Exception:
+                continue
+
+        for key in candidates:
+            sensor_hardware = str((self.nodus_sensor_hardware or {}).get(key) or "").strip()
+            if sensor_hardware:
+                return sensor_hardware
         return ""
 
     async def _send_nodus_restart(self, hostname: str, restart: str = "hard", *, port: int = 8000, timeout_sec: float = 4.0) -> bool:
@@ -5175,6 +5263,13 @@ class saiMQTTIngest:
                 location = (s.get("location") or "Unknown")
                 serial = (s.get("serial") or "")
                 board_type = str(s.get("mcu") or s.get("MCU") or "").strip()
+                sensor_hardware = str(
+                    s.get("hardware")
+                    or s.get("HARDWARE")
+                    or s.get("sensor_hardware")
+                    or s.get("SENSOR_HARDWARE")
+                    or ""
+                ).strip()
                 remote_display_metrics = self._normalize_display_metrics(
                     s.get("display_metrics") or s.get("metrics")
                 )
@@ -5202,6 +5297,9 @@ class saiMQTTIngest:
                         changed = True
                     if board_type and str(sb.get("MCU", "") or "").strip() != board_type:
                         sb["MCU"] = board_type
+                        changed = True
+                    if sensor_hardware and str(sb.get("HARDWARE", "") or "").strip() != sensor_hardware:
+                        sb["HARDWARE"] = sensor_hardware
                         changed = True
                     canonical_location = _canonical_location(location)
                     if str(sb.get("LOCATION", "") or "").strip() != canonical_location:
@@ -5265,6 +5363,8 @@ class saiMQTTIngest:
                         sb["SERIAL_NUM"] = serial
                     if board_type:
                         sb["MCU"] = board_type
+                    if sensor_hardware:
+                        sb["HARDWARE"] = sensor_hardware
 
                     if "Display" not in data or not isinstance(data["Display"], dict):
                         data["Display"] = OrderedDict()
@@ -5295,6 +5395,8 @@ class saiMQTTIngest:
                         sb["SERIAL_NUM"] = serial
                     if board_type:
                         sb["MCU"] = board_type
+                    if sensor_hardware:
+                        sb["HARDWARE"] = sensor_hardware
 
                     data["Display"] = OrderedDict()
                     chosen_metrics = remote_display_metrics or _display_defaults_for_device(device_name or device_type)

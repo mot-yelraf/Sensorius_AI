@@ -161,6 +161,11 @@ Canonical `onboard/hello` payload:
   "capabilities": {
     "sensor": true,
     "switch": true
+  },
+  "sensor": {
+    "present": true,
+    "device": "co2",
+    "hardware": "SCD4x"
   }
 }
 ```
@@ -168,7 +173,9 @@ Canonical `onboard/hello` payload:
 In `onboard/hello`, `type` is the device class and should be `nodus`. `mcu` is
 the board target identifier for the running firmware. Verified `mcu` values are
 `pico2w` and `xesp32s3`. Sensorius treats a missing `mcu` as `pico2w` for
-legacy Nodus firmware compatibility.
+legacy Nodus firmware compatibility. The `sensor` block is a compact
+onboarding hint. `sensor.device` is the logical Nodus sensor ID, and
+`sensor.hardware` is the concrete sensor hardware family when known.
 
 ## Runtime Payloads
 
@@ -244,7 +251,8 @@ The payload must include:
 - `fwupdate.schema`, `fwupdate.transport`, `fwupdate.prepare_topic`,
   `fwupdate.ack_topic`, `fwupdate.result_topic`
 - `location_group.location`, `location_group.members`
-- `sensor.sensor_id`, `sensor.location`, `sensor.data_topic`,
+- `sensor.sensor_id`, `sensor.location`, `sensor.hardware`,
+  `sensor.data_topic`,
   `sensor.event_topic`, `sensor.availability_topic`,
   `sensor.display_metrics`, `sensor.display_styles`
 - `switch.device_id`, `switch.channel_count`, and `switch.meta_topic` when
@@ -254,6 +262,10 @@ The payload must include:
 for the running firmware. Verified `mcu` values are `pico2w` and `xesp32s3`.
 Sensorius treats a missing `mcu` as `pico2w` for legacy Nodus firmware
 compatibility.
+
+`sensor.hardware` is the concrete sensor hardware family when known. Current
+values include `BME280`, `BME680`, `VEML7700`, `AHTx0`, `SCD30`, and `SCD4x`.
+Logical sensor device IDs remain unchanged.
 
 `network.ipv4addr` is the current runtime station IPv4 address from the active
 network stack. It is not a TOML setting and should be treated as volatile

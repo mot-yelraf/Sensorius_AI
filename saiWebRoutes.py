@@ -421,6 +421,19 @@ def _nodus_expected_metrics_for_sensor(sensor_id: str, ingest) -> list[str]:
     return []
 
 
+def _nodus_sensor_hardware_for_sensor(sensor_id: str, ingest) -> str:
+    sid = str(sensor_id or "").strip()
+    if not sid or ingest is None:
+        return ""
+    try:
+        getter = getattr(ingest, "get_nodus_sensor_hardware", None)
+        if callable(getter):
+            return str(getter(sid, device_type="sensor") or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
 def ensure_live_nodus_sensor_settings(
     sensor_id: str,
     *,
@@ -428,6 +441,7 @@ def ensure_live_nodus_sensor_settings(
     observed_metrics: list[str] | None = None,
     expected_metrics: list[str] | None = None,
     location: str = "Unknown",
+    hardware: str = "",
 ) -> OrderedDict:
     """Materialize a Nodus sensor shadow for a live MQTT sensor missing sensor.toml."""
     sid = str(sensor_id or "").strip()
@@ -457,6 +471,8 @@ def ensure_live_nodus_sensor_settings(
     sensor_block["DEVICE"] = device
     sensor_block["SENSOR_ID"] = sid
     sensor_block["LOCATION"] = location if not _is_unknown_location_value(location) else "Unknown"
+    if str(hardware or "").strip():
+        sensor_block["HARDWARE"] = str(hardware or "").strip()
 
     display_block = doc.get("Display")
     if not isinstance(display_block, dict):
@@ -6076,6 +6092,23 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             if device_class in {"nodus", "picow", "pico2w", "remote", "mqtt"}:
                 board_type = "pico2w"
         return board_type
+
+    def _display_nodus_sensor_hardware(device_id: str, *, settings_block: dict | None = None) -> str:
+        sensor_hardware = ""
+        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        if ingest and hasattr(ingest, "get_nodus_sensor_hardware"):
+            try:
+                sensor_hardware = str(
+                    ingest.get_nodus_sensor_hardware(device_id, device_type="sensor")
+                ).strip()
+            except Exception:
+                sensor_hardware = ""
+        if not sensor_hardware and isinstance(settings_block, dict):
+            for key in ("HARDWARE", "hardware", "SENSOR_HARDWARE", "sensor_hardware"):
+                sensor_hardware = str(settings_block.get(key) or "").strip()
+                if sensor_hardware:
+                    break
+        return sensor_hardware
     
     async def push_nodus_setting_simple(
         *,
@@ -9098,6 +9131,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         observed_metrics=observed_metrics,
                         expected_metrics=expected_metrics,
                         location=_nodus_live_location_for_sensor(normalized_id, ingest_for_shadow),
+                        hardware=_nodus_sensor_hardware_for_sensor(normalized_id, ingest_for_shadow),
                     )
             if not settings_dict:
                 return HTMLResponse(
@@ -9236,6 +9270,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 device_type="sensor",
                 settings_block=sensor_section,
             )
+            nodus_sensor_hardware = _display_nodus_sensor_hardware(
+                normalized_id,
+                settings_block=sensor_section,
+            )
 
             network_info = await _build_device_network_info(normalized_id, device_type="sensor")
             sensor_statistics = await _build_sensor_statistics_payload(normalized_id)
@@ -9263,6 +9301,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 ambient_rh_offset=ambient_rh_offset,
                 nodus_firmware_version=nodus_firmware_version,
                 nodus_board_type=nodus_board_type,
+                nodus_sensor_hardware=nodus_sensor_hardware,
                 soil_ph_offset=soil_ph_offset,
                 device_offsets=device_offsets,
                 candidate_sensors=candidate_sensors,
