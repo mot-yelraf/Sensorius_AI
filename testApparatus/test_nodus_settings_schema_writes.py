@@ -647,6 +647,13 @@ def test_remove_device_success_reloads_dashboard():
         assert "Reloading dashboard" in text
         assert "window.location.reload()" in text
         assert "await loadRemovableDevices();" not in text
+        assert "showRemoveDeviceNotice" in text
+        assert "Removing ${targetLabel}..." in text
+        assert "Removed ${targetLabel}. Reloading dashboard..." in text
+        assert "Failed to remove ${targetLabel}:" in text
+
+    assert 'class="status-text sai-live-status" id="remove-device-status" aria-live="polite"' in system_settings
+    assert 'class="sai-live-status"\n         aria-live="polite"' in standalone_remove
 
 
 @pytest.mark.asyncio

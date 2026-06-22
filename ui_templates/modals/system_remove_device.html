@@ -15,6 +15,17 @@
   color: #666;
   padding: 6px;
 }
+#remove-device-overlay .sai-live-status {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
 
 /* Button standards (kept local for now; can be dropped once fully in app.css) */
 .button {
@@ -52,8 +63,8 @@
     <div class="onboard-title">Remove Device(s)</div>
 
     <div id="remove-device-status"
-         class="detail"
-         style="margin-bottom:8px;color:#444"></div>
+         class="sai-live-status"
+         aria-live="polite"></div>
 
     <div id="remove-device-list"
          style="max-height:260px;overflow:auto;border:1px solid #eee;border-radius:8px;padding:8px;background:#fafafa;">
@@ -98,17 +109,73 @@ function closeRemoveDeviceModal() {
   if (ov) ov.style.display = "none";
 }
 
+var removeDeviceToastEl = null;
+var removeDeviceToastTimer = null;
+
 function _setRemoveStatus(msg) {
   const el = document.getElementById("remove-device-status");
   if (el) el.textContent = msg || "";
 }
 
+function formatRemoveDeviceIds(ids) {
+  const clean = (ids || []).filter(Boolean);
+  if (!clean.length) return "selected device";
+  if (clean.length === 1) return clean[0];
+  const shown = clean.slice(0, 3).join(", ");
+  const extra = clean.length > 3 ? `, +${clean.length - 3} more` : "";
+  return `${clean.length} devices (${shown}${extra})`;
+}
+
+function getRemoveErrorText(err) {
+  if (err && err.message) return err.message;
+  return String(err || "unknown error");
+}
+
+function showRemoveDeviceNotice(message, type, autoDismiss) {
+  _setRemoveStatus(message || "");
+  if (!message) {
+    if (removeDeviceToastTimer) {
+      window.clearTimeout(removeDeviceToastTimer);
+      removeDeviceToastTimer = null;
+    }
+    if (removeDeviceToastEl) removeDeviceToastEl.remove();
+    removeDeviceToastEl = null;
+    return;
+  }
+  let container = document.querySelector(".toast-container");
+  if (!container) {
+    container = document.createElement("div");
+    container.className = "toast-container";
+    document.body.appendChild(container);
+  }
+  if (!removeDeviceToastEl || !removeDeviceToastEl.isConnected) {
+    removeDeviceToastEl = document.createElement("div");
+    container.appendChild(removeDeviceToastEl);
+  } else if (removeDeviceToastEl.parentNode !== container) {
+    container.appendChild(removeDeviceToastEl);
+  }
+  if (removeDeviceToastTimer) {
+    window.clearTimeout(removeDeviceToastTimer);
+    removeDeviceToastTimer = null;
+  }
+  removeDeviceToastEl.className = `toast remove-device-toast ${type || ""}`.trim();
+  removeDeviceToastEl.textContent = message;
+  if (autoDismiss) {
+    removeDeviceToastTimer = window.setTimeout(() => {
+      if (removeDeviceToastEl) removeDeviceToastEl.remove();
+      removeDeviceToastEl = null;
+      removeDeviceToastTimer = null;
+      if (container && !container.children.length) container.remove();
+    }, 2500);
+  }
+}
+
 async function loadRemovableDevices() {
-  _setRemoveStatus("");
+  showRemoveDeviceNotice("", "", false);
   const listEl = document.getElementById("remove-device-list");
   if (!listEl) return;
 
-  listEl.innerHTML = "<div class=\"detail\">Loading…</div>";
+  listEl.innerHTML = "<div class=\"detail\">Loading...</div>";
   try {
     const resp = await fetch("/remove-device-list");
     const js = await resp.json();
@@ -166,7 +233,8 @@ async function submitRemoveDevices() {
   const ids = [...checked].map(x => x.value);
   if (!ids.length) return;
 
-  _setRemoveStatus("Removing…");
+  const targetLabel = formatRemoveDeviceIds(ids);
+  showRemoveDeviceNotice(`Removing ${targetLabel}...`, "", false);
   const runBtn = document.getElementById("remove-device-run");
   if (runBtn) runBtn.disabled = true;
 
@@ -176,16 +244,15 @@ async function submitRemoveDevices() {
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ device_ids: ids })
     });
-    const js = await resp.json();
+    const js = await resp.json().catch(() => ({}));
     if (!resp.ok || (js && js.error)) {
       throw new Error((js && (js.error || js.message)) || ("HTTP " + resp.status));
     }
-    const ok = (js && js.summary) || "Done";
-    _setRemoveStatus(ok + " Reloading dashboard...");
+    showRemoveDeviceNotice(`Removed ${targetLabel}. Reloading dashboard...`, "ok", true);
     window.setTimeout(() => window.location.reload(), 500);
   } catch (e) {
     console.error(e);
-    _setRemoveStatus("Failed: " + e);
+    showRemoveDeviceNotice(`Failed to remove ${targetLabel}: ${getRemoveErrorText(e)}`, "error", true);
     toggleRemoveEnable();
   }
 }

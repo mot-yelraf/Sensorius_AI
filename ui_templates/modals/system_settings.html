@@ -910,7 +910,7 @@
 
           <div class="settings-pane" id="pane-remove" hidden>
             <h3 class="pane-title">Remove Device</h3>
-            <div id="remove-device-status" class="status-text"></div>
+            <div class="status-text sai-live-status" id="remove-device-status" aria-live="polite"></div>
             <div id="remove-device-list" class="remove-scroll">
               <div class="detail">Select this pane to load removable devices.</div>
             </div>
@@ -2187,8 +2187,64 @@
     scanAddAttempt();
   }
 
+  let removeDeviceToastEl = null;
+  let removeDeviceToastTimer = null;
+
   function setRemoveStatus(msg) {
     setStatus("remove-device-status", msg || "");
+  }
+
+  function formatRemoveDeviceIds(ids) {
+    const clean = (ids || []).filter(Boolean);
+    if (!clean.length) return "selected device";
+    if (clean.length === 1) return clean[0];
+    const shown = clean.slice(0, 3).join(", ");
+    const extra = clean.length > 3 ? `, +${clean.length - 3} more` : "";
+    return `${clean.length} devices (${shown}${extra})`;
+  }
+
+  function getRemoveErrorText(err) {
+    if (err && err.message) return err.message;
+    return String(err || "unknown error");
+  }
+
+  function showRemoveDeviceNotice(message, type, autoDismiss) {
+    setRemoveStatus(message || "");
+    if (!message) {
+      if (removeDeviceToastTimer) {
+        window.clearTimeout(removeDeviceToastTimer);
+        removeDeviceToastTimer = null;
+      }
+      if (removeDeviceToastEl) removeDeviceToastEl.remove();
+      removeDeviceToastEl = null;
+      return;
+    }
+    let container = document.querySelector(".toast-container");
+    if (!container) {
+      container = document.createElement("div");
+      container.className = "toast-container";
+      document.body.appendChild(container);
+    }
+    if (!removeDeviceToastEl || !removeDeviceToastEl.isConnected) {
+      removeDeviceToastEl = document.createElement("div");
+      container.appendChild(removeDeviceToastEl);
+    } else if (removeDeviceToastEl.parentNode !== container) {
+      container.appendChild(removeDeviceToastEl);
+    }
+    if (removeDeviceToastTimer) {
+      window.clearTimeout(removeDeviceToastTimer);
+      removeDeviceToastTimer = null;
+    }
+    removeDeviceToastEl.className = `toast remove-device-toast ${type || ""}`.trim();
+    removeDeviceToastEl.textContent = message;
+    if (autoDismiss) {
+      removeDeviceToastTimer = window.setTimeout(() => {
+        if (removeDeviceToastEl) removeDeviceToastEl.remove();
+        removeDeviceToastEl = null;
+        removeDeviceToastTimer = null;
+        if (container && !container.children.length) container.remove();
+      }, 2500);
+    }
   }
 
   function toggleRemoveEnable() {
@@ -2203,7 +2259,7 @@
     const listEl = document.getElementById("remove-device-list");
     if (!listEl) return;
 
-    setRemoveStatus("");
+    showRemoveDeviceNotice("", "", false);
     listEl.innerHTML = '<div class="detail">Loading...</div>';
 
     try {
@@ -2256,7 +2312,8 @@
     const ids = [...checked].map((x) => x.value);
     if (!ids.length) return;
 
-    setRemoveStatus("Removing...");
+    const targetLabel = formatRemoveDeviceIds(ids);
+    showRemoveDeviceNotice(`Removing ${targetLabel}...`, "", false);
     const runBtn = document.getElementById("remove-device-run");
     if (runBtn) runBtn.disabled = true;
 
@@ -2266,16 +2323,15 @@
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({ device_ids: ids })
       });
-      const js = await resp.json();
+      const js = await resp.json().catch(() => ({}));
       if (!resp.ok || (js && js.error)) {
         throw new Error((js && (js.error || js.message)) || ("HTTP " + resp.status));
       }
-      const ok = (js && js.summary) || "Done";
-      setRemoveStatus(ok + " Reloading dashboard...");
+      showRemoveDeviceNotice(`Removed ${targetLabel}. Reloading dashboard...`, "ok", true);
       window.setTimeout(() => window.location.reload(), 500);
     } catch (e) {
       console.error(e);
-      setRemoveStatus("Failed: " + e);
+      showRemoveDeviceNotice(`Failed to remove ${targetLabel}: ${getRemoveErrorText(e)}`, "error", true);
       toggleRemoveEnable();
     }
   }
