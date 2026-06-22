@@ -226,6 +226,9 @@ def test_moon_position_footer_falls_back_to_nearest_moon_event():
     assert "moonRiseEl.textContent = fmtSun(mrRaw);" in html
     assert "const moonPhaseRiseRaw = pickMoonEventRaw(data && data.moon_rise_today, data && data.moon_rise);" in html
     assert "riseEl.textContent = fmtMoonTime(moonPhaseRiseRaw);" in html
+    assert "const setMoonNextPhaseLabel = (rawLabel) => {" in html
+    assert "const namedFullMoon = label !== 'New Moon' && /\\sMoon$/.test(label);" in html
+    assert "nextPhaseLabelEl.append(document.createElement('br'));" in html
     assert '"moon_rise": "00:30"' in html
 
 
