@@ -20,6 +20,13 @@ from zoneinfo import ZoneInfo
 from saiSettings import saiSettings
 from saiUtils import debug_enabled, printDM
 
+try:
+    from astral import LocationInfo
+    from astral.sun import sun as _astral_sun
+except Exception:  # pragma: no cover - optional dependency availability
+    LocationInfo = None
+    _astral_sun = None
+
 MODULE = "saiBiodynamics"
 DEBUG = debug_enabled(MODULE)
 
@@ -55,7 +62,7 @@ _OFF_PERIOD_LABELS = {
 }
 _OFF_OVERLAY_KINDS = {"lunar_node", "perigee"}
 _PAYLOAD_CACHE_TTL_SEC = 300.0
-_PAYLOAD_CACHE: dict[tuple[str, str, str], tuple[float, dict[str, object]]] = {}
+_PAYLOAD_CACHE: dict[tuple[str, str, str, str, str], tuple[float, dict[str, object]]] = {}
 
 
 def clear_biodynamic_payload_cache() -> None:
@@ -115,20 +122,29 @@ _CONSTELLATION_ALIASES: dict[str, str] = {
 }
 
 
-def _resolve_location() -> tuple[float | None, float | None, str]:
+def _safe_float(value) -> float | None:
+    try:
+        out = float(value)
+        return out if math.isfinite(out) else None
+    except Exception:
+        return None
+
+
+def _resolve_location() -> tuple[float | None, float | None, str, float | None]:
     try:
         settings = saiSettings(apply_live=False)
         resolved = settings.resolve_astral_location(persist_if_auto=False, timeout_sec=2.5)
         lat = resolved.get("lat")
         lon = resolved.get("lon")
         tz_name = str(resolved.get("tz") or "").strip()
-        return lat, lon, tz_name
+        altitude = _safe_float(resolved.get("altitude"))
+        return lat, lon, tz_name, altitude
     except Exception:
-        return None, None, ""
+        return None, None, "", None
 
 
 def get_biodynamic_local_now() -> datetime:
-    _lat, _lon, tz_name = _resolve_location()
+    _lat, _lon, tz_name, _altitude = _resolve_location()
     try:
         tzinfo = ZoneInfo(str(tz_name or "").strip() or "America/Denver")
     except Exception:
@@ -477,6 +493,49 @@ def _lunar_flags_for_day(day_start: datetime, day_end: datetime, off_intervals: 
     }
 
 
+def _daylight_for_day(
+    day_date: date,
+    tzinfo: ZoneInfo,
+    lat: float,
+    lon: float,
+    altitude: float | None,
+) -> dict[str, object]:
+    out = {
+        "sunrise": "",
+        "sunset": "",
+        "daylight_minutes": None,
+        "daylight_label": "",
+    }
+    if LocationInfo is None or _astral_sun is None:
+        return out
+    try:
+        loc = LocationInfo(
+            name="Sensorius",
+            region="local",
+            timezone=tzinfo.key,
+            latitude=float(lat),
+            longitude=float(lon),
+        )
+        observer = loc.observer
+        if altitude is not None:
+            observer.elevation = altitude
+        sun_map = _astral_sun(observer, date=day_date, tzinfo=tzinfo)
+        sunrise = sun_map.get("sunrise")
+        sunset = sun_map.get("sunset")
+        if not isinstance(sunrise, datetime) or not isinstance(sunset, datetime):
+            return out
+        out["sunrise"] = _format_hm(sunrise)
+        out["sunset"] = _format_hm(sunset)
+        if sunset < sunrise:
+            return out
+        total_min = max(0, int((sunset - sunrise).total_seconds() // 60))
+        out["daylight_minutes"] = total_min
+        out["daylight_label"] = f"{total_min // 60} Hrs {total_min % 60} Mins"
+        return out
+    except Exception:
+        return out
+
+
 def _segment_bounds_for_day(day_date: date, seg: dict[str, object], tzinfo: ZoneInfo) -> tuple[datetime, datetime] | None:
     start_raw = str(seg.get("start", "00:00"))
     end_raw = str(seg.get("end", "24:00"))
@@ -527,7 +586,17 @@ def _build_segment_timeline(days: list[dict[str, object]], tzinfo: ZoneInfo) -> 
     return timeline
 
 
-def _build_calendar(month_anchor: date, tzinfo: ZoneInfo, ts, eph, constellation_at, now_local: datetime) -> tuple[list[dict[str, object]], list[_Segment]]:
+def _build_calendar(
+    month_anchor: date,
+    tzinfo: ZoneInfo,
+    ts,
+    eph,
+    constellation_at,
+    now_local: datetime,
+    lat: float,
+    lon: float,
+    altitude: float | None,
+) -> tuple[list[dict[str, object]], list[_Segment]]:
     month_start = datetime.combine(month_anchor.replace(day=1), time.min, tzinfo=tzinfo)
     if month_anchor.month == 12:
         next_month = month_anchor.replace(year=month_anchor.year + 1, month=1, day=1)
@@ -595,6 +664,7 @@ def _build_calendar(month_anchor: date, tzinfo: ZoneInfo, ts, eph, constellation
             "moon_direction": _moon_direction(day_start + timedelta(hours=12), ts, eph),
         }
         day_payload.update(lunar_flags)
+        day_payload.update(_daylight_for_day(day_date, tzinfo, lat, lon, altitude))
         days.append(day_payload)
 
     return days, segments
@@ -605,7 +675,7 @@ def get_biodynamic_payload(target_date: date | None = None) -> dict[str, object]
     payload = _empty_payload(month_anchor)
     payload["ephemeris"] = _ephemeris_status()
 
-    lat, lon, tz_name = _resolve_location()
+    lat, lon, tz_name, altitude = _resolve_location()
     if lat is None or lon is None or not tz_name:
         payload["reason"] = "location_unavailable"
         return payload
@@ -614,6 +684,8 @@ def get_biodynamic_payload(target_date: date | None = None) -> dict[str, object]
         month_anchor.replace(day=1).isoformat(),
         str(round(float(lat), 4)),
         str(round(float(lon), 4)),
+        str(tz_name),
+        "" if altitude is None else str(round(float(altitude), 1)),
     )
     now_mono = time_mod.monotonic()
     cached = _PAYLOAD_CACHE.get(cache_key)
@@ -632,7 +704,17 @@ def get_biodynamic_payload(target_date: date | None = None) -> dict[str, object]
     try:
         tzinfo = ZoneInfo(tz_name)
         now_local = datetime.now(tzinfo)
-        month_days, _month_segments = _build_calendar(month_anchor, tzinfo, ts, eph, constellation_at, now_local)
+        month_days, _month_segments = _build_calendar(
+            month_anchor,
+            tzinfo,
+            ts,
+            eph,
+            constellation_at,
+            now_local,
+            float(lat),
+            float(lon),
+            altitude,
+        )
         timeline = _build_segment_timeline(month_days, tzinfo)
         current_segment = next(
             (segment for segment in timeline if segment["start_local"] <= now_local < segment["end_local"]),

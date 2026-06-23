@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -65,3 +66,27 @@ def test_off_overlay_keeps_calendar_kind_backward_compatible_with_specific_event
     assert off_segments[0]["off_kind"] == "perigee"
     assert off_segments[0]["off_label"] == "Perigee"
     assert off_segments[0]["sign"] == "Rest"
+
+
+def test_daylight_for_day_formats_hours_and_minutes(monkeypatch):
+    tzinfo = ZoneInfo("America/Denver")
+
+    class _FakeLocationInfo:
+        def __init__(self, **_kwargs):
+            self.observer = SimpleNamespace(elevation=0.0)
+
+    def _fake_sun(_observer, *, date, tzinfo):
+        return {
+            "sunrise": datetime(date.year, date.month, date.day, 5, 32, tzinfo=tzinfo),
+            "sunset": datetime(date.year, date.month, date.day, 20, 31, tzinfo=tzinfo),
+        }
+
+    monkeypatch.setattr(saiBiodynamics, "LocationInfo", _FakeLocationInfo)
+    monkeypatch.setattr(saiBiodynamics, "_astral_sun", _fake_sun)
+
+    payload = saiBiodynamics._daylight_for_day(date(2026, 6, 23), tzinfo, 40.0, -105.0, 1600.0)
+
+    assert payload["sunrise"] == "05:32"
+    assert payload["sunset"] == "20:31"
+    assert payload["daylight_minutes"] == 899
+    assert payload["daylight_label"] == "14 Hrs 59 Mins"

@@ -3990,6 +3990,8 @@ def test_dashboard_biodynamic_calendar_card_has_calendar_button():
     assert "aria-label='Open biodynamic calendar'" in html
     assert "title='View Calendar'" in html
     assert "<span class='bio-open-btn-label'>Calendar</span>" in html
+    assert "<div class='bio-daylight' id='bioDaylightLine'>Hours of Daylight: --</div>" in html
+    assert "daylightEl.textContent = buildDaylightText(data, cur.timestamp);" in html
     assert ".bio-open-btn{display:inline-flex;" in html
     assert "#bioBox{width:230px;box-sizing:border-box;overflow:hidden;align-items:stretch;}" in html
     assert "#bioBox .astro-card{width:100%;min-width:0;align-items:stretch;box-sizing:border-box;height:100%;}" in html

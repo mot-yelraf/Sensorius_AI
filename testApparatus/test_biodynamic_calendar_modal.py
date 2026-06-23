@@ -80,16 +80,18 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "#bioCurrentElement{font-size:.74rem;" in text
     assert "#bioDateLine{font-size:.74rem;" in text
     assert "#bioWindow{font-size:.70rem;" in text
+    assert ".bio-daylight{font-size:.58rem;line-height:1.02;text-align:center;color:#3c464d;min-height:1.02em;margin-top:-.08rem;margin-bottom:-.08rem;font-variant-numeric:tabular-nums;}" in text
     assert "white-space:pre;overflow-wrap:normal;word-break:normal;font-variant-numeric:tabular-nums;" in text
     assert "#bioBox{width:230px;box-sizing:border-box;overflow:hidden;align-items:stretch;}" in text
     assert "#bioBox .astro-card{width:100%;min-width:0;align-items:stretch;box-sizing:border-box;height:100%;}" in text
-    assert "#bioBox .astro-title,#bioCurrentSign,#bioCurrentElement,.bio-window,#bioUpcoming{width:100%;box-sizing:border-box;}" in text
+    assert "#bioBox .astro-title,#bioCurrentSign,#bioCurrentElement,.bio-window,.bio-daylight,#bioUpcoming{width:100%;box-sizing:border-box;}" in text
     assert "<div class='bio-main' id='bioCurrentPanel'>" in text
+    assert "<div class='bio-daylight' id='bioDaylightLine'>Hours of Daylight: --</div>" in text
     assert "<button type='button' class='bio-open-btn' id='bioOpenBtn' aria-label='Open biodynamic calendar' title='View Calendar'>" in text
     assert "<div class='moon-view-toggle' role='group' aria-label='Moon view mode' title='Local sky view or Reference moon diagram'>" in text
     assert "<button type='button' class='moon-view-btn active' id='moonViewLocal' data-moon-view='local' aria-pressed='true' title='Local sky view or Reference moon diagram'>Local</button>" in text
     assert "<button type='button' class='moon-view-btn' id='moonViewReference' data-moon-view='reference' aria-pressed='false' title='Local sky view or Reference moon diagram'>Ref</button>" in text
-    assert text.index("<div class='astro-title'>Biodynamic Calendar</div>") < text.index("<div class='bio-window' id='bioDateLine'>Loading biodynamic date...</div>") < text.index("<div class='bio-main' id='bioCurrentPanel'>")
+    assert text.index("<div class='astro-title'>Biodynamic Calendar</div>") < text.index("<div class='bio-window' id='bioDateLine'>Loading biodynamic date...</div>") < text.index("<div class='bio-daylight' id='bioDaylightLine'>Hours of Daylight: --</div>") < text.index("<div class='bio-main' id='bioCurrentPanel'>")
     assert text.index("<div class='astro-box' id='moonBox' aria-live='polite' role='button'") < text.index("<div class='astro-box' id='sunBox' aria-live='polite' role='button'")
     assert "#bioCurrentBadge" not in text
     assert "openBtn.style.background = color;" in text
@@ -114,6 +116,11 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "return rows.length ? rows.join('\\\\n') : `${sign} Moon: ${fmtIsoHm(current && current.window_start)} to ${fmtIsoHm(current && current.window_end)}`;" in text
     assert "dateEl.textContent = fmtIsoDate(cur.timestamp);" in text
     assert "windowEl.textContent = buildBiodynamicWindowText(data, cur.timestamp, cur);" in text
+    assert "const daylightEl = document.getElementById('bioDaylightLine');" in text
+    assert "const findBiodynamicDay = (payload, currentIso) => {" in text
+    assert "return `${Math.floor(total / 60)} Hrs ${total % 60} Mins`;" in text
+    assert "return `Hours of Daylight: ${label || '--'}`;" in text
+    assert "daylightEl.textContent = buildDaylightText(data, cur.timestamp);" in text
     assert "dateEl.textContent = `Current date: ${fmtIsoDate(cur.timestamp)}`;" not in text
     assert "windowEl.textContent = `Current window: ${fmtIsoHm(cur.window_start)} to ${fmtIsoHm(cur.window_end)}`;" not in text
     assert "function renderBiodynamicPrintView(){" in text
@@ -135,9 +142,9 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "stops.push(`${textColor} ${startPct}%`, `${textColor} ${endPct}%`);" in text
     assert "const mainTextColor = biodynamicTextColor(cur);" in text
     assert "const mainTextGradient = buildRollingTextGradient(data, cur.timestamp);" in text
-    assert "applyBiodynamicTextContrast([titleEl, signEl, elementEl, dateEl, windowEl, upcomingEl], mainTextColor, mainTextGradient);" in text
+    assert "applyBiodynamicTextContrast([titleEl, signEl, elementEl, dateEl, windowEl, daylightEl, upcomingEl], mainTextColor, mainTextGradient);" in text
     assert "const titleEl = boxEl.querySelector('.astro-title');" in text
-    assert "clearBiodynamicTextContrast([titleEl, signEl, elementEl, dateEl, windowEl, upcomingEl]);" in text
+    assert "clearBiodynamicTextContrast([titleEl, signEl, elementEl, dateEl, windowEl, daylightEl, upcomingEl]);" in text
     assert "panelEl.style.background = 'transparent';" in text
     assert "panelEl.style.borderColor = 'transparent';" in text
     assert ".bio-print-block{font-size:9pt;line-height:1.35;color:#27313a;white-space:pre-wrap;overflow-wrap:anywhere;min-height:1.2em;text-align:left;}" in text
