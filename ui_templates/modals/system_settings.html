@@ -282,6 +282,53 @@
   min-height: 12rem;
   max-height: none;
 }
+#setupPiModal #ota-device-list {
+  min-height: 14rem;
+  max-height: 18rem;
+}
+#setupPiModal #ota-folder-browser {
+  padding: .55rem .65rem;
+}
+#setupPiModal .ota-folder-browser-body {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: .75rem;
+  margin-top: .45rem;
+}
+#setupPiModal #ota-folder-browser-list {
+  flex: 0 1 42rem;
+  width: min(42rem, 100%);
+  max-height: 7.5rem;
+}
+#setupPiModal #ota-folder-browser .remove-item {
+  padding: .32rem .45rem;
+}
+#setupPiModal #btn-ota-folder-use {
+  flex: 0 0 auto;
+  margin-top: 0;
+  white-space: nowrap;
+}
+#setupPiModal .ota-options-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .9rem;
+  flex-wrap: wrap;
+  margin: .45rem 0 .65rem;
+}
+#setupPiModal .ota-options-row .field-stack {
+  margin: 0;
+}
+#setupPiModal .ota-options-row input[type="number"] {
+  max-width: 9rem;
+}
+#setupPiModal .ota-force-label {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  margin: 0;
+}
 #setupPiModal #pane-locations .pane-footer,
 #setupPiModal #pane-remove .pane-footer {
   margin-top: .75rem;
@@ -375,6 +422,12 @@
   border-radius: 50%;
   border: 1px solid #68736d;
   background: #ffc107;
+}
+#setupPiModal .integration-state.ok .integration-dot {
+  background: #2f9e44;
+}
+#setupPiModal .integration-state.fail .integration-dot {
+  background: #b3212d;
 }
 #setupPiModal .integration-state-detail {
   margin-top: .35rem;
@@ -860,8 +913,14 @@
             <h3 class="pane-title">Update Device</h3>
             <div class="field-grid-stack">
               <div class="field-stack">
-                <label for="ota-package-upload">Package Zip</label>
-                <input type="file" id="ota-package-upload" accept=".zip,application/zip">
+                <label for="ota-package-path">Package Folder Path</label>
+                <input type="text" id="ota-package-path" placeholder="/absolute/path/to/package-folder">
+                <div class="inline-actions">
+                  <button type="button" class="button neutral" id="btn-ota-browse">Browse Folder</button>
+                  <button type="button" class="button neutral" id="btn-ota-inspect">Inspect Package</button>
+                </div>
+              </div>
+              <div class="field-stack">
                 <div class="integration-state" id="ota-package-summary">
                   <div class="integration-state-title">
                     <span class="integration-dot"></span>
@@ -870,19 +929,27 @@
                   <div class="integration-state-detail" id="ota-package-detail"></div>
                 </div>
               </div>
-              <div class="field-stack">
-                <label for="ota-package-path">Package Path</label>
-                <input type="text" id="ota-package-path" placeholder="/absolute/path/to/package">
-                <div class="inline-actions">
-                  <button type="button" class="button neutral" id="btn-ota-inspect">Inspect Package</button>
-                </div>
+            </div>
+            <div id="ota-folder-browser" class="integration-state" hidden style="margin:.45rem 0;">
+              <div class="integration-state-title">
+                <span class="integration-dot"></span>
+                <span id="ota-folder-browser-title">Browse package folder</span>
+              </div>
+              <div class="integration-state-detail" id="ota-folder-browser-path"></div>
+              <div class="ota-folder-browser-body">
+                <div id="ota-folder-browser-list" class="remove-scroll"></div>
+                <button type="button" class="button blue" id="btn-ota-folder-use" disabled>Use This Folder</button>
               </div>
             </div>
-            <div class="field-grid-single" style="margin:.65rem auto;">
+            <div class="ota-options-row">
               <div class="field-stack">
                 <label for="ota-concurrency">Concurrent Updates</label>
                 <input type="number" id="ota-concurrency" min="1" max="4" step="1" value="1">
               </div>
+              <label class="detail ota-force-label">
+                <input type="checkbox" id="ota-force-version-mismatch">
+                Allow package precondition version mismatch
+              </label>
             </div>
             <div id="ota-device-list" class="remove-scroll">
               <div class="detail">Select this pane to load Nodus devices.</div>
@@ -1012,7 +1079,9 @@
   const addScanDelayMs = 60000;
   let addManualJoinRequired = false;
   let otaDevicesLoaded = false;
+  let otaDevices = [];
   let otaPackageRef = "";
+  let otaPackageTargetPlatform = "";
   let otaCurrentJobId = "";
   let otaPollTimer = null;
   function openSetupModal() {
@@ -2341,30 +2410,47 @@
   }
 
   function updateOTAStartEnable() {
-    const selected = [...document.querySelectorAll('#ota-device-list input[type="checkbox"]:checked')];
+    const selected = [...document.querySelectorAll('#ota-device-list input[type="checkbox"]:checked:not(:disabled)')];
     const btn = document.getElementById("btn-ota-start");
     if (btn) btn.disabled = !(otaPackageRef && selected.length);
   }
 
+  function normalizeOTAPlatform(value) {
+    return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  }
+
   function renderOTAPackage(pkg) {
+    const panel = document.getElementById("ota-package-summary");
     const title = document.getElementById("ota-package-title");
     const detail = document.getElementById("ota-package-detail");
     if (!pkg) {
       otaPackageRef = "";
+      otaPackageTargetPlatform = "";
+      if (panel) panel.classList.remove("ok", "fail");
       if (title) title.textContent = "No package selected";
       if (detail) detail.textContent = "";
+      if (otaDevices.length) renderOTADevices(otaDevices);
       updateOTAStartEnable();
       return;
     }
     otaPackageRef = pkg.ref || "";
+    otaPackageTargetPlatform = normalizeOTAPlatform(pkg.target_platform || "");
+    if (panel) {
+      panel.classList.add("ok");
+      panel.classList.remove("fail");
+    }
     if (title) title.textContent = pkg.package_id || "Package ready";
     if (detail) {
-      detail.textContent = [
-        "Requires " + (pkg.required_version || "unknown"),
+      const parts = [
+        "Patch base " + (pkg.required_version || "unknown"),
+        "Target " + (pkg.target_platform || "unknown"),
+        pkg.target_circuitpython ? ("CircuitPython " + pkg.target_circuitpython) : "",
         (pkg.file_count || 0) + " files",
         (pkg.total_bytes || 0) + " bytes"
-      ].join(" | ");
+      ].filter(Boolean);
+      detail.textContent = parts.join(" | ");
     }
+    if (otaDevices.length) renderOTADevices(otaDevices);
     updateOTAStartEnable();
   }
 
@@ -2372,44 +2458,72 @@
     const listEl = document.getElementById("ota-device-list");
     if (!listEl) return;
     const devs = devices || [];
+    otaDevices = devs;
     if (!devs.length) {
       listEl.innerHTML = '<div class="detail">No Nodus devices discovered yet.</div>';
       updateOTAStartEnable();
       return;
     }
     const frag = document.createDocumentFragment();
+    const groups = new Map();
     devs.forEach((d) => {
-      const row = document.createElement("div");
-      row.className = "remove-item";
-      row.style.alignItems = "center";
+      const board = String(d.board_type || "unknown").trim() || "unknown";
+      if (!groups.has(board)) groups.set(board, []);
+      groups.get(board).push(d);
+    });
+    [...groups.keys()].sort().forEach((board) => {
+      const header = document.createElement("div");
+      header.className = "detail";
+      header.style.fontWeight = "700";
+      header.style.margin = ".35rem 0 .15rem";
+      header.textContent = "MCU: " + board;
+      frag.appendChild(header);
+      groups.get(board).forEach((d) => {
+        const row = document.createElement("div");
+        row.className = "remove-item";
+        row.style.alignItems = "center";
 
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.value = d.device_id || d.host || "";
-      cb.onchange = updateOTAStartEnable;
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.value = d.device_id || d.host || "";
+        cb.onchange = updateOTAStartEnable;
+        const boardPlatform = normalizeOTAPlatform(d.board_type || "");
+        const platformMismatch = !!(otaPackageTargetPlatform && boardPlatform && boardPlatform !== otaPackageTargetPlatform);
+        cb.disabled = platformMismatch || d.eligible === false;
+        cb.title = platformMismatch ? "Package target does not match this device MCU" : "";
 
-      const body = document.createElement("div");
-      body.style.display = "flex";
-      body.style.alignItems = "center";
-      body.style.gap = ".45rem";
-      body.style.flexWrap = "wrap";
+        const body = document.createElement("div");
+        body.style.display = "flex";
+        body.style.alignItems = "center";
+        body.style.gap = ".45rem";
+        body.style.flexWrap = "wrap";
 
-      const title = document.createElement("label");
-      title.textContent = d.device_id || d.host || "unknown";
-      title.style.cursor = "pointer";
+        const title = document.createElement("label");
+        title.textContent = d.device_id || d.host || "unknown";
+        title.style.cursor = "pointer";
 
-      const detail = document.createElement("div");
-      detail.className = "detail";
-      detail.textContent = [
-        "firmware " + (d.firmware_version || "unknown"),
-        d.ip ? ("ip " + d.ip) : (d.http_url || "")
-      ].filter(Boolean).join(" | ");
+        const detail = document.createElement("div");
+        detail.className = "detail";
+        detail.textContent = [
+          "firmware " + (d.firmware_version || "unknown"),
+          "mcu " + (d.board_type || "unknown"),
+          d.ip ? ("ip " + d.ip) : (d.http_url || "")
+        ].filter(Boolean).join(" | ");
 
-      body.appendChild(title);
-      body.appendChild(detail);
-      row.appendChild(cb);
-      row.appendChild(body);
-      frag.appendChild(row);
+        body.appendChild(title);
+        body.appendChild(detail);
+        if (platformMismatch) {
+          const warn = document.createElement("span");
+          warn.className = "detail";
+          warn.style.color = "#b3212d";
+          warn.textContent = "package target mismatch";
+          body.appendChild(warn);
+        }
+
+        row.appendChild(cb);
+        row.appendChild(body);
+        frag.appendChild(row);
+      });
     });
     listEl.innerHTML = "";
     listEl.appendChild(frag);
@@ -2434,35 +2548,102 @@
   }
 
   async function inspectOTAPackage() {
-    const upload = document.getElementById("ota-package-upload");
     const pathEl = document.getElementById("ota-package-path");
     setOTAStatus("Inspecting package...");
     try {
-      if (upload && upload.files && upload.files.length) {
-        const form = new FormData();
-        form.append("package", upload.files[0]);
-        const resp = await fetch("/api/nodus-ota/package/upload", { method: "POST", body: form });
-        const js = await resp.json();
-        if (!resp.ok || !js.ok) throw new Error((js && js.error) || "upload failed");
-        renderOTAPackage(js.package);
-      } else {
-        const packageRef = (pathEl && pathEl.value || "").trim();
-        if (!packageRef) throw new Error("package path required");
-        const resp = await fetch("/api/nodus-ota/package/inspect", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({ package_ref: packageRef })
-        });
-        const js = await resp.json();
-        if (!resp.ok || !js.ok) throw new Error((js && js.error) || "inspect failed");
-        renderOTAPackage(js.package);
-      }
+      const packageRef = (pathEl && pathEl.value || "").trim();
+      if (!packageRef) throw new Error("package folder path required");
+      const resp = await fetch("/api/nodus-ota/package/inspect", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ package_ref: packageRef })
+      });
+      const js = await resp.json();
+      if (!resp.ok || !js.ok) throw new Error((js && js.error) || "inspect failed");
+      renderOTAPackage(js.package);
       setOTAStatus("Package ready.");
     } catch (e) {
       console.error(e);
       renderOTAPackage(null);
       setOTAStatus("Failed: " + e.message);
     }
+  }
+
+  let otaFolderBrowserPath = "";
+
+  function renderOTAFolderBrowser(folder) {
+    const panel = document.getElementById("ota-folder-browser");
+    const title = document.getElementById("ota-folder-browser-title");
+    const pathEl = document.getElementById("ota-folder-browser-path");
+    const listEl = document.getElementById("ota-folder-browser-list");
+    const useBtn = document.getElementById("btn-ota-folder-use");
+    if (!panel || !folder) return;
+    panel.hidden = false;
+    panel.classList.toggle("ok", !!folder.valid_package);
+    panel.classList.toggle("fail", !!folder.error);
+    otaFolderBrowserPath = String(folder.path || "");
+    if (title) title.textContent = folder.valid_package ? "Valid package folder" : "Browse package folder";
+    if (pathEl) {
+      const parts = [otaFolderBrowserPath];
+      if (!folder.valid_package) parts.push("Select a folder containing manifest.json and files/");
+      if (folder.error) parts.push(folder.error);
+      pathEl.textContent = parts.filter(Boolean).join(" | ");
+    }
+    if (useBtn) useBtn.disabled = !folder.valid_package;
+    if (listEl) {
+      listEl.innerHTML = "";
+      (folder.directories || []).forEach((dir) => {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "remove-item";
+        row.style.width = "100%";
+        row.style.textAlign = "left";
+        row.dataset.otaFolderPath = dir.path || "";
+        row.textContent = dir.name || dir.path || "";
+        listEl.appendChild(row);
+      });
+      if (!(folder.directories || []).length) {
+        listEl.innerHTML = '<div class="detail">No child folders.</div>';
+      }
+    }
+  }
+
+  async function loadOTAFolderBrowser(path) {
+    const qs = new URLSearchParams();
+    if (path) qs.set("path", path);
+    setOTAStatus("Loading folders...");
+    try {
+      const resp = await fetch("/api/nodus-ota/package/browse?" + qs.toString(), { cache: "no-store" });
+      const js = await resp.json();
+      if (!resp.ok || !js.ok) throw new Error((js && js.error) || "folder browse failed");
+      renderOTAFolderBrowser(js.folder);
+      setOTAStatus(js.folder && js.folder.valid_package ? "Package folder found." : "");
+    } catch (e) {
+      console.error(e);
+      setOTAStatus("Folder browse failed: " + (e && e.message ? e.message : String(e)));
+    }
+  }
+
+  async function useOTAFolderBrowserSelection() {
+    if (!otaFolderBrowserPath) return;
+    const pathEl = document.getElementById("ota-package-path");
+    if (pathEl) pathEl.value = otaFolderBrowserPath;
+    await inspectOTAPackage();
+  }
+
+  function browseOTAPackageFolder() {
+    const pathEl = document.getElementById("ota-package-path");
+    loadOTAFolderBrowser((pathEl && pathEl.value || "").trim());
+  }
+
+  function otaJobTitle(job) {
+    const status = String((job && job.status) || "").toLowerCase();
+    if (status === "complete") return "Update Complete";
+    if (status === "failed") return "Update Failed";
+    if (status === "aborted") return "Update Aborted";
+    if (status === "interrupted") return "Update Interrupted";
+    if (status === "queued" || status === "running") return "Updating";
+    return "Update Status";
   }
 
   function renderOTAJob(job) {
@@ -2472,11 +2653,16 @@
     const cancelBtn = document.getElementById("btn-ota-cancel");
     if (!job) {
       if (panel) panel.hidden = true;
+      if (panel) panel.classList.remove("ok", "fail");
       if (cancelBtn) cancelBtn.disabled = true;
       return;
     }
-    if (panel) panel.hidden = false;
-    if (title) title.textContent = "Job " + (job.status || "unknown");
+    if (panel) {
+      panel.hidden = false;
+      panel.classList.toggle("ok", (job.status || "") === "complete");
+      panel.classList.toggle("fail", ["failed", "aborted", "interrupted"].includes(job.status || ""));
+    }
+    if (title) title.textContent = otaJobTitle(job);
     const lines = (job.devices || []).map((d) => {
       return (d.device_id || "") + ": " + (d.phase || d.status || "") + " " + (d.progress || 0) + "% " + (d.error || d.message || "");
     });
@@ -2531,9 +2717,10 @@
   }
 
   async function startOTAJob() {
-    const selected = [...document.querySelectorAll('#ota-device-list input[type="checkbox"]:checked')].map((x) => x.value);
+    const selected = [...document.querySelectorAll('#ota-device-list input[type="checkbox"]:checked:not(:disabled)')].map((x) => x.value);
     if (!otaPackageRef || !selected.length) return;
     const concurrency = Math.max(1, parseInt(document.getElementById("ota-concurrency")?.value || "1", 10) || 1);
+    const forceVersionMismatch = !!document.getElementById("ota-force-version-mismatch")?.checked;
     setOTAStatus("Starting OTA job...");
     try {
       const resp = await fetch("/api/nodus-ota/jobs", {
@@ -2542,7 +2729,8 @@
         body: JSON.stringify({
           package_ref: otaPackageRef,
           device_ids: selected,
-          concurrency: concurrency
+          concurrency: concurrency,
+          force_version_mismatch: forceVersionMismatch
         })
       });
       const js = await resp.json();
@@ -2688,6 +2876,15 @@
     if (ev.target && ev.target.id === "btn-ota-inspect") {
       inspectOTAPackage();
     }
+    if (ev.target && ev.target.id === "btn-ota-browse") {
+      browseOTAPackageFolder();
+    }
+    if (ev.target && ev.target.id === "btn-ota-folder-use") {
+      useOTAFolderBrowserSelection();
+    }
+    if (ev.target && ev.target.dataset && ev.target.dataset.otaFolderPath) {
+      loadOTAFolderBrowser(ev.target.dataset.otaFolderPath);
+    }
     if (ev.target && ev.target.id === "btn-ota-refresh") {
       loadOTADevices();
     }
@@ -2720,9 +2917,6 @@
   document.addEventListener("change", (ev) => {
     if (ev?.target?.id === "remove-device-confirm") {
       toggleRemoveEnable();
-    }
-    if (ev?.target?.id === "ota-package-upload") {
-      inspectOTAPackage();
     }
     if (ev?.target?.id === "astral_lat" || ev?.target?.id === "astral_lon") {
       refreshTimezoneOptionsFromCoords();

@@ -8,7 +8,7 @@ Responsibilities:
 """
 from __future__ import annotations #must be first in line
 
-from fastapi import Request, Form, Query, HTTPException, UploadFile, File
+from fastapi import Request, Form, Query, HTTPException
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse, PlainTextResponse, Response, FileResponse
 from fastapi.routing import APIRouter
 from starlette.responses import StreamingResponse
@@ -4157,19 +4157,72 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         except NodusOTAError as exc:
             return _ota_error_response(exc)
 
-    @router.post("/api/nodus-ota/package/upload", response_class=JSONResponse)
-    async def api_nodus_ota_package_upload(request: Request, package: UploadFile = File(...)):
-        _require_protected_access(request, require_csrf=True)
+    def _ota_folder_roots() -> list[str]:
+        roots: list[str] = []
         try:
-            payload = await package.read()
-            inspected = await asyncio.to_thread(
-                ota_service.import_zip_package,
-                package.filename or "nodus-ota.zip",
-                payload,
-            )
-            return JSONResponse({"ok": True, "package": inspected.summary()})
-        except NodusOTAError as exc:
-            return _ota_error_response(exc)
+            home = str(Path.home())
+            if home and Path(home).exists():
+                roots.append(home)
+        except Exception:
+            pass
+        return roots
+
+    def _ota_folder_listing(raw_path: str | None = None) -> dict[str, Any]:
+        roots = _ota_folder_roots()
+        fallback = roots[0] if roots else str(Path.cwd())
+        path_text = str(raw_path or "").strip() or fallback
+        try:
+            path = Path(path_text).expanduser().resolve()
+        except Exception:
+            path = Path(fallback).resolve()
+        if not path.exists() or not path.is_dir():
+            path = Path(fallback).resolve()
+
+        dirs = []
+        error = ""
+
+        def _is_hidden_dir(candidate: Path) -> bool:
+            name = candidate.name
+            if name.startswith("."):
+                return True
+            if os.name == "nt":
+                try:
+                    attrs = getattr(candidate.stat(), "st_file_attributes", 0)
+                    return bool(attrs & 0x2)
+                except Exception:
+                    return False
+            return False
+
+        try:
+            for child in path.iterdir():
+                try:
+                    if child.is_dir() and not _is_hidden_dir(child):
+                        dirs.append({"name": child.name, "path": str(child.resolve())})
+                except OSError:
+                    continue
+        except Exception as exc:
+            error = str(exc)
+        dirs.sort(key=lambda item: item["name"].lower())
+        valid = (path / "manifest.json").is_file() and (path / "files").is_dir()
+        parent = ""
+        try:
+            if path.parent != path:
+                parent = str(path.parent)
+        except Exception:
+            parent = ""
+        return {
+            "path": str(path),
+            "parent": parent,
+            "directories": dirs,
+            "valid_package": valid,
+            "error": error,
+        }
+
+    @router.get("/api/nodus-ota/package/browse", response_class=JSONResponse)
+    async def api_nodus_ota_package_browse(request: Request, path: str = ""):
+        _require_protected_access(request, require_csrf=True)
+        listing = await asyncio.to_thread(_ota_folder_listing, path)
+        return JSONResponse({"ok": True, "folder": listing})
 
     @router.post("/api/nodus-ota/jobs", response_class=JSONResponse)
     async def api_nodus_ota_start_job(request: Request):

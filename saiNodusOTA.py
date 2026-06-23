@@ -9,14 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import io
 import json
 import os
 import posixpath
 import re
 import time
 import uuid
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -34,7 +32,10 @@ FWUPDATE_SCHEMA = "nodus-fwupdate/v1"
 DEFAULT_CHUNK_SIZE = 1024
 DEFAULT_HTTP_PORT = 8000
 DEFAULT_TIMEOUT_S = 300.0
+DEFAULT_WAIT_AFTER_PREPARE_S = 60.0
 DEFAULT_READY_TIMEOUT_S = 90.0
+DEFAULT_HTTP_RETRY_ATTEMPTS = 3
+DEFAULT_HTTP_RETRY_DELAY_S = 0.75
 PRESERVED_CONFIG_FILES = {
     "settings.toml",
     "sensor_i2c.toml",
@@ -59,12 +60,15 @@ class OTAPackage:
 
     def summary(self) -> dict[str, Any]:
         requires = self.manifest.get("requires") if isinstance(self.manifest.get("requires"), dict) else {}
+        target = self.manifest.get("target") if isinstance(self.manifest.get("target"), dict) else {}
         return {
             "ref": self.ref,
             "package_id": str(self.manifest.get("package_id") or ""),
             "schema": str(self.manifest.get("schema") or ""),
             "from_tag": str(self.manifest.get("from_tag") or ""),
             "to_tag": str(self.manifest.get("to_tag") or ""),
+            "target_platform": str((target or {}).get("platform") or ""),
+            "target_circuitpython": str((target or {}).get("circuitpython") or ""),
             "required_version": str((requires or {}).get("version") or ""),
             "file_count": self.file_count,
             "total_bytes": self.total_bytes,
@@ -159,34 +163,6 @@ class NodusOTAService:
             total_bytes=total,
         )
 
-    def import_zip_package(self, filename: str, payload: bytes) -> OTAPackage:
-        """Extract an uploaded package archive under `ota_packages/` and validate it."""
-        if not zipfile.is_zipfile(io.BytesIO(payload)):
-            raise NodusOTAError("package_upload_not_zip")
-        stem = _safe_package_stem(filename) or "nodus-ota"
-        out_dir = self.package_root / f"{stem}-{int(time.time())}-{uuid.uuid4().hex[:6]}"
-        out_dir.mkdir(parents=True, exist_ok=False)
-        try:
-            with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-                members = archive.infolist()
-                prefix = _zip_common_prefix([m.filename for m in members if not m.is_dir()])
-                for member in members:
-                    if member.is_dir():
-                        continue
-                    rel = member.filename
-                    if prefix and rel.startswith(prefix):
-                        rel = rel[len(prefix):]
-                    rel = normalize_manifest_path(rel)
-                    target = (out_dir / Path(rel)).resolve()
-                    if not _is_relative_to(target, out_dir.resolve()):
-                        raise NodusOTAError(f"unsafe_zip_path:{member.filename}")
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_bytes(archive.read(member))
-            return self.inspect_package(str(out_dir))
-        except Exception:
-            _remove_tree(out_dir)
-            raise
-
     def list_devices(self) -> list[dict[str, Any]]:
         ingest = self.mqtt_ingest
         now = time.time()
@@ -256,6 +232,9 @@ class NodusOTAService:
             firmware = ""
             if hasattr(ingest, "get_nodus_firmware_version"):
                 firmware = str(ingest.get_nodus_firmware_version(host) or "")
+            board_type = ""
+            if hasattr(ingest, "get_nodus_board_type"):
+                board_type = str(ingest.get_nodus_board_type(host) or "")
             status = str(
                 (getattr(ingest, "device_status", {}) or {}).get(host)
                 or (getattr(ingest, "device_status", {}) or {}).get(mdns_hostname(host))
@@ -274,6 +253,7 @@ class NodusOTAService:
                     "peers": peers,
                     "status": status,
                     "firmware_version": firmware,
+                    "board_type": board_type,
                     "last_seen_s": round(max(now - last_seen, 0.0), 1) if last_seen else None,
                     "ip": ip,
                     "http_url": self._device_url(host, ip=ip),
@@ -296,6 +276,15 @@ class NodusOTAService:
         targets = [item for item in targets if item]
         if not targets:
             raise NodusOTAError("no_devices_selected")
+        package_platform = _normalize_platform(package.summary().get("target_platform"))
+        if package_platform:
+            mismatches = []
+            for device_id in targets:
+                device_platform = _normalize_platform(self._board_type(device_id))
+                if device_platform and device_platform != package_platform:
+                    mismatches.append(f"{device_id}:{device_platform}")
+            if mismatches:
+                raise NodusOTAError(f"target_platform_mismatch:package={package_platform}:devices={','.join(mismatches)}")
         job_id = uuid.uuid4().hex
         job = {
             "job_id": job_id,
@@ -386,19 +375,31 @@ class NodusOTAService:
         try:
             self._set_device_state(state, "validating", "validating package and device")
             required = str(package.summary().get("required_version") or "")
+            target_version = str(package.summary().get("to_tag") or "")
             current = self._firmware_version(device_id)
-            if required and current and required != current and not job.get("force_version_mismatch"):
-                raise NodusOTAError(f"version_mismatch:device={current}:requires={required}")
+            if required and current and not job.get("force_version_mismatch"):
+                allowed_versions = {required}
+                if target_version:
+                    allowed_versions.add(target_version)
+                if current not in allowed_versions:
+                    raise NodusOTAError(f"version_mismatch:current={current}:requires_current={required}:target={target_version}")
+            package_platform = _normalize_platform(package.summary().get("target_platform"))
+            device_platform = _normalize_platform(self._board_type(device_id))
+            if package_platform and device_platform and package_platform != device_platform:
+                raise NodusOTAError(f"target_platform_mismatch:device={device_platform}:package={package_platform}")
 
             url = self._device_url(device_id)
             state["ota_url"] = url
+            state["prepare_started_at"] = time.time()
             package_id = str(package.manifest.get("package_id") or "")
             self._set_device_state(state, "preparing_mqtt", f"publishing prepare for {package_id}")
             await asyncio.to_thread(self._publish_prepare, device_id, package_id)
 
-            self._set_device_state(state, "waiting_ota_http", "waiting for OTA HTTP mode")
             async with httpx.AsyncClient(timeout=10.0) as client:
-                await self._wait_ready(client, url, package_id, state)
+                ready = await self._wait_after_prepare(client, url, package_id, state)
+                if not ready:
+                    self._set_device_state(state, "waiting_ota_http", "waiting for OTA HTTP mode")
+                    await self._wait_ready(client, url, package_id, state)
 
             timeout = float(DEFAULT_TIMEOUT_S)
             async with httpx.AsyncClient(timeout=timeout) as client:
@@ -418,6 +419,7 @@ class NodusOTAService:
 
     async def _wait_ready(self, client: httpx.AsyncClient, url: str, package_id: str, state: dict[str, Any]) -> None:
         deadline = time.monotonic() + DEFAULT_READY_TIMEOUT_S
+        last_error = ""
         while time.monotonic() < deadline:
             self._raise_if_cancelled(state)
             try:
@@ -432,15 +434,52 @@ class NodusOTAService:
                 self._set_device_state(state, "waiting_ota_http", f"OTA phase {phase or 'unknown'}")
             except NodusOTAError:
                 raise
-            except Exception:
-                pass
+            except Exception as exc:
+                last_error = _http_probe_error(exc)
+                if self._device_seen_after_prepare(str(state.get("device_id") or ""), state):
+                    raise NodusOTAError(f"ota_http_unavailable_device_runtime_online:{last_error}") from exc
+                self._set_device_state(state, "waiting_ota_http", f"OTA HTTP unavailable: {last_error}", progress=2)
             await asyncio.sleep(2.0)
-        raise NodusOTAError("ota_http_ready_timeout")
+        detail = f":{last_error}" if last_error else ""
+        raise NodusOTAError(f"ota_http_ready_timeout{detail}")
+
+    async def _wait_after_prepare(self, client: httpx.AsyncClient, url: str, package_id: str, state: dict[str, Any]) -> bool:
+        deadline = time.monotonic() + DEFAULT_WAIT_AFTER_PREPARE_S
+        self._set_device_state(
+            state,
+            "waiting_after_prepare",
+            "waiting for device Wi-Fi and OTA web services",
+            progress=2,
+        )
+        last_error = ""
+        while time.monotonic() < deadline:
+            self._raise_if_cancelled(state)
+            try:
+                resp = await client.get(f"{url}/ota/status")
+                data = resp.json()
+                phase = str(data.get("phase") or "")
+                if phase == "ready":
+                    if data.get("package_id") and data.get("package_id") != package_id:
+                        raise NodusOTAError("device_package_mismatch")
+                    self._set_device_state(state, "status_ready", "OTA mode ready", progress=5)
+                    return True
+                self._set_device_state(state, "waiting_after_prepare", f"OTA phase {phase or 'unknown'}", progress=2)
+            except NodusOTAError:
+                raise
+            except Exception as exc:
+                last_error = _http_probe_error(exc)
+                if self._device_seen_after_prepare(str(state.get("device_id") or ""), state):
+                    raise NodusOTAError(f"ota_http_unavailable_device_runtime_online:{last_error}") from exc
+                self._set_device_state(state, "waiting_after_prepare", f"OTA HTTP unavailable: {last_error}", progress=2)
+            await asyncio.sleep(min(2.0, max(deadline - time.monotonic(), 0.0)))
+        if last_error:
+            state["message"] = f"OTA HTTP unavailable: {last_error}"
+        return False
 
     async def _push_package(self, client: httpx.AsyncClient, url: str, package: OTAPackage, state: dict[str, Any], *, chunk_size: int) -> None:
         self._raise_if_cancelled(state)
         self._set_device_state(state, "manifest_sent", "sending manifest", progress=8)
-        begin = await self._request_json(client, "POST", f"{url}/ota/begin", json_body=package.manifest)
+        begin = await self._request_json(client, "POST", f"{url}/ota/begin", json_body=package.manifest, retry_transient=True)
         if begin.get("accepted") is not True:
             raise NodusOTAError(f"begin_rejected:{begin.get('error', '')}")
 
@@ -453,7 +492,13 @@ class NodusOTAService:
             state["current_file"] = rel_path
             state["message"] = f"uploading {rel_path}"
             if chunk_size > 0:
-                await self._push_file_chunks(client, url, rel_path, file_path, state, sent, total, chunk_size)
+                try:
+                    await self._push_file_chunks(client, url, rel_path, file_path, state, sent, total, chunk_size)
+                except NodusOTAError as exc:
+                    if not _file_transfer_error_retryable(str(exc)):
+                        raise
+                    state["message"] = f"retrying {rel_path} after device staging check"
+                    await self._push_file_chunks(client, url, rel_path, file_path, state, sent, total, chunk_size)
             else:
                 payload = file_path.read_bytes()
                 result = await self._request_json(
@@ -461,7 +506,7 @@ class NodusOTAService:
                     "PUT",
                     f"{url}/ota/file?path={quote(rel_path, safe='/')}",
                     content=payload,
-                    headers={"X-Nodus-File-Path": rel_path},
+                    headers={"X-Nodus-File-Path": rel_path, "Content-Type": "application/octet-stream"},
                 )
                 if result.get("accepted") is not True:
                     raise NodusOTAError(f"file_rejected:{rel_path}:{result.get('error', '')}")
@@ -470,7 +515,7 @@ class NodusOTAService:
             state["progress"] = min(85, 10 + int((sent / total) * 70))
 
         self._set_device_state(state, "committing", "committing staged files", progress=88)
-        commit = await self._request_json(client, "POST", f"{url}/ota/commit", json_body={})
+        commit = await self._request_json(client, "POST", f"{url}/ota/commit", json_body={}, retry_transient=True)
         if commit.get("accepted") is not True:
             raise NodusOTAError(f"commit_rejected:{commit.get('error', '')}")
         self._set_device_state(state, "rebooting", "commit accepted, rebooting", progress=92)
@@ -493,13 +538,16 @@ class NodusOTAService:
             f"{url}/ota/file/begin?path={encoded}",
             json_body={},
             headers={"X-Nodus-File-Path": rel_path},
+            retry_transient=True,
         )
         if begin.get("accepted") is not True:
             raise NodusOTAError(f"file_begin_rejected:{rel_path}:{begin.get('error', '')}")
         offset = 0
+        stalled_offsets: dict[int, int] = {}
         with file_path.open("rb") as handle:
-            while True:
+            while offset < file_path.stat().st_size:
                 self._raise_if_cancelled(state)
+                await asyncio.to_thread(handle.seek, offset)
                 chunk = await asyncio.to_thread(handle.read, chunk_size)
                 if not chunk:
                     break
@@ -508,11 +556,22 @@ class NodusOTAService:
                     "PUT",
                     f"{url}/ota/file/chunk?path={encoded}&offset={offset}",
                     content=chunk,
-                    headers={"X-Nodus-File-Path": rel_path},
+                    headers={"X-Nodus-File-Path": rel_path, "Content-Type": "application/octet-stream"},
                 )
                 if result.get("accepted") is not True:
                     raise NodusOTAError(f"file_chunk_rejected:{rel_path}:{result.get('error', '')}")
-                offset = int(result.get("offset", offset + len(chunk)) or (offset + len(chunk)))
+                expected_offset = offset + len(chunk)
+                reported_offset = result.get("offset")
+                next_offset = expected_offset if reported_offset is None else int(reported_offset)
+                if next_offset > expected_offset or next_offset < offset:
+                    raise NodusOTAError(f"file_chunk_offset_mismatch:{rel_path}:device={next_offset}:expected={expected_offset}")
+                if next_offset < expected_offset:
+                    stalled_offsets[next_offset] = stalled_offsets.get(next_offset, 0) + 1
+                    if stalled_offsets[next_offset] > 3:
+                        raise NodusOTAError(f"file_chunk_offset_stalled:{rel_path}:device={next_offset}:expected={expected_offset}")
+                else:
+                    stalled_offsets.clear()
+                offset = next_offset
                 state["bytes_sent"] = base_sent + offset
                 state["progress"] = min(85, 10 + int((state["bytes_sent"] / max(total_bytes, 1)) * 70))
         end = await self._request_json(
@@ -521,6 +580,7 @@ class NodusOTAService:
             f"{url}/ota/file/end?path={encoded}",
             json_body={},
             headers={"X-Nodus-File-Path": rel_path},
+            retry_transient=True,
         )
         if end.get("accepted") is not True:
             raise NodusOTAError(f"file_end_rejected:{rel_path}:{end.get('error', '')}")
@@ -532,8 +592,32 @@ class NodusOTAService:
         except Exception:
             pass
 
-    async def _request_json(self, client: httpx.AsyncClient, method: str, url: str, *, json_body=None, content=None, headers=None) -> dict[str, Any]:
-        resp = await client.request(method, url, json=json_body, content=content, headers=headers)
+    async def _request_json(
+        self,
+        client: httpx.AsyncClient,
+        method: str,
+        url: str,
+        *,
+        json_body=None,
+        content=None,
+        headers=None,
+        retry_transient: bool = False,
+    ) -> dict[str, Any]:
+        attempts = DEFAULT_HTTP_RETRY_ATTEMPTS if retry_transient else 1
+        for attempt in range(1, attempts + 1):
+            try:
+                resp = await client.request(method, url, json=json_body, content=content, headers=headers)
+                break
+            except (
+                httpx.ConnectError,
+                httpx.ReadError,
+                httpx.ReadTimeout,
+                httpx.RemoteProtocolError,
+                httpx.WriteError,
+            ) as exc:
+                if attempt >= attempts:
+                    raise NodusOTAError(f"http_request_failed:{method}:{url}:{exc}") from exc
+                await asyncio.sleep(DEFAULT_HTTP_RETRY_DELAY_S * attempt)
         try:
             data = resp.json()
         except Exception as exc:
@@ -588,12 +672,35 @@ class NodusOTAService:
             return str(ingest.get_nodus_firmware_version(device_id) or "")
         return ""
 
+    def _board_type(self, device_id: str) -> str:
+        ingest = self.mqtt_ingest
+        if ingest is not None and hasattr(ingest, "get_nodus_board_type"):
+            return str(ingest.get_nodus_board_type(device_id) or "")
+        return ""
+
     def _device_status(self, device_id: str) -> str:
         ingest = self.mqtt_ingest
         if ingest is None:
             return "unknown"
         base = normalize_hostname_base(device_id)
         return str((getattr(ingest, "device_status", {}) or {}).get(base) or "unknown")
+
+    def _device_seen_after_prepare(self, device_id: str, state: dict[str, Any]) -> bool:
+        ingest = self.mqtt_ingest
+        if ingest is None:
+            return False
+        prepare_started = float(state.get("prepare_started_at") or 0.0)
+        if prepare_started <= 0:
+            return False
+        base = normalize_hostname_base(device_id)
+        last_seen = float(
+            (getattr(ingest, "last_mqtt_seen", {}) or {}).get(base)
+            or (getattr(ingest, "last_mqtt_seen", {}) or {}).get(mdns_hostname(base))
+            or 0.0
+        )
+        if last_seen <= prepare_started:
+            return False
+        return self._device_status(base).lower() in {"online", "ready", "unknown"}
 
     def _fwupdate_result(self, device_id: str) -> dict[str, Any]:
         ingest = self.mqtt_ingest
@@ -687,43 +794,30 @@ def _clean_device_id(value: str) -> str:
     return normalize_hostname_base(str(value or "").strip())
 
 
-def _safe_package_stem(filename: str) -> str:
-    stem = Path(str(filename or "package.zip")).stem
-    return re.sub(r"[^A-Za-z0-9._-]+", "-", stem).strip(".-")
+def _normalize_platform(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
 
 
-def _zip_common_prefix(paths: list[str]) -> str:
-    if not paths:
-        return ""
-    parts = [p.split("/", 1)[0] for p in paths if "/" in p]
-    if len(parts) == len(paths) and len(set(parts)) == 1:
-        return parts[0] + "/"
-    return ""
-
-
-def _is_relative_to(path: Path, root: Path) -> bool:
-    try:
-        path.relative_to(root)
-        return True
-    except ValueError:
+def _file_transfer_error_retryable(error: str) -> bool:
+    text = str(error or "")
+    if not (
+        text.startswith("file_begin_rejected:")
+        or text.startswith("file_chunk_rejected:")
+        or text.startswith("file_end_rejected:")
+    ):
         return False
+    reason = text.rsplit(":", 1)[-1]
+    return reason in {
+        "file_size_mismatch",
+        "sha256_mismatch",
+        "staged_file_missing",
+    }
 
 
-def _remove_tree(path: Path) -> None:
-    if not path.exists():
-        return
-    for child in sorted(path.rglob("*"), reverse=True):
-        try:
-            if child.is_dir():
-                child.rmdir()
-            else:
-                child.unlink()
-        except OSError:
-            pass
-    try:
-        path.rmdir()
-    except OSError:
-        pass
+def _http_probe_error(exc: Exception) -> str:
+    text = str(exc).strip()
+    name = exc.__class__.__name__
+    return f"{name}:{text}" if text else name
 
 
 def _public_job(job: dict[str, Any]) -> dict[str, Any]:
