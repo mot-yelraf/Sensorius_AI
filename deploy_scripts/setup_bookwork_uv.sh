@@ -54,7 +54,7 @@ install_system_packages() {
 
   run_with_heartbeat "APT install system dependencies" sudo apt-get install -y \
     python3 python3-pip python3-venv python3-dev \
-    sqlite3 libatlas-base-dev \
+    sqlite3 libatlas-base-dev libopenblas0 \
     build-essential git chrony locate cmake swig liblgpio-dev \
     raspi-gpio logrotate mosquitto mosquitto-clients \
     libgirepository1.0-dev \

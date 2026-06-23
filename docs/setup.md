@@ -83,6 +83,10 @@ sudo ./deploy_scripts/setup_bookwork_uv.sh
 
 The uv script name is currently `setup_bookwork_uv.sh` in the repository.
 
+Bookworm setup installs both `libatlas-base-dev` and the `libopenblas0`
+runtime package. The OpenBLAS runtime provides `libopenblas.so.0`, which
+NumPy wheels may need at import time on Raspberry Pi OS Bookworm.
+
 Bookworm setup performs the normal Pi install work:
 
 - Installs system and Python dependencies.
