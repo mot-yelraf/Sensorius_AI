@@ -609,6 +609,15 @@ Implemented behavior:
   soft-reboots into temporary OTA mode.
 - OTA mode does not run MQTT. Sensorius or the CLI transfers package files
   over HTTP using the Nodus OTA endpoints.
+- OTA package `target.platform` values verified end-to-end are `pico2w` and
+  `xesp32s3`. Sensorius compares the package target with retained `mcu`
+  metadata and rejects known mismatches before transfer.
+- Pico 2 W has a constrained OTA memory budget. Command-line OTA testing showed
+  a Nodus-side memory allocation failure when transferring a compiled
+  `app.mpy` larger than about 50 KB. Treat large single-file `.mpy` updates on
+  `pico2w` as unsupported until the firmware transfer/apply path is changed;
+  split changes into smaller files or deploy an uncompiled/smaller app file
+  when possible.
 - After successful apply and reboot back into the prior profile, Nodus
   publishes a non-retained `fwupdate/result` with `phase = "applied"`,
   `applied = true`, `package_id`, and `prior_profile`.

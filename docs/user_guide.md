@@ -145,6 +145,13 @@ On macOS, the pane may instruct you to join `Nodus_Setup` manually from Wi-Fi se
 
 Use Update Device for Nodus OTA firmware packages.
 
+OTA has been verified for Nodus packages targeting `pico2w` and `xesp32s3`.
+Packages must declare the correct target platform; Sensorius blocks updates
+when the package target does not match known device metadata. For Pico 2 W,
+avoid large single-file compiled updates: command-line OTA testing showed a
+Nodus-side memory allocation failure while transferring an `app.mpy` larger
+than about 50 KB.
+
 Fields and controls:
 
 - **Package Zip**: local `.zip` package selected from your browser.

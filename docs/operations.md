@@ -163,6 +163,25 @@ When a Nodus device does not appear:
 6. Use the web UI retry-discovery action if metadata arrived before Sensorius
    subscribed.
 
+## Nodus OTA Operations
+
+Nodus OTA uses MQTT only to prepare the device and report results. Package
+bytes move over the temporary OTA HTTP service after the device reboots into
+OTA mode.
+
+Operational rules:
+
+- Verified package targets are `pico2w` and `xesp32s3`.
+- Keep package `target.platform` aligned with retained Nodus `mcu` metadata.
+  Sensorius rejects known target mismatches before transfer.
+- Update only when device power, Wi-Fi, and broker connectivity are stable.
+- Use low concurrency for constrained networks or mixed device groups.
+- For Pico 2 W, avoid large single-file compiled `.mpy` updates. Command-line
+  OTA testing showed a Nodus-side memory allocation failure when transferring
+  `app.mpy` larger than about 50 KB. Split the change into smaller files or use
+  a smaller/uncompiled app file until the firmware OTA apply path supports
+  larger compiled modules.
+
 ## Switch Operations
 
 Manual toggles, HA commands, MQTT commands, and automations should all travel
