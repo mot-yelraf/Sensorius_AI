@@ -80,7 +80,7 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "#bioCurrentElement{font-size:.74rem;" in text
     assert "#bioDateLine{font-size:.74rem;" in text
     assert "#bioWindow{font-size:.70rem;" in text
-    assert ".bio-daylight{font-size:.58rem;line-height:1.02;text-align:center;color:#3c464d;min-height:1.02em;margin-top:-.08rem;margin-bottom:-.08rem;font-variant-numeric:tabular-nums;}" in text
+    assert ".bio-daylight{font-size:.58rem;line-height:1.02;text-align:center;color:#3c464d;min-height:1.02em;margin-top:-.08rem;margin-bottom:.3rem;font-variant-numeric:tabular-nums;}" in text
     assert "white-space:pre;overflow-wrap:normal;word-break:normal;font-variant-numeric:tabular-nums;" in text
     assert "#bioBox{width:230px;box-sizing:border-box;overflow:hidden;align-items:stretch;}" in text
     assert "#bioBox .astro-card{width:100%;min-width:0;align-items:stretch;box-sizing:border-box;height:100%;}" in text
