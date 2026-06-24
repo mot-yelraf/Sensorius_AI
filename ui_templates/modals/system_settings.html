@@ -2426,6 +2426,7 @@
     if (!pkg) {
       otaPackageRef = "";
       otaPackageTargetPlatform = "";
+      otaFolderBrowserPath = "";
       if (panel) panel.classList.remove("ok", "fail");
       if (title) title.textContent = "No package selected";
       if (detail) detail.textContent = "";
@@ -2592,6 +2593,16 @@
     if (useBtn) useBtn.disabled = !folder.valid_package;
     if (listEl) {
       listEl.innerHTML = "";
+      if (folder.parent) {
+        const parentRow = document.createElement("button");
+        parentRow.type = "button";
+        parentRow.className = "remove-item";
+        parentRow.style.width = "100%";
+        parentRow.style.textAlign = "left";
+        parentRow.dataset.otaFolderPath = folder.parent || "";
+        parentRow.textContent = ".. Parent Folder";
+        listEl.appendChild(parentRow);
+      }
       (folder.directories || []).forEach((dir) => {
         const row = document.createElement("button");
         row.type = "button";
@@ -2602,7 +2613,7 @@
         row.textContent = dir.name || dir.path || "";
         listEl.appendChild(row);
       });
-      if (!(folder.directories || []).length) {
+      if (!folder.parent && !(folder.directories || []).length) {
         listEl.innerHTML = '<div class="detail">No child folders.</div>';
       }
     }
