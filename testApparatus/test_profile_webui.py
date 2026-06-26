@@ -11,9 +11,9 @@ import profile_webui
 
 
 def test_select_scenarios_filters_and_deduplicates_by_name():
-    selected = profile_webui.select_scenarios("sensor_settings,fullscreen_graph,calendar_month_selectors,calendar,sensor_settings")
+    selected = profile_webui.select_scenarios("sensor_settings,weather_forecast,fullscreen_graph,calendar_month_selectors,calendar,sensor_settings")
 
-    assert [scenario.name for scenario in selected] == ["sensor_settings", "fullscreen_graph", "calendar_month_selectors", "calendar"]
+    assert [scenario.name for scenario in selected] == ["sensor_settings", "weather_forecast", "fullscreen_graph", "calendar_month_selectors", "calendar"]
 
 
 def test_build_js_helper_discovers_current_dashboard_target_shapes():
@@ -28,16 +28,22 @@ def test_build_js_helper_discovers_current_dashboard_target_shapes():
     assert "sensor_settings_links" in helper
     assert "switch_count" in helper
     assert "metric_count" in helper
+    assert "weatherForecastModal" in helper
 
 
 def test_modal_scenarios_accept_explicit_targets():
     sensor = next(item for item in profile_webui.SCENARIOS if item.name == "sensor_settings")
     switch = next(item for item in profile_webui.SCENARIOS if item.name == "switch_settings")
+    forecast = next(item for item in profile_webui.SCENARIOS if item.name == "weather_forecast")
     fullscreen_graph = next(item for item in profile_webui.SCENARIOS if item.name == "fullscreen_graph")
     month_selectors = next(item for item in profile_webui.SCENARIOS if item.name == "calendar_month_selectors")
 
     assert "__sensProfilerTargetSensorId" in sensor.js_factory
     assert "__sensProfilerTargetSwitchId" in switch.js_factory
+    assert "openWeatherForecastModal" in forecast.js_factory
+    assert "forecastFiveDayBtn" in forecast.js_factory
+    assert "weatherForecastModal" in forecast.js_factory
+    assert ".forecast-days .forecast-day" in forecast.js_factory
     assert "visibleMetricTargets()" in fullscreen_graph.js_factory
     assert "graphButton" in fullscreen_graph.js_factory
     assert "fullscreen_graph_container" in fullscreen_graph.js_factory
@@ -82,8 +88,10 @@ def test_summary_counts_skipped_and_failed_scenario_samples():
 def test_scenario_error_skip_only_marks_optional_missing_targets():
     switch = next(item for item in profile_webui.SCENARIOS if item.name == "switch_settings")
     system = next(item for item in profile_webui.SCENARIOS if item.name == "system_settings")
+    forecast = next(item for item in profile_webui.SCENARIOS if item.name == "weather_forecast")
     fullscreen_graph = next(item for item in profile_webui.SCENARIOS if item.name == "fullscreen_graph")
 
     assert profile_webui.scenario_error_is_skip(switch, "No switch found on dashboard") is True
+    assert profile_webui.scenario_error_is_skip(forecast, "Weather forecast disabled on dashboard") is True
     assert profile_webui.scenario_error_is_skip(fullscreen_graph, "No graphable metric found on dashboard") is True
     assert profile_webui.scenario_error_is_skip(system, "No switch found on dashboard") is False

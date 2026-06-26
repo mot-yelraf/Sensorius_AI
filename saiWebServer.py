@@ -57,8 +57,12 @@ class WebServerController:
         # Make templates available to route modules without circular imports
         self.app.state.templates = self.templates
         
-        # non-blocking prewarm at startup
-        self.app.add_event_handler("startup", lambda: asyncio.create_task(self._prewarm()))
+        # Schedule prewarm without returning the Task; Starlette awaits
+        # awaitable startup handler results.
+        self.app.add_event_handler("startup", self._schedule_prewarm)
+
+    def _schedule_prewarm(self) -> None:
+        asyncio.create_task(self._prewarm())
 
 
     async def _prewarm(self):
@@ -66,16 +70,18 @@ class WebServerController:
         try:
             from saiWebRoutes import data_logger as routes_logger, statter as routes_statter
 
-            available = routes_logger.get_available_sensors() or []
+            available = await asyncio.to_thread(routes_logger.get_available_sensors)
+            available = available or []
             sids = self.settings.get_all_sensor_ids() or available
 
             cap = 8  # keep it light
             for sid in sids[:cap]:
                 # touch hot paths
-                _ = routes_logger.get_latest_values(sid)
-                maybe_stats = routes_statter.get_24hr_stats(sid)
+                _ = await asyncio.to_thread(routes_logger.get_latest_values, sid)
+                maybe_stats = await asyncio.to_thread(routes_statter.get_24hr_stats, sid)
                 if inspect.isawaitable(maybe_stats):
                     await maybe_stats  # handle async statter seamlessly
+                await asyncio.sleep(0)
 
             if DEBUG:
                 printDM(f"Prewarm complete for {len(sids[:cap])} sensors", location=f"{MODULE}._prewarm")

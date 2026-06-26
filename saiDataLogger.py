@@ -198,6 +198,42 @@ class saiDataLogger:
         except Exception:
             pass
 
+    def _startup_epoch_migration_allowed(self, *, missing_epoch_indexes: set[str]) -> bool:
+        if not missing_epoch_indexes:
+            return True
+
+        raw_mode = str(os.environ.get("SENSORIUS_DB_STARTUP_EPOCH_INDEXES", "auto") or "auto").strip().lower()
+        if raw_mode in {"1", "true", "yes", "on", "force"}:
+            return True
+        if raw_mode in {"0", "false", "no", "off", "skip"}:
+            if DEBUG:
+                printDM(
+                    f"[migration] skipping startup ts_epoch indexes: {sorted(missing_epoch_indexes)}",
+                    location=MODULE,
+                )
+            return False
+
+        try:
+            max_mb = float(os.environ.get("SENSORIUS_DB_STARTUP_INDEX_MAX_MB", "256") or "256")
+        except Exception:
+            max_mb = 256.0
+        try:
+            db_mb = os.path.getsize(self.db_path) / (1024 * 1024)
+        except Exception:
+            db_mb = 0.0
+
+        allowed = db_mb <= max_mb
+        if not allowed:
+            printDM(
+                (
+                    "[migration] deferring startup ts_epoch indexes "
+                    f"for {db_mb:.1f}MB DB over {max_mb:.1f}MB limit: "
+                    f"{sorted(missing_epoch_indexes)}"
+                ),
+                location=MODULE,
+            )
+        return allowed
+
     @staticmethod
     def _metric_key(values: dict, metric_name: str) -> str | None:
         target = str(metric_name or "").strip().lower()
@@ -360,7 +396,8 @@ class saiDataLogger:
                         # ---- Pragmas (persist) ----
                         cur.execute("PRAGMA journal_mode=WAL;")
                         cur.execute("PRAGMA synchronous=NORMAL;")
-                        cur.execute("PRAGMA temp_store=MEMORY;")
+                        # Keep migration/index temp work off RAM-constrained Pis.
+                        cur.execute("PRAGMA temp_store=FILE;")
                         cur.execute("PRAGMA busy_timeout=30000;")
                         cur.execute("PRAGMA cache_size=-65536;")
                         cur.execute("PRAGMA wal_autocheckpoint=1000;")
@@ -469,19 +506,52 @@ class saiDataLogger:
                         if "ts_epoch" not in swe_cols:
                             cur.execute("ALTER TABLE sw_events ADD COLUMN ts_epoch REAL")
 
+                        cur.execute("PRAGMA index_list(readings)")
+                        reading_indexes = {row[1] for row in cur.fetchall()}
+                        cur.execute("PRAGMA index_list(sw_events)")
+                        swe_indexes = {row[1] for row in cur.fetchall()}
+                        required_epoch_indexes = {
+                            "readings": {
+                                "idx_readings_sid_tse",
+                                "idx_readings_sid_metric_tse",
+                                "idx_readings_tse",
+                            },
+                            "sw_events": {
+                                "idx_swe_key_tse",
+                                "idx_swe_tse",
+                            },
+                        }
+                        missing_epoch_indexes = (
+                            required_epoch_indexes["readings"] - reading_indexes
+                        ) | (
+                            required_epoch_indexes["sw_events"] - swe_indexes
+                        )
+                        create_epoch_indexes = self._startup_epoch_migration_allowed(
+                            missing_epoch_indexes=missing_epoch_indexes,
+                        )
+
                         # Create ts_epoch indexes only after additive migrations above.
-                        cur.execute("""
-                            CREATE INDEX IF NOT EXISTS idx_readings_sid_tse
-                            ON readings(sensor_id COLLATE NOCASE, ts_epoch DESC, timestamp DESC)
-                        """)
-                        cur.execute("""
-                            CREATE INDEX IF NOT EXISTS idx_readings_sid_metric_tse
-                            ON readings(sensor_id COLLATE NOCASE, metric COLLATE NOCASE, ts_epoch)
-                        """)
-                        cur.execute("""
-                            CREATE INDEX IF NOT EXISTS idx_swe_key_tse
-                            ON sw_events(switch_key COLLATE NOCASE, ts_epoch DESC)
-                        """)
+                        if create_epoch_indexes:
+                            cur.execute("""
+                                CREATE INDEX IF NOT EXISTS idx_readings_sid_tse
+                                ON readings(sensor_id COLLATE NOCASE, ts_epoch DESC, timestamp DESC)
+                            """)
+                            cur.execute("""
+                                CREATE INDEX IF NOT EXISTS idx_readings_sid_metric_tse
+                                ON readings(sensor_id COLLATE NOCASE, metric COLLATE NOCASE, ts_epoch)
+                            """)
+                            cur.execute("""
+                                CREATE INDEX IF NOT EXISTS idx_readings_tse
+                                ON readings(ts_epoch DESC)
+                            """)
+                            cur.execute("""
+                                CREATE INDEX IF NOT EXISTS idx_swe_key_tse
+                                ON sw_events(switch_key COLLATE NOCASE, ts_epoch DESC)
+                            """)
+                            cur.execute("""
+                                CREATE INDEX IF NOT EXISTS idx_swe_tse
+                                ON sw_events(ts_epoch DESC)
+                            """)
 
                         # ---- biodynamic calendar notes -----------------------
                         cur.execute("""
@@ -511,9 +581,12 @@ class saiDataLogger:
                             ON biodynamic_daily_summaries(summary_date DESC)
                         """)
 
-                        # Backfill missing ts_epoch values incrementally.
-                        cur.execute("UPDATE readings SET ts_epoch = strftime('%s', timestamp) WHERE ts_epoch IS NULL")
-                        cur.execute("UPDATE sw_events SET ts_epoch = strftime('%s', timestamp) WHERE ts_epoch IS NULL")
+                        # Backfill missing ts_epoch values only when the same startup
+                        # migration budget permits it; large live DBs should be
+                        # cleaned during explicit maintenance, not boot.
+                        if create_epoch_indexes:
+                            cur.execute("UPDATE readings SET ts_epoch = strftime('%s', timestamp) WHERE ts_epoch IS NULL")
+                            cur.execute("UPDATE sw_events SET ts_epoch = strftime('%s', timestamp) WHERE ts_epoch IS NULL")
 
                         conn.commit()
 
@@ -639,7 +712,7 @@ class saiDataLogger:
         )
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA synchronous=NORMAL;")
-        conn.execute("PRAGMA temp_store=MEMORY;")
+        conn.execute("PRAGMA temp_store=FILE;")
         conn.execute("PRAGMA busy_timeout=30000;")
         conn.execute("PRAGMA cache_size=-65536;")
         return conn
@@ -687,7 +760,7 @@ class saiDataLogger:
             cur.execute(
                 """
                 DELETE FROM readings
-                WHERE COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) < ?
+                WHERE ts_epoch < ?
                 """,
                 (cutoff_epoch,),
             )
@@ -695,7 +768,7 @@ class saiDataLogger:
             cur.execute(
                 """
                 DELETE FROM sw_events
-                WHERE COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) < ?
+                WHERE ts_epoch < ?
                 """,
                 (cutoff_epoch,),
             )
@@ -703,13 +776,17 @@ class saiDataLogger:
             cur.execute(
                 """
                 DELETE FROM sensor_events
-                WHERE COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) < ?
+                WHERE ts_epoch < ?
                 """,
                 (cutoff_epoch,),
             )
             sensor_events_deleted = int(cur.rowcount or 0)
             if readings_deleted or sw_events_deleted or sensor_events_deleted:
                 self._writer_conn.commit()
+                try:
+                    self._writer_conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                except Exception:
+                    pass
                 if DEBUG:
                     printDM(
                         (
@@ -1157,8 +1234,8 @@ class saiDataLogger:
             with self._open_conn() as conn:
                 cur = conn.cursor()
                 cur.execute(
-                    "SELECT timestamp FROM readings WHERE LOWER(sensor_id)=LOWER(?) "
-                    "ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC LIMIT 1",
+                    "SELECT timestamp FROM readings WHERE sensor_id = ? COLLATE NOCASE "
+                    "ORDER BY ts_epoch DESC, timestamp DESC LIMIT 1",
                     (sensor_id,)
                 )
                 row = cur.fetchone()
@@ -1169,7 +1246,7 @@ class saiDataLogger:
                 latest_ts = row[0]
                 cur.execute(
                     "SELECT metric, value FROM readings "
-                    "WHERE LOWER(sensor_id)=LOWER(?) AND timestamp=?",
+                    "WHERE sensor_id = ? COLLATE NOCASE AND timestamp=?",
                     (sensor_id, latest_ts)
                 )
                 rows = cur.fetchall()
@@ -1284,8 +1361,8 @@ class saiDataLogger:
             with self._open_conn() as conn:
                 cur = conn.cursor()
                 cur.execute(
-                    "SELECT timestamp FROM readings WHERE LOWER(sensor_id)=LOWER(?) "
-                    "ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC LIMIT 1",
+                    "SELECT timestamp FROM readings WHERE sensor_id = ? COLLATE NOCASE "
+                    "ORDER BY ts_epoch DESC, timestamp DESC LIMIT 1",
                     (sensor_id,)
                 )
                 row = cur.fetchone()
@@ -1329,18 +1406,18 @@ class saiDataLogger:
                 rows = conn.execute(
                     f"""
                     WITH latest AS (
-                        SELECT LOWER(sensor_id) AS sid_l,
-                               MAX(COALESCE(ts_epoch, 0.0)) AS latest_ts_epoch
+                        SELECT sensor_id COLLATE NOCASE AS sid_l,
+                               MAX(ts_epoch) AS latest_ts_epoch
                         FROM readings
-                        WHERE LOWER(sensor_id) IN ({placeholders})
-                        GROUP BY LOWER(sensor_id)
+                        WHERE sensor_id COLLATE NOCASE IN ({placeholders})
+                        GROUP BY sensor_id COLLATE NOCASE
                     )
                     SELECT r.sensor_id, r.timestamp
                     FROM readings r
                     JOIN latest l
-                      ON LOWER(r.sensor_id) = l.sid_l
-                     AND COALESCE(r.ts_epoch, 0.0) = l.latest_ts_epoch
-                    ORDER BY LOWER(r.sensor_id), r.timestamp DESC
+                      ON r.sensor_id = l.sid_l COLLATE NOCASE
+                     AND r.ts_epoch = l.latest_ts_epoch
+                    ORDER BY r.sensor_id COLLATE NOCASE, r.timestamp DESC
                     """,
                     tuple(sid_map.keys()),
                 ).fetchall()
@@ -1394,18 +1471,18 @@ class saiDataLogger:
                 cur.execute(
                     f"""
                     WITH latest AS (
-                        SELECT LOWER(sensor_id) AS sid_l,
-                               MAX(COALESCE(ts_epoch, 0.0)) AS latest_ts_epoch
+                        SELECT sensor_id COLLATE NOCASE AS sid_l,
+                               MAX(ts_epoch) AS latest_ts_epoch
                         FROM readings
-                        WHERE LOWER(sensor_id) IN ({placeholders})
-                        GROUP BY LOWER(sensor_id)
+                        WHERE sensor_id COLLATE NOCASE IN ({placeholders})
+                        GROUP BY sensor_id COLLATE NOCASE
                     )
                     SELECT r.sensor_id, r.timestamp, r.metric, r.value
                     FROM readings r
                     JOIN latest l
-                      ON LOWER(r.sensor_id) = l.sid_l
-                     AND COALESCE(r.ts_epoch, 0.0) = l.latest_ts_epoch
-                    ORDER BY LOWER(r.sensor_id), r.metric
+                      ON r.sensor_id = l.sid_l COLLATE NOCASE
+                     AND r.ts_epoch = l.latest_ts_epoch
+                    ORDER BY r.sensor_id COLLATE NOCASE, r.metric
                     """,
                     tuple(sid_map.keys()),
                 )

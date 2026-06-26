@@ -539,6 +539,7 @@ def _is_unknown_location_value(value: object) -> bool:
 
 async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     router = APIRouter()
+    _BIODYNAMIC_PAYLOAD_CACHE.clear()
     main_loop = asyncio.get_running_loop()
     ota_service = getattr(app.state, "nodus_ota_service", None)
     if ota_service is None:
@@ -645,13 +646,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         now_mono = time.monotonic()
         cached = _BIODYNAMIC_PAYLOAD_CACHE.get(cache_key)
         if cached and cached[0] > now_mono:
-            return cached[1]
+            return dict(cached[1])
         payload = get_biodynamic_payload(anchor)
         _BIODYNAMIC_PAYLOAD_CACHE[cache_key] = (
             now_mono + _BIODYNAMIC_PAYLOAD_CACHE_TTL_SEC,
-            payload,
+            dict(payload),
         )
-        return payload
+        return dict(payload)
 
     async def _ensure_biodynamic_summary_window(today_local: date) -> tuple[str, float]:
         window_start = today_local.replace(day=1)
@@ -5238,7 +5239,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 printDM(f"[api_biodynamic_calendar] daily summary backfill skipped: {exc}", location=MODULE)
 
         payload_started = time.monotonic()
-        payload = get_biodynamic_payload(anchor)
+        payload = _get_cached_biodynamic_payload(anchor)
         payload_ms = (time.monotonic() - payload_started) * 1000.0
         notes_started = time.monotonic()
         calendar_days = payload.get("calendar") or []

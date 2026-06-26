@@ -66,6 +66,10 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "const defaultDay = today || firstInMonth || null;" in text
     assert "function bioTodayIso(){ const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }" in text
     assert "const preferredDate = monthKey === bioMonthKeyFromDate(new Date(`${todayIso}T00:00:00`)) ? todayIso : '';" in text
+    assert "window.__bioMonthCache = window.__bioMonthCache || {};" in text
+    assert "async function fetchBiodynamicMonth(monthKey){" in text
+    assert "function prefetchBiodynamicAdjacentMonths(monthKey){" in text
+    assert "setBioMonthLoading(true);" in text
     assert "function bioTodayIso(){ return new Date().toISOString().slice(0,10); }" not in text
     assert "await loadBiodynamicMonth(monthKey, preferredDate);" in text
     assert ".bio-day{min-height:43px;height:43px;border:1px solid #d7d0bf;border-radius:6px;padding:3px;background:#fff;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;box-sizing:border-box;}" in text

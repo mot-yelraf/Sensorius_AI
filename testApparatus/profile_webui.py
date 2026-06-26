@@ -6,6 +6,7 @@ Profiles:
 - system settings modal
 - sensor settings modal
 - switch settings modal
+- 6 day weather forecast modal
 - full-screen graph modal
 - biodynamic calendar modal
 - biodynamic calendar month selectors
@@ -62,9 +63,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--debug-port", type=int, default=9222, help="Chrome DevTools port.")
     parser.add_argument("--output-json", default="", help="Optional path for raw JSON output.")
     parser.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        help="Skip the dashboard HTTP reachability check before launching Chrome.",
+    )
+    parser.add_argument(
         "--scenarios",
         default="all",
-        help="Comma-separated scenarios to run. Use all, or any of: system_settings,sensor_settings,switch_settings,fullscreen_graph,calendar,calendar_month_selectors.",
+        help="Comma-separated scenarios to run. Use all, or any of: system_settings,sensor_settings,switch_settings,weather_forecast,fullscreen_graph,calendar,calendar_month_selectors.",
     )
     parser.add_argument(
         "--fail-fast",
@@ -271,12 +277,14 @@ def build_js_helper(timeout_ms: int) -> str:
       try {{ window.closeSystemSettingsModal && window.closeSystemSettingsModal(); }} catch (_err) {{}}
       try {{ window.closeSensorSettingsModal && window.closeSensorSettingsModal(); }} catch (_err) {{}}
       try {{ window.closeSwitchSettingsModal && window.closeSwitchSettingsModal(); }} catch (_err) {{}}
+      try {{ window.BackdropModal && window.BackdropModal.close('weatherForecastModal'); }} catch (_err) {{}}
       try {{ window.BackdropModal && window.BackdropModal.close('biodynamicCalendarModal'); }} catch (_err) {{}}
       const extra = [
         'system-settings-root',
         'setupPiModal',
         'sensorSettingsModal',
         'switchSettingsModal',
+        'weatherForecastModal',
         'biodynamicCalendarModal',
       ];
       for (const id of extra) {{
@@ -481,6 +489,7 @@ def build_js_helper(timeout_ms: int) -> str:
         }};
       }} finally {{
         if (observer) observer.disconnect();
+        try {{ this.closeKnownModals(); }} catch (_err) {{}}
         window.fetch = originalFetch;
         window.alert = originalAlert;
       }}
@@ -572,6 +581,31 @@ SCENARIOS = (
   },
   waitFor: () => document.getElementById('switchSettingsModal'),
   ready: (modal) => modal.querySelector('#switchSettingsPane form'),
+}))()
+""",
+    ),
+    Scenario(
+        name="weather_forecast",
+        label="6 Day Weather Forecast",
+        js_factory="""
+(() => window.__sensProfiler.profileAction({
+  label: '6 day weather forecast modal',
+  open: async () => {
+    if (window.__weatherForecastEnabled === false) throw new Error('Weather forecast disabled on dashboard');
+    if (typeof window.openWeatherForecastModal === 'function') {
+      await window.openWeatherForecastModal();
+      return '';
+    }
+    const trigger = await window.__sensProfiler.waitFor(
+      () => document.getElementById('forecastFiveDayBtn'),
+      window.__sensProfiler.timeoutMs,
+      'weather forecast trigger'
+    );
+    window.__sensProfiler.click(trigger);
+    return '';
+  },
+  waitFor: () => document.getElementById('weatherForecastModal'),
+  ready: (modal) => modal.querySelector('.forecast-days .forecast-day'),
 }))()
 """,
     ),
@@ -771,9 +805,20 @@ def scenario_error_is_skip(scenario: Scenario, error_text: str) -> bool:
         return True
     if scenario.name == "sensor_settings" and "no sensor found" in text:
         return True
+    if scenario.name == "weather_forecast" and "weather forecast disabled" in text:
+        return True
     if scenario.name == "fullscreen_graph" and "no graphable metric found" in text:
         return True
     return False
+
+
+def preflight_dashboard(base_url: str, timeout_sec: float) -> None:
+    try:
+        response = requests.get(base_url, timeout=max(float(timeout_sec), 1.0), stream=True)
+        response.raise_for_status()
+        response.close()
+    except Exception as exc:
+        raise RuntimeError(f"Dashboard preflight failed for {base_url}: {exc}") from exc
 
 
 async def collect_dashboard_sample(client: CDPClient) -> dict[str, Any]:
@@ -786,12 +831,21 @@ async def collect_dashboard_sample(client: CDPClient) -> dict[str, Any]:
     }
 
 
-async def collect_scenario_sample(client: CDPClient, scenario: Scenario) -> dict[str, Any]:
+async def collect_scenario_sample(client: CDPClient, scenario: Scenario, timeout_sec: float) -> dict[str, Any]:
     try:
-        sample = await client.evaluate(scenario.js_factory)
+        sample = await asyncio.wait_for(
+            client.evaluate(scenario.js_factory),
+            timeout=max(float(timeout_sec) + 5.0, 5.0),
+        )
         if not isinstance(sample, dict):
             raise RuntimeError(f"{scenario.name} returned no structured result")
         return sample
+    except asyncio.TimeoutError:
+        return {
+            "ok": False,
+            "skipped": False,
+            "error": f"{scenario.name} exceeded hard timeout",
+        }
     except Exception as exc:
         error_text = str(exc)
         return {
@@ -906,6 +960,8 @@ def print_summary(
 
 async def run(args: argparse.Namespace) -> dict[str, Any]:
     scenarios = select_scenarios(args.scenarios)
+    if not args.skip_preflight:
+        preflight_dashboard(args.base_url, args.timeout_sec)
     chrome = ChromeSession(resolve_chrome_path(args.chrome_path), args.debug_port)
     chrome.start()
     target_ws = chrome.create_target("about:blank")
@@ -928,7 +984,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
                 await pause_between_scenarios(client, args.cooldown_ms)
 
                 for scenario in scenarios:
-                    sample = await collect_scenario_sample(client, scenario)
+                    sample = await collect_scenario_sample(client, scenario, args.timeout_sec)
                     sample["sample_index"] = index + 1
                     results[scenario.name].append(sample)
                     if args.fail_fast and sample.get("ok") is False and not sample.get("skipped"):

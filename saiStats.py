@@ -37,12 +37,12 @@ class saiStats:
             cursor.execute(
                 """
                 WITH filtered AS (
-                    SELECT metric, value, timestamp, COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) AS ts
+                    SELECT metric, value, timestamp, ts_epoch AS ts
                     FROM readings
-                    WHERE LOWER(sensor_id) = LOWER(?)
+                    WHERE sensor_id = ? COLLATE NOCASE
                       AND value IS NOT NULL
-                      AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) >= ?
-                      AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) < ?
+                      AND ts_epoch >= ?
+                      AND ts_epoch < ?
                 ),
                 ranked AS (
                     SELECT
@@ -115,10 +115,10 @@ class saiStats:
                         metric,
                         value,
                         timestamp,
-                        COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) AS ts
+                        ts_epoch AS ts
                     FROM readings
                     WHERE value IS NOT NULL
-                      AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) >= ?
+                      AND ts_epoch >= ?
                 ),
                 ranked AS (
                     SELECT

@@ -32,6 +32,7 @@ from saiRuntimePaths import resolve_runtime_base_dir
 
 MODULE = "saiSettings"
 DEBUG = debug_enabled(MODULE)
+DEFAULT_MAX_SETTINGS_FILE_BYTES = 1024 * 1024
 
 class saiSettings:
     # ---- class-level cache (path -> settings / mtime) ----
@@ -133,9 +134,27 @@ class saiSettings:
         """
         # prefer new if present
         if self._new_path and self._new_path.exists():
+            if self._settings_file_within_size(self._new_path):
+                return str(self._new_path.resolve())
+            backup_path = self._new_path.with_name(self._new_path.name + ".bak")
+            if backup_path.exists() and self._settings_file_within_size(backup_path):
+                printDM(
+                    f"Settings file too large; reading startup backup instead: {backup_path}",
+                    location=MODULE,
+                )
+                return str(backup_path.resolve())
             return str(self._new_path.resolve())
         # fallback legacy if present
         if self._legacy_path and self._legacy_path.exists():
+            if self._settings_file_within_size(self._legacy_path):
+                return str(self._legacy_path.resolve())
+            backup_path = self._legacy_path.with_name(self._legacy_path.name + ".bak")
+            if backup_path.exists() and self._settings_file_within_size(backup_path):
+                printDM(
+                    f"Legacy settings file too large; reading startup backup instead: {backup_path}",
+                    location=MODULE,
+                )
+                return str(backup_path.resolve())
             return str(self._legacy_path.resolve())
         # neither exists: choose where we'll write next
         if self._new_path:
@@ -173,6 +192,20 @@ class saiSettings:
         paths.append(str(Path(self._abs_path).resolve()))
         # de-dup
         return list(dict.fromkeys(paths))
+
+    def _max_settings_file_bytes(self) -> int:
+        try:
+            return max(1024, int(os.environ.get("SENSORIUS_SETTINGS_MAX_BYTES", DEFAULT_MAX_SETTINGS_FILE_BYTES)))
+        except Exception:
+            return DEFAULT_MAX_SETTINGS_FILE_BYTES
+
+    def _settings_file_within_size(self, path: str | Path) -> bool:
+        try:
+            return Path(path).stat().st_size <= self._max_settings_file_bytes()
+        except FileNotFoundError:
+            return True
+        except Exception:
+            return False
 
     # ---- public helpers to manually control cache if needed ----
     @classmethod
@@ -245,6 +278,17 @@ class saiSettings:
         settings = OrderedDict()
         section = None
         try:
+            path_obj = Path(path)
+            if not self._settings_file_within_size(path_obj):
+                size = path_obj.stat().st_size
+                printDM(
+                    (
+                        f"Settings file too large to parse safely: {path_obj} "
+                        f"({size} bytes > {self._max_settings_file_bytes()} bytes)"
+                    ),
+                    location=MODULE,
+                )
+                return settings
             with open(path, "r", encoding="utf-8") as f:
                 for raw in f:
                     line = raw.strip()
@@ -259,7 +303,10 @@ class saiSettings:
                         if value.startswith('[') and value.endswith(']'):
                             value = json.loads(value.replace("'", '"'))
                         elif value.startswith('"') and value.endswith('"'):
-                            value = value[1:-1]
+                            try:
+                                value = json.loads(value)
+                            except Exception:
+                                value = value[1:-1]
                         else:
                             lv = value.lower()
                             if lv == "true":
@@ -409,8 +456,14 @@ class saiSettings:
             old_text = ""
             if os.path.exists(write_path):
                 try:
-                    with open(write_path, "r", encoding="utf-8") as f:
-                        old_text = f.read()
+                    if self._settings_file_within_size(write_path):
+                        with open(write_path, "r", encoding="utf-8") as f:
+                            old_text = f.read()
+                    else:
+                        printDM(
+                            f"Existing settings file is too large; replacing without full read: {write_path}",
+                            location=MODULE,
+                        )
                 except Exception:
                     old_text = ""
 
