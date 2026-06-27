@@ -33,6 +33,7 @@ deploy_project_files() {
       --exclude '.git/' \
       --exclude '.env' \
       --exclude '.venv/' \
+      --exclude 'node_modules/' \
       --exclude '__pycache__/' \
       --exclude '.pytest_cache/' \
       --exclude '.mypy_cache/' \
@@ -59,6 +60,7 @@ deploy_project_files() {
     rm -rf "${PROJECT_DIR:?}"/*
     cp -a "${SOURCE_REPO_DIR}/." "${PROJECT_DIR}/"
     rm -rf "${PROJECT_DIR}/.git" "${PROJECT_DIR}/deploy_scripts"
+    rm -rf "${PROJECT_DIR}/node_modules"
     rm -f "${PROJECT_DIR}/.env"
     rm -rf "${PROJECT_DIR}/assets/screenshots"
     rm -rf "${PROJECT_DIR}/docs" "${PROJECT_DIR}/testApparatus"

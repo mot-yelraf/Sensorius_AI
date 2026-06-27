@@ -1,0 +1,26 @@
+{
+  "name": "saisensorius",
+  "version": "1.0.0",
+  "description": "**Environmental Sensing + Automation Hub**",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mot-yelraf/saiSensorius.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/mot-yelraf/saiSensorius/issues"
+  },
+  "homepage": "https://github.com/mot-yelraf/saiSensorius#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^26.0.1"
+  }
+}

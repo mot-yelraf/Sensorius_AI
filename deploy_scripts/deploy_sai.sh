@@ -86,6 +86,7 @@ done
 EXCLUDES=(
   ".git/"
   ".venv/"
+  "node_modules/"
   ".env"
   "__pycache__/"
   "*.pyc"

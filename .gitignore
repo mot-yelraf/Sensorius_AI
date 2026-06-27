@@ -35,3 +35,11 @@ sai_hosts.txt
 !/system_settings/factory/**
 !/system_settings/factory_nodus/
 !/system_settings/factory_nodus/**
+
+# Playwright
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
