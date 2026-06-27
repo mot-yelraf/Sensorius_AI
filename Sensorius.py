@@ -101,6 +101,10 @@ async def ensure_local_sensor_configs(settings) -> list[str]:
     existing_ids = [str(sid).strip() for sid in existing_ids if str(sid).strip()]
     for sid in existing_ids:
         try:
+            sensor_mgr.ensure_direct_local_type(sid)
+        except Exception:
+            pass
+        try:
             sensor_mgr.ensure_local_serial_num(sid)
         except Exception:
             pass
@@ -655,6 +659,9 @@ async def main():
     web_server.app.state.mqtt_ingest = mqtt_ingest_clients
     web_server.app.state.farmos_bridge = farmos_bridge
     web_server.app.state.supervisor = supervisor
+    web_server.app.state.data_logger = data_logger
+    web_server.app.state.sensor_map = sensor_map
+    web_server.app.state.switch_controllers = switch_controllers
     
     await web_server.initialize_server()
     await web_server.run_async()

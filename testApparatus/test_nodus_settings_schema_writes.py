@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -23,6 +24,7 @@ from jinja2 import Environment, FileSystemLoader
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import saiAddDevice
+import saiDataLogger as saiDataLoggerModule
 import saiMQTTIngest
 import saiSensorSettingsManager
 import saiSettings as saiSettingsModule
@@ -1496,6 +1498,47 @@ async def test_sensor_settings_modal_shows_local_pi_board_and_sensor_type(tmp_pa
     assert res.status_code == 200
     assert "Sensor Info: Board Type: rPi Sensor:SCD4x" in res.text
     assert f"{sensor_id} (rPi)" not in res.text
+
+
+@pytest.mark.asyncio
+async def test_direct_i2c_sensor_shadow_seeded_as_nodus_is_repaired_for_calibration(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_id = "aqi-i2c-0-sensorius-0"
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        sensor_id,
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "aqi",
+                "SENSOR_ID": sensor_id,
+                "LOCATION": "GH Desk",
+            },
+            "Calibration": {
+                "Device": {
+                    "TEMP_OFFSET": 0.0,
+                    "RH_OFFSET": 0.0,
+                    "AQI_OFFSET": 0.0,
+                }
+            },
+        },
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/calibration/device/apply",
+            json={
+                "sensor_id": sensor_id,
+                "device_kind": "aqi",
+                "offsets": [{"key": "Calibration.Device.TEMP_OFFSET", "value": 1.25}],
+            },
+        )
+
+    assert res.status_code == 200
+    assert ingest.calibration_commands == []
+    saved = sensor_mgr.load(sensor_id)
+    assert saved["Sensor"]["TYPE"] == "pi"
+    assert saved["Calibration"]["Device"]["TEMP_OFFSET"] == 1.25
 
 
 @pytest.mark.asyncio
@@ -4465,6 +4508,44 @@ async def test_remove_device_list_merges_settings_db_and_ingest_ids(tmp_path, mo
 
 
 @pytest.mark.asyncio
+async def test_remove_device_list_uses_last_packet_age_for_direct_i2c_sensor(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_id = "aqi-i2c-0-sensorius-0"
+    monkeypatch.setenv("SAI_WEB_API_KEY", "test-key")
+    monkeypatch.setattr(saiWebRoutes, "_SYS_BASE_DIR", str(system_root))
+    monkeypatch.setattr(saiMQTTIngest, "get_current_ingest", lambda: ingest)
+
+    sensor_mgr.save(
+        sensor_id,
+        {
+            "Sensor": {"TYPE": "pi", "DEVICE": "aqi", "SENSOR_ID": sensor_id, "LOCATION": "GH Desk"},
+            "Display": {"METRIC_1": "Temperature"},
+        },
+    )
+    monkeypatch.setattr(saiWebRoutes.time, "time", lambda: 200.0)
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_sensor_last_packet_epoch",
+        lambda sid, **_kwargs: 125.5 if sid == sensor_id else None,
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"x-api-key": "test-key"},
+    ) as client:
+        res = await client.get("/remove-device-list")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert sensor_id in body["devices"]
+    assert body["device_details"][sensor_id]["last_seen_s"] == 74.5
+
+
+@pytest.mark.asyncio
 async def test_remove_device_list_allows_same_origin_browser_request_without_api_key_header(tmp_path, monkeypatch):
     app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
@@ -4610,6 +4691,61 @@ async def test_remove_device_expands_nodus_sensor_suffix_cleanup(tmp_path, monke
     assert "nodus/S1-x943fm/state" in cleared_topics
     assert "nodus/S1-x943fm/availability" in cleared_topics
     assert "nodus/S1-x943fm/config/ack" in cleared_topics
+
+
+@pytest.mark.asyncio
+async def test_remove_direct_i2c_sensor_purges_active_database_rows(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_id = "avpd-i2c-0-sensorius-0"
+    monkeypatch.setenv("SAI_WEB_API_KEY", "test-key")
+    monkeypatch.setattr(saiWebRoutes, "_SYS_BASE_DIR", str(system_root))
+    monkeypatch.setattr(saiWebRoutes, "_SENSOR_BASE_DIR", str(sensor_root))
+    monkeypatch.setattr(saiMQTTIngest, "get_current_ingest", lambda: ingest)
+
+    sensor_mgr.save(
+        sensor_id,
+        {
+            "Sensor": {
+                "TYPE": "pi",
+                "DEVICE": "avpd",
+                "SENSOR_ID": sensor_id,
+                "LOCATION": "Bench",
+            },
+            "Display": {"METRIC_1": "Temperature"},
+        },
+    )
+    monkeypatch.setattr(saiDataLoggerModule.saiDataLogger, "_schema_ready", False)
+    logger = saiDataLoggerModule.saiDataLogger(str(tmp_path / "active-sensorius.db"))
+    monkeypatch.setattr(saiWebRoutes, "data_logger", logger)
+    app.state.data_logger = logger
+    logger.log_readings("2026-06-27T16:00:00-06:00", sensor_id, {"Temperature": 24.0})
+    logger.log_sensor_event(
+        sensor_id,
+        saiDataLoggerModule.SENSOR_EVENT_TYPE_LIVENESS,
+        state="offline",
+        timestamp="2026-06-27T16:01:00-06:00",
+        source="test",
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"x-api-key": "test-key"},
+    ) as client:
+        res = await client.post("/remove-device", json={"device_ids": [sensor_id]})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["results"][sensor_id]["db"]["rows_deleted"] == 2
+    assert not (sensor_root / sensor_id).exists()
+    assert logger.get_available_sensors() == []
+    with sqlite3.connect(logger.db_path) as conn:
+        readings = conn.execute("SELECT COUNT(*) FROM readings WHERE sensor_id = ?", (sensor_id,)).fetchone()[0]
+        events = conn.execute("SELECT COUNT(*) FROM sensor_events WHERE sensor_id = ?", (sensor_id,)).fetchone()[0]
+    assert readings == 0
+    assert events == 0
+    logger.close()
 
 
 @pytest.mark.asyncio

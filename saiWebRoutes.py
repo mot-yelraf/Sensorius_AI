@@ -87,7 +87,7 @@ from sensor_modules.station_weewx import (
     apply_weewx_station_metadata,
 )
 from saiFastStats import FastStats
-from saiSensorSettingsManager import SensorSettingsManager
+from saiSensorSettingsManager import SensorSettingsManager, infer_direct_local_device, is_direct_local_sensor_id
 from saiSwitchSettingsManager import SwitchSettingsManager
 from saiBiodynamics import get_biodynamic_payload, get_biodynamic_local_now, get_skyfield_runtime_if_installed
 from saiDailySummary import DailySummaryService, DEFAULT_FORECAST_DAYS
@@ -448,6 +448,18 @@ def ensure_live_nodus_sensor_settings(
 ) -> OrderedDict:
     """Materialize a Nodus sensor shadow for a live MQTT sensor missing sensor.toml."""
     sid = str(sensor_id or "").strip()
+    if is_direct_local_sensor_id(sid):
+        device = infer_direct_local_device(sid)
+        manager.seed_from_factory(
+            sensor_id=sid,
+            device=device,
+            location=location if not _is_unknown_location_value(location) else "Unknown",
+        )
+        manager.ensure_direct_local_type(sid)
+        seeded_path = manager.get_path(sid)
+        printDM(f"[edit-sensor] Seeded missing direct local sensor settings for {sid} at {seeded_path}", location=MODULE)
+        return manager.load(sid)
+
     device = _infer_nodus_sensor_device(sid, list(expected_metrics or []) or list(observed_metrics or []))
     base_dir = Path(getattr(manager, "base_dir", "sensor_settings"))
     nodus_dir = base_dir / "factory_nodus"
@@ -746,6 +758,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     def _sensor_shadow_is_remote_nodus(sid: str) -> bool:
         sid_text = str(sid or "").strip()
         if not sid_text:
+            return False
+        if is_direct_local_sensor_id(sid_text):
             return False
         mgr = _get_sensor_settings_manager()
         if mgr is None:
@@ -7050,29 +7064,47 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return base
 
         def _last_seen_seconds(dev_id: str, host: str) -> float | None:
-            if not ingest:
+            latest = 0.0
+            if ingest:
+                seen = getattr(ingest, "last_mqtt_seen", {}) or {}
+                candidates = {dev_id, host}
+                base = normalize_hostname_base(host)
+                if base:
+                    candidates.add(base)
+                    candidates.add(mdns_hostname(base))
+                try:
+                    for peer in (getattr(ingest, "host_to_peer_ids", {}) or {}).get(base or host, []) or []:
+                        peer_base = normalize_hostname_base(str(peer or ""))
+                        if peer_base:
+                            candidates.add(peer_base)
+                            candidates.add(mdns_hostname(peer_base))
+                except Exception:
+                    pass
+                for key in candidates:
+                    try:
+                        latest = max(latest, float(seen.get(key, 0.0) or 0.0))
+                    except Exception:
+                        continue
+                if latest:
+                    return round(max(now_ts - latest, 0.0), 1)
+
+            if _is_switch_id(dev_id):
                 return None
-            seen = getattr(ingest, "last_mqtt_seen", {}) or {}
-            candidates = {dev_id, host}
-            base = normalize_hostname_base(host)
-            if base:
-                candidates.add(base)
-                candidates.add(mdns_hostname(base))
+
             try:
-                for peer in (getattr(ingest, "host_to_peer_ids", {}) or {}).get(base or host, []) or []:
-                    peer_base = normalize_hostname_base(str(peer or ""))
-                    if peer_base:
-                        candidates.add(peer_base)
-                        candidates.add(mdns_hostname(peer_base))
+                logger = _active_data_logger()
+                last_packet = getattr(logger, "get_sensor_last_packet_epoch", None)
+                if callable(last_packet):
+                    aliases = [dev_id]
+                    base = normalize_hostname_base(dev_id)
+                    if base:
+                        aliases.extend([base, mdns_hostname(base)])
+                    epoch = last_packet(dev_id, aliases=aliases)
+                    if epoch is not None:
+                        return round(max(now_ts - float(epoch), 0.0), 1)
             except Exception:
                 pass
-            latest = 0.0
-            for key in candidates:
-                try:
-                    latest = max(latest, float(seen.get(key, 0.0) or 0.0))
-                except Exception:
-                    continue
-            return round(max(now_ts - latest, 0.0), 1) if latest else None
+            return None
 
         def _device_url(host: str) -> str:
             if not host:
@@ -7695,7 +7727,23 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     removed["ids_deleted"].append(deleted_id)
         return removed
 
+    def _active_data_logger():
+        try:
+            logger = getattr(app.state, "data_logger", None)
+            if logger is not None:
+                return logger
+        except Exception:
+            pass
+        return globals().get("data_logger")
+
     def _get_db_path()->str:
+        try:
+            active_logger = _active_data_logger()
+            db_path = str(getattr(active_logger, "db_path", "") or "").strip()
+            if db_path:
+                return db_path
+        except Exception:
+            pass
         try:
             from saiDataLogger import saiDataLogger  # type: ignore
             if hasattr(saiDataLogger,"DB_PATH"): return getattr(saiDataLogger,"DB_PATH")
@@ -7716,6 +7764,23 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     def _purge_device_from_db(device_id:str)->dict:
         db_path=_get_db_path()
         stats={"db_path":db_path,"rows_deleted":0,"tables":[]}
+        purged_tables: set[str] = set()
+        try:
+            active_logger = _active_data_logger()
+            purge_sensor_data = getattr(active_logger, "purge_sensor_data", None)
+            if callable(purge_sensor_data):
+                sensor_stats = purge_sensor_data(device_id)
+                stats["rows_deleted"] += int(sensor_stats.get("rows_deleted", 0) or 0)
+                for entry in (sensor_stats.get("tables", []) or []):
+                    if isinstance(entry, dict):
+                        purged_tables.update(str(k) for k in entry.keys())
+                    stats["tables"].append(entry)
+                logger_db_path = str(getattr(active_logger, "db_path", "") or "").strip()
+                if logger_db_path:
+                    db_path = logger_db_path
+                    stats["db_path"] = logger_db_path
+        except Exception as e:
+            printDM(f"[remove-device] active logger sensor purge failed: {e}", location=MODULE)
         if not Path(db_path).exists(): return stats
         try:
             conn=sqlite3.connect(db_path)
@@ -7725,6 +7790,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             target_cols=["sensor_id","device_id","client_id","switch_id","switch_key"]
             like_cols=["topic","source","channel","switch_key"]
             for t in tables:
+                if t in purged_tables:
+                    continue
                 deleted=0
                 for col in target_cols:
                     if _table_has_column(cur,t,col):
@@ -7819,10 +7886,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 asyncio.to_thread(_delete_device_dirs_many, related_ids),
                 asyncio.to_thread(_purge_db_many, related_ids),
             )
+            active_logger = _active_data_logger()
             ok_settings = await asyncio.to_thread(_remove_client_from_hub_settings, dev)
-            ha_stats = await asyncio.to_thread(_clear_ha_entities, dev, mqtt_ingest=mqtt_ingest, data_logger=data_logger)
+            ha_stats = await asyncio.to_thread(_clear_ha_entities, dev, mqtt_ingest=mqtt_ingest, data_logger=active_logger)
             mqtt_stats = await asyncio.to_thread(_clear_retained_mqtt_topics, dev, mqtt_ingest=mqtt_ingest)
-            ingest_stats = _purge_ingest_cache(dev, mqtt_ingest=mqtt_ingest, data_logger=data_logger)
+            ingest_stats = _purge_ingest_cache(dev, mqtt_ingest=mqtt_ingest, data_logger=active_logger)
             controller_stats = _purge_switch_controller_state(related_ids)
             _invalidate_dashboard_caches()
             global _switch_status_cache_payload, _switch_status_cache_until
@@ -8630,6 +8698,63 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     def _is_remote_nodus_type(sensor_type: str | None) -> bool:
         return str(sensor_type or "").strip().lower() in ("picow", "pico2w", "nodus", "remote")
 
+    def _load_sensor_settings_with_direct_local_repair(manager: SensorSettingsManager, sensor_id: str) -> dict:
+        doc = manager.load(sensor_id) or {}
+        if is_direct_local_sensor_id(sensor_id):
+            try:
+                if manager.ensure_direct_local_type(sensor_id):
+                    doc = manager.load(sensor_id) or {}
+            except Exception as exc:
+                if DEBUG:
+                    printDM(f"Direct local sensor type repair failed for {sensor_id}: {exc}", location=MODULE)
+        return doc
+
+    def _sensor_id_looks_direct_local(sensor_id: str | None) -> bool:
+        return is_direct_local_sensor_id(sensor_id)
+
+    def _active_local_sensor_controller(sensor_id: str | None):
+        sid_norm = normalize_sensor_id(str(sensor_id or ""))
+        if not sid_norm:
+            return None
+
+        def _controller_id(candidate) -> str:
+            sensor_obj = getattr(candidate, "sensor", None)
+            for obj in (candidate, sensor_obj):
+                if obj is None:
+                    continue
+                value = getattr(obj, "sensor_id", None)
+                if value:
+                    return normalize_sensor_id(str(value))
+            return ""
+
+        maps = [getattr(app.state, "sensor_map", None), globals().get("sensor_map")]
+        for smap in maps:
+            if not smap:
+                continue
+            if isinstance(smap, dict):
+                direct = smap.get(sid_norm) or smap.get(sid_norm.lower()) or smap.get(sid_norm.upper())
+                if direct:
+                    return direct
+                iterable = list(smap.values())
+            else:
+                try:
+                    iterable = list(smap)
+                except TypeError:
+                    iterable = []
+            for candidate in iterable:
+                if _controller_id(candidate).lower() == sid_norm.lower():
+                    return candidate
+        return None
+
+    def _sensor_uses_remote_calibration(sensor_id: str | None, sensor_block: dict | None) -> bool:
+        if _active_local_sensor_controller(sensor_id) is not None:
+            return False
+        if _sensor_id_looks_direct_local(sensor_id):
+            return False
+        block = sensor_block if isinstance(sensor_block, dict) else {}
+        sensor_type = str(block.get("TYPE", block.get("type", "")) or "").strip().lower()
+        return _is_remote_nodus_type(sensor_type)
+
     def _soil_device_offsets(device_section: dict, _get_float) -> list[dict]:
         return [
             {
@@ -9286,6 +9411,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     f"<h3>❌ No settings found for sensor '{html_escape(sensor_id)}'</h3><a href='/'>Return</a>",
                     status_code=404,
                 )
+            if is_direct_local_sensor_id(normalized_id):
+                try:
+                    if manager.ensure_direct_local_type(normalized_id):
+                        settings_dict = manager.load(normalized_id)
+                except Exception as exc:
+                    if DEBUG:
+                        printDM(f"Direct local sensor type repair failed for {normalized_id}: {exc}", location=MODULE)
 
             pre_sensor_section = settings_dict.get("Sensor", {}) or {}
             pre_sensor_type = str(pre_sensor_section.get("TYPE", "") or "").strip().lower()
@@ -9897,10 +10029,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         try:
             mgr = SensorSettingsManager("sensor_settings")
             sid_norm = normalize_sensor_id(sensor_id)
-            settings_dict = mgr.load(sid_norm) or {}
+            settings_dict = _load_sensor_settings_with_direct_local_repair(mgr, sid_norm)
             sensor_block = (settings_dict.get("Sensor") or settings_dict.get("sensor") or {})
             dev_type = str(sensor_block.get("TYPE", sensor_block.get("type", ""))).strip().lower()
-            if _is_remote_nodus_type(dev_type):
+            if _sensor_uses_remote_calibration(sid_norm, sensor_block):
                 ok, err, _ack, result = await _publish_remote_calibration_command(
                     sid_norm,
                     action="start",
@@ -9936,12 +10068,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         try:
             sid_norm = normalize_sensor_id(sensor_id)
             mgr = SensorSettingsManager("sensor_settings")
-            settings = mgr.load(sid_norm) or {}
+            settings = _load_sensor_settings_with_direct_local_repair(mgr, sid_norm)
 
             sensor_block = (settings.get("Sensor") or settings.get("sensor") or {})
             cal_block = (settings.get("Calibration") or settings.get("calibration") or {})
 
             dev_type = str(sensor_block.get("TYPE", sensor_block.get("type", ""))).strip().lower()
+            uses_remote_calibration = _sensor_uses_remote_calibration(sid_norm, sensor_block)
             hostname = (sensor_block.get("HOSTNAME") or sensor_block.get("hostname") or "").strip()
             if not hostname:
                 # fallback: keep full SENSOR_ID as host hint
@@ -9976,9 +10109,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 return temp_offset, rh_offset
 
             # ───────────────── Pi-attached sensors ─────────────────
-            if dev_type == "pi":
-                from saiWebRoutes import sensor_map
-                ctrl = sensor_map.get(sid_norm)
+            if not uses_remote_calibration:
+                ctrl = _active_local_sensor_controller(sid_norm)
                 if ctrl and hasattr(ctrl, "sensor"):
                     state = getattr(ctrl.sensor, "is_calibrated", "Not Calibrated")
                     toff, roff = _extract_offsets()
@@ -9994,7 +10126,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # ───────────────── Nodus / remote sensors ─────────────────
             ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
             mqtt_state = None
-            if ingest and hasattr(ingest, "get_nodus_calibration_state"):
+            if uses_remote_calibration and ingest and hasattr(ingest, "get_nodus_calibration_state"):
                 mqtt_state = ingest.get_nodus_calibration_state(sid_norm)
             if mqtt_state:
                 progress_state = mqtt_state.get("progress") if isinstance(mqtt_state.get("progress"), dict) else None
@@ -10390,7 +10522,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         mgr = SensorSettingsManager("sensor_settings")
         try:
-            doc = mgr.load(sensor_id) or {}
+            doc = _load_sensor_settings_with_direct_local_repair(mgr, sensor_id)
         except FileNotFoundError:
             doc = {}
 
@@ -10403,8 +10535,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         sensor_blk = doc.get("Sensor", {}) if isinstance(doc, dict) else {}
         sensor_type = str(sensor_blk.get("TYPE") or sensor_blk.get("type") or "").strip().lower()
+        uses_remote_calibration = _sensor_uses_remote_calibration(sensor_id, sensor_blk)
 
-        if _is_remote_nodus_type(sensor_type):
+        if uses_remote_calibration:
             ok, err, status_code, applied_keys, shadow_synced = await _publish_remote_device_calibration_offsets(
                 sensor_id,
                 offsets,
@@ -10428,7 +10561,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 )
             shadow_synced = True
 
-        if not _is_remote_nodus_type(sensor_type):
+        if not uses_remote_calibration:
             try:
                 supervisor = getattr(request.app.state, "supervisor", None)
                 notify_sensor_runtime_of_calibration(supervisor, sensor_id)
@@ -10439,7 +10572,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 )
 
 
-        if _is_remote_nodus_type(sensor_type) and not shadow_synced:
+        if uses_remote_calibration and not shadow_synced:
             msg = f"Accepted calibration update for {sensor_id}; awaiting meta patch shadow sync."
         else:
             msg = f"Updated {len(applied_keys)} device calibration value(s) for {sensor_id}."
@@ -10493,7 +10626,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         mgr = SensorSettingsManager("sensor_settings")
         try:
-            doc = mgr.load(sensor_id) or {}
+            doc = _load_sensor_settings_with_direct_local_repair(mgr, sensor_id)
         except FileNotFoundError:
             return JSONResponse(
                 {"status": "error", "message": f"Unknown sensor_id '{sensor_id}'."},
@@ -10503,13 +10636,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         sensor_blk = doc.get("Sensor", {}) if isinstance(doc, dict) else {}
         device_kind = str(sensor_blk.get("DEVICE") or sensor_blk.get("device") or "").strip().lower()
         sensor_type = str(sensor_blk.get("TYPE") or sensor_blk.get("type") or "").strip().lower()
+        uses_remote_calibration = _sensor_uses_remote_calibration(sensor_id, sensor_blk)
         if device_kind != "soil":
             return JSONResponse(
                 {"status": "error", "message": f"Sensor '{sensor_id}' is not a soil sensor."},
                 status_code=400,
             )
 
-        if _is_remote_nodus_type(sensor_type):
+        if uses_remote_calibration:
             current_offset = 0.0
             try:
                 current_offset = float(
@@ -10595,7 +10729,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 )
             shadow_synced = True
 
-        if not _is_remote_nodus_type(sensor_type):
+        if not uses_remote_calibration:
             try:
                 supervisor = getattr(request.app.state, "supervisor", None)
                 notify_sensor_runtime_of_calibration(supervisor, sensor_id)
@@ -11015,7 +11149,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             )
 
             try:
-                doc = sensor_mgr.load(sensor_id) or {}
+                doc = _load_sensor_settings_with_direct_local_repair(sensor_mgr, sensor_id)
                 sensor_blk = doc.get("Sensor", {}) if isinstance(doc, dict) else {}
                 sensor_type = (
                     sensor_blk.get("TYPE")
@@ -11023,7 +11157,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     or ""
                 )
                 sensor_type = str(sensor_type).strip().lower()
-                if _is_remote_nodus_type(sensor_type):
+                if _sensor_uses_remote_calibration(sensor_id, sensor_blk):
                     ok, err, _ack, mqtt_result = await _publish_remote_calibration_command(
                         sensor_id,
                         action="apply",

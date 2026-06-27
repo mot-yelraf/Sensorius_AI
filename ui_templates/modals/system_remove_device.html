@@ -180,6 +180,7 @@ async function loadRemovableDevices() {
     const resp = await fetch("/remove-device-list");
     const js = await resp.json();
     const devs = (js && js.devices) || [];
+    const detailMap = (js && js.device_details) || {};
 
     if (!devs.length) {
       listEl.innerHTML = "<div class=\"remove-none\">No devices found to remove.</div>";
@@ -199,8 +200,15 @@ async function loadRemovableDevices() {
         lbl.textContent = d;
         lbl.style.cursor = "pointer";
 
+        const meta = detailMap[d] || {};
+        const detail = document.createElement("span");
+        detail.className = "detail";
+        const lastSeen = meta.last_seen_s == null ? "last seen unknown" : ("last seen " + meta.last_seen_s + "s ago");
+        detail.textContent = [meta.url || "", lastSeen].filter(Boolean).join(" | ");
+
         row.appendChild(cb);
         row.appendChild(lbl);
+        row.appendChild(detail);
         frag.appendChild(row);
       });
       listEl.innerHTML = "";

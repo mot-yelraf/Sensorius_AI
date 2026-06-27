@@ -1530,6 +1530,72 @@ class saiDataLogger:
                 self.sensor_stats = {}
             self.sensor_stats[dev_id] = defaultdict(dict)
 
+    def purge_sensor_data(self, sensor_id: str, aliases: list[str] | tuple[str, ...] | None = None) -> dict:
+        """
+        Delete persisted readings and sensor events for one sensor identity.
+
+        Removal must also clear the logger's discovery/latest-value caches,
+        otherwise a deleted directly connected sensor can continue to appear on
+        the dashboard until the process restarts or cache TTLs expire.
+        """
+        raw_ids = [sensor_id, *(aliases or ())]
+        sensor_ids: list[str] = []
+        seen: set[str] = set()
+        for raw in raw_ids:
+            sid = str(raw or "").strip()
+            key = sid.lower()
+            if sid and key not in seen:
+                seen.add(key)
+                sensor_ids.append(sid)
+
+        stats = {"rows_deleted": 0, "tables": [], "ids": list(sensor_ids)}
+        if not sensor_ids:
+            return stats
+
+        deleted_by_table: dict[str, int] = {"readings": 0, "sensor_events": 0}
+        try:
+            with self._writer_lock:
+                self._ensure_writer()
+                cur = self._writer_conn.cursor()
+                for sid in sensor_ids:
+                    cur.execute("DELETE FROM readings WHERE sensor_id = ? COLLATE NOCASE", (sid,))
+                    deleted_by_table["readings"] += int(cur.rowcount or 0)
+                    cur.execute("DELETE FROM sensor_events WHERE sensor_id = ? COLLATE NOCASE", (sid,))
+                    deleted_by_table["sensor_events"] += int(cur.rowcount or 0)
+                self._writer_conn.commit()
+                try:
+                    cur.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                except Exception:
+                    pass
+        except Exception as e:
+            printDM(f"[purge_sensor_data] error for {sensor_ids}: {e}", location=MODULE)
+            return stats
+
+        for table, count in deleted_by_table.items():
+            if count:
+                stats["tables"].append({table: count})
+                stats["rows_deleted"] += count
+
+        sensor_keys = {sid.lower() for sid in sensor_ids}
+        for cache_name in ("sensor_values", "sensor_timestamps", "sensor_stats", "sensor_metric_names"):
+            cache = getattr(self, cache_name, None)
+            if isinstance(cache, dict):
+                for key in list(cache.keys()):
+                    if str(key or "").strip().lower() in sensor_keys:
+                        cache.pop(key, None)
+        self._available_sensors_cache = None
+        self._available_metrics_by_sensor_cache = None
+        for key in list(self._available_metrics_cache.keys()):
+            if str(key or "").strip().lower() in sensor_keys:
+                self._available_metrics_cache.pop(key, None)
+
+        if stats["rows_deleted"]:
+            printDM(
+                f"Purged sensor data for {sensor_ids}: rows={stats['rows_deleted']}",
+                location=MODULE,
+            )
+        return stats
+
     def clear_all_readings(self):
         try:
             with self._open_conn() as conn:

@@ -29,6 +29,21 @@ DEBUG = debug_enabled(MODULE)
 DISPLAY_METRIC_MODE_PICK6 = "Pick 6"
 DISPLAY_METRIC_MODE_ALL = "All"
 DISPLAY_METRIC_MODE_KEY = "METRIC_DISPLAY_MODE"
+_DIRECT_LOCAL_BUS_TOKENS = ("i2c", "spi", "uart", "rs485")
+
+
+def is_direct_local_sensor_id(sensor_id: str | None) -> bool:
+    """Return True for Pi-attached local bus sensor IDs."""
+    parts = [part.strip().lower() for part in str(sensor_id or "").strip().split("-") if part.strip()]
+    return len(parts) >= 4 and parts[1] in _DIRECT_LOCAL_BUS_TOKENS and parts[2].isdigit()
+
+
+def infer_direct_local_device(sensor_id: str | None) -> str:
+    """Infer the local sensor device key from ``<device>-<bus>-<n>-<host>`` IDs."""
+    text = str(sensor_id or "").strip()
+    if not is_direct_local_sensor_id(text) or "-" not in text:
+        return ""
+    return text.split("-", 1)[0].strip().lower()
 
 
 class SensorSettingsManager:
@@ -401,6 +416,8 @@ class SensorSettingsManager:
         # ensure required sections/keys
         if "Sensor" not in data or not isinstance(data["Sensor"], dict):
             data["Sensor"] = OrderedDict()
+        if is_direct_local_sensor_id(sensor_id):
+            data["Sensor"]["TYPE"] = "pi"
         data["Sensor"]["DEVICE"] = device
         data["Sensor"]["SENSOR_ID"] = sensor_id
         data["Sensor"]["LOCATION"] = location
@@ -459,6 +476,45 @@ class SensorSettingsManager:
         if DEBUG:
             printDM(f"[seed_from_factory] seeded → {dst}", location=MODULE)
         return dst
+
+    def ensure_direct_local_type(self, sensor_id: str) -> bool:
+        """
+        Repair direct Pi bus sensor settings that were accidentally materialized
+        as Nodus shadows from stale dashboard/database discovery.
+        """
+        if not is_direct_local_sensor_id(sensor_id):
+            return False
+
+        try:
+            data = self.load(sensor_id) or OrderedDict()
+        except FileNotFoundError:
+            return False
+
+        if not isinstance(data, OrderedDict):
+            data = OrderedDict(data)
+
+        sensor_block = data.get("Sensor")
+        if not isinstance(sensor_block, dict):
+            sensor_block = OrderedDict()
+            data["Sensor"] = sensor_block
+
+        changed = False
+        if str(sensor_block.get("TYPE", "") or "").strip().lower() != "pi":
+            sensor_block["TYPE"] = "pi"
+            changed = True
+        inferred_device = infer_direct_local_device(sensor_id)
+        if inferred_device and not str(sensor_block.get("DEVICE", "") or "").strip():
+            sensor_block["DEVICE"] = inferred_device
+            changed = True
+        if str(sensor_block.get("SENSOR_ID", "") or "").strip() != str(sensor_id or "").strip():
+            sensor_block["SENSOR_ID"] = str(sensor_id or "").strip()
+            changed = True
+
+        if changed:
+            self.save(sensor_id, data)
+            if DEBUG:
+                printDM(f"[ensure_direct_local_type] repaired {sensor_id}", location=MODULE)
+        return changed
 
     def ensure_local_serial_num(self, sensor_id: str) -> bool:
         """
