@@ -97,6 +97,30 @@ def test_dashboard_micrograph_uses_soil_fertility_gauge_scale():
     assert "yScaleOptions.max = cfgMax" in html
 
 
+def test_dashboard_live_refresh_has_recovery_hooks():
+    gauge_config = get_gauge_config()
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["avpd-2k7r1y"],
+            {"avpd-2k7r1y": {"Ambient VPD": 2.8}},
+            {"avpd-2k7r1y": {"Ambient VPD": {"min": 2.6, "avg": 3.1, "max": 4.0}}},
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=gauge_config,
+            expected_gauge_map={"avpd-2k7r1y": ["Ambient VPD"]},
+            expected_display_style_map={"avpd-2k7r1y": {"METRIC_1": "Graph24hr"}},
+            display_style="Graph24hr",
+        )
+    )
+
+    assert "function fetchWithTimeout" in html
+    assert "window.__updateGaugesInFlight" in html
+    assert "micrographInflightStaleMs" in html
+    assert "canvas.dataset.micrographInflightAt" in html
+    assert "document.addEventListener('visibilitychange'" in html
+
+
 def test_dashboard_switch_layout_drift_schedules_layout_refresh():
     gauge_config = get_gauge_config()
     html = "".join(
@@ -120,8 +144,11 @@ def test_dashboard_switch_layout_drift_schedules_layout_refresh():
 
     assert "if (reason.startsWith('switch:')) {" in block
     assert "console.info('[layout-refresh-switch]', reason);" in block
-    assert "if (scheduleLayoutRefresh(reason, sig)) return;" in block
-    assert "} else {      if (scheduleLayoutRefresh(layoutDrift.reason, sig)) return;    }" in block
+    assert "if (scheduleLayoutRefresh(reason, sig)) { finishUpdateGaugesRun(finishOptions); return; }" in block
+    assert (
+        "} else {      if (scheduleLayoutRefresh(layoutDrift.reason, sig)) "
+        "{ finishUpdateGaugesRun(finishOptions); return; }    }"
+    ) in block
     assert block.count("for (const sid of available)") == 1
     assert block.count("const values     = d.values") == 1
 
