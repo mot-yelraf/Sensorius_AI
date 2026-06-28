@@ -217,7 +217,7 @@ window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
           delete el.dataset.userDisplayStyle;
         });
         if (typeof window.updateGauges === "function") {
-          window.updateGauges();
+          window.updateGauges({ ignoreModal: true });
         }
       } catch (err) {
         void err;

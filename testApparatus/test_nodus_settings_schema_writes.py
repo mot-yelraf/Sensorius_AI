@@ -4165,15 +4165,17 @@ def test_dashboard_micrograph_fetches_are_cached_and_throttled():
 
     assert "window.__micrographDataCache = window.__micrographDataCache || new Map();" in html
     assert "window.__micrographDataInflight = window.__micrographDataInflight || new Map();" in html
+    assert "window.__lastMicrographForceRefreshAt = window.__lastMicrographForceRefreshAt || 0;" in html
     assert "async function getMicrographJson(requestKey, url, force)" in html
     assert "const cacheTtlMs = 60000;" in html
     assert "const existing = window.__micrographDataInflight.get(requestKey);" in html
+    assert "if (!force && (!existingAt || (now - existingAt) < micrographInflightStaleMs)) {" in html
     assert "const MIN_FORCE_INTERVAL_MS = 5000;" in html
     assert "container.dataset.metricClickAt = String(now);" in html
     assert "showMicrographForContainer(container, { force: true });" in html
-    assert "showMicrographForContainer(container, { force });" in html
+    assert "showMicrographForContainer(container, { force, ignoreModal });" in html
     assert "window.__needsInitialMicrographRefresh = true;" in html
-    assert "window.refreshAllMicrographs(false);" in html
+    assert "window.refreshAllMicrographs(true, { ignoreModal });" in html
 
 
 def test_dashboard_initial_graph_styles_are_refreshed_by_configured_style():
