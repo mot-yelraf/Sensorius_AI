@@ -8,9 +8,13 @@ results so dashboard and API consumers can reuse them cheaply.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from functools import lru_cache
+import hashlib
+import json
+import os
 from pathlib import Path
 import math
 import threading
@@ -18,6 +22,7 @@ import time as time_mod
 from zoneinfo import ZoneInfo
 
 from saiSettings import saiSettings
+from saiRuntimePaths import resolve_runtime_base_dir
 from saiUtils import debug_enabled, printDM
 
 try:
@@ -62,12 +67,224 @@ _OFF_PERIOD_LABELS = {
 }
 _OFF_OVERLAY_KINDS = {"lunar_node", "perigee"}
 _PAYLOAD_CACHE_TTL_SEC = 300.0
+_PAYLOAD_DISK_CACHE_VERSION = 1
+_PAYLOAD_DISK_CACHE_MAX_AGE_SEC = 120 * 86400
+_PAYLOAD_DISK_CACHE_CLEANUP_INTERVAL_SEC = 3600.0
+_PAYLOAD_DISK_CACHE_ENV = "SENSORIUS_BIODYNAMIC_CACHE_DIR"
 _PAYLOAD_CACHE: dict[tuple[str, str, str, str, str], tuple[float, dict[str, object]]] = {}
+_PAYLOAD_CACHE_LOCK = threading.Lock()
+_PAYLOAD_BUILD_LOCKS: dict[tuple[str, str, str, str, str], threading.Lock] = {}
+_payload_disk_cache_cleanup_after = 0.0
 
 
 def clear_biodynamic_payload_cache() -> None:
     """Clear cached biodynamic payloads after location or timezone changes."""
-    _PAYLOAD_CACHE.clear()
+    with _PAYLOAD_CACHE_LOCK:
+        _PAYLOAD_CACHE.clear()
+
+
+def _clone_payload(payload: dict[str, object]) -> dict[str, object]:
+    return copy.deepcopy(payload)
+
+
+def _payload_cache_key(
+    month_anchor: date,
+    lat: float,
+    lon: float,
+    tz_name: str,
+    altitude: float | None,
+) -> tuple[str, str, str, str, str]:
+    return (
+        month_anchor.replace(day=1).isoformat(),
+        str(round(float(lat), 4)),
+        str(round(float(lon), 4)),
+        str(tz_name),
+        "" if altitude is None else str(round(float(altitude), 1)),
+    )
+
+
+def _payload_build_lock(cache_key: tuple[str, str, str, str, str]) -> threading.Lock:
+    with _PAYLOAD_CACHE_LOCK:
+        lock = _PAYLOAD_BUILD_LOCKS.get(cache_key)
+        if lock is None:
+            lock = threading.Lock()
+            _PAYLOAD_BUILD_LOCKS[cache_key] = lock
+        return lock
+
+
+def _payload_disk_cache_dir() -> Path:
+    override = os.getenv(_PAYLOAD_DISK_CACHE_ENV, "").strip()
+    if override:
+        cache_dir = Path(override).expanduser()
+    else:
+        runtime_root = resolve_runtime_base_dir(saiSettings.DEFAULT_BASE_DIR).parent
+        cache_dir = runtime_root / "cache" / "biodynamic"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
+
+
+def _payload_disk_cache_path(cache_key: tuple[str, str, str, str, str]) -> Path:
+    key_payload = {
+        "version": _PAYLOAD_DISK_CACHE_VERSION,
+        "ephemeris": _EPHEMERIS_NAME,
+        "key": list(cache_key),
+    }
+    digest = hashlib.sha256(json.dumps(key_payload, sort_keys=True).encode("utf-8")).hexdigest()
+    return _payload_disk_cache_dir() / f"{digest}.json"
+
+
+def _cleanup_payload_disk_cache(now_wall: float | None = None) -> None:
+    global _payload_disk_cache_cleanup_after
+    now_wall = float(now_wall if now_wall is not None else time_mod.time())
+    if now_wall < _payload_disk_cache_cleanup_after:
+        return
+    _payload_disk_cache_cleanup_after = now_wall + _PAYLOAD_DISK_CACHE_CLEANUP_INTERVAL_SEC
+    try:
+        cutoff = now_wall - _PAYLOAD_DISK_CACHE_MAX_AGE_SEC
+        cache_dir = _payload_disk_cache_dir()
+        for path in cache_dir.glob("*.json"):
+            try:
+                if path.stat().st_mtime < cutoff:
+                    path.unlink()
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+
+def _read_payload_disk_cache(cache_key: tuple[str, str, str, str, str]) -> dict[str, object] | None:
+    try:
+        path = _payload_disk_cache_path(cache_key)
+        if not path.exists():
+            return None
+        try:
+            if path.stat().st_mtime < time_mod.time() - _PAYLOAD_DISK_CACHE_MAX_AGE_SEC:
+                try:
+                    path.unlink()
+                except Exception:
+                    pass
+                return None
+        except OSError:
+            return None
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return None
+        if int(raw.get("version") or 0) != _PAYLOAD_DISK_CACHE_VERSION:
+            return None
+        if str(raw.get("ephemeris") or "") != _EPHEMERIS_NAME:
+            return None
+        if list(raw.get("key") or []) != list(cache_key):
+            return None
+        payload = raw.get("payload")
+        if not isinstance(payload, dict):
+            return None
+        return _clone_payload(payload)
+    except Exception as exc:
+        if DEBUG:
+            printDM(f"Biodynamic disk cache read skipped: {exc}", location=MODULE)
+        return None
+
+
+def _write_payload_disk_cache(cache_key: tuple[str, str, str, str, str], payload: dict[str, object]) -> None:
+    try:
+        now_wall = time_mod.time()
+        _cleanup_payload_disk_cache(now_wall)
+        path = _payload_disk_cache_path(cache_key)
+        tmp_path = path.with_suffix(f".{os.getpid()}.tmp")
+        body = {
+            "version": _PAYLOAD_DISK_CACHE_VERSION,
+            "ephemeris": _EPHEMERIS_NAME,
+            "key": list(cache_key),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "payload": payload,
+        }
+        tmp_path.write_text(json.dumps(body, separators=(",", ":"), sort_keys=True), encoding="utf-8")
+        os.replace(tmp_path, path)
+    except Exception as exc:
+        if DEBUG:
+            printDM(f"Biodynamic disk cache write skipped: {exc}", location=MODULE)
+
+
+def _refresh_dynamic_payload_fields(
+    payload: dict[str, object],
+    month_anchor: date,
+    tzinfo: ZoneInfo,
+    now_local: datetime,
+    ts=None,
+    eph=None,
+) -> dict[str, object]:
+    refreshed = _clone_payload(payload)
+    calendar_days = []
+    for day in list(refreshed.get("calendar") or []):
+        if not isinstance(day, dict):
+            continue
+        day_copy = dict(day)
+        try:
+            day_copy["is_today"] = date.fromisoformat(str(day_copy.get("date") or "")) == now_local.date()
+        except Exception:
+            day_copy["is_today"] = False
+        calendar_days.append(day_copy)
+    refreshed["calendar"] = calendar_days
+
+    timeline = _build_segment_timeline(calendar_days, tzinfo)
+    current_segment = next(
+        (segment for segment in timeline if segment["start_local"] <= now_local < segment["end_local"]),
+        timeline[-1] if timeline else None,
+    )
+    upcoming: list[dict[str, object]] = []
+    for segment in timeline:
+        if segment["start_local"] <= now_local:
+            continue
+        upcoming.append(
+            {
+                "starts_at": segment["start_local"].isoformat(),
+                "start_hm": segment["start_hm"],
+                "sign": segment["sign"],
+                "element": segment["element"],
+                "plant_part": segment["plant_part"],
+                "color": segment["color"],
+                "accent": segment["accent"],
+                "kind": segment["kind"],
+                "off_kind": segment["off_kind"],
+                "off_label": segment["off_label"],
+            }
+        )
+        if len(upcoming) >= 3:
+            break
+
+    moon_direction = ""
+    if ts is not None and eph is not None:
+        try:
+            moon_direction = _moon_direction(now_local, ts, eph)
+        except Exception:
+            moon_direction = ""
+    if not moon_direction:
+        try:
+            moon_direction = str((refreshed.get("current") or {}).get("moon_direction") or "")
+        except Exception:
+            moon_direction = ""
+
+    refreshed["current"] = {
+        "timestamp": now_local.isoformat(),
+        "sign": str(current_segment.get("sign") or "") if current_segment else "",
+        "element": str(current_segment.get("element") or "") if current_segment else "",
+        "plant_part": str(current_segment.get("plant_part") or "") if current_segment else "",
+        "color": str(current_segment.get("color") or "") if current_segment else "",
+        "accent": str(current_segment.get("accent") or "") if current_segment else "",
+        "kind": str(current_segment.get("kind") or "") if current_segment else "",
+        "off_kind": str(current_segment.get("off_kind") or "") if current_segment else "",
+        "off_label": str(current_segment.get("off_label") or "") if current_segment else "",
+        "moon_direction": moon_direction,
+        "window_start": current_segment["start_local"].isoformat() if current_segment else "",
+        "window_end": current_segment["end_local"].isoformat() if current_segment else "",
+        "window_start_hm": str(current_segment.get("start_hm") or "") if current_segment else "",
+        "window_end_hm": str(current_segment.get("end_hm") or "") if current_segment else "",
+        "calendar_basis": "moon apparent position classified against fixed-star constellation boundaries",
+    }
+    refreshed["upcoming"] = upcoming
+    refreshed["month_label"] = month_anchor.strftime("%B %Y")
+    refreshed["generated_at"] = datetime.now(timezone.utc).isoformat()
+    return refreshed
 
 
 @dataclass(frozen=True)
@@ -680,102 +897,135 @@ def get_biodynamic_payload(target_date: date | None = None) -> dict[str, object]
         payload["reason"] = "location_unavailable"
         return payload
 
-    cache_key = (
-        month_anchor.replace(day=1).isoformat(),
-        str(round(float(lat), 4)),
-        str(round(float(lon), 4)),
-        str(tz_name),
-        "" if altitude is None else str(round(float(altitude), 1)),
-    )
+    cache_key = _payload_cache_key(month_anchor, float(lat), float(lon), str(tz_name), altitude)
     now_mono = time_mod.monotonic()
-    cached = _PAYLOAD_CACHE.get(cache_key)
-    if cached and cached[0] > now_mono:
-        return dict(cached[1])
-
-    try:
-        _, ts, eph, constellation_at = _skyfield_runtime()
-    except Exception as exc:
-        reason = str(exc) or exc.__class__.__name__
-        payload["reason"] = reason
-        if DEBUG:
-            printDM(f"Biodynamics unavailable: {reason}", location=MODULE)
-        return payload
-
     try:
         tzinfo = ZoneInfo(tz_name)
-        now_local = datetime.now(tzinfo)
-        month_days, _month_segments = _build_calendar(
-            month_anchor,
-            tzinfo,
-            ts,
-            eph,
-            constellation_at,
-            now_local,
-            float(lat),
-            float(lon),
-            altitude,
-        )
-        timeline = _build_segment_timeline(month_days, tzinfo)
-        current_segment = next(
-            (segment for segment in timeline if segment["start_local"] <= now_local < segment["end_local"]),
-            timeline[-1] if timeline else None,
-        )
-        upcoming: list[dict[str, object]] = []
-        for segment in timeline:
-            if segment["start_local"] <= now_local:
-                continue
-            upcoming.append(
+    except Exception:
+        payload["reason"] = "invalid_timezone"
+        return payload
+    now_local = datetime.now(tzinfo)
+
+    with _PAYLOAD_CACHE_LOCK:
+        cached = _PAYLOAD_CACHE.get(cache_key)
+        if cached and cached[0] > now_mono:
+            return _refresh_dynamic_payload_fields(
+                cached[1],
+                month_anchor,
+                tzinfo,
+                now_local,
+            )
+
+    build_lock = _payload_build_lock(cache_key)
+    with build_lock:
+        now_mono = time_mod.monotonic()
+        with _PAYLOAD_CACHE_LOCK:
+            cached = _PAYLOAD_CACHE.get(cache_key)
+            if cached and cached[0] > now_mono:
+                return _refresh_dynamic_payload_fields(
+                    cached[1],
+                    month_anchor,
+                    tzinfo,
+                    now_local,
+                )
+
+        disk_payload = _read_payload_disk_cache(cache_key)
+        if disk_payload is not None:
+            refreshed = _refresh_dynamic_payload_fields(disk_payload, month_anchor, tzinfo, now_local)
+            with _PAYLOAD_CACHE_LOCK:
+                _PAYLOAD_CACHE[cache_key] = (
+                    time_mod.monotonic() + _PAYLOAD_CACHE_TTL_SEC,
+                    _clone_payload(refreshed),
+                )
+            return refreshed
+
+        try:
+            _, ts, eph, constellation_at = _skyfield_runtime()
+        except Exception as exc:
+            reason = str(exc) or exc.__class__.__name__
+            payload["reason"] = reason
+            if DEBUG:
+                printDM(f"Biodynamics unavailable: {reason}", location=MODULE)
+            return payload
+
+        try:
+            month_days, _month_segments = _build_calendar(
+                month_anchor,
+                tzinfo,
+                ts,
+                eph,
+                constellation_at,
+                now_local,
+                float(lat),
+                float(lon),
+                altitude,
+            )
+            timeline = _build_segment_timeline(month_days, tzinfo)
+            current_segment = next(
+                (segment for segment in timeline if segment["start_local"] <= now_local < segment["end_local"]),
+                timeline[-1] if timeline else None,
+            )
+            upcoming: list[dict[str, object]] = []
+            for segment in timeline:
+                if segment["start_local"] <= now_local:
+                    continue
+                upcoming.append(
+                    {
+                        "starts_at": segment["start_local"].isoformat(),
+                        "start_hm": segment["start_hm"],
+                        "sign": segment["sign"],
+                        "element": segment["element"],
+                        "plant_part": segment["plant_part"],
+                        "color": segment["color"],
+                        "accent": segment["accent"],
+                        "kind": segment["kind"],
+                        "off_kind": segment["off_kind"],
+                        "off_label": segment["off_label"],
+                    }
+                )
+                if len(upcoming) >= 3:
+                    break
+
+            payload.update(
                 {
-                    "starts_at": segment["start_local"].isoformat(),
-                    "start_hm": segment["start_hm"],
-                    "sign": segment["sign"],
-                    "element": segment["element"],
-                    "plant_part": segment["plant_part"],
-                    "color": segment["color"],
-                    "accent": segment["accent"],
-                    "kind": segment["kind"],
-                    "off_kind": segment["off_kind"],
-                    "off_label": segment["off_label"],
+                    "ok": True,
+                    "reason": "",
+                    "tz": tz_name,
+                    "lat": round(float(lat), 6),
+                    "lon": round(float(lon), 6),
+                    "month_label": month_anchor.strftime("%B %Y"),
+                    "current": {
+                        "timestamp": now_local.isoformat(),
+                        "sign": str(current_segment.get("sign") or "") if current_segment else "",
+                        "element": str(current_segment.get("element") or "") if current_segment else "",
+                        "plant_part": str(current_segment.get("plant_part") or "") if current_segment else "",
+                        "color": str(current_segment.get("color") or "") if current_segment else "",
+                        "accent": str(current_segment.get("accent") or "") if current_segment else "",
+                        "kind": str(current_segment.get("kind") or "") if current_segment else "",
+                        "off_kind": str(current_segment.get("off_kind") or "") if current_segment else "",
+                        "off_label": str(current_segment.get("off_label") or "") if current_segment else "",
+                        "moon_direction": _moon_direction(now_local, ts, eph),
+                        "window_start": current_segment["start_local"].isoformat() if current_segment else "",
+                        "window_end": current_segment["end_local"].isoformat() if current_segment else "",
+                        "window_start_hm": str(current_segment.get("start_hm") or "") if current_segment else "",
+                        "window_end_hm": str(current_segment.get("end_hm") or "") if current_segment else "",
+                        "calendar_basis": "moon apparent position classified against fixed-star constellation boundaries",
+                    },
+                    "upcoming": upcoming,
+                    "calendar": month_days,
+                    "ephemeris": _ephemeris_status(),
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
-            if len(upcoming) >= 3:
-                break
-
-        payload.update(
-            {
-                "ok": True,
-                "reason": "",
-                "tz": tz_name,
-                "lat": round(float(lat), 6),
-                "lon": round(float(lon), 6),
-                "month_label": month_anchor.strftime("%B %Y"),
-                "current": {
-                    "timestamp": now_local.isoformat(),
-                    "sign": str(current_segment.get("sign") or "") if current_segment else "",
-                    "element": str(current_segment.get("element") or "") if current_segment else "",
-                    "plant_part": str(current_segment.get("plant_part") or "") if current_segment else "",
-                    "color": str(current_segment.get("color") or "") if current_segment else "",
-                    "accent": str(current_segment.get("accent") or "") if current_segment else "",
-                    "kind": str(current_segment.get("kind") or "") if current_segment else "",
-                    "off_kind": str(current_segment.get("off_kind") or "") if current_segment else "",
-                    "off_label": str(current_segment.get("off_label") or "") if current_segment else "",
-                    "moon_direction": _moon_direction(now_local, ts, eph),
-                    "window_start": current_segment["start_local"].isoformat() if current_segment else "",
-                    "window_end": current_segment["end_local"].isoformat() if current_segment else "",
-                    "window_start_hm": str(current_segment.get("start_hm") or "") if current_segment else "",
-                    "window_end_hm": str(current_segment.get("end_hm") or "") if current_segment else "",
-                    "calendar_basis": "moon apparent position classified against fixed-star constellation boundaries",
-                },
-                "upcoming": upcoming,
-                "calendar": month_days,
-                "ephemeris": _ephemeris_status(),
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-            }
-        )
-        _PAYLOAD_CACHE[cache_key] = (now_mono + _PAYLOAD_CACHE_TTL_SEC, dict(payload))
-        return payload
-    except Exception as exc:  # pragma: no cover - depends on installed ephemeris/runtime
-        payload["reason"] = str(exc) or exc.__class__.__name__
-        if DEBUG:
-            printDM(f"Biodynamics calculation failed: {exc}", location=MODULE)
-        return payload
+            with _PAYLOAD_CACHE_LOCK:
+                _PAYLOAD_CACHE[cache_key] = (
+                    time_mod.monotonic() + _PAYLOAD_CACHE_TTL_SEC,
+                    _clone_payload(payload),
+                )
+            _write_payload_disk_cache(cache_key, payload)
+            return payload
+        except Exception as exc:  # pragma: no cover - depends on installed ephemeris/runtime
+            payload["reason"] = str(exc) or exc.__class__.__name__
+            if DEBUG:
+                printDM(f"Biodynamics calculation failed: {exc}", location=MODULE)
+            return payload

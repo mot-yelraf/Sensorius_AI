@@ -6,6 +6,8 @@ spillover summary data returned for the biodynamic calendar experience.
 
 import os
 import sys
+import asyncio
+import time
 from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -105,6 +107,8 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "let __lastBiodynamicMinuteKey = '';" in text
     assert "const biodynamicMinuteKey = `${now.getFullYear()}-${now.getMonth()+1}-${now.getDate()}-${now.getHours()}-${now.getMinutes()}`;" in text
     assert "if (typeof drawBiodynamic === 'function') drawBiodynamic(biodynamicData);" in text
+    assert "const dashboardExtrasRefreshMs = 60000;" in text
+    assert "const dashboardExtrasWarmRetryMs = 5000;" in text
     assert "const findActiveBiodynamicSegment = (payload, fallback) => {" in text
     assert "if (nowParts.minuteOfDay >= startMin && nowParts.minuteOfDay < endMin) {" in text
     assert "const fallbackCurrent = (data && data.current && typeof data.current === 'object') ? data.current : {};" in text
@@ -116,6 +120,12 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];" in text
     assert "return `${parts.weekday || '--'}, ${monthName} ${parts.day}, ${parts.year}`;" in text
     assert "const buildBiodynamicWindowText = (payload, currentIso, current) => {" in text
+    assert "if (reason === 'warming') return 'Biodynamic calendar is warming in the background.';" in text
+    assert "const extrasWarming = !!window.__dashboardExtrasWarming;" in text
+    assert "const wantExtras = !lastExtrasRefreshAt || ((now - lastExtrasRefreshAt) >= dashboardExtrasRefreshMs) || (extrasWarming && (!lastExtrasWarmAt || ((now - lastExtrasWarmAt) >= dashboardExtrasWarmRetryMs)));" in text
+    assert "const astroWarming = data && data.astro && isDashboardWarmingPayload(data.astro);" in text
+    assert "const biodynamicWarming = data && data.biodynamic && isDashboardWarmingPayload(data.biodynamic);" in text
+    assert "window.__lastExtrasRefreshAtMs = now;" in text
     assert "return `${sign} Moon: ${fmtHm(seg && seg.start)} to ${fmtHm(seg && seg.end)}`;" in text
     assert "return rows.length ? rows.join('\\\\n') : `${sign} Moon: ${fmtIsoHm(current && current.window_start)} to ${fmtIsoHm(current && current.window_end)}`;" in text
     assert "dateEl.textContent = fmtIsoDate(cur.timestamp);" in text
@@ -265,6 +275,44 @@ async def test_biodynamic_calendar_api_default_month_uses_biodynamic_local_time(
     assert captured[0].isoformat() == "2026-03-01"
     assert captured[-1].isoformat() == "2026-04-01"
     assert window_calls == [("2026-03-01", saiWebRoutes.DEFAULT_FORECAST_DAYS, True)]
+
+
+@pytest.mark.asyncio
+async def test_biodynamic_calendar_api_concurrent_month_requests_single_flight(monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    payload_calls = []
+
+    def _fake_payload(anchor):
+        payload_calls.append(anchor)
+        time.sleep(0.05)
+        return {"ok": True, "calendar": [], "month_label": "", "notes": {}, "daily_summaries": {}}
+
+    class _FakeDailySummaryService:
+        def __init__(self, *, settings, data_logger, supervisor=None, sensor_mgr=None, statter=None):
+            self.settings = settings
+            self.data_logger = data_logger
+
+        def ensure_summaries_for_window(self, start_date, *, days=29, refresh_start=True):
+            return 0
+
+    monkeypatch.setattr(saiWebRoutes, "get_biodynamic_payload", _fake_payload)
+    monkeypatch.setattr(saiWebRoutes, "DailySummaryService", _FakeDailySummaryService)
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_notes_for_month", lambda anchor: {})
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_daily_summaries_for_month", lambda anchor: {})
+
+    app = FastAPI()
+    await saiWebRoutes.register_routes(app, _HubSettings(), _FakeNetMgr(), _FakeGcMgr(), _FakeIngest())
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res_one, res_two = await asyncio.gather(
+            client.get("/api/biodynamic-calendar?month=2026-05"),
+            client.get("/api/biodynamic-calendar?month=2026-05"),
+        )
+
+    assert res_one.status_code == 200
+    assert res_two.status_code == 200
+    assert [item.isoformat() for item in payload_calls] == ["2026-05-01"]
 
 
 @pytest.mark.asyncio

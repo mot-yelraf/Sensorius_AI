@@ -28,6 +28,7 @@ import socket
 import asyncio
 import subprocess
 import time
+import threading
 import os
 import sys
 import platform
@@ -530,6 +531,7 @@ _NODUS_CALIBRATION_RESULT_TIMEOUT_SEC: float = 20.0
 _BIODYNAMIC_PAYLOAD_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
 _ASTRO_PAYLOAD_CACHE_TTL_SEC: float = 60.0
 _ASTRO_PAYLOAD_CACHE: tuple[float, dict[str, object]] | None = None
+_DASHBOARD_EXTRAS_FAST_WAIT_SEC: float = 0.05
 _SENSOR_LOCATION_CACHE_TTL_SEC: float = 5.0
 _SENSOR_LOCATION_CACHE: dict[str, tuple[float, str]] = {}
 
@@ -552,6 +554,12 @@ def _is_unknown_location_value(value: object) -> bool:
 async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     router = APIRouter()
     _BIODYNAMIC_PAYLOAD_CACHE.clear()
+    biodynamic_payload_tasks: dict[str, asyncio.Task] = {}
+    biodynamic_payload_cache_lock = threading.Lock()
+    biodynamic_payload_cache_generation = 0
+    astro_payload_tasks: dict[str, asyncio.Task] = {}
+    astro_payload_cache_lock = threading.Lock()
+    astro_payload_cache_generation = 0
     main_loop = asyncio.get_running_loop()
     ota_service = getattr(app.state, "nodus_ota_service", None)
     if ota_service is None:
@@ -577,15 +585,22 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         printDM(f"[webui-profile] {route_name} took {elapsed_ms:.1f}ms{detail}", location=MODULE)
 
     def _invalidate_dashboard_caches() -> None:
+        nonlocal biodynamic_payload_cache_generation, astro_payload_cache_generation
         global _DASHBOARD_INVENTORY_CACHE, _DASHBOARD_DISPLAY_SETTINGS_CACHE, _ASTRO_PAYLOAD_CACHE
         global _sensor_ids_cache_payload, _sensor_ids_cache_until
         _DASHBOARD_JSON_CACHE.clear()
         _DASHBOARD_INVENTORY_CACHE = None
         _DASHBOARD_DISPLAY_SETTINGS_CACHE = None
-        _ASTRO_PAYLOAD_CACHE = None
+        with astro_payload_cache_lock:
+            astro_payload_cache_generation += 1
+            _ASTRO_PAYLOAD_CACHE = None
+            astro_payload_tasks.clear()
         _sensor_ids_cache_payload = None
         _sensor_ids_cache_until = 0.0
-        _BIODYNAMIC_PAYLOAD_CACHE.clear()
+        with biodynamic_payload_cache_lock:
+            biodynamic_payload_cache_generation += 1
+            _BIODYNAMIC_PAYLOAD_CACHE.clear()
+            biodynamic_payload_tasks.clear()
         try:
             from saiBiodynamics import clear_biodynamic_payload_cache
             clear_biodynamic_payload_cache()
@@ -653,18 +668,86 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         )
         return payload
 
-    def _get_cached_biodynamic_payload(anchor: date) -> dict[str, object]:
+    def _get_cached_biodynamic_payload(anchor: date, generation: int | None = None) -> dict[str, object]:
         cache_key = anchor.isoformat()
         now_mono = time.monotonic()
-        cached = _BIODYNAMIC_PAYLOAD_CACHE.get(cache_key)
-        if cached and cached[0] > now_mono:
-            return dict(cached[1])
+        with biodynamic_payload_cache_lock:
+            cached = _BIODYNAMIC_PAYLOAD_CACHE.get(cache_key)
+            if cached and cached[0] > now_mono:
+                return dict(cached[1])
         payload = get_biodynamic_payload(anchor)
-        _BIODYNAMIC_PAYLOAD_CACHE[cache_key] = (
-            now_mono + _BIODYNAMIC_PAYLOAD_CACHE_TTL_SEC,
-            dict(payload),
-        )
+        with biodynamic_payload_cache_lock:
+            if generation is None or generation == biodynamic_payload_cache_generation:
+                _BIODYNAMIC_PAYLOAD_CACHE[cache_key] = (
+                    time.monotonic() + _BIODYNAMIC_PAYLOAD_CACHE_TTL_SEC,
+                    dict(payload),
+                )
         return dict(payload)
+
+    def _get_stale_biodynamic_payload(anchor: date) -> dict[str, object] | None:
+        cache_key = anchor.isoformat()
+        with biodynamic_payload_cache_lock:
+            cached = _BIODYNAMIC_PAYLOAD_CACHE.get(cache_key)
+            if not cached:
+                return None
+            return dict(cached[1])
+
+    def _warming_biodynamic_payload(anchor: date) -> dict[str, object]:
+        return {
+            "ok": False,
+            "reason": "warming",
+            "tz": "",
+            "source": "skyfield",
+            "month_label": anchor.strftime("%B %Y"),
+            "weekday_labels": ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+            "current": {},
+            "upcoming": [],
+            "calendar": [],
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "cache_status": "warming",
+        }
+
+    async def _get_cached_biodynamic_payload_async(
+        anchor: date,
+        *,
+        allow_stale: bool = False,
+        cold_wait_sec: float = _DASHBOARD_EXTRAS_FAST_WAIT_SEC,
+    ) -> dict[str, object]:
+        cache_key = anchor.isoformat()
+        now_mono = time.monotonic()
+        with biodynamic_payload_cache_lock:
+            cached = _BIODYNAMIC_PAYLOAD_CACHE.get(cache_key)
+            if cached and cached[0] > now_mono:
+                return dict(cached[1])
+            generation = biodynamic_payload_cache_generation
+
+        stale_payload = _get_stale_biodynamic_payload(anchor)
+        task = biodynamic_payload_tasks.get(cache_key)
+        if task is None or task.done():
+            task = asyncio.create_task(asyncio.to_thread(_get_cached_biodynamic_payload, anchor, generation))
+            biodynamic_payload_tasks[cache_key] = task
+
+            def _discard_biodynamic_task(done_task, key=cache_key) -> None:
+                if biodynamic_payload_tasks.get(key) is done_task:
+                    biodynamic_payload_tasks.pop(key, None)
+                try:
+                    if not done_task.cancelled():
+                        done_task.exception()
+                except Exception:
+                    pass
+
+            task.add_done_callback(_discard_biodynamic_task)
+
+        if allow_stale and stale_payload is not None:
+            return stale_payload
+        if allow_stale:
+            try:
+                return dict(await asyncio.wait_for(asyncio.shield(task), timeout=float(cold_wait_sec)))
+            except asyncio.TimeoutError:
+                return _warming_biodynamic_payload(anchor)
+            except Exception:
+                return _warming_biodynamic_payload(anchor)
+        return dict(await task)
 
     async def _ensure_biodynamic_summary_window(today_local: date) -> tuple[str, float]:
         window_start = today_local.replace(day=1)
@@ -683,14 +766,98 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         setattr(app.state, "_biodynamic_summary_window_month", month_key)
         return "updated", (time.monotonic() - started) * 1000.0
 
-    def _get_cached_astro_payload() -> dict[str, object]:
+    def _get_cached_astro_payload(generation: int | None = None) -> dict[str, object]:
         global _ASTRO_PAYLOAD_CACHE
         now_mono = time.monotonic()
-        if _ASTRO_PAYLOAD_CACHE and _ASTRO_PAYLOAD_CACHE[0] > now_mono:
-            return _ASTRO_PAYLOAD_CACHE[1]
+        with astro_payload_cache_lock:
+            cached = _ASTRO_PAYLOAD_CACHE
+            if cached and cached[0] > now_mono:
+                return dict(cached[1])
         payload = _build_astro_payload()
-        _ASTRO_PAYLOAD_CACHE = (now_mono + _ASTRO_PAYLOAD_CACHE_TTL_SEC, payload)
-        return payload
+        with astro_payload_cache_lock:
+            if generation is None or generation == astro_payload_cache_generation:
+                _ASTRO_PAYLOAD_CACHE = (
+                    time.monotonic() + _ASTRO_PAYLOAD_CACHE_TTL_SEC,
+                    dict(payload),
+                )
+        return dict(payload)
+
+    def _get_stale_astro_payload() -> dict[str, object] | None:
+        with astro_payload_cache_lock:
+            cached = _ASTRO_PAYLOAD_CACHE
+            if not cached:
+                return None
+            return dict(cached[1])
+
+    def _warming_astro_payload() -> dict[str, object]:
+        return {
+            "ok": False,
+            "reason": "warming",
+            "lat": None,
+            "lon": None,
+            "tz": "",
+            "sunrise": "",
+            "sunset": "",
+            "sun_noon": "",
+            "sun_points": [],
+            "moon_points": [],
+            "moon_phase_value": None,
+            "moon_phase_label": "",
+            "moon_lit_pct": None,
+            "moon_rise": "",
+            "moon_set": "",
+            "moon_rise_today": "",
+            "moon_set_today": "",
+            "moon_declination": None,
+            "moon_position_source": "",
+            "moon_next_phase_label": "",
+            "moon_next_phase_date": "",
+            "moon_visible_angle": None,
+            "moon_reference_angle": None,
+            "position_29d": [],
+            "cache_status": "warming",
+        }
+
+    async def _get_cached_astro_payload_async(
+        *,
+        allow_stale: bool = False,
+        cold_wait_sec: float = _DASHBOARD_EXTRAS_FAST_WAIT_SEC,
+    ) -> dict[str, object]:
+        task_key = "default"
+        now_mono = time.monotonic()
+        with astro_payload_cache_lock:
+            cached = _ASTRO_PAYLOAD_CACHE
+            if cached and cached[0] > now_mono:
+                return dict(cached[1])
+            generation = astro_payload_cache_generation
+
+        stale_payload = _get_stale_astro_payload()
+        task = astro_payload_tasks.get(task_key)
+        if task is None or task.done():
+            task = asyncio.create_task(asyncio.to_thread(_get_cached_astro_payload, generation))
+            astro_payload_tasks[task_key] = task
+
+            def _discard_astro_task(done_task, key=task_key) -> None:
+                if astro_payload_tasks.get(key) is done_task:
+                    astro_payload_tasks.pop(key, None)
+                try:
+                    if not done_task.cancelled():
+                        done_task.exception()
+                except Exception:
+                    pass
+
+            task.add_done_callback(_discard_astro_task)
+
+        if allow_stale and stale_payload is not None:
+            return stale_payload
+        if allow_stale:
+            try:
+                return dict(await asyncio.wait_for(asyncio.shield(task), timeout=float(cold_wait_sec)))
+            except asyncio.TimeoutError:
+                return _warming_astro_payload()
+            except Exception:
+                return _warming_astro_payload()
+        return dict(await task)
 
     def _is_recent_sensor(sid: str, window: timedelta = timedelta(minutes=10)) -> bool:
         ts = data_logger.get_latest_timestamp(sid)
@@ -2126,6 +2293,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 cached_loc = _SENSOR_LOCATION_CACHE.get(sid_clean)
                 if cached_loc and cached_loc[0] > now_mono:
                     return cached_loc[1]
+                previous_loc = cached_loc[1] if cached_loc else ""
 
                 try:
                     loc = sensor_settings_mgr.get_setting(sid, "Sensor.LOCATION", None) if sensor_settings_mgr else None
@@ -2154,6 +2322,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                                 resolved = loc.strip()
                                 _SENSOR_LOCATION_CACHE[sid_clean] = (now_mono + _SENSOR_LOCATION_CACHE_TTL_SEC, resolved)
                                 return resolved
+
+                if previous_loc and not _is_unknown_location_value(previous_loc):
+                    _SENSOR_LOCATION_CACHE[sid_clean] = (now_mono + _SENSOR_LOCATION_CACHE_TTL_SEC, previous_loc)
+                    return previous_loc
 
                 _SENSOR_LOCATION_CACHE[sid_clean] = (now_mono + _SENSOR_LOCATION_CACHE_TTL_SEC, "Unknown")
                 return "Unknown"
@@ -3063,9 +3235,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             if include_extras:
                 extras_started = time.monotonic()
+                month_anchor = datetime.now().date().replace(day=1)
                 astro_payload, biodynamic_payload = await asyncio.gather(
-                    asyncio.to_thread(_get_cached_astro_payload),
-                    asyncio.to_thread(_get_cached_biodynamic_payload, datetime.now().date().replace(day=1)),
+                    _get_cached_astro_payload_async(allow_stale=True),
+                    _get_cached_biodynamic_payload_async(month_anchor, allow_stale=True),
                 )
                 payload["astro"] = astro_payload
                 payload["biodynamic"] = biodynamic_payload
@@ -3101,6 +3274,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if dashboard_switch_controllers is None:
             dashboard_switch_controllers = {}
 
+        dashboard_month_anchor = datetime.now().date().replace(day=1)
+        astro_payload, biodynamic_payload = await asyncio.gather(
+            _get_cached_astro_payload_async(allow_stale=True),
+            _get_cached_biodynamic_payload_async(dashboard_month_anchor, allow_stale=True),
+        )
+
         render_started = time.monotonic()
         rendered_dashboard = await asyncio.to_thread(
             lambda: "".join(render_dashboard(
@@ -3118,8 +3297,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 expected_display_style_map = expected_display_style_map,
                 display_style = displayStyle,
                 weather_forecast_provider = weatherForecastProvider,
-                astro_payload=_get_cached_astro_payload(),
-                biodynamic_payload=_get_cached_biodynamic_payload(datetime.now().date().replace(day=1)),
+                astro_payload=astro_payload,
+                biodynamic_payload=biodynamic_payload,
             ))
         )
         phase_ms["render"] = (time.monotonic() - render_started) * 1000.0
@@ -5253,7 +5432,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 printDM(f"[api_biodynamic_calendar] daily summary backfill skipped: {exc}", location=MODULE)
 
         payload_started = time.monotonic()
-        payload = _get_cached_biodynamic_payload(anchor)
+        payload = await _get_cached_biodynamic_payload_async(anchor)
         payload_ms = (time.monotonic() - payload_started) * 1000.0
         notes_started = time.monotonic()
         calendar_days = payload.get("calendar") or []

@@ -248,6 +248,13 @@ Key tables:
 - `weather_forecast`: cached dashboard forecast payloads, created by the
   weather forecast helper when forecasts are used.
 
+Biodynamic month payloads are also cached as JSON files under the Sensorius
+runtime directory, normally `/home/<user>/Sensorius/cache/biodynamic/` on
+Linux or `/Users/<user>/Sensorius/cache/biodynamic/` on macOS. This cache is
+keyed by month, rounded Astral location, timezone, altitude, ephemeris name,
+and cache schema version. It can be removed safely; Sensorius will rebuild
+missing months in the background or on calendar demand.
+
 Retention is controlled by:
 
 ```env

@@ -858,7 +858,12 @@ async def collect_scenario_sample(client: CDPClient, scenario: Scenario, timeout
 async def pause_between_scenarios(client: CDPClient, cooldown_ms: int) -> None:
     if cooldown_ms <= 0:
         return
-    await client.evaluate(f"window.__sensProfiler.sleep({int(cooldown_ms)})")
+    await client.evaluate(
+        """
+(() => new Promise(resolve => setTimeout(resolve, %d)))()
+"""
+        % int(cooldown_ms)
+    )
 
 
 async def configure_profiler_targets(client: CDPClient, args: argparse.Namespace) -> None:

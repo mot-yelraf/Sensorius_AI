@@ -3248,6 +3248,97 @@ async def test_dashboard_sensor_locations_ignore_unknown_live_cache_and_use_toml
 
 
 @pytest.mark.asyncio
+async def test_dashboard_include_extras_astro_payload_is_single_flight_and_nonblocking(tmp_path, monkeypatch):
+    app = await _build_route_app_with_settings(
+        tmp_path,
+        monkeypatch,
+        {
+            "Astral": {
+                "LATITUDE": "32.7900",
+                "LONGITUDE": "-108.2749",
+                "TIMEZONE": "America/Denver",
+            },
+            "Time": {"TZ": "America/Denver"},
+        },
+    )
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    saiWebRoutes._ASTRO_PAYLOAD_CACHE = None
+
+    build_calls = []
+
+    class _FakeLocationInfo:
+        def __init__(self, *args, **kwargs):
+            self.observer = SimpleNamespace(elevation=0.0)
+
+    class _FakeMoon:
+        @staticmethod
+        def phase(_day):
+            return 5.0
+
+        @staticmethod
+        def azimuth(*_args, **_kwargs):
+            return 180.0
+
+        @staticmethod
+        def elevation(*_args, **_kwargs):
+            return 20.0
+
+        @staticmethod
+        def julianday_2000(_dt):
+            return 0.0
+
+        @staticmethod
+        def moon_position(_jd):
+            return SimpleNamespace(right_ascension=0.1, declination=0.2)
+
+        @staticmethod
+        def moonrise(_obs, date=None, tzinfo=None):
+            return datetime.combine(date, datetime.min.time(), tzinfo=tzinfo) + timedelta(hours=7)
+
+        @staticmethod
+        def moonset(_obs, date=None, tzinfo=None):
+            return datetime.combine(date, datetime.min.time(), tzinfo=tzinfo) + timedelta(hours=19)
+
+    def _slow_sun(_obs, date=None, tzinfo=None):
+        build_calls.append(time.monotonic())
+        time.sleep(0.2)
+        return {
+            "sunrise": datetime.combine(date, datetime.min.time(), tzinfo=tzinfo) + timedelta(hours=6),
+            "sunset": datetime.combine(date, datetime.min.time(), tzinfo=tzinfo) + timedelta(hours=18),
+            "noon": datetime.combine(date, datetime.min.time(), tzinfo=tzinfo) + timedelta(hours=12),
+        }
+
+    monkeypatch.setattr(saiWebRoutes, "LocationInfo", _FakeLocationInfo)
+    monkeypatch.setattr(saiWebRoutes, "_astral_sun", _slow_sun)
+    monkeypatch.setattr(saiWebRoutes, "_astral_elevation", lambda *_a, **_k: 15.0)
+    monkeypatch.setattr(saiWebRoutes, "_astral_azimuth", lambda *_a, **_k: 180.0)
+    monkeypatch.setattr(saiWebRoutes, "_astral_lmst", lambda *_a, **_k: 0.0)
+    monkeypatch.setattr(saiWebRoutes, "_astral_moon", _FakeMoon())
+    monkeypatch.setattr(saiWebRoutes, "get_skyfield_runtime_if_installed", lambda: None)
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_values_and_timestamps", lambda ids: ({}, {}))
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {})
+
+    started = time.monotonic()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res_one, res_two = await asyncio.gather(
+            client.get("/", params={"json_only": "true", "include_extras": "true"}),
+            client.get("/", params={"json_only": "true", "include_extras": "true"}),
+        )
+    elapsed = time.monotonic() - started
+    await asyncio.sleep(0.25)
+
+    assert res_one.status_code == 200
+    assert res_two.status_code == 200
+    assert res_one.json()["astro"]["reason"] == "warming"
+    assert res_two.json()["astro"]["reason"] == "warming"
+    assert len(build_calls) == 1
+    assert elapsed < 0.18
+
+
+@pytest.mark.asyncio
 async def test_dashboard_weewx_status_uses_recent_station_data_when_ingest_unknown(tmp_path, monkeypatch):
     app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
