@@ -144,10 +144,10 @@ def test_dashboard_switch_layout_drift_schedules_layout_refresh():
 
     assert "if (reason.startsWith('switch:')) {" in block
     assert "console.info('[layout-refresh-switch]', reason);" in block
-    assert "if (scheduleLayoutRefresh(reason, sig)) { finishUpdateGaugesRun(finishOptions); return; }" in block
+    assert "if (scheduleLayoutRefresh(reason, sig)) { finishUpdateGaugesRun(finishOptions, { ok: true }); return; }" in block
     assert (
         "} else {      if (scheduleLayoutRefresh(layoutDrift.reason, sig)) "
-        "{ finishUpdateGaugesRun(finishOptions); return; }    }"
+        "{ finishUpdateGaugesRun(finishOptions, { ok: true }); return; }    }"
     ) in block
     assert block.count("for (const sid of available)") == 1
     assert block.count("const values     = d.values") == 1
@@ -321,6 +321,14 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "id='sunBox' aria-live='polite' role='button'" in html
     assert "id='moonBox' aria-live='polite' role='button'" in html
     assert "#sunBox,#moonBox{cursor:pointer;}" in html
+    assert ".astro-box.card-loading .dashboard-card-spinner{display:inline-block;}" in html
+    assert "function setAstroCardsLoading(isLoading){" in html
+    assert "['moonBox','sunBox','sunMoon29Card'].forEach((id) => setDashboardCardLoading(id, isLoading));" in html
+    assert "const keepExistingAstro = warming && astroData && astroData.ok;" in html
+    assert "setAstroCardsLoading(warming && !keepExistingAstro);" in html
+    assert "if (keepExistingAstro) return;" in html
+    assert "if (!warming) { delete astroData.reason; delete astroData.cache_status; }" in html
+    assert "if (typeof setAstroCardsLoading === 'function') setAstroCardsLoading(isDashboardWarmingPayload(data));" in html
     assert "target.closest('#sunBox,#moonBox')" in html
     assert "id='sunMoon29Canvas'" in html
     assert "29 Day Sun/Moon Position" in html

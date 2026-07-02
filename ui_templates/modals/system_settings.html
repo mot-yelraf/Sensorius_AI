@@ -874,6 +874,7 @@
           <div class="settings-pane" id="pane-add" hidden>
             <h3 class="pane-title">Add Device</h3>
             <div class="status-text">Click <strong>Add</strong> to start onboarding a device.</div>
+            <div class="status-text" id="add-scan-status" aria-live="polite">Scanning for Nodus_Setup...</div>
             <div id="add-mac-hint" class="detail" hidden style="margin:.35rem 0 .8rem 0; padding:.6rem .8rem; border:1px solid #c9d7cf; border-radius:10px; background:#f4faf6;"></div>
             <ul class="onboard-steps">
               <li id="step-1" class="step pending">
@@ -1069,14 +1070,16 @@
   let locationsLoaded = false;
   let onboardWs = null;
   let onboardSessionId = "";
+  let onboardSessionState = "";
   let onboardPollTimer = null;
   let onboardCountdownTimer = null;
   let onboardCountdownDeadlineMs = 0;
   let addScanTimer = null;
   let addScanActive = false;
   let addScanAttempt = 0;
-  const addScanMax = 5;
-  const addScanDelayMs = 60000;
+  const addScanMax = 3;
+  const addScanDelayMs = 5000;
+  const addScanDelaySec = Math.max(1, Math.round(addScanDelayMs / 1000));
   let addManualJoinRequired = false;
   let otaDevicesLoaded = false;
   let otaDevices = [];
@@ -1878,6 +1881,7 @@
   function resetAddDevicePaneState() {
     resetOnboardUI();
     onboardSessionId = "";
+    onboardSessionState = "";
     if (onboardWs) {
       try { onboardWs.close(); } catch (_e) {}
       onboardWs = null;
@@ -1922,11 +1926,27 @@
     if (det) det.textContent = detail || "";
   }
 
+  function isOnboardInProgressState(stateValue) {
+    const state = String(stateValue || onboardSessionState || "");
+    return !!state && state !== "ONLINE" && state !== "FAILED";
+  }
+
+  function setOnboardAddEnabled(enabled) {
+    const addBtn = document.getElementById("btn-onboard-add");
+    if (addBtn) addBtn.disabled = !enabled;
+  }
+
   function renderV2SessionState(session) {
     const state = String(session?.state || "");
+    onboardSessionState = state;
     const reason = String(session?.failure_reason || "");
     const localSsid = String(session?.local_ssid || "your Wi-Fi");
     const addBtn = document.getElementById("btn-onboard-add");
+    if (isOnboardInProgressState(state)) {
+      stopAddScan();
+      setOnboardAddEnabled(false);
+      setAddScanStatus("Onboarding in progress...");
+    }
     if (state === "AP_DISCOVERED") {
       markPendingStep(1, "Connected to Nodus setup AP", "Connecting to Nodus setup network");
       markPendingStep(2, "Bootstrap sent to Nodus", "");
@@ -1990,6 +2010,7 @@
       markOnboardStep(4, true, "Waiting for Nodus to reboot and connect", "Device online");
       stopOnboardCountdown();
       setOnboardBadge("Device onboarded successfully.", "ok");
+      setAddScanStatus("Device onboarded successfully.");
       if (addBtn && !addScanActive) addBtn.disabled = false;
       return;
     }
@@ -2001,6 +2022,7 @@
       markOnboardStep(failStep, false, "Onboarding failed", reason || "failed");
       stopOnboardCountdown();
       setOnboardBadge(`Onboarding failed: ${reason || "unknown error"}`, "fail");
+      setAddScanStatus("Onboarding failed. Use Retry or Add to start again.");
       if (addBtn && !addScanActive) addBtn.disabled = false;
       return;
     }
@@ -2032,8 +2054,10 @@
     if (!formEl) return;
     const addBtn = document.getElementById("btn-onboard-add");
     if (addBtn && addBtn.disabled) return;
+    if (onboardingV2Enabled) onboardSessionState = "STARTING";
     stopAddScan();
-    if (addBtn) addBtn.disabled = true;
+    setOnboardAddEnabled(false);
+    setAddScanStatus("Starting onboarding...");
 
     try {
       resetOnboardUI();
@@ -2042,6 +2066,7 @@
         const resLegacy = await fetch("/onboard-device", { method: "POST", body: fd });
         if (!resLegacy.ok) {
           markOnboardStep(1, false, "Failed to start onboarding", "HTTP " + resLegacy.status);
+          onboardSessionState = "FAILED";
           if (addBtn) addBtn.disabled = false;
           return;
         }
@@ -2087,6 +2112,7 @@
         const jsErr = await res.json().catch(() => ({}));
         const reason = String(jsErr?.detail || jsErr?.error || ("HTTP " + res.status));
         if (jsErr?.session_id) onboardSessionId = String(jsErr.session_id || "");
+        onboardSessionState = "FAILED";
         markOnboardStep(1, false, "Failed to start onboarding", reason);
         if (addBtn) addBtn.disabled = false;
         return;
@@ -2103,6 +2129,7 @@
       onboardPollTimer = setTimeout(pollV2Session, 1000);
     } catch (e) {
       console.error(e);
+      onboardSessionState = "FAILED";
       if (addBtn) addBtn.disabled = false;
       markOnboardStep(1, false, "Failed to start onboarding", String(e));
     }
@@ -2195,7 +2222,7 @@
   }
 
   async function scanAddAttempt() {
-    if (!addScanActive) return;
+    if (!addScanActive || isOnboardInProgressState()) return;
     const addBtn = document.getElementById("btn-onboard-add");
     if (addBtn) addBtn.disabled = true;
 
@@ -2203,6 +2230,7 @@
       const resp = await fetch("/scan-nodus-setup", { cache: "no-store" });
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       const js = await resp.json();
+      if (!addScanActive || isOnboardInProgressState()) return;
       const targetSsid = (js && js.ssid) ? js.ssid : "Nodus_Setup";
       const platformName = (js && js.platform) ? String(js.platform) : "";
       const detailMsg = (js && js.message) ? String(js.message) : "no scan details";
@@ -2228,18 +2256,20 @@
         stopAddScan();
         return;
       }
-      setAddScanStatus(`${targetSsid} not found. Retrying in 60s (${addScanAttempt}/${addScanMax})...`);
+      setAddScanStatus(`${targetSsid} not found. Retrying in ${addScanDelaySec}s (${addScanAttempt}/${addScanMax})...`);
       if (addBtn) addBtn.disabled = true;
       addScanTimer = setTimeout(scanAddAttempt, addScanDelayMs);
     } catch (e) {
+      if (!addScanActive || isOnboardInProgressState()) return;
       console.error(e);
+      addScanAttempt += 1;
       if (addScanAttempt >= addScanMax) {
         setAddScanStatus("Scan failed. You can still click Add.");
         if (addBtn) addBtn.disabled = false;
         stopAddScan();
         return;
       }
-      setAddScanStatus(`Scan error. Retrying in 60s (${addScanAttempt}/${addScanMax})...`);
+      setAddScanStatus(`Scan error. Retrying in ${addScanDelaySec}s (${addScanAttempt}/${addScanMax})...`);
       if (addBtn) addBtn.disabled = true;
       addScanTimer = setTimeout(scanAddAttempt, addScanDelayMs);
     }
@@ -2247,6 +2277,11 @@
 
   function startAddScan() {
     stopAddScan();
+    if (isOnboardInProgressState()) {
+      setAddScanStatus("Onboarding in progress...");
+      setOnboardAddEnabled(false);
+      return;
+    }
     addScanActive = true;
     addScanAttempt = 0;
     const addBtn = document.getElementById("btn-onboard-add");

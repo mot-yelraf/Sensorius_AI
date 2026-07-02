@@ -218,6 +218,7 @@ WantedBy=multi-user.target
 EOF"
 
   install_pi_gui_autostart "${username}" "${PROJECT_DIR}" "${VENV_PATH}"
+  install_networkmanager_polkit_rule "${username}"
 
   echo "Enabling and starting sensorius.service..."
   sudo systemctl daemon-reexec

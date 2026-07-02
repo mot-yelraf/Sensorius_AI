@@ -557,6 +557,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     biodynamic_payload_tasks: dict[str, asyncio.Task] = {}
     biodynamic_payload_cache_lock = threading.Lock()
     biodynamic_payload_cache_generation = 0
+    biodynamic_summary_tasks: dict[str, asyncio.Task] = {}
     astro_payload_tasks: dict[str, asyncio.Task] = {}
     astro_payload_cache_lock = threading.Lock()
     astro_payload_cache_generation = 0
@@ -749,22 +750,53 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 return _warming_biodynamic_payload(anchor)
         return dict(await task)
 
-    async def _ensure_biodynamic_summary_window(today_local: date) -> tuple[str, float]:
+    def _request_biodynamic_summary_window(today_local: date) -> tuple[str, float]:
         window_start = today_local.replace(day=1)
         month_key = window_start.isoformat()
         if getattr(app.state, "_biodynamic_summary_window_month", "") == month_key:
             return "cached", 0.0
 
         started = time.monotonic()
-        service = DailySummaryService(settings=settings, data_logger=data_logger)
-        await asyncio.to_thread(
-            service.ensure_summaries_for_window,
-            window_start,
-            days=DEFAULT_FORECAST_DAYS,
-            refresh_start=True,
-        )
-        setattr(app.state, "_biodynamic_summary_window_month", month_key)
-        return "updated", (time.monotonic() - started) * 1000.0
+        task = biodynamic_summary_tasks.get(month_key)
+        if task is not None and not task.done():
+            return "warming", 0.0
+
+        async def _warm_summary_window() -> None:
+            try:
+                service = DailySummaryService(settings=settings, data_logger=data_logger)
+                await asyncio.to_thread(
+                    service.ensure_summaries_for_window,
+                    window_start,
+                    days=DEFAULT_FORECAST_DAYS,
+                    refresh_start=True,
+                )
+                setattr(app.state, "_biodynamic_summary_window_month", month_key)
+                if DEBUG:
+                    elapsed_ms = (time.monotonic() - started) * 1000.0
+                    printDM(
+                        f"[biodynamic-summary] warmed {month_key} in {elapsed_ms:.1f}ms",
+                        location=MODULE,
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                if DEBUG:
+                    printDM(f"[biodynamic-summary] warm skipped for {month_key}: {exc}", location=MODULE)
+
+        task = asyncio.create_task(_warm_summary_window(), name=f"BiodynamicSummaryWarm:{month_key}")
+        biodynamic_summary_tasks[month_key] = task
+
+        def _discard_summary_task(done_task, key=month_key) -> None:
+            if biodynamic_summary_tasks.get(key) is done_task:
+                biodynamic_summary_tasks.pop(key, None)
+            try:
+                if not done_task.cancelled():
+                    done_task.exception()
+            except Exception:
+                pass
+
+        task.add_done_callback(_discard_summary_task)
+        return "scheduled", (time.monotonic() - started) * 1000.0
 
     def _get_cached_astro_payload(generation: int | None = None) -> dict[str, object]:
         global _ASTRO_PAYLOAD_CACHE
@@ -2080,14 +2112,38 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         sys_name = platform.system().lower()
         try:
             if sys_name == "linux":
-                p = subprocess.run(
-                    ["nmcli", "-t", "-f", "SSID", "dev", "wifi", "list"],
-                    capture_output=True, text=True, timeout=8
-                )
-                if p.returncode != 0:
-                    return False, (p.stderr or p.stdout or "nmcli failed").strip()
-                lines = [ln.strip() for ln in (p.stdout or "").splitlines() if ln.strip()]
-                return (ssid in lines), "ok"
+                iface = ""
+                try:
+                    import saiAddDevice as _add_device
+                    iface = str(getattr(_add_device, "_wifi_interface_name", lambda: "")() or "").strip()
+                except Exception:
+                    iface = ""
+
+                errors: list[str] = []
+                if iface:
+                    rescan = subprocess.run(
+                        ["nmcli", "dev", "wifi", "rescan", "ifname", iface],
+                        capture_output=True, text=True, timeout=12
+                    )
+                    if rescan.returncode != 0:
+                        errors.append((rescan.stderr or rescan.stdout or "nmcli rescan failed").strip())
+
+                list_commands = []
+                if iface:
+                    list_commands.append(["nmcli", "-t", "-f", "SSID", "dev", "wifi", "list", "ifname", iface])
+                list_commands.append(["nmcli", "-t", "-f", "SSID", "dev", "wifi", "list"])
+
+                for cmd in list_commands:
+                    p = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+                    if p.returncode != 0:
+                        errors.append((p.stderr or p.stdout or "nmcli list failed").strip())
+                        continue
+                    lines = [ln.strip() for ln in (p.stdout or "").splitlines() if ln.strip()]
+                    if ssid in lines:
+                        return True, "ok"
+
+                detail = "; ".join(x for x in errors if x).strip()
+                return False, detail or "ok"
 
             if sys_name == "darwin":
                 airport = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport"
@@ -5286,6 +5342,30 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     status_code=400,
                 )
         else:
+            if platform.system().lower() == "linux":
+                can_control_network, permission_detail = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    saiAddDevice.linux_network_control_permission_status,
+                )
+                if not can_control_network:
+                    reason = "network_control_not_authorized"
+                    detail = (
+                        "Sensorius is not authorized to control NetworkManager "
+                        f"({permission_detail}). Grant NetworkManager control to the sensorius.service user, "
+                        "then restart Sensorius."
+                    )
+                    onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason=reason)
+                    _emit_onboarding_event("onboarding_failed", session_id=session_id, detail=reason)
+                    return JSONResponse(
+                        {
+                            "ok": False,
+                            "session_id": session_id,
+                            "state": OnboardingStates.FAILED,
+                            "error": reason,
+                            "detail": detail,
+                        },
+                        status_code=403,
+                    )
             try:
                 ok_ap = await asyncio.get_event_loop().run_in_executor(
                     None,
@@ -5426,7 +5506,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         summary_ms = 0.0
         try:
             today_local = datetime.now(getattr(data_logger, "local_tz", ZoneInfo("America/Denver"))).date()
-            summary_status, summary_ms = await _ensure_biodynamic_summary_window(today_local)
+            summary_status, summary_ms = _request_biodynamic_summary_window(today_local)
         except Exception as exc:
             if DEBUG:
                 printDM(f"[api_biodynamic_calendar] daily summary backfill skipped: {exc}", location=MODULE)

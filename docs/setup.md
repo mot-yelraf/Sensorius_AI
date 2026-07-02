@@ -244,6 +244,53 @@ Nodus devices use 2.4 GHz Wi-Fi. For Raspberry Pi onboarding:
   Nodus devices.
 - Router band steering and roaming behavior are outside Sensorius setup.
 
+When `sensorius.service` runs as a non-root user, that service user must be
+authorized to control NetworkManager before Add Device can temporarily join the
+`Nodus_Setup` access point. The Linux and Raspberry Pi setup scripts install
+this authorization automatically when they create `sensorius.service`.
+
+For older installs, hand-created services, or repair checks, confirm the active
+service user with:
+
+```bash
+systemctl show sensorius.service -p User
+```
+
+Then check NetworkManager permissions for that user:
+
+```bash
+sudo -u <user> nmcli -t -f PERMISSION,VALUE general permissions | grep 'org.freedesktop.NetworkManager.network-control\|org.freedesktop.NetworkManager.wifi.scan\|org.freedesktop.NetworkManager.settings.modify'
+```
+
+The `network-control` value must be `yes`, and at least one
+`settings.modify.*` value must be `yes`. If `wifi.scan` is listed as `auth`,
+the passive scanner may report authorization errors even though Add can still
+attempt onboarding. Rerun the current setup script or create a site-local polkit
+rule at
+`/etc/polkit-1/rules.d/50-sensorius-networkmanager.rules`:
+
+```javascript
+polkit.addRule(function(action, subject) {
+  var allowed = [
+    "org.freedesktop.NetworkManager.network-control",
+    "org.freedesktop.NetworkManager.wifi.scan",
+    "org.freedesktop.NetworkManager.settings.modify.system",
+    "org.freedesktop.NetworkManager.settings.modify.own",
+    "org.freedesktop.NetworkManager.enable-disable-wifi"
+  ];
+  if (subject.user == "<user>" && allowed.indexOf(action.id) >= 0) {
+    return polkit.Result.YES;
+  }
+});
+```
+
+Replace `<user>` with the service user, then restart polkit and Sensorius:
+
+```bash
+sudo systemctl restart polkit.service
+sudo systemctl restart sensorius.service
+```
+
 ## Manual Runtime Start
 
 From the installed runtime directory:

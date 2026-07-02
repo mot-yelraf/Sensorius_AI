@@ -134,6 +134,49 @@ async def test_scan_nodus_setup_marks_macos_miss_inconclusive(tmp_path, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_scan_nodus_setup_linux_rescans_wifi_interface(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    class _TmpStore(OnboardingSessionStore):
+        def __init__(self, base_dir: str = "system_settings"):
+            super().__init__(base_dir=str(tmp_path))
+
+    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Linux")
+    monkeypatch.setattr("saiAddDevice.PICOW_AP_SSID", "Nodus_Setup")
+    monkeypatch.setattr("saiAddDevice.PICOW_AP_PASSWORD", "password")
+    monkeypatch.setattr("saiAddDevice._wifi_interface_name", lambda: "wlan0")
+    monkeypatch.setattr("saiAddDevice._get_current_ssid", lambda: "ExampleWiFi")
+
+    seen_cmds: list[list[str]] = []
+
+    def _fake_run(cmd, capture_output=False, text=False, timeout=None):
+        seen_cmds.append(list(cmd))
+        if cmd[:4] == ["nmcli", "dev", "wifi", "rescan"]:
+            return _cp(stdout="")
+        if cmd[:5] == ["nmcli", "-t", "-f", "SSID", "dev"] and "ifname" in cmd:
+            return _cp(stdout="ExampleWiFi\nNodus_Setup\n")
+        return _cp(stdout="ExampleWiFi\n")
+
+    monkeypatch.setattr(saiWebRoutes.subprocess, "run", _fake_run)
+
+    app = FastAPI()
+    settings = _FakeSettings()
+    ingest = _FakeIngest()
+    await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/scan-nodus-setup")
+        assert res.status_code == 200
+        body = res.json()
+        assert body.get("found") is True
+        assert body.get("platform") == "Linux"
+
+    assert ["nmcli", "dev", "wifi", "rescan", "ifname", "wlan0"] in seen_cmds
+    assert any(cmd[:6] == ["nmcli", "-t", "-f", "SSID", "dev", "wifi"] and "wlan0" in cmd for cmd in seen_cmds)
+
+
+@pytest.mark.asyncio
 async def test_v2_start_and_session_and_retry(tmp_path, monkeypatch):
     monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
 
@@ -621,6 +664,36 @@ async def test_v2_start_ap_connect_failed_marks_failed_session(tmp_path, monkeyp
         sess = await client.get(f"/onboard-device/v2/session/{sid}")
         assert sess.status_code == 200
         assert sess.json().get("state") == "FAILED"
+
+
+@pytest.mark.asyncio
+async def test_v2_start_network_control_not_authorized(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    class _TmpStore(OnboardingSessionStore):
+        def __init__(self, base_dir: str = "system_settings"):
+            super().__init__(base_dir=str(tmp_path))
+
+    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not connect")))
+    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
+    monkeypatch.setattr("saiAddDevice.linux_network_control_permission_status", lambda: (False, "network_control=auth"))
+
+    app = FastAPI()
+    settings = _FakeSettings()
+    ingest = _FakeIngest()
+    await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/onboard-device/v2/start", data={"hostname": "aqi-ap-permission"})
+        assert res.status_code == 403
+        body = res.json()
+        assert body.get("error") == "network_control_not_authorized"
+        assert "NetworkManager" in body.get("detail", "")
+
+        sess = await client.get(f"/onboard-device/v2/session/{body.get('session_id')}")
+        assert sess.status_code == 200
+        assert sess.json().get("failure_reason") == "network_control_not_authorized"
 
 
 @pytest.mark.asyncio

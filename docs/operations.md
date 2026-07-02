@@ -70,6 +70,65 @@ Useful web routes:
 - `/weewx/status`: WeeWX ingest state.
 - `/advanced/status`: Advanced Settings status.
 
+## Add Device Wi-Fi Authorization
+
+On Raspberry Pi, Add Device temporarily moves the Sensorius host from its normal
+Wi-Fi network to `Nodus_Setup`, posts bootstrap data to the Nodus AP, and then
+rejoins the normal network. If logs show:
+
+```text
+org.freedesktop.NetworkManager.network-control request failed: not authorized
+```
+
+or the UI reports `network_control_not_authorized`, the `sensorius.service` user
+cannot control NetworkManager.
+
+Supported Linux and Raspberry Pi setup scripts install the required
+NetworkManager polkit rule automatically when they create `sensorius.service`.
+Use the checks below for older installs, hand-created services, or repairs.
+
+Check the service user:
+
+```bash
+systemctl show sensorius.service -p User
+```
+
+Check that user's NetworkManager permissions:
+
+```bash
+sudo -u <user> nmcli -t -f PERMISSION,VALUE general permissions | grep 'org.freedesktop.NetworkManager.network-control\|org.freedesktop.NetworkManager.wifi.scan\|org.freedesktop.NetworkManager.settings.modify'
+```
+
+The `network-control` value must be `yes`, and at least one
+`settings.modify.*` value must be `yes`. If `wifi.scan` is listed as `auth`,
+the passive scanner may report authorization errors even though Add can still
+attempt onboarding. Rerun the current setup script or install a local polkit
+rule at
+`/etc/polkit-1/rules.d/50-sensorius-networkmanager.rules`, replacing `<user>`
+with the service user:
+
+```javascript
+polkit.addRule(function(action, subject) {
+  var allowed = [
+    "org.freedesktop.NetworkManager.network-control",
+    "org.freedesktop.NetworkManager.wifi.scan",
+    "org.freedesktop.NetworkManager.settings.modify.system",
+    "org.freedesktop.NetworkManager.settings.modify.own",
+    "org.freedesktop.NetworkManager.enable-disable-wifi"
+  ];
+  if (subject.user == "<user>" && allowed.indexOf(action.id) >= 0) {
+    return polkit.Result.YES;
+  }
+});
+```
+
+Then reload the policy service and restart Sensorius:
+
+```bash
+sudo systemctl restart polkit.service
+sudo systemctl restart sensorius.service
+```
+
 ## Logs
 
 Console logging is enabled by default. File logging is controlled by:
@@ -254,6 +313,17 @@ Linux or `/Users/<user>/Sensorius/cache/biodynamic/` on macOS. This cache is
 keyed by month, rounded Astral location, timezone, altitude, ephemeris name,
 and cache schema version. It can be removed safely; Sensorius will rebuild
 missing months in the background or on calendar demand.
+
+After startup settles, the web server also warms generated biodynamic month
+payloads in the background so later browser sessions can reuse the shared disk
+cache. Defaults are intentionally conservative: current month first, then nearby
+months, with pauses between builds. Operators can tune this with:
+
+- `SENSORIUS_BIODYNAMIC_PREWARM_ENABLED`
+- `SENSORIUS_BIODYNAMIC_PREWARM_DELAY_SEC`
+- `SENSORIUS_BIODYNAMIC_PREWARM_PAUSE_SEC`
+- `SENSORIUS_BIODYNAMIC_PREWARM_PAST_MONTHS`
+- `SENSORIUS_BIODYNAMIC_PREWARM_FUTURE_MONTHS`
 
 Retention is controlled by:
 

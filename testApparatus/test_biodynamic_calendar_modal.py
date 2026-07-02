@@ -91,6 +91,9 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "#bioBox{width:230px;box-sizing:border-box;overflow:hidden;align-items:stretch;}" in text
     assert "#bioBox .astro-card{width:100%;min-width:0;align-items:stretch;box-sizing:border-box;height:100%;}" in text
     assert "#bioBox .astro-title,#bioCurrentSign,#bioCurrentElement,.bio-window,.bio-daylight,#bioUpcoming{width:100%;box-sizing:border-box;}" in text
+    assert ".astro-box .dashboard-card-spinner{display:none;position:absolute;top:.48rem;right:.52rem;width:16px;height:16px;border-width:2px;z-index:2;background:rgba(255,255,255,.45);}" in text
+    assert ".astro-box.card-loading .dashboard-card-spinner{display:inline-block;}" in text
+    assert "<span class='spinner dashboard-card-spinner' aria-hidden='true'></span>" in text
     assert "<div class='bio-main' id='bioCurrentPanel'>" in text
     assert "<div class='bio-daylight' id='bioDaylightLine'>Hours of Daylight: --</div>" in text
     assert "<button type='button' class='bio-open-btn' id='bioOpenBtn' aria-label='Open biodynamic calendar' title='View Calendar'>" in text
@@ -120,11 +123,17 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];" in text
     assert "return `${parts.weekday || '--'}, ${monthName} ${parts.day}, ${parts.year}`;" in text
     assert "const buildBiodynamicWindowText = (payload, currentIso, current) => {" in text
-    assert "if (reason === 'warming') return 'Biodynamic calendar is warming in the background.';" in text
+    assert "if (reason === 'warming') return '';" in text
+    assert "Biodynamic calendar is warming in the background." not in text
     assert "const extrasWarming = !!window.__dashboardExtrasWarming;" in text
     assert "const wantExtras = !lastExtrasRefreshAt || ((now - lastExtrasRefreshAt) >= dashboardExtrasRefreshMs) || (extrasWarming && (!lastExtrasWarmAt || ((now - lastExtrasWarmAt) >= dashboardExtrasWarmRetryMs)));" in text
     assert "const astroWarming = data && data.astro && isDashboardWarmingPayload(data.astro);" in text
     assert "const biodynamicWarming = data && data.biodynamic && isDashboardWarmingPayload(data.biodynamic);" in text
+    assert "function setBiodynamicCardLoading(isLoading){" in text
+    assert "const keepExistingBiodynamic = warming && biodynamicData && biodynamicData.ok;" in text
+    assert "setBiodynamicCardLoading(warming && !keepExistingBiodynamic);" in text
+    assert "if (keepExistingBiodynamic) return;" in text
+    assert "const biodynamicWarming = isDashboardWarmingPayload(data);" in text
     assert "window.__lastExtrasRefreshAtMs = now;" in text
     assert "return `${sign} Moon: ${fmtHm(seg && seg.start)} to ${fmtHm(seg && seg.end)}`;" in text
     assert "return rows.length ? rows.join('\\\\n') : `${sign} Moon: ${fmtIsoHm(current && current.window_start)} to ${fmtIsoHm(current && current.window_end)}`;" in text
@@ -269,6 +278,7 @@ async def test_biodynamic_calendar_api_default_month_uses_biodynamic_local_time(
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.get("/api/biodynamic-calendar")
         res_next = await client.get("/api/biodynamic-calendar?month=2026-04")
+    await asyncio.sleep(0.05)
 
     assert res.status_code == 200
     assert res_next.status_code == 200

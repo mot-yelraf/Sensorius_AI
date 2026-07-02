@@ -21,6 +21,34 @@ import inspect
 MODULE = "saiWebServer"
 DEBUG = debug_enabled(MODULE)
 
+
+def _env_flag(name: str, default: bool = True) -> bool:
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return bool(default)
+    return str(raw_value).strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _float_env(name: str, default: float, *, minimum: float = 0.0) -> float:
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return float(default)
+    try:
+        return max(float(raw_value), float(minimum))
+    except ValueError:
+        return float(default)
+
+
+def _int_env(name: str, default: int, *, minimum: int = 0) -> int:
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return int(default)
+    try:
+        return max(int(raw_value), int(minimum))
+    except ValueError:
+        return int(default)
+
+
 class WebServerController:
     def __init__(self, settings, net_mgr, supervisor, gc_mgr, mqtt_ingest):
         self.settings = settings
@@ -87,6 +115,49 @@ class WebServerController:
                 printDM(f"Prewarm complete for {len(sids[:cap])} sensors", location=f"{MODULE}._prewarm")
         except Exception as e:
             printDM(f"Prewarm skipped: {e}", location=f"{MODULE}._prewarm")
+
+        await self._prewarm_biodynamics()
+
+
+    async def _prewarm_biodynamics(self):
+        """Warm generated biodynamic month payloads after startup settles."""
+        if not _env_flag("SENSORIUS_BIODYNAMIC_PREWARM_ENABLED", True):
+            return
+
+        initial_delay_sec = _float_env("SENSORIUS_BIODYNAMIC_PREWARM_DELAY_SEC", 45.0)
+        pause_sec = _float_env("SENSORIUS_BIODYNAMIC_PREWARM_PAUSE_SEC", 3.0)
+        past_months = _int_env("SENSORIUS_BIODYNAMIC_PREWARM_PAST_MONTHS", 3)
+        future_months = _int_env("SENSORIUS_BIODYNAMIC_PREWARM_FUTURE_MONTHS", 12)
+
+        try:
+            await asyncio.sleep(initial_delay_sec)
+            from saiBiodynamics import biodynamic_prewarm_month_anchors, get_biodynamic_payload
+
+            anchors = biodynamic_prewarm_month_anchors(
+                past_months=past_months,
+                future_months=future_months,
+            )
+            warmed = 0
+            for anchor in anchors:
+                payload = await asyncio.to_thread(get_biodynamic_payload, anchor)
+                if payload.get("ok"):
+                    warmed += 1
+                elif DEBUG:
+                    printDM(
+                        f"Biodynamic prewarm skipped {anchor.isoformat()}: {payload.get('reason') or 'unavailable'}",
+                        location=f"{MODULE}._prewarm_biodynamics",
+                    )
+                await asyncio.sleep(pause_sec)
+
+            if DEBUG:
+                printDM(
+                    f"Biodynamic prewarm complete for {warmed}/{len(anchors)} month(s)",
+                    location=f"{MODULE}._prewarm_biodynamics",
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            printDM(f"Biodynamic prewarm skipped: {e}", location=f"{MODULE}._prewarm_biodynamics")
 
 
     async def initialize_server(self):

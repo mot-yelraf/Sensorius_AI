@@ -77,6 +77,52 @@ _PAYLOAD_BUILD_LOCKS: dict[tuple[str, str, str, str, str], threading.Lock] = {}
 _payload_disk_cache_cleanup_after = 0.0
 
 
+def _month_start(anchor: date) -> date:
+    return anchor.replace(day=1)
+
+
+def shift_biodynamic_month(anchor: date, month_delta: int) -> date:
+    """Return the month-start date offset by ``month_delta`` months."""
+    month_index = (anchor.year * 12) + (anchor.month - 1) + int(month_delta)
+    year, month_zero = divmod(month_index, 12)
+    return date(year, month_zero + 1, 1)
+
+
+def biodynamic_prewarm_month_anchors(
+    anchor: date | None = None,
+    *,
+    past_months: int = 3,
+    future_months: int = 12,
+) -> list[date]:
+    """Return month anchors in the order background warmup should build them."""
+    base = _month_start(anchor or get_biodynamic_local_now().date())
+    try:
+        past_count = max(int(past_months), 0)
+    except Exception:
+        past_count = 0
+    try:
+        future_count = max(int(future_months), 0)
+    except Exception:
+        future_count = 0
+    offsets: list[int] = [0]
+    if past_count > 0:
+        offsets.append(-1)
+    if future_count > 0:
+        offsets.append(1)
+    offsets.extend(range(2, future_count + 1))
+    offsets.extend(range(-2, -past_count - 1, -1))
+
+    seen: set[date] = set()
+    anchors: list[date] = []
+    for offset in offsets:
+        month_anchor = shift_biodynamic_month(base, offset)
+        if month_anchor in seen:
+            continue
+        seen.add(month_anchor)
+        anchors.append(month_anchor)
+    return anchors
+
+
 def clear_biodynamic_payload_cache() -> None:
     """Clear cached biodynamic payloads after location or timezone changes."""
     with _PAYLOAD_CACHE_LOCK:

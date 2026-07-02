@@ -94,3 +94,71 @@ def test_linux_reconnect_returns_failure_when_reconnect_fails(monkeypatch):
 
     assert ok is False
     assert ssid == "ExampleWiFi"
+
+
+def test_linux_network_control_permission_status_allows_yes(monkeypatch):
+    monkeypatch.setattr(saiAddDevice, "_current_platform", lambda: "linux")
+
+    def _fake_run(cmd, capture_output=False, text=False, timeout=None):
+        assert cmd == ["nmcli", "-t", "-f", "PERMISSION,VALUE", "general", "permissions"]
+        return _cp(stdout="\n".join([
+            "org.freedesktop.NetworkManager.network-control:yes",
+            "org.freedesktop.NetworkManager.wifi.scan:yes",
+        ]))
+
+    monkeypatch.setattr(saiAddDevice.subprocess, "run", _fake_run)
+
+    ok, detail = saiAddDevice.linux_network_control_permission_status()
+
+    assert ok is True
+    assert detail == "network_control=yes,wifi_scan=yes"
+
+
+def test_linux_network_control_permission_status_blocks_auth(monkeypatch):
+    monkeypatch.setattr(saiAddDevice, "_current_platform", lambda: "linux")
+
+    def _fake_run(cmd, capture_output=False, text=False, timeout=None):
+        return _cp(stdout="org.freedesktop.NetworkManager.network-control:auth\n")
+
+    monkeypatch.setattr(saiAddDevice.subprocess, "run", _fake_run)
+
+    ok, detail = saiAddDevice.linux_network_control_permission_status()
+
+    assert ok is False
+    assert detail == "network_control=auth"
+
+
+def test_linux_network_control_permission_status_treats_scan_denial_as_advisory(monkeypatch):
+    monkeypatch.setattr(saiAddDevice, "_current_platform", lambda: "linux")
+
+    def _fake_run(cmd, capture_output=False, text=False, timeout=None):
+        return _cp(stdout="\n".join([
+            "org.freedesktop.NetworkManager.network-control:yes",
+            "org.freedesktop.NetworkManager.wifi.scan:auth",
+            "org.freedesktop.NetworkManager.settings.modify.system:yes",
+        ]))
+
+    monkeypatch.setattr(saiAddDevice.subprocess, "run", _fake_run)
+
+    ok, detail = saiAddDevice.linux_network_control_permission_status()
+
+    assert ok is True
+    assert detail == "network_control=yes,wifi_scan=auth,settings_modify_system=yes,settings_modify_own=unknown"
+
+
+def test_linux_network_control_permission_status_blocks_profile_modify_denial(monkeypatch):
+    monkeypatch.setattr(saiAddDevice, "_current_platform", lambda: "linux")
+
+    def _fake_run(cmd, capture_output=False, text=False, timeout=None):
+        return _cp(stdout="\n".join([
+            "org.freedesktop.NetworkManager.network-control:yes",
+            "org.freedesktop.NetworkManager.settings.modify.system:auth",
+            "org.freedesktop.NetworkManager.settings.modify.own:no",
+        ]))
+
+    monkeypatch.setattr(saiAddDevice.subprocess, "run", _fake_run)
+
+    ok, detail = saiAddDevice.linux_network_control_permission_status()
+
+    assert ok is False
+    assert detail == "settings_modify_system=auth,settings_modify_own=no"

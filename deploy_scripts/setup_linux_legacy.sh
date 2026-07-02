@@ -292,6 +292,46 @@ EOF
   fi
 }
 
+install_networkmanager_polkit_rule() {
+  local username="$1"
+  local rules_dir="/etc/polkit-1/rules.d"
+  local rule_path="${rules_dir}/50-sensorius-networkmanager.rules"
+  local tmp_file js_user
+
+  if [[ -z "${username}" ]]; then
+    echo "WARNING: service user is empty; skipping NetworkManager polkit rule."
+    return
+  fi
+
+  js_user="${username//\\/\\\\}"
+  js_user="${js_user//\"/\\\"}"
+
+  tmp_file="$(mktemp)"
+  cat > "${tmp_file}" <<EOF
+polkit.addRule(function(action, subject) {
+  var allowed = [
+    "org.freedesktop.NetworkManager.network-control",
+    "org.freedesktop.NetworkManager.wifi.scan",
+    "org.freedesktop.NetworkManager.settings.modify.system",
+    "org.freedesktop.NetworkManager.settings.modify.own",
+    "org.freedesktop.NetworkManager.enable-disable-wifi"
+  ];
+  if (subject.user == "${js_user}" && allowed.indexOf(action.id) >= 0) {
+    return polkit.Result.YES;
+  }
+});
+EOF
+
+  sudo install -d -m 0755 "${rules_dir}"
+  sudo install -m 0644 "${tmp_file}" "${rule_path}"
+  rm -f "${tmp_file}"
+  echo "Installed NetworkManager polkit rule at ${rule_path} for ${username}."
+
+  if command -v systemctl >/dev/null 2>&1; then
+    sudo systemctl restart polkit.service >/dev/null 2>&1 || true
+  fi
+}
+
 configure_boot_start() {
   read -r -p "Start Sensorius automatically at system boot? [y/N]: " setup_boot
   if [[ ! "${setup_boot}" =~ ^[Yy]$ ]]; then
@@ -327,6 +367,8 @@ Environment=PYTHONUNBUFFERED=1
 [Install]
 WantedBy=multi-user.target
 EOF
+
+  install_networkmanager_polkit_rule "${run_user}"
 
   run_with_heartbeat "Enable sensorius.service" sudo systemctl enable sensorius.service
   run_with_heartbeat "Restart sensorius.service" sudo systemctl restart sensorius.service

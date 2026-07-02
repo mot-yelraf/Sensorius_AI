@@ -4159,12 +4159,18 @@ def test_dashboard_weather_forecast_card_has_six_day_button():
     )
 
     assert "24 Hour Forecast</div>" in html
+    assert "Loading forecast..." not in html
     assert "class='forecast-open-btn' id='forecastFiveDayBtn'" in html
     assert "<span class='forecast-open-btn-label'>6 Day Forecast</span>" in html
+    assert "<span class='spinner dashboard-card-spinner' aria-hidden='true'></span>" in html
     assert "/api/weather-forecast?days=1" in html
     assert "/api/weather-forecast?days=1&force_refresh=true" in html
     assert "/api/weather-forecast?days=6" in html
     assert "window.__weatherForecastProvider = weatherForecastProvider;" in html
+    assert "function setWeatherForecastCardLoading(isLoading){" in html
+    assert "setDashboardCardLoading('weatherForecastBox', isLoading);" in html
+    assert "setWeatherForecastCardLoading(true);" in html
+    assert "setWeatherForecastCardLoading(false);" in html
     assert "window.loadWeatherForecast = loadWeatherForecast;" in html
     assert "forecastFiveDayBtn.addEventListener('click'" in html
     assert "window.openWeatherForecastModal) window.openWeatherForecastModal();" in html

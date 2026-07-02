@@ -351,6 +351,52 @@ def _connect_wifi(ssid: str, password: str, iface: str) -> bool:
             printDM(f"Linux Wi-Fi connect failed: {e}", location=f"{MODULE}._connect_wifi")
         return False
 
+
+def linux_network_control_permission_status() -> tuple[bool, str]:
+    """Return whether the current Linux user can control NetworkManager."""
+    if _current_platform() != "linux":
+        return True, "not_linux"
+    try:
+        proc = subprocess.run(
+            ["nmcli", "-t", "-f", "PERMISSION,VALUE", "general", "permissions"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception as exc:
+        return True, f"permission_check_unavailable:{exc}"
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "nmcli permissions check failed").strip()
+        return True, f"permission_check_unavailable:{detail}"
+
+    permissions: dict[str, str] = {}
+    for line in (proc.stdout or "").splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        permissions[key.strip()] = value.strip().lower()
+
+    network_value = permissions.get("org.freedesktop.NetworkManager.network-control", "")
+    if network_value and network_value != "yes":
+        return False, f"network_control={network_value}"
+
+    wifi_scan = permissions.get("org.freedesktop.NetworkManager.wifi.scan", "")
+
+    modify_system = permissions.get("org.freedesktop.NetworkManager.settings.modify.system", "")
+    modify_own = permissions.get("org.freedesktop.NetworkManager.settings.modify.own", "")
+    if (modify_system or modify_own) and modify_system != "yes" and modify_own != "yes":
+        return False, f"settings_modify_system={modify_system or 'unknown'},settings_modify_own={modify_own or 'unknown'}"
+
+    details = []
+    details.append(f"network_control={network_value or 'unknown'}")
+    if wifi_scan:
+        details.append(f"wifi_scan={wifi_scan}")
+    if modify_system or modify_own:
+        details.append(f"settings_modify_system={modify_system or 'unknown'}")
+        details.append(f"settings_modify_own={modify_own or 'unknown'}")
+    return True, ",".join(details)
+
+
 def _get_current_ssid() -> str:
     sys_name = _current_platform()
     try:
