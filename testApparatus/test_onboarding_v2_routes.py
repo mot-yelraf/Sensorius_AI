@@ -129,8 +129,8 @@ async def test_scan_nodus_setup_marks_macos_miss_inconclusive(tmp_path, monkeypa
         assert body.get("platform") == "Darwin"
         assert body.get("password") == "password"
         assert body.get("current_ssid") == "ExampleWiFi"
-        assert body.get("manual_join_required") is True
-        assert "Other Networks" in body.get("message", "")
+        assert body.get("manual_join_required") is False
+        assert "Click Add" in body.get("message", "")
 
 
 @pytest.mark.asyncio
@@ -350,7 +350,7 @@ async def test_v2_start_rewrites_ip_broker_to_hub_mdns(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_v2_start_on_macos_requires_manual_join_when_not_on_target_ap(tmp_path, monkeypatch):
+async def test_v2_start_on_macos_attempts_ap_join_when_not_on_target_ap(tmp_path, monkeypatch):
     monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
 
     class _TmpStore(OnboardingSessionStore):
@@ -363,6 +363,17 @@ async def test_v2_start_on_macos_requires_manual_join_when_not_on_target_ap(tmp_
     monkeypatch.setattr("saiAddDevice._get_current_ssid", lambda: "ExampleWiFi")
     monkeypatch.setattr("saiAddDevice.PICOW_AP_SSID", "Nodus_Setup")
     monkeypatch.setattr("saiAddDevice.PICOW_AP_PASSWORD", "password")
+    connect_calls: list[tuple[str, str, int]] = []
+
+    def _fake_connect(ssid, password, *, attempts=3):
+        connect_calls.append((ssid, password, attempts))
+        return True
+
+    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", _fake_connect)
+    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-auto-join"}, "error": ""})
+    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
+    monkeypatch.setattr(saiWebRoutes.subprocess, "run", lambda *a, **k: _cp(stdout="10.0.0.246"))
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -370,11 +381,11 @@ async def test_v2_start_on_macos_requires_manual_join_when_not_on_target_ap(tmp_
     await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        res = await client.post("/onboard-device/v2/start", data={"hostname": "aqi-manual-join"})
-        assert res.status_code == 400
-        body = res.json()
-        assert body.get("error") == "manual_join_required"
-        assert "Nodus_Setup" in body.get("detail", "")
+        res = await client.post("/onboard-device/v2/start", data={"device_id": "aqi-auto-join"})
+        assert res.status_code == 200
+        assert res.json().get("ok") is True
+
+    assert connect_calls == [("Nodus_Setup", "password", 3)]
 
 
 @pytest.mark.asyncio

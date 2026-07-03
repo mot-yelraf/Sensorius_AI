@@ -3,8 +3,8 @@
 <style>
 #setupPiModal .system-settings-shell {
   width: min(1080px, 96vw);
-  height: min(46rem, 90vh);
-  max-height: 90vh;
+  height: min(46rem, calc(100vh - 1.5rem));
+  max-height: calc(100vh - 1.5rem);
   overflow: hidden;
   background: #F5FFFA;
   border-radius: 14px;
@@ -82,8 +82,7 @@
   min-height: 0;
   min-width: 0;
   overflow-x: hidden;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
+  overflow-y: hidden;
 }
 #setupPiModal #pane-locations,
 #setupPiModal #pane-remove {
@@ -250,8 +249,8 @@
   display: flex;
   flex-direction: column;
   gap: .35rem;
-  max-height: 11.5rem;
-  overflow-y: auto;
+  max-height: none;
+  overflow: visible;
   padding: .55rem .65rem;
   border: 1px solid #d6dfd8;
   border-radius: 8px;
@@ -283,8 +282,9 @@
   max-height: none;
 }
 #setupPiModal #ota-device-list {
-  min-height: 14rem;
-  max-height: 18rem;
+  flex: 1 1 12rem;
+  min-height: 8rem;
+  max-height: none;
 }
 #setupPiModal #ota-folder-browser {
   padding: .55rem .65rem;
@@ -2236,15 +2236,15 @@
       const detailMsg = (js && js.message) ? String(js.message) : "no scan details";
       setAddMacHint(js);
       if (js && js.found) {
-        setAddScanStatus(platformName === "Darwin" ? `${targetSsid} connected. Click Add.` : `${targetSsid} found`);
+        setAddScanStatus(platformName === "Darwin" ? detailMsg : `${targetSsid} found`);
         if (addBtn) addBtn.disabled = false;
         stopAddScan();
         return;
       }
       if (platformName === "Darwin") {
         setAddScanStatus(detailMsg);
-        if (addBtn) addBtn.disabled = true;
-        addScanTimer = setTimeout(scanAddAttempt, 3000);
+        if (addBtn) addBtn.disabled = false;
+        stopAddScan();
         return;
       }
       addScanAttempt += 1;

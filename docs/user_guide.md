@@ -137,7 +137,7 @@ Fields and status rows:
 - **Retry**: retries the current onboarding session.
 - **Add**: starts onboarding when the setup AP is available or manual joining is required.
 
-On macOS, the pane may instruct you to join `Nodus_Setup` manually from Wi-Fi settings, then return and click Add. For Raspberry Pi deployments that onboard over Wi-Fi, use a 2.4 GHz network path. If the router combines 2.4 GHz and 5 GHz under one SSID, ethernet on the Raspberry Pi is usually the most reliable setup. If Add Device reports `network_control_not_authorized`, the Linux/Raspberry Pi service install did not grant NetworkManager control; use the Operations guide to repair the service authorization.
+On macOS, Sensorius first attempts to join `Nodus_Setup` automatically using native Wi-Fi tooling, including setup networks shown under Other Networks. If automatic joining fails, the pane may instruct you to join `Nodus_Setup` manually from Wi-Fi settings, then return and click Add. For Raspberry Pi deployments that onboard over Wi-Fi, use a 2.4 GHz network path. If the router combines 2.4 GHz and 5 GHz under one SSID, ethernet on the Raspberry Pi is usually the most reliable setup. If Add Device reports `network_control_not_authorized`, the Linux/Raspberry Pi service install did not grant NetworkManager control; use the Operations guide to repair the service authorization.
 
 ### Update Device Pane
 

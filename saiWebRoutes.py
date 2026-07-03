@@ -5262,8 +5262,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         import saiAddDevice
 
         form = await request.form()
-        target_ap = str(form.get("target_ap", "") or "").strip() or (saiAddDevice.PICOW_AP_SSID or "Nodus_Setup").strip() or "Nodus_Setup"
-        target_ap_password = str(form.get("target_ap_password", "") or "")
+        factory_target_ap = (saiAddDevice.PICOW_AP_SSID or "Nodus_Setup").strip() or "Nodus_Setup"
+        target_ap = str(form.get("target_ap", "") or "").strip() or factory_target_ap
+        target_ap_password_raw = form.get("target_ap_password")
+        if target_ap_password_raw is None and target_ap == factory_target_ap:
+            target_ap_password = str(saiAddDevice.PICOW_AP_PASSWORD or "")
+        else:
+            target_ap_password = str(target_ap_password_raw or "")
         local_ssid = str(form.get("local_ssid", "") or "").strip()
         local_password = str(form.get("local_password", "") or "")
         requested_device_id = str(form.get("device_id", "") or "").strip()
@@ -5326,46 +5331,34 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         except Exception:
             current_ap_ssid = ""
 
-        if platform.system().lower() == "darwin":
-            ok_ap = (current_ap_ssid or "").strip() == target_ap
-            if not ok_ap:
-                onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="manual_join_required")
-                _emit_onboarding_event("onboarding_failed", session_id=session_id, detail="manual_join_required")
+        sys_name = platform.system().lower()
+        if sys_name == "linux":
+            can_control_network, permission_detail = await asyncio.get_event_loop().run_in_executor(
+                None,
+                saiAddDevice.linux_network_control_permission_status,
+            )
+            if not can_control_network:
+                reason = "network_control_not_authorized"
+                detail = (
+                    "Sensorius is not authorized to control NetworkManager "
+                    f"({permission_detail}). Grant NetworkManager control to the sensorius.service user, "
+                    "then restart Sensorius."
+                )
+                onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason=reason)
+                _emit_onboarding_event("onboarding_failed", session_id=session_id, detail=reason)
                 return JSONResponse(
                     {
                         "ok": False,
                         "session_id": session_id,
                         "state": OnboardingStates.FAILED,
-                        "error": "manual_join_required",
-                        "detail": f"Join {target_ap} manually from Other Networks using password '{target_ap_password or saiAddDevice.PICOW_AP_PASSWORD}'",
+                        "error": reason,
+                        "detail": detail,
                     },
-                    status_code=400,
+                    status_code=403,
                 )
-        else:
-            if platform.system().lower() == "linux":
-                can_control_network, permission_detail = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    saiAddDevice.linux_network_control_permission_status,
-                )
-                if not can_control_network:
-                    reason = "network_control_not_authorized"
-                    detail = (
-                        "Sensorius is not authorized to control NetworkManager "
-                        f"({permission_detail}). Grant NetworkManager control to the sensorius.service user, "
-                        "then restart Sensorius."
-                    )
-                    onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason=reason)
-                    _emit_onboarding_event("onboarding_failed", session_id=session_id, detail=reason)
-                    return JSONResponse(
-                        {
-                            "ok": False,
-                            "session_id": session_id,
-                            "state": OnboardingStates.FAILED,
-                            "error": reason,
-                            "detail": detail,
-                        },
-                        status_code=403,
-                    )
+
+        ok_ap = (current_ap_ssid or "").strip() == target_ap
+        if not ok_ap:
             try:
                 ok_ap = await asyncio.get_event_loop().run_in_executor(
                     None,
@@ -5382,8 +5375,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if not ok_ap:
             onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="ap_connect_failed")
             _emit_onboarding_event("onboarding_failed", session_id=session_id, detail="ap_connect_failed")
+            detail = ""
+            if sys_name == "darwin":
+                detail = f"Could not join {target_ap} automatically. Join it from Other Networks, then click Add again."
             return JSONResponse(
-                {"ok": False, "session_id": session_id, "state": OnboardingStates.FAILED, "error": "ap_connect_failed"},
+                {
+                    "ok": False,
+                    "session_id": session_id,
+                    "state": OnboardingStates.FAILED,
+                    "error": "ap_connect_failed",
+                    "detail": detail,
+                },
                 status_code=502,
             )
 
@@ -8739,12 +8741,20 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         sys_name = platform.system()
         manual_join_required = False
         if sys_name.lower() == "darwin":
-            manual_join_required = True
-            found = (current_ssid or "").strip() == target_ssid
-            if found:
-                msg = "macOS connected to Nodus_Setup"
+            already_connected = (current_ssid or "").strip() == target_ssid
+            found = bool(found) or already_connected
+            if already_connected:
+                msg = f"macOS connected to {target_ssid}"
+            elif found:
+                msg = f"{target_ssid} found. Click Add to join automatically."
             else:
-                msg = "Join Nodus_Setup manually from Other Networks, then return to Sensorius and click Add"
+                detail = str(msg or "").strip()
+                if not detail or detail == "ok":
+                    msg = f"{target_ssid} may be listed under Other Networks. Click Add to join automatically."
+                elif "airport tool not found" in detail.lower():
+                    msg = f"macOS Wi-Fi scan is unavailable. Click Add to join {target_ssid} automatically."
+                else:
+                    msg = f"{detail}. Click Add to join {target_ssid} automatically."
         return JSONResponse({
             "ssid": target_ssid,
             "password": ap_password,
