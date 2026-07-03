@@ -58,15 +58,15 @@
                   />
                 </div>
 
-                <div class="section">
+                <div class="section display-metrics-section">
                   <h4 class="section-title">Display Metrics</h4>
                   {% set metric_display_mode = current_metric_display_mode | default('Pick 6', true) %}
 
-                  <div class="row three">
+                  <div class="row three display-metrics-mode-row">
                     <div></div>
                     <div>
                       <label for="metric_display_mode">Metric Set</label>
-                      <select name="metric_display_mode" id="metric_display_mode">
+                      <select name="metric_display_mode" id="metric_display_mode" class="sensor-metric-mode-select">
                         <option value="Pick 6" {% if metric_display_mode == 'Pick 6' %}selected{% endif %}>Pick 6</option>
                         <option value="All" {% if metric_display_mode == 'All' %}selected{% endif %}>All</option>
                       </select>
@@ -74,11 +74,11 @@
                     <div></div>
                   </div>
 
-                  <div class="row three">
+                  <div class="row three display-metrics-row">
                     {% for i in range(1, 4) %}
-                    <div>
+                    <div class="metric-slot">
                       <label for="metric_{{ i }}">Metric {{ i }}</label>
-                      <select name="metric_{{ i }}" id="metric_{{ i }}">
+                      <select name="metric_{{ i }}" id="metric_{{ i }}" class="sensor-metric-select">
                         {% for opt in metric_options %}
                         {% set val = opt or '' %}
                         {% set label = opt if opt else 'Empty' %}
@@ -90,7 +90,7 @@
                         </option>
                         {% endfor %}
                       </select>
-                      <select name="display_style_{{ i }}" id="display_style_{{ i }}" aria-label="Metric {{ i }} display style">
+                      <select name="display_style_{{ i }}" id="display_style_{{ i }}" class="sensor-metric-style-select" aria-label="Metric {{ i }} display style">
                         {% for style in display_style_options %}
                         <option
                           value="{{ style }}"
@@ -104,11 +104,11 @@
                     {% endfor %}
                   </div>
 
-                  <div class="row three">
+                  <div class="row three display-metrics-row">
                     {% for i in range(4, 7) %}
-                    <div>
+                    <div class="metric-slot">
                       <label for="metric_{{ i }}">Metric {{ i }}</label>
-                      <select name="metric_{{ i }}" id="metric_{{ i }}">
+                      <select name="metric_{{ i }}" id="metric_{{ i }}" class="sensor-metric-select">
                         {% for opt in metric_options %}
                         {% set val = opt or '' %}
                         {% set label = opt if opt else 'Empty' %}
@@ -120,7 +120,7 @@
                         </option>
                         {% endfor %}
                       </select>
-                      <select name="display_style_{{ i }}" id="display_style_{{ i }}" aria-label="Metric {{ i }} display style">
+                      <select name="display_style_{{ i }}" id="display_style_{{ i }}" class="sensor-metric-style-select" aria-label="Metric {{ i }} display style">
                         {% for style in display_style_options %}
                         <option
                           value="{{ style }}"

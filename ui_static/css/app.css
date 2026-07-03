@@ -667,6 +667,48 @@ canvas{
   display:block;
   margin-inline:auto;
 }
+#sensorSettingsForm .section-title{
+  text-align:center;
+}
+#sensorSettingsForm .sensor-pane-scroll{
+  gap:.5rem;
+}
+#sensorSettingsForm .display-metrics-section{
+  padding-top:.75rem;
+  padding-bottom:.85rem;
+}
+#sensorSettingsForm .display-metrics-mode-row{
+  margin-bottom:.4rem;
+}
+#sensorSettingsForm .display-metrics-mode-row > div:nth-child(2){
+  justify-self:center;
+  width:min(18rem, 100%);
+}
+#sensorSettingsForm .display-metrics-row{
+  column-gap:1rem;
+}
+#sensorSettingsForm .display-metrics-row + .display-metrics-row{
+  margin-top:.55rem;
+}
+#sensorSettingsForm .metric-slot{
+  display:flex;
+  flex-direction:column;
+  min-width:0;
+}
+#sensorSettingsForm .metric-slot label,
+#sensorSettingsForm .display-metrics-mode-row label{
+  margin-bottom:.25rem;
+  text-align:center;
+}
+#sensorSettingsForm .display-metrics-section select{
+  height:32px;
+  min-height:32px;
+  padding:.25rem .55rem;
+  border-radius:8px;
+}
+#sensorSettingsForm .sensor-metric-style-select{
+  margin-top:.28rem;
+}
 .sensor-pane-footer{
   flex:0 0 auto;
   margin-top:auto;
