@@ -85,6 +85,7 @@ from sensor_modules.station_weewx import (
     DEFAULT_SENSOR_ID as WEEWX_DEFAULT_SENSOR_ID,
     DEFAULT_UPDATE_PERIOD_SEC as WEEWX_DEFAULT_UPDATE_PERIOD_SEC,
     WEEWX_DISPLAY_METRICS,
+    WEEWX_DISPLAY_STYLES,
     apply_weewx_station_metadata,
 )
 from saiFastStats import FastStats
@@ -324,7 +325,7 @@ def ensure_weewx_sensor_settings(
     for idx in range(1, 7):
         key = f"METRIC_{idx}"
         if key not in style_block:
-            style_block[key] = ""
+            style_block[key] = WEEWX_DISPLAY_STYLES[idx - 1]
             changed = True
 
     if changed:
@@ -2917,8 +2918,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     metrics = ordered + extras
             sid_text = str(sid or "").strip()
             if (not all_metrics_mode) and _is_weewx_dashboard_sensor(sid_text):
-                vals = all_values.get(sid) or {}
-                metrics = [metric for metric in WEEWX_DISPLAY_METRICS if metric in vals]
+                metrics = list(configured_metrics or WEEWX_DISPLAY_METRICS)
             # Keep Pick 6 bounded while allowing the local All mode to render
             # every known gauge-configured metric for the sensor.
             deduped: list[str] = []

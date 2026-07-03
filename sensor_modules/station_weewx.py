@@ -20,10 +20,19 @@ WEEWX_RAIN_24H_METRIC = "Rain Last 24h"
 WEEWX_DISPLAY_METRICS = [
     "Temperature_F",
     "Rel-Humidity",
-    "Baro-Pressure",
+    "Rain",
     WEEWX_RAIN_24H_METRIC,
-    "Wind Speed",
     "Wind Direction",
+    "Baro-Pressure",
+]
+
+WEEWX_DISPLAY_STYLES = [
+    "Graph24hr",
+    "Graph24hr",
+    "Gauge",
+    "Gauge",
+    "Gauge",
+    "Gauge",
 ]
 
 WEEWX_GAUGE_CONFIG = {

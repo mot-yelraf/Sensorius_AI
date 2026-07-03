@@ -3444,6 +3444,80 @@ async def test_dashboard_weewx_all_metric_mode_is_not_limited_to_station_default
 
 
 @pytest.mark.asyncio
+async def test_dashboard_weewx_pick6_keeps_configured_wind_direction_without_latest_value(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "weewx-station",
+        {
+            "Sensor": {
+                "TYPE": "weewx",
+                "DEVICE": "weewx",
+                "SENSOR_ID": "weewx-station",
+                "LOCATION": "Weather Station",
+            },
+            "Display": {
+                "METRIC_1": "Temperature_F",
+                "METRIC_2": "Rel-Humidity",
+                "METRIC_3": "Rain",
+                "METRIC_4": WEEWX_RAIN_24H_METRIC,
+                "METRIC_5": "Wind Direction",
+                "METRIC_6": "Baro-Pressure",
+                "METRIC_DISPLAY_MODE": "Pick 6",
+                "Style": {
+                    "METRIC_1": "Graph24hr",
+                    "METRIC_2": "Graph24hr",
+                    "METRIC_3": "Gauge",
+                    "METRIC_4": "Gauge",
+                    "METRIC_5": "Gauge",
+                    "METRIC_6": "Gauge",
+                },
+            },
+        },
+    )
+
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    saiWebRoutes._DASHBOARD_DISPLAY_SETTINGS_CACHE = None
+    now_iso = datetime.now().isoformat()
+    station_values = {
+        "Temperature_F": 72.1,
+        "Rel-Humidity": 44.0,
+        "Rain": 0.02,
+        WEEWX_RAIN_24H_METRIC: 0.17,
+        "Baro-Pressure": 1012.4,
+        "Wind Speed": 3.0,
+    }
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["weewx-station"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso)
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_values", lambda sid: dict(station_values))
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_latest_values_and_timestamps",
+        lambda ids: ({sid: dict(station_values) for sid in ids}, {sid: now_iso for sid in ids}),
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_metrics", lambda sid: list(station_values.keys()))
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {"weewx-station": {}})
+    ingest.mqtt_clients = []
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/", params={"json_only": "true"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["expected_gauge_map"]["weewx-station"] == [
+        "Temperature_F",
+        "Rel-Humidity",
+        "Rain",
+        WEEWX_RAIN_24H_METRIC,
+        "Wind Direction",
+        "Baro-Pressure",
+    ]
+    assert body["expected_display_style_map"]["weewx-station"]["METRIC_5"] == "Gauge"
+
+
+@pytest.mark.asyncio
 async def test_dashboard_read_does_not_rewrite_metric_positions_for_offline_sensors(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     saiWebRoutes._SENSOR_LOCATION_CACHE.clear()

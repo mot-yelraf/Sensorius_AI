@@ -9,6 +9,7 @@ import saiWebRoutes
 from saiWebRoutes import ensure_weewx_sensor_settings
 from sensor_modules.station_weewx import (
     WEEWX_DISPLAY_METRICS,
+    WEEWX_DISPLAY_STYLES,
     WeeWXStationMetadata,
     apply_weewx_station_metadata,
     parse_weewx_station_metadata,
@@ -68,6 +69,7 @@ def test_weewx_seed_uses_station_display_defaults(tmp_path):
     assert doc["Sensor"]["SENSOR_ID"] == "weewx-station"
     assert doc["Sensor"]["LOCATION"] == "Weather Station"
     assert [doc["Display"][f"METRIC_{idx}"] for idx in range(1, 7)] == WEEWX_DISPLAY_METRICS
+    assert [doc["Display"]["Style"][f"METRIC_{idx}"] for idx in range(1, 7)] == WEEWX_DISPLAY_STYLES
 
 
 def test_weewx_settings_are_not_built_as_local_sensor_controller():
@@ -84,6 +86,7 @@ def test_weewx_materializer_creates_missing_sensor_toml(tmp_path):
     assert doc["Sensor"]["DEVICE"] == "weewx"
     assert doc["Sensor"]["SENSOR_ID"] == "weewx-station"
     assert [doc["Display"][f"METRIC_{idx}"] for idx in range(1, 7)] == WEEWX_DISPLAY_METRICS
+    assert [doc["Display"]["Style"][f"METRIC_{idx}"] for idx in range(1, 7)] == WEEWX_DISPLAY_STYLES
 
 
 def test_weewx_materializer_records_station_metadata(tmp_path, monkeypatch):

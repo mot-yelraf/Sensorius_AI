@@ -14,7 +14,7 @@ from pathlib import Path
 from collections import OrderedDict
 from saiLocalIdentity import extract_local_host_id_from_sensor_id, resolve_persisted_host_serial
 from saiRuntimePaths import resolve_runtime_base_dir
-from sensor_modules.station_weewx import WEEWX_DISPLAY_METRICS
+from sensor_modules.station_weewx import WEEWX_DISPLAY_METRICS, WEEWX_DISPLAY_STYLES
 
 try:
     import tomllib  # Python 3.11+ (read)
@@ -389,7 +389,7 @@ class SensorSettingsManager:
           co2   -> ["CO2","Temperature","Rel-Humidity","Ambient VPD","Dewpoint Deficit","dewVPD Risk"]
           lux   -> ["Light Intensity","Auto Light","Estimated PPFD","Visible Light Intensity","",""]
           soil  -> ["Soil Moisture","Soil Moisture Deficit","Soil Stress Index","Soil Temp_C","Soil pH","Soil EC"]
-          weewx -> ["Temperature_F","Rel-Humidity","Baro-Pressure","Rain Last 24h","Wind Speed","Wind Direction"]
+          weewx -> ["Temperature_F","Rel-Humidity","Rain","Rain Last 24h","Wind Direction","Baro-Pressure"]
         """
         dst = self._resolve_write_path(sensor_id)  # ensures parent dir
         if dst.exists():
@@ -462,7 +462,8 @@ class SensorSettingsManager:
             display["Style"] = style_block
         for idx in range(6):
             key = f"METRIC_{idx + 1}"
-            style_block.setdefault(key, "")
+            default_style = WEEWX_DISPLAY_STYLES[idx] if base_device == "weewx" else ""
+            style_block.setdefault(key, default_style)
 
         # write & cache
         self._emit_toml_to_disk(dst, data)
