@@ -39,7 +39,8 @@ def apply_calibration_updates_local(sensor_id: str, offsets: list[dict] | dict) 
     Persist calibration offsets into sensor_settings/<sensor_id>/sensor.toml.
     `offsets` may be:
       - list of { "key": "Calibration.Device.CO2_OFFSET", "value": -700.0 }
-      - or a nested dict under keys 'system', 'device', 'soil', 'apvpd'
+      - or a nested dict under keys 'system', 'device', 'soil', 'apvpd';
+        soil values are stored under Calibration.Device
     """
     mgr = SensorSettingsManager("sensor_settings")
     doc = mgr.load(sensor_id) or {}
@@ -62,7 +63,7 @@ def apply_calibration_updates_local(sensor_id: str, offsets: list[dict] | dict) 
         for section_key, table_name in (
             ("system", "Calibration.System"),
             ("device", "Calibration.Device"),
-            ("soil",   "Calibration.Soil"),
+            ("soil",   "Calibration.Device"),
             ("apvpd",  "Calibration"),
         ):
             block = calib.get(section_key)

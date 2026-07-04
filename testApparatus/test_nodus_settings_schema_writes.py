@@ -30,6 +30,7 @@ import saiSensorSettingsManager
 import saiSettings as saiSettingsModule
 import saiSwitchSettingsManager
 import saiWebRoutes
+import saiCalibration
 from sensor_modules.station_weewx import WEEWX_RAIN_24H_METRIC
 
 _REAL_SENSOR_SETTINGS_MANAGER = saiSensorSettingsManager.SensorSettingsManager
@@ -486,7 +487,7 @@ def _write_system_settings(root: Path, device_id: str, hostname: str, *, broker:
     (target / "settings.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-async def _build_app(tmp_path, monkeypatch, hub_settings=None):
+async def _build_app(tmp_path, monkeypatch, hub_settings=None, ota_service=None):
     system_root = tmp_path / "system_settings"
     sensor_root = tmp_path / "sensor_settings"
     switch_root = tmp_path / "switch_settings"
@@ -504,6 +505,8 @@ async def _build_app(tmp_path, monkeypatch, hub_settings=None):
     monkeypatch.setattr(saiWebRoutes, "SwitchSettingsManager", lambda *_a, **_k: _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root)))
     monkeypatch.setattr(saiSwitchSettingsManager, "SwitchSettingsManager", lambda *_a, **_k: _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root)))
     app = FastAPI()
+    if ota_service is not None:
+        app.state.nodus_ota_service = ota_service
     ingest = _FakeIngest()
     await saiWebRoutes.register_routes(app, hub_settings or _HubSettings(), _FakeNetMgr(), _FakeGcMgr(), ingest)
     return app, ingest, system_root, sensor_root, switch_root
@@ -529,6 +532,32 @@ async def _build_app_base_dir_only(tmp_path, monkeypatch):
     ingest = _FakeIngest()
     await saiWebRoutes.register_routes(app, _HubSettings(), _FakeNetMgr(), _FakeGcMgr(), ingest)
     return app, ingest, system_root, sensor_root, switch_root
+
+
+@pytest.mark.asyncio
+async def test_ota_package_browse_defaults_to_service_package_root(tmp_path, monkeypatch):
+    package_root = tmp_path / "ota_packages"
+    (package_root / "pkg-one").mkdir(parents=True)
+    ota_service = saiWebRoutes.NodusOTAService(package_root=package_root)
+    app, _ingest, _system_root, _sensor_root, _switch_root = await _build_app(
+        tmp_path,
+        monkeypatch,
+        ota_service=ota_service,
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"sec-fetch-site": "same-origin"},
+    ) as client:
+        res = await client.get("/api/nodus-ota/package/browse")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    folder = body["folder"]
+    assert folder["path"] == str(package_root.resolve())
+    assert {row["name"] for row in folder["directories"]} == {"pkg-one"}
 
 
 async def _build_route_app_with_settings(tmp_path, monkeypatch, stored_settings: dict):
@@ -1810,6 +1839,44 @@ def test_sensor_settings_modal_restart_button_uses_restarting_label():
     assert "Device Restarting..." in html
 
 
+def test_local_calibration_nested_soil_updates_write_device_section(tmp_path, monkeypatch):
+    sensor_root = tmp_path / "sensor_settings"
+    sensor_root.mkdir()
+    monkeypatch.setattr(saiCalibration, "SensorSettingsManager", lambda *_a, **_k: _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root)))
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "soil-123",
+        {
+            "Sensor": {
+                "TYPE": "pi",
+                "DEVICE": "soil",
+                "SENSOR_ID": "soil-123",
+            },
+            "Calibration": {
+                "Device": {
+                    "SOIL_TEMP_CAL_VAL": 0.0,
+                    "SOIL_MOIST_CAL_VAL": 0.0,
+                }
+            },
+        },
+    )
+
+    assert saiCalibration.apply_calibration_updates_local(
+        "soil-123",
+        {
+            "soil": {
+                "SOIL_PH_CAL_VAL": 0.75,
+                "SOIL_MOIST_CAL_VAL": 10.0,
+            }
+        },
+    ) is True
+
+    saved = sensor_mgr.load("soil-123")
+    assert saved["Calibration"]["Device"]["SOIL_PH_CAL_VAL"] == 0.75
+    assert saved["Calibration"]["Device"]["SOIL_MOIST_CAL_VAL"] == 10.0
+    assert "Soil" not in saved["Calibration"]
+
+
 @pytest.mark.asyncio
 async def test_restart_sensor_device_publishes_soft_restart_to_nodus_config_set(tmp_path, monkeypatch):
     app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
@@ -2559,6 +2626,103 @@ async def test_device_calibration_apply_for_remote_nodus_does_not_update_shadow_
     assert res.status_code == 400
     saved = sensor_mgr.load("apvpd-test123")
     assert "Calibration" not in saved
+
+
+@pytest.mark.asyncio
+async def test_remote_soil_moisture_calibration_reopens_with_canonical_nodus_key(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    app.state.templates = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "soil-0xc4wu",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "soil",
+                "SENSOR_ID": "soil-0xc4wu",
+                "LOCATION": "Greenhouse",
+            },
+            "Calibration": {
+                "Device": {
+                    "SOIL_TEMP_CAL_VAL": 0.0,
+                    "SOIL_TEMP_MOIST_VAL": 0.0,
+                    "SOIL_PH_CAL_VAL": 3.0,
+                    "SOIL_EC_CAL_VAL": 0.0,
+                }
+            },
+        },
+    )
+    ingest.meta_patches_by_message["test-1"] = {
+        "schema": "nodus-meta-patch/v1",
+        "device_id": "soil-0xc4wu",
+        "message_id": "test-1",
+        "source": "calibration_set",
+        "updates": [
+            {"section": "Calibration.Device", "key": "SOIL_MOIST_CAL_VAL", "value": 20.0},
+        ],
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        apply_res = await client.post(
+            "/calibration/device/apply",
+            json={
+                "sensor_id": "soil-0xc4wu",
+                "device_kind": "soil",
+                "offsets": [{"key": "soil_moisture_offset", "value": 20.0}],
+            },
+        )
+        modal_res = await client.get(
+            "/edit-sensor",
+            params={"sensor_id": "soil-0xc4wu", "embed": "1"},
+        )
+
+    assert apply_res.status_code == 200
+    assert apply_res.json()["shadow_synced"] is True
+    saved = sensor_mgr.load("soil-0xc4wu")
+    assert saved["Calibration"]["Device"]["SOIL_MOIST_CAL_VAL"] == 20.0
+    assert saved["Calibration"]["Device"]["SOIL_TEMP_MOIST_VAL"] == 0.0
+    assert modal_res.status_code == 200
+    html = modal_res.text
+    assert 'data-key="soil_moisture_offset"' in html
+    assert 'value="20.0"' in html
+    assert 'data-key="soil_ph_offset"' in html
+    assert 'value="3.0"' in html
+
+
+@pytest.mark.asyncio
+async def test_remote_soil_moisture_calibration_filter_uses_canonical_nodus_key(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "soil-0xc4wu",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "soil",
+                "SENSOR_ID": "soil-0xc4wu",
+            },
+            "Calibration": {
+                "Device": {
+                    "SOIL_TEMP_MOIST_VAL": 0.0,
+                    "SOIL_MOIST_CAL_VAL": 20.0,
+                }
+            },
+        },
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/calibration/device/apply",
+            json={
+                "sensor_id": "soil-0xc4wu",
+                "device_kind": "soil",
+                "offsets": [{"key": "soil_moisture_offset", "value": 20.0}],
+            },
+        )
+
+    assert res.status_code == 400
+    assert res.json()["message"] == "No calibration changes detected."
+    assert ingest.calibration_commands == []
 
 
 @pytest.mark.asyncio

@@ -252,8 +252,8 @@ Important sections and keys:
   WeeWX config when the station sensor is materialized or refreshed.
 - `[Calibration]`: high-level calibration status.
 - `[Calibration.System]`: reference-sensor calibration fields.
-- `[Calibration.Device]`: per-device offsets and altitude.
-- `[Calibration.Soil]`: soil probe calibration values.
+- `[Calibration.Device]`: per-device offsets, altitude, and soil probe
+  calibration values.
 - `[Display]`: selected metrics and metric display mode.
 - `[Display.Style]`: per-metric display style overrides.
 

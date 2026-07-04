@@ -1736,7 +1736,7 @@ def _calibration_section_for_branch(branch):
     if normalized == "device":
         return "Calibration.Device"
     if normalized == "soil":
-        return "Calibration.Soil"
+        return "Calibration.Device"
     if normalized == "apvpd":
         return "Calibration"
     return ""

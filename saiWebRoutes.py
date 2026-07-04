@@ -4409,10 +4409,28 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     def _ota_folder_roots() -> list[str]:
         roots: list[str] = []
+        seen: set[str] = set()
+
+        def _append_root(candidate: object) -> None:
+            try:
+                path = Path(candidate).expanduser().resolve()
+            except Exception:
+                return
+            try:
+                if not path.exists() or not path.is_dir():
+                    return
+            except Exception:
+                return
+            text = str(path)
+            if text and text not in seen:
+                roots.append(text)
+                seen.add(text)
+
+        _append_root(getattr(ota_service, "package_root", Path.cwd() / "ota_packages"))
         try:
             home = str(Path.home())
-            if home and Path(home).exists():
-                roots.append(home)
+            if home:
+                _append_root(home)
         except Exception:
             pass
         return roots
@@ -9024,31 +9042,44 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         sensor_type = str(block.get("TYPE", block.get("type", "")) or "").strip().lower()
         return _is_remote_nodus_type(sensor_type)
 
+    _SOIL_TEMP_CAL_KEYS = ("SOIL_TEMP_CAL_VAL",)
+    _SOIL_MOISTURE_CAL_KEYS = ("SOIL_MOIST_CAL_VAL", "SOIL_TEMP_MOIST_VAL")
+    _SOIL_PH_CAL_KEYS = ("SOIL_PH_CAL_VAL",)
+    _SOIL_EC_CAL_KEYS = ("SOIL_EC_CAL_VAL",)
+
+    def _soil_offset_value(section: dict, keys: tuple[str, ...], _get_float, default: float = 0.0) -> float:
+        if not isinstance(section, dict):
+            return default
+        for key in keys:
+            if key in section:
+                return _get_float(section, key, default)
+        return default
+
     def _soil_device_offsets(device_section: dict, _get_float) -> list[dict]:
         return [
             {
                 "key": "soil_moisture_offset",
                 "label": "Soil Moisture",
                 "unit": "%",
-                "value": _get_float(device_section, "SOIL_TEMP_MOIST_VAL", 0.0),
+                "value": _soil_offset_value(device_section, _SOIL_MOISTURE_CAL_KEYS, _get_float),
             },
             {
                 "key": "soil_temp_offset",
                 "label": "Soil Temperature",
                 "unit": "°C",
-                "value": _get_float(device_section, "SOIL_TEMP_CAL_VAL", 0.0),
+                "value": _soil_offset_value(device_section, _SOIL_TEMP_CAL_KEYS, _get_float),
             },
             {
                 "key": "soil_ph_offset",
                 "label": "Soil pH",
                 "unit": "pH",
-                "value": _get_float(device_section, "SOIL_PH_CAL_VAL", 0.0),
+                "value": _soil_offset_value(device_section, _SOIL_PH_CAL_KEYS, _get_float),
             },
             {
                 "key": "soil_ec_offset",
                 "label": "Soil EC",
                 "unit": "",
-                "value": _get_float(device_section, "SOIL_EC_CAL_VAL", 0.0),
+                "value": _soil_offset_value(device_section, _SOIL_EC_CAL_KEYS, _get_float),
             },
         ]
 
@@ -9162,8 +9193,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     calib["Device"] = dev
 
                 if key == "soil_moisture_offset":
+                    dev["SOIL_MOIST_CAL_VAL"] = val
                     dev["SOIL_TEMP_MOIST_VAL"] = val
-                    applied_keys.append("Calibration.Device.SOIL_TEMP_MOIST_VAL")
+                    applied_keys.append("Calibration.Device.SOIL_MOIST_CAL_VAL")
                 elif key == "soil_temp_offset":
                     dev["SOIL_TEMP_CAL_VAL"] = val
                     applied_keys.append("Calibration.Device.SOIL_TEMP_CAL_VAL")
@@ -9208,12 +9240,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "soil_ec_offset",
         ):
             soil_key_map = {
-                "soil_moisture_offset": "SOIL_TEMP_MOIST_VAL",
-                "soil_temp_offset": "SOIL_TEMP_CAL_VAL",
-                "soil_ph_offset": "SOIL_PH_CAL_VAL",
-                "soil_ec_offset": "SOIL_EC_CAL_VAL",
+                "soil_moisture_offset": _SOIL_MOISTURE_CAL_KEYS,
+                "soil_temp_offset": _SOIL_TEMP_CAL_KEYS,
+                "soil_ph_offset": _SOIL_PH_CAL_KEYS,
+                "soil_ec_offset": _SOIL_EC_CAL_KEYS,
             }
-            return _to_float(device_cal.get(soil_key_map[key]))
+            for soil_key in soil_key_map[key]:
+                current = _to_float(device_cal.get(soil_key))
+                if current is not None:
+                    return current
+            return None
 
         cur = doc if isinstance(doc, dict) else {}
         for seg in [p for p in str(key or "").split(".") if p]:
@@ -9777,7 +9813,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             ambient_temp_offset = _get_float(calib_section, "APVPD_TEMP_CAL_VAL", 0.0)
             ambient_rh_offset = _get_float(calib_section, "APVPD_RH_CAL_VAL", 0.0)
-            soil_ph_offset = _get_float(device_section, "SOIL_PH_CAL_VAL", 0.0)
+            soil_ph_offset = _soil_offset_value(device_section, _SOIL_PH_CAL_KEYS, _get_float)
 
             device_offsets: list[dict] = []
 
@@ -10758,7 +10794,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         For SoilModbusSensor ("soil" device_kind), we accept soil-specific
         short keys which map into [Calibration.Device]:
 
-          - soil_moisture_offset -> Calibration.Device.SOIL_TEMP_MOIST_VAL
+          - soil_moisture_offset -> Calibration.Device.SOIL_MOIST_CAL_VAL
+                                      (legacy SOIL_TEMP_MOIST_VAL is still read)
           - soil_temp_offset     -> Calibration.Device.SOIL_TEMP_CAL_VAL
           - soil_ph_offset       -> Calibration.Device.SOIL_PH_CAL_VAL
           - soil_ec_offset       -> Calibration.Device.SOIL_EC_CAL_VAL
@@ -11073,7 +11110,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # APVPD-specific ambient offsets, fallback to 0.0 if missing
         ambient_temp_offset = _get_float(calib_section, "APVPD_TEMP_CAL_VAL", 0.0)
         ambient_rh_offset   = _get_float(calib_section, "APVPD_RH_CAL_VAL", 0.0)
-        soil_ph_offset      = _get_float(device_section, "SOIL_PH_CAL_VAL", 0.0)
+        soil_ph_offset      = _soil_offset_value(device_section, _SOIL_PH_CAL_KEYS, _get_float)
 
         # ---- Build per-device offsets for non-APVPD devices -----------------
         device_offsets: list[dict] = []

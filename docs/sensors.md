@@ -117,9 +117,8 @@ Soil sensor:
 
 Calibration data is stored in the sensor settings file:
 
-- `[Calibration.Device]`: per-device offsets.
+- `[Calibration.Device]`: per-device offsets, including soil-specific offsets.
 - `[Calibration.System]`: reference-sensor/system calibration metadata.
-- `[Calibration.Soil]`: soil-specific offsets.
 
 Local calibration updates are persisted and hot-reloaded into the running
 sensor when supported. Remote Nodus calibration uses MQTT calibration commands,

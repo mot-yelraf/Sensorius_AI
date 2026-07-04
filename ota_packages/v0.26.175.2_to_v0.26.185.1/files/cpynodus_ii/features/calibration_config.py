@@ -282,7 +282,7 @@ def _calibration_section_for_branch(branch):
     if normalized == "device":
         return "Calibration.Device"
     if normalized == "soil":
-        return "Calibration.Soil"
+        return "Calibration.Device"
     if normalized == "apvpd":
         return "Calibration"
     return ""
@@ -294,7 +294,6 @@ def _supported_calibration_key(section, key):
     return bool(key and section in {
         "Calibration.System",
         "Calibration.Device",
-        "Calibration.Soil",
         "Calibration",
     })
 

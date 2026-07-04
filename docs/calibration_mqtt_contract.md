@@ -134,7 +134,7 @@ Section mapping currently implemented by Nodus:
 
 - `calibration.system.*` -> `Calibration.System.*`
 - `calibration.device.*` -> `Calibration.Device.*`
-- `calibration.soil.*` -> `Calibration.Soil.*`
+- `calibration.soil.*` -> `Calibration.Device.*`
 - `calibration.apvpd.*` -> `Calibration.*`
 
 Behavior:
@@ -142,7 +142,11 @@ Behavior:
 - writes are applied to the active sensor file
 - Nodus attempts hot reload via `sensor.reload_calibration_from_settings(settings)`
 - if hot reload is unavailable/fails, Nodus falls back to `sensor.try_reinit()`
-- `offsets[].key` also accepts the short aliases exposed in calibration status, including `soil_ph_offset`
+- `offsets[].key` also accepts the short aliases exposed in calibration status,
+  including `soil_ph_offset`
+- `soil_moisture_offset` is materialized as
+  `Calibration.Device.SOIL_MOIST_CAL_VAL`; Sensorius still reads legacy
+  `SOIL_TEMP_MOIST_VAL` shadows for compatibility
 
 ## Action: Status
 

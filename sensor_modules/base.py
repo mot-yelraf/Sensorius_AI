@@ -62,7 +62,6 @@ class BaseSensor:
         #
         # [Calibration.System]
         # [Calibration.Device]
-        # [Calibration.Soil]
         #
         # Concrete sensor classes (CO2, AQI, APVPD, VEML, Soil…) are responsible
         # for loading and applying their own per-metric offsets from these blocks.
@@ -124,7 +123,7 @@ class BaseSensor:
             Try settings.get_section("Calibration.X") first (your existing pattern),
             then fall back to cfg["Calibration"]["X"] if available.
             """
-            # Example section_name: "Device", "System", "Soil"
+            # Example section_name: "Device", "System"
             result = {}
             try:
                 if hasattr(self.settings, "get_section"):
@@ -148,7 +147,7 @@ class BaseSensor:
 
         self.calibration_device = _get_section_fallback("Device")
         self.calibration_system = _get_section_fallback("System")
-        self.calibration_soil = _get_section_fallback("Soil")
+        self.calibration_soil = self.calibration_device
 
         # ---- Display section (optional, but aligned with sensor.toml) ----
         #
