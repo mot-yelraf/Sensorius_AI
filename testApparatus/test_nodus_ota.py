@@ -224,6 +224,179 @@ def test_run_device_allows_reapplying_package_target_version(tmp_path):
     assert state["error"] == "after_version_check"
 
 
+def test_run_device_aborts_ota_session_when_push_fails_after_ready(tmp_path):
+    service = NodusOTAService(package_root=tmp_path / "ota")
+    pkg = service.inspect_package(str(_write_package(tmp_path, version="v0.26.174.1")))
+    job = {
+        "force_version_mismatch": False,
+        "chunk_size": 1024,
+        "devices": {
+            "aht-yuk0nv": {
+                "device_id": "aht-yuk0nv",
+                "status": "queued",
+                "phase": "queued",
+            }
+        },
+    }
+    aborts = []
+    service._firmware_version = lambda device_id: "v0.26.174.1"
+    service._board_type = lambda device_id: "pico2w"
+    service._device_url = lambda device_id: "http://device:8000"
+    service._publish_prepare = lambda device_id, package_id: None
+
+    async def _ready(*_args, **_kwargs):
+        return True
+
+    async def _push_fails(*_args, **_kwargs):
+        raise NodusOTAError("begin_rejected:manifest_invalid_json")
+
+    async def _abort(url):
+        aborts.append(url)
+
+    service._wait_after_prepare = _ready
+    service._push_package = _push_fails
+    service._abort_ota_session = _abort
+
+    import asyncio
+    asyncio.run(service._run_device(job, pkg, "aht-yuk0nv"))
+
+    state = job["devices"]["aht-yuk0nv"]
+    assert state["status"] == "failed"
+    assert state["error"] == "begin_rejected:manifest_invalid_json"
+    assert state["ota_abort_attempted"] is True
+    assert state["ota_abort_reason"] == "push_failed"
+    assert aborts == ["http://device:8000"]
+
+
+def test_run_device_keeps_original_error_when_abort_fails(tmp_path):
+    service = NodusOTAService(package_root=tmp_path / "ota")
+    pkg = service.inspect_package(str(_write_package(tmp_path, version="v0.26.174.1")))
+    job = {
+        "force_version_mismatch": False,
+        "chunk_size": 1024,
+        "devices": {
+            "aht-yuk0nv": {
+                "device_id": "aht-yuk0nv",
+                "status": "queued",
+                "phase": "queued",
+            }
+        },
+    }
+    service._firmware_version = lambda device_id: "v0.26.174.1"
+    service._board_type = lambda device_id: "pico2w"
+    service._device_url = lambda device_id: "http://device:8000"
+    service._publish_prepare = lambda device_id, package_id: None
+
+    async def _ready(*_args, **_kwargs):
+        return True
+
+    async def _push_fails(*_args, **_kwargs):
+        raise NodusOTAError("commit_rejected:sha256_mismatch")
+
+    async def _abort_fails(url):
+        raise RuntimeError("abort unavailable")
+
+    service._wait_after_prepare = _ready
+    service._push_package = _push_fails
+    service._abort_ota_session = _abort_fails
+
+    import asyncio
+    asyncio.run(service._run_device(job, pkg, "aht-yuk0nv"))
+
+    state = job["devices"]["aht-yuk0nv"]
+    assert state["status"] == "failed"
+    assert state["error"] == "commit_rejected:sha256_mismatch"
+    assert state["ota_abort_attempted"] is True
+    assert state["ota_abort_reason"] == "push_failed"
+
+
+def test_run_device_does_not_abort_before_ota_readiness(tmp_path):
+    service = NodusOTAService(package_root=tmp_path / "ota")
+    pkg = service.inspect_package(str(_write_package(tmp_path, version="v0.26.174.1")))
+    job = {
+        "force_version_mismatch": False,
+        "chunk_size": 1024,
+        "devices": {
+            "aht-yuk0nv": {
+                "device_id": "aht-yuk0nv",
+                "status": "queued",
+                "phase": "queued",
+            }
+        },
+    }
+    aborts = []
+    service._firmware_version = lambda device_id: "v0.26.174.1"
+    service._board_type = lambda device_id: "pico2w"
+    service._device_url = lambda device_id: "http://device:8000"
+    service._publish_prepare = lambda device_id, package_id: None
+
+    async def _not_ready(*_args, **_kwargs):
+        raise NodusOTAError("ota_http_ready_timeout")
+
+    async def _abort(url):
+        aborts.append(url)
+
+    service._wait_after_prepare = _not_ready
+    service._abort_ota_session = _abort
+
+    import asyncio
+    asyncio.run(service._run_device(job, pkg, "aht-yuk0nv"))
+
+    state = job["devices"]["aht-yuk0nv"]
+    assert state["status"] == "failed"
+    assert state["error"] == "ota_http_ready_timeout"
+    assert "ota_abort_attempted" not in state
+    assert aborts == []
+
+
+def test_run_device_aborts_after_failed_fwupdate_result(tmp_path):
+    service = NodusOTAService(package_root=tmp_path / "ota")
+    pkg = service.inspect_package(str(_write_package(tmp_path, version="v0.26.174.1")))
+    job = {
+        "force_version_mismatch": False,
+        "chunk_size": 1024,
+        "devices": {
+            "aht-yuk0nv": {
+                "device_id": "aht-yuk0nv",
+                "status": "queued",
+                "phase": "queued",
+            }
+        },
+    }
+    aborts = []
+    service._firmware_version = lambda device_id: "v0.26.174.1"
+    service._board_type = lambda device_id: "pico2w"
+    service._device_url = lambda device_id: "http://device:8000"
+    service._publish_prepare = lambda device_id, package_id: None
+
+    async def _ready(*_args, **_kwargs):
+        return True
+
+    async def _push_ok(*_args, **_kwargs):
+        return None
+
+    async def _failed_result(*_args, **_kwargs):
+        raise NodusOTAError("fwupdate_result:failed:manifest_invalid_json")
+
+    async def _abort(url):
+        aborts.append(url)
+
+    service._wait_after_prepare = _ready
+    service._push_package = _push_ok
+    service._wait_for_reboot_metadata = _failed_result
+    service._abort_ota_session = _abort
+
+    import asyncio
+    asyncio.run(service._run_device(job, pkg, "aht-yuk0nv"))
+
+    state = job["devices"]["aht-yuk0nv"]
+    assert state["status"] == "failed"
+    assert state["error"] == "fwupdate_result:failed:manifest_invalid_json"
+    assert state["ota_abort_attempted"] is True
+    assert state["ota_abort_reason"] == "fwupdate_result_failed"
+    assert aborts == ["http://device:8000"]
+
+
 def test_push_file_chunks_sends_binary_content_type_and_validates_offset(tmp_path):
     payload = b"x" * 71
     file_path = tmp_path / "tiny.mpy"

@@ -396,17 +396,31 @@ class NodusOTAService:
             await asyncio.to_thread(self._publish_prepare, device_id, package_id)
 
             async with httpx.AsyncClient(timeout=10.0) as client:
-                ready = await self._wait_after_prepare(client, url, package_id, state)
-                if not ready:
-                    self._set_device_state(state, "waiting_ota_http", "waiting for OTA HTTP mode")
-                    await self._wait_ready(client, url, package_id, state)
+                try:
+                    ready = await self._wait_after_prepare(client, url, package_id, state)
+                    if not ready:
+                        self._set_device_state(state, "waiting_ota_http", "waiting for OTA HTTP mode")
+                        await self._wait_ready(client, url, package_id, state)
+                    state["ota_http_ready"] = True
+                except Exception:
+                    await self._abort_ota_if_ready(state, reason="ready_failed")
+                    raise
 
             timeout = float(DEFAULT_TIMEOUT_S)
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                await self._push_package(client, url, package, state, chunk_size=int(job.get("chunk_size") or DEFAULT_CHUNK_SIZE))
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    await self._push_package(client, url, package, state, chunk_size=int(job.get("chunk_size") or DEFAULT_CHUNK_SIZE))
+            except Exception:
+                await self._abort_ota_if_ready(state, reason="push_failed")
+                raise
 
             self._set_device_state(state, "waiting_meta", "waiting for device to reboot")
-            await self._wait_for_reboot_metadata(device_id, required, state)
+            try:
+                await self._wait_for_reboot_metadata(device_id, required, state)
+            except NodusOTAError as exc:
+                if _fwupdate_result_failure_needs_abort(str(exc)):
+                    await self._abort_ota_if_ready(state, reason="fwupdate_result_failed")
+                raise
             self._set_device_state(state, "complete", "update complete", progress=100, status="complete")
         except asyncio.CancelledError:
             self._set_device_state(state, "aborted", "job cancelled", status="aborted")
@@ -427,6 +441,7 @@ class NodusOTAService:
                 data = resp.json()
                 phase = str(data.get("phase") or "")
                 if phase == "ready":
+                    state["ota_http_ready"] = True
                     if data.get("package_id") and data.get("package_id") != package_id:
                         raise NodusOTAError("device_package_mismatch")
                     self._set_device_state(state, "status_ready", "OTA mode ready", progress=5)
@@ -459,6 +474,7 @@ class NodusOTAService:
                 data = resp.json()
                 phase = str(data.get("phase") or "")
                 if phase == "ready":
+                    state["ota_http_ready"] = True
                     if data.get("package_id") and data.get("package_id") != package_id:
                         raise NodusOTAError("device_package_mismatch")
                     self._set_device_state(state, "status_ready", "OTA mode ready", progress=5)
@@ -589,6 +605,22 @@ class NodusOTAService:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 await client.post(f"{url}/ota/abort", json={})
+        except Exception:
+            pass
+
+    async def _abort_ota_if_ready(self, state: dict[str, Any], *, reason: str) -> None:
+        if not state.get("ota_http_ready"):
+            return
+        if state.get("ota_abort_attempted"):
+            return
+        url = str(state.get("ota_url") or "")
+        if not url:
+            return
+        state["ota_abort_attempted"] = True
+        state["ota_abort_reason"] = str(reason or "")
+        state["updated_at"] = time.time()
+        try:
+            await self._abort_ota_session(url)
         except Exception:
             pass
 
@@ -812,6 +844,15 @@ def _file_transfer_error_retryable(error: str) -> bool:
         "sha256_mismatch",
         "staged_file_missing",
     }
+
+
+def _fwupdate_result_failure_needs_abort(error: str) -> bool:
+    text = str(error or "")
+    return (
+        text.startswith("fwupdate_result:failed:")
+        or text.startswith("fwupdate_result:rollback:")
+        or text.startswith("fwupdate_result:rolled_back:")
+    )
 
 
 def _http_probe_error(exc: Exception) -> str:

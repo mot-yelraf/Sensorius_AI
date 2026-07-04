@@ -616,6 +616,19 @@ Implemented behavior:
   soft-reboots into temporary OTA mode.
 - OTA mode does not run MQTT. Sensorius or the CLI transfers package files
   over HTTP using the Nodus OTA endpoints.
+- Once Sensorius has observed OTA HTTP readiness, failed manifest validation,
+  failed file transfer, failed commit, and failed or rollback
+  `fwupdate/result` notifications are terminal for that OTA attempt.
+  Sensorius must make a best-effort `POST /ota/abort` request to that Nodus
+  device and keep the original failure as the job error if abort also fails.
+- `POST /ota/abort` is an idempotent cleanup request. Nodus should remove
+  `/_ota/state.json` and staged or temporary OTA files; it should not preserve
+  private OTA state by writing `phase = "aborted"`.
+- Failed `POST /ota/begin` JSON parsing or manifest validation is also
+  terminal on the Nodus side and should clear `/_ota/state.json` plus staged
+  or temporary files before returning the error.
+- If Nodus aborts OTA during startup and reboots into normal runtime, it should
+  clear `/_ota/state.json` before rebooting.
 - OTA package `target.platform` values verified end-to-end are `pico2w` and
   `xesp32s3`. Sensorius compares the package target with retained `mcu`
   metadata and rejects known mismatches before transfer.
