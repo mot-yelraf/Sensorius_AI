@@ -114,6 +114,9 @@ Remote Nodus sensors:
   data, heartbeat, availability, calibration, and patch topics.
 - `saiMQTTIngest` uses retained metadata to register sensor and switch topics
   and seed or update local shadow settings.
+- Remote switch commands are paced per channel and publish to a single
+  channel-scoped `config/set` target until the correlated Nodus response clears
+  the in-flight command.
 - Sensor payloads are normalized and written through `saiDataLogger`, the same
   path as local readings.
 

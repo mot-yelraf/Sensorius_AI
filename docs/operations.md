@@ -66,6 +66,8 @@ Useful web routes:
 - `/debug`: diagnostic HTML page.
 - `/debug/switch-controllers`: switch controller snapshot.
 - `/debug/automation-state`: Advanced automation state.
+- `/debug/mqtt-retained-commands`: redacted scan for retained non-empty Nodus
+  `/set` command payloads.
 - `/farmos/status`: farmOS bridge state.
 - `/weewx/status`: WeeWX ingest state.
 - `/advanced/status`: Advanced Settings status.
@@ -218,8 +220,10 @@ When a Nodus device does not appear:
 3. Confirm retained `nodus/<device_id>/meta` exists.
 4. For switch-capable devices, confirm retained `nodus/<device_id>/meta/switch`
    exists.
-5. Confirm heartbeat updates are recent.
-6. Use the web UI retry-discovery action if metadata arrived before Sensorius
+5. Check `/debug/mqtt-retained-commands` for stale retained `/set` commands
+   that could replay after reconnect.
+6. Confirm heartbeat updates are recent.
+7. Use the web UI retry-discovery action if metadata arrived before Sensorius
    subscribed.
 
 ## Nodus OTA Operations

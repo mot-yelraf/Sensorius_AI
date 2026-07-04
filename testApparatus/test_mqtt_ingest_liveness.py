@@ -31,6 +31,21 @@ import saiSettings
 import saiSwitchSettingsManager
 
 
+def _fake_topic_filter_matches(topic_filter: str, topic: str) -> bool:
+    filter_parts = str(topic_filter or "").split("/")
+    topic_parts = str(topic or "").split("/")
+    ti = 0
+    for fi, part in enumerate(filter_parts):
+        if part == "#":
+            return fi == len(filter_parts) - 1
+        if ti >= len(topic_parts):
+            return False
+        if part != "+" and part != topic_parts[ti]:
+            return False
+        ti += 1
+    return ti == len(topic_parts)
+
+
 class _FakeClient:
     def __init__(self, client_id=None):
         self.client_id = client_id
@@ -38,18 +53,52 @@ class _FakeClient:
         self.on_message = None
         self.on_disconnect = None
         self.subs = []
+        self.unsubs = []
         self.pubs = []
+        self.connected = True
+        self.callbacks = {}
+        self.retained_messages = []
 
     def username_pw_set(self, username, password=None):
         return
 
     def subscribe(self, topic, qos=0):
         self.subs.append((topic, qos))
+        callback = self.callbacks.get(topic)
+        if callback:
+            for row in list(self.retained_messages):
+                msg_topic = row.get("topic") if isinstance(row, dict) else row[0]
+                payload = row.get("payload", "") if isinstance(row, dict) else row[1]
+                retain = row.get("retain", True) if isinstance(row, dict) else (row[2] if len(row) > 2 else True)
+                if _fake_topic_filter_matches(topic, msg_topic):
+                    callback(
+                        self,
+                        None,
+                        types.SimpleNamespace(
+                            topic=msg_topic,
+                            payload=payload.encode("utf-8") if isinstance(payload, str) else payload,
+                            retain=retain,
+                            qos=qos,
+                        ),
+                    )
         return (0, 1)
+
+    def unsubscribe(self, topic):
+        self.unsubs.append(topic)
+        return (0, 1)
+
+    def message_callback_add(self, topic_filter, callback):
+        self.callbacks[topic_filter] = callback
+
+    def message_callback_remove(self, topic_filter):
+        self.callbacks.pop(topic_filter, None)
 
     def publish(self, topic, payload, qos=0, retain=False):
         self.pubs.append((topic, payload, qos, retain))
         return types.SimpleNamespace(rc=0)
+
+    def is_connected(self):
+        return bool(self.connected)
 
     def connect(self, *_args, **_kwargs):
         return 0
@@ -419,6 +468,67 @@ def test_publish_text_allows_empty_retained_set_cleanup(monkeypatch):
 
     assert ok is True
     assert ingest.client.pubs[-1] == ("nodus/apvpd-test123/config/set", "", 0, True)
+
+
+def test_scan_retained_command_topics_reports_redacted_stale_set_commands(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.client.retained_messages = [
+        {
+            "topic": "nodus/S1-test123/config/set",
+            "payload": json.dumps(
+                {
+                    "message_id": "cfg-stale-1",
+                    "payload": {
+                        "updates": [
+                            {
+                                "section": "Network",
+                                "key": "PASSWORD",
+                                "value": "super-secret-wifi",
+                                "name": "settings.toml",
+                            }
+                        ]
+                    },
+                    "restart": False,
+                }
+            ),
+            "retain": True,
+        },
+        {
+            "topic": "nodus/S2-test123/config/set",
+            "payload": "",
+            "retain": True,
+        },
+        {
+            "topic": "nodus/S3-test123/config/set",
+            "payload": '{"message_id":"live-not-retained"}',
+            "retain": False,
+        },
+    ]
+
+    result = ingest.scan_retained_command_topics(timeout=0.2)
+
+    assert result["ok"] is True
+    assert result["retained_command_count"] == 1
+    assert result["retained_commands"][0]["topic"] == "nodus/S1-test123/config/set"
+    assert result["retained_commands"][0]["message_id"] == "cfg-stale-1"
+    assert result["retained_commands"][0]["updates"] == [
+        {"section": "Network", "key": "PASSWORD", "name": "settings.toml"}
+    ]
+    assert "super-secret-wifi" not in json.dumps(result)
+    assert "nodus/+/config/set" in ingest.client.unsubs
+    assert ingest.client.callbacks == {}
+
+
+def test_scan_retained_command_topics_reports_disconnected_client(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.client.connected = False
+
+    result = ingest.scan_retained_command_topics(timeout=0.2)
+
+    assert result["ok"] is False
+    assert result["error"] == "mqtt_client_not_connected"
+    assert result["retained_command_count"] == 0
+    assert ingest.client.subs == []
 
 
 def test_calibration_sample_topics_are_tracked_by_sensor_and_message(monkeypatch):
@@ -1184,6 +1294,56 @@ def test_set_switch_by_channel_id_prefers_advertised_config_set_topic(monkeypatc
     assert retain is False
     assert payload["payload"]["updates"][0]["key"] == "SWITCH_1_LAST_STATE"
     assert payload["payload"]["updates"][0]["value"] is True
+
+
+def test_set_switch_by_channel_id_coalesces_duplicate_until_result(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.nodus_switch_command_topics[("switch-test123", "S1-test123")] = "nodus/S1-test123/config/set"
+    _mark_nodus_online(ingest, peers=["apvpd-test123", "switch-test123"])
+
+    assert ingest.set_switch_by_channel_id("switch-test123", "S1-test123", True) is True
+    assert ingest.set_switch_by_channel_id("switch-test123", "S1-test123", True) is True
+    assert len(ingest.client.pubs) == 1
+
+    first_payload = json.loads(ingest.client.pubs[0][1])
+    message_id = first_payload["message_id"]
+    ingest._on_message(
+        ingest.client,
+        None,
+        _Msg(
+            "nodus/S1-test123/config/result",
+            json.dumps({"message_id": message_id, "applied": True, "updated": 1, "error": ""}),
+        ),
+    )
+
+    assert ingest.set_switch_by_channel_id("switch-test123", "S1-test123", True) is True
+    assert len(ingest.client.pubs) == 2
+
+
+def test_set_switch_by_channel_id_blocks_conflicting_command_until_result(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.nodus_switch_command_topics[("switch-test123", "S1-test123")] = "nodus/S1-test123/config/set"
+    _mark_nodus_online(ingest, peers=["apvpd-test123", "switch-test123"])
+
+    assert ingest.set_switch_by_channel_id("switch-test123", "S1-test123", True) is True
+    assert ingest.set_switch_by_channel_id("switch-test123", "S1-test123", False) is False
+    assert len(ingest.client.pubs) == 1
+
+
+def test_set_switch_by_channel_id_does_not_fan_out_when_advertised_publish_fails(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.nodus_switch_command_topics[("switch-test123", "S1-test123")] = "nodus/S1-test123/config/set"
+    _mark_nodus_online(ingest, peers=["apvpd-test123", "switch-test123"])
+
+    def reject_publish(topic, payload, qos=0, retain=False):
+        ingest.client.pubs.append((topic, payload, qos, retain))
+        return types.SimpleNamespace(rc=4)
+
+    ingest.client.publish = reject_publish
+
+    assert ingest.set_switch_by_channel_id("switch-test123", "S1-test123", True) is False
+    assert len(ingest.client.pubs) == 1
+    assert ingest.client.pubs[0][0] == "nodus/S1-test123/config/set"
 
 
 def test_set_switch_by_channel_id_blocks_offline_nodus(monkeypatch):

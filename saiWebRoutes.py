@@ -14165,6 +14165,23 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             printDM(f"[network_status] {e}", location=MODULE)
             return JSONResponse({"error": "internal_error"}, status_code=500)
 
+    @router.get("/debug/mqtt-retained-commands", response_class=JSONResponse)
+    async def debug_mqtt_retained_commands(
+        timeout: float = Query(1.0, ge=0.2, le=5.0),
+        limit: int = Query(64, ge=1, le=200),
+    ):
+        ing = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        scanner = getattr(ing, "scan_retained_command_topics", None)
+        if not ing or not callable(scanner):
+            return JSONResponse({"ok": False, "error": "mqtt_ingest_unavailable"}, status_code=503)
+        try:
+            result = await asyncio.to_thread(scanner, timeout=timeout, limit=limit)
+            status_code = 200 if bool(result.get("ok", False)) else 503
+            return JSONResponse(result, status_code=status_code)
+        except Exception as e:
+            printDM(f"[debug_mqtt_retained_commands] {e}", location=MODULE)
+            return JSONResponse({"ok": False, "error": "internal_error"}, status_code=500)
+
     @router.get("/debug", response_class=HTMLResponse)
     async def debug_page():
         return HTMLResponse("<h2>Debug route loaded</h2>")

@@ -46,6 +46,8 @@ MIN_HEARTBEAT_INTERVAL_S = 10.0
 HEARTBEAT_STALE_AFTER_S = 90.0
 HEARTBEAT_CLOCK_SKEW_TOLERANCE_S = 15.0
 LEGACY_POLLER_SUNSET_DATE = "2026-06-30"
+NODUS_SWITCH_COMMAND_INFLIGHT_TTL_S = 45.0
+NODUS_SWITCH_COMMAND_FAILED_COOLDOWN_S = 5.0
 
 # module helpers
 def _slugify(text: str) -> str:
@@ -346,6 +348,9 @@ class saiMQTTIngest:
         self.config_ack_by_message: dict[str, dict] = {}
         self.config_result_by_message: dict[str, dict] = {}
         self.config_message_device: dict[str, str] = {}
+        self._switch_config_command_lock = threading.RLock()
+        self._switch_config_command_inflight: dict[str, dict] = {}
+        self._switch_config_command_by_message: dict[str, str] = {}
         self._calibration_lock = threading.RLock()
         self.calibration_ack_by_message: dict[str, dict] = {}
         self.calibration_result_by_message: dict[str, dict] = {}
@@ -1633,7 +1638,7 @@ class saiMQTTIngest:
                 elif family == "config" and leaf == "result":
                     message_id = str(payload.get("message_id") or "").strip()
                     if message_id:
-                        self.config_result_by_message[message_id] = {
+                        result = {
                             "message_id": message_id,
                             "device_id": device_id,
                             "applied": bool(payload.get("applied", False)),
@@ -1642,6 +1647,8 @@ class saiMQTTIngest:
                             "topic": topic,
                             "received_at": now,
                         }
+                        self.config_result_by_message[message_id] = result
+                        self._clear_switch_config_command_by_message(message_id)
                 elif family == "onboard" and leaf == "hello":
                     self._record_nodus_board_type(_extract_nodus_board_type(payload), device_id)
                     sensor_payload = payload.get("sensor") if isinstance(payload.get("sensor"), dict) else {}
@@ -4047,21 +4054,22 @@ class saiMQTTIngest:
     def _resolve_switch_channel_index(self, switch_id: str, channel_id: str, channel_label: str | None = None) -> int | None:
         switch_id_text = str(switch_id or "").strip()
         channel_id_text = str(channel_id or "").strip()
-        if not switch_id_text or not channel_id_text:
+        if not channel_id_text:
             return None
-        try:
-            from saiSwitchSettingsManager import SwitchSettingsManager
+        if switch_id_text:
+            try:
+                from saiSwitchSettingsManager import SwitchSettingsManager
 
-            switch_mgr = SwitchSettingsManager("switch_settings")
-            doc = switch_mgr.load(switch_id_text) or {}
-            switch_block = doc.get("Switch") if isinstance(doc, dict) else {}
-            if isinstance(switch_block, dict):
-                for idx in range(1, 33):
-                    candidate = str(switch_block.get(f"SWITCH_{idx}_CHANNEL_ID", "") or "").strip()
-                    if candidate and candidate == channel_id_text:
-                        return idx
-        except Exception:
-            pass
+                switch_mgr = SwitchSettingsManager("switch_settings")
+                doc = switch_mgr.load(switch_id_text) or {}
+                switch_block = doc.get("Switch") if isinstance(doc, dict) else {}
+                if isinstance(switch_block, dict):
+                    for idx in range(1, 33):
+                        candidate = str(switch_block.get(f"SWITCH_{idx}_CHANNEL_ID", "") or "").strip()
+                        if candidate and candidate == channel_id_text:
+                            return idx
+            except Exception:
+                pass
 
         try:
             match = re.fullmatch(r"S(\d+)-[A-Za-z0-9._-]+", channel_id_text, flags=re.IGNORECASE)
@@ -4119,6 +4127,140 @@ class saiMQTTIngest:
             )
         return False
 
+    def _mqtt_client_ready_for_live_command(self) -> bool:
+        try:
+            client = getattr(self, "client", None)
+            if client is None:
+                return False
+            is_connected = getattr(client, "is_connected", None)
+            if callable(is_connected):
+                return bool(is_connected())
+            return True
+        except Exception:
+            return False
+
+    def _switch_config_command_key(self, switch_id: str, channel_id: str) -> str:
+        ch = str(channel_id or "").strip().lower()
+        if ch:
+            return ch
+        sid = str(switch_id or "").strip().lower()
+        return f"switch:{sid}" if sid else ""
+
+    def _prune_switch_config_commands_locked(self, now_ts: float | None = None) -> None:
+        now_v = time.time() if now_ts is None else float(now_ts)
+        stale_keys: list[str] = []
+        for key, meta in list(self._switch_config_command_inflight.items()):
+            try:
+                expires_at = float((meta or {}).get("expires_at") or 0.0)
+            except Exception:
+                expires_at = 0.0
+            if expires_at <= 0.0:
+                try:
+                    expires_at = float((meta or {}).get("started_at") or 0.0) + NODUS_SWITCH_COMMAND_INFLIGHT_TTL_S
+                except Exception:
+                    expires_at = now_v - 1.0
+            if expires_at <= now_v:
+                stale_keys.append(key)
+        for key in stale_keys:
+            meta = self._switch_config_command_inflight.pop(key, None) or {}
+            message_id = str(meta.get("message_id") or "").strip() if isinstance(meta, dict) else ""
+            if message_id:
+                self._switch_config_command_by_message.pop(message_id, None)
+
+    def _begin_switch_config_command(self, switch_id: str, channel_id: str, desired_state: bool) -> str:
+        key = self._switch_config_command_key(switch_id, channel_id)
+        if not key:
+            return "blocked"
+        now_v = time.time()
+        with self._switch_config_command_lock:
+            self._prune_switch_config_commands_locked(now_v)
+            existing = self._switch_config_command_inflight.get(key)
+            if isinstance(existing, dict):
+                if existing.get("failed"):
+                    if DEBUG:
+                        printDM(
+                            f"[switch-command] retry cooling down channel_id={channel_id}",
+                            location=MODULE,
+                        )
+                    return "blocked"
+                if bool(existing.get("state")) == bool(desired_state):
+                    if DEBUG:
+                        printDM(
+                            f"[switch-command] coalesced duplicate channel_id={channel_id} state={bool(desired_state)} message_id={existing.get('message_id')}",
+                            location=MODULE,
+                        )
+                    return "coalesced"
+                if DEBUG:
+                    printDM(
+                        f"[switch-command] blocked conflicting command channel_id={channel_id} existing_state={bool(existing.get('state'))} new_state={bool(desired_state)} message_id={existing.get('message_id')}",
+                        location=MODULE,
+                    )
+                return "blocked"
+            self._switch_config_command_inflight[key] = {
+                "switch_id": str(switch_id or "").strip(),
+                "channel_id": str(channel_id or "").strip(),
+                "state": bool(desired_state),
+                "started_at": now_v,
+                "expires_at": now_v + NODUS_SWITCH_COMMAND_INFLIGHT_TTL_S,
+                "message_id": "",
+                "topic": "",
+                "failed": False,
+            }
+            return "send"
+
+    def _mark_switch_config_command_published(self, switch_id: str, channel_id: str, message_id: str, topic: str) -> None:
+        key = self._switch_config_command_key(switch_id, channel_id)
+        mid = str(message_id or "").strip()
+        if not key:
+            return
+        with self._switch_config_command_lock:
+            meta = self._switch_config_command_inflight.get(key)
+            if not isinstance(meta, dict):
+                return
+            old_mid = str(meta.get("message_id") or "").strip()
+            if old_mid:
+                self._switch_config_command_by_message.pop(old_mid, None)
+            meta["message_id"] = mid
+            meta["topic"] = str(topic or "").strip()
+            meta["failed"] = False
+            if mid:
+                self._switch_config_command_by_message[mid] = key
+
+    def _mark_switch_config_command_failed(self, switch_id: str, channel_id: str) -> None:
+        key = self._switch_config_command_key(switch_id, channel_id)
+        if not key:
+            return
+        now_v = time.time()
+        with self._switch_config_command_lock:
+            meta = self._switch_config_command_inflight.get(key)
+            if not isinstance(meta, dict):
+                return
+            mid = str(meta.get("message_id") or "").strip()
+            if mid:
+                self._switch_config_command_by_message.pop(mid, None)
+            meta["message_id"] = ""
+            meta["failed"] = True
+            meta["expires_at"] = now_v + NODUS_SWITCH_COMMAND_FAILED_COOLDOWN_S
+
+    def _clear_switch_config_command(self, switch_id: str, channel_id: str) -> None:
+        key = self._switch_config_command_key(switch_id, channel_id)
+        if not key:
+            return
+        with self._switch_config_command_lock:
+            meta = self._switch_config_command_inflight.pop(key, None) or {}
+            mid = str(meta.get("message_id") or "").strip() if isinstance(meta, dict) else ""
+            if mid:
+                self._switch_config_command_by_message.pop(mid, None)
+
+    def _clear_switch_config_command_by_message(self, message_id: str) -> None:
+        mid = str(message_id or "").strip()
+        if not mid:
+            return
+        with self._switch_config_command_lock:
+            key = self._switch_config_command_by_message.pop(mid, None)
+            if key:
+                self._switch_config_command_inflight.pop(key, None)
+
     def set_switch_by_channel_id(self, switch_id: str, channel_id: str, new_state: bool, qos: int = 0, retain: bool = False) -> bool:
         """
         Publish remote switch changes via Nodus config/set by updating
@@ -4131,18 +4273,16 @@ class saiMQTTIngest:
                 return False
             if not self._switch_command_allowed(switch_id_text, channel_id_text):
                 return False
+            if not self._mqtt_client_ready_for_live_command():
+                if DEBUG:
+                    printDM(
+                        f"[set_switch_by_channel_id] MQTT client not connected; refusing live command switch_id={switch_id_text} channel_id={channel_id_text}",
+                        location=MODULE,
+                    )
+                return False
 
             channel_index = self._resolve_switch_channel_index(switch_id_text, channel_id_text)
-            target_devices: list[str] = []
-            if channel_id_text:
-                target_devices.append(channel_id_text)
-            resolved_host = self.resolve_nodus_hostname(switch_id_text, device_type="switch") if switch_id_text else None
-            if resolved_host and resolved_host not in target_devices:
-                target_devices.append(resolved_host)
-            if switch_id_text and not switch_id_text.startswith("switch-") and switch_id_text not in target_devices:
-                target_devices.append(switch_id_text)
-
-            if channel_index and target_devices:
+            if channel_index:
                 payload = {
                     "updates": [
                         {
@@ -4153,8 +4293,25 @@ class saiMQTTIngest:
                         }
                     ]
                 }
-                advertised_topic = self.nodus_switch_command_topics.get((switch_id_text, channel_id_text))
+                advertised_topic = (
+                    self.nodus_switch_command_topics.get((switch_id_text, channel_id_text))
+                    or self.nodus_channel_command_topics.get(channel_id_text)
+                )
+                command_topic = ""
                 if advertised_topic and str(advertised_topic).strip().endswith("/config/set"):
+                    command_topic = str(advertised_topic).strip()
+                elif channel_id_text:
+                    command_topic = f"nodus/{channel_id_text}/config/set"
+                elif switch_id_text:
+                    command_topic = f"nodus/{switch_id_text}/config/set"
+
+                if command_topic:
+                    begin_result = self._begin_switch_config_command(switch_id_text, channel_id_text, bool(new_state))
+                    if begin_result == "coalesced":
+                        return True
+                    if begin_result != "send":
+                        return False
+
                     local_epoch = _local_epoch_seconds(self.settings)
                     message_id = f"cfg-{local_epoch}-{uuid.uuid4().hex[:8]}"
                     envelope = {
@@ -4163,42 +4320,32 @@ class saiMQTTIngest:
                         "restart": False,
                     }
                     ok = bool(self.publish_json(
-                        str(advertised_topic).strip(),
+                        command_topic,
                         envelope,
                         qos=max(int(qos or 0), 1),
                         retain=False,
                         use_ha_client=False,
                     ))
+                    if DEBUG:
+                        printDM(
+                            f"[set_switch_by_channel_id] config/set topic={command_topic} switch_id={switch_id_text} channel_id={channel_id_text} channel_index={channel_index} message_id={message_id} ok={ok}",
+                            location=MODULE,
+                        )
                     if ok:
+                        self._mark_switch_config_command_published(
+                            switch_id_text,
+                            channel_id_text,
+                            message_id,
+                            command_topic,
+                        )
                         with self._config_lock:
                             self.config_message_device[message_id] = channel_id_text
-                    if DEBUG:
-                        printDM(
-                            f"[set_switch_by_channel_id] advertised config/set topic={advertised_topic} switch_id={switch_id_text} channel_id={channel_id_text} channel_index={channel_index} ok={ok}",
-                            location=MODULE,
-                        )
-                    if ok:
                         return True
-
-                for target_device in target_devices:
-                    publish_result = self.publish_nodus_config(
-                        target_device,
-                        payload=payload,
-                        qos=max(int(qos or 0), 1),
-                        restart=False,
-                    )
-                    ok = bool(publish_result.get("ok", False))
-                    if DEBUG:
-                        printDM(
-                            f"[set_switch_by_channel_id] config/set target={target_device} switch_id={switch_id_text} channel_id={channel_id_text} channel_index={channel_index} ok={ok}",
-                            location=MODULE,
-                        )
-                    if ok:
-                        return True
+                    self._mark_switch_config_command_failed(switch_id_text, channel_id_text)
 
             if DEBUG:
                 printDM(
-                    f"[set_switch_by_channel_id] config/set unresolved for switch_id={switch_id_text} channel_id={channel_id_text} targets={target_devices!r} channel_index={channel_index!r}",
+                    f"[set_switch_by_channel_id] config/set unresolved for switch_id={switch_id_text} channel_id={channel_id_text} channel_index={channel_index!r}",
                     location=MODULE,
                 )
             return False
@@ -5812,6 +5959,11 @@ class saiMQTTIngest:
                         **dict(meta),
                         "expires_at": time.time() + 8.0,
                     }
+                    meta_channel = str(meta.get("channel_id") or "").strip()
+                    if meta_channel:
+                        self._clear_switch_config_command(sid, meta_channel)
+            if ch:
+                self._clear_switch_config_command(sid, ch)
         except Exception:
             pass
 
@@ -6369,6 +6521,200 @@ class saiMQTTIngest:
             return True
         except Exception:
             return False
+
+    @staticmethod
+    def _topic_matches_filter(topic_filter: str, topic: str) -> bool:
+        filt_parts = str(topic_filter or "").split("/")
+        topic_parts = str(topic or "").split("/")
+        ti = 0
+        for fi, part in enumerate(filt_parts):
+            if part == "#":
+                return fi == len(filt_parts) - 1
+            if ti >= len(topic_parts):
+                return False
+            if part != "+" and part != topic_parts[ti]:
+                return False
+            ti += 1
+        return ti == len(topic_parts)
+
+    def _retained_command_filters(self) -> list[str]:
+        filters = [
+            "nodus/+/config/set",
+            "nodus/+/calibration/set",
+        ]
+        base = str(getattr(self, "base_topic", "") or "").strip().strip("/")
+        if base and base != "nodus":
+            filters.extend([
+                f"{base}/nodus/+/config/set",
+                f"{base}/nodus/+/calibration/set",
+            ])
+        seen: set[str] = set()
+        out: list[str] = []
+        for item in filters:
+            if item and item not in seen:
+                seen.add(item)
+                out.append(item)
+        return out
+
+    def _summarize_retained_command_payload(self, payload_text: str) -> dict:
+        raw = str(payload_text or "")
+        summary: dict = {
+            "payload_bytes": len(raw.encode("utf-8", errors="ignore")),
+            "payload_format": "text",
+        }
+        try:
+            data = json.loads(raw)
+        except Exception:
+            return summary
+        if not isinstance(data, dict):
+            summary["payload_format"] = type(data).__name__
+            return summary
+
+        summary["payload_format"] = "json"
+        summary["envelope_keys"] = sorted(str(k) for k in data.keys())
+        message_id = str(data.get("message_id") or "").strip()
+        if message_id:
+            summary["message_id"] = message_id
+        if "restart" in data:
+            summary["restart"] = bool(data.get("restart"))
+        action = str(data.get("action") or "").strip()
+        if action:
+            summary["action"] = action
+
+        payload = data.get("payload") if isinstance(data.get("payload"), dict) else {}
+        updates = payload.get("updates") if isinstance(payload.get("updates"), list) else []
+        redacted_updates: list[dict] = []
+        for item in updates:
+            if not isinstance(item, dict):
+                continue
+            redacted_updates.append({
+                "section": str(item.get("section") or "").strip(),
+                "key": str(item.get("key") or "").strip(),
+                "name": str(item.get("name") or "").strip(),
+            })
+        if redacted_updates:
+            summary["update_count"] = len(redacted_updates)
+            summary["updates"] = redacted_updates[:12]
+
+        settings_payload = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
+        if settings_payload:
+            summary["settings_sections"] = sorted(str(k) for k in settings_payload.keys())
+        return summary
+
+    def scan_retained_command_topics(self, *, timeout: float = 1.0, limit: int = 64) -> dict:
+        """
+        Temporarily scan command topics for retained non-empty /set payloads.
+
+        Returned payload details are intentionally redacted because retained
+        config commands can contain Wi-Fi, MQTT, or integration credentials.
+        """
+        try:
+            timeout_s = max(0.2, min(float(timeout), 5.0))
+        except Exception:
+            timeout_s = 1.0
+        try:
+            limit_n = max(1, min(int(limit), 200))
+        except Exception:
+            limit_n = 64
+
+        filters = self._retained_command_filters()
+        client = getattr(self, "client", None)
+        connected = False
+        try:
+            checker = getattr(client, "is_connected", None)
+            connected = bool(checker()) if callable(checker) else bool(client)
+        except Exception:
+            connected = False
+        result = {
+            "ok": False,
+            "broker": str(getattr(self, "broker", "") or ""),
+            "port": int(getattr(self, "port", 1883) or 1883),
+            "client_connected": connected,
+            "scanned_filters": filters,
+            "retained_command_count": 0,
+            "retained_commands": [],
+        }
+        if not client or not connected:
+            result["error"] = "mqtt_client_not_connected"
+            return result
+
+        add_cb = getattr(client, "message_callback_add", None)
+        remove_cb = getattr(client, "message_callback_remove", None)
+        subscribe = getattr(client, "subscribe", None)
+        unsubscribe = getattr(client, "unsubscribe", None)
+        if not callable(add_cb) or not callable(subscribe):
+            result["error"] = "mqtt_client_callbacks_unavailable"
+            return result
+
+        found: list[dict] = []
+        seen_topics: set[str] = set()
+        lock = threading.RLock()
+
+        def _callback(_client, _userdata, msg) -> None:
+            try:
+                if not bool(getattr(msg, "retain", False)):
+                    return
+                topic = str(getattr(msg, "topic", "") or "").strip()
+                raw = getattr(msg, "payload", b"")
+                if isinstance(raw, (bytes, bytearray)):
+                    payload_text = raw.decode("utf-8", errors="ignore")
+                else:
+                    payload_text = str(raw or "")
+                if self._is_empty_retained_cleanup_payload(payload_text):
+                    return
+                with lock:
+                    if topic in seen_topics or len(found) >= limit_n:
+                        return
+                    seen_topics.add(topic)
+                    entry = {
+                        "topic": topic,
+                        "retain": True,
+                    }
+                    entry.update(self._summarize_retained_command_payload(payload_text))
+                    found.append(entry)
+            except Exception:
+                return
+
+        preexisting: dict[str, bool] = {}
+        try:
+            for topic_filter in filters:
+                try:
+                    preexisting[topic_filter] = (
+                        topic_filter in getattr(self, "registered_topics", set())
+                        or self._has_covering_subscription(topic_filter)
+                    )
+                except Exception:
+                    preexisting[topic_filter] = False
+                add_cb(topic_filter, _callback)
+                subscribe(topic_filter, qos=0)
+
+            deadline = time.monotonic() + timeout_s
+            while time.monotonic() < deadline:
+                with lock:
+                    if len(found) >= limit_n:
+                        break
+                time.sleep(0.05)
+        finally:
+            for topic_filter in filters:
+                try:
+                    if callable(remove_cb):
+                        remove_cb(topic_filter)
+                except Exception:
+                    pass
+                try:
+                    if callable(unsubscribe) and not preexisting.get(topic_filter, False):
+                        unsubscribe(topic_filter)
+                except Exception:
+                    pass
+
+        with lock:
+            commands = [dict(item) for item in found]
+        result["ok"] = True
+        result["retained_command_count"] = len(commands)
+        result["retained_commands"] = commands
+        if len(commands) >= limit_n:
+            result["truncated"] = True
+        return result
         
     @staticmethod
     def _is_empty_retained_cleanup_payload(payload) -> bool:

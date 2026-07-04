@@ -106,6 +106,10 @@ Command topics are not state topics.
 - Ordinary device config uses `nodus/<device_id>/config/set`.
 - Switch config/control uses `nodus/<channel_id>/config/set`.
 - Calibration uses `nodus/<device_id>/calibration/set`.
+- Sensorius keeps at most one live switch `config/set` in flight per channel.
+  Duplicate requests for the same desired state are coalesced until the
+  correlated result, state, event, or `meta/patch` is observed; conflicting
+  requests are rejected until the in-flight command clears or expires.
 - Publish `/set` commands non-retained by default.
 - If Sensorius intentionally publishes a retained `/set` command, Sensorius
   owns clearing it with an empty retained payload to the same topic after a
@@ -114,13 +118,19 @@ Command topics are not state topics.
 `saiMQTTIngest.publish_text` refuses retained command publishes to `/set`
 topics unless the payload is an empty retained cleanup payload.
 
+For diagnostics, `GET /debug/mqtt-retained-commands` performs a short-lived
+read-only scan for retained non-empty Nodus `/set` payloads. The response
+redacts values and reports only topic names, payload size, message IDs, and
+section/key names so stale command clues can be inspected without exposing
+credentials.
+
 ## Switch State Ownership
 
 Remote switch commands should use the shared controller path:
 
 1. UI, Home Assistant, or automation calls `set_state(...)`.
 2. `RemoteSwitchController` resolves the label and channel ID.
-3. `saiMQTTIngest.set_switch(...)` publishes the Nodus command.
+3. `saiMQTTIngest.set_switch(...)` publishes one channel-scoped Nodus command.
 4. Authoritative Nodus state or event topics update ingest caches.
 5. `saiDataLogger.log_switch_event` records transitions in `sw_events`.
 

@@ -507,6 +507,13 @@ Forward-only rule:
 
 Implemented behavior:
 
+- Sensorius publishes switch commands to one channel-scoped `config/set` topic
+  and does not fan out the same state change to both channel and host/device
+  topics.
+- Sensorius keeps at most one switch `config/set` in flight per channel.
+  Duplicate requests for the same desired state are coalesced; conflicting
+  requests are rejected until the correlated result, state, event, or
+  `meta/patch` clears the in-flight command, or until the command expires.
 - Empty payloads on `nodus/<channel_id>/config/set` are ignored. This allows
   Sensorius retained command cleanup publishes to be received safely after
   reconnect.
