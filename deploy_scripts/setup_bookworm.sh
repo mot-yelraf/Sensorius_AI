@@ -7,6 +7,7 @@ PROJECT_DIR="${PROJECT_DIR:-$HOME/Sensorius}"
 
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/setup_common.sh"
+start_install_log "$0" "$@"
 
 deploy_project_files
 
@@ -19,4 +20,5 @@ sed \
   -e 's|pyexec="/home/\$username/py311/bin/python"|pyexec="\$HOME/py311/bin/python"|' \
   "${SCRIPT_DIR}/setup_legacy.sh" > "${TMP_SCRIPT}"
 
+export SCRIPT_DIR SOURCE_REPO_DIR PROJECT_DIR
 bash "${TMP_SCRIPT}" "$@"

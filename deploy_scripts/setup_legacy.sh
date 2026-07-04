@@ -1,6 +1,14 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+SOURCE_REPO_DIR="${SOURCE_REPO_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+PROJECT_DIR="${PROJECT_DIR:-$HOME/saiSensorius}"
+
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/setup_common.sh"
+start_install_log "$0" "$@"
+
 install_pi_gui_autostart() {
   local username="$1"
   local project_dir="$2"

@@ -18,6 +18,16 @@ packages, Python environment, Mosquitto, service files, and autostart behavior.
 These scripts prepare a runtime directory and may rewrite installer-managed
 configuration for the target platform.
 
+Setup scripts append their terminal transcript to `install.log` in the target
+runtime directory, for example `/home/<user>/Sensorius/install.log` on Linux,
+`/Users/<user>/Sensorius/install.log` on macOS, or
+`C:\Users\<user>\Sensorius\install.log` on Windows. Set
+`SENSORIUS_INSTALL_LOG` to an absolute path before running a setup script to
+write the transcript somewhere else. The start of the log includes host
+metadata useful for support: hostname, user, OS and kernel version, hardware
+model, CPU, memory, free disk space, installer paths/settings, git revision, and
+key tool versions.
+
 When setup scripts configure a system Mosquitto broker, they leave only the
 Sensorius-managed anonymous listener drop-in active. On Linux and Raspberry Pi
 that file is `/etc/mosquitto/conf.d/anon.conf`; on Windows machine-scope

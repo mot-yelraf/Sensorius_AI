@@ -8,6 +8,7 @@ VENV_PATH="${VENV_PATH:-${PROJECT_DIR}/.venv}"
 
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/setup_common.sh"
+start_install_log "$0" "$@"
 
 deploy_project_files
 

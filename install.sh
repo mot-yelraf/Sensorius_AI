@@ -46,6 +46,10 @@ main() {
     exit 1
   fi
 
+  # shellcheck disable=SC1091
+  source "${DEPLOY_DIR}/setup_common.sh"
+  start_install_log "$0" "$@"
+
   local manager target uname_s codename
   manager="$(choose_manager)"
   uname_s="$(uname -s)"

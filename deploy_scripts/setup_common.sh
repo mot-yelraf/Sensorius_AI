@@ -5,6 +5,197 @@ SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 SOURCE_REPO_DIR="${SOURCE_REPO_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 PROJECT_DIR="${PROJECT_DIR:-$HOME/Sensorius}"
 
+_log_command_first_line() {
+  local label="$1"
+  shift
+  if command -v "$1" >/dev/null 2>&1; then
+    local output
+    output="$("$@" 2>&1 | sed -n '1p' || true)"
+    if [[ -n "${output}" ]]; then
+      echo "${label}: ${output}"
+    else
+      echo "${label}: available"
+    fi
+  else
+    echo "${label}: not found"
+  fi
+}
+
+_log_optional_setting() {
+  local name="$1"
+  local value="${!name:-}"
+  if [[ -n "${value}" ]]; then
+    echo "${name}: ${value}"
+  fi
+}
+
+_log_host_system_config() {
+  local os_pretty cpu_model hardware_model mac_cpu mem_total mem_bytes mem_gib
+
+  echo "--- Host system ---"
+  echo "Hostname: $(hostname 2>/dev/null || printf 'unknown')"
+  echo "User: $(id -un 2>/dev/null || whoami 2>/dev/null || printf 'unknown')"
+  echo "Effective UID: $(id -u 2>/dev/null || printf 'unknown')"
+  echo "Working directory: $(pwd 2>/dev/null || printf 'unknown')"
+  echo "Platform: $(uname -srm 2>/dev/null || printf 'unknown')"
+  echo "Kernel: $(uname -a 2>/dev/null || printf 'unknown')"
+
+  if [[ -r /etc/os-release ]]; then
+    os_pretty="$(awk -F= '$1 == "PRETTY_NAME" {gsub(/^"|"$/, "", $2); print $2}' /etc/os-release 2>/dev/null || true)"
+    if [[ -n "${os_pretty}" ]]; then
+      echo "OS: ${os_pretty}"
+    fi
+  elif command -v sw_vers >/dev/null 2>&1; then
+    echo "OS: $(sw_vers -productName 2>/dev/null || true) $(sw_vers -productVersion 2>/dev/null || true) ($(sw_vers -buildVersion 2>/dev/null || true))"
+  else
+    echo "OS: unavailable"
+  fi
+
+  if [[ -r /proc/device-tree/model ]]; then
+    hardware_model="$(tr -d '\0' < /proc/device-tree/model 2>/dev/null || true)"
+  elif [[ -r /sys/firmware/devicetree/base/model ]]; then
+    hardware_model="$(tr -d '\0' < /sys/firmware/devicetree/base/model 2>/dev/null || true)"
+  elif command -v sysctl >/dev/null 2>&1; then
+    hardware_model="$(sysctl -n hw.model 2>/dev/null || true)"
+    if [[ -z "${hardware_model}" ]]; then
+      hardware_model="$(sysctl -n hw.machine 2>/dev/null || true)"
+    fi
+  fi
+  echo "Hardware model: ${hardware_model:-unavailable}"
+
+  if [[ -r /proc/cpuinfo ]]; then
+    cpu_model="$(awk -F: '/model name|Hardware|Processor/ {gsub(/^[ \t]+/, "", $2); print $2; exit}' /proc/cpuinfo 2>/dev/null || true)"
+  elif command -v sysctl >/dev/null 2>&1; then
+    mac_cpu="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || true)"
+    cpu_model="${mac_cpu}"
+  fi
+  echo "CPU: ${cpu_model:-unavailable}"
+
+  if command -v getconf >/dev/null 2>&1; then
+    echo "CPU cores online: $(getconf _NPROCESSORS_ONLN 2>/dev/null || printf 'unknown')"
+  fi
+
+  if [[ -r /proc/meminfo ]]; then
+    mem_total="$(awk '/^MemTotal:/ {printf "%.1f GiB (%s kB)", $2 / 1048576, $2}' /proc/meminfo 2>/dev/null || true)"
+    [[ -n "${mem_total}" ]] && echo "Memory: ${mem_total}"
+  elif command -v sysctl >/dev/null 2>&1; then
+    mem_bytes="$(sysctl -n hw.memsize 2>/dev/null || true)"
+    if [[ -n "${mem_bytes}" ]]; then
+      mem_gib="$(awk -v bytes="${mem_bytes}" 'BEGIN {printf "%.1f GiB", bytes / 1073741824}' 2>/dev/null || true)"
+      echo "Memory: ${mem_gib} (${mem_bytes} bytes)"
+    else
+      echo "Memory: unavailable"
+    fi
+  else
+    echo "Memory: unavailable"
+  fi
+
+  echo "Disk space:"
+  df -h "${PROJECT_DIR}" "${HOME}" / 2>/dev/null | sed 's/^/  /' || echo "  unavailable"
+}
+
+_log_installer_context() {
+  echo "--- Installer context ---"
+  echo "Source repo: ${SOURCE_REPO_DIR}"
+  echo "Project dir: ${PROJECT_DIR}"
+  _log_optional_setting SCRIPT_DIR
+  _log_optional_setting VENV_PATH
+  _log_optional_setting REQ_FILE
+  _log_optional_setting PY_VERSION
+  _log_optional_setting PYTHON_BIN
+  _log_optional_setting SETUP_PY_MANAGER
+  _log_optional_setting BROKER_SCOPE
+  _log_optional_setting INSTALL_PYWEBVIEW
+  _log_optional_setting PIP_ONLY_BINARY
+  _log_optional_setting SENSORIUS_PREFLIGHT_ONLY
+  echo "Shell: ${SHELL:-unknown}"
+  echo "Bash: ${BASH_VERSION:-unknown}"
+
+  if command -v git >/dev/null 2>&1 && [[ -d "${SOURCE_REPO_DIR}/.git" ]]; then
+    echo "Git branch: $(git -C "${SOURCE_REPO_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || printf 'unknown')"
+    echo "Git revision: $(git -C "${SOURCE_REPO_DIR}" rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
+    if ! git -C "${SOURCE_REPO_DIR}" diff --quiet --ignore-submodules -- 2>/dev/null; then
+      echo "Git worktree: modified"
+    else
+      echo "Git worktree: clean"
+    fi
+  fi
+
+  echo "--- Tool versions ---"
+  _log_command_first_line "python3" python3 --version
+  _log_command_first_line "python" python --version
+  _log_command_first_line "pip3" pip3 --version
+  _log_command_first_line "uv" uv --version
+  _log_command_first_line "git" git --version
+  _log_command_first_line "rsync" rsync --version
+  _log_command_first_line "apt-get" apt-get --version
+  _log_command_first_line "brew" brew --version
+  _log_command_first_line "systemctl" systemctl --version
+  _log_command_first_line "mosquitto" mosquitto -h
+}
+
+start_install_log() {
+  if [[ "${SENSORIUS_INSTALL_LOG_ACTIVE:-0}" == "1" ]]; then
+    return
+  fi
+
+  local log_path log_dir start_ts fifo_dir fifo_path tee_pid
+  log_path="${SENSORIUS_INSTALL_LOG:-${PROJECT_DIR}/install.log}"
+  log_dir="$(dirname "${log_path}")"
+
+  if ! mkdir -p "${log_dir}" 2>/dev/null || ! touch "${log_path}" 2>/dev/null; then
+    log_path="${TMPDIR:-/tmp}/sensorius-install.log"
+    log_dir="$(dirname "${log_path}")"
+    if ! mkdir -p "${log_dir}" 2>/dev/null || ! touch "${log_path}" 2>/dev/null; then
+      echo "WARNING: unable to create install log; continuing without transcript." >&2
+      return
+    fi
+  fi
+
+  if ! command -v tee >/dev/null 2>&1; then
+    echo "WARNING: tee not found; continuing without install transcript." >&2
+    return
+  fi
+
+  fifo_dir="$(mktemp -d "${TMPDIR:-/tmp}/sensorius-install-log.XXXXXX" 2>/dev/null || true)"
+  if [[ -z "${fifo_dir}" ]]; then
+    echo "WARNING: unable to create install log pipe; continuing without transcript." >&2
+    return
+  fi
+  fifo_path="${fifo_dir}/output"
+  if ! mkfifo "${fifo_path}" 2>/dev/null; then
+    rm -rf "${fifo_dir}"
+    echo "WARNING: unable to create install log pipe; continuing without transcript." >&2
+    return
+  fi
+
+  tee -a "${log_path}" < "${fifo_path}" &
+  tee_pid="$!"
+  if ! exec > "${fifo_path}" 2>&1; then
+    kill "${tee_pid}" >/dev/null 2>&1 || true
+    rm -rf "${fifo_dir}"
+    echo "WARNING: unable to start install transcript; continuing without it." >&2
+    return
+  fi
+  export SENSORIUS_INSTALL_LOG="${log_path}"
+  export SENSORIUS_INSTALL_LOG_ACTIVE=1
+  export SENSORIUS_INSTALL_LOG_TEE_PID="${tee_pid}"
+  rm -f "${fifo_path}"
+  rmdir "${fifo_dir}" 2>/dev/null || true
+
+  start_ts="$(date '+%Y-%m-%dT%H:%M:%S%z')"
+  echo ""
+  echo "=== Sensorius install started ${start_ts} ==="
+  echo "Logging install output to ${log_path}"
+  if [[ $# -gt 0 ]]; then
+    printf 'Command:'
+    printf ' %q' "$@"
+    printf '\n'
+  fi
+  _log_host_system_config
+  _log_installer_context
+}
+
 deploy_project_files() {
   if [[ "${SOURCE_REPO_DIR}" == "${PROJECT_DIR}" ]]; then
     echo "Source and target are the same (${PROJECT_DIR}); skipping file sync."
@@ -57,7 +248,7 @@ deploy_project_files() {
       "${SOURCE_REPO_DIR}/" "${PROJECT_DIR}/"
   else
     echo "rsync not found, using cp fallback."
-    rm -rf "${PROJECT_DIR:?}"/*
+    find "${PROJECT_DIR}" -mindepth 1 -maxdepth 1 ! -name 'install.log' -exec rm -rf {} + 2>/dev/null || true
     cp -a "${SOURCE_REPO_DIR}/." "${PROJECT_DIR}/"
     rm -rf "${PROJECT_DIR}/.git" "${PROJECT_DIR}/deploy_scripts"
     rm -rf "${PROJECT_DIR}/node_modules"

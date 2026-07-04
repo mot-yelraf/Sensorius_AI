@@ -26,6 +26,7 @@ TRIXIE_APT_PKGS=(
 
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/setup_common.sh"
+start_install_log "$0" "$@"
 
 run_with_heartbeat() {
   local label="$1"

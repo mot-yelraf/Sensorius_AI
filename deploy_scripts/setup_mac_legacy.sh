@@ -12,6 +12,13 @@ PIP_ONLY_BINARY="${PIP_ONLY_BINARY:-1}"
 HEARTBEAT_SECONDS="${HEARTBEAT_SECONDS:-60}"
 START_TS="$(date +%s)"
 
+SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+SOURCE_REPO_DIR="${SOURCE_REPO_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/setup_common.sh"
+start_install_log "$0" "$@"
+
 CREATED_VENV=0
 PYTHON_BIN=""
 MIN_MACOS_MAJOR=13

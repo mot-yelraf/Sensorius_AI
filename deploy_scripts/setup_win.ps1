@@ -13,6 +13,176 @@ $PipOnlyBinary = if ($env:PIP_ONLY_BINARY) { $env:PIP_ONLY_BINARY } else { '1' }
 $BrokerScope = if ($env:BROKER_SCOPE) { ($env:BROKER_SCOPE).ToLowerInvariant() } else { '' }
 
 $CreatedVenv = $false
+$InstallLog = if ($env:SENSORIUS_INSTALL_LOG) { $env:SENSORIUS_INSTALL_LOG } else { Join-Path $ProjectDir 'install.log' }
+$TranscriptStarted = $false
+
+function Start-InstallLog {
+    $logDir = Split-Path -Parent $InstallLog
+    if ([string]::IsNullOrWhiteSpace($logDir)) {
+        $logDir = (Get-Location).Path
+    }
+    if (-not (Test-Path $logDir)) {
+        New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+    }
+
+    try {
+        Start-Transcript -Path $InstallLog -Append -ErrorAction Stop | Out-Null
+        $script:TranscriptStarted = $true
+        Write-Host "Logging install output to $InstallLog"
+    } catch {
+        Write-Host "WARNING: unable to create install log at $InstallLog; continuing without transcript."
+    }
+}
+
+function Stop-InstallLog {
+    if ($TranscriptStarted) {
+        try {
+            Stop-Transcript | Out-Null
+        } catch {}
+    }
+}
+
+function Format-BytesForLog {
+    param($Bytes)
+    if ($null -eq $Bytes -or $Bytes -eq '') {
+        return 'unknown'
+    }
+    return ('{0:N1} GiB ({1} bytes)' -f ([double]$Bytes / 1GB), $Bytes)
+}
+
+function Write-OptionalSetting {
+    param(
+        [string]$Name,
+        [string]$Value
+    )
+    if (-not [string]::IsNullOrWhiteSpace($Value)) {
+        Write-Host "${Name}: $Value"
+    }
+}
+
+function Write-ToolVersion {
+    param(
+        [string]$Label,
+        [string]$Command,
+        [string[]]$Arguments = @()
+    )
+    if (-not (Get-Command $Command -ErrorAction SilentlyContinue)) {
+        Write-Host "${Label}: not found"
+        return
+    }
+
+    try {
+        $output = & $Command @Arguments 2>&1 | Select-Object -First 1
+        if ($output) {
+            Write-Host "${Label}: $output"
+        } else {
+            Write-Host "${Label}: available"
+        }
+    } catch {
+        Write-Host "${Label}: error: $($_.Exception.Message)"
+    }
+}
+
+function Write-InstallHostConfig {
+    Write-Host '--- Host system ---'
+    Write-Host "Timestamp: $(Get-Date -Format o)"
+    Write-Host "Computer name: $env:COMPUTERNAME"
+    Write-Host "User: $env:USERDOMAIN\$env:USERNAME"
+    Write-Host "Working directory: $((Get-Location).Path)"
+    Write-Host "Command line: $([Environment]::CommandLine)"
+    Write-Host "PowerShell: $($PSVersionTable.PSVersion)"
+
+    try {
+        $os = Get-CimInstance Win32_OperatingSystem
+        Write-Host "OS: $($os.Caption) $($os.Version) build $($os.BuildNumber)"
+        Write-Host "Memory visible to OS: $(Format-BytesForLog ([int64]$os.TotalVisibleMemorySize * 1KB))"
+        Write-Host "Memory free: $(Format-BytesForLog ([int64]$os.FreePhysicalMemory * 1KB))"
+    } catch {
+        Write-Host "OS: unavailable ($($_.Exception.Message))"
+    }
+
+    try {
+        $computer = Get-CimInstance Win32_ComputerSystem
+        Write-Host "Hardware model: $($computer.Manufacturer) $($computer.Model)"
+        Write-Host "System type: $($computer.SystemType)"
+        Write-Host "Physical memory: $(Format-BytesForLog $computer.TotalPhysicalMemory)"
+    } catch {
+        Write-Host "Hardware model: unavailable ($($_.Exception.Message))"
+    }
+
+    try {
+        $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+        Write-Host "CPU: $($cpu.Name)"
+        Write-Host "CPU cores/logical processors: $($cpu.NumberOfCores)/$($cpu.NumberOfLogicalProcessors)"
+    } catch {
+        Write-Host "CPU: unavailable ($($_.Exception.Message))"
+    }
+
+    Write-Host 'Disk space:'
+    $roots = @()
+    foreach ($path in @($ProjectDir, $HOME, $env:SystemDrive)) {
+        if ([string]::IsNullOrWhiteSpace($path)) {
+            continue
+        }
+        $root = $null
+        try {
+            $resolved = Resolve-Path -LiteralPath $path -ErrorAction SilentlyContinue
+            if ($resolved) {
+                $root = [System.IO.Path]::GetPathRoot($resolved.Path)
+            }
+        } catch {}
+        if (-not $root) {
+            $root = [System.IO.Path]::GetPathRoot($path)
+        }
+        if ($root -and $roots -notcontains $root) {
+            $roots += $root
+        }
+    }
+    foreach ($root in $roots) {
+        $driveName = $root.TrimEnd('\').TrimEnd(':')
+        $drive = Get-PSDrive -Name $driveName -PSProvider FileSystem -ErrorAction SilentlyContinue
+        if ($drive) {
+            Write-Host ('  {0}: used={1:N1} GiB free={2:N1} GiB root={3}' -f $drive.Name, ($drive.Used / 1GB), ($drive.Free / 1GB), $drive.Root)
+        }
+    }
+
+    Write-Host '--- Installer context ---'
+    Write-Host "Source repo: $SourceRepoDir"
+    Write-Host "Project dir: $ProjectDir"
+    Write-Host "Script dir: $ScriptDir"
+    Write-Host "Venv path: $VenvPath"
+    Write-Host "Requirements file: $ReqFile"
+    Write-OptionalSetting 'PY_VERSION' $PY_VERSION
+    Write-OptionalSetting 'PY_MM' $PY_MM
+    Write-OptionalSetting 'PY_WINGET_ID' $PY_WINGET_ID
+    Write-OptionalSetting 'BROKER_SCOPE' $BrokerScope
+    Write-OptionalSetting 'INSTALL_PYWEBVIEW' $InstallPywebview
+    Write-OptionalSetting 'PIP_ONLY_BINARY' $PipOnlyBinary
+
+    if ((Get-Command git -ErrorAction SilentlyContinue) -and (Test-Path (Join-Path $SourceRepoDir '.git'))) {
+        $branch = (& git -C $SourceRepoDir rev-parse --abbrev-ref HEAD 2>$null)
+        $revision = (& git -C $SourceRepoDir rev-parse --short HEAD 2>$null)
+        Write-Host "Git branch: $branch"
+        Write-Host "Git revision: $revision"
+        & git -C $SourceRepoDir diff --quiet --ignore-submodules -- 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host 'Git worktree: clean'
+        } elseif ($LASTEXITCODE -eq 1) {
+            Write-Host 'Git worktree: modified'
+        } else {
+            Write-Host 'Git worktree: unknown'
+        }
+    }
+
+    Write-Host '--- Tool versions ---'
+    Write-ToolVersion 'winget' 'winget' @('--version')
+    Write-ToolVersion 'py' 'py' @('--version')
+    Write-ToolVersion 'python' 'python' @('--version')
+    Write-ToolVersion 'pip' 'pip' @('--version')
+    Write-ToolVersion 'uv' 'uv' @('--version')
+    Write-ToolVersion 'git' 'git' @('--version')
+    Write-ToolVersion 'mosquitto' 'mosquitto' @('-h')
+}
 
 function Cleanup {
     if ($CreatedVenv -and (Test-Path $VenvPath)) {
@@ -399,6 +569,9 @@ function Configure-BootStartup {
     Write-Host "Configured startup task '$taskName' ($BrokerScope scope)."
 }
 
+Start-InstallLog
+Write-InstallHostConfig
+
 try {
     Deploy-ProjectFiles
     Resolve-BrokerScope
@@ -420,4 +593,6 @@ try {
     Write-Host "Setup failed: $($_.Exception.Message)"
     Cleanup
     exit 1
+} finally {
+    Stop-InstallLog
 }

@@ -11,6 +11,7 @@ HEARTBEAT_SECONDS="${HEARTBEAT_SECONDS:-60}"
 
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/setup_common.sh"
+start_install_log "$0" "$@"
 
 run_with_heartbeat() {
   local label="$1"

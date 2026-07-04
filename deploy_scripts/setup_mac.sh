@@ -9,6 +9,7 @@ REQ_FILE="${REQ_FILE:-${SCRIPT_DIR}/setup_reqs_mac.txt}"
 
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/setup_common.sh"
+start_install_log "$0" "$@"
 
 deploy_project_files
 

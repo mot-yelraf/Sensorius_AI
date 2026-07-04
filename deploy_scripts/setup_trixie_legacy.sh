@@ -10,6 +10,13 @@ PROJECT_DIR="${PROJECT_DIR:-$HOME/saiSensorius}"
 PYENV_ROOT="${HOME}/.pyenv"
 VENV_PATH="${VENV_PATH:-${PROJECT_DIR}/.venv}"   # we’ll create this with the selected pyenv Python
 
+SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+SOURCE_REPO_DIR="${SOURCE_REPO_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/setup_common.sh"
+start_install_log "$0" "$@"
+
 install_pi_gui_autostart() {
   local username="$1"
   local project_dir="$2"
