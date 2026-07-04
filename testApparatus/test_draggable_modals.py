@@ -86,9 +86,11 @@ def test_settings_status_feedback_uses_hidden_live_regions_and_common_footers():
     assert "#setupPiModal .pane-footer {" in system_template
     assert "margin-left: -.85rem;" in system_template
     assert "margin-right: -.85rem;" in system_template
-    assert "height: min(46rem, 90vh);" in system_template
+    assert "height: min(46rem, calc(100vh - 1.5rem));" in system_template
     assert "#setupPiModal .system-settings-body {\n  padding: .85rem 1.15rem;\n  flex: 1 1 auto;" in system_template
     assert "#setupPiModal .settings-pane {\n  display: flex;\n  flex-direction: column;\n  height: 100%;" in system_template
+    assert "overflow-y: auto;" in system_template
+    assert "scrollbar-gutter: stable;" in system_template
     assert "syncSystemPaneHeight" not in system_template
     assert "--system-settings-pane-height" not in system_template
     for status_id in (

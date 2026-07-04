@@ -1,0 +1,26 @@
+[Switch]
+TYPE = "nodus"
+DEVICE = "switch"
+DEVICE_SERIAL_NUM = ""
+SWITCH_DEVICE_ID = ""
+SWITCH_LOCATION = "Unknown"
+
+SWITCH_1_LABEL       = "Fan"
+SWITCH_1_CHANNEL_ID  = "S1-"
+# if empty no switch channel is configured, default will be 5 (GP5);
+# channel is active only when this pin is grounded at boot
+SWITCH_1_ENABLE_PIN = ""
+# required when SWITCH_1_ENABLE_PIN is populated, default will be 28 (GP28)
+SWITCH_1_PIN   = "" 
+SWITCH_1_LAST_STATE = false
+SWITCH_1_OVERRIDE_SCRIPT = false
+
+SWITCH_2_LABEL       = "Light"
+SWITCH_2_CHANNEL_ID  = "S2-"
+# if empty no switch channel is configured, default will be 10 (GP10);
+# channel is active only when this pin is grounded at boot
+SWITCH_2_ENABLE_PIN = ""
+# required when SWITCH_2_ENABLE_PIN is populated, default will be 21 (GP21)
+SWITCH_2_PIN   = ""
+SWITCH_2_LAST_STATE = false
+SWITCH_2_OVERRIDE_SCRIPT = false

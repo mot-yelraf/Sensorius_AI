@@ -1,0 +1,123 @@
+{
+  "created_at": "2026-07-04T12:45:39Z",
+  "delete": [],
+  "files": [
+    {
+      "path": "boards/pico2w/templates/sensor_i2c.toml.def",
+      "sha256": "66b8433e5daed032392962ddbad4e86993b511858cfe2e359399ac5411673556",
+      "size": 1045
+    },
+    {
+      "path": "boards/pico2w/templates/sensor_soil.toml.def",
+      "sha256": "aeb2d3ac4f4582d0a2869fb289d6fff4a40df5385902d42fbc935992a24cbdcb",
+      "size": 1552
+    },
+    {
+      "path": "boards/pico2w/templates/switch.toml.def",
+      "sha256": "0ed294d45e0e90e362bcb0533be27ad8b1b856b9e8ac2f2ebd3e9ab7d2273026",
+      "size": 858
+    },
+    {
+      "path": "boards/settings.toml.def",
+      "sha256": "0189ed36d9a6671c023f618ad9670dae0c8643d0476f4ba8c4b8b221717af180",
+      "size": 602
+    },
+    {
+      "path": "boards/xesp32s3/templates/sensor_soil.toml.def",
+      "sha256": "549dc3e7059c29e9e9f5c4d65c33bb24f6cba259b3015bafc4c026d7543755bf",
+      "size": 1532
+    },
+    {
+      "path": "cpynodus_ii/__init__.py",
+      "sha256": "c7f207e6caea07e0c306a48a0d806abd94828c24e464aa7526ba8f820d6aa4c4",
+      "size": 273
+    },
+    {
+      "path": "cpynodus_ii/app.py",
+      "sha256": "c0ba7ade80c7f4e64338bd4a742c7bada83297c2c6a22556dfba05874be58695",
+      "size": 223032
+    },
+    {
+      "path": "cpynodus_ii/core/config.py",
+      "sha256": "2e87e59d567b9504b84318cb2ebae931c34311c1194900c1e82ac717aea066bf",
+      "size": 17131
+    },
+    {
+      "path": "cpynodus_ii/core/mqtt_client.py",
+      "sha256": "ac71cd580edd97aa70759efdea948d45c5f6163ee68ca6052885b37bffe08707",
+      "size": 89469
+    },
+    {
+      "path": "cpynodus_ii/core/settings.py",
+      "sha256": "ad1d552895de111460716e13c4746d6a109e4f30a33b90abbc6cdf0b8283e217",
+      "size": 66353
+    },
+    {
+      "path": "cpynodus_ii/features/calibration_config.py",
+      "sha256": "c8004034650662503f2820ed9390cadc191552ffcbc6f56b5ced36b7f42569bf",
+      "size": 11720
+    },
+    {
+      "path": "cpynodus_ii/features/calibration_offset_parse.py",
+      "sha256": "ba650563df5bef36fd4c32c71971e1b28dcbed2395465acda87b9f3067cebc3b",
+      "size": 4540
+    },
+    {
+      "path": "cpynodus_ii/features/calibration_offsets.py",
+      "sha256": "bf8ced9faf8a17d3b381bb529e3cb63b377ac1f12554db05cb5f64ae1475a9c8",
+      "size": 7322
+    },
+    {
+      "path": "cpynodus_ii/features/command_handlers.py",
+      "sha256": "138186766fc41a0c50e1d93c346beba97e36cfb8577bd98605beeb699a6b82b3",
+      "size": 55934
+    },
+    {
+      "path": "cpynodus_ii/features/runtime_config_update.py",
+      "sha256": "6d355c3396b043ff259a3eaf5f8e91118115d1054f27d48d52758e7d21cc80b6",
+      "size": 11306
+    },
+    {
+      "path": "cpynodus_ii/features/sensor_service.py",
+      "sha256": "e2e582ec2ed6f6a266e9259098611fcd5ca203b0f647df079288b198986e4716",
+      "size": 29786
+    },
+    {
+      "path": "cpynodus_ii/features/soil_sensor_service.py",
+      "sha256": "1677c096e9cd67de92affa86b95b669c3f8079498a5b3c92d72f9e1cac654888",
+      "size": 13258
+    },
+    {
+      "path": "cpynodus_ii/features/web_config.py",
+      "sha256": "073ade616db4e78177f7439086ebf9a085d3a92f842d95ba176904a1df5b6a2a",
+      "size": 9648
+    },
+    {
+      "path": "cpynodus_ii/features/web_services.py",
+      "sha256": "9e508cd991981424ad65a9e65d597256e780a79c5879683221c3360b787cdb7c",
+      "size": 30176
+    }
+  ],
+  "from_tag": "v0.26.175.2",
+  "package_id": "ota-v0.26.175.2-to-v0.26.185.1",
+  "post_apply": {
+    "reboot": true,
+    "reboot_delay_s": 5,
+    "resume_profile": "previous"
+  },
+  "preserve": [
+    "settings.toml",
+    "sensor_i2c.toml",
+    "sensor_soil.toml",
+    "switch.toml"
+  ],
+  "requires": {
+    "version": "v0.26.175.2"
+  },
+  "schema": "nodus-ota/v1",
+  "target": {
+    "circuitpython": "9.2.8",
+    "platform": "pico2w"
+  },
+  "to_tag": "v0.26.185.1"
+}
