@@ -74,6 +74,31 @@
   overflow: hidden;
   position: relative;
 }
+#setupPiModal .toast-container {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  width: min(32rem, calc(100% - 1.5rem));
+  transform: translateX(-50%);
+  z-index: 100000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+#setupPiModal .toast {
+  max-width: 100%;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #222;
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .25);
+  text-align: center;
+  pointer-events: auto;
+}
+#setupPiModal .toast.ok { background: #1f693a; }
+#setupPiModal .toast.error { background: #8b0000; }
 #setupPiModal .settings-pane[hidden] { display: none !important; }
 #setupPiModal .settings-pane {
   display: flex;
@@ -1178,6 +1203,34 @@
     return String(text || fallbackText || ("HTTP " + resp.status)).trim();
   }
 
+  function getSettingsToastContainer() {
+    const pane = root.querySelector(".system-settings-content");
+    if (!pane) return null;
+    let container = pane.querySelector(":scope > .toast-container");
+    if (!container) {
+      container = document.createElement("div");
+      container.className = "toast-container modal-pane-toast-container";
+      pane.appendChild(container);
+    }
+    return container;
+  }
+
+  function showSettingsToast(message, type) {
+    const container = getSettingsToastContainer();
+    if (!container) {
+      if (typeof window.showToast === "function") window.showToast(message, type);
+      return;
+    }
+    const toast = document.createElement("div");
+    toast.className = `toast ${type || ""}`.trim();
+    toast.textContent = message || "";
+    container.appendChild(toast);
+    window.setTimeout(() => {
+      toast.remove();
+      if (!container.children.length) container.remove();
+    }, 2500);
+  }
+
   function normalizeWeatherForecastProvider(raw) {
     const text = String(raw || "").trim().toLowerCase().replace(/[-\s]+/g, "_");
     if (!text || text === "met" || text === "met_no" || text === "met_norway" || text === "norway") return "met_no";
@@ -1244,13 +1297,13 @@
       }
       const savedMessage = String(js.message || "Saved.");
       setStatus("system-status", savedMessage);
-      if (window.showToast) window.showToast("System settings saved", "ok");
+      showSettingsToast("System settings saved", "ok");
       applyDashboardWeatherForecastChange(body.get("weather_forecast_provider"));
     } catch (e) {
       console.error(e);
       const msg = e && e.message ? e.message : "Failed to save System settings.";
       setStatus("system-status", msg);
-      if (window.showToast) window.showToast(msg, "error");
+      showSettingsToast(msg, "error");
     } finally {
       setButtonBusy("btn-system-save", false);
     }
@@ -1348,12 +1401,12 @@
       shell.dataset.haUsername = username;
       shell.dataset.haPassword = password;
       setStatus("ha-status", "Saved.");
-      if (window.showToast) window.showToast("Home Assistant settings saved", "ok");
+      showSettingsToast("Home Assistant settings saved", "ok");
     } catch (e) {
       console.error(e);
       const msg = e && e.message ? e.message : "Failed to save Home Assistant settings.";
       setStatus("ha-status", msg);
-      if (window.showToast) window.showToast(msg, "error");
+      showSettingsToast(msg, "error");
     } finally {
       setButtonBusy("btn-ha-save", false);
     }
@@ -1461,12 +1514,12 @@
       await loadWeeWXStatus();
       const msg = "WeeWX settings saved. Restart Sensorius for MQTT subscription changes to take effect.";
       setStatus("weewx-status", msg);
-      if (window.showToast) window.showToast(msg, "ok");
+      showSettingsToast(msg, "ok");
     } catch (e) {
       console.error(e);
       const msg = e && e.message ? e.message : "Failed to save WeeWX settings.";
       setStatus("weewx-status", msg);
-      if (window.showToast) window.showToast(msg, "error");
+      showSettingsToast(msg, "error");
     } finally {
       setButtonBusy("btn-weewx-save", false);
     }
@@ -1559,12 +1612,12 @@
       shell.dataset.farmPassword = password;
       shell.dataset.farmLogBundle = log_bundle;
       await loadFarmStatus("Saved.");
-      if (window.showToast) window.showToast("FarmOS settings saved", "ok");
+      showSettingsToast("FarmOS settings saved", "ok");
     } catch (e) {
       console.error(e);
       const msg = e && e.message ? e.message : "Failed to save FarmOS settings.";
       setStatus("farm-status", msg);
-      if (window.showToast) window.showToast(msg, "error");
+      showSettingsToast(msg, "error");
     } finally {
       setButtonBusy("btn-farm-save", false);
     }
@@ -1602,18 +1655,18 @@
         const msg = data.error || ("HTTP " + resp.status);
         const displayMsg = "Connection failed: " + msg;
         setStatus("farm-status", displayMsg);
-        if (window.showToast) window.showToast(displayMsg, "error");
+        showSettingsToast(displayMsg, "error");
         return;
       }
       const displayMsg = `Connection OK (${data.status_code || 200})`;
       setStatus("farm-status", displayMsg);
-      if (window.showToast) window.showToast(displayMsg, "ok");
+      showSettingsToast(displayMsg, "ok");
       await loadFarmStatus();
     } catch (e) {
       console.error(e);
       const msg = e && e.message ? "Connection failed: " + e.message : "Connection failed.";
       setStatus("farm-status", msg);
-      if (window.showToast) window.showToast(msg, "error");
+      showSettingsToast(msg, "error");
     }
   }
 
@@ -1686,12 +1739,12 @@
       }
 
       setStatus("locations-status", "Saved.");
-      if (window.showToast) window.showToast("Locations saved", "ok");
+      showSettingsToast("Locations saved", "ok");
     } catch (e) {
       console.error(e);
       const msg = e && e.message ? e.message : "Failed to save locations.";
       setStatus("locations-status", msg);
-      if (window.showToast) window.showToast(msg, "error");
+      showSettingsToast(msg, "error");
     } finally {
       setButtonBusy("btn-locations-save", false);
     }
@@ -1735,7 +1788,7 @@
     } catch (e) {
       console.error(e);
       setStatus("adv-status", "Failed to load Advanced settings.");
-      if (window.showToast) window.showToast("Failed to load Advanced settings.", "error");
+      showSettingsToast("Failed to load Advanced settings.", "error");
     }
   }
 
@@ -1766,16 +1819,16 @@
       if (js.status === "partial") {
         const msg = "Saved, but auto-start update had an issue: " + (js.autostart_message || "unknown");
         setStatus("adv-status", msg);
-        if (window.showToast) window.showToast(msg, "error");
+        showSettingsToast(msg, "error");
       } else {
         setStatus("adv-status", "Saved.");
-        if (window.showToast) window.showToast("Advanced settings saved", "ok");
+        showSettingsToast("Advanced settings saved", "ok");
       }
     } catch (e) {
       console.error(e);
       const msg = e && e.message ? e.message : "Failed to save Advanced settings.";
       setStatus("adv-status", msg);
-      if (window.showToast) window.showToast(msg, "error");
+      showSettingsToast(msg, "error");
     } finally {
       setButtonBusy("btn-advanced-save", false);
     }
@@ -2324,7 +2377,7 @@
       removeDeviceToastEl = null;
       return;
     }
-    let container = document.querySelector(".toast-container");
+    let container = getSettingsToastContainer();
     if (!container) {
       container = document.createElement("div");
       container.className = "toast-container";
@@ -2850,12 +2903,12 @@
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 
       setStatus("adv-status", "Database archive downloaded.");
-      if (window.showToast) window.showToast("Database archive downloaded", "ok");
+      showSettingsToast("Database archive downloaded", "ok");
     } catch (e) {
       console.error(e);
       const msg = e && e.message ? e.message : "Failed to create database archive.";
       setStatus("adv-status", msg);
-      if (window.showToast) window.showToast(msg, "error");
+      showSettingsToast(msg, "error");
     } finally {
       setButtonBusy("btn-archive-db", false);
     }
