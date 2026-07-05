@@ -221,7 +221,8 @@ function Deploy-ProjectFiles {
     $args = @(
         $SourceRepoDir, $ProjectDir, '/MIR', '/R:2', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS', '/NP',
         '/XD', '.git', '.venv', '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache', 'deploy_scripts',
-        '/XF', '*.pyc', '*.pyo', 'sensor_data.db', '*.log'
+        'database_archives', 'database_recovery',
+        '/XF', '*.pyc', '*.pyo', 'sensor_data.db', 'sensordata.db', 'sensorius_data.db*', '*.log'
     )
 
     & robocopy @args | Out-Null

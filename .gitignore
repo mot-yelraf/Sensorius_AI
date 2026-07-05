@@ -1,4 +1,6 @@
 sensorius_data.*
+database_archives/
+database_recovery/
 *.db
 *.sqlite
 *.sqlite3

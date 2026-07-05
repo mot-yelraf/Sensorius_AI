@@ -26,8 +26,11 @@ from zoneinfo import ZoneInfo
 from saiUtils import printDM, debug_enabled
 import threading
 import os
+import shutil
+import subprocess
 import time
 from typing import Optional, Tuple
+import weakref
 try:
     from sensor_modules.station_weewx import WEEWX_RAIN_24H_METRIC
 except Exception:
@@ -43,6 +46,11 @@ RAIN_24H_PRECISION = 3
 SENSOR_EVENT_TYPE_LIVENESS = "liveness"
 SENSOR_EVENT_STATE_OFFLINE = "offline"
 SENSOR_OFFLINE_EVENT_WINDOW_SEC = 24 * 60 * 60
+SQLITE_CORRUPTION_MARKERS = (
+    "database disk image is malformed",
+    "file is not a database",
+    "malformed database schema",
+)
 
 # ---- legacy prefixes kept for optional migration only -----------------------
 SW_EVENT_PREFIX = "switch_event::"
@@ -108,14 +116,19 @@ def build_switch_key(channel_id: str, label: str) -> str:
     return f"{chan}{SW_KEY_DELIM}{lab}"
 
 class saiDataLogger:
-    _init_lock = threading.Lock()
+    _init_lock = threading.RLock()
     _schema_ready = False
+    _recovery_lock = threading.RLock()
+    _recovery_last_attempt_by_path = {}
+    _recovery_instances = weakref.WeakSet()
 
     def __init__(self, db_path="sensorius_data.db"):
-        self.db_path = db_path
+        self.db_path = str(db_path)
+        self._writer_lock = threading.RLock()   # serialize writers across sensors
+        self._writer_conn = None
+        self.__class__._recovery_instances.add(self)
         self._init_db()
         self._writer_conn = self._open_conn(check_same_thread=False)
-        self._writer_lock = threading.RLock()   # serialize writers across sensors
         self._db_retention_days = self._env_int("SENSORIUS_DB_RETENTION_DAYS", 90, minimum=0)
         self._db_retention_prune_interval_sec = 300.0
         self._next_retention_prune_mono = 0.0
@@ -155,6 +168,370 @@ class saiDataLogger:
                 except Exception:
                     pass
                 self._writer_conn = None
+
+    @staticmethod
+    def _env_bool(name: str, default: bool = False) -> bool:
+        raw = os.getenv(name)
+        if raw is None:
+            return bool(default)
+        text = str(raw).strip().lower()
+        if text in {"1", "true", "yes", "on", "enabled"}:
+            return True
+        if text in {"0", "false", "no", "off", "disabled"}:
+            return False
+        return bool(default)
+
+    @staticmethod
+    def _env_float(name: str, default: float, minimum: float = 0.0) -> float:
+        raw = os.getenv(name)
+        try:
+            value = float(raw) if raw is not None else float(default)
+        except Exception:
+            value = float(default)
+        return max(float(minimum), value)
+
+    @classmethod
+    def is_sqlite_corruption_error(cls, exc_or_text) -> bool:
+        """Return True when an SQLite error text indicates on-disk corruption."""
+        text = str(exc_or_text or "").strip().lower()
+        if not text:
+            return False
+        return any(marker in text for marker in SQLITE_CORRUPTION_MARKERS)
+
+    @classmethod
+    def _db_path_supported_for_recovery(cls, db_path: str | os.PathLike) -> bool:
+        text = str(db_path or "").strip()
+        if not text or text == ":memory:":
+            return False
+        # URI databases can point to memory, shared-cache, or read-only targets.
+        # Keep automatic file replacement limited to normal filesystem paths.
+        if text.startswith("file:"):
+            return False
+        return True
+
+    @classmethod
+    def _resolve_db_path(cls, db_path: str | os.PathLike) -> Path:
+        path = Path(str(db_path)).expanduser()
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        return path.resolve(strict=False)
+
+    @classmethod
+    def _db_path_key(cls, db_path: str | os.PathLike) -> str:
+        return str(cls._resolve_db_path(db_path))
+
+    @classmethod
+    def _db_family_paths(cls, db_path: Path) -> list[Path]:
+        return [
+            db_path,
+            db_path.with_name(db_path.name + "-wal"),
+            db_path.with_name(db_path.name + "-shm"),
+            db_path.with_name(db_path.name + "-journal"),
+        ]
+
+    @classmethod
+    def _unique_path(cls, path: Path) -> Path:
+        if not path.exists():
+            return path
+        stem = path.stem
+        suffix = path.suffix
+        parent = path.parent
+        for idx in range(2, 10000):
+            candidate = parent / f"{stem}-{idx}{suffix}"
+            if not candidate.exists():
+                return candidate
+        return parent / f"{stem}-{int(time.time())}{suffix}"
+
+    @classmethod
+    def _make_recovery_dir(cls, source_path: Path) -> Path:
+        stamp = datetime.now(LOCAL_TIMEZONE).strftime("%Y%m%d-%H%M%S")
+        recovery_base = source_path.parent / "database_recovery"
+        recovery_dir = recovery_base / f"{source_path.stem}-{stamp}"
+        recovery_dir = cls._unique_path(recovery_dir)
+        recovery_dir.mkdir(parents=True, exist_ok=False)
+        return recovery_dir
+
+    @classmethod
+    def _close_registered_writers_for_path(cls, db_path: Path) -> None:
+        target_key = cls._db_path_key(db_path)
+        for instance in list(cls._recovery_instances):
+            try:
+                if cls._db_path_key(getattr(instance, "db_path", "")) != target_key:
+                    continue
+                lock = getattr(instance, "_writer_lock", None)
+                if lock is None:
+                    continue
+                with lock:
+                    conn = getattr(instance, "_writer_conn", None)
+                    if conn is not None:
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+                    instance._writer_conn = None
+                    instance._available_sensors_cache = None
+                    instance._available_metrics_cache = {}
+                    instance._available_metrics_by_sensor_cache = None
+                    instance._switch_identities_cache = None
+            except Exception:
+                continue
+
+    @classmethod
+    def _copy_db_family_to_recovery(cls, source_path: Path, recovery_dir: Path) -> dict[Path, Path]:
+        copied: dict[Path, Path] = {}
+        for live_path in cls._db_family_paths(source_path):
+            if not live_path.exists():
+                continue
+            dest_path = cls._unique_path(recovery_dir / live_path.name)
+            try:
+                shutil.copy2(live_path, dest_path)
+                copied[live_path] = dest_path
+            except Exception as exc:
+                printDM(
+                    f"[db-recovery] failed to copy {live_path} to {dest_path}: {exc}",
+                    location=MODULE,
+                    level="warning",
+                )
+        return copied
+
+    @classmethod
+    def _move_live_family_to_recovery(cls, source_path: Path, recovery_dir: Path) -> None:
+        for live_path in cls._db_family_paths(source_path):
+            if not live_path.exists():
+                continue
+            dest_path = cls._unique_path(recovery_dir / f"{live_path.name}.damaged")
+            try:
+                shutil.move(str(live_path), str(dest_path))
+            except Exception as exc:
+                printDM(
+                    f"[db-recovery] failed to quarantine {live_path}: {exc}",
+                    location=MODULE,
+                    level="warning",
+                )
+
+    @classmethod
+    def _validate_sqlite_db(cls, db_path: Path) -> bool:
+        try:
+            with sqlite3.connect(str(db_path)) as conn:
+                row = conn.execute("PRAGMA integrity_check").fetchone()
+            return bool(row and str(row[0]).strip().lower() == "ok")
+        except Exception as exc:
+            printDM(
+                f"[db-recovery] validation failed for {db_path}: {exc}",
+                location=MODULE,
+                level="warning",
+            )
+            return False
+
+    @classmethod
+    def _recover_with_sqlite_cli(cls, source_copy: Path, recovered_path: Path, recovery_dir: Path) -> bool:
+        sqlite3_name = os.getenv("SENSORIUS_SQLITE3_BIN", "sqlite3") or "sqlite3"
+        sqlite3_bin = shutil.which(sqlite3_name)
+        if not sqlite3_bin:
+            printDM(
+                f"[db-recovery] sqlite3 CLI not found; skipping .recover for {source_copy}",
+                location=MODULE,
+                level="warning",
+            )
+            return False
+
+        timeout_sec = cls._env_float("SENSORIUS_DB_RECOVERY_TIMEOUT_SEC", 300.0, minimum=1.0)
+        sql_path = recovery_dir / f"{source_copy.stem}.recover.sql"
+        try:
+            with sql_path.open("w", encoding="utf-8") as recover_sql:
+                recover_proc = subprocess.run(
+                    [sqlite3_bin, str(source_copy), ".recover"],
+                    stdout=recover_sql,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=timeout_sec,
+                    check=False,
+                )
+            if recover_proc.returncode != 0:
+                err = (recover_proc.stderr or "").strip()
+                printDM(
+                    f"[db-recovery] sqlite3 .recover failed rc={recover_proc.returncode}: {err}",
+                    location=MODULE,
+                    level="warning",
+                )
+                return False
+            if not sql_path.exists() or sql_path.stat().st_size <= 0:
+                printDM(
+                    f"[db-recovery] sqlite3 .recover produced no SQL at {sql_path}",
+                    location=MODULE,
+                    level="warning",
+                )
+                return False
+
+            with sql_path.open("r", encoding="utf-8", errors="replace") as recover_sql:
+                import_proc = subprocess.run(
+                    [sqlite3_bin, str(recovered_path)],
+                    stdin=recover_sql,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=timeout_sec,
+                    check=False,
+                )
+            if import_proc.returncode != 0:
+                err = (import_proc.stderr or import_proc.stdout or "").strip()
+                printDM(
+                    f"[db-recovery] sqlite3 recovered import failed rc={import_proc.returncode}: {err}",
+                    location=MODULE,
+                    level="warning",
+                )
+                return False
+        except subprocess.TimeoutExpired as exc:
+            printDM(
+                f"[db-recovery] sqlite3 .recover timed out after {timeout_sec:.1f}s: {exc}",
+                location=MODULE,
+                level="warning",
+            )
+            return False
+        except Exception as exc:
+            printDM(
+                f"[db-recovery] sqlite3 .recover error: {exc}",
+                location=MODULE,
+                level="warning",
+            )
+            return False
+
+        return cls._validate_sqlite_db(recovered_path)
+
+    @classmethod
+    def _initialize_schema_after_recovery(cls, source_path: Path) -> bool:
+        try:
+            cls._schema_ready = False
+            initializer = cls.__new__(cls)
+            initializer.db_path = str(source_path)
+            initializer._writer_lock = threading.RLock()
+            initializer._writer_conn = None
+            initializer._init_db()
+            return True
+        except Exception as exc:
+            printDM(
+                f"[db-recovery] schema initialization failed for {source_path}: {exc}",
+                location=MODULE,
+                level="warning",
+            )
+            cls._schema_ready = False
+            return False
+
+    @classmethod
+    def recover_database_after_error(
+        cls,
+        db_path: str | os.PathLike,
+        exc_or_text,
+        *,
+        source: str = "",
+    ) -> bool:
+        """Attempt automatic recovery when an SQLite error indicates corruption."""
+        if not cls.is_sqlite_corruption_error(exc_or_text):
+            return False
+        return cls.recover_database(
+            db_path,
+            reason=str(exc_or_text),
+            source=source,
+        )
+
+    @classmethod
+    def recover_database(
+        cls,
+        db_path: str | os.PathLike,
+        *,
+        reason: str = "",
+        source: str = "",
+    ) -> bool:
+        """Best-effort SQLite salvage and availability recovery for one DB path."""
+        if not cls._env_bool("SENSORIUS_DB_AUTO_RECOVER", True):
+            printDM(
+                f"[db-recovery] disabled by SENSORIUS_DB_AUTO_RECOVER=0 for {db_path}",
+                location=MODULE,
+                level="warning",
+            )
+            return False
+        if not cls._db_path_supported_for_recovery(db_path):
+            return False
+
+        source_path = cls._resolve_db_path(db_path)
+        if not source_path.exists():
+            return False
+
+        with cls._recovery_lock:
+            now_mono = time.monotonic()
+            min_interval = cls._env_float("SENSORIUS_DB_RECOVERY_MIN_INTERVAL_SEC", 300.0, minimum=0.0)
+            path_key = cls._db_path_key(source_path)
+            last_attempt = float(cls._recovery_last_attempt_by_path.get(path_key, 0.0) or 0.0)
+            if last_attempt and (now_mono - last_attempt) < min_interval:
+                remaining = min_interval - (now_mono - last_attempt)
+                printDM(
+                    f"[db-recovery] rate-limited for {source_path}; next attempt in {remaining:.1f}s",
+                    location=MODULE,
+                    level="warning",
+                )
+                return False
+            cls._recovery_last_attempt_by_path[path_key] = now_mono
+
+            recovery_dir = cls._make_recovery_dir(source_path)
+            detail = f" source={source}" if source else ""
+            reason_text = f": {reason}" if reason else ""
+            printDM(
+                f"[db-recovery] corruption detected{detail} at {source_path}{reason_text}; workspace={recovery_dir}",
+                location=MODULE,
+                level="warning",
+            )
+
+            cls._close_registered_writers_for_path(source_path)
+            copied = cls._copy_db_family_to_recovery(source_path, recovery_dir)
+            source_copy = copied.get(source_path)
+            recovered_path = recovery_dir / f"{source_path.stem}.recovered.sqlite3"
+
+            if source_copy and cls._recover_with_sqlite_cli(source_copy, recovered_path, recovery_dir):
+                cls._move_live_family_to_recovery(source_path, recovery_dir)
+                try:
+                    shutil.copy2(recovered_path, source_path)
+                except Exception as exc:
+                    printDM(
+                        f"[db-recovery] failed to install recovered DB {recovered_path}: {exc}",
+                        location=MODULE,
+                        level="warning",
+                    )
+                    return False
+                cls._close_registered_writers_for_path(source_path)
+                if cls._initialize_schema_after_recovery(source_path):
+                    printDM(
+                        f"[db-recovery] recovered SQLite database from {recovered_path}",
+                        location=MODULE,
+                        level="warning",
+                    )
+                    return True
+                return False
+
+            if cls._env_bool("SENSORIUS_DB_AUTO_REBUILD_ON_RECOVERY_FAIL", True):
+                cls._move_live_family_to_recovery(source_path, recovery_dir)
+                cls._close_registered_writers_for_path(source_path)
+                if cls._initialize_schema_after_recovery(source_path):
+                    printDM(
+                        f"[db-recovery] rebuilt empty SQLite database; damaged files kept in {recovery_dir}",
+                        location=MODULE,
+                        level="warning",
+                    )
+                    return True
+
+            printDM(
+                f"[db-recovery] automatic recovery failed; damaged files copied to {recovery_dir}",
+                location=MODULE,
+                level="warning",
+            )
+            return False
+
+    def recover_after_db_error(self, exc_or_text, *, source: str = "") -> bool:
+        """Instance wrapper for corruption recovery against this logger's DB."""
+        return self.__class__.recover_database_after_error(
+            self.db_path,
+            exc_or_text,
+            source=source,
+        )
 
     def create_database_archive(self, archive_dir: str | os.PathLike | None = None) -> Path:
         """Create a consistent SQLite snapshot and return the archive path."""
@@ -388,6 +765,7 @@ class saiDataLogger:
 
             # Tolerate transient lock contention from another process touching the DB at boot.
             attempts = 6
+            attempted_recovery = False
             for attempt in range(1, attempts + 1):
                 try:
                     with sqlite3.connect(self.db_path, timeout=30.0) as conn:
@@ -606,6 +984,21 @@ class saiDataLogger:
                         )
                         time.sleep(sleep_s)
                         continue
+                    if (
+                        not attempted_recovery
+                        and self.recover_after_db_error(e, source="_init_db")
+                    ):
+                        attempted_recovery = True
+                        continue
+                    printDM(f"_init_db error: {e}", location=__name__)
+                    raise
+                except sqlite3.DatabaseError as e:
+                    if (
+                        not attempted_recovery
+                        and self.recover_after_db_error(e, source="_init_db")
+                    ):
+                        attempted_recovery = True
+                        continue
                     printDM(f"_init_db error: {e}", location=__name__)
                     raise
                 except Exception as e:
@@ -705,17 +1098,25 @@ class saiDataLogger:
             printDM(f"[migration] error: {e}", location=MODULE)
 
     def _open_conn(self, *, check_same_thread: bool = True) -> sqlite3.Connection:
-        conn = sqlite3.connect(
-            self.db_path,
-            timeout=30.0,
-            check_same_thread=check_same_thread
-        )
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA synchronous=NORMAL;")
-        conn.execute("PRAGMA temp_store=FILE;")
-        conn.execute("PRAGMA busy_timeout=30000;")
-        conn.execute("PRAGMA cache_size=-65536;")
-        return conn
+        def _open() -> sqlite3.Connection:
+            conn = sqlite3.connect(
+                self.db_path,
+                timeout=30.0,
+                check_same_thread=check_same_thread
+            )
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA synchronous=NORMAL;")
+            conn.execute("PRAGMA temp_store=FILE;")
+            conn.execute("PRAGMA busy_timeout=30000;")
+            conn.execute("PRAGMA cache_size=-65536;")
+            return conn
+
+        try:
+            return _open()
+        except sqlite3.DatabaseError as e:
+            if self.recover_after_db_error(e, source="_open_conn"):
+                return _open()
+            raise
 
     def _ensure_writer(self):
         with self._writer_lock:
@@ -723,12 +1124,14 @@ class saiDataLogger:
                 if self._writer_conn is None:
                     raise RuntimeError("writer connection missing")
                 self._writer_conn.execute("SELECT 1")
-            except Exception:
+            except Exception as exc:
+                self.recover_after_db_error(exc, source="_ensure_writer")
                 try:
                     if self._writer_conn is not None:
                         self._writer_conn.close()
                 except Exception:
                     pass
+                self._writer_conn = None
                 self._writer_conn = self._open_conn(check_same_thread=False)
 
     @staticmethod
@@ -904,82 +1307,87 @@ class saiDataLogger:
 
     def log_readings(self, timestamp, sensor_id, values: dict):
         """Fast writer using a dedicated WAL connection + in-RAM snapshot."""
-        t0 = time.monotonic()
-        self._ensure_writer()
         timestamp, ts_epoch = _normalize_timestamp_input(
             timestamp, getattr(self, "local_tz", LOCAL_TIMEZONE)
         )
         raw_values = self._strip_derived_input_metrics(values or {})
-        derived_values = {}
 
-        try:
-            rows = [(timestamp, ts_epoch, sensor_id, metric, value) for metric, value in raw_values.items()]
-            write_start = time.monotonic()
-            with self._writer_lock:
-                if rows:
-                    self._writer_conn.executemany(
-                        "INSERT INTO readings (timestamp, ts_epoch, sensor_id, metric, value) VALUES (?, ?, ?, ?, ?)",
-                        rows
-                    )
-                derived_values = self._derive_rain_window_metrics_on_conn(
-                    self._writer_conn,
-                    sensor_id,
-                    raw_values,
-                    end_epoch=ts_epoch,
-                )
-                if derived_values:
-                    self._writer_conn.executemany(
-                        "INSERT INTO readings (timestamp, ts_epoch, sensor_id, metric, value) VALUES (?, ?, ?, ?, ?)",
-                        [
-                            (timestamp, ts_epoch, sensor_id, metric, value)
-                            for metric, value in derived_values.items()
-                        ],
-                    )
-                self._writer_conn.commit()
-                self._maybe_prune_old_rows_locked()
-            write_elapsed = time.monotonic() - write_start
-            logged_values = dict(raw_values)
-            logged_values.update(derived_values)
-
-            snap = self.sensor_values.get(sensor_id) or {}
-            snap.update(logged_values)
-            self.sensor_values[sensor_id] = snap
-            self.sensor_timestamps[sensor_id] = timestamp
-            self._available_sensors_cache = None
-            self._available_metrics_cache.pop(str(sensor_id or "").strip().lower(), None)
-            self._available_metrics_by_sensor_cache = None
-
-            # Notify post-write listeners (non-blocking; do not break writer path)
-            listeners = list(getattr(self, "_on_readings_written", []) or [])
-            if listeners:
-                listener_start = time.monotonic()
-                for fn in listeners:
-                    try:
-                        fn(sensor_id, timestamp, dict(logged_values))
-                    except Exception as exc:
-                        printDM(
-                            f"[log_readings] listener error for {sensor_id}: {exc}",
-                            location=MODULE,
+        for attempt in range(2):
+            t0 = time.monotonic()
+            derived_values = {}
+            try:
+                self._ensure_writer()
+                rows = [(timestamp, ts_epoch, sensor_id, metric, value) for metric, value in raw_values.items()]
+                write_start = time.monotonic()
+                with self._writer_lock:
+                    if rows:
+                        self._writer_conn.executemany(
+                            "INSERT INTO readings (timestamp, ts_epoch, sensor_id, metric, value) VALUES (?, ?, ?, ?, ?)",
+                            rows
                         )
-                listener_elapsed = time.monotonic() - listener_start
-            else:
-                listener_elapsed = 0.0
+                    derived_values = self._derive_rain_window_metrics_on_conn(
+                        self._writer_conn,
+                        sensor_id,
+                        raw_values,
+                        end_epoch=ts_epoch,
+                    )
+                    if derived_values:
+                        self._writer_conn.executemany(
+                            "INSERT INTO readings (timestamp, ts_epoch, sensor_id, metric, value) VALUES (?, ?, ?, ?, ?)",
+                            [
+                                (timestamp, ts_epoch, sensor_id, metric, value)
+                                for metric, value in derived_values.items()
+                            ],
+                        )
+                    self._writer_conn.commit()
+                    self._maybe_prune_old_rows_locked()
+                write_elapsed = time.monotonic() - write_start
+                logged_values = dict(raw_values)
+                logged_values.update(derived_values)
 
-            total_elapsed = time.monotonic() - t0
-            if total_elapsed >= 1.5:
-                printDM(
-                    (
-                        f"[log_readings] slow write for {sensor_id}: total={total_elapsed:.2f}s "
-                        f"db={write_elapsed:.2f}s listeners={listener_elapsed:.2f}s rows={len(logged_values)}"
-                    ),
-                    location=MODULE,
-                    level="warning",
-                )
+                snap = self.sensor_values.get(sensor_id) or {}
+                snap.update(logged_values)
+                self.sensor_values[sensor_id] = snap
+                self.sensor_timestamps[sensor_id] = timestamp
+                self._available_sensors_cache = None
+                self._available_metrics_cache.pop(str(sensor_id or "").strip().lower(), None)
+                self._available_metrics_by_sensor_cache = None
 
-            if DEBUG:
-                printDM(f"Logged {len(logged_values)} values for {sensor_id}", location=MODULE)
-        except Exception as e:
-            printDM(f"Error writing sensor data: {e}", location=MODULE)
+                # Notify post-write listeners (non-blocking; do not break writer path)
+                listeners = list(getattr(self, "_on_readings_written", []) or [])
+                if listeners:
+                    listener_start = time.monotonic()
+                    for fn in listeners:
+                        try:
+                            fn(sensor_id, timestamp, dict(logged_values))
+                        except Exception as exc:
+                            printDM(
+                                f"[log_readings] listener error for {sensor_id}: {exc}",
+                                location=MODULE,
+                            )
+                    listener_elapsed = time.monotonic() - listener_start
+                else:
+                    listener_elapsed = 0.0
+
+                total_elapsed = time.monotonic() - t0
+                if total_elapsed >= 1.5:
+                    printDM(
+                        (
+                            f"[log_readings] slow write for {sensor_id}: total={total_elapsed:.2f}s "
+                            f"db={write_elapsed:.2f}s listeners={listener_elapsed:.2f}s rows={len(logged_values)}"
+                        ),
+                        location=MODULE,
+                        level="warning",
+                    )
+
+                if DEBUG:
+                    printDM(f"Logged {len(logged_values)} values for {sensor_id}", location=MODULE)
+                return
+            except Exception as e:
+                if attempt == 0 and self.recover_after_db_error(e, source="log_readings"):
+                    continue
+                printDM(f"Error writing sensor data: {e}", location=MODULE)
+                return
 
     def add_readings_listener(self, listener) -> None:
         """
@@ -1009,28 +1417,33 @@ class saiDataLogger:
         if not sid or not typ:
             return
 
-        self._ensure_writer()
         timestamp, ts_epoch = _normalize_timestamp_input(
             timestamp, getattr(self, "local_tz", LOCAL_TIMEZONE)
         )
-        try:
-            with self._writer_lock:
-                self._writer_conn.execute(
-                    """
-                    INSERT INTO sensor_events(timestamp, ts_epoch, sensor_id, event_type, state, source)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (timestamp, ts_epoch, sid, typ, st or None, src),
-                )
-                self._writer_conn.commit()
-                self._maybe_prune_old_rows_locked()
-            if DEBUG:
-                printDM(
-                    f"[log_sensor_event] sid={sid} type={typ} state={st or '-'} src={src or '-'}",
-                    location=MODULE,
-                )
-        except Exception as e:
-            printDM(f"[log_sensor_event] write error: {e}", location=MODULE)
+        for attempt in range(2):
+            try:
+                self._ensure_writer()
+                with self._writer_lock:
+                    self._writer_conn.execute(
+                        """
+                        INSERT INTO sensor_events(timestamp, ts_epoch, sensor_id, event_type, state, source)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (timestamp, ts_epoch, sid, typ, st or None, src),
+                    )
+                    self._writer_conn.commit()
+                    self._maybe_prune_old_rows_locked()
+                if DEBUG:
+                    printDM(
+                        f"[log_sensor_event] sid={sid} type={typ} state={st or '-'} src={src or '-'}",
+                        location=MODULE,
+                    )
+                return
+            except Exception as e:
+                if attempt == 0 and self.recover_after_db_error(e, source="log_sensor_event"):
+                    continue
+                printDM(f"[log_sensor_event] write error: {e}", location=MODULE)
+                return
 
     @staticmethod
     def _dedupe_identifiers(*values) -> list[str]:
@@ -1987,44 +2400,49 @@ class saiDataLogger:
         - source: optional ('manual','ui','mqtt','rule', etc.)
         - sensor_id: optional lineage/host (kept for joins/filters)
         """
-        self._ensure_writer()
         timestamp, ts_epoch = _normalize_timestamp_input(
             timestamp, getattr(self, "local_tz", LOCAL_TIMEZONE)
         )
         numeric = 1 if is_on else 0
 
-        try:
-            with self._writer_lock:
-                self._writer_conn.execute(
-                    """
-                    INSERT INTO sw_events(timestamp, ts_epoch, switch_key, state, source, sensor_id)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (timestamp, ts_epoch, switch_key, numeric, source, sensor_id)
-                )
-                self._writer_conn.commit()
-                self._maybe_prune_old_rows_locked()
+        for attempt in range(2):
+            try:
+                self._ensure_writer()
+                with self._writer_lock:
+                    self._writer_conn.execute(
+                        """
+                        INSERT INTO sw_events(timestamp, ts_epoch, switch_key, state, source, sensor_id)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (timestamp, ts_epoch, switch_key, numeric, source, sensor_id)
+                    )
+                    self._writer_conn.commit()
+                    self._maybe_prune_old_rows_locked()
 
-            # Notify post-write listeners (non-blocking; do not break writer path)
-            listeners = list(getattr(self, "_on_switch_event_written", []) or [])
-            if listeners:
-                for fn in listeners:
-                    try:
-                        fn(switch_key, bool(is_on), timestamp, source, sensor_id)
-                    except Exception as exc:
-                        printDM(
-                            f"[log_switch_event] listener error for {switch_key}: {exc}",
-                            location=MODULE,
-                        )
+                # Notify post-write listeners (non-blocking; do not break writer path)
+                listeners = list(getattr(self, "_on_switch_event_written", []) or [])
+                if listeners:
+                    for fn in listeners:
+                        try:
+                            fn(switch_key, bool(is_on), timestamp, source, sensor_id)
+                        except Exception as exc:
+                            printDM(
+                                f"[log_switch_event] listener error for {switch_key}: {exc}",
+                                location=MODULE,
+                            )
 
-            if DEBUG:
-                # sensor_id can carry channel_code like "oqs3lr-GP28" if you pass it in
-                printDM(
-                    f"[log_switch_event] key={switch_key} -> {'On' if is_on else 'Off'} src={source or '-'} sid={sensor_id or '-'}",
-                    location=MODULE
-                )
-        except Exception as e:
-            printDM(f"[log_switch_event] write error: {e}", location=MODULE)
+                if DEBUG:
+                    # sensor_id can carry channel_code like "oqs3lr-GP28" if you pass it in
+                    printDM(
+                        f"[log_switch_event] key={switch_key} -> {'On' if is_on else 'Off'} src={source or '-'} sid={sensor_id or '-'}",
+                        location=MODULE
+                    )
+                return
+            except Exception as e:
+                if attempt == 0 and self.recover_after_db_error(e, source="log_switch_event"):
+                    continue
+                printDM(f"[log_switch_event] write error: {e}", location=MODULE)
+                return
 
     def get_switch_packet_count(
         self,

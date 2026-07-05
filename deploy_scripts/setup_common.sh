@@ -234,6 +234,10 @@ deploy_project_files() {
       --exclude 'sensor_data.db' \
       --exclude 'sensordata.db' \
       --exclude 'sensorius_data.db*' \
+      --exclude 'database_archives/' \
+      --exclude 'database_archives/***' \
+      --exclude 'database_recovery/' \
+      --exclude 'database_recovery/***' \
       --exclude '*.local/' \
       --exclude '*.local/***' \
       --exclude 'system_settings/***' \
@@ -254,6 +258,7 @@ deploy_project_files() {
     rm -rf "${PROJECT_DIR}/node_modules"
     rm -f "${PROJECT_DIR}/.env"
     rm -rf "${PROJECT_DIR}/assets/screenshots"
+    rm -rf "${PROJECT_DIR}/database_archives" "${PROJECT_DIR}/database_recovery"
     rm -rf "${PROJECT_DIR}/docs" "${PROJECT_DIR}/testApparatus"
     rm -rf "${PROJECT_DIR}"/*.local
     rm -f "${PROJECT_DIR}/sensor_data.db" "${PROJECT_DIR}/sensordata.db" "${PROJECT_DIR}"/sensorius_data.db*

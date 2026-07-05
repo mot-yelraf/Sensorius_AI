@@ -26,10 +26,38 @@ class saiStats:
         self._stats_cache: dict[str, tuple[float, dict]] = {}
         self._all_stats_cache: tuple[float, dict] | None = None
 
+    def _recover_if_corrupt(self, exc, source: str) -> bool:
+        try:
+            from saiDataLogger import saiDataLogger
+            recovered = saiDataLogger.recover_database_after_error(
+                self.db_path,
+                exc,
+                source=f"saiStats.{source}",
+            )
+            if recovered:
+                self._stats_cache.clear()
+                self._all_stats_cache = None
+            return recovered
+        except Exception as recover_exc:
+            printDM(
+                f"[{source}] DB recovery attempt failed: {recover_exc}",
+                location=MODULE,
+                level="warning",
+            )
+            return False
+
     def _since_epoch_24h(self) -> float:
         return (datetime.now(timezone.utc) - timedelta(days=1)).timestamp()
 
     def get_stats_for_range(self, sensor_id, start_epoch: float, end_epoch: float):
+        try:
+            return self._get_stats_for_range_impl(sensor_id, start_epoch, end_epoch)
+        except sqlite3.DatabaseError as exc:
+            if self._recover_if_corrupt(exc, "get_stats_for_range"):
+                return {}
+            raise
+
+    def _get_stats_for_range_impl(self, sensor_id, start_epoch: float, end_epoch: float):
         results = {}
 
         with sqlite3.connect(self.db_path) as conn:
@@ -95,6 +123,15 @@ class saiStats:
         return result
 
     def get_all_stats_fast(self):
+        """Return 24h stats for all sensors in one DB pass for websocket broadcasting."""
+        try:
+            return self._get_all_stats_fast_impl()
+        except sqlite3.DatabaseError as exc:
+            if self._recover_if_corrupt(exc, "get_all_stats_fast"):
+                return {}
+            raise
+
+    def _get_all_stats_fast_impl(self):
         """Return 24h stats for all sensors in one DB pass for websocket broadcasting."""
         now_mono = time.monotonic()
         if self._all_stats_cache and self._all_stats_cache[0] > now_mono:

@@ -339,6 +339,44 @@ Set to `0` to disable pruning.
 Pruning applies to `readings`, `sw_events`, and `sensor_events`.
 The web UI retention selector accepts 30 to 365 days.
 
+### Automatic Database Recovery
+
+Sensorius attempts best-effort SQLite recovery when the runtime sees corruption
+errors such as `database disk image is malformed`, `file is not a database`, or
+`malformed database schema`.
+
+The recovery flow preserves the damaged DB family before changing live files:
+
+```text
+/home/<user>/Sensorius/database_recovery/sensorius_data-YYYYMMDD-HHMMSS/
+```
+
+On macOS, use `/Users/<user>/Sensorius/database_recovery/...`. The recovery
+workspace contains copied files such as `sensorius_data.db`,
+`sensorius_data.db-wal`, and `sensorius_data.db-shm`. If Sensorius replaces the
+live DB, it also moves the damaged live files into the same directory with a
+`.damaged` suffix.
+
+When the `sqlite3` command-line tool is available, Sensorius first tries
+SQLite's `.recover` command and validates the recovered database with
+`PRAGMA integrity_check`. If salvage fails, Sensorius rebuilds an empty database
+by default so collection and switch events can resume while the damaged files
+remain available for inspection.
+
+Recovery controls:
+
+```env
+SENSORIUS_DB_AUTO_RECOVER=1
+SENSORIUS_DB_AUTO_REBUILD_ON_RECOVERY_FAIL=1
+SENSORIUS_DB_RECOVERY_MIN_INTERVAL_SEC=300
+SENSORIUS_DB_RECOVERY_TIMEOUT_SEC=300
+SENSORIUS_SQLITE3_BIN=sqlite3
+```
+
+Set `SENSORIUS_DB_AUTO_RECOVER=0` to disable automatic recovery. Set
+`SENSORIUS_DB_AUTO_REBUILD_ON_RECOVERY_FAIL=0` if you prefer Sensorius to leave
+a damaged live DB in place when `.recover` cannot produce a valid replacement.
+
 ## Upgrade Checklist
 
 1. Stop Sensorius.
