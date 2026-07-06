@@ -479,6 +479,9 @@ canvas{
 }
 .switch-dialog-content{
   padding:.9rem;
+}
+.system-settings-content,
+.switch-dialog-content{
   position:relative;
 }
 .modal .split > section.panel{

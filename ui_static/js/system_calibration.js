@@ -53,7 +53,7 @@ window.initSystemCalibrationModal = async function(modalEl) {
   function showCalibrationNotice(message, type, autoDismiss) {
     if (!message) return;
     let container = typeof window.getToastContainer === "function"
-      ? window.getToastContainer()
+      ? window.getToastContainer(modalEl)
       : document.querySelector("body > .toast-container:not(.modal-pane-toast-container)");
     if (!container) {
       container = document.createElement("div");
