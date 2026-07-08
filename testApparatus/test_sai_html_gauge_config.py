@@ -335,8 +335,15 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "function drawSunMoon29Day(data)" in html
     assert "function makeSmoothSkyYMapper(yBase, topY, bottomY, maxElev, minElev)" in html
     assert "const buildSunCurveKeys = () => {" in html
+    assert "const buildMoonRiseSetDisplayPoints = () => {" in html
     assert "const buildMoonDisplayPoints = () => {" in html
     assert "const softenMoonLowerExtrema = (pts) => {" in html
+    assert "const mrToday = toMin(data && data.moon_rise_today);" in html
+    assert "const msToday = toMin(data && data.moon_set_today);" in html
+    assert "const riseMin = mrToday;" in html
+    assert "const setMin = msToday;" in html
+    assert "const riseSet = buildMoonRiseSetDisplayPoints();" in html
+    assert "if (riseSet.length >= 2) return riseSet;" in html
     assert "const sampled = softenMoonLowerExtrema(smoothSampledElevationPath(moonPoints, 2));" in html
     assert "built.push({m, y: sunYForMin(m)});" in html
     assert "built.push({m, y: yAt(m)});" in html

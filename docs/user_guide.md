@@ -152,9 +152,13 @@ avoid large single-file compiled updates: command-line OTA testing showed a
 Nodus-side memory allocation failure while transferring an `app.mpy` larger
 than about 50 KB.
 
+Future Sensorius releases may accept zip uploads, but the current OTA workflow
+expects the package folder produced by `cPyNodus_II` or `cPyNodus_III`.
+
 Fields and controls:
 
-- **Package Zip**: local `.zip` package selected from your browser.
+- **Package Folder**: local OTA package folder produced by `cPyNodus_II` or
+  `cPyNodus_III`, selected from the Sensorius host.
 - **Package summary**: package inspection status after selection or inspection.
 - **Package Path**: absolute path to a package on the Sensorius host.
 - **Inspect Package**: reads package metadata and validates that Sensorius can use it.
@@ -220,7 +224,9 @@ When WeeWX runs on the same host and `/etc/weewx/weewx.conf` or
 model in the WeeWX station sensor settings. The Sensor Settings **Sensor Info**
 pane shows it as `Station: <model>`.
 
-If the MQTT topic changes, restart Sensorius if the save message says the running subscription needs it or if new WeeWX readings do not arrive.
+If the MQTT topic changes, Sensorius applies the subscription update live when
+MQTT ingest is running. If MQTT ingest is not running, the saved setting applies
+when MQTT ingest starts.
 
 ### FarmOS Pane
 
@@ -258,7 +264,7 @@ Fields and controls:
 - **SENSORIUS_LOG_LEVEL**: logging detail. Options are **DEBUG**, **INFO**, **WARNING**, **ERROR**, and **CRITICAL**.
 - **SENSORIUS_DEBUG_MODULES**: module-specific debug checkboxes. Options are loaded from the app's advanced status endpoint.
 - **Archive Database**: creates a SQLite database snapshot under `database_archives/` next to the active database and downloads the snapshot.
-- **Clear Database**: clears stored Sensorius data. Use only after backup or when intentionally resetting history.
+- **New Database**: archives the current SQLite database, deletes the active database files, and creates a new empty database. This is an intentionally drastic recovery action.
 - **Save**: writes advanced settings.
 
 ## Sensor Settings
@@ -361,7 +367,8 @@ Fields and controls:
 - **Restart Device**: appears for supported remote switches and sends a restart request.
 - **Save**: writes changes to switch settings. For remote Nodus switches, Sensorius also sends a settings update over MQTT when needed.
 
-Keep labels stable once automations or Home Assistant depend on them. Internally, Sensorius uses switch keys in the form `<channel_id>::<label>`.
+Keep labels stable for operator clarity, but the internal switch address is the
+stable `<switch_id>::<channel_id>` key.
 
 ### Automations Pane
 

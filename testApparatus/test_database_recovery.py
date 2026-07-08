@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import importlib
 import shutil
 import sqlite3
 import sys
@@ -135,6 +136,27 @@ def test_stats_query_triggers_corrupt_database_rebuild(tmp_path, monkeypatch: py
         table = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='readings'"
         ).fetchone()
+
+    assert table == ("readings",)
+    assert len(_recovery_dirs(tmp_path)) == 1
+
+
+def test_web_route_sqlite_connect_uses_shared_recovery(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    _reset_recovery_state(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(datalogger_module.shutil, "which", lambda _name: None)
+
+    db_path = tmp_path / "sensorius_data.db"
+    db_path.write_bytes(b"not sqlite")
+
+    routes = importlib.import_module("saiWebRoutes")
+    conn = routes._sqlite_connect_with_recovery(str(db_path), source="test-web-connect")
+    try:
+        table = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='readings'"
+        ).fetchone()
+    finally:
+        conn.close()
 
     assert table == ("readings",)
     assert len(_recovery_dirs(tmp_path)) == 1

@@ -235,7 +235,7 @@ def test_statistics_packet_counts_use_persisted_sensor_and_switch_rows(tmp_path,
             {"AQI": 12},
         )
 
-        switch_key = build_switch_key("S1-test123", "Fan")
+        switch_key = build_switch_key("switch-test123", "S1-test123")
         logger.upsert_switch_identity(
             switch_key=switch_key,
             switch_id="switch-test123",

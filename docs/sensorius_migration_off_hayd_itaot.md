@@ -45,8 +45,10 @@ Sensorius should use MQTT for liveness:
    heartbeat/data timing.
 6. Mark device degraded/offline if no heartbeat or live data/state/event report
    arrives for `>= 90s` (3x 30s interval), unless a stricter policy is needed.
-7. Publish retained Home Assistant availability `offline` when Sensorius derives
-   Nodus liveness as anything other than online.
+7. Publish retained Home Assistant availability from Sensorius liveness as
+   follows: `online` and `degraded` publish HA `online`; `offline` and
+   `migration_required` publish HA `offline`; `unknown` does not force a
+   retained HA availability change.
 
 ## Route Usage by Lifecycle
 

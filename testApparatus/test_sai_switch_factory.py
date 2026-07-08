@@ -243,8 +243,14 @@ def test_switch_event_migration_preserves_old_key_reads(tmp_path):
     )
     db.log_switch_event("S1-::Fan", True, source="test", sensor_id="Switch_hub-1")
 
-    moved = db.migrate_switch_keys({"S1-::Fan": "S1-abc123::Fan"})
+    moved = db.migrate_switch_keys({"S1-::Fan": "hub-1::S1-abc123"})
+    db.upsert_switch_identity(
+        switch_key="hub-1::S1-abc123",
+        switch_id="hub-1",
+        label="Fan",
+        location="Shelf",
+    )
 
     assert moved >= 1
-    assert db.get_latest_switch_state("S1-abc123::Fan") == "On"
+    assert db.get_latest_switch_state("hub-1::S1-abc123") == "On"
     assert db.get_latest_switch_state("hub-1::Fan") == "On"

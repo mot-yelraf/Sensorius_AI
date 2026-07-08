@@ -248,7 +248,7 @@ class SwitchController:
     def _switch_key(self, name: str) -> str:
         """
         Canonical DB identity for a channel:
-          "<channel_id>::<label>"
+          "<switch_id>::<channel_id>"
         """
         chan_id = None
         try:
@@ -256,10 +256,12 @@ class SwitchController:
         except Exception:
             chan_id = None
         chan_id = str(chan_id or "").strip()
+        sid = str(getattr(self, "switch_id", "") or "").strip()
+        suffix = chan_id or str(name or "").strip()
 
-        if _build_switch_key:
-            return _build_switch_key(chan_id, name)
-        return f"{chan_id}::{name}"
+        if _build_switch_key and sid:
+            return _build_switch_key(sid, suffix)
+        return f"{sid}::{suffix}" if sid else f"{chan_id}::{name}"
 
     def get_latest_state_from_db(self, label: str) -> str | None:
         """Convenience: return 'On'/'Off'/None for a given label using sw_events."""
@@ -825,7 +827,7 @@ class SwitchController:
                 import asyncio
                 payload = {
                     "type": "switch_event",
-                    "key": switch_key,      # "switch-id::Label"
+                    "key": switch_key,      # "switch-id::channel-id"
                     "ui_key": f"{self.switch_id}::{name}" if getattr(self, "switch_id", None) else switch_key,
                     "state": bool(on),      # True / False
                     "timestamp": get_timestamp(),

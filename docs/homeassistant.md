@@ -73,6 +73,10 @@ Switch state and commands:
 <base_topic>/switch/<switch_id>/availability
 ```
 
+Nodus liveness maps to Home Assistant availability as follows: `online` and
+`degraded` publish HA `online`; `offline` and `migration_required` publish HA
+`offline`; `unknown` does not force a retained availability update.
+
 Discovery:
 
 ```text

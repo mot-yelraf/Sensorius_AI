@@ -222,8 +222,8 @@ Runtime notes:
 - Home Assistant bridge creation is part of startup; restart Sensorius after
   enabling Home Assistant or changing HA broker/topic settings.
 - WeeWX MQTT settings are applied live through the running MQTT ingest client
-  when available. The save API reports `restart_required` if live reconfigure
-  could not be applied.
+  when available. If MQTT ingest is not running, the settings apply when MQTT
+  ingest starts.
 - Home Assistant and farmOS secrets are obfuscated at rest by `saiSettings`.
   This is reversible obfuscation, not encryption.
 - `[WeatherForecast].PROVIDER` accepts `met_no`, `open_meteo`, `us`, or `none`.
@@ -286,13 +286,13 @@ Important `[Switch]` keys:
 The canonical UI/action key is:
 
 ```text
-<channel_id>::<label>
+<switch_id>::<channel_id>
 ```
 
 For example:
 
 ```text
-S1-sernum::Eastside_Pump
+switch-sernum::S1-sernum
 ```
 
 ## Automations

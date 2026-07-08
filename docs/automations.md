@@ -28,13 +28,13 @@ on Linux.
 Automation actions target switch keys in the form:
 
 ```text
-<channel_id>::<label>
+<switch_id>::<channel_id>
 ```
 
 Example:
 
 ```text
-S1-sernum::Eastside_Pump
+switch-sernum::S1-sernum
 ```
 
 The manager keeps some alias tolerance for older `<switch_id>::<label>` shapes,

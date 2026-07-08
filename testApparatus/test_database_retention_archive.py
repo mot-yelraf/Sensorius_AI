@@ -46,3 +46,30 @@ def test_database_archive_copies_logged_rows(tmp_path, monkeypatch):
         ).fetchone()
 
     assert row == ("co2-test123", "Temperature", 24.5)
+
+
+def test_new_database_archives_then_reinitializes_live_db(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SENSORIUS_DB_RETENTION_DAYS", "0")
+    monkeypatch.setattr(saiDataLogger, "_schema_ready", False)
+
+    db_path = tmp_path / "sensorius_data.db"
+    archive_dir = tmp_path / "database_archives"
+    logger = saiDataLogger(str(db_path))
+    try:
+        logger.log_readings("2026-06-16T12:00:00-06:00", "co2-test123", {"Temperature": 24.5})
+        archive_path = logger.archive_and_create_new_database(archive_dir)
+
+        with sqlite3.connect(archive_path) as conn:
+            archived = conn.execute("SELECT COUNT(*) FROM readings").fetchone()[0]
+        with sqlite3.connect(db_path) as conn:
+            live = conn.execute("SELECT COUNT(*) FROM readings").fetchone()[0]
+            table = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='readings'"
+            ).fetchone()
+    finally:
+        logger.close()
+
+    assert archived == 1
+    assert live == 0
+    assert table == ("readings",)

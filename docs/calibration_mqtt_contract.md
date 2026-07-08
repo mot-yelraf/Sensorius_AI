@@ -78,9 +78,10 @@ All calibration commands use the same top-level envelope:
 Required fields:
 
 - `message_id`: client-generated unique id for correlation
-- `action`: one of `apply`, `set`, `update`, `status`, `soil_ph_session_start`, `soil_ph_session_cancel`
+- `action`: one of `apply`, `set`, `update`, `status`, `start`, `soil_ph_session_start`, `soil_ph_session_cancel`
 
-`payload` is required for calibration writes and optional for `status`.
+`payload` is required for calibration writes and optional for `status` and
+`start`.
 
 ## Action: Apply Calibration Values
 
@@ -520,6 +521,14 @@ For offset updates:
 6. Apply the correlated `meta/patch` delta to Sensorius' mirrored TOML state.
 7. Refresh local UI state from the mirrored calibration values or from retained `event/calibration_status`.
 
+For APVPD plant-sensor calibration:
+
+1. Publish `calibration/set` with `action = "start"`.
+2. Wait for `calibration/ack`.
+3. Wait for the correlated `calibration/result`.
+4. Treat a result with `started = true` or `applied = true` as a started
+   calibration routine.
+
 For soil pH session flow:
 
 1. Publish `calibration/set` with `action = "soil_ph_session_start"`.
@@ -540,6 +549,7 @@ Recommended behavior:
 
 ## Current Limitations
 
-- Generic `action = "start"` local calibration is not implemented in the current runtime.
+- `action = "start"` is reserved for the APVPD plant-sensor calibration
+  routine. Other calibration flows should use their explicit actions.
 - No QoS-specific behavior is negotiated; current implementation uses the client defaults.
 - AP/bootstrap mode does not expose calibration over MQTT; MQTT requires a connected MQTT-enabled runtime profile.

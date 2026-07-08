@@ -172,13 +172,45 @@ class _Logger:
     def upsert_switch_identity(self, *, switch_key, switch_id, label, location=None):
         channel_id = ""
         if "::" in str(switch_key or ""):
-            channel_id = str(switch_key).split("::", 1)[0].strip()
+            prefix, suffix = str(switch_key).split("::", 1)
+            channel_id = suffix.strip() if prefix.strip() == str(switch_id or "").strip() else prefix.strip()
+        switch_id_text = str(switch_id or "").strip()
+        label_text = str(label or "").strip()
+        channel_id_l = channel_id.lower()
+        label_l = label_text.lower()
+        switch_key_l = str(switch_key or "").strip().lower()
+
+        def _row_channel(row):
+            row_ch = str(row.get("channel_id", "") or "").strip()
+            if row_ch:
+                return row_ch
+            row_key = str(row.get("switch_key", "") or "").strip()
+            row_sid = str(row.get("switch_id", "") or "").strip()
+            if "::" not in row_key:
+                return ""
+            prefix, suffix = row_key.split("::", 1)
+            return suffix.strip() if prefix.strip() == row_sid else prefix.strip()
+
+        kept = []
+        for row in self.switch_identities:
+            row_sid = str(row.get("switch_id", "") or "").strip()
+            row_label = str(row.get("label", "") or "").strip()
+            row_key = str(row.get("switch_key", "") or "").strip()
+            row_ch = _row_channel(row)
+            if row_sid == switch_id_text and (
+                row_key.lower() == switch_key_l
+                or (channel_id_l and row_ch.lower() == channel_id_l)
+                or (label_l and row_label.lower() == label_l)
+            ):
+                continue
+            kept.append(row)
+        self.switch_identities = kept
         self.switch_identities.append(
             {
                 "switch_key": switch_key,
                 "switch_id": switch_id,
                 "channel_id": channel_id,
-                "label": label,
+                "label": label_text,
                 "location": location,
             }
         )
@@ -195,7 +227,8 @@ class _Logger:
                     return channel_id
                 switch_key = str(row.get("switch_key", "") or "").strip()
                 if "::" in switch_key:
-                    return switch_key.split("::", 1)[0].strip()
+                    prefix, suffix = switch_key.split("::", 1)
+                    return suffix.strip() if prefix.strip().lower() == want_sid else prefix.strip()
         return None
 
     def get_switch_identities(self):
@@ -212,7 +245,11 @@ class _Logger:
                 kept.append(row)
                 continue
             switch_key = str(row.get("switch_key", "") or "").strip()
-            channel_id = switch_key.split("::", 1)[0].strip() if "::" in switch_key else ""
+            if "::" in switch_key:
+                prefix, suffix = switch_key.split("::", 1)
+                channel_id = suffix.strip() if prefix.strip() == str(switch_id or "").strip() else prefix.strip()
+            else:
+                channel_id = ""
             if channel_id in valid:
                 kept.append(row)
         removed = len(self.switch_identities) - len(kept)
@@ -620,7 +657,7 @@ def test_confirmed_nodus_event_persists_after_optimistic_cache_update(monkeypatc
         json.dumps({"event": {"SWITCH_1": "off"}, "source": "mqtt", "timestamp": 1773318167}),
     )
 
-    assert ingest.data_logger.switch_events[-1]["switch_key"] == "S1-sw1::Fan"
+    assert ingest.data_logger.switch_events[-1]["switch_key"] == "sw1::S1-sw1"
     assert ingest.data_logger.switch_events[-1]["is_on"] is False
     assert ingest.data_logger.switch_events[-1]["source"] == "mqtt-manual"
     assert ingest.data_logger.switch_events[-1]["timestamp"] is None
@@ -659,7 +696,7 @@ def test_confirmed_nodus_event_accepts_top_level_state(monkeypatch):
         ),
     )
 
-    assert ingest.data_logger.switch_events[-1]["switch_key"] == "S1-sw1::Fan"
+    assert ingest.data_logger.switch_events[-1]["switch_key"] == "sw1::S1-sw1"
     assert ingest.data_logger.switch_events[-1]["is_on"] is True
     assert ingest.data_logger.switch_events[-1]["source"] == "mqtt-nodus"
     assert ingest.data_logger.switch_events[-1]["timestamp"] is None
@@ -727,7 +764,7 @@ def test_confirmed_nodus_state_persists_even_after_manual_ui_off(monkeypatch):
 
     ingest.handle_nodus_switch_topic("nodus/S1-sw1/state", "OFF")
 
-    assert ingest.data_logger.switch_events[-1]["switch_key"] == "S1-sw1::Fan"
+    assert ingest.data_logger.switch_events[-1]["switch_key"] == "sw1::S1-sw1"
     assert ingest.data_logger.switch_events[-1]["is_on"] is False
     assert ingest.data_logger.switch_events[-1]["source"] == "mqtt-nodus-state"
 
@@ -770,10 +807,67 @@ def test_confirmed_nodus_state_broadcasts_live_switch_event(monkeypatch):
 
     assert pushed
     assert pushed[-1]["type"] == "switch_event"
-    assert pushed[-1]["key"] == "sw1::Fan"
-    assert pushed[-1]["ui_key"] == "S1-sw1::Fan"
+    assert pushed[-1]["key"] == "sw1::S1-sw1"
+    assert pushed[-1]["ui_key"] == "sw1::Fan"
+    assert pushed[-1]["legacy_ui_key"] == "S1-sw1::Fan"
     assert pushed[-1]["state"] is False
     assert pushed[-1]["source"] == "mqtt-nodus"
+
+
+def test_nodus_json_state_self_registers_without_prior_switch_meta(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    ingest.handle_nodus_switch_topic(
+        "nodus/S1-test123/state",
+        json.dumps(
+            {
+                "schema": "nodus-switch-state/v1",
+                "device_id": "switch-test123",
+                "channel_id": "S1-test123",
+                "label": "Fan",
+                "state": "ON",
+                "timestamp": 1773318167,
+            }
+        ),
+        retain=True,
+    )
+
+    assert ingest.nodus_switch_topic_map["nodus/S1-test123/state"] == {
+        "switch_id": "switch-test123",
+        "channel_id": "S1-test123",
+        "label": "Fan",
+        "kind": "state",
+    }
+    assert ingest.nodus_switch_state_topics[("switch-test123", "S1-test123")] == "nodus/S1-test123/state"
+    assert ingest.nodus_label_to_channel[("switch-test123", "fan")] == "S1-test123"
+    assert ingest._switch_state_cache["switch-test123"]["S1-test123"] == "on"
+    assert ingest._switch_state_cache["switch-test123"]["Fan"] == "on"
+    assert ingest.data_logger.switch_events[-1]["switch_key"] == "switch-test123::S1-test123"
+    assert ingest.data_logger.switch_events[-1]["is_on"] is True
+    assert ingest.data_logger.switch_events[-1]["source"] == "mqtt-nodus-state"
+
+
+def test_nodus_bare_state_resolves_from_db_identity_without_prior_switch_meta(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.data_logger.switch_identities.append(
+        {
+            "switch_id": "switch-test123",
+            "switch_key": "switch-test123::S1-test123",
+            "channel_id": "S1-test123",
+            "label": "Fan",
+            "location": "TestLab",
+        }
+    )
+
+    ingest.handle_nodus_switch_topic("nodus/S1-test123/state", "OFF")
+
+    assert ingest.nodus_switch_topic_map["nodus/S1-test123/state"]["switch_id"] == "switch-test123"
+    assert ingest.nodus_switch_topic_map["nodus/S1-test123/state"]["channel_id"] == "S1-test123"
+    assert ingest.nodus_switch_topic_map["nodus/S1-test123/state"]["label"] == "Fan"
+    assert ingest._switch_state_cache["switch-test123"]["S1-test123"] == "off"
+    assert ingest._switch_state_cache["switch-test123"]["Fan"] == "off"
+    assert ingest.data_logger.switch_events[-1]["switch_key"] == "switch-test123::S1-test123"
+    assert ingest.data_logger.switch_events[-1]["is_on"] is False
 
 
 def test_nodus_switch_json_timestamp_is_ignored_for_persist(monkeypatch):
@@ -799,7 +893,7 @@ def test_nodus_switch_json_timestamp_is_ignored_for_persist(monkeypatch):
         json.dumps({"event": {"SWITCH_1": "off"}, "source": "mqtt", "timestamp": 946685474}),
     )
 
-    assert ingest.data_logger.switch_events[-1]["switch_key"] == "S1-sw1::Fan"
+    assert ingest.data_logger.switch_events[-1]["switch_key"] == "sw1::S1-sw1"
     assert ingest.data_logger.switch_events[-1]["timestamp"] is None
 
 
@@ -832,7 +926,7 @@ def test_nodus_event_topic_is_history_only_and_does_not_override_live_state(monk
         json.dumps({"event": {"SWITCH_1": "off"}, "source": "mqtt"}),
     )
 
-    assert ingest.data_logger.switch_events[-1]["switch_key"] == "S1-sw1::Fan"
+    assert ingest.data_logger.switch_events[-1]["switch_key"] == "sw1::S1-sw1"
     assert ingest.data_logger.switch_events[-1]["is_on"] is False
     assert ingest._switch_state_cache["sw1"]["S1-sw1"] == "on"
     assert ingest._switch_state_cache["sw1"]["Fan"] == "on"
@@ -1010,7 +1104,7 @@ def test_nodus_meta_materializes_switch_mappings(monkeypatch):
                         "state": "OFF",
                         "event_topic": "nodus/S1-test123/event",
                         "state_topic": "nodus/S1-test123/state",
-                        "set_topic": "nodus/S1-test123/set",
+                        "set_topic": "nodus/S1-test123/config/set",
                         "availability_topic": "nodus/S1-test123/availability",
                     }
                 ],
@@ -1025,7 +1119,7 @@ def test_nodus_meta_materializes_switch_mappings(monkeypatch):
     assert meta is not None
     assert meta.get("switch_id") == "switch-test123"
     assert meta.get("channel_id") == "S1-test123"
-    assert ingest.nodus_switch_command_topics.get(("switch-test123", "S1-test123")) == "nodus/S1-test123/set"
+    assert ingest.nodus_switch_command_topics.get(("switch-test123", "S1-test123")) == "nodus/S1-test123/config/set"
     assert ingest.device_location.get("nodus/S1-test123/state") == "Veg Tent"
     assert "apvpd-test123" in ingest.host_to_peer_ids.get("apvpd-test123", [])
     assert ingest.expected_gauge_map.get("apvpd-test123") == ["Temperature", "Rel-Humidity", "Ambient VPD"]
@@ -1166,7 +1260,7 @@ def test_nodus_meta_accepts_switch_device_id_alias(monkeypatch):
                         "state": False,
                         "event_topic": "nodus/S1-test123/event",
                         "state_topic": "nodus/S1-test123/state",
-                        "set_topic": "nodus/S1-test123/set",
+                        "set_topic": "nodus/S1-test123/config/set",
                         "availability_topic": "nodus/S1-test123/availability",
                     }
                 ],
@@ -1177,7 +1271,7 @@ def test_nodus_meta_accepts_switch_device_id_alias(monkeypatch):
     ingest._on_message(ingest.client, None, msg)
 
     assert ingest.nodus_switch_topic_map.get("nodus/S1-test123/state", {}).get("switch_id") == "switch-test123"
-    assert ingest.nodus_switch_command_topics.get(("switch-test123", "S1-test123")) == "nodus/S1-test123/set"
+    assert ingest.nodus_switch_command_topics.get(("switch-test123", "S1-test123")) == "nodus/S1-test123/config/set"
 
 
 def test_nodus_compact_meta_subscribes_to_advertised_switch_meta_topic(monkeypatch):
@@ -1471,8 +1565,8 @@ def test_http_itaot_meta_normalizes_to_topic_contract(monkeypatch):
 
     ok, _ = ingest._parse_and_subscribe_from_http_meta(payload, "apvpd-test123")
     assert ok is True
-    assert ingest.nodus_switch_command_topics.get(("switch-test123", "S1-test123")) == "nodus/S1-test123/set"
-    assert ingest.nodus_switch_command_topics.get(("switch-test123", "S2-test123")) == "nodus/S2-test123/set"
+    assert ingest.nodus_switch_command_topics.get(("switch-test123", "S1-test123")) == "nodus/S1-test123/config/set"
+    assert ingest.nodus_switch_command_topics.get(("switch-test123", "S2-test123")) == "nodus/S2-test123/config/set"
     assert ingest.nodus_switch_topic_map.get("nodus/S1-test123/state", {}).get("label") == "Fan"
 
 
@@ -2331,7 +2425,7 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
                         "state": False,
                         "event_topic": "nodus/S1-test123/event",
                         "state_topic": "nodus/S1-test123/state",
-                        "set_topic": "nodus/S1-test123/set",
+                        "set_topic": "nodus/S1-test123/config/set",
                         "availability_topic": "nodus/S1-test123/availability",
                     }
                 ],
@@ -2522,7 +2616,7 @@ def test_nodus_meta_patch_updates_switch_shadow_from_channel_topic(tmp_path, mon
                         "state": False,
                         "event_topic": "nodus/S1-test123/event",
                         "state_topic": "nodus/S1-test123/state",
-                        "set_topic": "nodus/S1-test123/set",
+                        "set_topic": "nodus/S1-test123/config/set",
                         "availability_topic": "nodus/S1-test123/availability",
                     }
                 ],
@@ -2623,7 +2717,7 @@ def test_nodus_meta_patch_last_state_broadcasts_live_switch_update(tmp_path, mon
                         "state": False,
                         "event_topic": "nodus/S1-test123/event",
                         "state_topic": "nodus/S1-test123/state",
-                        "set_topic": "nodus/S1-test123/set",
+                        "set_topic": "nodus/S1-test123/config/set",
                         "availability_topic": "nodus/S1-test123/availability",
                     }
                 ],
@@ -2657,13 +2751,14 @@ def test_nodus_meta_patch_last_state_broadcasts_live_switch_update(tmp_path, mon
     assert ingest._switch_state_cache["switch-test123"]["S1-test123"] == "on"
     assert ingest._switch_state_cache["switch-test123"]["Fan"] == "on"
     assert ("switch-test123", "Fan") not in ingest._pending_set
-    assert ingest.data_logger.switch_events[-1]["switch_key"] == "S1-test123::Fan"
+    assert ingest.data_logger.switch_events[-1]["switch_key"] == "switch-test123::S1-test123"
     assert ingest.data_logger.switch_events[-1]["is_on"] is True
     assert ingest.data_logger.switch_events[-1]["source"] == "switch_set"
     assert pushed
     assert pushed[-1]["type"] == "switch_event"
-    assert pushed[-1]["key"] == "switch-test123::Fan"
-    assert pushed[-1]["ui_key"] == "S1-test123::Fan"
+    assert pushed[-1]["key"] == "switch-test123::S1-test123"
+    assert pushed[-1]["ui_key"] == "switch-test123::Fan"
+    assert pushed[-1]["legacy_ui_key"] == "S1-test123::Fan"
     assert pushed[-1]["state"] is True
     assert pushed[-1]["source"] == "switch_set"
 
@@ -2704,8 +2799,9 @@ def test_device_event_broadcast_includes_channel_ui_key(monkeypatch):
 
     assert pushed
     assert pushed[-1]["type"] == "switch_event"
-    assert pushed[-1]["key"] == "switch-oqs3lr::Fan"
-    assert pushed[-1]["ui_key"] == "S1-oqs3lr::Fan"
+    assert pushed[-1]["key"] == "switch-oqs3lr::S1-oqs3lr"
+    assert pushed[-1]["ui_key"] == "switch-oqs3lr::Fan"
+    assert pushed[-1]["legacy_ui_key"] == "S1-oqs3lr::Fan"
     assert pushed[-1]["state"] is True
     assert pushed[-1]["source"] == "mqtt"
 
@@ -3041,7 +3137,7 @@ def test_nodus_meta_reconciles_switch_shadow_and_prunes_stale_channels(tmp_path,
                         "state": False,
                         "event_topic": "nodus/S1-test123/event",
                         "state_topic": "nodus/S1-test123/state",
-                        "set_topic": "nodus/S1-test123/set",
+                        "set_topic": "nodus/S1-test123/config/set",
                         "availability_topic": "nodus/S1-test123/availability",
                     }
                 ],
@@ -3066,7 +3162,7 @@ def test_nodus_meta_reconciles_switch_shadow_and_prunes_stale_channels(tmp_path,
         "switch_id": "switch-test123",
         "valid_channel_ids": ["S1-test123"],
     }
-    assert {row["switch_key"] for row in ingest.data_logger.get_switch_identities()} == {"S1-test123::Fan"}
+    assert {row["switch_key"] for row in ingest.data_logger.get_switch_identities()} == {"switch-test123::S1-test123"}
 
 
 def test_switch_scoped_remote_payload_does_not_prune_richer_existing_switch_definition(tmp_path, monkeypatch):

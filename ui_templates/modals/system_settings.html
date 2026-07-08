@@ -1062,7 +1062,7 @@
 
               <div class="field-stack adv-span-all adv-center adv-db-actions">
                 <button type="button" class="button neutral" id="btn-archive-db">Archive Database</button>
-                <button type="button" class="button red" id="btn-clear-db">Clear Database</button>
+                <button type="button" class="button red" id="btn-new-db">New Database</button>
               </div>
             </div>
             <div class="status-text sai-live-status" id="adv-status" aria-live="polite"></div>
@@ -1504,6 +1504,7 @@
       if (!resp.ok) {
         throw new Error(await readErrorMessage(resp, "Failed to save WeeWX settings."));
       }
+      const js = await resp.json().catch(() => ({}));
 
       shell.dataset.weewxMqttEnabled = String(mqtt_enabled);
       shell.dataset.weewxDbPath = db_path;
@@ -1512,7 +1513,9 @@
       shell.dataset.weewxUpdatePeriod = String(update_period_sec);
       hydrateWeeWXFromData();
       await loadWeeWXStatus();
-      const msg = "WeeWX settings saved. Restart Sensorius for MQTT subscription changes to take effect.";
+      const msg = js && js.restart_required
+        ? "WeeWX settings saved. MQTT ingest is not running, so changes apply when MQTT ingest starts."
+        : "WeeWX settings saved. MQTT subscription updated.";
       setStatus("weewx-status", msg);
       showSettingsToast(msg, "ok");
     } catch (e) {
@@ -2859,9 +2862,9 @@
     }
   }
 
-  function clearDatabase() {
-    if (!window.confirm("Clear all stored sensor data? This cannot be undone.")) return;
-    window.location.href = "/clear-data";
+  function newDatabase() {
+    if (!window.confirm("Archive the current database and create a new empty database? This is a drastic recovery action.")) return;
+    window.location.href = "/new-database";
   }
 
   async function archiveDatabase() {
@@ -3000,8 +3003,8 @@
     if (ev.target && ev.target.id === "btn-archive-db") {
       archiveDatabase();
     }
-    if (ev.target && ev.target.id === "btn-clear-db") {
-      clearDatabase();
+    if (ev.target && ev.target.id === "btn-new-db") {
+      newDatabase();
     }
     if (ev.target && ev.target.id === "btn-advanced-save") {
       saveAdvancedSettings();

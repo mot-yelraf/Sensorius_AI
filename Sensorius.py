@@ -277,8 +277,8 @@ async def build_switch_controllers(sensors, supervisor, data_logger):
                 except Exception:
                     idx = None
                 if idx:
-                    key_migrations[f"S{idx}-::{label_text}"] = f"{channel_text}::{label_text}"
-                key_migrations[f"{sid}::{label_text}"] = f"{channel_text}::{label_text}"
+                    key_migrations[f"S{idx}-::{label_text}"] = f"{sid}::{channel_text}"
+                key_migrations[f"{sid}::{label_text}"] = f"{sid}::{channel_text}"
         if key_migrations:
             migrated = int(data_logger.migrate_switch_keys(key_migrations) or 0)
             if DEBUG and migrated:

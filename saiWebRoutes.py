@@ -110,6 +110,53 @@ _DB_RETENTION_MIN_DAYS = 30
 _DB_RETENTION_MAX_DAYS = 365
 _DB_RETENTION_DEFAULT_DAYS = 90
 
+
+def _sqlite_connect_with_recovery(db_path: str | os.PathLike, *, source: str = "", **kwargs) -> sqlite3.Connection:
+    """Open a Sensorius SQLite DB and trigger automatic recovery on corruption errors."""
+    def _open_checked() -> sqlite3.Connection:
+        conn = sqlite3.connect(db_path, **kwargs)
+        try:
+            conn.execute("SELECT name FROM sqlite_master LIMIT 1").fetchone()
+        except sqlite3.DatabaseError:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            raise
+        return conn
+
+    try:
+        return _open_checked()
+    except sqlite3.DatabaseError as exc:
+        if saiDataLogger.recover_database_after_error(db_path, exc, source=source or "saiWebRoutes.sqlite_connect"):
+            return _open_checked()
+        raise
+
+
+def _switch_channel_id_from_identity_row(row: dict) -> str:
+    """Return channel_id from a current or legacy switch_ids-style row."""
+    try:
+        channel_id = str((row or {}).get("channel_id", "") or "").strip()
+        if channel_id:
+            return channel_id
+        switch_key = str((row or {}).get("switch_key", "") or "").strip()
+        if "::" not in switch_key:
+            return ""
+        first, suffix = switch_key.split("::", 1)
+        first = first.strip()
+        suffix = suffix.strip()
+        switch_id = str((row or {}).get("switch_id", "") or "").strip()
+        label = str((row or {}).get("label", "") or "").strip()
+        if switch_id and first.lower() == switch_id.lower():
+            return suffix
+        if label and suffix.lower() == label.lower():
+            return first
+        if re.match(r"^[sS]\d+-", first):
+            return first
+        return suffix
+    except Exception:
+        return ""
+
 def _clamp_db_retention_days(raw: object, default: int = _DB_RETENTION_DEFAULT_DAYS) -> int:
     try:
         days = int(str(raw if raw is not None else default))
@@ -1736,9 +1783,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 sid = str(row.get("switch_id", "")).strip().lower()
                 lab = str(row.get("label", "")).strip().lower()
                 if sid == target_sid and lab == target_label:
-                    sk = str(row.get("switch_key", "")).strip()
-                    if "::" in sk:
-                        return sk.split("::", 1)[0].strip()
+                    ch_id = _switch_channel_id_from_identity_row(row)
+                    if ch_id:
+                        return ch_id
         except Exception:
             return None
 
@@ -2245,10 +2292,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 ch_id = _canonical_channel_id(str((row or {}).get("channel_id", "") or "").strip())
                 if ch_id:
                     return ch_id
-                switch_key = str((row or {}).get("switch_key", "") or "").strip()
-                if "::" not in switch_key:
-                    return ""
-                candidate = _canonical_channel_id(switch_key.split("::", 1)[0].strip())
+                candidate = _canonical_channel_id(_switch_channel_id_from_identity_row(row))
                 return candidate if _is_channel_switch_id(candidate) else ""
 
             def _is_valid_sensor_id(name: str) -> bool:
@@ -2974,11 +3018,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             ch_id = _resolve_channel_id_from_label(sid, lab)
             if _build_switch_key is not None:
                 try:
-                    return _build_switch_key(ch_id, lab)
+                    return _build_switch_key(sid, ch_id or lab)
                 except Exception:
                     pass
-            # fallback: current behavior
-            return f"{ch_id}::{lab}"
+            return f"{sid}::{ch_id or lab}"
 
         def _format_ts_no_micros(ts: str) -> str:
             """
@@ -2993,7 +3036,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         def _db_conn():
             # use the same DB the data logger is using
             db_path = getattr(data_logger, "db_path", "sensorius_data.db")
-            return sqlite3.connect(db_path)
+            return _sqlite_connect_with_recovery(db_path, source="current_data_page._db_conn")
 
         def _db_list_known_switch_keys(limit: int = 500) -> list[str]:
             """
@@ -3714,7 +3757,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         series: dict[str, dict] = {}
         simple_avg: dict[str, dict] = {}
         display_names: dict[str, str] = {}
-        with sqlite3.connect(db_path) as conn:
+        with _sqlite_connect_with_recovery(db_path, source="graph_series") as conn:
             cur = conn.cursor()
             for sid, metric_name in pairs:
                 ts, vs = fetch_xy(cur, sid, metric_name, since_iso, until_iso)
@@ -3806,7 +3849,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     return []
 
                 try:
-                    with sqlite3.connect(db_path) as conn2:
+                    with _sqlite_connect_with_recovery(db_path, source="graph_switch_transitions") as conn2:
                         cur2 = conn2.cursor()
                         cur2.execute(
                             """
@@ -3842,7 +3885,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # Optional: support readings-backed switch series as earlier (kept)
             def _fetch_transitions_from_readings(series_id: str, metric_name: str) -> list[tuple[str, int]]:
                 try:
-                    with sqlite3.connect(db_path) as conn2:
+                    with _sqlite_connect_with_recovery(db_path, source="graph_reading_transitions") as conn2:
                         cur2 = conn2.cursor()
                         cur2.execute(
                             """
@@ -8062,7 +8105,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             printDM(f"[remove-device] active logger sensor purge failed: {e}", location=MODULE)
         if not Path(db_path).exists(): return stats
         try:
-            conn=sqlite3.connect(db_path)
+            conn = _sqlite_connect_with_recovery(db_path, source="remove_device_purge")
             cur=conn.cursor()
             cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
             tables=[r[0] for r in cur.fetchall()]
@@ -11604,7 +11647,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     def _resolve_target_from_payload(payload: dict) -> tuple[Optional[str], Optional[str], Optional[str]]:
         """
         Accepts any of:
-          - {"key": "switch_id::label"}
+          - {"key": "switch_id::channel_id"}
+          - {"key": "switch_id::label"}     # legacy/tolerated
           - {"switch_id": "...", "label": "..."}
           - {"switch_id": "...", "name": "..."}  # tolerant of older field names
           - {"label": "..."}                 # legacy (ambiguous if duplicates exist)
@@ -11629,17 +11673,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     def _switch_key(switch_id: str, label: str) -> str:
         """
         Canonical switch key builder: use saiDataLogger.build_switch_key if present,
-        otherwise fall back to '<channel_id>::<label>'.
+        otherwise fall back to '<switch_id>::<channel_id-or-label>'.
         """
         sid = (switch_id or "").strip()
         lab = (label or "").strip()
         ch_id = _resolve_channel_id_from_label(sid, lab)
         if _build_switch_key is not None:
             try:
-                return _build_switch_key(ch_id, lab)
+                return _build_switch_key(sid, ch_id or lab)
             except Exception:
                 pass
-        return f"{ch_id}::{lab}"
+        return f"{sid}::{ch_id or lab}"
 
     def _switch_channel_display_name(channel: dict) -> str:
         channel_id = str((channel or {}).get("channel_id") or "").strip()
@@ -13065,12 +13109,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             known_channel_ids_by_sid: dict[str, set[str]] = {}
             for row in (identity_rows or []):
                 sid = str(row.get("switch_id", "")).strip()
-                sk = str(row.get("switch_key", "")).strip()
-                if not sid or "::" not in sk:
+                ch = _switch_channel_id_from_identity_row(row)
+                if not sid or not ch:
                     continue
-                ch = sk.split("::", 1)[0].strip()
-                if ch:
-                    known_channel_ids_by_sid.setdefault(sid, set()).add(ch.lower())
+                known_channel_ids_by_sid.setdefault(sid, set()).add(ch.lower())
 
             def _db_key_for_label(sid: str, label: str) -> str:
                 try:
@@ -13094,8 +13136,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 try:
                     ch_map = remote_cache.get(sid, {}) or {}
                     human_state = ch_map.get(label)
-                    if human_state is None and "::" in db_key:
-                        ch_id = db_key.split("::", 1)[0].strip()
+                    if human_state is None:
+                        ch_id = _resolve_channel_id_from_label(sid, label) or ""
                         human_state = ch_map.get(ch_id)
                     if human_state is None:
                         return None
@@ -13112,8 +13154,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 try:
                     now_ts = time.time()
                     pending = pending_set.get((str(sid or ""), str(label or "")))
-                    if pending is None and "::" in str(db_key or ""):
-                        channel_id = db_key.split("::", 1)[0].strip()
+                    if pending is None:
+                        channel_id = _resolve_channel_id_from_label(sid, label) or ""
                         for (psid, plabel), meta in pending_set.items():
                             if str(psid or "").strip() != str(sid or "").strip():
                                 continue
@@ -13200,14 +13242,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 events = _format_events_remote(db_key, limit=5) or _format_events(db_key, None, limit=5)
                 payload = {"state": latest_bool, "time": events}
                 payload.update(_remote_liveness_payload(sid))
+                states[db_key] = dict(payload)
                 states[ui_key] = dict(payload)
                 seen_ui_keys.add(ui_key)
-                if "::" in db_key:
-                    ch_id = db_key.split("::", 1)[0].strip()
-                    alias_key = f"{ch_id}::{label}" if ch_id else ""
-                    if alias_key and alias_key not in states:
-                        states[alias_key] = dict(payload)
-                        seen_ui_keys.add(alias_key)
+                ch_id = _switch_channel_id_from_identity_row(row)
+                alias_key = f"{ch_id}::{label}" if ch_id else ""
+                if alias_key and alias_key not in states:
+                    states[alias_key] = dict(payload)
+                    seen_ui_keys.add(alias_key)
 
             for remote_switch_id, ch_map in (remote_cache or {}).items():
                 if not isinstance(ch_map, dict):
@@ -13231,6 +13273,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     events = _format_events_remote(db_key, limit=5) or _format_events(db_key, None, limit=5)
                     payload = {"state": latest_bool, "time": events}
                     payload.update(_remote_liveness_payload(remote_switch_id))
+                    if db_key:
+                        states[db_key] = dict(payload)
                     states[ui_key] = payload
 
             return states
@@ -13285,8 +13329,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 ui_key = f"{sid}::{label}"
                 timer_info = _timer_snapshot(sid, label)
                 timer_snapshots[ui_key] = dict(timer_info)
+                if db_key:
+                    timer_snapshots[db_key] = dict(timer_info)
                 if db_key and "::" in db_key:
-                    ch_id = db_key.split("::", 1)[0].strip()
+                    ch_id = _switch_channel_id_from_identity_row(row)
                     alias_key = f"{ch_id}::{label}" if ch_id else ""
                     if alias_key:
                         timer_snapshots[alias_key] = dict(timer_info)
@@ -13319,12 +13365,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     async def toggle_switch(
         request: Request,
         switch_name: str = Query(...),        # legacy: label-only still supported
-        switch_key: str | None = Query(None), # new: "switch_id::label"
+        switch_key: str | None = Query(None), # new: "switch_id::channel_id"
         switch_id: str | None = Query(None),  # new: switch_id sent separately
         ):
         """
         Toggle a switch identified by either:
-          1) switch_key="switch_id::label"  (preferred)
+          1) switch_key="switch_id::channel_id"  (preferred)
           2) switch_id + switch_name        (explicit device + label)
           3) switch_name="<label>"          (legacy; ambiguous if duplicates exist)
         """
@@ -13459,6 +13505,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             label_raw     = _norm_label(switch_name)
             key_raw       = _norm_label(switch_key)
             switch_id_raw = _norm_switch_id(switch_id)
+            key_suffix_raw = None
 
             if DEBUG:
                 printDM(f"[toggle_switch] Requested: '{switch_name}', key={switch_key}, switch_id={switch_id}", location=MODULE)
@@ -13470,16 +13517,36 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             if key_raw and "::" in key_raw:
                 sid_part, label_part = key_raw.split("::", 1)
                 switch_id_raw = _norm_switch_id(sid_part) or switch_id_raw
+                key_suffix_raw = _norm_label(label_part)
                 label_raw     = _norm_label(label_part) or label_raw
 
             if not label_raw:
                 return JSONResponse({"error": "bad_switch_name"}, status_code=400)
 
-            label_q_lower = label_raw.lower()
             try:
                 identity_rows = list(data_logger.get_switch_identities() or [])
             except Exception:
                 identity_rows = []
+
+            def _label_from_key_suffix(sid_value: str | None, suffix_value: str | None) -> str | None:
+                sid_l = str(sid_value or "").strip().lower()
+                suffix_l = str(suffix_value or "").strip().lower()
+                if not sid_l or not suffix_l:
+                    return None
+                for row in identity_rows:
+                    r_sid = str(row.get("switch_id", "")).strip().lower()
+                    if r_sid != sid_l:
+                        continue
+                    r_label = str(row.get("label", "")).strip()
+                    r_channel = _switch_channel_id_from_identity_row(row)
+                    if suffix_l in {r_label.lower(), r_channel.lower()} and r_label:
+                        return r_label
+                return None
+
+            resolved_label = _label_from_key_suffix(switch_id_raw, key_suffix_raw)
+            if resolved_label:
+                label_raw = resolved_label
+            label_q_lower = label_raw.lower()
 
             def _switch_id_matches(ctrl, wanted_sid: str | None, label: str) -> bool:
                 """
@@ -13513,10 +13580,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     if r_label != label_l:
                         continue
                     r_sid = str(row.get("switch_id", "")).strip().lower()
-                    r_key = str(row.get("switch_key", "")).strip()
-                    r_channel = ""
-                    if "::" in r_key:
-                        r_channel = r_key.split("::", 1)[0].strip().lower()
+                    r_channel = _switch_channel_id_from_identity_row(row).lower()
 
                     # Bridge either direction if controller id is host-id or channel-id.
                     if ctrl_sid and r_sid == ctrl_sid and r_channel:
@@ -13559,9 +13623,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                             r_key = str(row.get("switch_key", "") or "").strip()
                             r_sid = str(row.get("switch_id", "") or "").strip()
                             r_label = str(row.get("label", "") or "").strip()
-                            r_channel = str(row.get("channel_id", "") or "").strip()
-                            if not r_channel and "::" in r_key:
-                                r_channel = r_key.split("::", 1)[0].strip()
+                            r_channel = _switch_channel_id_from_identity_row(row)
                             if not r_channel:
                                 continue
                             if r_channel.lower() != channel_id.lower():
@@ -13638,7 +13700,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 return JSONResponse(
                     {
                         "error": "ambiguous_switch",
-                        "message": "Multiple devices have this label. Provide switch_key='switch_id::label' or pass switch_id.",
+                        "message": "Multiple devices have this label. Provide switch_key='switch_id::channel_id' or pass switch_id.",
                         "options": options,
                     },
                     status_code=409,
@@ -13978,6 +14040,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             label_q   = (switch_name or "").strip()
             key_q     = (switch_key or "").strip()
             switch_id_q = (switch_id or "").strip().lower() if switch_id else None
+            key_suffix_q = ""
 
             if DEBUG:
                 printDM(f"[override_switch] name='{label_q}', key='{key_q}', switch_id='{switch_id_q}', rule.enabled={desired_rule_enabled}", location=MODULE)
@@ -13986,10 +14049,27 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             if key_q and "::" in key_q:
                 sid_part, lbl_part = key_q.split("::", 1)
                 switch_id_q = (sid_part or "").strip().lower() or switch_id_q
+                key_suffix_q = (lbl_part or "").strip()
                 label_q     = (lbl_part or "").strip() or label_q
 
             if not label_q:
                 return JSONResponse({"error": "bad_switch_name"}, status_code=400)
+
+            try:
+                identity_rows_for_override = list(data_logger.get_switch_identities() or [])
+            except Exception:
+                identity_rows_for_override = []
+            if switch_id_q and key_suffix_q:
+                suffix_l = key_suffix_q.lower()
+                for row in identity_rows_for_override:
+                    r_sid = str(row.get("switch_id", "")).strip().lower()
+                    if r_sid != switch_id_q:
+                        continue
+                    r_label = str(row.get("label", "") or "").strip()
+                    r_channel = _switch_channel_id_from_identity_row(row)
+                    if suffix_l in {r_label.lower(), r_channel.lower()} and r_label:
+                        label_q = r_label
+                        break
 
             label_lower = label_q.lower()
 
@@ -14065,14 +14145,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if sid and not channel_index:
                     try:
                         channel_id = None
-                        for row in (data_logger.get_switch_identities() or []):
+                        for row in identity_rows_for_override:
                             if str(row.get("switch_id", "")).strip().lower() != sid.lower():
                                 continue
                             if str(row.get("label", "")).strip().lower() != label_lower:
                                 continue
-                            sk = str(row.get("switch_key", "")).strip()
-                            if "::" in sk:
-                                channel_id = sk.split("::", 1)[0].strip()
+                            channel_id = _switch_channel_id_from_identity_row(row)
+                            if channel_id:
                                 break
                         if channel_id:
                             doc = switch_mgr.load(sid) or {}
@@ -14161,27 +14240,51 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     @router.get("/clear-data", response_class=HTMLResponse)
     async def clear_data_page(request: Request):
         _require_protected_access(request)
+        return RedirectResponse(url="/new-database", status_code=303)
+
+    @router.post("/clear-data", response_class=HTMLResponse)
+    async def clear_data_post(request: Request, confirm: bool = Form(False)):
+        _require_protected_access(request, require_csrf=True)
+        return RedirectResponse(url="/new-database", status_code=303)
+
+    @router.get("/new-database", response_class=HTMLResponse)
+    async def new_database_page(request: Request):
+        _require_protected_access(request)
         return HTMLResponse(
-            "<html><body><h3>Confirm Clear</h3>"
-            "<p>This will permanently delete all stored sensor data.</p>"
-            "<form method='post' action='/clear-data'>"
+            "<html><body><h3>Confirm New Database</h3>"
+            "<p>This will archive the current SQLite database, delete the active database files, and create a new empty database.</p>"
+            "<p>This is an intentionally drastic recovery action.</p>"
+            "<form method='post' action='/new-database'>"
             "<input type='hidden' name='confirm' value='true'>"
-            "<button type='submit'>Yes, clear data</button>"
+            "<button type='submit'>Yes, create new database</button>"
             "</form>"
             "<a href='/'>Cancel</a>"
             "</body></html>"
         )
 
-    @router.post("/clear-data", response_class=HTMLResponse)
-    async def clear_data_post(request: Request, confirm: bool = Form(False)):
+    @router.post("/new-database", response_class=HTMLResponse)
+    async def new_database_post(request: Request, confirm: bool = Form(False)):
         _require_protected_access(request, require_csrf=True)
         if not confirm:
             return HTMLResponse(
                 "<html><body><h3>Missing confirmation.</h3><a href='/'>Return</a></body></html>",
                 status_code=400,
             )
-        data_logger.clear_all_readings()
-        return HTMLResponse("<html><body><h3>All sensor data cleared.</h3><a href='/'>Return to Dashboard</a></body></html>")
+        try:
+            archive_path = await asyncio.to_thread(data_logger.archive_and_create_new_database)
+        except Exception as exc:
+            printDM(f"[new-database] failed: {exc}", location=MODULE)
+            return HTMLResponse(
+                "<html><body><h3>New database failed.</h3>"
+                f"<p>{str(exc)}</p>"
+                "<a href='/'>Return to Dashboard</a></body></html>",
+                status_code=500,
+            )
+        return HTMLResponse(
+            "<html><body><h3>New database created.</h3>"
+            f"<p>Archived previous database at {archive_path}</p>"
+            "<a href='/'>Return to Dashboard</a></body></html>"
+        )
 
     @router.get("/network-status", response_class=JSONResponse)
     async def network_status_api():

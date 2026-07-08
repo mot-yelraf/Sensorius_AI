@@ -106,14 +106,34 @@ def _normalize_timestamp_input(ts_value, default_tz: ZoneInfo) -> Tuple[str, flo
     dt = datetime.fromtimestamp(epoch, default_tz)
     return dt.isoformat(), epoch
 
-def build_switch_key(channel_id: str, label: str) -> str:
+def build_switch_key(switch_id: str, channel_id: str) -> str:
     """
     Canonical switch key constructor used across the app:
-      "<channel_id>::<label>"
+      "<switch_id>::<channel_id>"
     """
+    sid = str(switch_id or "").strip()
     chan = str(channel_id or "").strip()
+    return f"{sid}{SW_KEY_DELIM}{chan}"
+
+
+def _channel_id_from_switch_key(switch_key: str, switch_id: str = "", label: str = "") -> str:
+    """Extract channel_id from either current or legacy switch_key shapes."""
+    key = str(switch_key or "").strip()
+    if SW_KEY_DELIM not in key:
+        return ""
+    first, suffix = key.split(SW_KEY_DELIM, 1)
+    first = first.strip()
+    suffix = suffix.strip()
+    sid = str(switch_id or "").strip()
     lab = str(label or "").strip()
-    return f"{chan}{SW_KEY_DELIM}{lab}"
+
+    if sid and first.lower() == sid.lower():
+        return suffix
+    if lab and suffix.lower() == lab.lower():
+        return first
+    if first.lower().startswith("s") and "-" in first:
+        return first
+    return suffix
 
 class saiDataLogger:
     _init_lock = threading.RLock()
@@ -569,6 +589,45 @@ class saiDataLogger:
                 pass
             raise
 
+    def archive_and_create_new_database(self, archive_dir: str | os.PathLike | None = None) -> Path:
+        """
+        Archive the active database, remove the live SQLite file family, and
+        initialize a fresh empty database. This is an intentional recovery action.
+        """
+        source_path = self.__class__._resolve_db_path(self.db_path)
+        archive_path = self.create_database_archive(archive_dir=archive_dir)
+
+        with self._writer_lock:
+            self.__class__._close_registered_writers_for_path(source_path)
+            for live_path in self.__class__._db_family_paths(source_path):
+                try:
+                    live_path.unlink(missing_ok=True)
+                except Exception as exc:
+                    printDM(
+                        f"[new-database] failed to remove {live_path}: {exc}",
+                        location=MODULE,
+                        level="warning",
+                    )
+                    raise
+            self.__class__._schema_ready = False
+            self._init_db()
+            self._writer_conn = self._open_conn(check_same_thread=False)
+
+            self.sensor_values.clear()
+            self.sensor_timestamps.clear()
+            self.sensor_stats.clear()
+            self.sensor_metric_names.clear()
+            self._available_sensors_cache = None
+            self._available_metrics_cache.clear()
+            self._available_metrics_by_sensor_cache = None
+            self._switch_identities_cache = None
+
+        printDM(
+            f"Archived database to {archive_path} and created a new empty database",
+            location=MODULE,
+        )
+        return archive_path
+
     def __del__(self):
         try:
             self.close()
@@ -834,7 +893,7 @@ class saiDataLogger:
                         cur.execute("""
                             CREATE TABLE IF NOT EXISTS switch_ids (
                                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                switch_key TEXT NOT NULL UNIQUE,  -- "<channel_id>::<label>"
+                                switch_key TEXT NOT NULL UNIQUE,  -- "<switch_id>::<channel_id>"
                                 switch_id  TEXT NOT NULL,
                                 label      TEXT NOT NULL,         -- user-visible name ("Fan","Light",...)
                                 location   TEXT
@@ -855,7 +914,7 @@ class saiDataLogger:
                                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                                 timestamp  TEXT NOT NULL,         -- ISO8601
                                 ts_epoch   REAL,                  -- epoch seconds (UTC comparable)
-                                switch_key TEXT NOT NULL,         -- "<channel_id>::<label>"
+                                switch_key TEXT NOT NULL,         -- "<switch_id>::<channel_id>"
                                 state      INTEGER NOT NULL,      -- 0 = Off, 1 = On
                                 source     TEXT,                  -- 'manual','ui','mqtt','rule', etc.
                                 sensor_id  TEXT                   -- lineage/host if useful
@@ -1019,7 +1078,7 @@ class saiDataLogger:
              the corresponding switch_key and copy that.
 
         New schema:
-          - canonical switch_key is "<channel_id>::<label>" where channel_id
+          - canonical switch_key is "<switch_id>::<channel_id>" where channel_id
             is the stable SWITCH_N_CHANNEL_ID (e.g. "S1-123456").
           - This migration path is strictly for older DBs.
         We guard with a tiny marker table so we don't repeat work.
@@ -2225,7 +2284,7 @@ class saiDataLogger:
         Register/update a switch identity row.
 
         New canonical form:
-          - switch_key MUST be "<channel_id>::<label>"
+          - switch_key MUST be "<switch_id>::<channel_id>"
             where channel_id is the stable per-channel ID
             (e.g. SWITCH_1_CHANNEL_ID = "S1-123456").
 
@@ -2240,10 +2299,9 @@ class saiDataLogger:
             return
 
         try:
-            channel_id = ""
-            parts = switch_key.split(SW_KEY_DELIM, 1)
-            if len(parts) == 2:
-                channel_id = parts[0].strip()
+            channel_id = _channel_id_from_switch_key(switch_key, switch_id, label)
+            if channel_id:
+                switch_key = build_switch_key(switch_id, channel_id)
 
             with self._writer_lock:
                 self._ensure_writer()
@@ -2252,7 +2310,7 @@ class saiDataLogger:
                 if channel_id:
                     stale_rows = cur.execute(
                         """
-                        SELECT switch_key
+                        SELECT switch_key, label
                         FROM switch_ids
                         WHERE switch_id = ? COLLATE NOCASE
                         """,
@@ -2260,11 +2318,21 @@ class saiDataLogger:
                     ).fetchall()
                     for row in stale_rows or []:
                         old_key = str((row or [""])[0] or "").strip()
+                        old_label = str((row or ["", ""])[1] or "").strip()
                         if not old_key or old_key.lower() == switch_key.lower():
                             continue
-                        old_parts = old_key.split(SW_KEY_DELIM, 1)
-                        old_channel_id = old_parts[0].strip() if len(old_parts) == 2 else ""
-                        if old_channel_id.lower() != channel_id.lower():
+                        old_channel_id = _channel_id_from_switch_key(
+                            old_key,
+                            switch_id,
+                            old_label or label,
+                        )
+                        old_suffix = ""
+                        if SW_KEY_DELIM in old_key:
+                            old_suffix = old_key.split(SW_KEY_DELIM, 1)[1].strip()
+                        same_channel = old_channel_id and old_channel_id.lower() == channel_id.lower()
+                        same_label = (old_label or old_suffix).lower() == label.lower()
+                        same_suffix = old_suffix.lower() in {label.lower(), channel_id.lower()}
+                        if not (same_channel or same_label or same_suffix):
                             continue
                         cur.execute(
                             "UPDATE sw_events SET switch_key = ? WHERE switch_key = ? COLLATE NOCASE",
@@ -2312,7 +2380,7 @@ class saiDataLogger:
                     switch_key = str((row or [""])[0] or "").strip()
                     if not switch_key:
                         continue
-                    channel_id = switch_key.split(SW_KEY_DELIM, 1)[0].strip()
+                    channel_id = _channel_id_from_switch_key(switch_key, sid)
                     if channel_id and channel_id not in valid:
                         stale_keys.append((switch_key,))
                 if stale_keys:
@@ -2395,7 +2463,7 @@ class saiDataLogger:
         """
         Append a switch event to sw_events.
 
-        - switch_key: '<channel_id>::<label>' (canonical)
+        - switch_key: '<switch_id>::<channel_id>' (canonical)
         - is_on: True/False
         - source: optional ('manual','ui','mqtt','rule', etc.)
         - sensor_id: optional lineage/host (kept for joins/filters)
@@ -2456,6 +2524,11 @@ class saiDataLogger:
         """Return persisted switch event packets for a switch/controller."""
         switch_ids = self._dedupe_identifiers(switch_id, aliases or ())
         keys = self._dedupe_identifiers(switch_keys or ())
+        if keys:
+            expanded_keys: list[str] = []
+            for key in keys:
+                expanded_keys.extend(self._switch_key_alias_candidates(key) or [key])
+            keys = self._dedupe_identifiers(expanded_keys)
         if not switch_ids and not keys:
             return 0
 
@@ -2596,30 +2669,49 @@ class saiDataLogger:
 
         try:
             with self._open_conn() as conn:
-                row = conn.execute(
-                    """
-                    SELECT switch_key, state, timestamp, ts_epoch, source, sensor_id
-                    FROM sw_events
-                    WHERE switch_key LIKE ?
-                    ORDER BY COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL), 0.0) DESC
-                    LIMIT 1
-                    """,
-                    (f"{ch_id}{SW_KEY_DELIM}%",),
-                ).fetchone()
-            if not row:
-                return None
-            epoch = _timestamp_to_epoch(
-                row[3] if row[3] is not None else row[2],
-                getattr(self, "local_tz", LOCAL_TIMEZONE),
-            )
-            return {
-                "switch_key": row[0],
-                "state": row[1],
-                "timestamp": row[2],
-                "ts_epoch": epoch,
-                "source": row[4],
-                "sensor_id": row[5],
-            }
+                identities = self.get_switch_identities()
+                key_candidates: list[str] = []
+                for row in identities or []:
+                    row_ch = str(row.get("channel_id", "") or "").strip()
+                    if row_ch.lower() != ch_id.lower():
+                        continue
+                    db_key = str(row.get("switch_key", "") or "").strip()
+                    switch_id = str(row.get("switch_id", "") or "").strip()
+                    label = str(row.get("label", "") or "").strip()
+                    for candidate in (
+                        db_key,
+                        build_switch_key(switch_id, row_ch) if switch_id and row_ch else "",
+                        f"{row_ch}{SW_KEY_DELIM}{label}" if row_ch and label else "",
+                        f"{switch_id}{SW_KEY_DELIM}{label}" if switch_id and label else "",
+                    ):
+                        if candidate and candidate not in key_candidates:
+                            key_candidates.append(candidate)
+                if key_candidates:
+                    placeholders = ",".join("?" for _ in key_candidates)
+                    row = conn.execute(
+                        f"""
+                        SELECT switch_key, state, timestamp, ts_epoch, source, sensor_id
+                        FROM sw_events
+                        WHERE switch_key COLLATE NOCASE IN ({placeholders})
+                        ORDER BY COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL), 0.0) DESC
+                        LIMIT 1
+                        """,
+                        tuple(key_candidates),
+                    ).fetchone()
+                else:
+                    row = None
+                if row is None:
+                    # Legacy fallback for databases that have events but no switch_ids row.
+                    row = conn.execute(
+                        """
+                        SELECT switch_key, state, timestamp, ts_epoch, source, sensor_id
+                        FROM sw_events
+                        WHERE switch_key LIKE ?
+                        ORDER BY COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL), 0.0) DESC
+                        LIMIT 1
+                        """,
+                        (f"{ch_id}{SW_KEY_DELIM}%",),
+                    ).fetchone()
         except Exception as e:
             if DEBUG:
                 printDM(
@@ -2627,6 +2719,20 @@ class saiDataLogger:
                     location=MODULE,
                 )
             return None
+        if not row:
+            return None
+        epoch = _timestamp_to_epoch(
+            row[3] if row[3] is not None else row[2],
+            getattr(self, "local_tz", LOCAL_TIMEZONE),
+        )
+        return {
+            "switch_key": row[0],
+            "state": row[1],
+            "timestamp": row[2],
+            "ts_epoch": epoch,
+            "source": row[4],
+            "sensor_id": row[5],
+        }
 
     def _switch_key_alias_candidates(self, switch_key: str) -> list[str]:
         key = str(switch_key or "").strip()
@@ -2637,30 +2743,57 @@ class saiDataLogger:
         if SW_KEY_DELIM not in key:
             return candidates
 
-        prefix, label = key.split(SW_KEY_DELIM, 1)
+        prefix, suffix = key.split(SW_KEY_DELIM, 1)
         prefix = prefix.strip()
-        label = label.strip()
-        if not label:
+        suffix = suffix.strip()
+        if not suffix:
             return candidates
 
         try:
-            with self._open_conn() as conn:
-                rows = conn.execute(
-                    "SELECT switch_key, switch_id, label FROM switch_ids WHERE LOWER(label) = LOWER(?)",
-                    (label,),
-                ).fetchall()
+            rows = self.get_switch_identities()
         except Exception:
             return candidates
 
+        prefix_l = prefix.lower()
+        suffix_l = suffix.lower()
         for row in rows or []:
-            db_key = str(row[0] or "").strip()
-            db_sid = str(row[1] or "").strip()
-            db_label = str(row[2] or "").strip()
-            if not db_key or db_label.lower() != label.lower():
+            db_key = str(row.get("switch_key", "") or "").strip()
+            db_sid = str(row.get("switch_id", "") or "").strip()
+            db_label = str(row.get("label", "") or "").strip()
+            db_channel = str(row.get("channel_id", "") or "").strip()
+            if not db_key:
                 continue
-            db_channel = db_key.split(SW_KEY_DELIM, 1)[0].strip() if SW_KEY_DELIM in db_key else ""
-            if prefix.lower() in {db_sid.lower(), db_channel.lower(), db_key.lower()} and db_key not in candidates:
-                candidates.append(db_key)
+
+            prefix_matches = prefix_l in {
+                db_sid.lower(),
+                db_channel.lower(),
+                db_key.lower(),
+            }
+            suffix_matches = suffix_l in {
+                db_channel.lower(),
+                db_label.lower(),
+            }
+            legacy_channel_label_matches = (
+                prefix_l == db_channel.lower() and suffix_l == db_label.lower()
+            )
+            legacy_switch_label_matches = (
+                prefix_l == db_sid.lower() and suffix_l == db_label.lower()
+            )
+            if not (
+                (prefix_matches and suffix_matches)
+                or legacy_channel_label_matches
+                or legacy_switch_label_matches
+            ):
+                continue
+
+            for candidate in (
+                db_key,
+                build_switch_key(db_sid, db_channel) if db_sid and db_channel else "",
+                f"{db_channel}{SW_KEY_DELIM}{db_label}" if db_channel and db_label else "",
+                f"{db_sid}{SW_KEY_DELIM}{db_label}" if db_sid and db_label else "",
+            ):
+                if candidate and candidate not in candidates:
+                    candidates.append(candidate)
 
         return candidates
 
@@ -2790,30 +2923,34 @@ class saiDataLogger:
         whose source starts with source_prefix (case-insensitive).
         """
         try:
+            candidates = self._switch_key_alias_candidates(switch_key)
+            if not candidates:
+                return None
+            placeholders = ",".join(["?"] * len(candidates))
             with self._open_conn() as conn:
                 cur = conn.cursor()
                 if sensor_id:
                     cur.execute(
-                        """
+                        f"""
                         SELECT state FROM sw_events
-                        WHERE switch_key = ? COLLATE NOCASE
+                        WHERE switch_key COLLATE NOCASE IN ({placeholders})
                           AND LOWER(COALESCE(source, '')) LIKE LOWER(?)
                           AND LOWER(sensor_id)=LOWER(?)
                         ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC
                         LIMIT 1
                         """,
-                        (switch_key, f"{source_prefix}%", sensor_id)
+                        (*candidates, f"{source_prefix}%", sensor_id)
                     )
                 else:
                     cur.execute(
-                        """
+                        f"""
                         SELECT state FROM sw_events
-                        WHERE switch_key = ? COLLATE NOCASE
+                        WHERE switch_key COLLATE NOCASE IN ({placeholders})
                           AND LOWER(COALESCE(source, '')) LIKE LOWER(?)
                         ORDER BY COALESCE(ts_epoch, 0.0) DESC, timestamp DESC
                         LIMIT 1
                         """,
-                        (switch_key, f"{source_prefix}%")
+                        (*candidates, f"{source_prefix}%")
                     )
                 row = cur.fetchone()
                 if not row:
@@ -2830,7 +2967,7 @@ class saiDataLogger:
 
     #  convenience query
     def get_known_switches(self) -> list[str]:
-        """Return list of registered switch_key values ('<channel_id>::<label>'), sorted."""
+        """Return list of registered switch_key values ('<switch_id>::<channel_id>'), sorted."""
         try:
             with self._open_conn() as conn:
                 rows = conn.execute("SELECT switch_key FROM switch_ids ORDER BY switch_key").fetchall()
@@ -2842,7 +2979,7 @@ class saiDataLogger:
     def get_switch_identities(self) -> list[dict]:
         """
         Returns list of dicts:
-        {"switch_key": "<channel_id>::<label>", "switch_id": "...", "channel_id": "...", "label": "...", "location": "..."}
+        {"switch_key": "<switch_id>::<channel_id>", "switch_id": "...", "channel_id": "...", "label": "...", "location": "..."}
         """
         now_mono = time.monotonic()
         cached = self._switch_identities_cache
@@ -2861,9 +2998,7 @@ class saiDataLogger:
                 label = r[2] or ""
                 location = r[3] if len(r) > 3 else None
 
-                # switch_key is "<channel_id>::<label>"
-                parts = switch_key.split(SW_KEY_DELIM, 1)
-                channel_id = parts[0] if len(parts) == 2 else ""
+                channel_id = _channel_id_from_switch_key(switch_key, switch_id, label)
 
                 results.append({
                     "switch_key": switch_key,

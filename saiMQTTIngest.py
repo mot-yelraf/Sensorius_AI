@@ -760,9 +760,6 @@ class saiMQTTIngest:
         try:
             for row in (self.data_logger.get_switch_identities() or []):
                 row_ch = str(row.get("channel_id") or "").strip()
-                switch_key = str(row.get("switch_key") or "").strip()
-                if not row_ch and "::" in switch_key:
-                    row_ch = switch_key.split("::", 1)[0].strip()
                 if row_ch.lower() == ch_l:
                     return str(row.get("switch_id") or "").strip()
         except Exception:
@@ -1151,16 +1148,22 @@ class saiMQTTIngest:
             label_text = str(label or channel_id_text or "").strip()
             if not switch_id_text or not label_text:
                 return
+            canonical_key = (
+                f"{switch_id_text}::{channel_id_text}"
+                if channel_id_text
+                else f"{switch_id_text}::{label_text}"
+            )
 
             payload = {
                 "type": "switch_event",
-                "key": f"{switch_id_text}::{label_text}",
+                "key": canonical_key,
+                "ui_key": f"{switch_id_text}::{label_text}",
                 "state": bool(is_on),
                 "timestamp": timestamp or get_timestamp(),
                 "source": source,
             }
             if channel_id_text:
-                payload["ui_key"] = f"{channel_id_text}::{label_text}"
+                payload["legacy_ui_key"] = f"{channel_id_text}::{label_text}"
             self._schedule_coro(switch_broadcast(payload))
         except Exception:
             pass
@@ -3693,7 +3696,7 @@ class saiMQTTIngest:
 
                 try:
                     self.data_logger.upsert_switch_identity(
-                        switch_key=build_switch_key(channel_id, label),
+                        switch_key=build_switch_key(switch_id, channel_id),
                         switch_id=switch_id,
                         label=label,
                         location=switch_loc,
@@ -3942,7 +3945,7 @@ class saiMQTTIngest:
                     "state": row.get("state"),
                     "event_topic": f"nodus/{channel_id}/event",
                     "state_topic": f"nodus/{channel_id}/state",
-                    "set_topic": f"nodus/{channel_id}/set",
+                    "set_topic": f"nodus/{channel_id}/config/set",
                     "availability_topic": f"nodus/{channel_id}/availability",
                 })
 
@@ -5043,7 +5046,7 @@ class saiMQTTIngest:
                                 continue
 
                             if channel_id:
-                                _switch_key = build_switch_key(channel_id, label_str)
+                                _switch_key = build_switch_key(_switch_id, channel_id)
                             else:
                                 continue
 
@@ -5099,7 +5102,7 @@ class saiMQTTIngest:
                             continue
 
                         if channel_id:
-                            _switch_key = build_switch_key(channel_id, lbl)
+                            _switch_key = build_switch_key(_switch_id_flat, channel_id)
                         else:
                             continue
 
@@ -5798,7 +5801,7 @@ class saiMQTTIngest:
                 printDM(f"[HA cmd] forward failed {switch_id}/{channel_id} -> {txt}", location=MODULE)
             return
 
-        # topic: nodus/<channel_id>/set (passthrough)
+        # topic: nodus/<channel_id>/config/set or legacy nodus/<channel_id>/set (passthrough)
         if len(parts) >= 3 and parts[0] == "nodus" and parts[-1] == "set":
             channel_id = parts[1]
             switch_id = None
@@ -5812,7 +5815,7 @@ class saiMQTTIngest:
 
             ok = self.set_switch_by_channel_id(switch_id or "", channel_id, desired_on)
             if DEBUG and not ok:
-                printDM(f"[HA cmd] forward failed nodus/{channel_id}/set -> {txt}", location=MODULE)
+                printDM(f"[HA cmd] forward failed {topic} -> {txt}", location=MODULE)
             return
         
 
@@ -5892,9 +5895,8 @@ class saiMQTTIngest:
                         rsid = str(row.get("switch_id", "")).strip().lower()
                         rlab = str(row.get("label", "")).strip().lower()
                         if rsid == target_sid and rlab == target_label:
-                            sk = str(row.get("switch_key", "")).strip()
-                            if "::" in sk:
-                                channel_id = sk.split("::", 1)[0].strip()
+                            channel_id = str(row.get("channel_id", "") or "").strip()
+                            if channel_id:
                                 break
                 except Exception:
                     channel_id = None
@@ -5994,7 +5996,7 @@ class saiMQTTIngest:
 
         Notes:
           - channel_id is the stable per-channel identifier (e.g. SWITCH_1_CHANNEL_ID = "S1-123456").
-          - The canonical DB key is build_switch_key(channel_id, label) => "<channel_id>::<label>".
+          - The canonical DB key is build_switch_key(switch_id, channel_id) => "<switch_id>::<channel_id>".
           - sensor_lineage lets us store the specific origin (e.g., "switch-oqs3lr-GP28") when known.
         """
         try:
@@ -6042,7 +6044,7 @@ class saiMQTTIngest:
                     upsert_identity = getattr(self.data_logger, "upsert_switch_identity", None)
                     if callable(upsert_identity):
                         upsert_identity(
-                            switch_key=build_switch_key(channel_id_str, label_resolved),
+                            switch_key=build_switch_key(switch_id_str, channel_id_str),
                             switch_id=switch_id_str,
                             label=label_resolved,
                             location=location_resolved,
@@ -6054,7 +6056,7 @@ class saiMQTTIngest:
             if last_state not in ("on", "off"):
                 try:
                     latest = self.data_logger.get_latest_switch_state(
-                        build_switch_key(channel_id_str, label_resolved),
+                        build_switch_key(switch_id_str, channel_id_str),
                         sensor_id=(sensor_lineage or switch_id_str),
                     )
                     if latest is not None:
@@ -6072,7 +6074,7 @@ class saiMQTTIngest:
             writer = getattr(self.data_logger, "log_switch_event", None)
             if callable(writer):
                 writer(
-                    switch_key=build_switch_key(channel_id_str, label_resolved),
+                    switch_key=build_switch_key(switch_id_str, channel_id_str),
                     is_on=is_on,
                     timestamp=ts_iso,
                     sensor_id=(sensor_lineage or switch_id_str),
@@ -6169,7 +6171,7 @@ class saiMQTTIngest:
                 pass
 
             if DEBUG:
-                db_key = build_switch_key(channel_id, label or channel_id)
+                db_key = build_switch_key(switch_id, channel_id)
                 printDM(
                     f"[state] {switch_id} [{channel_id}] -> {cache[channel_id]} db_key={db_key} (topic {topic})",
                     location=MODULE,
@@ -6235,9 +6237,65 @@ class saiMQTTIngest:
                 self._known_switch_ids.add(sid)
                 return labels
 
+            payload_text = "" if payload is None else str(payload).strip()
+            payload_obj = None
+            if payload_text.startswith("{") and payload_text.endswith("}"):
+                try:
+                    parsed = json.loads(payload_text)
+                    if isinstance(parsed, dict):
+                        payload_obj = parsed
+                except Exception:
+                    payload_obj = None
+
             info = self.nodus_switch_topic_map.get(topic)
             if not info:
-                return
+                topic_parts = str(topic or "").split("/")
+                topic_kind = topic_parts[-1] if topic_parts else ""
+                topic_channel_id = self._channel_id_from_topic(topic)
+                if topic_kind in {"state", "event"} and topic_channel_id:
+                    payload_switch_id = ""
+                    payload_channel_id = ""
+                    payload_label = ""
+                    if isinstance(payload_obj, dict):
+                        payload_switch_id = str(
+                            payload_obj.get("device_id")
+                            or payload_obj.get("switch_device_id")
+                            or payload_obj.get("switch_id")
+                            or ""
+                        ).strip()
+                        payload_channel_id = str(payload_obj.get("channel_id") or "").strip()
+                        payload_label = str(payload_obj.get("label") or "").strip()
+                    inferred_channel_id = payload_channel_id or topic_channel_id
+                    inferred_switch_id = payload_switch_id or self._switch_id_for_channel_id(inferred_channel_id)
+                    if inferred_switch_id and inferred_channel_id:
+                        labels = _labels_for_channel(inferred_switch_id, inferred_channel_id, hint=payload_label)
+                        inferred_label = payload_label or (labels[0] if labels else inferred_channel_id)
+                        info = {
+                            "switch_id": inferred_switch_id,
+                            "channel_id": inferred_channel_id,
+                            "label": inferred_label,
+                            "kind": topic_kind,
+                        }
+                        self.nodus_switch_topic_map[topic] = info
+                        if topic_kind == "state":
+                            self.nodus_switch_state_topics[(inferred_switch_id, inferred_channel_id)] = topic
+                        elif topic_kind == "event":
+                            self.nodus_switch_event_topics[(inferred_switch_id, inferred_channel_id)] = topic
+                        self.nodus_label_to_channel[(inferred_switch_id, _norm_label(inferred_label))] = inferred_channel_id
+                        self._known_switch_ids.add(inferred_switch_id)
+                        try:
+                            upsert_identity = getattr(self.data_logger, "upsert_switch_identity", None)
+                            if callable(upsert_identity) and inferred_label:
+                                upsert_identity(
+                                    switch_key=build_switch_key(inferred_switch_id, inferred_channel_id),
+                                    switch_id=inferred_switch_id,
+                                    label=inferred_label,
+                                    location=self.device_location.get(topic),
+                                )
+                        except Exception:
+                            pass
+                if not info:
+                    return
 
             switch_id = info.get("switch_id")
             channel_id = info.get("channel_id")
@@ -6257,7 +6315,6 @@ class saiMQTTIngest:
             except Exception:
                 host = None
 
-            payload_text = "" if payload is None else str(payload).strip()
             is_on: bool | None = None
             payload_label: str | None = None
             # Nodus switch payload timestamps are not trusted; persist with hub-local time.
@@ -6274,39 +6331,33 @@ class saiMQTTIngest:
                 return str(value).strip().lower() in ("on", "1", "true", "t", "yes", "y")
 
             # JSON payload (preferred)
-            if payload_text.startswith("{") and payload_text.endswith("}"):
-                try:
-                    obj = json.loads(payload_text)
-                except Exception:
-                    obj = None
+            if isinstance(payload_obj, dict):
+                if isinstance(payload_obj.get("label"), str):
+                    payload_label = str(payload_obj.get("label") or "").strip() or None
 
-                if isinstance(obj, dict):
-                    if isinstance(obj.get("label"), str):
-                        payload_label = str(obj.get("label") or "").strip() or None
+                # optional source
+                if isinstance(payload_obj.get("source"), str) and not pending_origin:
+                    source = payload_obj.get("source") or source
 
-                    # optional source
-                    if isinstance(obj.get("source"), str) and not pending_origin:
-                        source = obj.get("source") or source
+                # Preferred Nodus switch event/state shape uses top-level state.
+                if payload_obj.get("state") is not None:
+                    is_on = _state_value_is_on(payload_obj.get("state"))
 
-                    # Preferred Nodus switch event/state shape uses top-level state.
-                    if obj.get("state") is not None:
-                        is_on = _state_value_is_on(obj.get("state"))
-
-                    # Backward-compatible shape: extract ON/OFF from "event" dict.
-                    ev = obj.get("event") or {}
-                    if is_on is None and isinstance(ev, dict) and ev:
-                        # Prefer a key that matches the channel label or SWITCH_n
-                        state_val = None
-                        if label and label in ev:
-                            state_val = ev.get(label)
-                        else:
-                            # fall back to first value
-                            try:
-                                state_val = list(ev.values())[0]
-                            except Exception:
-                                state_val = None
-                        if state_val is not None:
-                            is_on = _state_value_is_on(state_val)
+                # Backward-compatible shape: extract ON/OFF from "event" dict.
+                ev = payload_obj.get("event") or {}
+                if is_on is None and isinstance(ev, dict) and ev:
+                    # Prefer a key that matches the channel label or SWITCH_n
+                    state_val = None
+                    if label and label in ev:
+                        state_val = ev.get(label)
+                    else:
+                        # fall back to first value
+                        try:
+                            state_val = list(ev.values())[0]
+                        except Exception:
+                            state_val = None
+                    if state_val is not None:
+                        is_on = _state_value_is_on(state_val)
 
             # Legacy plain-text payload
             if is_on is None:
@@ -6328,7 +6379,7 @@ class saiMQTTIngest:
                             break
                     if not label_resolved:
                         label_resolved = label or str(channel_id)
-                    db_key = build_switch_key(str(channel_id), str(label_resolved))
+                    db_key = build_switch_key(str(switch_id), str(channel_id))
                     getter = getattr(self.data_logger, "get_latest_switch_state_by_source_prefix", None)
                     if callable(getter):
                         latest = getter(db_key, source_prefix="mqtt", sensor_id=f"Switch_{switch_id}")

@@ -219,9 +219,8 @@ Factory templates remain in the repository and deployed runtime tree under:
 - AP/bootstrap HTTP endpoints are limited to onboarding and diagnostics.
 - Ongoing Nodus health should come from MQTT heartbeat and availability topics,
   not periodic `/hayd` or `/itaot` polling.
-- UI and automation switch keys use the form `<channel_id>::<label>`.
-- The DB canonical switch key also uses `<channel_id>::<label>` when a channel
-  ID exists.
+- UI, automation, and DB switch keys use the form
+  `<switch_id>::<channel_id>` when a channel ID exists.
 - MQTT topic shapes, Home Assistant entity IDs, retained discovery payloads,
   and stored DB keys are compatibility-sensitive.
 

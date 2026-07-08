@@ -191,8 +191,8 @@ A restart is usually not required for:
 - Advanced automation edits.
 - farmOS enablement; the bridge is always registered and reads its enabled flag
   while running.
-- WeeWX MQTT setting changes when the save response reports
-  `restart_required=false`.
+- WeeWX MQTT setting changes; Sensorius applies them live when MQTT ingest is
+  running, otherwise they apply when MQTT ingest starts.
 - Calibration values after the UI applies the update and reloads the runtime
   sensor where supported.
 
