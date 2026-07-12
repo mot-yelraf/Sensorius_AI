@@ -69,9 +69,12 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "function bioTodayIso(){ const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }" in text
     assert "const preferredDate = monthKey === bioMonthKeyFromDate(new Date(`${todayIso}T00:00:00`)) ? todayIso : '';" in text
     assert "window.__bioMonthCache = window.__bioMonthCache || {};" in text
-    assert "async function fetchBiodynamicMonth(monthKey){" in text
+    assert "async function fetchBiodynamicMonth(monthKey, forceRefresh=false){" in text
     assert "function prefetchBiodynamicAdjacentMonths(monthKey){" in text
     assert "setBioMonthLoading(true);" in text
+    assert "setBioSummaryLoading(true);" in text
+    assert "scheduleBioSummaryRefresh(dateIso);" in text
+    assert "fetchBiodynamicMonth(st.month, true);" in text
     assert "function bioTodayIso(){ return new Date().toISOString().slice(0,10); }" not in text
     assert "await loadBiodynamicMonth(monthKey, preferredDate);" in text
     assert ".bio-day{min-height:43px;height:43px;border:1px solid #d7d0bf;border-radius:6px;padding:3px;background:#fff;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;box-sizing:border-box;}" in text
@@ -179,7 +182,8 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "panelEl.style.background = 'transparent';" in text
     assert "panelEl.style.borderColor = 'transparent';" in text
     assert ".bio-print-block{font-size:9pt;line-height:1.35;color:#27313a;white-space:pre-wrap;overflow-wrap:anywhere;min-height:1.2em;text-align:left;}" in text
-    assert ".bio-summary-card .bio-summary-output{height:78px;max-height:78px;}" in text
+    assert ".bio-summary-card .bio-summary-output{height:auto;max-height:none;min-height:78px;flex:1 1 auto;}" in text
+    assert ".bio-modal-side{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto 190px 190px;" in text
     assert "document.body.classList.add('bio-printing');" in text
     assert "window.print();" in text
     assert "function bioRunPrint(){" in text
@@ -192,13 +196,21 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "function bioSummaryWithForecast(dateIso, summaryText){" in text
     assert "if (window.__weatherForecastEnabled !== false && dateIso && dateIso === bioTodayIso()) parts.push(bioForecastSummaryText());" in text
     assert "const summaryText = bioSummaryWithForecast(day.date, summaries[day.date] || '');" in text
-    assert "const summaryText = dateIso ? bioSummaryWithForecast(dateIso, summaries[dateIso] || '') : '';" in text
+    assert "const storedSummary = dateIso ? String(summaries[dateIso] || '').trim() : '';" in text
+    assert "const summaryText = storedSummary ? bioSummaryWithForecast(dateIso, storedSummary) : '';" in text
     assert "if (typeof bioRefreshOpenSummary === 'function') bioRefreshOpenSummary();" in text
     assert "<button type='button' class='bio-print-btn' id='bioPrintReportBtn'>Print Report</button>" in text
     assert "<button type='button' class='bio-print-btn' id='bioPrintCalendarBtn'>Print Calendar</button>" not in text
     assert "<button type='button' class='bio-print-btn' id='bioPrintNotesBtn'>Print Notes</button>" not in text
     assert text.index("<button type='button' class='bio-save-btn' id='bioSaveNoteBtn'>Save Note</button>") < text.index("<button type='button' class='bio-print-btn' id='bioPrintReportBtn'>Print Report</button>")
     assert "<div class='bio-note-card bio-summary-card'>" in text
+    assert "<div class='bio-selected-date' id='bioSelectedDate'>Select a day</div>" in text
+    assert "aria-label='Loading biodynamic calendar'" in text
+    assert "aria-label='Loading daily summary'" in text
+    assert "id='bioSummaryDate'" not in text
+    assert "id='bioNoteDate'" not in text
+    assert "<div class='bio-note-card bio-notes-card'>" in text
+    assert text.index("<div class='bio-note-meta' id='bioNoteMeta'></div>") < text.index("<div id='bioDailySummary' class='bio-summary-output'></div>")
     assert "<div class='bio-note-title'>Daily Notes</div>" in text
     assert "<div class='bio-note-title'>Your Notes</div>" not in text
     assert "<div class='bio-print-sheet' id='bioPrintReportSheet' aria-hidden='true'></div>" in text

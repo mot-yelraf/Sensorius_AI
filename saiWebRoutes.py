@@ -5591,6 +5591,29 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 asyncio.to_thread(data_logger.get_biodynamic_notes_for_range, range_start, range_end),
                 asyncio.to_thread(data_logger.get_biodynamic_daily_summaries_for_range, range_start, range_end),
             )
+            try:
+                resolved = await asyncio.to_thread(
+                    settings.resolve_astral_location,
+                    persist_if_auto=False,
+                    timeout_sec=2.5,
+                )
+                if resolved.get("lat") is not None and resolved.get("lon") is not None and resolved.get("tz"):
+                    service = DailySummaryService(settings=settings, data_logger=data_logger)
+                    repair_dates = [
+                        visible_date
+                        for visible_date in visible_dates
+                        if service.summary_needs_location_repair(daily_summaries.get(visible_date.isoformat(), ""))
+                    ]
+                    if repair_dates:
+                        await asyncio.to_thread(service.repair_summaries_for_dates, repair_dates)
+                        daily_summaries = await asyncio.to_thread(
+                            data_logger.get_biodynamic_daily_summaries_for_range,
+                            range_start,
+                            range_end,
+                        )
+            except Exception as exc:
+                if DEBUG:
+                    printDM(f"[api_biodynamic_calendar] visible summary repair skipped: {exc}", location=MODULE)
             payload["notes"] = notes
             payload["daily_summaries"] = daily_summaries
         else:

@@ -152,6 +152,59 @@ def test_ensure_summary_for_date_repairs_incomplete_existing_row(monkeypatch):
     assert "Astral Notes" in logger.saved["2026-03-08"]
 
 
+def test_unavailable_summary_is_detected_for_location_repair():
+    service = saiDailySummary.DailySummaryService(
+        settings=_FakeSettings(),
+        data_logger=_FakeLogger(),
+    )
+    stale = (
+        "Biodynamic Hints\n"
+        "Suggestion: no biodynamic hint available for this day.\n\n"
+        "Astral Notes\n"
+        "Astral location unavailable.\n"
+        "Biodynamic: unavailable (location_unavailable)"
+    )
+
+    assert service._summary_is_complete(date(2026, 3, 8), stale) is True
+    assert service.summary_needs_location_repair(stale) is True
+
+
+def test_ensure_summary_repairs_transient_location_failure_after_resolution(monkeypatch):
+    monkeypatch.setattr(
+        saiDailySummary,
+        "get_biodynamic_payload",
+        lambda anchor: {
+            "ok": True,
+            "calendar": [
+                {
+                    "date": anchor.isoformat(),
+                    "dominant_sign": "Taurus",
+                    "dominant_element": "Earth",
+                    "dominant_plant_part": "Root",
+                    "segments": [],
+                }
+            ],
+        },
+    )
+
+    class _ResolvedSettings(_FakeSettings):
+        def resolve_astral_location(self, persist_if_auto=False, timeout_sec=0):
+            return {"lat": 32.79, "lon": -108.2749, "tz": "America/Denver"}
+
+    logger = _FakeLogger()
+    logger.saved["2026-03-08"] = (
+        "Biodynamic Hints\n"
+        "Suggestion: no biodynamic hint available for this day.\n\n"
+        "Astral Notes\nAstral location unavailable.\n"
+        "Biodynamic: unavailable (location_unavailable)"
+    )
+    service = saiDailySummary.DailySummaryService(settings=_ResolvedSettings(), data_logger=logger)
+
+    assert service.ensure_summary_for_date(date(2026, 3, 8)) is True
+    assert "favor root-zone work" in logger.saved["2026-03-08"]
+    assert "location_unavailable" not in logger.saved["2026-03-08"]
+
+
 def test_ensure_summaries_for_window_refreshes_today_only_when_future_rows_are_complete(monkeypatch):
     monkeypatch.setattr(saiDailySummary, "get_biodynamic_payload", lambda anchor: {"ok": False, "reason": "unavailable"})
     logger = _FakeLogger()

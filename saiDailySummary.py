@@ -398,6 +398,26 @@ class DailySummaryService:
             and ("Astral Notes" in body or "Astral" in body)
         )
 
+    @staticmethod
+    def summary_needs_location_repair(text: str) -> bool:
+        """Return whether a persisted summary contains location-related fallback output."""
+        body = str(text or "")
+        return any(
+            marker in body
+            for marker in (
+                "Suggestion: no biodynamic hint available for this day.",
+                "Astral location unavailable.",
+                "Biodynamic: unavailable (location_unavailable)",
+            )
+        )
+
+    def _location_is_resolved(self) -> bool:
+        try:
+            resolved = self.settings.resolve_astral_location(persist_if_auto=False, timeout_sec=2.5) or {}
+        except Exception:
+            return False
+        return resolved.get("lat") is not None and resolved.get("lon") is not None and bool(resolved.get("tz"))
+
     def ensure_summary_for_date(self, summary_date: date, *, force_refresh: bool = False) -> bool:
         summary_iso = summary_date.isoformat()
         if not force_refresh:
@@ -406,13 +426,22 @@ class DailySummaryService:
             except Exception:
                 existing = ""
             if self._summary_is_complete(summary_date, existing):
-                return False
+                if not (self.summary_needs_location_repair(existing) and self._location_is_resolved()):
+                    return False
 
         text = self.build_summary_text(summary_date)
         ok = self.data_logger.save_biodynamic_daily_summary(summary_iso, text)
         if ok and DEBUG:
             printDM(f"[daily-summary] wrote summary for {summary_iso}", location=MODULE)
         return bool(ok)
+
+    def repair_summaries_for_dates(self, summary_dates) -> int:
+        """Regenerate specified persisted summaries sequentially for low-resource hosts."""
+        writes = 0
+        for summary_date in summary_dates:
+            if self.ensure_summary_for_date(summary_date, force_refresh=True):
+                writes += 1
+        return writes
 
     def ensure_summaries_for_window(
         self,
