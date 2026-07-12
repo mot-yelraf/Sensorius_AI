@@ -77,6 +77,14 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert ".bio-day{min-height:43px;height:43px;border:1px solid #d7d0bf;border-radius:6px;padding:3px;background:#fff;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;box-sizing:border-box;}" in text
     assert ".bio-day.today:not(.selected){box-shadow:inset 0 0 0 1px rgba(39,49,58,.45);}" in text
     assert ".bio-day.out{opacity:.62;filter:saturate(.42) brightness(1.02);}" in text
+    assert ".bio-legend{display:flex;align-items:center;justify-content:center;" in text
+    assert ".bio-legend-transition{background:linear-gradient(90deg,#d64b3b 0 50%,#644817 50% 100%)}" in text
+    assert "<div class='bio-legend' aria-label='Biodynamic calendar color legend'>" in text
+    summary_markup = "<div class='bio-modal-summary' id='bioModalSummary'></div>"
+    calendar_markup = "<div class='bio-calendar' id='bioModalCalendar'></div>"
+    assert text.index(summary_markup) < text.index("Biodynamic calendar color legend") < text.index(calendar_markup)
+    for label in ("Root", "Leaf", "Flower", "Fruit", "Rest", "Transition"):
+        assert f"</span>{label}</span>" in text
     assert ".bio-day-num{font-size:.66rem;font-weight:800;line-height:1;display:inline-flex;align-items:center;justify-content:center;min-width:1.45em;height:1.45em;border-radius:999px;background:rgba(255,253,246,.88);border:1px solid rgba(39,49,58,.18);color:#27313a;box-shadow:0 1px 2px rgba(39,49,58,.18);}" in text
     assert ".bio-day-meta{" not in text
     assert ".bio-print-day-num{font-size:9pt;font-weight:800;line-height:1;display:inline-flex;align-items:center;justify-content:center;min-width:1.45em;height:1.45em;border-radius:999px;background:rgba(255,253,246,.9);border:1px solid rgba(39,49,58,.18);color:#27313a;}" in text

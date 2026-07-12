@@ -513,6 +513,9 @@ Use switch overlays to answer practical questions: whether a fan cooled the gree
 
 Sensorius includes a built-in biodynamic calendar and can also open the standalone Biodynamic Calendar app when that app is running on the same host.
 
+The built-in month view includes a color legend for Root, Leaf, Flower, Fruit,
+Rest, and Transition periods above the calendar grid.
+
 The built-in calendar is part of the Sensorius dashboard. It uses Sensorius Astral settings for latitude, longitude, altitude, and timezone. Calendar notes and daily summaries are stored in the Sensorius SQLite database in `biodynamic_notes` and `biodynamic_daily_summaries`.
 
 The standalone app lives at `~/Projects/Biodynamic_Calendar`, which is `/Users/twfarley/Projects/Biodynamic_Calendar` for this installation. It can run beside Sensorius on port `8765`. When you click the dashboard **Calendar** button, Sensorius checks `http://127.0.0.1:8765/healthz`. If the companion app is available, Sensorius opens it in an overlay at:
