@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Sensorius">
+  <defs>
+    <linearGradient id="sensorius-gradient" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#08aeea"/>
+      <stop offset="36%" stop-color="#08aeea"/>
+      <stop offset="72%" stop-color="#7bdc12"/>
+      <stop offset="100%" stop-color="#7bdc12"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="104" fill="#fff"/>
+  <path
+    d="M82 394h70l18-22 24 43 40-120 51 142 31-88 24 45h25c50 0 79-32 79-80s-30-80-81-80H178c-67 0-110-34-110-75s43-75 110-75h214"
+    fill="none"
+    stroke="url(#sensorius-gradient)"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="34"
+  />
+  <circle cx="416" cy="84" r="31" fill="#7bdc12"/>
+  <circle cx="416" cy="84" r="12" fill="#fff"/>
+</svg>

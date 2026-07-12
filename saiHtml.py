@@ -1131,6 +1131,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "<!DOCTYPE html>"
     yield f"<html><head><title>{APP_NAME_LONG}</title>"
     yield "<meta charset='UTF-8'>"
+    yield "<link rel='icon' href='/ui_static/favicon.svg' type='image/svg+xml'>"
     yield "<script src='https://cdn.jsdelivr.net/npm/gaugeJS@1.3.7/dist/gauge.min.js'></script>"
     yield "<script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'></script>"
     yield "<script src='https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns'></script>"
