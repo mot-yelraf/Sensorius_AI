@@ -110,6 +110,43 @@
   overflow-y: auto;
   scrollbar-gutter: stable;
 }
+#setupPiModal .integrations-list {
+  display: flex;
+  flex-direction: column;
+  gap: .65rem;
+  padding-right: .15rem;
+}
+#setupPiModal .integration-block {
+  border: 1px solid #d6dfd8;
+  border-radius: 10px;
+  background: #fafdfb;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+#setupPiModal .integration-block > summary {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  padding: .8rem .9rem;
+  cursor: pointer;
+  font-size: 1.05rem;
+  font-weight: 700;
+  list-style: none;
+  user-select: none;
+}
+#setupPiModal .integration-block > summary::-webkit-details-marker { display: none; }
+#setupPiModal .integration-block > summary::before {
+  content: "\25B6";
+  width: 1rem;
+  flex: 0 0 1rem;
+  transition: transform .15s ease;
+}
+#setupPiModal .integration-block[open] > summary::before { transform: rotate(90deg); }
+#setupPiModal .integration-block[open] > summary { border-bottom: 1px solid #d6dfd8; }
+#setupPiModal .integration-block-content { padding: .85rem; }
+#setupPiModal .integration-block .pane-footer {
+  margin: .85rem -.85rem -.85rem;
+}
 #setupPiModal #pane-locations,
 #setupPiModal #pane-remove {
   height: 100%;
@@ -596,9 +633,7 @@
           <button type="button" class="system-menu-btn" data-target="pane-add">Add Device</button>
           <button type="button" class="system-menu-btn" data-target="pane-update">Update Device</button>
           <button type="button" class="system-menu-btn" data-target="pane-remove">Remove Device</button>
-          <button type="button" class="system-menu-btn" data-target="pane-ha">Home Assistant</button>
-          <button type="button" class="system-menu-btn" data-target="pane-weewx">WeeWX</button>
-          <button type="button" class="system-menu-btn" data-target="pane-farm">FarmOS</button>
+          <button type="button" class="system-menu-btn" data-target="pane-integrations">Integrations</button>
           <button type="button" class="system-menu-btn" data-target="pane-advanced">Advanced</button>
         </aside>
 
@@ -715,8 +750,12 @@
             </form>
           </div>
 
-          <div class="settings-pane" id="pane-ha" hidden>
-            <h3 class="pane-title">Home Assistant</h3>
+          <div class="settings-pane" id="pane-integrations" hidden>
+            <h3 class="pane-title">Integrations</h3>
+            <div class="integrations-list">
+              <details class="integration-block" open>
+                <summary>Home Assistant</summary>
+                <div class="integration-block-content">
             <div class="ha-enabled-wrap">
               <div class="field-stack">
                 <label for="ha-enabled">Enabled</label>
@@ -764,10 +803,12 @@
               <button type="button" class="button black btn-back-system">Dashboard</button>
               <button type="button" class="button blue" id="btn-ha-save">Save</button>
             </div>
-          </div>
+                </div>
+              </details>
 
-          <div class="settings-pane" id="pane-weewx" hidden>
-            <h3 class="pane-title">WeeWX</h3>
+              <details class="integration-block">
+                <summary>WeeWX</summary>
+                <div class="integration-block-content">
             <div class="ha-enabled-wrap">
               <div class="field-stack">
                 <label for="weewx-mqtt-enabled">MQTT Interface</label>
@@ -815,10 +856,12 @@
               <button type="button" class="button black btn-back-system">Dashboard</button>
               <button type="button" class="button blue" id="btn-weewx-save">Save</button>
             </div>
-          </div>
+                </div>
+              </details>
 
-          <div class="settings-pane" id="pane-farm" hidden>
-            <h3 class="pane-title">FarmOS</h3>
+              <details class="integration-block">
+                <summary>FarmOS</summary>
+                <div class="integration-block-content">
             <div class="ha-enabled-wrap">
               <div class="field-stack">
                 <label for="farm-enabled">Enabled</label>
@@ -882,6 +925,9 @@
               <button type="button" class="button black btn-back-system">Dashboard</button>
               <button type="button" class="button neutral" id="btn-farm-test">Test Connection</button>
               <button type="button" class="button blue" id="btn-farm-save">Save</button>
+            </div>
+                </div>
+              </details>
             </div>
           </div>
 
@@ -1158,9 +1204,9 @@
       btn.classList.toggle("active", btn.dataset.target === paneId);
     });
 
-    if (paneId === "pane-ha") hydrateHAFromData();
-    if (paneId === "pane-weewx") hydrateWeeWXFromData();
-    if (paneId === "pane-farm") {
+    if (paneId === "pane-integrations") {
+      hydrateHAFromData();
+      hydrateWeeWXFromData();
       hydrateFarmFromData();
       loadFarmStatus();
     }

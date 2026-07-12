@@ -187,7 +187,14 @@ Fields and controls:
 
 Before removing a device, update any automations, Home Assistant dashboards, farmOS expectations, or written operating procedures that depend on it.
 
-### Home Assistant Pane
+### Integrations Pane
+
+System Settings presents Home Assistant, WeeWX, and FarmOS under one
+**Integrations** menu item. Each integration is an independently expandable
+block. Scroll the right pane vertically when the expanded blocks exceed the
+available height.
+
+#### Home Assistant
 
 ![Home Assistant pane](<../assets/screenshots/System Settings - HomeAssistant.png>)
 
@@ -204,7 +211,7 @@ Fields and selectors:
 
 Expected flow: configure the broker, enable the integration, let Sensorius publish retained discovery topics, then let Home Assistant observe sensors and switches through MQTT.
 
-### WeeWX Pane
+#### WeeWX
 
 ![WeeWX pane](<../assets/screenshots/System Settings - WeeWx.png>)
 
@@ -228,7 +235,7 @@ If the MQTT topic changes, Sensorius applies the subscription update live when
 MQTT ingest is running. If MQTT ingest is not running, the saved setting applies
 when MQTT ingest starts.
 
-### FarmOS Pane
+#### FarmOS
 
 ![FarmOS pane](<../assets/screenshots/System Settings - FarmOS.png>)
 

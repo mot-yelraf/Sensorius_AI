@@ -642,7 +642,8 @@ def test_system_settings_weewx_pane_omits_inline_mqtt_instructions():
     source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
     text = source.read_text(encoding="utf-8")
 
-    assert "id=\"pane-weewx\"" in text
+    assert "id=\"pane-integrations\"" in text
+    assert text.count('class="integration-block"') == 3
     assert "id=\"weewx-conf-example\"" not in text
     assert "Configure the WeeWX MQTT extension" not in text
     assert "[StdRESTful]" not in text
