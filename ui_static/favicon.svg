@@ -14,7 +14,7 @@
     stroke="url(#sensorius-gradient)"
     stroke-linecap="round"
     stroke-linejoin="round"
-    stroke-width="34"
+    stroke-width="40"
   />
   <circle cx="416" cy="84" r="31" fill="#7bdc12"/>
   <circle cx="416" cy="84" r="12" fill="#fff"/>
