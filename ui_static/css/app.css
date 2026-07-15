@@ -275,15 +275,16 @@ body{
 }
 
 .switch-timer-status{
-  min-height:1.2rem; font-size:.78rem; color:#444; text-align:center; white-space:nowrap;
+  min-height:1.2rem; display:flex; align-items:center; font-size:.78rem; line-height:1.2rem;
+  color:#444; text-align:center; white-space:nowrap;
 }
 
 .switch-timer-edit-btn{
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  width:18px;
-  height:18px;
+  width:21px;
+  height:21px;
   padding:0;
   border:1px solid transparent;
   border-radius:0;

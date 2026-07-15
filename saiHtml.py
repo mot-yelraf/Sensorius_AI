@@ -28,8 +28,8 @@ APP_NAME_LONG = f"{APP_TITLE} Automatio Instrumentorum"
 def _settings_gear_svg_lines(*, indent: str = "", aria_label: str | None = "Settings", aria_hidden: bool = False):
     attrs = [
         "xmlns='http://www.w3.org/2000/svg'",
-        "width='14'",
-        "height='14'",
+        "width='21'",
+        "height='21'",
         "viewBox='0 0 24 24'",
         "role='img'",
     ]
@@ -1344,7 +1344,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         if not multi_switch_card and switch_ids_here:
             header_sw_id = switch_ids_here[0]
             yield f"<h3 id='{header_id}'>{header_sw_id.upper()} "
-            yield f"  <a href='javascript:void(0)' onclick='editSwitchSettings(\"{header_sw_id}\")' title='Open {header_sw_id} Settings' style='margin-left:2px; margin-right:8px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
+            yield f"  <a href='javascript:void(0)' onclick='editSwitchSettings(\"{header_sw_id}\")' title='Open {header_sw_id} Settings' style='display:inline-flex; align-items:center; justify-content:center; line-height:1; margin-left:2px; margin-right:8px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
             yield from _settings_gear_svg_lines(indent="    ")
             yield "  </a>"
             yield f"{location}</h3>"
@@ -1436,7 +1436,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             if multi_switch_card and sw_id:
                 label_cell += (
                     f" <a href='javascript:void(0)' onclick='editSwitchSettings(\"{sw_id}\")' "
-                    f"title='Open {sw_id} Settings' style='margin-left:4px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
+                    f"title='Open {sw_id} Settings' style='display:inline-flex; align-items:center; justify-content:center; line-height:1; margin-left:4px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
                 )
                 label_cell += "".join(_settings_gear_svg_lines(indent="", aria_hidden=True))
                 label_cell += "</a>"
@@ -1929,9 +1929,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         yield (            
             f" <span class='sensor-status-dot' id='{sid}_statusdot' data-sid='{sid}'"
             f"      title='Connection status: {_meas_status}' "
-            f"      aria-label='Connectionss status: {_meas_status}' "
+            f"      aria-label='Connections status: {_meas_status}' "
             f"      style='display:inline-block;width:15px;height:15px;"
-            f"             border-radius:50%;vertical-align:middle;margin-right:6px;margin-bottom:4px;"
+            f"             border-radius:50%;vertical-align:middle;margin-right:6px;"
             f"             background:{_dot_color};border:1px solid #666;'></span>"
             f" {sidUpper} "
         )        
@@ -4004,7 +4004,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    dot.dataset.sid = sid;"
     yield "    dot.setAttribute('title', 'Connection status: unknown');"
     yield "    dot.setAttribute('aria-label', 'Connection status: unknown');"
-    yield "    dot.setAttribute('style', `display:inline-block;width:15px;height:15px;border-radius:50%;vertical-align:middle;margin-right:6px;margin-bottom:4px;background:${pendingColor};border:1px solid #666;`);"
+    yield "    dot.setAttribute('style', `display:inline-block;width:15px;height:15px;border-radius:50%;vertical-align:middle;margin-right:6px;background:${pendingColor};border:1px solid #666;`);"
     yield "    header.appendChild(dot);"
     yield "    header.appendChild(document.createTextNode(` ${sidUpper} `));"
     yield "    const settingsLink = document.createElement('a');"
@@ -4033,7 +4033,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      dot.setAttribute('title', 'Connection status: unknown');"
     yield "      dot.setAttribute('aria-label', 'Connection status: unknown');"
     yield "      dot.setAttribute('style', 'display:inline-block;width:15px;height:15px;border-radius:50%;"
-    yield "                                   vertical-align:middle;margin-right:6px;margin-bottom:4px;"
+    yield "                                   vertical-align:middle;margin-right:6px;"
     yield "                                   background:#ffc107;border:1px solid #666;');"
     yield "      hdr.insertBefore(dot, hdr.firstChild);"
     yield "    }"

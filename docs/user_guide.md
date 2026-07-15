@@ -64,9 +64,38 @@ Each metric tile can appear as:
 - **6Hr Graph**: shows the last six hours inside the dashboard tile.
 - **24Hr Graph**: shows the last 24 hours inside the dashboard tile.
 
-Click a metric tile to rotate through its display styles. The global default comes from **System Settings > Display Style**. Sensor-specific choices come from **Sensor Settings > Sensor Settings**.
+Newly materialized Nodus sensors use **24Hr Graph** for their per-metric display styles. A full day is long enough to show the daily diurnal patterns for heating, cooling, humidity, irrigation, and lighting cycle without opening the full-screen graph, so it is the most useful general-purpose trend view. **System Settings > Display Style** is the system-wide fallback where no per-metric style is supplied; its factory value is **Gauge**. Blank per-metric styles on directly connected local sensors also currently resolve to **Gauge**.
+
+Click a metric tile to cycle **24Hr Graph → 6Hr Graph → Gauge → 24Hr Graph**. This is a convenient temporary view change for the current page. To make the choice persistent, open **Sensor Settings > Sensor Settings**, choose **Gauge**, **6Hr Graph**, or **24Hr Graph** for that metric slot, and click **Save**. **System Settings > Display Style** supplies the fallback when a sensor has no saved style.
 
 The current value comes from the latest reading for that metric. The small history graph comes from `/graph-data`, which reads stored samples from the local database for that sensor and metric.
+
+The solid line is the stored reading series. The dashed line is the arithmetic average of the visible graph window, repeated across the window as a reference line; it is not another sensor reading or an automation set point. The Min, Avg, and Max values below each tile are calculated from the last 24 hours. Min and Max include their exact timestamps so you can correlate an extreme with a switch event, weather change, irrigation cycle, or equipment problem. Consequently, a six-hour tile can show a 24-hour minimum or maximum that lies outside the six hours drawn in the tile.
+
+#### Graph Background Colors And Thresholds
+
+Colored backgrounds use that metric's gauge zones. The colors are metric-specific, not one universal alarm scale. For example:
+
+- Temperature moves from blue for the coldest range, through light blue and green, to yellow and red for hotter ranges.
+- Relative humidity uses brown and yellow for dry ranges, light blue for the middle range, and progressively darker blue for wetter ranges.
+- CO2 uses green for its central configured range, yellow on either side, and red at the configured extremes.
+- AQI progresses from green through yellow, orange, red, purple, and maroon as the index rises.
+- VPD uses several moisture-demand bands. The compact tile uses the metric's gauge zones; the full-screen VPD graph uses its dedicated VPD background bands, so its palette is not identical to every compact tile.
+- A single-color background, such as barometric pressure's light blue or a light metric's yellow, identifies the metric's scale and does not by itself indicate an alarm.
+
+The boundaries come from Sensorius's gauge-zone configuration for each metric. Changing a zone boundary in that configuration changes where the corresponding background color begins and ends. The standard UI currently exposes gauge size and display style, but not gauge-zone boundary editing. An automation's **Threshold** and **Hysteresis** control when its rule runs; they do not change graph or gauge colors.
+
+#### Metric Ordering
+
+In **Pick 6** mode, the dashboard follows **Metric 1** through **Metric 6** exactly from left to right. You can therefore establish any operational order in **Sensor Settings**. Factory defaults are selected by sensor type and generally put the device's primary measurement first: for example, CO2 is first for a CO2 sensor and Air Quality is first for an AQI sensor. The remaining positions favor closely related temperature, humidity, VPD, dew-risk, pressure, plant, light, or soil measurements for that device.
+
+In **All** mode, Sensorius keeps any saved metric slots first, then appends other known metrics in the application's gauge-configuration order. It does not currently apply a universal rule that moves CO2, AQI, and every other specialized metric farther right. Nor does it guarantee that barometric pressure is always fifth or that dew point fills the fifth position when pressure is unavailable. Use **Pick 6** and assign **Metric 1-6** when that exact convention is important.
+
+#### Sensor Names, Raspberry Pi Buses, And Locations
+
+A directly connected Raspberry Pi sensor ID has the form `<kind>-<bus>-<hostname>`, for example `avpd-i2c-1-sensoria-hub-0`. The kind identifies the sensor family, the bus segment identifies the Linux I2C interface used during discovery, and the final segment identifies the hub. `i2c-1` is the normal sensor bus on GPIO2/GPIO3. `i2c-0` is the secondary bus on GPIO0/GPIO1 used for supported plant-probe arrangements. A dual-bus APVPD device is represented by one sensor ID using its primary `i2c-1` descriptor even though its plant probe also uses `i2c-0`.
+
+The technical sensor or switch ID remains the stable identity used by settings, database history, MQTT, and switch keys. **Location** is the friendly, editable place name used to group and filter dashboard cards and to make automation selectors understandable. A card header shows both: use the ID when diagnosing wiring, topics, or stored settings, and use the location when operating the system. Renaming a location does not rename the device or disconnect its history.
 
 ### Switch Cards
 
@@ -75,6 +104,10 @@ Switch cards show local Raspberry Pi relay channels and remote Nodus switch chan
 If an enabled Advanced automation owns a switch channel, Sensorius blocks manual toggles for that channel so the automation remains in control.
 
 Switch state history comes from `saiDataLogger.log_switch_event`, not from synthetic sensor readings. This is why switch events can be overlaid on historical graphs.
+
+Each switch channel also has an auto-off timer. Open the timer control with its gear, enter `0` to disable it or 30-9999 seconds, and click **Ok**. The dashboard accepts values in 30-second steps. The setting is runtime state, not persistent switch configuration, so it must be set again after Sensorius restarts. When a manually controlled channel turns on, the countdown starts; at expiry Sensorius sends one Off command and records a timer-originated switch event. Turning the channel off clears the active countdown. Automation-originated state changes do not start the manual auto-off countdown, and an enabled Advanced automation must be disabled before a manual dashboard toggle is allowed.
+
+The Events column shows up to five recent On/Off transitions, newest first, with timestamps and a **manual** or **auto** origin when one is known. The list combines persisted switch events with live state updates and refreshes as commands and device reports arrive. Those same persisted events can be selected as vertical overlays in the full-screen graph.
 
 ## System Settings
 
@@ -294,6 +327,8 @@ Fields and selectors:
 
 Use clear location names. They are visible to nontechnical users and make later automation rules easier to understand.
 
+Metric slot order is authoritative in **Pick 6** mode: Metric 1 is the leftmost tile and Metric 6 is the rightmost. Display Style 1 applies to Metric 1, Display Style 2 to Metric 2, and so on. Saving these fields is the supported way to make a dashboard order or display style persistent.
+
 ### Sensor Calibration Pane
 
 ![Sensor calibration pane](<../assets/screenshots/Sensor Settings - Sensor Calibration.png>)
@@ -370,6 +405,7 @@ Fields and controls:
 
 - **Location**: where the switch device or relay box is installed. This is saved in `switch_settings/<switch_id>/switch.toml` and is shown on the dashboard and location editor.
 - **Channel label for switch_N**: friendly label for each channel, such as Exhaust Fan, Irrigation Pump, Heat Mat, North Vent, or Lights. Labels are saved in switch settings.
+- **Dashboard timer gear**: opens the channel's manual auto-off timer. Use `0` to disable it or 30-9999 seconds; the dashboard rounds entries to a 30-second step. The value lasts only until Sensorius restarts.
 - **Dashboard**: closes the modal.
 - **Restart Device**: appears for supported remote switches and sends a restart request.
 - **Save**: writes changes to switch settings. For remote Nodus switches, Sensorius also sends a settings update over MQTT when needed.
@@ -482,7 +518,7 @@ Open the graph tool when you want to compare readings over time, investigate spi
 
 ![Full-screen VPD graph](<../assets/screenshots/Full Screen VPD Graph.png>)
 
-The full-screen graph displays one to three metric series. The first selected metric uses the left axis. The second and third selected metrics use the right axis. Average lines are shown when average data is available. VPD graphs show VPD range coloring, and some metrics show gauge-zone background bands.
+The full-screen graph displays one to three metric series. The first selected metric uses the left axis. The second and third selected metrics use the right axis. When average data is available, a purple dashed line labeled **Average** shows that series' arithmetic average over the selected visible window. VPD graphs show VPD range coloring, and some metrics show gauge-zone background bands. These colored bands come from metric display zones, not automation thresholds.
 
 Switch event overlays appear as vertical lines. The legend shows which colors mean ON and OFF for each selected switch channel.
 
