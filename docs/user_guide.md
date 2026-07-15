@@ -1,34 +1,41 @@
 # Sensorius User Guide
 
-Sensorius Automatio Instrumentorum, also called Sensorius AI or Sensorius, is an environmental sensing and automation hub for gardens, greenhouses, grow rooms, small farms, and other places where local conditions matter. It gives you live readings, historical graphs, switch control, calibration tools, biodynamic calendar information, and optional connections to Home Assistant, WeeWX, and farmOS.
+Sensorius Automatio Instrumentorum, also called Sensorius AI or Sensorius, is an environmental sensing and automation hub for gardens, greenhouses, grow rooms, small farms, and other places where environmental conditions matter. It gives you live readings, historical graphs, switch control, calibration tools, optional integrations with Home Assistant, WeeWX, and farmOS, and a built-in biodynamic calendar. If the Biodynamic Calendar app is installed on the same host, Sensorius provides the richer companion calendar.
 
-Sensorius can run as a full Raspberry Pi hub with directly connected sensors and relays. It can also run on macOS, Windows, or Linux as a hub for MQTT-backed Nodus sensors and switches. In normal use, both kinds of devices appear together in the same dashboard.
+Sensorius can run as a Raspberry Pi hub with directly connected sensors and relays, as well as Wi-Fi Nodus sensors and switches that communicate through MQTT. It can also run on macOS, Windows, or Linux as a hub for Wi-Fi Nodus sensors and switches. In normal use, both kinds of devices appear together on the same dashboard.
 
-This guide is written for day-to-day users. You do not need to understand MQTT, SQLite, or Python to use the app, but the guide explains where information comes from so you can make good decisions when something looks wrong.
+This guide is written for people who want to use the system without necessarily knowing all of its back-end functionality. You do not need to understand MQTT, SQLite, or Python to use the app, but the guide explains where information comes from so you can make good decisions when something looks wrong.
 
 ## Opening Sensorius
 
-If Sensorius was installed as a service, wait for the host computer or Raspberry Pi to finish starting, then open the web UI.
-
-If you start Sensorius manually, run this from the installed Sensorius folder:
+If you installed Sensorius as a service, it starts automatically when the host computer starts or restarts. Wait for the host computer or Raspberry Pi to finish starting; the dashboard will appear after a few seconds. Service installs continue running in the background. To restart a Linux or Raspberry Pi systemd service manually, open a terminal and enter:
 
 ```bash
+sudo systemctl restart sensorius
+```
+
+If you start Sensorius manually, run this from the installed Sensorius folder (the default is `~/Sensorius`):
+
+```bash
+cd ~/Sensorius
 python3 Sensorius.py
 ```
 
-Then open one of these addresses:
+The application will start and display the Sensorius dashboard. The first run may take a little longer while it sets up the system's location, database, and calendar data.
+
+The dashboard can also be opened using one of these addresses:
 
 - Same computer: `http://127.0.0.1:8000`
 - Local network hostname: `http://<hostname>.local:8000`
 - Another device on the same network: `http://<sensorius-host-ip>:8000`
 
-Keep the terminal process running for manual starts. Service installs keep running in the background.
+Keep the terminal process running for manual starts.
 
 ## Where Sensorius Gets Its Information
 
 Live sensor readings come from local Raspberry Pi sensor controllers and from MQTT-discovered Nodus devices. Sensor readings are written to the local SQLite database, `sensorius_data.db`, in the Sensorius process working directory unless the service or caller passes a different database path. Many service installs use the runtime directory, such as `/Users/<user>/Sensorius/sensorius_data.db` on macOS or `/home/<user>/Sensorius/sensorius_data.db` on Linux.
 
-Sensor and switch names, locations, display choices, calibration offsets, and channel labels come from Sensorius settings files under the runtime settings folder:
+Sensor and switch names, locations, display choices, calibration offsets, and channel labels come from Sensorius settings files under the macOS runtime settings folder:
 
 - System settings: `/Users/<user>/Sensorius/system_settings/<device_id>/settings.toml`
 - Sensor settings: `/Users/<user>/Sensorius/sensor_settings/<sensor_id>/sensor.toml`
@@ -176,7 +183,7 @@ On macOS, Sensorius first attempts to join `Nodus_Setup` automatically using nat
 
 ![Update device pane](<../assets/screenshots/System Settings - Update Device.png>)
 
-Use Update Device for Nodus OTA firmware packages.
+Use Update Device for Nodus over-the-air (OTA) firmware packages.
 
 OTA has been verified for Nodus packages targeting `pico2w` and `xesp32s3`.
 Packages must declare the correct target platform; Sensorius blocks updates
@@ -368,6 +375,15 @@ Fields and selectors:
 - **Apply Calibration**: applies the previewed corrections. It is disabled until a valid preview is available.
 
 This tool reads historical samples from the SQLite database. It works best when sensors have been near each other long enough to collect comparable data.
+
+For the best calibration results:
+
+1. Make sure the Nodus sensors have been added to Sensorius.
+2. If possible, place a trusted temperature and relative-humidity gauge with the Nodus sensors. A gauge that records 24-hour minimum, average, and maximum values is especially useful.
+3. Before deploying the Nodus sensors to their final locations, place them together in an area that experiences meaningful variation, ideally about 10 C of temperature change and 10 percentage points of relative-humidity change within 24 hours.
+4. Allow Sensorius to collect temperature and relative-humidity data from the Nodus sensors for at least 24 hours and up to 72 hours.
+5. After at least 24 hours, compare each Nodus sensor's 24-hour minimum, average, and maximum values with the trusted gauge. If you do not have a trusted gauge, compare the temperature and relative-humidity graphs and choose the Nodus sensor that appears to provide the best representation as the reference.
+6. Select the reference sensor, check each additional sensor that you want to calibrate, and click **Preview Calibration**. Review the corrections, then click **Apply Calibration**.
 
 ### Sensor Info Pane
 
