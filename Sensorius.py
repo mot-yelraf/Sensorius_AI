@@ -30,6 +30,7 @@ from saiUtils import SettingsWrapper
 from saiSensorFactory import find_sensors
 from saiSwitchFactory import detect_relay_board
 from saiTimeSync import TimeSyncService
+from saiNodusAutomationStatus import NodusAutomationStatusPublisher
 
 MODULE = "Sensorius"
 DEBUG = debug_enabled(MODULE)
@@ -606,10 +607,18 @@ async def main():
     farmos_bridge = saiFarmOSBridge(settings=settings, data_logger=data_logger, supervisor=supervisor)
     daily_summary_service = DailySummaryService(settings=settings, data_logger=data_logger, supervisor=supervisor)
     time_sync_service = TimeSyncService(settings=settings, mqtt_ingest=mqtt_ingest_clients, supervisor=supervisor)
+    nodus_automation_status = NodusAutomationStatusPublisher(mqtt_ingest_clients)
     supervisor.add(weewx_ingest.run, name="WeeWX Archive Ingest", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(farmos_bridge.run, name="FarmOS Bridge", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(daily_summary_service.run, name="Daily Summary Writer", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(time_sync_service.run, name="Time Sync Manager", fatal_on_timeout=False, fatal_on_error=False)
+    if broker:
+        supervisor.add(
+            nodus_automation_status.run,
+            name="Nodus Automation Status",
+            fatal_on_timeout=False,
+            fatal_on_error=False,
+        )
     supervisor.add(WatchdogMonitor, supervisor, name="Watchdog Monitor")
     supervisor.add(gc_mgr.run, name="GC Manager", fatal_on_timeout=False, fatal_on_error=False)
     

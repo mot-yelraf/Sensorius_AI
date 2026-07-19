@@ -141,6 +141,22 @@ Evaluation order:
 Manual UI toggles are blocked when an enabled Advanced automation owns the same
 switch key. Disable the automation before manual operation.
 
+## Nodus Ownership Status
+
+Sensorius reports enabled Advanced rules that target Nodus channels back to the
+physical device. This is presentation metadata only: Nodus continues to accept
+normal channel commands and does not evaluate Sensorius rules locally.
+
+- Status: `nodus/<device_id>/automation/sensorius/status`
+- Availability: `nodus/<device_id>/automation/sensorius/availability`
+- Both payloads are retained. Availability is refreshed every 60 seconds.
+- Nodus treats the controller as unavailable after 180 seconds without a fresh
+  online lease and removes the automation highlight.
+- Removing or disabling a rule publishes a status snapshot without that channel.
+
+The Nodus web UI uses a green State-cell background and lists the controlling
+Sensorius rule names while the corresponding lease is fresh.
+
 ## Extension Notes
 
 - Add new rule fields through the Advanced JSON schema and

@@ -70,6 +70,11 @@ Nodus device topics:
 
 Nodus sensor and switch topics:
 
+- `nodus/<device_id>/automation/sensorius/status`: retained map of Nodus
+  channels currently owned by enabled Sensorius Advanced rules.
+- `nodus/<device_id>/automation/sensorius/availability`: retained controller
+  lease, refreshed every 60 seconds. Nodus expires it after 180 seconds.
+
 - `nodus/<sensor_id>/data`
 - `nodus/<sensor_id>/availability`
 - `nodus/<channel_id>/state`

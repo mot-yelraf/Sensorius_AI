@@ -75,6 +75,32 @@ Bootstrap rules:
 
 ## MQTT Topics
 
+### External automation ownership
+
+Sensorius publishes presentation-only automation ownership for each physical
+Nodus device with switch channels:
+
+- `nodus/<device_id>/automation/sensorius/status`
+- `nodus/<device_id>/automation/sensorius/availability`
+
+The retained status payload is:
+
+```json
+{"schema":"nodus-automation-status/v1","controller":"sensorius","controller_id":"sensorius-main","updated_at":1784469600,"channels":[{"channel_id":"switch-1jm5s1-2","automations":["Night Lights"],"enabled":true}]}
+```
+
+`channels` lists canonical Nodus channel IDs and their enabled Advanced-rule
+names. An empty list explicitly clears prior ownership. The retained
+availability payload uses schema `nodus-automation-availability/v1`, the same
+controller fields, `updated_at`, and `status` set to `online` or `offline`.
+
+Sensorius refreshes online availability every 60 seconds. Because its shared
+MQTT connection can represent multiple Nodus devices but has only one Last
+Will, Nodus treats the online record as a lease and expires it after 180
+seconds. Sensorius publishes offline for known devices during orderly task
+cancellation. Ownership does not grant exclusive control and does not move
+rule evaluation onto Nodus.
+
 ### Startup and steady state
 
 - `nodus/<device_id>/status/heartbeat`
