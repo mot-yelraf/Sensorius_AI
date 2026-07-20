@@ -212,6 +212,13 @@ Fields and controls:
 
 Only update devices when power and network are stable.
 
+After prepare, `Nodus OTA mode booting...` may remain visible for up to 150
+seconds while the device reboots and reconnects. Routine connection failures
+during this interval are expected and are not shown. Sensorius makes up to
+three attempts per file and stops one device update after 30 minutes. If OTA
+mode does not start or those limits are exhausted, Sensorius requests OTA abort
+and reports a concise recovery message.
+
 ### Remove Device Pane
 
 ![Remove device pane](<../assets/screenshots/System Settings - Remove Device.png>)

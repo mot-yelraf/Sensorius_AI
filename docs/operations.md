@@ -239,6 +239,14 @@ Operational rules:
   Sensorius rejects known target mismatches before transfer.
 - Update only when device power, Wi-Fi, and broker connectivity are stable.
 - Use low concurrency for constrained networks or mixed device groups.
+- Nodus may take up to 150 seconds to reboot and expose OTA HTTP mode. During
+  that interval the UI reports `Nodus OTA mode booting...`; routine HTTP probe
+  failures are intentionally hidden. If the interval expires, Sensorius asks
+  the device to abort OTA and return to normal operation when reachable.
+- Each file has three total transfer attempts. A device update is stopped and
+  aborted after the third file failure or after the 30-minute device limit.
+- A job is complete only after a fresh, package-matched completion result or
+  fresh metadata confirms the exact target firmware version.
 - For Pico 2 W, avoid large single-file compiled `.mpy` updates. Command-line
   OTA testing showed a Nodus-side memory allocation failure when transferring
   `app.mpy` larger than about 50 KB. Split the change into smaller files or use

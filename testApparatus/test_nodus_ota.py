@@ -310,7 +310,7 @@ def test_run_device_keeps_original_error_when_abort_fails(tmp_path):
     assert state["ota_abort_reason"] == "push_failed"
 
 
-def test_run_device_does_not_abort_before_ota_readiness(tmp_path):
+def test_run_device_attempts_abort_after_ota_readiness_timeout(tmp_path):
     service = NodusOTAService(package_root=tmp_path / "ota")
     pkg = service.inspect_package(str(_write_package(tmp_path, version="v0.26.174.1")))
     job = {
@@ -345,8 +345,10 @@ def test_run_device_does_not_abort_before_ota_readiness(tmp_path):
     state = job["devices"]["aht-yuk0nv"]
     assert state["status"] == "failed"
     assert state["error"] == "ota_http_ready_timeout"
-    assert "ota_abort_attempted" not in state
-    assert aborts == []
+    assert state["message"] == "Nodus OTA mode did not start within 150 seconds. Recovery was requested."
+    assert state["ota_abort_attempted"] is True
+    assert state["ota_abort_reason"] == "ready_timeout"
+    assert aborts == ["http://device:8000"]
 
 
 def test_run_device_aborts_after_failed_fwupdate_result(tmp_path):
@@ -510,6 +512,49 @@ def test_push_file_chunks_resends_from_reported_stale_offset(tmp_path):
 
     assert chunk_offsets == [0, 1024, 1024]
     assert chunk_payloads == [payload[:1024], payload[1024:], payload[1024:]]
+
+
+def test_push_file_chunks_resumes_from_device_offset_after_lost_response(tmp_path):
+    payload = (b"x" * 1024) + (b"y" * 999)
+    file_path = tmp_path / "runtime.mpy"
+    file_path.write_bytes(payload)
+    service = NodusOTAService(package_root=tmp_path / "ota")
+    chunk_offsets = []
+
+    async def fake_request_json(client, method, url, **kwargs):
+        if "/ota/file/begin?" in url:
+            return {"accepted": True}
+        if "/ota/file/chunk?" in url:
+            offset = int(url.rsplit("offset=", 1)[-1])
+            chunk_offsets.append(offset)
+            if offset == 0:
+                return {
+                    "accepted": False,
+                    "error": "chunk_offset_mismatch",
+                    "offset": 1024,
+                }
+            return {"accepted": True, "offset": len(payload)}
+        if "/ota/file/end?" in url:
+            return {"accepted": True}
+        raise AssertionError(url)
+
+    service._request_json = fake_request_json
+
+    import asyncio
+    asyncio.run(
+        service._push_file_chunks(
+            types.SimpleNamespace(),
+            "http://device:8000",
+            "cpynodus_ii/ota/runtime.mpy",
+            file_path,
+            {"bytes_sent": 0, "progress": 0},
+            0,
+            len(payload),
+            1024,
+        )
+    )
+
+    assert chunk_offsets == [0, 1024]
 
 
 def test_request_json_retries_transient_control_response_failure(tmp_path):
@@ -745,10 +790,12 @@ def test_wait_ready_reports_last_http_probe_error(tmp_path, monkeypatch):
         )
 
     assert state["phase"] == "waiting_ota_http"
-    assert state["message"] == "OTA HTTP unavailable: ConnectError:network unreachable"
+    assert state["message"] == "Nodus OTA mode booting..."
+    assert state["diagnostic_message"] == "OTA HTTP unavailable: ConnectError:network unreachable"
 
 
-def test_wait_after_prepare_detects_device_returned_to_runtime(tmp_path):
+def test_wait_after_prepare_keeps_friendly_boot_message_when_runtime_was_seen(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiNodusOTA, "DEFAULT_WAIT_AFTER_PREPARE_S", 0.01)
     service = NodusOTAService(package_root=tmp_path / "ota")
     service.mqtt_ingest = SimpleNamespace(
         device_status={"aht-yuk0nv": "online"},
@@ -766,19 +813,122 @@ def test_wait_after_prepare_detects_device_returned_to_runtime(tmp_path):
             raise httpx.ConnectError("connection refused")
 
     import asyncio
-    with pytest.raises(NodusOTAError, match="ota_http_unavailable_device_runtime_online:ConnectError:connection refused"):
-        asyncio.run(
-            service._wait_after_prepare(
-                FakeClient(),
-                "http://device:8000",
-                "ota-test",
-                state,
-            )
+    ready = asyncio.run(
+        service._wait_after_prepare(
+            FakeClient(),
+            "http://device:8000",
+            "ota-test",
+            state,
         )
+    )
+
+    assert ready is False
+    assert state["message"] == "Nodus OTA mode booting..."
+    assert state["diagnostic_message"] == "OTA HTTP unavailable: ConnectError:connection refused"
 
 
 def test_prepare_settle_wait_allows_slow_wifi_ota_startup():
     assert DEFAULT_WAIT_AFTER_PREPARE_S == 60.0
+    assert saiNodusOTA.DEFAULT_READY_TIMEOUT_S == 90.0
+
+
+def test_push_package_aborts_file_after_three_failed_attempts(tmp_path):
+    pkg = _write_package(tmp_path)
+    service = NodusOTAService(package_root=tmp_path / "ota")
+    package = service.inspect_package(str(pkg))
+    begin_calls = 0
+    end_calls = 0
+
+    async def fake_request_json(client, method, url, **kwargs):
+        nonlocal begin_calls, end_calls
+        if url.endswith("/ota/begin"):
+            return {"accepted": True}
+        if "/ota/file/begin?" in url:
+            begin_calls += 1
+            return {"accepted": True}
+        if "/ota/file/chunk?" in url:
+            return {"accepted": True, "offset": len(b"print('ota')\n")}
+        if "/ota/file/end?" in url:
+            end_calls += 1
+            return {"accepted": False, "error": "sha256_mismatch"}
+        raise AssertionError(url)
+
+    service._request_json = fake_request_json
+
+    import asyncio
+    with pytest.raises(NodusOTAError, match="file_end_rejected:.*sha256_mismatch"):
+        asyncio.run(
+            service._push_package(
+                types.SimpleNamespace(),
+                "http://device:8000",
+                package,
+                {"bytes_sent": 0, "progress": 0},
+                chunk_size=1024,
+            )
+        )
+
+    assert begin_calls == 3
+    assert end_calls == 3
+
+
+def test_wait_for_reboot_requires_fresh_matching_result_for_reapply(tmp_path, monkeypatch):
+    service = NodusOTAService(package_root=tmp_path / "ota")
+    service.mqtt_ingest = SimpleNamespace(
+        fwupdate_result_by_device={
+            "aht-yuk0nv": {
+                "phase": "applied",
+                "package_id": "old-package",
+                "received_at": 50.0,
+            }
+        },
+        device_status={"aht-yuk0nv": "online"},
+        last_mqtt_seen={"aht-yuk0nv": 200.0},
+        get_nodus_firmware_version=lambda device_id: "v0.26.174.1",
+    )
+
+    async def stop_after_first_check(_seconds):
+        raise NodusOTAError("result_not_accepted")
+
+    monkeypatch.setattr(saiNodusOTA.asyncio, "sleep", stop_after_first_check)
+
+    import asyncio
+    with pytest.raises(NodusOTAError, match="result_not_accepted"):
+        asyncio.run(
+            service._wait_for_reboot_metadata(
+                "aht-yuk0nv",
+                "v0.26.174.1",
+                "v0.26.174.1",
+                "new-package",
+                {"commit_accepted_at": 100.0},
+            )
+        )
+
+
+def test_wait_for_reboot_accepts_fresh_matching_applied_result(tmp_path):
+    service = NodusOTAService(package_root=tmp_path / "ota")
+    service.mqtt_ingest = SimpleNamespace(
+        fwupdate_result_by_device={
+            "aht-yuk0nv": {
+                "phase": "applied",
+                "package_id": "new-package",
+                "received_at": 101.0,
+            }
+        }
+    )
+    state = {"commit_accepted_at": 100.0}
+
+    import asyncio
+    asyncio.run(
+        service._wait_for_reboot_metadata(
+            "aht-yuk0nv",
+            "v0.26.174.1",
+            "v0.26.174.1",
+            "new-package",
+            state,
+        )
+    )
+
+    assert state["message"] == "OTA result reported applied"
 
 
 def test_job_history_marks_running_jobs_interrupted_on_restart(tmp_path):

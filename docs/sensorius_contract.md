@@ -642,6 +642,14 @@ Implemented behavior:
   soft-reboots into temporary OTA mode.
 - OTA mode does not run MQTT. Sensorius or the CLI transfers package files
   over HTTP using the Nodus OTA endpoints.
+- Sensorius allows the existing 60-second reboot settle window followed by a
+  90-second OTA HTTP readiness window. Throughout both windows the operator UI
+  reports `Nodus OTA mode booting...`; HTTP probe details remain diagnostic.
+  If readiness still times out, Sensorius makes a best-effort `/ota/abort`
+  request even though HTTP readiness was not confirmed.
+- Sensorius attempts each chunked file at most three times in total and bounds
+  one device update to 30 minutes. Exhausting either limit is terminal and
+  triggers best-effort abort after OTA HTTP readiness.
 - Once Sensorius has observed OTA HTTP readiness, failed manifest validation,
   failed file transfer, failed commit, and failed or rollback
   `fwupdate/result` notifications are terminal for that OTA attempt.
@@ -667,6 +675,10 @@ Implemented behavior:
 - After successful apply and reboot back into the prior profile, Nodus
   publishes a non-retained `fwupdate/result` with `phase = "applied"`,
   `applied = true`, `package_id`, and `prior_profile`.
+- Sensorius accepts completion only from a result received after commit with
+  the current `package_id`, or from fresh online metadata reporting the exact
+  target version when the target differs from the prior version. A final
+  confirmation timeout is a failed update, not a successful update.
 
 ## `meta/patch`
 

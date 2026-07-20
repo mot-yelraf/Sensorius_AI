@@ -36,6 +36,9 @@ DEFAULT_WAIT_AFTER_PREPARE_S = 60.0
 DEFAULT_READY_TIMEOUT_S = 90.0
 DEFAULT_HTTP_RETRY_ATTEMPTS = 3
 DEFAULT_HTTP_RETRY_DELAY_S = 0.75
+DEFAULT_FILE_TRANSFER_ATTEMPTS = 3
+DEFAULT_DEVICE_JOB_TIMEOUT_S = 30.0 * 60.0
+OTA_BOOTING_MESSAGE = "Nodus OTA mode booting..."
 PRESERVED_CONFIG_FILES = {
     "settings.toml",
     "sensor_i2c.toml",
@@ -372,6 +375,8 @@ class NodusOTAService:
 
     async def _run_device(self, job: dict[str, Any], package: OTAPackage, device_id: str) -> None:
         state = job["devices"][device_id]
+        state["device_started_at"] = time.time()
+        state["device_deadline_monotonic"] = time.monotonic() + DEFAULT_DEVICE_JOB_TIMEOUT_S
         try:
             self._set_device_state(state, "validating", "validating package and device")
             required = str(package.summary().get("required_version") or "")
@@ -393,30 +398,59 @@ class NodusOTAService:
             state["prepare_started_at"] = time.time()
             package_id = str(package.manifest.get("package_id") or "")
             self._set_device_state(state, "preparing_mqtt", f"publishing prepare for {package_id}")
-            await asyncio.to_thread(self._publish_prepare, device_id, package_id)
+            state["prepare_message_id"] = await asyncio.to_thread(
+                self._publish_prepare,
+                device_id,
+                package_id,
+            )
 
             async with httpx.AsyncClient(timeout=10.0) as client:
                 try:
                     ready = await self._wait_after_prepare(client, url, package_id, state)
                     if not ready:
-                        self._set_device_state(state, "waiting_ota_http", "waiting for OTA HTTP mode")
+                        self._set_device_state(state, "waiting_ota_http", OTA_BOOTING_MESSAGE)
                         await self._wait_ready(client, url, package_id, state)
                     state["ota_http_ready"] = True
-                except Exception:
-                    await self._abort_ota_if_ready(state, reason="ready_failed")
+                except Exception as exc:
+                    await self._abort_ota_if_ready(
+                        state,
+                        reason="ready_timeout" if _is_ota_ready_timeout(str(exc)) else "ready_failed",
+                        force=_is_ota_ready_timeout(str(exc)),
+                    )
                     raise
 
             timeout = float(DEFAULT_TIMEOUT_S)
             try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
-                    await self._push_package(client, url, package, state, chunk_size=int(job.get("chunk_size") or DEFAULT_CHUNK_SIZE))
+                remaining = max(
+                    0.1,
+                    float(state.get("device_deadline_monotonic") or 0.0) - time.monotonic(),
+                )
+                async with asyncio.timeout(remaining):
+                    async with httpx.AsyncClient(timeout=timeout) as client:
+                        await self._push_package(
+                            client,
+                            url,
+                            package,
+                            state,
+                            chunk_size=int(job.get("chunk_size") or DEFAULT_CHUNK_SIZE),
+                        )
+                state["commit_accepted_at"] = time.time()
+            except TimeoutError as exc:
+                await self._abort_ota_if_ready(state, reason="device_deadline_exceeded")
+                raise NodusOTAError("ota_device_deadline_exceeded") from exc
             except Exception:
                 await self._abort_ota_if_ready(state, reason="push_failed")
                 raise
 
             self._set_device_state(state, "waiting_meta", "waiting for device to reboot")
             try:
-                await self._wait_for_reboot_metadata(device_id, required, state)
+                await self._wait_for_reboot_metadata(
+                    device_id,
+                    current,
+                    target_version,
+                    package_id,
+                    state,
+                )
             except NodusOTAError as exc:
                 if _fwupdate_result_failure_needs_abort(str(exc)):
                     await self._abort_ota_if_ready(state, reason="fwupdate_result_failed")
@@ -429,13 +463,20 @@ class NodusOTAService:
             if str(exc) == "update_cancelled":
                 self._set_device_state(state, "aborted", "update cancelled", status="aborted")
                 return
-            self._set_device_state(state, "failed", str(exc), status="failed", error=str(exc))
+            self._set_device_state(
+                state,
+                "failed",
+                _friendly_ota_error(str(exc)),
+                status="failed",
+                error=str(exc),
+            )
 
     async def _wait_ready(self, client: httpx.AsyncClient, url: str, package_id: str, state: dict[str, Any]) -> None:
         deadline = time.monotonic() + DEFAULT_READY_TIMEOUT_S
         last_error = ""
         while time.monotonic() < deadline:
             self._raise_if_cancelled(state)
+            self._raise_for_prepare_failure(package_id, state)
             try:
                 resp = await client.get(f"{url}/ota/status")
                 data = resp.json()
@@ -446,14 +487,14 @@ class NodusOTAService:
                         raise NodusOTAError("device_package_mismatch")
                     self._set_device_state(state, "status_ready", "OTA mode ready", progress=5)
                     return
-                self._set_device_state(state, "waiting_ota_http", f"OTA phase {phase or 'unknown'}")
+                state["diagnostic_message"] = f"OTA phase {phase or 'unknown'}"
+                self._set_device_state(state, "waiting_ota_http", OTA_BOOTING_MESSAGE)
             except NodusOTAError:
                 raise
             except Exception as exc:
                 last_error = _http_probe_error(exc)
-                if self._device_seen_after_prepare(str(state.get("device_id") or ""), state):
-                    raise NodusOTAError(f"ota_http_unavailable_device_runtime_online:{last_error}") from exc
-                self._set_device_state(state, "waiting_ota_http", f"OTA HTTP unavailable: {last_error}", progress=2)
+                state["diagnostic_message"] = f"OTA HTTP unavailable: {last_error}"
+                self._set_device_state(state, "waiting_ota_http", OTA_BOOTING_MESSAGE, progress=2)
             await asyncio.sleep(2.0)
         detail = f":{last_error}" if last_error else ""
         raise NodusOTAError(f"ota_http_ready_timeout{detail}")
@@ -463,12 +504,13 @@ class NodusOTAService:
         self._set_device_state(
             state,
             "waiting_after_prepare",
-            "waiting for device Wi-Fi and OTA web services",
+            OTA_BOOTING_MESSAGE,
             progress=2,
         )
         last_error = ""
         while time.monotonic() < deadline:
             self._raise_if_cancelled(state)
+            self._raise_for_prepare_failure(package_id, state)
             try:
                 resp = await client.get(f"{url}/ota/status")
                 data = resp.json()
@@ -479,17 +521,17 @@ class NodusOTAService:
                         raise NodusOTAError("device_package_mismatch")
                     self._set_device_state(state, "status_ready", "OTA mode ready", progress=5)
                     return True
-                self._set_device_state(state, "waiting_after_prepare", f"OTA phase {phase or 'unknown'}", progress=2)
+                state["diagnostic_message"] = f"OTA phase {phase or 'unknown'}"
+                self._set_device_state(state, "waiting_after_prepare", OTA_BOOTING_MESSAGE, progress=2)
             except NodusOTAError:
                 raise
             except Exception as exc:
                 last_error = _http_probe_error(exc)
-                if self._device_seen_after_prepare(str(state.get("device_id") or ""), state):
-                    raise NodusOTAError(f"ota_http_unavailable_device_runtime_online:{last_error}") from exc
-                self._set_device_state(state, "waiting_after_prepare", f"OTA HTTP unavailable: {last_error}", progress=2)
+                state["diagnostic_message"] = f"OTA HTTP unavailable: {last_error}"
+                self._set_device_state(state, "waiting_after_prepare", OTA_BOOTING_MESSAGE, progress=2)
             await asyncio.sleep(min(2.0, max(deadline - time.monotonic(), 0.0)))
         if last_error:
-            state["message"] = f"OTA HTTP unavailable: {last_error}"
+            state["diagnostic_message"] = f"OTA HTTP unavailable: {last_error}"
         return False
 
     async def _push_package(self, client: httpx.AsyncClient, url: str, package: OTAPackage, state: dict[str, Any], *, chunk_size: int) -> None:
@@ -506,15 +548,21 @@ class NodusOTAService:
             rel_path = normalize_manifest_path(str(entry.get("path") or ""))
             file_path = package.root / "files" / Path(rel_path)
             state["current_file"] = rel_path
-            state["message"] = f"uploading {rel_path}"
             if chunk_size > 0:
-                try:
-                    await self._push_file_chunks(client, url, rel_path, file_path, state, sent, total, chunk_size)
-                except NodusOTAError as exc:
-                    if not _file_transfer_error_retryable(str(exc)):
-                        raise
-                    state["message"] = f"retrying {rel_path} after device staging check"
-                    await self._push_file_chunks(client, url, rel_path, file_path, state, sent, total, chunk_size)
+                for attempt in range(1, DEFAULT_FILE_TRANSFER_ATTEMPTS + 1):
+                    state["file_attempt"] = attempt
+                    state["message"] = f"Uploading {rel_path} (attempt {attempt} of {DEFAULT_FILE_TRANSFER_ATTEMPTS})..."
+                    try:
+                        await self._push_file_chunks(client, url, rel_path, file_path, state, sent, total, chunk_size)
+                        break
+                    except NodusOTAError as exc:
+                        if attempt >= DEFAULT_FILE_TRANSFER_ATTEMPTS or not _file_transfer_error_retryable(str(exc)):
+                            raise
+                        state["diagnostic_message"] = str(exc)
+                        state["message"] = (
+                            f"Retrying {rel_path} (attempt {attempt + 1} of "
+                            f"{DEFAULT_FILE_TRANSFER_ATTEMPTS})..."
+                        )
             else:
                 payload = file_path.read_bytes()
                 result = await self._request_json(
@@ -573,8 +621,19 @@ class NodusOTAService:
                     f"{url}/ota/file/chunk?path={encoded}&offset={offset}",
                     content=chunk,
                     headers={"X-Nodus-File-Path": rel_path, "Content-Type": "application/octet-stream"},
+                    retry_transient=True,
                 )
                 if result.get("accepted") is not True:
+                    if result.get("error") == "chunk_offset_mismatch" and result.get("offset") is not None:
+                        device_offset = int(result.get("offset"))
+                        if 0 <= device_offset <= file_path.stat().st_size:
+                            stalled_offsets[device_offset] = stalled_offsets.get(device_offset, 0) + 1
+                            if stalled_offsets[device_offset] > 3:
+                                raise NodusOTAError(
+                                    f"file_chunk_offset_stalled:{rel_path}:device={device_offset}:expected={offset}"
+                                )
+                            offset = device_offset
+                            continue
                     raise NodusOTAError(f"file_chunk_rejected:{rel_path}:{result.get('error', '')}")
                 expected_offset = offset + len(chunk)
                 reported_offset = result.get("offset")
@@ -590,6 +649,7 @@ class NodusOTAService:
                 offset = next_offset
                 state["bytes_sent"] = base_sent + offset
                 state["progress"] = min(85, 10 + int((state["bytes_sent"] / max(total_bytes, 1)) * 70))
+        self._set_device_state(state, "verifying_file", f"Verifying {rel_path}...")
         end = await self._request_json(
             client,
             "POST",
@@ -600,16 +660,19 @@ class NodusOTAService:
         )
         if end.get("accepted") is not True:
             raise NodusOTAError(f"file_end_rejected:{rel_path}:{end.get('error', '')}")
+        self._set_device_state(state, "file_verified", f"Verified {rel_path}.")
 
-    async def _abort_ota_session(self, url: str) -> None:
+    async def _abort_ota_session(self, url: str) -> bool:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                await client.post(f"{url}/ota/abort", json={})
+                response = await client.post(f"{url}/ota/abort", json={})
+                data = response.json()
+                return bool(response.status_code < 400 and isinstance(data, dict) and data.get("accepted") is True)
         except Exception:
-            pass
+            return False
 
-    async def _abort_ota_if_ready(self, state: dict[str, Any], *, reason: str) -> None:
-        if not state.get("ota_http_ready"):
+    async def _abort_ota_if_ready(self, state: dict[str, Any], *, reason: str, force: bool = False) -> None:
+        if not force and not state.get("ota_http_ready"):
             return
         if state.get("ota_abort_attempted"):
             return
@@ -620,9 +683,16 @@ class NodusOTAService:
         state["ota_abort_reason"] = str(reason or "")
         state["updated_at"] = time.time()
         try:
-            await self._abort_ota_session(url)
+            abort_result = await self._abort_ota_session(url)
+            succeeded = abort_result is not False
+            if not succeeded:
+                device_id = str(state.get("device_id") or "")
+                fallback_url = f"http://{mdns_hostname(device_id)}:{DEFAULT_HTTP_PORT}" if device_id else ""
+                if fallback_url and fallback_url != url:
+                    succeeded = await self._abort_ota_session(fallback_url)
+            state["ota_abort_succeeded"] = bool(succeeded)
         except Exception:
-            pass
+            state["ota_abort_succeeded"] = False
 
     async def _request_json(
         self,
@@ -661,35 +731,55 @@ class NodusOTAService:
         resp.raise_for_status()
         return data
 
-    async def _wait_for_reboot_metadata(self, device_id: str, previous_version: str, state: dict[str, Any]) -> None:
+    async def _wait_for_reboot_metadata(
+        self,
+        device_id: str,
+        previous_version: str,
+        target_version: str,
+        package_id: str,
+        state: dict[str, Any],
+    ) -> None:
         deadline = time.monotonic() + 180.0
+        commit_accepted_at = float(state.get("commit_accepted_at") or 0.0)
         while time.monotonic() < deadline:
+            self._raise_if_cancelled(state)
             result = self._fwupdate_result(device_id)
             phase = str((result or {}).get("phase") or "").strip().lower()
-            if phase in {"applied", "complete", "completed"}:
+            result_package_id = str((result or {}).get("package_id") or "")
+            result_received_at = float((result or {}).get("received_at") or 0.0)
+            result_is_current = (
+                result_received_at > commit_accepted_at
+                and (not package_id or result_package_id == package_id)
+            )
+            if result_is_current and phase in {"applied", "complete", "completed"}:
                 state["message"] = f"OTA result reported {phase}"
                 return
-            if phase in {"failed", "rollback", "rolled_back", "aborted"}:
+            if result_is_current and phase in {"failed", "rollback", "rolled_back", "aborted"}:
                 raise NodusOTAError(f"fwupdate_result:{phase}:{(result or {}).get('error', '')}")
             current = self._firmware_version(device_id)
             status = self._device_status(device_id)
-            if current and (not previous_version or current != previous_version) and status in {"online", "unknown"}:
+            last_seen = self._device_last_seen(device_id)
+            if (
+                target_version
+                and target_version != previous_version
+                and current == target_version
+                and status == "online"
+                and last_seen > commit_accepted_at
+            ):
                 state["message"] = f"firmware reported {current}"
                 return
-            if current and status == "online":
-                state["message"] = f"device online with firmware {current}"
-                return
             await asyncio.sleep(3.0)
-        state["message"] = "commit accepted; final metadata confirmation timed out"
+        raise NodusOTAError("ota_confirmation_timeout")
 
-    def _publish_prepare(self, device_id: str, package_id: str) -> None:
+    def _publish_prepare(self, device_id: str, package_id: str) -> str:
         ingest = self.mqtt_ingest
         if ingest is None or not getattr(ingest, "client", None):
             raise NodusOTAError("mqtt_ingest_unavailable")
         topic = f"nodus/{device_id}/fwupdate"
+        message_id = uuid.uuid4().hex
         payload = {
             "schema": FWUPDATE_SCHEMA,
-            "message_id": uuid.uuid4().hex,
+            "message_id": message_id,
             "command": "prepare",
             "package_id": package_id,
         }
@@ -697,6 +787,7 @@ class NodusOTAService:
         wait = getattr(info, "wait_for_publish", None)
         if callable(wait):
             wait(timeout=10)
+        return message_id
 
     def _firmware_version(self, device_id: str) -> str:
         ingest = self.mqtt_ingest
@@ -733,6 +824,34 @@ class NodusOTAService:
         if last_seen <= prepare_started:
             return False
         return self._device_status(base).lower() in {"online", "ready", "unknown"}
+
+    def _device_last_seen(self, device_id: str) -> float:
+        ingest = self.mqtt_ingest
+        if ingest is None:
+            return 0.0
+        base = normalize_hostname_base(device_id)
+        return float(
+            (getattr(ingest, "last_mqtt_seen", {}) or {}).get(base)
+            or (getattr(ingest, "last_mqtt_seen", {}) or {}).get(mdns_hostname(base))
+            or 0.0
+        )
+
+    def _raise_for_prepare_failure(self, package_id: str, state: dict[str, Any]) -> None:
+        result = self._fwupdate_result(str(state.get("device_id") or ""))
+        if not result or result.get("prepared") is not False:
+            return
+        received_at = float(result.get("received_at") or 0.0)
+        if received_at <= float(state.get("prepare_started_at") or 0.0):
+            return
+        result_message_id = str(result.get("message_id") or "")
+        prepare_message_id = str(state.get("prepare_message_id") or "")
+        result_package_id = str(result.get("package_id") or "")
+        if prepare_message_id and result_message_id:
+            matches = prepare_message_id == result_message_id
+        else:
+            matches = bool(package_id and result_package_id == package_id)
+        if matches:
+            raise NodusOTAError(f"prepare_rejected:{result.get('error', '')}")
 
     def _fwupdate_result(self, device_id: str) -> dict[str, Any]:
         ingest = self.mqtt_ingest
@@ -820,6 +939,9 @@ class NodusOTAService:
     def _raise_if_cancelled(self, state: dict[str, Any]) -> None:
         if state.get("cancel_requested"):
             raise NodusOTAError("update_cancelled")
+        deadline = float(state.get("device_deadline_monotonic") or 0.0)
+        if deadline > 0.0 and time.monotonic() >= deadline:
+            raise NodusOTAError("ota_device_deadline_exceeded")
 
 
 def _clean_device_id(value: str) -> str:
@@ -833,6 +955,8 @@ def _normalize_platform(value: Any) -> str:
 def _file_transfer_error_retryable(error: str) -> bool:
     text = str(error or "")
     if text.startswith("http_request_failed:PUT:") and "/ota/file/chunk?" in text:
+        return True
+    if text.startswith("file_chunk_offset_mismatch:") or text.startswith("file_chunk_offset_stalled:"):
         return True
     if not (
         text.startswith("file_begin_rejected:")
@@ -861,6 +985,25 @@ def _http_probe_error(exc: Exception) -> str:
     text = str(exc).strip()
     name = exc.__class__.__name__
     return f"{name}:{text}" if text else name
+
+
+def _is_ota_ready_timeout(error: str) -> bool:
+    return str(error or "").startswith("ota_http_ready_timeout")
+
+
+def _friendly_ota_error(error: str) -> str:
+    text = str(error or "")
+    if _is_ota_ready_timeout(text):
+        return "Nodus OTA mode did not start within 150 seconds. Recovery was requested."
+    if text == "ota_confirmation_timeout":
+        return "The Nodus rebooted, but the completed update could not be confirmed."
+    if text == "ota_device_deadline_exceeded":
+        return "The update exceeded the 30-minute safety limit and was stopped."
+    if text.startswith("prepare_rejected:"):
+        return "The Nodus could not enter OTA mode."
+    if text.startswith("file_") or text.startswith("http_request_failed:"):
+        return "The file transfer failed and the Nodus was asked to return to normal operation."
+    return text
 
 
 def _public_job(job: dict[str, Any]) -> dict[str, Any]:

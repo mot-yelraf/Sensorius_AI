@@ -2813,7 +2813,7 @@
     }
     if (title) title.textContent = otaJobTitle(job);
     const lines = (job.devices || []).map((d) => {
-      return (d.device_id || "") + ": " + (d.phase || d.status || "") + " " + (d.progress || 0) + "% " + (d.error || d.message || "");
+      return (d.device_id || "") + ": " + (d.phase || d.status || "") + " " + (d.progress || 0) + "% " + (d.message || d.error || "");
     });
     if (detail) {
       detail.style.whiteSpace = "pre-line";
