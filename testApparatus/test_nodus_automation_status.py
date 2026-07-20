@@ -1,5 +1,8 @@
+import asyncio
 import os
 import sys
+
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -110,3 +113,31 @@ def test_publisher_clears_removed_ownership_and_marks_offline():
     assert ingest.published[-1][1]["channels"] == []
     assert publisher.publish_offline(now=1010) == 1
     assert ingest.published[-1][1]["status"] == "offline"
+
+
+def test_publisher_run_feeds_watchdog_each_scan(monkeypatch):
+    class FakeSupervisor:
+        def __init__(self):
+            self.fed = []
+
+        def feedthedogs(self, name):
+            self.fed.append(name)
+
+    async def cancel_after_first_scan(_seconds):
+        raise asyncio.CancelledError
+
+    supervisor = FakeSupervisor()
+    publisher = NodusAutomationStatusPublisher(
+        FakeIngest(),
+        manager=FakeManager(_rules()),
+        supervisor=supervisor,
+    )
+    monkeypatch.setattr(
+        "saiNodusAutomationStatus.asyncio.sleep",
+        cancel_after_first_scan,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(publisher.run())
+
+    assert supervisor.fed == ["Nodus Automation Status"]

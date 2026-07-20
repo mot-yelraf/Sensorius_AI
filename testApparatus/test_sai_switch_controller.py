@@ -566,6 +566,81 @@ def test_advanced_previous_state_recovers_revert_after_restart_from_history():
     assert calls == [("Fan", False, True, "auto/rule:TOD")]
 
 
+def test_advanced_previous_state_history_recovery_runs_once_per_inactive_period():
+    ctrl = _make_controller()
+    calls = []
+    rule_on = {"value": False}
+
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "rule1": {
+                "enabled": True,
+                "script_json": {
+                    "name": "TOD",
+                    "enabled": True,
+                    "conditions": [
+                        {
+                            "type": "time",
+                            "start": "00:00",
+                            "end": "24:00" if rule_on["value"] else "00:01",
+                        }
+                    ],
+                    "actions": [
+                        {
+                            "switch_key": "sw1::Fan",
+                            "set": True,
+                            "revert_action": "previous_state",
+                            "delay_s": 0,
+                        }
+                    ],
+                },
+            }
+        }
+    }
+    ctrl._recover_advanced_revert_from_history = lambda *_a: calls.append("recover") or True
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    assert calls == ["recover"]
+
+    rule_on["value"] = True
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    rule_on["value"] = False
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+
+    assert calls == ["recover", "recover"]
+
+
+def test_advanced_idle_debug_output_is_throttled(monkeypatch: pytest.MonkeyPatch):
+    ctrl = _make_controller()
+    ctrl._load_triggers_dict = lambda: {"Advanced": {}}
+    monotonic_now = {"value": 100.0}
+    messages = []
+
+    monkeypatch.setattr(saiSwitch, "DEBUG", True)
+    monkeypatch.setattr(
+        saiSwitch.time,
+        "monotonic",
+        lambda: monotonic_now["value"],
+    )
+    monkeypatch.setattr(
+        saiSwitch,
+        "printDM",
+        lambda message, **_kwargs: messages.append(message),
+    )
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    monotonic_now["value"] = 105.0
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    monotonic_now["value"] = 160.0
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+
+    assert messages == [
+        "[advanced] sw1: evaluating 0 rule(s)",
+        "[advanced] sw1: evaluating 0 rule(s)",
+    ]
+
+
 def test_advanced_previous_state_recovery_prefers_remote_ingest_current_state():
     ctrl = _make_controller()
     ctrl.is_remote = True

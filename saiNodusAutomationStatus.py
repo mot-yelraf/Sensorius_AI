@@ -93,15 +93,31 @@ def build_status_channels(rules: dict, switch_id: str, channel_ids) -> dict[str,
 class NodusAutomationStatusPublisher:
     """Maintain retained ownership status and short-lived availability leases."""
 
-    def __init__(self, mqtt_ingest, *, manager=None, controller_id=None) -> None:
+    def __init__(
+        self,
+        mqtt_ingest,
+        *,
+        manager=None,
+        controller_id=None,
+        supervisor=None,
+    ) -> None:
         self.mqtt_ingest = mqtt_ingest
         self.manager = manager or AutomationManager("switch_settings")
+        self.supervisor = supervisor
         self.controller_id = str(
             controller_id or socket.gethostname() or "sensorius"
         ).strip()
         self._known_devices: dict[str, str] = {}
         self._last_status: dict[str, tuple] = {}
         self._last_availability: dict[str, float] = {}
+
+    def _feed_watchdog(self) -> None:
+        """Report progress without adding work to MQTT publish paths."""
+        try:
+            if self.supervisor is not None:
+                self.supervisor.feedthedogs("Nodus Automation Status")
+        except Exception:
+            pass
 
     @staticmethod
     def _topics(device_id: str, topic_root: str = "nodus") -> tuple[str, str]:
@@ -197,6 +213,7 @@ class NodusAutomationStatusPublisher:
         try:
             while True:
                 self.publish_once()
+                self._feed_watchdog()
                 await asyncio.sleep(SCAN_SECONDS)
         except asyncio.CancelledError:
             self.publish_offline()

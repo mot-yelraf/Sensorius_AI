@@ -38,6 +38,7 @@ MODULE = "saiSwitch"
 DEBUG = debug_enabled(MODULE)
 REMOTE_SWITCH_TYPES = {"picow", "pico2w", "nodus", "remote", "mqtt"}
 _ADVANCED_ACTIVE_ACTIONS_KEY = "ADVANCED_ACTIVE_ACTIONS_JSON"
+_ADVANCED_IDLE_LOG_INTERVAL_S = 60.0
 
 
 def _switch_type_from_settings(switch_settings) -> str:
@@ -79,6 +80,8 @@ class SwitchController:
         self._advanced_revert_cooldown = set()
         self._advanced_active_actions = {}
         self._advanced_active_actions_persisted_json = None
+        self._advanced_debug_next_idle_log_at = 0.0
+        self._advanced_debug_cycle_verbose = False
         self._astral_location_cache = {"value": None, "expires_at": 0.0}
 
         # Settings accessor that works with either wrapper or dict
@@ -1332,10 +1335,21 @@ class SwitchController:
 
         Only targets actions whose switch_key belongs to this controller.
         """
+        debug_cycle_verbose = False
+        if DEBUG:
+            debug_now = time.monotonic()
+            if debug_now >= float(
+                getattr(self, "_advanced_debug_next_idle_log_at", 0.0) or 0.0
+            ):
+                self._advanced_debug_next_idle_log_at = (
+                    debug_now + _ADVANCED_IDLE_LOG_INTERVAL_S
+                )
+                debug_cycle_verbose = True
+        self._advanced_debug_cycle_verbose = debug_cycle_verbose
         try:
             triggers = self._load_triggers_dict()
             advanced = triggers.get("Advanced") or {}
-            if DEBUG:
+            if debug_cycle_verbose:
                 printDM(
                     f"[advanced] {self.switch_id}: evaluating {len(advanced)} rule(s)",
                     location=MODULE,
@@ -1721,16 +1735,17 @@ class SwitchController:
 
             if not rule_ok:
                 pending_actions.pop(action_key, None)
-                self._advanced_revert_cooldown.discard(action_key)
                 if active:
                     _revert_active_action(action_key, active)
-                elif self._recover_advanced_revert_from_history(info, current_state):
-                    if DEBUG:
-                        printDM(
-                            f"[advanced] {target_label} rule {info['rule_id']} recovered previous_state from history",
-                            location=MODULE,
-                        )
-                if DEBUG:
+                elif action_key not in self._advanced_revert_cooldown:
+                    self._advanced_revert_cooldown.add(action_key)
+                    if self._recover_advanced_revert_from_history(info, current_state):
+                        if DEBUG:
+                            printDM(
+                                f"[advanced] {target_label} rule {info['rule_id']} recovered previous_state from history",
+                                location=MODULE,
+                            )
+                if debug_cycle_verbose:
                     printDM(
                         f"[advanced] {target_label} rule {info['rule_id']} no-op: "
                         f"rule_ok={rule_ok} group_results={info.get('group_results')}",
@@ -1738,9 +1753,11 @@ class SwitchController:
                     )
                 continue
 
+            self._advanced_revert_cooldown.discard(action_key)
+
             if active:
                 if current_state == desired:
-                    if DEBUG:
+                    if debug_cycle_verbose:
                         printDM(
                             f"[advanced] {target_label} rule {info['rule_id']} skipped: "
                             f"curr={current_state} desired={desired} switch_key={skey}",
@@ -1761,7 +1778,7 @@ class SwitchController:
                     continue
                 pending_actions.pop(action_key, None)
                 if current_state == desired:
-                    if DEBUG:
+                    if debug_cycle_verbose:
                         printDM(
                             f"[advanced] {target_label} rule {info['rule_id']} skipped after delay: "
                             f"curr={current_state} desired={desired} switch_key={skey}",
@@ -1807,7 +1824,7 @@ class SwitchController:
                 continue
 
             if current_state == desired:
-                if DEBUG:
+                if debug_cycle_verbose:
                     printDM(
                         f"[advanced] {target_label} rule {info['rule_id']} skipped: "
                         f"curr={current_state} desired={desired} switch_key={skey}",
@@ -1904,7 +1921,9 @@ class SwitchController:
                 rules_present = self._rules_enabled()
                 rules_check_ms = (time.monotonic() - rules_check_started) * 1000.0
                 if not rules_present:
-                    if DEBUG:
+                    if DEBUG and bool(
+                        getattr(self, "_advanced_debug_cycle_verbose", False)
+                    ):
                         printDM(f"{self.switch_id} Switch monitor: no enabled rules; skipping eval", location=MODULE)
                 else:
                     # Prefer passed-in sensor; fall back to self.sensor
@@ -1946,7 +1965,9 @@ class SwitchController:
                 printDM(f"Switch monitor error: {e}", location=MODULE)
 
             total_ms = (time.monotonic() - tick_started) * 1000.0
-            if DEBUG:
+            if DEBUG and bool(
+                getattr(self, "_advanced_debug_cycle_verbose", False)
+            ):
                 printDM(
                     f"[monitor-profile] {self.switch_id} rules_present={int(bool(rules_present))} "
                     f"rules_check_ms={rules_check_ms:.1f} snapshot_ms={snapshot_ms:.1f} "
