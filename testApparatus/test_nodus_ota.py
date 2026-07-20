@@ -650,6 +650,48 @@ def test_push_package_retries_chunked_file_after_retryable_chunk_rejection(tmp_p
     assert chunk_calls == 2
 
 
+def test_push_package_restarts_chunked_file_after_chunk_transport_failure(tmp_path):
+    pkg = _write_package(tmp_path)
+    service = NodusOTAService(package_root=tmp_path / "ota")
+    package = service.inspect_package(str(pkg))
+    chunk_calls = 0
+    begin_calls = 0
+
+    async def fake_request_json(client, method, url, **kwargs):
+        nonlocal chunk_calls, begin_calls
+        if url.endswith("/ota/begin"):
+            return {"accepted": True}
+        if "/ota/file/begin?" in url:
+            begin_calls += 1
+            return {"accepted": True}
+        if "/ota/file/chunk?" in url:
+            chunk_calls += 1
+            if chunk_calls == 1:
+                raise NodusOTAError(f"http_request_failed:PUT:{url}:connection reset")
+            return {"accepted": True, "offset": len(b"print('ota')\n")}
+        if "/ota/file/end?" in url:
+            return {"accepted": True}
+        if url.endswith("/ota/commit"):
+            return {"accepted": True}
+        raise AssertionError(url)
+
+    service._request_json = fake_request_json
+
+    import asyncio
+    asyncio.run(
+        service._push_package(
+            types.SimpleNamespace(),
+            "http://device:8000",
+            package,
+            {"bytes_sent": 0, "progress": 0},
+            chunk_size=1024,
+        )
+    )
+
+    assert begin_calls == 2
+    assert chunk_calls == 2
+
+
 def test_wait_after_prepare_returns_when_ota_status_is_ready(tmp_path):
     service = NodusOTAService(package_root=tmp_path / "ota")
     state = {"bytes_sent": 0, "progress": 0}

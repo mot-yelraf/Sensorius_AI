@@ -1,0 +1,89 @@
+{
+  "created_at": "2026-07-20T20:15:38Z",
+  "delete": [
+    "cpynodus_ii/__init__.py",
+    "cpynodus_ii/app.py",
+    "cpynodus_ii/features/nodusweb_automation.py",
+    "cpynodus_ii/features/web_automation_ui.py",
+    "cpynodus_ii/features/web_config_ui.py",
+    "cpynodus_ii/features/web_handlers.py",
+    "cpynodus_ii/features/web_routes.py",
+    "cpynodus_ii/features/web_runtime.py",
+    "cpynodus_ii/features/web_status_ui.py",
+    "cpynodus_ii/features/web_ui_common.py"
+  ],
+  "files": [
+    {
+      "path": "cpynodus_ii/__init__.mpy",
+      "sha256": "5b91bc5675b679825e8b11ead4e66ff28494cf91cf7f6b1a0285ec621c108c6b",
+      "size": 72
+    },
+    {
+      "path": "cpynodus_ii/app.mpy",
+      "sha256": "3fad0d12b2c92de4d7a8ca46e039cf8d93316f0e3273d3e3a7ef286e44348d1b",
+      "size": 54797
+    },
+    {
+      "path": "cpynodus_ii/features/nodusweb_automation.mpy",
+      "sha256": "35a1b4d7b58e88e8f170872836fedbbd9d133f74ca711af9146d6001e779fbf9",
+      "size": 11263
+    },
+    {
+      "path": "cpynodus_ii/features/web_automation_ui.mpy",
+      "sha256": "8951e358d9dcec00124d7f8586d78481780d730a28f12b5b64d3a302dde053aa",
+      "size": 3030
+    },
+    {
+      "path": "cpynodus_ii/features/web_config_ui.mpy",
+      "sha256": "5df572e488d89715cac3a6b9ce426a729c7e17e53b9532de6cb151d20487e982",
+      "size": 8504
+    },
+    {
+      "path": "cpynodus_ii/features/web_handlers.mpy",
+      "sha256": "b1fbe1e759afe4fe0a253835bb8fc137996707be9e62b392344b0a7d32cbe457",
+      "size": 4112
+    },
+    {
+      "path": "cpynodus_ii/features/web_routes.mpy",
+      "sha256": "8c7e8c3e04fff4548c2d110941da2660ac4e73a45a67021bcb5e54de731728fd",
+      "size": 1850
+    },
+    {
+      "path": "cpynodus_ii/features/web_runtime.mpy",
+      "sha256": "d16d21fbf95a06a3aec4720c15ca28a55d317373377e9b09ef60fdd4d6b36b5a",
+      "size": 12848
+    },
+    {
+      "path": "cpynodus_ii/features/web_status_ui.mpy",
+      "sha256": "cf01d33bce987b0eef7affd758e94a79fd580e78b24f8fd9b8cd8be3bc421e4e",
+      "size": 3022
+    },
+    {
+      "path": "cpynodus_ii/features/web_ui_common.mpy",
+      "sha256": "140123566140224d5177abbec84276b44c7ddaae9c49392fe8c1e3adbe37c4d6",
+      "size": 5205
+    }
+  ],
+  "from_tag": "v0.26.188.1",
+  "package_id": "ota-v0.26.188.1-to-fcd559db7ff753854a898ad59903f470e29c66a9",
+  "post_apply": {
+    "reboot": true,
+    "reboot_delay_s": 5,
+    "resume_profile": "previous"
+  },
+  "preserve": [
+    "settings.toml",
+    "sensor_i2c.toml",
+    "sensor_soil.toml",
+    "switch.toml"
+  ],
+  "requires": {
+    "version": "v0.26.188.1"
+  },
+  "schema": "nodus-ota/v1",
+  "target": {
+    "circuitpython": "9.2.8",
+    "platform": "pico2w"
+  },
+  "to_tag": "fcd559db7ff753854a898ad59903f470e29c66a9"
+}

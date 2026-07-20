@@ -832,6 +832,8 @@ def _normalize_platform(value: Any) -> str:
 
 def _file_transfer_error_retryable(error: str) -> bool:
     text = str(error or "")
+    if text.startswith("http_request_failed:PUT:") and "/ota/file/chunk?" in text:
+        return True
     if not (
         text.startswith("file_begin_rejected:")
         or text.startswith("file_chunk_rejected:")
