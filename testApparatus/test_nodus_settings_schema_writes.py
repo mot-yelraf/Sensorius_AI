@@ -638,6 +638,30 @@ def test_system_settings_sections_match_integration_accordions():
     assert text.index("<summary>System Settings</summary>") < text.index("<summary>Notifications</summary>")
     assert text.index("<summary>Notifications</summary>") < text.index("<summary>Astral</summary>")
     assert text.index("<summary>Astral</summary>") < text.index("<summary>Display</summary>")
+    assert text.count('class="button blue btn-system-save"') == 5
+    assert text.count('class="button black btn-back-system">Dashboard</button>') >= 5
+    assert 'id="btn-system-save"' not in text
+
+
+def test_notification_subsection_titles_are_left_aligned():
+    source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
+    text = source.read_text(encoding="utf-8")
+
+    assert "#setupPiModal .notification-subsection > summary {" in text
+    assert "  text-align: left;" in text
+    assert "#setupPiModal .notification-subsection > summary::before {" in text
+
+
+def test_notification_subsections_have_individual_action_rows():
+    source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
+    text = source.read_text(encoding="utf-8")
+
+    email_section = text[text.index("<summary>Email Settings</summary>"):text.index("<summary>Notification Rules</summary>")]
+    rules_section = text[text.index("<summary>Notification Rules</summary>"):text.index("<summary>Astral</summary>")]
+    for section in (email_section, rules_section):
+        assert 'class="pane-footer"' in section
+        assert 'class="button black btn-back-system">Dashboard</button>' in section
+        assert 'class="button blue btn-system-save">Save</button>' in section
 
 
 def test_system_settings_template_uses_compact_field_spacing():
@@ -665,9 +689,7 @@ def test_system_settings_dashboard_buttons_close_modal():
     source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
     text = source.read_text(encoding="utf-8")
 
-    assert '<button type="button" class="button black" id="btn-home">Dashboard</button>' in text
     assert '<button type="button" class="button black btn-back-system">Dashboard</button>' in text
-    assert 'ev.target.id === "btn-home") {\n      goHomeFromSettings();' in text
     assert 'classList.contains("btn-back-system")) {\n      if (document.getElementById("pane-add")' in text
     assert "      goHomeFromSettings();\n    }" in text
 

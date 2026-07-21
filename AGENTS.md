@@ -342,6 +342,30 @@ entities. Do not rename metrics casually.
 
 Prefer the smallest relevant verification first.
 
+### Web UI Verification Environment
+
+- Playwright and Google Chrome are installed on this system and should be used
+  to exercise web UI changes when running inside VS Code.
+- The in-app Browser (`@Browser`) capabilities are not available from the VS
+  Code agent surface. An "IAB failed" or "No browser is available" result in
+  VS Code is an expected surface limitation, not evidence that the opened tab,
+  browser profile, VS Code extension, or browser data is broken.
+- Do not attempt to fix this VS Code limitation by reinstalling extensions,
+  resetting browser data, or repeatedly retrying in-app-browser discovery.
+- After recognizing the VS Code surface limitation, use terminal-based
+  verification appropriate to the change: Playwright, headless Chrome, Chrome
+  DevTools Protocol, `curl`, and screenshot tooling. These tools are independent
+  of the in-app Browser and may require their normal execution permissions.
+- Prefer Playwright for DOM assertions and interactive behavior, and use Chrome
+  screenshots when visual layout verification is important. Use `curl` for
+  endpoint, rendered-markup, and health checks that do not require a browser.
+- When the task explicitly requires `@Browser`, browser annotations, in-app
+  screenshots, DOM inspection, or interactive page control through the Browser
+  plugin, run it in a Codex chat inside the desktop app with the Browser plugin
+  installed and enabled.
+- Report which verification surface was used and any UI behavior that remains
+  unverified.
+
 Focused test examples:
 
 - `pytest testApparatus/test_homeassistant_mqtt.py`
