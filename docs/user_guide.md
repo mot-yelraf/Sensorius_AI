@@ -48,9 +48,11 @@ For Nodus devices, Sensorius also listens for MQTT metadata and state messages. 
 
 The dashboard is the main operating view. It is where you check current conditions, see switch state, open settings, and review quick trends.
 
-| Dashboard overview | Dashboard lower sections |
+| Retained dashboard overview | Current capability overview |
 | --- | --- |
-| ![Dashboard overview](../assets/screenshots/Dashboard-1.png) | ![Dashboard lower sections](../assets/screenshots/Dashboard-3.png) |
+| ![Dashboard overview](<../assets/screenshots/Dashboard-1.png>) | ![Current dashboard capability overview](<../assets/screenshots/dashboard-current-overview.png>) |
+
+![Dashboard devices and switches](<../assets/screenshots/dashboard-devices-and-switches.png>)
 
 The dashboard presents:
 
@@ -122,7 +124,7 @@ System Settings contains hub-level settings, device onboarding, integrations, lo
 
 ### System Settings Pane
 
-![System settings pane](<../assets/screenshots/System Settings - System Settings.png>)
+![System settings pane](<../assets/screenshots/system-settings-general.png>)
 
 Fields and selectors:
 
@@ -148,11 +150,19 @@ Fields and selectors:
 - **Dashboard**: returns to the dashboard.
 - **Save**: writes system settings and notification rules to `system_settings/<device_id>/settings.toml`; email connection values are written to the protected project-root `.env`.
 
+| Email settings expanded | Notification rules expanded |
+| --- | --- |
+| ![Email notification settings](<../assets/screenshots/system-settings-notifications-email.png>) | ![Notification rules settings](<../assets/screenshots/system-settings-notification-rules.png>) |
+
 If the Astral fields are wrong, biodynamic timing, sunrise/sunset automations, and weather forecast placement may also be wrong.
+
+| Astral settings expanded | Display settings expanded |
+| --- | --- |
+| ![Astral settings](<../assets/screenshots/system-settings-astral.png>) | ![Display settings](<../assets/screenshots/system-settings-display.png>) |
 
 ### Edit Locations Pane
 
-![Edit locations pane](<../assets/screenshots/System Settings - Edit Locations.png>)
+![Edit locations pane](<../assets/screenshots/system-settings-edit-locations.png>)
 
 The Edit Locations pane lists sensors and switches together.
 
@@ -166,7 +176,7 @@ Locations should describe places people recognize: Greenhouse 1, West Bed, Seedl
 
 ### Add Device Pane
 
-![Add device pane](<../assets/screenshots/System Settings - Add Device.png>)
+![Add device pane](<../assets/screenshots/system-settings-add-device.png>)
 
 Use Add Device to onboard a factory-bootstrapped Nodus device.
 
@@ -184,7 +194,7 @@ On macOS, Sensorius first attempts to join `Nodus_Setup` automatically using nat
 
 ### Update Device Pane
 
-![Update device pane](<../assets/screenshots/System Settings - Update Device.png>)
+![Update device pane](<../assets/screenshots/system-settings-update-device.png>)
 
 Use Update Device for Nodus over-the-air (OTA) firmware packages.
 
@@ -224,7 +234,7 @@ and reports a concise recovery message.
 
 ### Remove Device Pane
 
-![Remove device pane](<../assets/screenshots/System Settings - Remove Device.png>)
+![Remove device pane](<../assets/screenshots/system-settings-remove-device.png>)
 
 Use Remove Device when a sensor or switch should no longer appear in Sensorius.
 
@@ -246,7 +256,7 @@ available height.
 
 #### Home Assistant
 
-![Home Assistant pane](<../assets/screenshots/System Settings - HomeAssistant.png>)
+![Home Assistant pane](<../assets/screenshots/system-integrations-home-assistant.png>)
 
 Fields and selectors:
 
@@ -263,7 +273,7 @@ Expected flow: configure the broker, enable the integration, let Sensorius publi
 
 #### WeeWX
 
-![WeeWX pane](<../assets/screenshots/System Settings - WeeWx.png>)
+![WeeWX pane](<../assets/screenshots/system-integrations-weewx.png>)
 
 Fields and selectors:
 
@@ -287,7 +297,7 @@ when MQTT ingest starts.
 
 #### FarmOS
 
-![FarmOS pane](<../assets/screenshots/System Settings - FarmOS.png>)
+![FarmOS pane](<../assets/screenshots/system-integrations-farmos.png>)
 
 Fields and selectors:
 
@@ -308,7 +318,7 @@ farmOS export listens for new readings written by Sensorius. Check the FarmOS st
 
 ### Advanced Pane
 
-![Advanced settings pane](<../assets/screenshots/System Settings - Advanced.png>)
+![Advanced settings pane](<../assets/screenshots/system-settings-advanced.png>)
 
 Advanced settings affect startup, logging, and stored data. Change them only when you understand the impact.
 
@@ -330,7 +340,7 @@ Open Sensor Settings from a sensor card when you need to organize a sensor, choo
 
 ### Sensor Settings Pane
 
-![Sensor settings pane](<../assets/screenshots/Sensor Settings - Sensor Settings.png>)
+![Sensor settings pane](<../assets/screenshots/sensor-settings-display-metrics.png>)
 
 Fields and selectors:
 
@@ -348,7 +358,7 @@ Metric slot order is authoritative in **Pick 6** mode: Metric 1 is the leftmost 
 
 ### Sensor Calibration Pane
 
-![Sensor calibration pane](<../assets/screenshots/Sensor Settings - Sensor Calibration.png>)
+![Sensor calibration pane](<../assets/screenshots/sensor-settings-device-calibration.png>)
 
 The Sensor Calibration pane adjusts the selected physical device. It is meant for cases where one sensor is consistently high or low compared with a trusted reference.
 
@@ -369,7 +379,7 @@ Calibration data comes from the sensor's `Calibration` section, Nodus metadata, 
 
 ### System Calibration Pane
 
-![System calibration pane](<../assets/screenshots/Sensor Settings - System Calibration.png>)
+![System calibration pane](<../assets/screenshots/sensor-settings-system-calibration.png>)
 
 System Calibration compares multiple temperature/RH sensors to a reference sensor over recent history.
 
@@ -397,7 +407,7 @@ For the best calibration results:
 
 ### Sensor Info Pane
 
-![Sensor info pane](<../assets/screenshots/Sensor Settings - Sensor Info.png>)
+![Sensor info pane](<../assets/screenshots/sensor-settings-device-info.png>)
 
 The Sensor Info pane is a health and diagnostics view.
 
@@ -425,7 +435,7 @@ Open Switch Settings from a switch card when you need to label channels, set the
 
 ### Switch Settings Pane
 
-![Switch settings pane](<../assets/screenshots/Switch Settings - Switch Settings.png>)
+![Switch settings pane](<../assets/screenshots/switch-settings-channels.png>)
 
 Fields and controls:
 
@@ -441,7 +451,7 @@ stable `<switch_id>::<channel_id>` key.
 
 ### Automations Pane
 
-![Switch automations pane](<../assets/screenshots/Switch Settings - Automations.png>)
+![Switch automations pane](<../assets/screenshots/switch-automations-list.png>)
 
 The Automations pane first shows saved automations for the selected switch. Each item shows the automation name and whether it is enabled.
 
@@ -456,7 +466,7 @@ Automation rules are stored under the Sensorius runtime directory, such as `/Use
 
 ### Automation Definition Pane
 
-![Switch automation definition pane](<../assets/screenshots/Switch Settings - Automation Definition.png>)
+![Switch automation definition pane](<../assets/screenshots/switch-automation-definition.png>)
 
 Top-level fields:
 
@@ -522,7 +532,7 @@ For critical loads, test automations with harmless equipment first. A short dela
 
 ### Switch Info Pane
 
-![Switch info pane](<../assets/screenshots/Switch Settings - Switch Info.png>)
+![Switch info pane](<../assets/screenshots/switch-settings-device-info.png>)
 
 The Switch Info pane shows:
 
@@ -542,7 +552,7 @@ Use this pane when commands do not seem to reach a switch or when a remote relay
 
 Open the graph tool when you want to compare readings over time, investigate spikes, or see whether a switch action changed the environment.
 
-![Full-screen VPD graph](<../assets/screenshots/Full Screen VPD Graph.png>)
+![Full-screen VPD graph](<../assets/screenshots/graph-vpd-24-hour.png>)
 
 The full-screen graph displays one to three metric series. The first selected metric uses the left axis. The second and third selected metrics use the right axis. When average data is available, a purple dashed line labeled **Average** shows that series' arithmetic average over the selected visible window. VPD graphs show VPD range coloring, and some metrics show gauge-zone background bands. These colored bands come from metric display zones, not automation thresholds.
 
@@ -550,7 +560,7 @@ Switch event overlays appear as vertical lines. The legend shows which colors me
 
 ### Graph Definition Modal
 
-![Full-screen graph definition modal](<../assets/screenshots/Full-Screen Graph Definition Modal.png>)
+![Full-screen graph definition modal](<../assets/screenshots/graph-setup-vpd-switch-overlay.png>)
 
 The graph definition modal has these panes and fields:
 

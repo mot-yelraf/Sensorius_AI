@@ -356,6 +356,10 @@ Prefer the smallest relevant verification first.
   verification appropriate to the change: Playwright, headless Chrome, Chrome
   DevTools Protocol, `curl`, and screenshot tooling. These tools are independent
   of the in-app Browser and may require their normal execution permissions.
+- For headless screenshots, use Playwright's bundled Chromium/headless shell.
+  Do not launch `/Applications/Google Chrome.app` directly with `--headless`
+  because it triggers macOS GUI-registration crashes and user-facing crash
+  dialogs.
 - Prefer Playwright for DOM assertions and interactive behavior, and use Chrome
   screenshots when visual layout verification is important. Use `curl` for
   endpoint, rendered-markup, and health checks that do not require a browser.
