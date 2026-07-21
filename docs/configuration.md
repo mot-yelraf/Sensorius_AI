@@ -91,12 +91,44 @@ SENSORIUS_TIME_SYNC_INTERVAL_SEC=3600
 SENSORIUS_TIME_SYNC_ACK_TIMEOUT_SEC=5
 SENSORIUS_TIME_SYNC_RESULT_TIMEOUT_SEC=20
 
+SENSORIUS_EMAIL_ENABLED=false
+SENSORIUS_EMAIL_SMTP_HOST=smtp.gmail.com
+SENSORIUS_EMAIL_SMTP_PORT=465
+SENSORIUS_EMAIL_SECURITY=ssl
+SENSORIUS_EMAIL_USERNAME=
+SENSORIUS_EMAIL_APP_PASSWORD=
+SENSORIUS_EMAIL_FROM=
+SENSORIUS_EMAIL_TO=
+SENSORIUS_EMAIL_REARM_COOLDOWN_SEC=600
+SENSORIUS_EMAIL_FAILURE_COOLDOWN_SEC=600
+SENSORIUS_EMAIL_MAX_PER_HOUR=10
+SENSORIUS_EMAIL_MAX_PER_DAY=40
+
 SENSORIUS_AUTOSTART_SCOPE=user
 SENSORIUS_AUTOSTART_ENABLED=false
 
 SAI_WEB_API_KEY=
 SAI_PEER_API_KEY=
 ```
+
+The System Settings **Notifications > Email Settings** form writes the email
+keys to the project-root `.env`, which is restricted to the owning user. The
+password field is never populated in HTML; leaving it blank preserves the
+current app password. `ssl` uses implicit TLS (normally port 465), while
+`starttls` upgrades a plain SMTP connection (normally port 587).
+
+Automated messages have three additional safeguards. After a rule recovers,
+the same rule cannot generate a new high email for 600 seconds, even when its
+recovery email is disabled. After three
+failed delivery attempts, that rule waits 600 seconds before starting another
+attempt batch. Successful automated messages are limited across all rules to
+10 in a rolling hour and 40 in a rolling 24-hour period. Test messages do not
+count toward either cap.
+
+Each notification rule stores an `operator` of `>` or `<`. Existing rules that
+do not contain the field default to `>`. For `>` rules the alert/recovery
+boundaries are `threshold + hysteresis` and `threshold - hysteresis`; `<` rules
+mirror those boundaries.
 
 GUI behavior:
 
@@ -173,6 +205,9 @@ LOG_BUNDLE = "observation"
 QUEUE_MAX = 1000
 FLUSH_INTERVAL_SEC = 3.0
 REQUEST_TIMEOUT_SEC = 10.0
+
+[Notifications]
+RULES_JSON = "[]"
 
 [Time]
 TZ = "America/Denver"

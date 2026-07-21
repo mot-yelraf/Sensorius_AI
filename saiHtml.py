@@ -3789,8 +3789,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  const closeBtn = document.createElement('button');"
     yield "  closeBtn.type = 'button';"
     yield "  closeBtn.className = 'bd-companion-close';"
-    yield "  closeBtn.textContent = 'Back to Sensorius';"
-    yield "  closeBtn.setAttribute('aria-label', 'Back to Sensorius dashboard');"
+    yield "  closeBtn.textContent = 'Dashboard';"
+    yield "  closeBtn.setAttribute('aria-label', 'Return to Sensorius dashboard');"
     yield "  closeBtn.addEventListener('click', window.closeBiodynamicCompanion);"
     yield "  const frame = document.createElement('iframe');"
     yield "  frame.className = 'bd-companion-frame';"
@@ -7565,7 +7565,7 @@ def render_graph_modal(switch_installed=None):
     yield "    <div class='graph-actions'>"
     yield (
         "      <button class='button black' title='Close graph setup' "
-        "onclick=\"document.getElementById('graphModal').style.display='none'\">Home</button>"
+        "onclick=\"document.getElementById('graphModal').style.display='none'\">Dashboard</button>"
     )
     yield "      <button id='graphSaveButton' class='button green' title='Save graph setup' onclick='saveGraphSetup(event)'>Save</button>"
     yield "      <button id='graphButton' class='button blue' title='Select at least one sensor and metric' onclick='loadGraph(event)' disabled>"

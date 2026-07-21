@@ -1018,6 +1018,40 @@ class saiDataLogger:
                             ON biodynamic_daily_summaries(summary_date DESC)
                         """)
 
+                        # ---- email notification edge state -------------------
+                        cur.execute("""
+                            CREATE TABLE IF NOT EXISTS notification_rule_state (
+                                rule_id      TEXT PRIMARY KEY,
+                                active       INTEGER NOT NULL,
+                                last_value   REAL,
+                                updated_at   TEXT NOT NULL,
+                                last_recovery_sent_epoch REAL,
+                                failure_retry_after_epoch REAL
+                            )
+                        """)
+                        cur.execute("PRAGMA table_info(notification_rule_state)")
+                        notification_state_cols = {row[1] for row in cur.fetchall()}
+                        if "last_recovery_sent_epoch" not in notification_state_cols:
+                            cur.execute(
+                                "ALTER TABLE notification_rule_state ADD COLUMN last_recovery_sent_epoch REAL"
+                            )
+                        if "failure_retry_after_epoch" not in notification_state_cols:
+                            cur.execute(
+                                "ALTER TABLE notification_rule_state ADD COLUMN failure_retry_after_epoch REAL"
+                            )
+                        cur.execute("""
+                            CREATE TABLE IF NOT EXISTS notification_email_events (
+                                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                                rule_id     TEXT NOT NULL,
+                                event_type  TEXT NOT NULL,
+                                sent_epoch  REAL NOT NULL
+                            )
+                        """)
+                        cur.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_notification_email_events_sent
+                            ON notification_email_events(sent_epoch)
+                        """)
+
                         # Backfill missing ts_epoch values only when the same startup
                         # migration budget permits it; large live DBs should be
                         # cleaned during explicit maintenance, not boot.
@@ -1458,6 +1492,177 @@ class saiDataLogger:
                 self._on_readings_written.append(listener)
         except Exception:
             pass
+
+    def get_notification_rule_states(self) -> dict[str, bool]:
+        """Return persisted active/normal state for email notification rules."""
+        try:
+            with self._open_conn() as conn:
+                rows = conn.execute(
+                    "SELECT rule_id, active FROM notification_rule_state"
+                ).fetchall()
+            return {str(rule_id): bool(active) for rule_id, active in rows if rule_id}
+        except Exception as exc:
+            if DEBUG:
+                printDM(f"Could not read notification rule states: {exc}", location=MODULE)
+            return {}
+
+    def set_notification_rule_state(
+        self,
+        rule_id: str,
+        active: bool,
+        last_value: float | None,
+        updated_at: str,
+    ) -> None:
+        """Persist a notification edge only after its message is delivered."""
+        rid = str(rule_id or "").strip()
+        if not rid:
+            return
+        with self._writer_lock:
+            self._ensure_writer()
+            self._writer_conn.execute(
+                """
+                INSERT INTO notification_rule_state(rule_id, active, last_value, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(rule_id) DO UPDATE SET
+                    active=excluded.active,
+                    last_value=excluded.last_value,
+                    updated_at=excluded.updated_at
+                """,
+                (rid, 1 if active else 0, last_value, str(updated_at or "")),
+            )
+            self._writer_conn.commit()
+
+    def get_notification_delivery_guards(self) -> dict[str, dict[str, float]]:
+        """Return persisted per-rule recovery and failure cooldown timestamps."""
+        try:
+            with self._open_conn() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT rule_id, last_recovery_sent_epoch, failure_retry_after_epoch
+                    FROM notification_rule_state
+                    """
+                ).fetchall()
+            return {
+                str(rule_id): {
+                    "last_recovery_sent_epoch": float(last_recovery or 0.0),
+                    "failure_retry_after_epoch": float(retry_after or 0.0),
+                }
+                for rule_id, last_recovery, retry_after in rows
+                if rule_id
+            }
+        except Exception as exc:
+            if DEBUG:
+                printDM(f"Could not read notification delivery guards: {exc}", location=MODULE)
+            return {}
+
+    def record_notification_delivery(self, rule_id: str, event_type: str, sent_epoch: float) -> None:
+        """Record one successful automated email and clear its failure circuit."""
+        rid = str(rule_id or "").strip()
+        kind = str(event_type or "").strip().lower()
+        if not rid or kind not in {"high", "recovery"}:
+            return
+        epoch = float(sent_epoch)
+        with self._writer_lock:
+            self._ensure_writer()
+            self._writer_conn.execute(
+                """
+                INSERT INTO notification_email_events(rule_id, event_type, sent_epoch)
+                VALUES (?, ?, ?)
+                """,
+                (rid, kind, epoch),
+            )
+            if kind == "recovery":
+                self._writer_conn.execute(
+                    """
+                    UPDATE notification_rule_state
+                    SET last_recovery_sent_epoch = ?, failure_retry_after_epoch = NULL
+                    WHERE rule_id = ?
+                    """,
+                    (epoch, rid),
+                )
+            else:
+                self._writer_conn.execute(
+                    """
+                    UPDATE notification_rule_state
+                    SET failure_retry_after_epoch = NULL
+                    WHERE rule_id = ?
+                    """,
+                    (rid,),
+                )
+            self._writer_conn.execute(
+                "DELETE FROM notification_email_events WHERE sent_epoch < ?",
+                (epoch - (2 * 24 * 60 * 60),),
+            )
+            self._writer_conn.commit()
+
+    def record_notification_recovery(self, rule_id: str, recovery_epoch: float) -> None:
+        """Persist a recovery transition when recovery email delivery is disabled."""
+        rid = str(rule_id or "").strip()
+        if not rid:
+            return
+        with self._writer_lock:
+            self._ensure_writer()
+            self._writer_conn.execute(
+                """
+                UPDATE notification_rule_state
+                SET last_recovery_sent_epoch = ?
+                WHERE rule_id = ?
+                """,
+                (float(recovery_epoch), rid),
+            )
+            self._writer_conn.commit()
+
+    def set_notification_failure_cooldown(self, rule_id: str, retry_after_epoch: float) -> None:
+        """Persist the next time a failed rule may start another delivery batch."""
+        rid = str(rule_id or "").strip()
+        if not rid:
+            return
+        with self._writer_lock:
+            self._ensure_writer()
+            self._writer_conn.execute(
+                """
+                INSERT INTO notification_rule_state(
+                    rule_id, active, last_value, updated_at, failure_retry_after_epoch
+                ) VALUES (?, 0, NULL, '', ?)
+                ON CONFLICT(rule_id) DO UPDATE SET
+                    failure_retry_after_epoch = excluded.failure_retry_after_epoch
+                """,
+                (rid, float(retry_after_epoch)),
+            )
+            self._writer_conn.commit()
+
+    def get_notification_rate_limit(
+        self,
+        now_epoch: float,
+        *,
+        hourly_cap: int,
+        daily_cap: int,
+    ) -> tuple[bool, float]:
+        """Return whether an automated email may send and the next allowed epoch."""
+        now = float(now_epoch)
+        try:
+            with self._open_conn() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT sent_epoch
+                    FROM notification_email_events
+                    WHERE sent_epoch > ?
+                    ORDER BY sent_epoch ASC
+                    """,
+                    (now - (24 * 60 * 60),),
+                ).fetchall()
+            daily = [float(row[0]) for row in rows]
+            hourly = [epoch for epoch in daily if epoch > now - (60 * 60)]
+            retry_at = 0.0
+            if hourly_cap > 0 and len(hourly) >= hourly_cap:
+                retry_at = max(retry_at, hourly[len(hourly) - hourly_cap] + (60 * 60))
+            if daily_cap > 0 and len(daily) >= daily_cap:
+                retry_at = max(retry_at, daily[len(daily) - daily_cap] + (24 * 60 * 60))
+            return retry_at <= now, retry_at
+        except Exception as exc:
+            if DEBUG:
+                printDM(f"Could not read notification rate window: {exc}", location=MODULE)
+            return True, 0.0
 
     def log_sensor_event(
         self,

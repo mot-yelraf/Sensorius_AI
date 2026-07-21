@@ -142,8 +142,11 @@ Fields and selectors:
 - **Sun Peak Time**: read-only solar noon.
 - **Gauge Size**: dashboard gauge size. Options are **Small** and **Large**.
 - **Display Style**: default dashboard metric display. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
+- **Notifications > Email Settings**: enables SMTP delivery and configures the server, port, TLS mode, username, Google App Password, and From/To addresses. **Send Test Email** uses the values currently visible in the form without saving them; a blank password uses the configured credential. Saving with a blank password also preserves that credential.
+- **Notifications > Notification Rules**: adds directional sensor-metric rules using `>` or `<`. A `>` rule alerts above `threshold + hysteresis` and recovers below `threshold - hysteresis`. A `<` rule alerts below `threshold - hysteresis` and recovers above `threshold + hysteresis`. Values inside the hysteresis band do not change state.
+- Automated email guards prevent rapid cycling: a recovered rule waits 10 minutes before another high alert, three failed delivery attempts open a 10-minute circuit breaker, and successful automated messages are capped at 10 per rolling hour and 40 per rolling day. Test emails are excluded.
 - **Dashboard**: returns to the dashboard.
-- **Save**: writes system settings to `system_settings/<device_id>/settings.toml`.
+- **Save**: writes system settings and notification rules to `system_settings/<device_id>/settings.toml`; email connection values are written to the protected project-root `.env`.
 
 If the Astral fields are wrong, biodynamic timing, sunrise/sunset automations, and weather forecast placement may also be wrong.
 

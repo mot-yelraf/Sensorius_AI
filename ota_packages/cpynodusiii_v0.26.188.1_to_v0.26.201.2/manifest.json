@@ -1,0 +1,160 @@
+{
+  "created_at": "2026-07-21T00:31:48Z",
+  "delete": [
+    "cpynodus_iii/__init__.py",
+    "cpynodus_iii/app.py",
+    "cpynodus_iii/core/mqtt_client.py",
+    "cpynodus_iii/features/automation_status.py",
+    "cpynodus_iii/features/command_intake.py",
+    "cpynodus_iii/features/command_subscriptions.py",
+    "cpynodus_iii/features/favicon.py",
+    "cpynodus_iii/features/ha_discovery_state.py",
+    "cpynodus_iii/features/history.py",
+    "cpynodus_iii/features/nodusweb_automation.py",
+    "cpynodus_iii/features/payloads.py",
+    "cpynodus_iii/features/publish_cycle.py",
+    "cpynodus_iii/features/runtime_config_update.py",
+    "cpynodus_iii/features/steady_state.py",
+    "cpynodus_iii/features/web_config.py",
+    "cpynodus_iii/features/web_handlers.py",
+    "cpynodus_iii/features/web_routes.py",
+    "cpynodus_iii/features/web_runtime.py",
+    "cpynodus_iii/features/weewx_config.py",
+    "cpynodus_iii/ota/http.py",
+    "cpynodus_iii/ota/state.py"
+  ],
+  "files": [
+    {
+      "path": "code.py",
+      "sha256": "911cac3e1f94359d4ffb1d199e4e050d99c771a400d4bc3d43be1e92412135a3",
+      "size": 3541
+    },
+    {
+      "path": "cpynodus_iii/__init__.mpy",
+      "sha256": "278c350805901136b6676b02ad90376a15a22a50fbe17f8f2cbcdfc8a55f53c4",
+      "size": 72
+    },
+    {
+      "path": "cpynodus_iii/app.mpy",
+      "sha256": "0a3505ccb7c5d4284e12b4dfb72194a484644065f8e2b503f5e0eab558d014ba",
+      "size": 57663
+    },
+    {
+      "path": "cpynodus_iii/core/mqtt_client.mpy",
+      "sha256": "0c9aed0d6f2f1d678e4d1a7ffd13cfce12b7f4cb504f747fe4870bd32cf645bf",
+      "size": 29249
+    },
+    {
+      "path": "cpynodus_iii/features/automation_status.mpy",
+      "sha256": "7a74a3fd00a0b97aeeea485128c4dcf8e62270fa54af4679a62ea6cd64da38a2",
+      "size": 2332
+    },
+    {
+      "path": "cpynodus_iii/features/command_intake.mpy",
+      "sha256": "b6e4d56c420827594c3a348e568c4029420c0037cbead592f5d9ccf7adabc36f",
+      "size": 13411
+    },
+    {
+      "path": "cpynodus_iii/features/command_subscriptions.mpy",
+      "sha256": "3b9d2583d2dd585e00142f536d5f47ab1dd0070bf24d5f873628b5eb39fb8d63",
+      "size": 920
+    },
+    {
+      "path": "cpynodus_iii/features/favicon.mpy",
+      "sha256": "4f2ce7a06745de72ee04d6823ca53732f31c401f89a68152bdbc2190e45f1ec8",
+      "size": 975
+    },
+    {
+      "path": "cpynodus_iii/features/ha_discovery_state.mpy",
+      "sha256": "2b0558ce01377ecdd6a8d5c0cb18742fcd7ae84f9a3eeb47376bb79a1cd2f919",
+      "size": 748
+    },
+    {
+      "path": "cpynodus_iii/features/history.mpy",
+      "sha256": "68ca842cf55090a72653ce81a0bbdb72daf01fd3f6c3c55c0538d29093d4539d",
+      "size": 12371
+    },
+    {
+      "path": "cpynodus_iii/features/nodusweb_automation.mpy",
+      "sha256": "d0399749b920769a7d04b2aec59f3781692c02a6fc723cd6228ea48810ebaa1b",
+      "size": 11267
+    },
+    {
+      "path": "cpynodus_iii/features/payloads.mpy",
+      "sha256": "fc3035234f619ecbceb1695778e75446e75e9d94813c2495f29952a9420d75bd",
+      "size": 9128
+    },
+    {
+      "path": "cpynodus_iii/features/publish_cycle.mpy",
+      "sha256": "783b191bb2c848facaa922d0d677cc7db86bdce2acfcaf74d7280e5a08ee33b6",
+      "size": 5804
+    },
+    {
+      "path": "cpynodus_iii/features/runtime_config_update.mpy",
+      "sha256": "920939233fe386d764f7e6db243103beee9facfe267ff9b13886a4ae47bf8ac7",
+      "size": 4136
+    },
+    {
+      "path": "cpynodus_iii/features/steady_state.mpy",
+      "sha256": "5a46ce55318b4a9508645d34424878708dd68d847f1f3739aed008cf020f7123",
+      "size": 4888
+    },
+    {
+      "path": "cpynodus_iii/features/web_config.mpy",
+      "sha256": "ce6c4d9eb000e4337678af041ae884b29e44d0c55eb110f794de606b674935ba",
+      "size": 5371
+    },
+    {
+      "path": "cpynodus_iii/features/web_handlers.mpy",
+      "sha256": "447c061f93791006cb46b3592697894f492bf20f9f525e348428c9c99007dc08",
+      "size": 7969
+    },
+    {
+      "path": "cpynodus_iii/features/web_routes.mpy",
+      "sha256": "2ba457797bcb9845a8584ef437df2c9a2cbe92e0650e42d7382beba78204cd80",
+      "size": 2265
+    },
+    {
+      "path": "cpynodus_iii/features/web_runtime.mpy",
+      "sha256": "238864ac68d5eea459cf141549a06650248220249454387a9bbbf15c91e3fcb2",
+      "size": 111630
+    },
+    {
+      "path": "cpynodus_iii/features/weewx_config.mpy",
+      "sha256": "7452712b75d98ca9a565b373f5f9efa4d7938f9af29f41eccbd1067ab2ce01d7",
+      "size": 12000
+    },
+    {
+      "path": "cpynodus_iii/ota/http.mpy",
+      "sha256": "da8983523a5afa16bbe05640831201e9bc4db2a8cee87736cbd51cadf5ae2e00",
+      "size": 20072
+    },
+    {
+      "path": "cpynodus_iii/ota/state.mpy",
+      "sha256": "499d7526624082d1783feee40ec6c0992faad25f02e9d1312f8d6b57ead74b1f",
+      "size": 1557
+    }
+  ],
+  "from_tag": "v0.26.188.1",
+  "package_id": "ota-v0.26.188.1-to-v0.26.201.2",
+  "post_apply": {
+    "reboot": true,
+    "reboot_delay_s": 5,
+    "resume_profile": "previous"
+  },
+  "preserve": [
+    "settings.toml",
+    "sensor_i2c.toml",
+    "sensor_soil.toml",
+    "switch.toml"
+  ],
+  "requires": {
+    "version": "v0.26.188.1"
+  },
+  "schema": "nodus-ota/v1",
+  "target": {
+    "circuitpython": "10.2.1",
+    "platform": "xesp32s3"
+  },
+  "to_tag": "v0.26.201.2"
+}

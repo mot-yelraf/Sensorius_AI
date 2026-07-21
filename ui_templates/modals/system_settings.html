@@ -203,6 +203,57 @@
   max-width: 760px;
   margin-inline: auto;
 }
+#setupPiModal .notification-subsection {
+  border: 1px solid #dfe7e1;
+  border-radius: 8px;
+  background: #fff;
+  margin-bottom: .65rem;
+}
+#setupPiModal .notification-subsection:last-child { margin-bottom: 0; }
+#setupPiModal .notification-subsection > summary {
+  cursor: pointer;
+  font-weight: 700;
+  padding: .65rem .75rem;
+}
+#setupPiModal .notification-subsection[open] > summary { border-bottom: 1px solid #e6ece8; }
+#setupPiModal .notification-subsection-content { padding: .75rem; }
+#setupPiModal .email-grid-three,
+#setupPiModal .email-grid-two {
+  display: grid;
+  gap: .5rem .9rem;
+  width: 100%;
+  margin-bottom: .55rem;
+}
+#setupPiModal .email-grid-three { grid-template-columns: minmax(220px, 2fr) minmax(100px, .7fr) minmax(150px, 1fr); }
+#setupPiModal .email-grid-two { grid-template-columns: repeat(2, minmax(220px, 1fr)); }
+#setupPiModal .notification-rule-list { display: flex; flex-direction: column; gap: .6rem; }
+#setupPiModal .notification-rule-row {
+  border: 1px solid #dfe7e1;
+  border-radius: 8px;
+  padding: .65rem;
+  background: #fafdfb;
+}
+#setupPiModal .notification-rule-grid {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.2fr) minmax(140px, 1.2fr) minmax(75px, .45fr) minmax(105px, .75fr) minmax(105px, .75fr);
+  gap: .5rem .65rem;
+  align-items: end;
+}
+#setupPiModal .notification-rule-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .9rem;
+  margin-top: .55rem;
+}
+#setupPiModal .notification-rule-actions label { display: inline-flex; align-items: center; gap: .35rem; }
+#setupPiModal .notification-rule-empty { color: #526057; padding: .4rem 0; }
+#setupPiModal .notification-toolbar { display: flex; align-items: center; gap: .65rem; flex-wrap: wrap; margin-top: .65rem; }
+#setupPiModal .notification-enable-control { display: flex; align-items: center; gap: .45rem; }
+#setupPiModal .notification-enable-control label { font-weight: 600; margin: 0; }
+#setupPiModal .notification-enable-control select { width: auto; min-width: 8rem; }
+#setupPiModal .email-action-grid { align-items: center; margin-top: .65rem; margin-bottom: 0; }
+#setupPiModal .notification-test-control { display: flex; align-items: center; gap: .65rem; flex-wrap: wrap; }
 #setupPiModal .field-grid-advanced {
   display: grid;
   grid-template-columns: repeat(3, minmax(220px, 1fr));
@@ -585,6 +636,11 @@
     grid-template-columns: 1fr;
     max-width: 100%;
   }
+  #setupPiModal .email-grid-three,
+  #setupPiModal .email-grid-two,
+  #setupPiModal .notification-rule-grid {
+    grid-template-columns: 1fr;
+  }
   #setupPiModal .ha-grid {
     grid-template-columns: 1fr;
     max-width: 100%;
@@ -641,6 +697,10 @@
           <div class="settings-pane" id="pane-system">
             <h3 class="pane-title">System Settings</h3>
             <form method="POST" action="/submit-pi-setup" id="systemSettingsForm" style="display:flex;flex-direction:column;gap:.42rem;flex:1;min-height:0;">
+              <div class="integrations-list">
+                <details class="integration-block system-section-block" open>
+                  <summary>System Settings</summary>
+                  <div class="integration-block-content">
               <div class="field-grid-top">
                 <div class="field-stack">
                   <label for="hostname">Hostname</label>
@@ -688,8 +748,85 @@
                   </select>
                 </div>
               </div>
+                  </div>
+                </details>
 
-              <div class="subhead">Astral</div>
+                <details class="integration-block system-section-block">
+                  <summary>Notifications</summary>
+                  <div class="integration-block-content">
+                    <details class="notification-subsection" open>
+                      <summary>Email Settings</summary>
+                      <div class="notification-subsection-content">
+                        <div class="email-grid-three">
+                          <div class="field-stack">
+                            <label for="email_smtp_host">SMTP Server</label>
+                            <input type="text" id="email_smtp_host" name="email_smtp_host" value="{{ email_smtp_host | default('smtp.gmail.com') }}" autocomplete="off">
+                          </div>
+                          <div class="field-stack">
+                            <label for="email_smtp_port">Port</label>
+                            <input type="number" id="email_smtp_port" name="email_smtp_port" value="{{ email_smtp_port | default(465) }}" min="1" max="65535" step="1">
+                          </div>
+                          <div class="field-stack">
+                            <label for="email_security">Security</label>
+                            <select id="email_security" name="email_security">
+                              <option value="ssl" {% if email_security == 'ssl' %}selected{% endif %}>SSL/TLS</option>
+                              <option value="starttls" {% if email_security == 'starttls' %}selected{% endif %}>STARTTLS</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div class="email-grid-two">
+                          <div class="field-stack">
+                            <label for="email_username">Username</label>
+                            <input type="email" id="email_username" name="email_username" value="{{ email_username | default('') }}" autocomplete="username">
+                          </div>
+                          <div class="field-stack">
+                            <label for="email_app_password">Password</label>
+                            <input type="password" id="email_app_password" name="email_app_password" value="" autocomplete="new-password" placeholder="{% if email_password_configured %}Configured — leave blank to keep{% else %}Google App Password{% endif %}">
+                          </div>
+                        </div>
+                        <div class="email-grid-two">
+                          <div class="field-stack">
+                            <label for="email_from">From</label>
+                            <input type="email" id="email_from" name="email_from" value="{{ email_from | default('') }}" autocomplete="email">
+                          </div>
+                          <div class="field-stack">
+                            <label for="email_to">To</label>
+                            <input type="text" id="email_to" name="email_to" value="{{ email_to | default('') }}" placeholder="you@gmail.com" autocomplete="off">
+                          </div>
+                        </div>
+                        <div class="email-grid-two email-action-grid">
+                          <div class="notification-enable-control">
+                            <label for="email_enabled">Email Notifications</label>
+                            <select id="email_enabled" name="email_enabled">
+                              <option value="false" {% if not email_enabled %}selected{% endif %}>Disabled</option>
+                              <option value="true" {% if email_enabled %}selected{% endif %}>Enabled</option>
+                            </select>
+                          </div>
+                          <div class="notification-test-control">
+                            <button type="button" class="button neutral" id="btn-email-test">Send Test Email</button>
+                            <span class="status-text sai-live-status" id="email-test-status" aria-live="polite"></span>
+                          </div>
+                        </div>
+                      </div>
+                    </details>
+
+                    <details class="notification-subsection">
+                      <summary>Notification Rules</summary>
+                      <div class="notification-subsection-content">
+                        <input type="hidden" id="notification_rules_json" name="notification_rules_json" value="{{ notification_rules_json | default('[]') }}">
+                        <div id="notification-rule-list" class="notification-rule-list"></div>
+                        <div class="notification-toolbar">
+                          <button type="button" class="button neutral" id="btn-add-notification-rule">Add Rule</button>
+                          <span>For &gt; rules, alerts fire above threshold + hysteresis; for &lt; rules, below threshold − hysteresis. Recovery uses the opposite boundary.</span>
+                        </div>
+                      </div>
+                    </details>
+                  </div>
+                </details>
+
+                <details class="integration-block system-section-block">
+                  <summary>Astral</summary>
+                  <div class="integration-block-content">
               <div class="field-grid-astral">
                 <div class="field-stack">
                   <label for="astral_lat">Latitude</label>
@@ -722,8 +859,12 @@
                   <input type="text" id="astral_noon" value="{{ astral_noon | default('--') }}" readonly>
                 </div>
               </div>
+                  </div>
+                </details>
 
-              <div class="subhead">Display</div>
+                <details class="integration-block system-section-block">
+                  <summary>Display</summary>
+                  <div class="integration-block-content">
               <div class="field-grid-stack">
                 <div class="field-stack">
                   <label for="gauge_size">Gauge Size</label>
@@ -740,6 +881,9 @@
                     <option value="Graph24hr" {% if display_style == "Graph24hr" %}selected{% endif %}>24Hr Graph</option>
                   </select>
                 </div>
+              </div>
+                  </div>
+                </details>
               </div>
 
               <div class="status-text sai-live-status" id="system-status" aria-live="polite"></div>
@@ -1138,6 +1282,9 @@
   const tzOptionsEl = document.getElementById("tz-options");
   const astralLatEl = document.getElementById("astral_lat");
   const astralLonEl = document.getElementById("astral_lon");
+  const notificationRulesInput = document.getElementById("notification_rules_json");
+  const notificationRuleList = document.getElementById("notification-rule-list");
+  let notificationSensorDirectory = [];
 
   let locationsLoaded = false;
   let onboardWs = null;
@@ -1286,6 +1433,183 @@
     return "met_no";
   }
 
+  function initialNotificationRules() {
+    try {
+      const parsed = JSON.parse(notificationRulesInput?.value || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_err) {
+      return [];
+    }
+  }
+
+  function newNotificationRuleId() {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID();
+    return "rule-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+  }
+
+  function appendSelectOption(select, value, label) {
+    const option = document.createElement("option");
+    option.value = String(value || "");
+    option.textContent = String(label || value || "");
+    select.appendChild(option);
+  }
+
+  async function loadMetricsForRuleRow(row, sensorId, selectedMetric) {
+    const metricSelect = row.querySelector(".notification-metric");
+    if (!metricSelect) return;
+    metricSelect.innerHTML = "";
+    appendSelectOption(metricSelect, "", "Select metric");
+    if (!sensorId) return;
+    try {
+      const resp = await fetch("/sensor-metrics?sensor_id=" + encodeURIComponent(sensorId));
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const payload = await resp.json();
+      const metrics = Array.isArray(payload) ? payload : Object.keys(payload || {});
+      if (selectedMetric && !metrics.includes(selectedMetric)) metrics.unshift(selectedMetric);
+      metrics.forEach((metric) => appendSelectOption(metricSelect, metric, metric));
+      metricSelect.value = selectedMetric || "";
+    } catch (_err) {
+      if (selectedMetric) appendSelectOption(metricSelect, selectedMetric, selectedMetric);
+      metricSelect.value = selectedMetric || "";
+    }
+  }
+
+  function syncNotificationRulesInput() {
+    if (!notificationRulesInput || !notificationRuleList) return;
+    const rules = Array.from(notificationRuleList.querySelectorAll(".notification-rule-row")).map((row) => ({
+      id: String(row.dataset.ruleId || newNotificationRuleId()),
+      sensor_id: String(row.querySelector(".notification-sensor")?.value || "").trim(),
+      metric: String(row.querySelector(".notification-metric")?.value || "").trim(),
+      operator: String(row.querySelector(".notification-operator")?.value || ">"),
+      threshold: Number(row.querySelector(".notification-threshold")?.value),
+      hysteresis: Number(row.querySelector(".notification-hysteresis")?.value),
+      enabled: !!row.querySelector(".notification-rule-enabled")?.checked,
+      notify_recovery: !!row.querySelector(".notification-rule-recovery")?.checked,
+    }));
+    notificationRulesInput.value = JSON.stringify(rules);
+  }
+
+  function renderNotificationRule(rule) {
+    if (!notificationRuleList) return;
+    const row = document.createElement("div");
+    row.className = "notification-rule-row";
+    row.dataset.ruleId = String(rule?.id || newNotificationRuleId());
+    row.innerHTML = `
+      <div class="notification-rule-grid">
+        <div class="field-stack"><label>Sensor</label><select class="notification-sensor"><option value="">Select sensor</option></select></div>
+        <div class="field-stack"><label>Trigger Metric</label><select class="notification-metric"><option value="">Select metric</option></select></div>
+        <div class="field-stack"><label>Operator</label><select class="notification-operator"><option value="&gt;">&gt;</option><option value="&lt;">&lt;</option></select></div>
+        <div class="field-stack"><label>Threshold</label><input class="notification-threshold" type="number" step="any"></div>
+        <div class="field-stack"><label>Hysteresis</label><input class="notification-hysteresis" type="number" min="0" step="any"></div>
+      </div>
+      <div class="notification-rule-actions">
+        <label><input class="notification-rule-enabled" type="checkbox"> Enabled</label>
+        <label><input class="notification-rule-recovery" type="checkbox"> Email recovery</label>
+        <button type="button" class="button red notification-rule-remove">Remove</button>
+      </div>`;
+    notificationRuleList.appendChild(row);
+
+    const sensorSelect = row.querySelector(".notification-sensor");
+    const selectedSensor = String(rule?.sensor_id || "");
+    notificationSensorDirectory.forEach((item) => appendSelectOption(sensorSelect, item.id, item.label || item.id));
+    if (selectedSensor && !notificationSensorDirectory.some((item) => item.id === selectedSensor)) {
+      appendSelectOption(sensorSelect, selectedSensor, selectedSensor);
+    }
+    sensorSelect.value = selectedSensor;
+    row.querySelector(".notification-operator").value = rule?.operator === "<" ? "<" : ">";
+    row.querySelector(".notification-threshold").value = Number.isFinite(Number(rule?.threshold)) ? String(rule.threshold) : "";
+    row.querySelector(".notification-hysteresis").value = Number.isFinite(Number(rule?.hysteresis)) ? String(rule.hysteresis) : "0";
+    row.querySelector(".notification-rule-enabled").checked = rule?.enabled !== false;
+    row.querySelector(".notification-rule-recovery").checked = rule?.notify_recovery !== false;
+    sensorSelect.addEventListener("change", () => {
+      loadMetricsForRuleRow(row, sensorSelect.value, "");
+      syncNotificationRulesInput();
+    });
+    row.addEventListener("change", syncNotificationRulesInput);
+    row.querySelector(".notification-rule-remove").addEventListener("click", () => {
+      row.remove();
+      updateNotificationRuleEmptyState();
+      syncNotificationRulesInput();
+    });
+    loadMetricsForRuleRow(row, selectedSensor, String(rule?.metric || ""));
+  }
+
+  function updateNotificationRuleEmptyState() {
+    if (!notificationRuleList) return;
+    const existing = notificationRuleList.querySelector(".notification-rule-empty");
+    const hasRows = !!notificationRuleList.querySelector(".notification-rule-row");
+    if (hasRows && existing) existing.remove();
+    if (!hasRows && !existing) {
+      const empty = document.createElement("div");
+      empty.className = "notification-rule-empty";
+      empty.textContent = "No notification rules configured.";
+      notificationRuleList.appendChild(empty);
+    }
+  }
+
+  async function initializeNotificationRules() {
+    if (!notificationRuleList) return;
+    const rules = initialNotificationRules();
+    try {
+      const resp = await fetch("/sensor-directory");
+      if (resp.ok) notificationSensorDirectory = await resp.json();
+      if (!Array.isArray(notificationSensorDirectory)) notificationSensorDirectory = [];
+    } catch (_err) {
+      notificationSensorDirectory = [];
+    }
+    notificationRuleList.innerHTML = "";
+    rules.forEach(renderNotificationRule);
+    updateNotificationRuleEmptyState();
+  }
+
+  function addNotificationRule() {
+    const firstSensor = notificationSensorDirectory[0]?.id || "";
+    const empty = notificationRuleList?.querySelector(".notification-rule-empty");
+    if (empty) empty.remove();
+    renderNotificationRule({
+      id: newNotificationRuleId(),
+      sensor_id: firstSensor,
+      metric: "",
+      operator: ">",
+      threshold: "",
+      hysteresis: 0,
+      enabled: true,
+      notify_recovery: true,
+    });
+    syncNotificationRulesInput();
+  }
+
+  async function sendTestEmail() {
+    const btn = document.getElementById("btn-email-test");
+    try {
+      setButtonBusy(btn, true, "Sending...");
+      setStatus("email-test-status", "Sending...");
+      const resp = await fetch("/notifications/test-email", {
+        method: "POST",
+        headers: {"Accept": "application/json", "Content-Type": "application/json"},
+        body: JSON.stringify({
+          smtp_host: document.getElementById("email_smtp_host")?.value || "",
+          smtp_port: document.getElementById("email_smtp_port")?.value || "",
+          security: document.getElementById("email_security")?.value || "",
+          username: document.getElementById("email_username")?.value || "",
+          app_password: document.getElementById("email_app_password")?.value || "",
+          from: document.getElementById("email_from")?.value || "",
+          to: document.getElementById("email_to")?.value || "",
+        }),
+      });
+      const payload = await resp.json().catch(() => ({}));
+      if (!resp.ok || payload.ok === false) throw new Error(payload.error || "Test email failed.");
+      setStatus("email-test-status", payload.message || "Test email sent.");
+      showSettingsToast("Test email sent", "ok");
+    } catch (err) {
+      const message = err?.message || "Test email failed. Save Email Settings before testing.";
+      setStatus("email-test-status", message);
+      showSettingsToast(message, "error");
+    } finally {
+      setButtonBusy(btn, false);
+    }
+  }
+
   function scheduleDashboardReloadAfterSettingsSave() {
     setStatus("system-status", "Saved. Updating dashboard...");
     window.setTimeout(() => window.location.reload(), 350);
@@ -1321,6 +1645,7 @@
     try {
       setButtonBusy("btn-system-save", true, "Saving...");
       setStatus("system-status", "Saving...");
+      syncNotificationRulesInput();
       const body = new URLSearchParams(new FormData(form));
       const resp = await fetch(form.action, {
         method: "POST",
@@ -3013,6 +3338,12 @@
     if (ev.target && ev.target.id === "btn-farm-test") {
       testFarmConnection();
     }
+    if (ev.target && ev.target.id === "btn-add-notification-rule") {
+      addNotificationRule();
+    }
+    if (ev.target && ev.target.id === "btn-email-test") {
+      sendTestEmail();
+    }
     if (ev.target && ev.target.id === "btn-locations-save") {
       saveLocations();
     }
@@ -3083,5 +3414,6 @@
     });
   }
   refreshTimezoneOptionsFromCoords();
+  initializeNotificationRules();
 })();
 </script>

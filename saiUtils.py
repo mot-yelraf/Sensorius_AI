@@ -122,7 +122,7 @@ def _normalize_dotenv_ownership(dotenv_path: Path) -> None:
         if not dotenv_path.exists():
             return
         try:
-            os.chmod(dotenv_path, 0o644)
+            os.chmod(dotenv_path, 0o600)
         except Exception:
             pass
 

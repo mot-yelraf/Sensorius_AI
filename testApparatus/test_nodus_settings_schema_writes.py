@@ -628,6 +628,18 @@ def test_system_settings_template_has_weather_forecast_selector_right_of_timezon
     assert text.index('id="tz"') < text.index('id="weather_forecast_provider"')
 
 
+def test_system_settings_sections_match_integration_accordions():
+    source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
+    text = source.read_text(encoding="utf-8")
+
+    section_markup = 'class="integration-block system-section-block"'
+    assert text.count(section_markup) == 4
+    assert f'<details {section_markup} open>' in text
+    assert text.index("<summary>System Settings</summary>") < text.index("<summary>Notifications</summary>")
+    assert text.index("<summary>Notifications</summary>") < text.index("<summary>Astral</summary>")
+    assert text.index("<summary>Astral</summary>") < text.index("<summary>Display</summary>")
+
+
 def test_system_settings_template_uses_compact_field_spacing():
     source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
     text = source.read_text(encoding="utf-8")
@@ -4371,7 +4383,8 @@ def test_dashboard_biodynamic_calendar_card_has_calendar_button():
     assert "text-transform:uppercase" in html
     assert "fetch('/api/biodynamic-calendar-companion', { cache:'no-store' });" in html
     assert "openBiodynamicCompanion(biodynamicCompanionUrl());" in html
-    assert "Back to Sensorius" in html
+    assert "Return to Sensorius dashboard" in html
+    assert "closeBtn.textContent = 'Dashboard';" in html
     assert "window.location.assign(biodynamicCompanionUrl());" not in html
     assert "bioOpenBtn.addEventListener('click'" in html
     assert "window.openBiodynamicCalendar) window.openBiodynamicCalendar();" in html

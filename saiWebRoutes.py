@@ -94,6 +94,7 @@ from saiSwitchSettingsManager import SwitchSettingsManager
 from saiBiodynamics import get_biodynamic_payload, get_biodynamic_local_now, get_skyfield_runtime_if_installed
 from saiDailySummary import DailySummaryService, DEFAULT_FORECAST_DAYS
 from saiNodusOTA import NodusOTAError, NodusOTAService
+from saiEmailNotifications import EmailConfig, SMTPEmailSender, normalize_notification_rules
 from saiWeatherForecast import get_weather_forecast_payload, normalize_weather_forecast_provider
 from saiAddDevice import _SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR, get_hub_settings_path
 try:
@@ -1971,7 +1972,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         for key, val in updates.items():
             os.environ[str(key)] = str(val)
         try:
-            os.chmod(_ENV_PATH, 0o644)
+            os.chmod(_ENV_PATH, 0o600)
         except Exception:
             pass
         try:
@@ -4185,6 +4186,23 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         weewx_sensor_id = settings.get_setting("WeeWX", "SENSOR_ID", WEEWX_DEFAULT_SENSOR_ID) or WEEWX_DEFAULT_SENSOR_ID
         weewx_mqtt_topic = settings.get_setting("WeeWX", "MQTT_TOPIC", WEEWX_DEFAULT_MQTT_TOPIC) or WEEWX_DEFAULT_MQTT_TOPIC
         weewx_update_period_sec = settings.get_setting("WeeWX", "UPDATE_PERIOD_SEC", WEEWX_DEFAULT_UPDATE_PERIOD_SEC) or WEEWX_DEFAULT_UPDATE_PERIOD_SEC
+        email_env = _env_map_with_defaults()
+
+        def _email_env_value(name: str, default: str = "") -> str:
+            return str(os.environ.get(name, email_env.get(name, default)) or "").strip()
+
+        email_enabled = _is_true_text(_email_env_value("SENSORIUS_EMAIL_ENABLED", "false"))
+        email_smtp_host = _email_env_value("SENSORIUS_EMAIL_SMTP_HOST", "smtp.gmail.com")
+        email_smtp_port = _email_env_value("SENSORIUS_EMAIL_SMTP_PORT", "465")
+        email_security = _email_env_value("SENSORIUS_EMAIL_SECURITY", "ssl").lower()
+        email_username = _email_env_value("SENSORIUS_EMAIL_USERNAME", "")
+        email_password_configured = bool(_email_env_value("SENSORIUS_EMAIL_APP_PASSWORD", ""))
+        email_from = _email_env_value("SENSORIUS_EMAIL_FROM", "") or email_username
+        email_to = _email_env_value("SENSORIUS_EMAIL_TO", "")
+        notification_rules = normalize_notification_rules(
+            settings.get_setting("Notifications", "RULES_JSON", "[]")
+        )
+        notification_rules_json = json.dumps(notification_rules, separators=(",", ":"))
 
         clients = settings.get_all_clients() or []
         client_list = "\n".join(clients)
@@ -4284,6 +4302,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             weewx_update_period_sec=weewx_update_period_sec,
             weewx_broker=broker or "localhost",
             weewx_port=mqttport,
+            email_enabled=email_enabled,
+            email_smtp_host=email_smtp_host,
+            email_smtp_port=email_smtp_port,
+            email_security=email_security,
+            email_username=email_username,
+            email_password_configured=email_password_configured,
+            email_from=email_from,
+            email_to=email_to,
+            notification_rules_json=notification_rules_json,
             onboarding_v2_mqtt_enabled=_onboarding_v2_enabled(),
         )
 
@@ -8296,7 +8323,56 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         display_style = str(form.get("display_style", "") or "").strip()
         raw_weather_forecast_provider = str(form.get("weather_forecast_provider", "met_no") or "").strip()
         weather_forecast_provider = normalize_weather_forecast_provider(raw_weather_forecast_provider)
+        email_form_present = "email_enabled" in form
+        notification_rules_form_present = "notification_rules_json" in form
+        email_enabled = str(form.get("email_enabled", "false") or "").strip().lower() in ("1", "true", "on", "yes")
+        email_smtp_host = str(form.get("email_smtp_host", "") or "").strip()
+        raw_email_smtp_port = str(form.get("email_smtp_port", "") or "").strip()
+        email_security = str(form.get("email_security", "ssl") or "").strip().lower()
+        email_username = str(form.get("email_username", "") or "").strip()
+        email_password_new = str(form.get("email_app_password", "") or "").strip().replace(" ", "")
+        email_from = str(form.get("email_from", "") or "").strip()
+        email_to = str(form.get("email_to", "") or "").strip()
+        raw_notification_rules = str(form.get("notification_rules_json", "[]") or "[]").strip()
         astral_reset_requested = not raw_lat and not raw_lon
+
+        email_fields = (email_smtp_host, email_username, email_from, email_to)
+        if email_form_present and any("\r" in value or "\n" in value for value in email_fields):
+            return _modal_error_response(request, "Email settings cannot contain line breaks.", status_code=400)
+        try:
+            email_smtp_port = int(raw_email_smtp_port or "465")
+        except Exception:
+            return _modal_error_response(request, "Email SMTP Port must be a number.", status_code=400)
+        if email_form_present and not 1 <= email_smtp_port <= 65535:
+            return _modal_error_response(request, "Email SMTP Port must be between 1 and 65535.", status_code=400)
+        if email_form_present and email_security not in {"ssl", "starttls"}:
+            return _modal_error_response(request, "Email Security must be SSL/TLS or STARTTLS.", status_code=400)
+        current_email_password = str(os.environ.get("SENSORIUS_EMAIL_APP_PASSWORD", "") or "").strip()
+        if not current_email_password:
+            current_email_password = str(_env_map_with_defaults().get("SENSORIUS_EMAIL_APP_PASSWORD", "") or "").strip()
+        if email_form_present and email_enabled:
+            if not email_smtp_host or not email_username:
+                return _modal_error_response(request, "SMTP Server and Username are required when email is enabled.", status_code=400)
+            if "@" not in email_from:
+                return _modal_error_response(request, "A valid From email address is required.", status_code=400)
+            recipients = [item.strip() for item in email_to.replace(";", ",").split(",") if item.strip()]
+            if not recipients or any("@" not in item for item in recipients):
+                return _modal_error_response(request, "At least one valid To email address is required.", status_code=400)
+            if not email_password_new and not current_email_password:
+                return _modal_error_response(request, "A Google App Password is required when email is enabled.", status_code=400)
+        notification_rules = []
+        if notification_rules_form_present:
+            try:
+                submitted_rules = json.loads(raw_notification_rules or "[]")
+            except Exception:
+                return _modal_error_response(request, "Notification Rules are not valid JSON.", status_code=400)
+            notification_rules = normalize_notification_rules(submitted_rules)
+            if isinstance(submitted_rules, list) and len(notification_rules) != len(submitted_rules):
+                return _modal_error_response(
+                    request,
+                    "Every notification rule requires a sensor metric, > or < operator, numeric threshold, and non-negative hysteresis.",
+                    status_code=400,
+                )
 
         if not tz:
             return _modal_error_response(request, "Time zone is required.", status_code=400)
@@ -8391,6 +8467,25 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         settings.replace_setting("Display", "gauge_size", gauge_size)
         settings.replace_setting("Display", "display_style", display_style)
         settings.replace_setting("WeatherForecast", "PROVIDER", weather_forecast_provider)
+        if notification_rules_form_present:
+            settings.replace_setting(
+                "Notifications",
+                "RULES_JSON",
+                json.dumps(notification_rules, separators=(",", ":")),
+            )
+        if email_form_present:
+            email_env_updates = {
+                "SENSORIUS_EMAIL_ENABLED": _bool_text(email_enabled),
+                "SENSORIUS_EMAIL_SMTP_HOST": email_smtp_host,
+                "SENSORIUS_EMAIL_SMTP_PORT": str(email_smtp_port),
+                "SENSORIUS_EMAIL_SECURITY": email_security,
+                "SENSORIUS_EMAIL_USERNAME": email_username,
+                "SENSORIUS_EMAIL_FROM": email_from,
+                "SENSORIUS_EMAIL_TO": email_to,
+            }
+            if email_password_new:
+                email_env_updates["SENSORIUS_EMAIL_APP_PASSWORD"] = email_password_new
+            _write_env_updates(email_env_updates)
 
         astral_response: dict[str, object] = {
             "ok": False,
@@ -8448,6 +8543,60 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if _wants_modal_json(request):
             return JSONResponse({"ok": True, "message": message, "astral": astral_response})
         return RedirectResponse(url="/?refresh=true", status_code=303)
+
+    @router.post("/notifications/test-email")
+    async def test_email_notification(request: Request):
+        """Send one test message using form values without persisting them."""
+        try:
+            try:
+                data = await request.json()
+            except Exception:
+                data = {}
+            saved = EmailConfig.from_environment()
+
+            def _submitted(name: str, fallback: str) -> str:
+                if name not in data:
+                    return fallback
+                return str(data.get(name) or "").strip()
+
+            raw_port = _submitted("smtp_port", str(saved.port))
+            try:
+                smtp_port = int(raw_port)
+            except Exception:
+                return JSONResponse(
+                    {"ok": False, "error": "Test email failed: SMTP port must be a number."},
+                    status_code=400,
+                )
+            to_text = _submitted("to", ", ".join(saved.to_addresses))
+            recipients = tuple(
+                item.strip()
+                for item in to_text.replace(";", ",").split(",")
+                if item.strip()
+            )
+            submitted_password = str(data.get("app_password") or "").strip().replace(" ", "")
+            test_config = EmailConfig(
+                enabled=True,
+                smtp_host=_submitted("smtp_host", saved.smtp_host),
+                port=smtp_port,
+                security=_submitted("security", saved.security).lower(),
+                username=_submitted("username", saved.username),
+                app_password=submitted_password or saved.app_password,
+                from_address=_submitted("from", saved.from_address),
+                to_addresses=recipients,
+            )
+            await asyncio.to_thread(
+                SMTPEmailSender().send,
+                "Sensorius test notification",
+                f"Sensorius email notifications are configured on {socket.gethostname()}.",
+                require_enabled=False,
+                config=test_config,
+            )
+            return JSONResponse({"ok": True, "message": "Test email sent."})
+        except Exception as exc:
+            return JSONResponse(
+                {"ok": False, "error": f"Test email failed: {exc}"},
+                status_code=400,
+            )
 
     @router.post("/submit-homeassistant-settings")
     async def submit_homeassistant_settings(request: Request):

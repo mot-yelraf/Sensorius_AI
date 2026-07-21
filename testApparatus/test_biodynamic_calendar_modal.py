@@ -227,7 +227,8 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert ".bd-companion-frame{width:100%;min-width:0;flex:1 1 auto;border:0;background:#fff;}" in text
     assert "window.closeBiodynamicCompanion = function(){" in text
     assert "function openBiodynamicCompanion(url){" in text
-    assert "closeBtn.textContent = 'Back to Sensorius';" in text
+    assert "closeBtn.textContent = 'Dashboard';" in text
+    assert "closeBtn.setAttribute('aria-label', 'Return to Sensorius dashboard');" in text
     assert "frame.src = url;" in text
     assert "window.openBiodynamicCalendar = async function(){" in text
     assert "fetch('/api/biodynamic-calendar-companion', { cache:'no-store' });" in text

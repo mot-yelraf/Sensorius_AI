@@ -1,0 +1,112 @@
+{
+  "created_at": "2026-07-21T00:39:11Z",
+  "delete": [
+    "cpynodus_ii/__init__.py",
+    "cpynodus_ii/app.py",
+    "cpynodus_ii/features/nodusweb_automation.py",
+    "cpynodus_ii/features/publish_cycle.py",
+    "cpynodus_ii/features/web_automation_ui.py",
+    "cpynodus_ii/features/web_config_ui.py",
+    "cpynodus_ii/features/web_handlers.py",
+    "cpynodus_ii/features/web_routes.py",
+    "cpynodus_ii/features/web_runtime.py",
+    "cpynodus_ii/features/web_status_ui.py",
+    "cpynodus_ii/features/web_ui_common.py",
+    "cpynodus_ii/ota/http.py",
+    "cpynodus_ii/ota/state.py"
+  ],
+  "files": [
+    {
+      "path": "code.py",
+      "sha256": "814499973d200ad3634b4534a2a6807da60501a90cbb79b6278688f1b96b1c1a",
+      "size": 3535
+    },
+    {
+      "path": "cpynodus_ii/__init__.mpy",
+      "sha256": "143bffe2f76273840df4a5901b9f86c16eb42d37ab284c5b2307d2837491fab0",
+      "size": 71
+    },
+    {
+      "path": "cpynodus_ii/app.mpy",
+      "sha256": "32915def992e01e6ea79195a1ad8ac1125657e2b9ac715e68779bffd88176ba9",
+      "size": 55599
+    },
+    {
+      "path": "cpynodus_ii/features/nodusweb_automation.mpy",
+      "sha256": "35a1b4d7b58e88e8f170872836fedbbd9d133f74ca711af9146d6001e779fbf9",
+      "size": 11263
+    },
+    {
+      "path": "cpynodus_ii/features/publish_cycle.mpy",
+      "sha256": "e5c9313f70fda27373509bdbc416f6bb2020b690ea887ab5bad632423eeeaf76",
+      "size": 4816
+    },
+    {
+      "path": "cpynodus_ii/features/web_automation_ui.mpy",
+      "sha256": "8951e358d9dcec00124d7f8586d78481780d730a28f12b5b64d3a302dde053aa",
+      "size": 3030
+    },
+    {
+      "path": "cpynodus_ii/features/web_config_ui.mpy",
+      "sha256": "5df572e488d89715cac3a6b9ce426a729c7e17e53b9532de6cb151d20487e982",
+      "size": 8504
+    },
+    {
+      "path": "cpynodus_ii/features/web_handlers.mpy",
+      "sha256": "b1fbe1e759afe4fe0a253835bb8fc137996707be9e62b392344b0a7d32cbe457",
+      "size": 4112
+    },
+    {
+      "path": "cpynodus_ii/features/web_routes.mpy",
+      "sha256": "8c7e8c3e04fff4548c2d110941da2660ac4e73a45a67021bcb5e54de731728fd",
+      "size": 1850
+    },
+    {
+      "path": "cpynodus_ii/features/web_runtime.mpy",
+      "sha256": "d16d21fbf95a06a3aec4720c15ca28a55d317373377e9b09ef60fdd4d6b36b5a",
+      "size": 12848
+    },
+    {
+      "path": "cpynodus_ii/features/web_status_ui.mpy",
+      "sha256": "cf01d33bce987b0eef7affd758e94a79fd580e78b24f8fd9b8cd8be3bc421e4e",
+      "size": 3022
+    },
+    {
+      "path": "cpynodus_ii/features/web_ui_common.mpy",
+      "sha256": "140123566140224d5177abbec84276b44c7ddaae9c49392fe8c1e3adbe37c4d6",
+      "size": 5205
+    },
+    {
+      "path": "cpynodus_ii/ota/http.mpy",
+      "sha256": "c5175870a785d227147e21f9c9081a1c0b4a518ae297a46c699201177b1415fa",
+      "size": 20070
+    },
+    {
+      "path": "cpynodus_ii/ota/state.mpy",
+      "sha256": "955cf4ef1a36ac5d2196df25bbe7e48e05e79869e6a0c439022e89bcaa33b04e",
+      "size": 1556
+    }
+  ],
+  "from_tag": "v0.26.188.1",
+  "package_id": "ota-v0.26.188.1-to-v0.26.201.2",
+  "post_apply": {
+    "reboot": true,
+    "reboot_delay_s": 5,
+    "resume_profile": "previous"
+  },
+  "preserve": [
+    "settings.toml",
+    "sensor_i2c.toml",
+    "sensor_soil.toml",
+    "switch.toml"
+  ],
+  "requires": {
+    "version": "v0.26.188.1"
+  },
+  "schema": "nodus-ota/v1",
+  "target": {
+    "circuitpython": "10.2.1",
+    "platform": "xesp32s3"
+  },
+  "to_tag": "v0.26.201.2"
+}
