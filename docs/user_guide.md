@@ -154,6 +154,61 @@ Fields and selectors:
 | --- | --- |
 | ![Email notification settings](<../assets/screenshots/system-settings-notifications-email.png>) | ![Notification rules settings](<../assets/screenshots/system-settings-notification-rules.png>) |
 
+#### Configure Gmail for Sensorius
+
+Sensorius sends Gmail messages through Google's authenticated SMTP service. Do
+not enter the normal password for the Google Account. Google requires an App
+Password for this type of connection, and App Passwords are available only
+after 2-Step Verification is enabled.
+
+1. Sign in to the Google Account that Sensorius will use to send notifications.
+   Using a dedicated account for the hub can make access and alert history
+   easier to manage.
+2. Open the Google Account **Security** page and enable **2-Step Verification**
+   if it is not already enabled. Complete Google's enrollment and verification
+   prompts.
+3. Open Google's [App Passwords page](https://myaccount.google.com/apppasswords).
+   Sign in again if prompted.
+4. Enter a descriptive app name such as `Sensorius Hub` and select **Create**.
+5. Copy the generated 16-character App Password immediately. Google displays
+   it only once. Sensorius accepts it with or without the spaces shown by
+   Google.
+6. In Sensorius, open **System Settings > Notifications > Email Settings** and
+   enter:
+
+   - **SMTP Server**: `smtp.gmail.com`
+   - **Port**: `465`
+   - **Security**: **SSL/TLS**
+   - **Username**: the complete Gmail address, such as `hub@example.com`
+   - **Password**: the generated Google App Password, not the account password
+   - **From**: normally the same complete Gmail address
+   - **To**: the notification recipient; separate multiple addresses with
+     commas
+   - **Email Notifications**: **Enabled**
+
+7. Select **Send Test Email**. This tests the values currently displayed, so
+   they do not have to be saved first. Check the recipient inbox and spam
+   folder if Sensorius reports success but the message is not visible.
+8. After the test succeeds, select **Save**. On later edits, leave **Password**
+   blank to retain the stored App Password.
+
+Port `587` with **STARTTLS** is also supported. Keep the port and security mode
+paired: use port `465` with **SSL/TLS**, or port `587` with **STARTTLS**.
+Google documents the SMTP host, authentication, and TLS requirements in its
+[Gmail client settings](https://support.google.com/mail/answer/7104828), and
+explains App Password creation and restrictions in
+[Google Account Help](https://support.google.com/accounts/answer/185833).
+
+If **App Passwords** is unavailable, confirm that 2-Step Verification is fully
+enabled. Google may also hide App Passwords for work or school accounts managed
+by an organization, accounts enrolled in Advanced Protection, or accounts
+whose 2-Step Verification is configured only with security keys. For a managed
+Google Workspace account, ask the administrator whether authenticated SMTP and
+App Passwords are permitted. Google revokes existing App Passwords when the
+main Google Account password changes; create and save a new App Password if
+email delivery stops afterward. Revoke the Sensorius App Password from the
+Google Account when the hub is retired or no longer uses that account.
+
 If the Astral fields are wrong, biodynamic timing, sunrise/sunset automations, and weather forecast placement may also be wrong.
 
 | Astral settings expanded | Display settings expanded |
