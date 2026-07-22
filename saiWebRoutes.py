@@ -5273,6 +5273,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 onboarding_store.set_state(sid, OnboardingStates.FAILED, failure_reason=reason)
                 _emit_onboarding_event("onboarding_failed", session_id=sid, device_id=device_id, detail=reason)
                 return
+            try:
+                allow_removed = getattr(mqtt_ingest, "allow_nodus_devices", None)
+                if callable(allow_removed):
+                    allow_removed([device_id], persist=True)
+            except Exception as exc:
+                printDM(f"[onboarding] failed to clear removed-device suppression for {device_id}: {exc}", location=MODULE)
             onboarding_store.set_device_id(sid, device_id)
             onboarding_store.update_session(sid, last_hello_at=time.time(), device_id=device_id)
             _emit_onboarding_event("onboarding_hello_received", session_id=sid, device_id=device_id)
@@ -5989,6 +5995,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     printDM(f"[onboard] update_hub_clients failed: {e}", location="saiWebRoutes")
                 # Nudge ingest discovery immediately (no restart required)
                 try:
+                    allow_removed = getattr(mqtt_ingest, "allow_nodus_devices", None)
+                    if callable(allow_removed):
+                        allow_removed([sensor_id_for_step], persist=True)
                     # match the form you persist in CLIENTS (you showed ".local")
                     host_for_ingest = mdns_hostname(sensor_id_for_step)
                     mqtt_ingest.add_client(host_for_ingest)
@@ -7882,6 +7891,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "calibration_progress_by_sensor",
                 "calibration_sample_by_sensor",
                 "calibration_event_result_by_sensor",
+                "nodus_firmware_versions",
+                "nodus_board_types",
+                "nodus_sensor_hardware",
+                "_host_ip_cache",
+                "_host_ipv4addr",
             ):
                 d = getattr(ing, dname, None)
                 if isinstance(d, dict) and key in d:
@@ -7902,6 +7916,28 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             for topic, dev in list((ing.topic_dev_id_map or {}).items()):
                 if str(dev or "").strip().lower() in ids_l:
                     ing.topic_dev_id_map.pop(topic, None); _bump()
+        except Exception:
+            pass
+
+        def _topic_matches_removed_id(topic: str) -> bool:
+            parts = [str(part or "").strip().lower() for part in str(topic or "").split("/")]
+            return bool(set(parts) & ids_l)
+
+        try:
+            locations = getattr(ing, "device_location", None)
+            if isinstance(locations, dict):
+                for topic in list(locations.keys()):
+                    if _topic_matches_removed_id(topic):
+                        locations.pop(topic, None); _bump()
+        except Exception:
+            pass
+
+        try:
+            registered = getattr(ing, "registered_topics", None)
+            if isinstance(registered, set):
+                for topic in list(registered):
+                    if "+" not in str(topic) and "#" not in str(topic) and _topic_matches_removed_id(topic):
+                        registered.discard(topic); _bump()
         except Exception:
             pass
 
@@ -7934,15 +7970,40 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             pass
 
         try:
-            for key in list((ing.nodus_switch_command_topics or {}).keys()):
-                if key and str((key[0] if len(key) > 0 else "") or "").strip().lower() in ids_l:
-                    ing.nodus_switch_command_topics.pop(key, None); _bump()
-            for key in list((ing.nodus_switch_state_topics or {}).keys()):
-                if key and str((key[0] if len(key) > 0 else "") or "").strip().lower() in ids_l:
-                    ing.nodus_switch_state_topics.pop(key, None); _bump()
-            for key in list((ing.nodus_switch_event_topics or {}).keys()):
-                if key and str((key[0] if len(key) > 0 else "") or "").strip().lower() in ids_l:
-                    ing.nodus_switch_event_topics.pop(key, None); _bump()
+            for map_name in (
+                "nodus_switch_command_topics",
+                "nodus_switch_state_topics",
+                "nodus_switch_event_topics",
+                "nodus_switch_availability_topics",
+                "nodus_switch_ack_topics",
+                "nodus_switch_result_topics",
+            ):
+                topic_map = getattr(ing, map_name, None)
+                if not isinstance(topic_map, dict):
+                    continue
+                for key in list(topic_map.keys()):
+                    switch_id = str((key[0] if isinstance(key, tuple) and key else "") or "").strip().lower()
+                    channel_id = str((key[1] if isinstance(key, tuple) and len(key) > 1 else "") or "").strip().lower()
+                    if switch_id in ids_l or channel_id in ids_l:
+                        topic_map.pop(key, None); _bump()
+        except Exception:
+            pass
+
+        try:
+            channel_topics = getattr(ing, "nodus_channel_command_topics", None)
+            if isinstance(channel_topics, dict):
+                for channel_id in list(channel_topics.keys()):
+                    if str(channel_id or "").strip().lower() in ids_l:
+                        channel_topics.pop(channel_id, None); _bump()
+        except Exception:
+            pass
+
+        try:
+            sensor_topics = getattr(ing, "nodus_sensor_topics", None)
+            if isinstance(sensor_topics, dict):
+                for sensor_id in list(sensor_topics.keys()):
+                    if str(sensor_id or "").strip().lower() in ids_l:
+                        sensor_topics.pop(sensor_id, None); _bump()
         except Exception:
             pass
 
@@ -7970,6 +8031,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 for key in list(d.keys()):
                     sid = str((key[0] if isinstance(key, tuple) and key else "") or "").strip().lower()
                     if sid in ids_l:
+                        d.pop(key, None); _bump()
+        except Exception:
+            pass
+
+        try:
+            d = getattr(ing, "_set_base_by_label", None)
+            if isinstance(d, dict):
+                for key in list(d.keys()):
+                    switch_id = str((key[0] if isinstance(key, tuple) and key else "") or "").strip().lower()
+                    if switch_id in ids_l:
                         d.pop(key, None); _bump()
         except Exception:
             pass
@@ -8020,6 +8091,36 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         except Exception:
             pass
 
+        for set_name in ("_live_sensor_shadow_seeded", "_dashboard_inventory_notified_sensors"):
+            try:
+                values = getattr(ing, set_name, None)
+                if isinstance(values, set):
+                    for value in list(values):
+                        if str(value or "").strip().lower() in ids_l:
+                            values.discard(value); _bump()
+            except Exception:
+                pass
+
+        try:
+            attempts = getattr(ing, "_live_sensor_shadow_attempt_at", None)
+            if isinstance(attempts, dict):
+                for key in list(attempts.keys()):
+                    if str(key or "").strip().lower() in ids_l:
+                        attempts.pop(key, None); _bump()
+        except Exception:
+            pass
+
+        try:
+            persisted = getattr(ing, "_last_persisted_switch_state", None)
+            if isinstance(persisted, dict):
+                for key in list(persisted.keys()):
+                    switch_id = str((key[0] if isinstance(key, tuple) and key else "") or "").strip().lower()
+                    channel_id = str((key[1] if isinstance(key, tuple) and len(key) > 1 else "") or "").strip().lower()
+                    if switch_id in ids_l or channel_id in ids_l:
+                        persisted.pop(key, None); _bump()
+        except Exception:
+            pass
+
         try:
             if data_logger:
                 for dev_id in ids:
@@ -8033,7 +8134,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return stats
 
     def _purge_switch_controller_state(device_ids: list[str]) -> dict:
-        stats = {"switch_controllers_cleared": 0}
+        stats = {"switch_controllers_cleared": 0, "switch_monitors_cancelled": 0}
         ids_l = {str(i or "").strip().lower() for i in (device_ids or []) if str(i or "").strip()}
         if not ids_l:
             return stats
@@ -8062,6 +8163,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         except Exception:
             pass
 
+        for key, task in list(_dynamic_switch_monitor_tasks.items()):
+            if str(key or "").strip().lower() not in ids_l:
+                continue
+            _dynamic_switch_monitor_tasks.pop(key, None)
+            try:
+                if task and not task.done():
+                    task.cancel()
+                stats["switch_monitors_cancelled"] += 1
+            except Exception:
+                pass
+
         return stats
 
     def _delete_device_dirs(device_id:str)->dict:
@@ -8079,6 +8191,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     shutil.rmtree(path)
                     removed[key]=True
                     removed["ids_deleted"].append(device_id)
+                    if key == "sensor":
+                        SensorSettingsManager.invalidate_cache(device_id, str(_settings_base_path(_SENSOR_BASE_DIR)))
+                    elif key == "switch":
+                        SwitchSettingsManager.invalidate_cache(device_id, str(_settings_base_path(_SWITCH_BASE_DIR)))
             except Exception as e:
                 printDM(f"[remove-device] rmtree {path}: {e}", location=MODULE)
         return removed
@@ -8232,63 +8348,158 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if invalid_ids:
             return JSONResponse({"error": "invalid_device_id", "count": len(invalid_ids)}, status_code=400)
 
-        results = {}
         try:
             from saiMQTTIngest import get_current_ingest as _get_ing
             mqtt_ingest = _get_ing()
         except Exception:
             mqtt_ingest = None
-        for dev in device_ids:
-            related_ids = _collect_related_device_ids(dev, mqtt_ingest=mqtt_ingest)
-            if dev not in related_ids:
-                related_ids.insert(0, dev)
-            # Preserve order while de-duping.
-            related_ids = list(dict.fromkeys([str(x or "").strip() for x in related_ids if str(x or "").strip()]))
 
-            def _purge_db_many(ids: list[str]) -> dict:
-                merged = {"db_path": _get_db_path(), "rows_deleted": 0, "tables": [], "ids_purged": list(ids)}
-                for did in ids:
-                    one = _purge_device_from_db(did)
-                    merged["rows_deleted"] += int(one.get("rows_deleted", 0) or 0)
-                    for entry in (one.get("tables", []) or []):
-                        merged["tables"].append(entry)
-                return merged
-
-            removed_dirs, db_stats = await asyncio.gather(
-                asyncio.to_thread(_delete_device_dirs_many, related_ids),
-                asyncio.to_thread(_purge_db_many, related_ids),
-            )
-            active_logger = _active_data_logger()
-            ok_settings = await asyncio.to_thread(_remove_client_from_hub_settings, dev)
-            ha_stats = await asyncio.to_thread(_clear_ha_entities, dev, mqtt_ingest=mqtt_ingest, data_logger=active_logger)
-            mqtt_stats = await asyncio.to_thread(_clear_retained_mqtt_topics, dev, mqtt_ingest=mqtt_ingest)
-            ingest_stats = _purge_ingest_cache(dev, mqtt_ingest=mqtt_ingest, data_logger=active_logger)
-            controller_stats = _purge_switch_controller_state(related_ids)
-            _invalidate_dashboard_caches()
-            global _switch_status_cache_payload, _switch_status_cache_until
-            _switch_status_cache_payload = None
-            _switch_status_cache_until = 0.0
-            summary = (
-                f"dirs(sensor={removed_dirs.get('sensor')},switch={removed_dirs.get('switch')},system={removed_dirs.get('system')}), "
-                f"db_rows={db_stats.get('rows_deleted',0)}, clients_updated={ok_settings}, "
-                f"ha_topics={ha_stats.get('topics_cleared',0)}, mqtt_topics={mqtt_stats.get('topics_cleared',0)}, "
-                f"ingest_keys={ingest_stats.get('ingest_keys_cleared',0)}, "
-                f"switch_controllers={controller_stats.get('switch_controllers_cleared',0)}"
-            )
-            results[dev] = {
-                "dirs": removed_dirs,
-                "db": db_stats,
-                "clients_updated": ok_settings,
-                "ha": ha_stats,
-                "mqtt": mqtt_stats,
-                "ingest": ingest_stats,
-                "controllers": controller_stats,
-                "summary": summary,
+        requested_ids = list(dict.fromkeys(device_ids))
+        related_ids: list[str] = []
+        seen_related: set[str] = set()
+        cleanup_targets: list[str] = []
+        for dev in requested_ids:
+            expanded = _collect_related_device_ids(dev, mqtt_ingest=mqtt_ingest)
+            if dev not in expanded:
+                expanded.insert(0, dev)
+            expanded_keys = {
+                str(value or "").strip().lower()
+                for value in expanded
+                if str(value or "").strip()
             }
-            printDM(f"[remove-device] {dev}: {summary}", location=MODULE)
+            if not (expanded_keys & seen_related):
+                cleanup_targets.append(dev)
+            for raw in expanded:
+                value = str(raw or "").strip()
+                key = value.lower()
+                if value and key not in seen_related:
+                    seen_related.add(key)
+                    related_ids.append(value)
 
-        overall = f"Removed {len(device_ids)} device(s)."
-        return JSONResponse({"results": results, "summary": overall})
+        known_remote_ids: set[str] = set()
+        if mqtt_ingest:
+            try:
+                known_remote_ids.update(str(value or "").strip().lower() for value in (mqtt_ingest.get_known_devices() or []))
+            except Exception:
+                pass
+            try:
+                known_remote_ids.update(str(value or "").strip().lower() for value in (mqtt_ingest.get_known_switch_devices() or []))
+            except Exception:
+                pass
+        remote_remove = bool(known_remote_ids & seen_related)
+        if not remote_remove:
+            remote_remove = any(
+                (not is_direct_local_sensor_id(dev)) and _sensor_shadow_is_remote_nodus(dev)
+                for dev in requested_ids
+                if not _is_switch_id(dev)
+            )
+        if not remote_remove:
+            try:
+                switch_mgr = SwitchSettingsManager("switch_settings")
+                for dev in requested_ids:
+                    if not _is_switch_id(dev):
+                        continue
+                    doc = switch_mgr.load(dev) or {}
+                    switch_type = str(((doc.get("Switch") or {}).get("TYPE") or "")).strip().lower()
+                    if switch_type in {"nodus", "picow", "pico2w", "remote", "mqtt"}:
+                        remote_remove = True
+                        break
+            except Exception:
+                pass
+
+        suppression = {"active": False, "persisted": False, "persistence_supported": False, "added": []}
+        if remote_remove and mqtt_ingest:
+            suppress = getattr(mqtt_ingest, "suppress_nodus_devices", None)
+            if callable(suppress):
+                suppression = suppress(requested_ids, persist=True) or suppression
+                if suppression.get("persistence_supported") and not suppression.get("persisted"):
+                    return JSONResponse(
+                        {"error": "removed_device_suppression_persist_failed", "device_ids": requested_ids},
+                        status_code=500,
+                    )
+
+        def _purge_db_many(ids: list[str]) -> dict:
+            merged = {"db_path": _get_db_path(), "rows_deleted": 0, "tables": [], "ids_purged": list(ids)}
+            for did in ids:
+                one = _purge_device_from_db(did)
+                merged["rows_deleted"] += int(one.get("rows_deleted", 0) or 0)
+                merged["tables"].extend(one.get("tables", []) or [])
+            return merged
+
+        active_logger = _active_data_logger()
+        ha_stats = {"topics_cleared": 0, "ids_expanded": []}
+        mqtt_stats = {"topics_cleared": 0, "ids_expanded": []}
+        for dev in cleanup_targets:
+            one_ha = await asyncio.to_thread(
+                _clear_ha_entities,
+                dev,
+                mqtt_ingest=mqtt_ingest,
+                data_logger=active_logger,
+            )
+            one_mqtt = await asyncio.to_thread(_clear_retained_mqtt_topics, dev, mqtt_ingest=mqtt_ingest)
+            ha_stats["topics_cleared"] += int(one_ha.get("topics_cleared", 0) or 0)
+            mqtt_stats["topics_cleared"] += int(one_mqtt.get("topics_cleared", 0) or 0)
+            ha_stats["ids_expanded"].extend(one_ha.get("ids_expanded", []) or [])
+            mqtt_stats["ids_expanded"].extend(one_mqtt.get("ids_expanded", []) or [])
+
+        removed_dirs, db_stats = await asyncio.gather(
+            asyncio.to_thread(_delete_device_dirs_many, related_ids),
+            asyncio.to_thread(_purge_db_many, related_ids),
+        )
+        ok_settings = all(
+            await asyncio.gather(
+                *[asyncio.to_thread(_remove_client_from_hub_settings, dev) for dev in requested_ids]
+            )
+        )
+        ingest_stats = {"ingest_keys_cleared": 0}
+        for dev in cleanup_targets:
+            one_ingest = _purge_ingest_cache(dev, mqtt_ingest=mqtt_ingest, data_logger=active_logger)
+            ingest_stats["ingest_keys_cleared"] += int(one_ingest.get("ingest_keys_cleared", 0) or 0)
+        controller_stats = _purge_switch_controller_state(related_ids)
+
+        _invalidate_dashboard_caches()
+        global _switch_status_cache_payload, _switch_status_cache_until
+        _switch_status_cache_payload = None
+        _switch_status_cache_until = 0.0
+
+        remaining = sorted(
+            seen_related
+            & {str(value or "").strip().lower() for value in await asyncio.to_thread(_collect_removable_ids)}
+        )
+        summary = (
+            f"dirs(sensor={removed_dirs.get('sensor')},switch={removed_dirs.get('switch')},system={removed_dirs.get('system')}), "
+            f"db_rows={db_stats.get('rows_deleted',0)}, clients_updated={ok_settings}, "
+            f"ha_topics={ha_stats.get('topics_cleared',0)}, mqtt_topics={mqtt_stats.get('topics_cleared',0)}, "
+            f"ingest_keys={ingest_stats.get('ingest_keys_cleared',0)}, "
+            f"switch_controllers={controller_stats.get('switch_controllers_cleared',0)}, "
+            f"switch_monitors={controller_stats.get('switch_monitors_cancelled',0)}, "
+            f"suppressed={len(suppression.get('added', []) or [])}"
+        )
+        printDM(f"[remove-device] {requested_ids}: {summary}", location=MODULE)
+        result = {
+            "requested_ids": requested_ids,
+            "cleanup_targets": cleanup_targets,
+            "related_ids": related_ids,
+            "dirs": removed_dirs,
+            "db": db_stats,
+            "clients_updated": ok_settings,
+            "ha": ha_stats,
+            "mqtt": mqtt_stats,
+            "ingest": ingest_stats,
+            "controllers": controller_stats,
+            "suppression": suppression,
+            "remaining_ids": remaining,
+            "summary": summary,
+        }
+        results = {dev: result for dev in requested_ids}
+        if remaining:
+            return JSONResponse(
+                {"error": "remove_device_verification_failed", "remaining_ids": remaining, "results": results},
+                status_code=409,
+            )
+
+        overall = f"Removed {len(requested_ids)} device(s)."
+        return JSONResponse({"ok": True, "results": results, "summary": overall})
 
     # submit routes and helpers
     @router.post("/retry-discovery")

@@ -174,6 +174,7 @@ BROKER = "localhost"
 MQTTPORT = 1883
 USE_TLS = false
 NODUS_DEBUG_DATA_ONLY = false
+REMOVED_NODUS_IDS = []
 LEGACY_FIRMWARE_HOSTS = []
 LEGACY_POLLER_SUNSET_DATE = "2026-06-30"
 
@@ -240,6 +241,11 @@ UPDATE_PERIOD_SEC = 300
 gauge_size = "Small"
 display_style = "Gauge"
 ```
+
+`SensorNetwork.REMOVED_NODUS_IDS` is maintained by the Remove Device workflow.
+It prevents retained or newly arriving MQTT packets from recreating a removed
+Nodus sensor/switch family. Do not edit it during normal operation; successfully
+onboarding that device again removes its identity family from the list.
 
 Runtime notes:
 

@@ -124,6 +124,10 @@ class _FakeSettings:
     def get_section(self, name, reload_if_changed=False):
         return self.sections.get(name, {})
 
+    def replace_setting(self, section, key, value):
+        self.values[(section, key)] = value
+        self.sections.setdefault(section, {})[key] = value
+
     @staticmethod
     def deobfuscate_secret(value):
         return value
@@ -355,6 +359,54 @@ def test_registered_topics_include_heartbeat(monkeypatch):
     assert "sensorius/nodus/+/config/result" in ingest.registered_topics
     assert "sensorius/nodus/+/event/calibration_sample" in ingest.registered_topics
     assert "sensorius/nodus/+/event/calibration_result" in ingest.registered_topics
+
+
+def test_removed_nodus_family_ignores_switch_replay_and_persists(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.nodus_switch_topic_map["nodus/S1-1jm5s1/state"] = {
+        "switch_id": "switch-1jm5s1",
+        "channel_id": "S1-1jm5s1",
+        "label": "Fan",
+        "kind": "state",
+    }
+
+    result = ingest.suppress_nodus_devices(
+        ["aht-1jm5s1"],
+        persist=True,
+    )
+    ingest._on_message(
+        ingest.client,
+        None,
+        _Msg("nodus/S1-1jm5s1/state", "OFF", retain=True),
+    )
+    ingest._on_message(
+        ingest.client,
+        None,
+        _Msg("switch/switch-1jm5s1/S1-1jm5s1/state", "OFF", retain=True),
+    )
+
+    assert result["persisted"] is True
+    assert ingest.settings.get_setting("SensorNetwork", "REMOVED_NODUS_IDS") == ["aht-1jm5s1"]
+    assert "switch-1jm5s1" not in ingest._known_switch_ids
+    assert "switch-1jm5s1" not in ingest._switch_state_cache
+    assert ingest.data_logger.switch_identities == []
+
+
+def test_valid_reonboarding_family_can_be_allowed_again(monkeypatch):
+    values = {
+        ("SensorNetwork", "REMOVED_NODUS_IDS"): [
+            "aht-1jm5s1",
+            "switch-1jm5s1",
+            "s1-1jm5s1",
+        ]
+    }
+    ingest = _build_ingest(monkeypatch, values=values)
+
+    result = ingest.allow_nodus_devices(["aht-1jm5s1"], persist=True)
+
+    assert sorted(result["removed"]) == ["aht-1jm5s1", "s1-1jm5s1", "switch-1jm5s1"]
+    assert ingest.is_nodus_device_removed("switch-1jm5s1") is False
+    assert ingest.settings.get_setting("SensorNetwork", "REMOVED_NODUS_IDS") == []
 
 
 def test_shared_ha_client_waits_for_mqtt_on_connect(monkeypatch):

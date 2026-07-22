@@ -99,6 +99,7 @@ class _FakeIngest:
         self._switch_state_cache: dict[str, dict] = {}
         self._host_ip_cache: dict[str, str] = {}
         self._host_ipv4addr: dict[str, str] = {}
+        self._removed_nodus_ids: set[str] = set()
         self.next_config_ack: dict | None = {"accepted": True}
         self.next_config_result: dict | None = {"applied": True, "updated": 1, "error": ""}
         self.next_switch_command_ok: bool = True
@@ -142,6 +143,29 @@ class _FakeIngest:
 
     def get_known_switch_devices(self):
         return []
+
+    def suppress_nodus_devices(self, device_ids, *, persist=True):
+        added = []
+        for device_id in device_ids or []:
+            value = str(device_id or "").strip().lower()
+            if value and value not in self._removed_nodus_ids:
+                self._removed_nodus_ids.add(value)
+                added.append(value)
+        return {
+            "added": added,
+            "persisted": bool(persist),
+            "persistence_supported": True,
+            "active": bool(self._removed_nodus_ids),
+        }
+
+    def allow_nodus_devices(self, device_ids, *, persist=True):
+        removed = []
+        for device_id in device_ids or []:
+            value = str(device_id or "").strip().lower()
+            if value in self._removed_nodus_ids:
+                self._removed_nodus_ids.remove(value)
+                removed.append(value)
+        return {"removed": removed, "persisted": bool(persist)}
 
     def get_measure_status(self, _sid: str):
         return "online"
@@ -5064,6 +5088,62 @@ async def test_remove_device_expands_nodus_sensor_suffix_cleanup(tmp_path, monke
     assert "nodus/S1-x943fm/state" in cleared_topics
     assert "nodus/S1-x943fm/availability" in cleared_topics
     assert "nodus/S1-x943fm/config/ack" in cleared_topics
+
+
+@pytest.mark.asyncio
+async def test_remove_device_groups_selected_sensor_and_switch_and_suppresses_replay(tmp_path, monkeypatch):
+    app, ingest, system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
+    monkeypatch.setenv("SAI_WEB_API_KEY", "test-key")
+    monkeypatch.setattr(saiWebRoutes, "_SYS_BASE_DIR", str(system_root))
+    monkeypatch.setattr(saiWebRoutes, "_SENSOR_BASE_DIR", str(sensor_root))
+    monkeypatch.setattr(saiWebRoutes, "_SWITCH_BASE_DIR", str(switch_root))
+    monkeypatch.setattr(saiMQTTIngest, "get_current_ingest", lambda: ingest)
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+
+    sensor_mgr.save(
+        "aht-1jm5s1",
+        {
+            "Sensor": {"TYPE": "nodus", "DEVICE": "aht", "SENSOR_ID": "aht-1jm5s1", "LOCATION": "Desklab"},
+            "Display": {"METRIC_1": "Temperature"},
+        },
+    )
+    switch_mgr.save(
+        "switch-1jm5s1",
+        {
+            "Switch": {
+                "TYPE": "nodus",
+                "DEVICE": "switch",
+                "SWITCH_DEVICE_ID": "switch-1jm5s1",
+                "SWITCH_LOCATION": "Desklab",
+                "SWITCH_1_LABEL": "Fan",
+                "SWITCH_1_CHANNEL_ID": "S1-1jm5s1",
+            },
+        },
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"x-api-key": "test-key"},
+    ) as client:
+        res = await client.post(
+            "/remove-device",
+            json={"device_ids": ["aht-1jm5s1", "switch-1jm5s1"]},
+        )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert not (sensor_root / "aht-1jm5s1").exists()
+    assert not (switch_root / "switch-1jm5s1").exists()
+    assert "aht-1jm5s1" in ingest._removed_nodus_ids
+    assert "switch-1jm5s1" in ingest._removed_nodus_ids
+    assert body["results"]["aht-1jm5s1"] == body["results"]["switch-1jm5s1"]
+    assert body["results"]["aht-1jm5s1"]["cleanup_targets"] == ["aht-1jm5s1"]
+    assert body["results"]["aht-1jm5s1"]["remaining_ids"] == []
 
 
 @pytest.mark.asyncio

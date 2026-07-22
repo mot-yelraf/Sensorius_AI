@@ -39,6 +39,12 @@ from sensor_modules.station_weewx import (
     normalize_weewx_mqtt_payload,
 )
 
+_REMOVED_NODUS_IDS_SETTING = "REMOVED_NODUS_IDS"
+_NODUS_FAMILY_PREFIXES = {
+    "apvpd", "avpd", "aqi", "aht", "aht10", "ahtx0", "co2", "lux",
+    "nodus", "soil", "switch", "veml",
+}
+
 MODULE = "saiMQTTIngest"
 DEBUG = debug_enabled(MODULE)
 DEFAULT_HEARTBEAT_INTERVAL_S = 30.0
@@ -342,6 +348,7 @@ class saiMQTTIngest:
         self.mqtt_clients = set(self.mqtt_clients or [])
 
         self._callback_lock = threading.RLock()
+        self._removed_nodus_ids: set[str] = self._load_removed_nodus_ids()
         self._callback_filters: set[str] = set()
         self._connected_evt = asyncio.Event()
         self._config_lock = threading.RLock()
@@ -619,6 +626,127 @@ class saiMQTTIngest:
             if _mqtt_topic_matches(existing, candidate):
                 return True
         return False
+
+    @staticmethod
+    def _nodus_identity_suffix(device_id: str | None) -> str:
+        """Return the shared Nodus hardware suffix for a sensor, switch, or channel ID."""
+        value = normalize_hostname_base(device_id)
+        if not value or "-" not in value:
+            return ""
+        prefix, suffix = value.split("-", 1)
+        prefix_l = prefix.lower()
+        if prefix_l not in _NODUS_FAMILY_PREFIXES and not re.fullmatch(r"s\d+", prefix_l):
+            return ""
+        return suffix.lower().strip()
+
+    def _load_removed_nodus_ids(self) -> set[str]:
+        removed: set[str] = set()
+        try:
+            raw = self.settings.get_setting(
+                "SensorNetwork",
+                _REMOVED_NODUS_IDS_SETTING,
+                [],
+            ) if self.settings else []
+            if isinstance(raw, str):
+                text = raw.strip()
+                if text.startswith("["):
+                    try:
+                        raw = json.loads(text)
+                    except Exception:
+                        raw = [text]
+                else:
+                    raw = [part.strip() for part in text.split(",")]
+            if isinstance(raw, (list, tuple, set)):
+                for item in raw:
+                    value = normalize_hostname_base(str(item or ""))
+                    if value:
+                        removed.add(value.lower())
+        except Exception:
+            pass
+        return removed
+
+    def _persist_removed_nodus_ids(self) -> bool:
+        if not self.settings:
+            return False
+        writer = getattr(self.settings, "replace_setting", None)
+        if not callable(writer):
+            return False
+        try:
+            writer(
+                "SensorNetwork",
+                _REMOVED_NODUS_IDS_SETTING,
+                sorted(self._removed_nodus_ids),
+            )
+            return True
+        except Exception as exc:
+            printDM(f"[removed-nodus] failed to persist suppression list: {exc}", location=MODULE)
+            return False
+
+    def is_nodus_device_removed(self, device_id: str | None) -> bool:
+        """Return True when a Nodus identity or another member of its hardware family was removed."""
+        value = normalize_hostname_base(device_id)
+        if not value:
+            return False
+        value_l = value.lower()
+        with self._callback_lock:
+            if value_l in self._removed_nodus_ids:
+                return True
+            suffix = self._nodus_identity_suffix(value_l)
+            if not suffix:
+                return False
+            return any(self._nodus_identity_suffix(item) == suffix for item in self._removed_nodus_ids)
+
+    def suppress_nodus_devices(self, device_ids, *, persist: bool = True) -> dict:
+        """Block removed Nodus identities before cache, database, or shadow settings updates."""
+        added: list[str] = []
+        with self._callback_lock:
+            for item in (device_ids or []):
+                value = normalize_hostname_base(str(item or ""))
+                if not value:
+                    continue
+                value_l = value.lower()
+                if value_l not in self._removed_nodus_ids:
+                    self._removed_nodus_ids.add(value_l)
+                    added.append(value_l)
+            persistence_supported = bool(self.settings and callable(getattr(self.settings, "replace_setting", None)))
+            persisted = self._persist_removed_nodus_ids() if persist else False
+        return {
+            "added": added,
+            "persisted": persisted,
+            "persistence_supported": persistence_supported,
+            "active": bool(self._removed_nodus_ids),
+        }
+
+    def allow_nodus_devices(self, device_ids, *, persist: bool = True) -> dict:
+        """Allow an explicitly re-onboarded Nodus identity family to be discovered again."""
+        requested = {
+            value.lower()
+            for value in (normalize_hostname_base(str(item or "")) for item in (device_ids or []))
+            if value
+        }
+        suffixes = {self._nodus_identity_suffix(value) for value in requested}
+        suffixes.discard("")
+        removed: list[str] = []
+        with self._callback_lock:
+            for existing in list(self._removed_nodus_ids):
+                if existing in requested or self._nodus_identity_suffix(existing) in suffixes:
+                    self._removed_nodus_ids.discard(existing)
+                    removed.append(existing)
+            persisted = self._persist_removed_nodus_ids() if persist else False
+        return {"removed": sorted(removed), "persisted": persisted}
+
+    def _removed_nodus_topic_id(self, topic: str | None) -> str:
+        parts = str(topic or "").strip().split("/")
+        if len(parts) >= 2 and parts[0] == "nodus":
+            return parts[1]
+        if self.base_topic and len(parts) >= 3 and parts[0] == self.base_topic and parts[1] == "nodus":
+            return parts[2]
+        if len(parts) >= 2 and parts[0] == "switch":
+            if len(parts) >= 4:
+                return parts[1]
+            switch_id, _pin = split_switch_id_and_pin(parts[1])
+            return switch_id or parts[1]
+        return ""
         
     # helpers
     def _apply_mqtt_auth(self, client: mqtt.Client, *, section: str, fallback_section: str | None = None) -> None:
@@ -1892,6 +2020,18 @@ class saiMQTTIngest:
             return False
 
     def _on_message(self, client, userdata, msg):
+        """Serialize MQTT callbacks with device removal and suppress removed identities."""
+        topic = str(getattr(msg, "topic", "") or "")
+        with self._callback_lock:
+            device_id = self._removed_nodus_topic_id(topic)
+            is_onboarding_hello = topic.endswith("/onboard/hello")
+            if device_id and not is_onboarding_hello and self.is_nodus_device_removed(device_id):
+                if DEBUG:
+                    printDM(f"[removed-nodus] ignored {topic}", location=MODULE)
+                return
+            return self._on_message_unlocked(client, userdata, msg)
+
+    def _on_message_unlocked(self, client, userdata, msg):
         # --- basic, safe extraction ---
         topic = getattr(msg, "topic", "") or ""
         try:

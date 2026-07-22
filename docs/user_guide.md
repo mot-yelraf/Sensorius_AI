@@ -298,7 +298,11 @@ Fields and controls:
 - **Device checkbox list**: removable devices known from settings, discovery, and runtime state.
 - **Device detail**: may show URL or last-seen age when known.
 - **I understand this deletes settings and data**: required confirmation checkbox.
-- **Remove Selected**: deletes selected device settings and related local data, clears related runtime caches, and attempts to clear retained MQTT/Home Assistant topics.
+- **Remove Selected**: removes the selected physical-device identity group in one operation, deletes its settings and related local data, clears runtime caches and retained MQTT/Home Assistant topics, and verifies that the device no longer appears.
+
+Removed Nodus identities remain ignored if retained or newly arriving MQTT
+messages are received later. Run Add Device onboarding again to intentionally
+allow and rediscover a removed Nodus device.
 
 Before removing a device, update any automations, Home Assistant dashboards, farmOS expectations, or written operating procedures that depend on it.
 
