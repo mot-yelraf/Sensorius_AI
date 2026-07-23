@@ -806,18 +806,24 @@ label{ font-size:.80rem; color:var(--muted); margin-bottom:.2rem; display:block 
 }
 .action-group:last-child{ border-bottom:none; margin-bottom:0; padding-bottom:0; }
 .action-row{
-  display:grid; align-items:end; gap:.5rem;
-  grid-template-columns: minmax(160px, .55fr) 120px minmax(160px, .35fr) 150px 36px; /* Switch | State | Revert | Delay | × */
+  display:grid; align-items:end; gap:.75rem;
+  grid-template-columns: minmax(160px, .55fr) 120px minmax(160px, .35fr) 150px 44px; /* Actor | State | Revert | Delay | × */
 }
+.action-row > div,
+.cond > div{ min-width:0; }
 .action-row .action-switch{ max-width:100%; width:100%; }
 .action-row .action-set{ max-width:120px; width:100%; }
 .action-row .action-revert{ max-width:100%; width:100%; }
 .action-row .action-delay{ width:100%; min-width:0; max-width:none; }
+.action-row.notify-action{
+  grid-template-columns:minmax(180px, .6fr) minmax(260px, 1.4fr) 44px;
+}
+.action-row .action-notify-to{ width:100%; min-width:0; box-sizing:border-box; }
 
 /* Time condition (single row) */
 .cond.time{
-  display:grid; align-items:end; gap:.5rem;
-  grid-template-columns: 120px 1fr 1fr 36px; /* Type | Start | Stop | × */
+  display:grid; align-items:end; gap:.75rem;
+  grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1fr) 44px; /* Type | Start | Stop | × */
 }
 .automation-time-picker{
   display:grid;
@@ -838,21 +844,47 @@ label{ font-size:.80rem; color:var(--muted); margin-bottom:.2rem; display:block 
 
 /* Sensor condition (two rows) */
 .cond.sensor-top{
-  display:grid; align-items:end; gap:.5rem;
-  grid-template-columns: 120px minmax(220px, 480px);
+  display:grid; align-items:end; gap:.75rem;
+  grid-template-columns: minmax(150px, .55fr) minmax(220px, 2fr);
 }
 .cond.sensor-bottom{
-  display:grid; align-items:end; gap:.5rem;
-  grid-template-columns: minmax(200px, 320px) 80px 8ch 8ch 36px; /* Metric | Op | Thr | Hyst | × */
+  display:grid; align-items:end; gap:.75rem;
+  grid-template-columns: minmax(200px, 1.8fr) minmax(80px, .45fr) minmax(110px, .55fr) minmax(110px, .55fr) 44px; /* Metric | Op | Thr | Hyst | × */
 }
 select.sensor-select{ max-width:480px; width:100%; }
 select.metric-select{ max-width:320px; width:100%; }
 select.op-select{ max-width:80px; width:100%; }
+#setupPiModal .cond.sensor-bottom input[type="number"]{
+  width:100%;
+  min-width:0;
+  max-width:none;
+  box-sizing:border-box;
+}
+
+.cond.astral{
+  display:grid; align-items:end; gap:.75rem;
+  grid-template-columns:minmax(180px, 240px) minmax(260px, 420px) minmax(140px, 180px) 44px;
+  justify-content:space-between;
+}
+.cond.timer{
+  display:grid; align-items:end; gap:.75rem;
+  grid-template-columns:minmax(180px, 260px) minmax(180px, 260px) minmax(120px, 165px) 44px;
+  justify-content:space-between;
+}
+#setupPiModal .cond.astral > div > select,
+#setupPiModal .cond.astral > div > input,
+#setupPiModal .cond.timer > div > select,
+#setupPiModal .cond.timer > div > input{
+  width:100% !important;
+  min-width:0;
+  max-width:none;
+  box-sizing:border-box;
+}
 
 /* OR separator */
 .cond.or{
-  display:grid; align-items:center; gap:.5rem;
-  grid-template-columns: 120px 1fr 36px; /* Type | Chip | × */
+  display:grid; align-items:center; gap:.75rem;
+  grid-template-columns: 120px 1fr 44px; /* Type | Chip | × */
 }
 .or-chip{
   display:inline-flex; align-items:center; justify-content:center;
@@ -864,6 +896,7 @@ select.op-select{ max-width:80px; width:100%; }
 .remove{
   border:none; background:var(--danger); color:#fff; border-radius:8px; padding:.35rem 0;
   width:36px; height:36px; line-height:1; font-weight:700; cursor:pointer;
+  justify-self:end;
 }
 
 /* Footer / misc */
@@ -882,9 +915,10 @@ select.op-select{ max-width:80px; width:100%; }
 .footer-buttons-restart-layout .footer-save{ grid-column:3; justify-self:end; }
 /* Responsive tightening for modal condition rows */
 @media (max-width: 1150px){
-  .action-row{ grid-template-columns: minmax(150px, .5fr) 110px minmax(150px, .4fr) 140px 36px; }
-  .cond.sensor-top{ grid-template-columns: 120px minmax(200px, 420px); }
-  .cond.sensor-bottom{ grid-template-columns: minmax(180px, 280px) 80px 8ch 8ch 36px; }
+  .action-row{ grid-template-columns: minmax(150px, .5fr) 110px minmax(150px, .4fr) 140px 44px; }
+  .action-row.notify-action{ grid-template-columns:minmax(160px, .6fr) minmax(240px, 1.4fr) 44px; }
+  .cond.sensor-top{ grid-template-columns: minmax(140px, .55fr) minmax(200px, 2fr); }
+  .cond.sensor-bottom{ grid-template-columns: minmax(180px, 1.6fr) 80px minmax(90px, .5fr) minmax(90px, .5fr) 44px; }
   select.sensor-select{ max-width:420px; }
   select.metric-select{ max-width:280px; }
 }
@@ -915,6 +949,7 @@ select.op-select{ max-width:80px; width:100%; }
 }
 @media (max-width: 980px){
   .action-row{ grid-template-columns: 1fr 1fr; }
+  .action-row.notify-action{ grid-template-columns:minmax(150px, .6fr) minmax(220px, 1.4fr) 44px; }
   .action-row .remove{ justify-self:end; }
   .switch-dialog-split{
     grid-template-columns: 1fr;

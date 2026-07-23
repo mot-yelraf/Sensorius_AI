@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from email.message import EmailMessage
 import json
 import math
@@ -221,8 +221,11 @@ class SMTPEmailSender:
         *,
         require_enabled: bool = True,
         config: EmailConfig | None = None,
+        to_addresses: tuple[str, ...] | None = None,
     ) -> None:
         config = config or EmailConfig.from_environment()
+        if to_addresses is not None:
+            config = replace(config, to_addresses=tuple(to_addresses))
         error = config.validation_error(require_enabled=require_enabled)
         if error:
             raise ValueError(error)
@@ -507,6 +510,55 @@ class EmailNotificationService:
                         time.time() + self._failure_cooldown_sec(),
                     )
                     self._pending_by_rule.discard(rule_id)
+
+
+class AutomationNotificationService:
+    """Evaluate system-owned Notify actors even when no switch is installed."""
+
+    SYSTEM_ACTOR_ID = "__system__"
+
+    def __init__(self, *, data_logger, supervisor=None, interval_sec: float = 5.0):
+        self.data_logger = data_logger
+        self.supervisor = supervisor
+        self.interval_sec = max(1.0, float(interval_sec))
+        self._controller = None
+
+    def _get_controller(self):
+        if self._controller is not None:
+            return self._controller
+
+        # Notify evaluation reuses the established condition engine without
+        # creating GPIO/MQTT switch hardware.
+        from saiSwitch import SwitchController
+
+        controller = SwitchController.__new__(SwitchController)
+        controller.supervisor = self.supervisor
+        controller.sensor = None
+        controller.settings = {}
+        controller.data_logger = self.data_logger
+        controller.switch_id = self.SYSTEM_ACTOR_ID
+        controller.values = {}
+        controller.override_script = {}
+        controller.last_state = {}
+        controller.channel_id_for_label = {}
+        controller._advanced_delay_due = {}
+        controller._advanced_revert_cooldown = set()
+        controller._advanced_active_actions = {}
+        controller._advanced_active_actions_persisted_json = None
+        controller._advanced_debug_next_idle_log_at = 0.0
+        controller._advanced_debug_cycle_verbose = False
+        controller._advanced_notify_states = {}
+        controller._astral_location_cache = {"value": None, "expires_at": 0.0}
+        self._controller = controller
+        return controller
+
+    async def run(self) -> None:
+        controller = self._get_controller()
+        while True:
+            if self.supervisor:
+                self.supervisor.feedthedogs("Automation Notifications")
+            controller._evaluate_and_apply_advanced({})
+            await asyncio.sleep(self.interval_sec)
 
 
 def email_test_sender() -> SMTPEmailSender:

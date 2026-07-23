@@ -662,8 +662,8 @@ def test_system_settings_sections_match_integration_accordions():
     assert text.index("<summary>System Settings</summary>") < text.index("<summary>Notifications</summary>")
     assert text.index("<summary>Notifications</summary>") < text.index("<summary>Astral</summary>")
     assert text.index("<summary>Astral</summary>") < text.index("<summary>Display</summary>")
-    assert text.count('class="button blue btn-system-save"') == 5
-    assert text.count('class="button black btn-back-system">Dashboard</button>') >= 5
+    assert text.count('class="button blue btn-system-save"') == 4
+    assert text.count('class="button black btn-back-system">Dashboard</button>') >= 4
     assert 'id="btn-system-save"' not in text
 
 
@@ -676,16 +676,15 @@ def test_notification_subsection_titles_are_left_aligned():
     assert "#setupPiModal .notification-subsection > summary::before {" in text
 
 
-def test_notification_subsections_have_individual_action_rows():
+def test_notifications_has_one_email_action_row():
     source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
     text = source.read_text(encoding="utf-8")
 
-    email_section = text[text.index("<summary>Email Settings</summary>"):text.index("<summary>Notification Rules</summary>")]
-    rules_section = text[text.index("<summary>Notification Rules</summary>"):text.index("<summary>Astral</summary>")]
-    for section in (email_section, rules_section):
-        assert 'class="pane-footer"' in section
-        assert 'class="button black btn-back-system">Dashboard</button>' in section
-        assert 'class="button blue btn-system-save">Save</button>' in section
+    email_section = text[text.index("<summary>Notifications</summary>"):text.index("<summary>Astral</summary>")]
+    assert "<summary>Notification Rules</summary>" not in email_section
+    assert 'class="pane-footer"' in email_section
+    assert 'class="button black btn-back-system">Dashboard</button>' in email_section
+    assert 'class="button blue btn-system-save">Save</button>' in email_section
 
 
 def test_system_settings_template_uses_compact_field_spacing():

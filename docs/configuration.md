@@ -131,24 +131,15 @@ and TLS when it crosses a trusted boundary. Settings-manager secret
 obfuscation is reversible and is not encryption; protect `.env`, runtime TOML
 files, backups, and diagnostic exports as sensitive data.
 
-The System Settings **Notifications > Email Settings** form writes the email
+The System Settings **System Settings > Notifications** form writes the email
 keys to the project-root `.env`, which is restricted to the owning user. The
 password field is never populated in HTML; leaving it blank preserves the
 current app password. `ssl` uses implicit TLS (normally port 465), while
 `starttls` upgrades a plain SMTP connection (normally port 587).
 
-Automated messages have three additional safeguards. After a rule recovers,
-the same rule cannot generate a new high email for 600 seconds, even when its
-recovery email is disabled. After three
-failed delivery attempts, that rule waits 600 seconds before starting another
-attempt batch. Successful automated messages are limited across all rules to
-10 in a rolling hour and 40 in a rolling 24-hour period. Test messages do not
-count toward either cap.
-
-Each notification rule stores an `operator` of `>` or `<`. Existing rules that
-do not contain the field default to `>`. For `>` rules the alert/recovery
-boundaries are `threshold + hysteresis` and `threshold - hysteresis`; `<` rules
-mirror those boundaries.
+The form's **To** value is only for test delivery. Runtime recipients are
+stored on Notify actions in `switch_settings/automations/automations.toml`.
+Notify actions send on the false-to-true edge of their automation conditions.
 
 GUI behavior:
 

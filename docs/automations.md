@@ -1,6 +1,7 @@
-# Switch Automations
+# System Automations
 
-Sensorius switch automations are evaluated by each switch controller monitor.
+Automations are configured from **System Settings > Automations** and evaluated
+by the switch controller monitors.
 Local GPIO relays and remote Nodus switches share the same controller contract,
 so automation rules use the same behavior for both.
 
@@ -52,6 +53,7 @@ Advanced rules can express:
 - Sunrise and sunset schedules through Astral settings.
 - Timer windows through `duration_min`, `period_min`, and legacy `freq_hours`.
 - Multi-action rules.
+- Email Notify actors with a per-action recipient when email is enabled.
 - Revert behavior through `revert_action`.
 - Optional delayed action application through `delay_s`.
 

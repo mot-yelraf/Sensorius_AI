@@ -363,25 +363,72 @@ def test_smtp_sender_accepts_unsaved_form_config(monkeypatch):
     assert ("login", "visible-form@gmail.com", "abcdefghijklmnop") in calls
 
 
-def test_notifications_ui_has_requested_email_grid_and_metric_rules():
+def test_notifications_ui_has_email_only_layout_and_test_recipient():
     source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
     text = source.read_text(encoding="utf-8")
 
-    email_start = text.index("<summary>Email Settings</summary>")
-    rules_start = text.index("<summary>Notification Rules</summary>")
-    assert email_start < rules_start
+    email_start = text.index("<summary>Notifications</summary>")
+    assert "<summary>Notification Rules</summary>" not in text
     assert text.index('id="email_smtp_host"', email_start) < text.index('id="email_smtp_port"', email_start)
     assert text.index('id="email_smtp_port"', email_start) < text.index('id="email_security"', email_start)
     assert text.index('id="email_username"', email_start) < text.index('id="email_app_password"', email_start)
-    assert text.index('id="email_from"', email_start) < text.index('id="email_to"', email_start)
-    assert text.index('id="email_to"', email_start) < text.index('id="email_enabled"', email_start)
-    assert text.index('id="email_enabled"', email_start) < text.index('id="btn-email-test"', email_start)
+    assert text.index('id="email_enabled"', email_start) < text.index('id="email_from"', email_start)
+    assert text.index('id="btn-email-test"', email_start) < text.index('id="email_to"', email_start)
+    assert '(test only)' in text
     assert 'class="notification-enable-control"' in text
     assert 'class="email-grid-two email-action-grid"' in text
     assert 'class="notification-test-control"' in text
     assert 'app_password: document.getElementById("email_app_password")?.value || ""' in text
     assert 'id="email_app_password" name="email_app_password" value=""' in text
-    assert 'id="btn-add-notification-rule"' in text
-    assert 'class="notification-sensor"' in text
-    assert 'class="notification-metric"' in text
-    assert 'class="notification-operator"' in text
+    assert 'id="btn-add-notification-rule"' not in text
+    assert 'id="notification-rule-list"' not in text
+
+
+def test_automations_move_to_system_settings_with_actor_and_notify_controls():
+    root = Path(__file__).resolve().parents[1]
+    system_text = (root / "ui_templates" / "modals" / "system_settings.html").read_text(encoding="utf-8")
+    switch_text = (root / "ui_templates" / "modals" / "switch_settings.html").read_text(encoding="utf-8")
+    js_text = (root / "ui_static" / "js" / "advanced_automation.js").read_text(encoding="utf-8")
+
+    assert system_text.index('data-target="pane-system"') < system_text.index('data-target="pane-automations"')
+    assert 'id="pane-automations"' in system_text
+    assert "switchMenuAutomations" not in switch_text
+    assert 'actorLab.textContent = "Actors"' in js_text
+    assert 'opt.textContent = "Notify"' in js_text
+    assert 'toLab.textContent = "To"' in js_text
+    no_actor_branch = js_text[
+        js_text.index("if (!entries.length) {"):
+        js_text.index('opt.textContent = "Notify"')
+    ]
+    assert "if (!emailActorEnabled)" in no_actor_branch
+
+
+def test_automation_remove_buttons_have_dedicated_grid_columns():
+    root = Path(__file__).resolve().parents[1]
+    css_text = (root / "ui_static" / "css" / "app.css").read_text(encoding="utf-8")
+    js_text = (root / "ui_static" / "js" / "advanced_automation.js").read_text(encoding="utf-8")
+
+    assert "minmax(110px, .55fr) 44px; /* Metric | Op | Thr | Hyst | × */" in css_text
+    assert "minmax(260px, 1.4fr) 44px;" in css_text
+    assert "justify-self:end;" in css_text
+    assert 'row1.style.display = "flex"' not in js_text
+    assert 'row.style.display = "flex"' not in js_text
+
+
+def test_astral_and_timer_controls_fill_bounded_columns():
+    root = Path(__file__).resolve().parents[1]
+    css_text = (root / "ui_static" / "css" / "app.css").read_text(encoding="utf-8")
+
+    assert "grid-template-columns:minmax(180px, 240px) minmax(260px, 420px) minmax(140px, 180px) 44px;" in css_text
+    assert "grid-template-columns:minmax(180px, 260px) minmax(180px, 260px) minmax(120px, 165px) 44px;" in css_text
+    assert "#setupPiModal .cond.timer > div > input{" in css_text
+    assert "width:100% !important;" in css_text
+
+
+def test_automation_stylesheet_is_versioned_for_layout_updates():
+    root = Path(__file__).resolve().parents[1]
+    html_source = (root / "saiHtml.py").read_text(encoding="utf-8")
+    routes_source = (root / "saiWebRoutes.py").read_text(encoding="utf-8")
+
+    assert "/ui_static/css/app.css?v={APP_VERSION}" in html_source
+    assert "/ui_static/css/app.css?v={APP_VERSION}" in routes_source

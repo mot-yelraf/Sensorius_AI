@@ -4315,8 +4315,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         )
 
         fragment_parts: list[str] = []
-        fragment_parts.append("<link rel='stylesheet' href='/ui_static/css/app.css'>")
+        fragment_parts.append(f"<link rel='stylesheet' href='/ui_static/css/app.css?v={APP_VERSION}'>")
         fragment_parts.append(f"<script src='/ui_static/js/draggable_modals.js?v={APP_VERSION}'></script>")
+        fragment_parts.append(f"<script type='module' src='/ui_static/js/advanced_automation.js?v={APP_VERSION}'></script>")
         fragment_parts.append(system_modal_html)
         fragment_html = "\n".join(fragment_parts)
 
@@ -8566,11 +8567,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 return _modal_error_response(request, "SMTP Server and Username are required when email is enabled.", status_code=400)
             if "@" not in email_from:
                 return _modal_error_response(request, "A valid From email address is required.", status_code=400)
-            recipients = [item.strip() for item in email_to.replace(";", ",").split(",") if item.strip()]
-            if not recipients or any("@" not in item for item in recipients):
-                return _modal_error_response(request, "At least one valid To email address is required.", status_code=400)
             if not email_password_new and not current_email_password:
                 return _modal_error_response(request, "A Google App Password is required when email is enabled.", status_code=400)
+        if email_form_present and email_to and "@" not in email_to:
+            return _modal_error_response(request, "A valid test To email address is required.", status_code=400)
         notification_rules = []
         if notification_rules_form_present:
             try:
@@ -10356,7 +10356,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             page: list[str] = []
             page.append("<!DOCTYPE html>")
             page.append("<html><head><title>Edit Sensor</title>")
-            page.append("<link rel='stylesheet' href='/ui_static/css/app.css'>")
+            page.append(f"<link rel='stylesheet' href='/ui_static/css/app.css?v={SAI_APP_VERSION}'>")
             page.append("<script src='/ui_static/js/sensor_settings_modal.js'></script>")
             page.append("<script src='/ui_static/js/system_calibration.js'></script>")
             page.append("</head><body>")
@@ -12306,7 +12306,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         page: list[str] = []
         page.append("<html><head><title>Edit Switch</title>")
         # ensure app.css is loaded so modal styles look correct
-        page.append("<link rel='stylesheet' href='/ui_static/app.css'>")
+        page.append(f"<link rel='stylesheet' href='/ui_static/css/app.css?v={SAI_APP_VERSION}'>")
         page.append("</head><body>")
         page.append("<div id='modalHost'></div>")
         page.append(f"<script>var __MODAL_HTML__ = {json.dumps(modal_html)};</script>")
@@ -12718,6 +12718,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return bool(value)
         def _rule_targets_switch(payload: object, requested_switch_id: str) -> bool:
             wanted_sid = str(requested_switch_id or "").strip().lower()
+            if wanted_sid == "__all__":
+                return True
             if not wanted_sid:
                 return False
             if not isinstance(payload, dict):
@@ -12786,6 +12788,44 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         except Exception as exc:
             printDM(f"/advanced/automations error: {exc}", location="saiWebRoutes")
             return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @router.get("/automation-context", response_class=JSONResponse)
+    async def automation_context():
+        """Return the system-wide actor directory used by the automation editor."""
+        mgr = SwitchSettingsManager("switch_settings")
+        actors: list[dict[str, str]] = []
+        switch_ids = mgr.list_switches() or []
+        for sid in switch_ids:
+            doc = mgr.load(sid) or {}
+            sw = doc.get("Switch") or {}
+            for idx in range(1, 33):
+                label = str(sw.get(f"SWITCH_{idx}_LABEL", "") or "").strip()
+                channel_id = str(sw.get(f"SWITCH_{idx}_CHANNEL_ID", "") or "").strip()
+                if not label:
+                    continue
+                actors.append({
+                    "type": "switch",
+                    "switch_id": sid,
+                    "label": label,
+                    "channel_id": channel_id,
+                    "value": f"{sid}::{channel_id or label}",
+                    "display": f"{sid}:{label}",
+                })
+
+        email_enabled = _is_true_text(
+            str(
+                os.environ.get(
+                    "SENSORIUS_EMAIL_ENABLED",
+                    _env_map_with_defaults().get("SENSORIUS_EMAIL_ENABLED", "false"),
+                )
+                or ""
+            )
+        )
+        return {
+            "actors": actors,
+            "email_enabled": email_enabled,
+            "executor_switch_id": "__system__",
+        }
 
     def _resolve_automation_target(switch_id: str, switch_key: str) -> tuple[str, str, int | None]:
         sid = switch_id
@@ -13109,6 +13149,20 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 return f"{sid_part}::{suffix_final}" if sid_part and suffix_final else ""
 
             for a in (raw_actions or []):
+                action_type = str(a.get("type", "switch") or "switch").strip().lower()
+                if action_type == "notify":
+                    notify_to = str(a.get("to", "") or "").strip()
+                    executor_switch_id = norm_switch_id(
+                        str(a.get("executor_switch_id", switch_id) or switch_id)
+                    )
+                    if "@" not in notify_to or "\r" in notify_to or "\n" in notify_to:
+                        return error_response("Notify actions require a valid To email address.", status_code=400)
+                    normalized_actions.append({
+                        "type": "notify",
+                        "to": notify_to,
+                        "executor_switch_id": executor_switch_id,
+                    })
+                    continue
                 raw_set = a.get("set", a.get("state", "off"))
                 set_on = str(raw_set).strip().lower() in {"on", "true", "1"}
                 switch_key = str(a.get("switch_key", a.get("switch_label", ""))).strip()
@@ -13117,6 +13171,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 revert_action = "do_nothing" if raw_revert_action == "do_nothing" else "previous_state"
 
                 normalized_actions.append({
+                    "type":       "switch",
                     "switch_key": switch_key,
                     "switch":     _num(a.get("switch"), int, None),  # optional numeric channel (legacy)
                     "set":        set_on,

@@ -372,6 +372,66 @@ def test_advanced_rule_does_nothing_when_conditions_are_false():
     assert calls == []
 
 
+def test_advanced_notify_actor_sends_once_per_true_edge(monkeypatch: pytest.MonkeyPatch):
+    ctrl = _make_controller()
+    ctrl.switch_id = "__system__"
+    rule_on = {"value": True}
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "notify1": {
+                "enabled": True,
+                "script_json": {
+                    "name": "High temperature",
+                    "enabled": True,
+                    "conditions": [{
+                        "type": "sensor",
+                        "sensor": "sensor-1",
+                        "metric": "temperature",
+                        "op": ">",
+                        "value": 25,
+                        "hyst": 1,
+                    }],
+                    "actions": [{
+                        "type": "notify",
+                        "to": "grower@example.com",
+                        "executor_switch_id": "__system__",
+                    }],
+                },
+            }
+        }
+    }
+    sent = []
+
+    class ImmediateThread:
+        def __init__(self, *, target, **_kwargs):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    monkeypatch.setattr(saiSwitch.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(
+        saiSwitch.SMTPEmailSender,
+        "send",
+        lambda _self, subject, body, **kwargs: sent.append((subject, body, kwargs)),
+    )
+
+    def values():
+        return {"sensor-1": {"temperature": 30 if rule_on["value"] else 20}}
+
+    ctrl._get_values_for_sensor = lambda sensor_id, current: current.get(sensor_id, {})
+    SwitchController._evaluate_and_apply_advanced(ctrl, values())
+    SwitchController._evaluate_and_apply_advanced(ctrl, values())
+    assert len(sent) == 1
+    assert sent[0][2]["to_addresses"] == ("grower@example.com",)
+
+    rule_on["value"] = False
+    SwitchController._evaluate_and_apply_advanced(ctrl, values())
+    rule_on["value"] = True
+    SwitchController._evaluate_and_apply_advanced(ctrl, values())
+    assert len(sent) == 2
+
+
 def test_rules_enabled_parses_string_false_and_maps_channel_id(monkeypatch: pytest.MonkeyPatch):
     updates = []
 

@@ -12,6 +12,8 @@ let sensorDirectory = [];
 let switchLabels = {};
 let switchChannelIds = {};
 let switchChannels = 1;
+let actorDirectory = [];
+let emailActorEnabled = false;
 let astralStatus = { ok: false, message: "" };
 
 // ----- API helpers -----
@@ -35,8 +37,12 @@ async function fetchSwitchInfo() {
 }
 
 async function fetchAdvancedAutomations() {
-  const data = await fetchJSON(`/advanced/automations?switch_id=${encodeURIComponent(currentSwitchId)}`);
+  const data = await fetchJSON("/advanced/automations?switch_id=__all__");
   return data.items || [];
+}
+
+async function fetchAutomationContext() {
+  return await fetchJSON("/automation-context");
 }
 
 async function enableAutomation(ruleId, enabled) {
@@ -66,7 +72,10 @@ async function deleteAutomation(ruleId) {
 function getModalRoot(fromEl) {
   return (
     (fromEl && fromEl.closest && fromEl.closest("#switchSettingsModal")) ||
+    (fromEl && fromEl.closest && fromEl.closest("#setupPiModal")) ||
     (fromEl && fromEl.querySelector && fromEl.querySelector("#switchSettingsModal")) ||
+    (fromEl && fromEl.querySelector && fromEl.querySelector("#setupPiModal")) ||
+    document.querySelector("#setupPiModal") ||
     document.querySelector("#switchSettingsModal")
   );
 }
@@ -105,13 +114,25 @@ function getEnabledChannelIndexSet(modal) {
 }
 
 function getActionOptionEntries(modal) {
+  if (actorDirectory.length) {
+    return actorDirectory.map((item, idx) => ({
+      idx,
+      lab: String(item.display || item.label || item.value || "").trim(),
+      value: String(item.value || "").trim(),
+    })).filter(item => item.lab && item.value);
+  }
   const enabledIndexSet = getEnabledChannelIndexSet(modal);
   return Object.entries(switchLabels || {})
-    .map(([idx, lab]) => ({
-      idx: Number.parseInt(idx, 10),
-      lab: String(lab || "").trim(),
-      channelId: String((switchChannelIds || {})[idx] || "").trim(),
-    }))
+    .map(([idx, rawLabel]) => {
+      const lab = String(rawLabel || "").trim();
+      const channelId = String((switchChannelIds || {})[idx] || "").trim();
+      return {
+        idx: Number.parseInt(idx, 10),
+        lab,
+        channelId,
+        value: `${currentSwitchId}::${channelId || lab}`,
+      };
+    })
     .filter(x => Number.isFinite(x.idx) && x.idx > 0 && x.lab)
     .filter(x => !enabledIndexSet.size || enabledIndexSet.has(x.idx))
     .sort((a, b) => a.idx - b.idx);
@@ -124,19 +145,27 @@ function fillActionSwitchOptions(selectEl, modal, preferredValue = "") {
   selectEl.innerHTML = "";
 
   if (!entries.length) {
-    const opt = create("option");
-    opt.value = "";
-    opt.textContent = "No labeled channels";
-    opt.disabled = true;
-    opt.selected = true;
-    selectEl.appendChild(opt);
-    return;
+    if (!emailActorEnabled) {
+      const opt = create("option");
+      opt.value = "";
+      opt.textContent = "No labeled channels";
+      opt.disabled = true;
+      opt.selected = true;
+      selectEl.appendChild(opt);
+      return;
+    }
   }
 
-  for (const { lab, channelId } of entries) {
+  for (const { lab, value, channelId } of entries) {
     const opt = create("option");
-    opt.value = `${currentSwitchId}::${channelId || lab}`;
+    opt.value = value || `${currentSwitchId}::${channelId || lab}`;
     opt.textContent = lab;
+    selectEl.appendChild(opt);
+  }
+  if (emailActorEnabled) {
+    const opt = create("option");
+    opt.value = "notify";
+    opt.textContent = "Notify";
     selectEl.appendChild(opt);
   }
 
@@ -566,9 +595,6 @@ function renderAsTime() {
 
   // First row: Type + Start + End + Remove
   const row1 = create("div", "cond time");
-  row1.style.display = "flex";
-  row1.style.flexWrap = "wrap";
-  row1.style.gap = "0.5rem";
   row1.append(typeWrap, startWrap, endWrap, rem);
 
   // Second row: Days (full width)
@@ -584,9 +610,6 @@ function renderAsTime() {
     group.innerHTML = "";
 
     const row = create("div", "cond astral");
-    row.style.display = "flex";
-    row.style.flexWrap = "wrap";
-    row.style.gap = "0.5rem";
     row.append(typeWrap, astralEventWrap, astralOffsetWrap, rem);
 
     const row2 = create("div", "cond astral-days");
@@ -601,11 +624,6 @@ function renderAsTime() {
     group.innerHTML = "";
 
     const row = create("div", "cond timer");
-    row.style.display = "flex";
-    row.style.flexWrap = "wrap";
-    row.style.alignItems = "flex-end";
-    row.style.gap = "0.75rem";
-
     row.append(typeWrap, timerFreqWrap, timerDurWrap, rem);
     group.appendChild(row);
   }
@@ -654,12 +672,12 @@ function addAction(modal, action) {
 
   const group = create("div", "action-group");
 
-  const switchWrap = create("div");
-  const switchLab = create("label");
-  switchLab.textContent = "Switch";
-  const switchSel = create("select");
-  switchSel.classList.add("action-switch");
-  switchWrap.append(switchLab, switchSel);
+  const actorWrap = create("div");
+  const actorLab = create("label");
+  actorLab.textContent = "Actors";
+  const actorSel = create("select");
+  actorSel.classList.add("action-switch", "action-actor");
+  actorWrap.append(actorLab, actorSel);
 
   const setWrap = create("div");
   const setLab = create("label");
@@ -700,6 +718,16 @@ function addAction(modal, action) {
   delayIn.value = String(Number.isFinite(actionDelay) ? Math.max(0, Math.min(60, actionDelay)) : 0);
   delayWrap.append(delayLab, delayIn);
 
+  const toWrap = create("div");
+  const toLab = create("label");
+  toLab.textContent = "To";
+  const toIn = create("input");
+  toIn.type = "email";
+  toIn.classList.add("action-notify-to");
+  toIn.placeholder = "recipient@example.com";
+  toIn.value = String(action?.to || "").trim();
+  toWrap.append(toLab, toIn);
+
   const rem = create("button", "remove");
   rem.type = "button";
   rem.setAttribute("aria-label", "Remove action");
@@ -714,11 +742,24 @@ function addAction(modal, action) {
   };
 
   const row = create("div", "action-row");
-  row.append(switchWrap, setWrap, revertWrap, delayWrap, rem);
+  row.append(actorWrap, setWrap, revertWrap, delayWrap, toWrap, rem);
   group.appendChild(row);
   container.appendChild(group);
 
-  fillActionSwitchOptions(switchSel, modal, String(action?.switch_key || "").trim());
+  const preferredActor = String(
+    action?.type === "notify" ? "notify" : (action?.switch_key || "")
+  ).trim();
+  fillActionSwitchOptions(actorSel, modal, preferredActor);
+  const syncActorFields = () => {
+    const isNotify = actorSel.value === "notify";
+    row.classList.toggle("notify-action", isNotify);
+    setWrap.hidden = isNotify;
+    revertWrap.hidden = isNotify;
+    delayWrap.hidden = isNotify;
+    toWrap.hidden = !isNotify;
+  };
+  actorSel.addEventListener("change", syncActorFields);
+  syncActorFields();
 }
 
 // ----- Form helpers -----
@@ -829,19 +870,29 @@ function serializeForm(modal){
 
   const actionGroups = [...modal.querySelectorAll("#actionsContainer .action-group")];
   const actions = actionGroups.map(group => {
-    const switchKey = String(group.querySelector(".action-switch")?.value || "").trim();
+    const switchKey = String(group.querySelector(".action-actor")?.value || "").trim();
+    if (switchKey === "notify") {
+      return {
+        type: "notify",
+        to: String(group.querySelector(".action-notify-to")?.value || "").trim(),
+        executor_switch_id: currentSwitchId,
+      };
+    }
     const set = group.querySelector(".action-set")?.value === "on";
     const revertAction = group.querySelector(".action-revert")?.value === "do_nothing"
       ? "do_nothing"
       : "previous_state";
     const delayRaw = parseInt(group.querySelector(".action-delay")?.value || "0", 10);
     const delay_s = Number.isFinite(delayRaw) ? Math.max(0, Math.min(60, delayRaw)) : 0;
-    return { switch_key: switchKey, set, revert_action: revertAction, delay_s };
-  }).filter(a => !!a.switch_key);
+    return { type: "switch", switch_key: switchKey, set, revert_action: revertAction, delay_s };
+  }).filter(a => a.type === "notify" ? !!a.to : !!a.switch_key);
 
   if (!actions.length) {
-    const fallback = q(modal, "#actionsContainer .action-switch");
+    const fallback = q(modal, "#actionsContainer .action-actor");
     const fallbackKey = String(fallback?.value || "").trim();
+    if (fallbackKey === "notify") {
+      throw new Error("A To email address is required for the Notify actor.");
+    }
     if (fallbackKey) {
       actions.push({ switch_key: fallbackKey, set: true, revert_action: "previous_state", delay_s: 0 });
     }
@@ -874,6 +925,30 @@ async function loadSwitchInfoInto(rootLike) {
   const modal = getModalRoot(rootLike);
   if (!modal) { console.warn("[AdvancedAutomation] modal root missing in loadSwitchInfoInto"); return; }
 
+  if (modal.querySelector("[data-automation-scope='system']")) {
+    const context = await fetchAutomationContext().catch(err => {
+      console.warn("[AdvancedAutomation] automation context failed:", err);
+      return { actors: [], email_enabled: false, executor_switch_id: "" };
+    });
+    actorDirectory = Array.isArray(context.actors) ? context.actors : [];
+    emailActorEnabled = !!context.email_enabled;
+    currentSwitchId = String(context.executor_switch_id || "").trim();
+    if (!currentSwitchId && actorDirectory.length) {
+      currentSwitchId = String(actorDirectory[0]?.switch_id || "").trim();
+    }
+    const info = currentSwitchId
+      ? await fetchSwitchInfo().catch(() => ({}))
+      : {};
+    astralStatus = info.astral_status || { ok: false, message: "" };
+    modal.querySelectorAll("#actionsContainer .action-actor").forEach(sel => {
+      fillActionSwitchOptions(sel, modal, sel.value);
+    });
+    updateAstralDependencyWarning(modal);
+    return;
+  }
+
+  actorDirectory = [];
+  emailActorEnabled = false;
   const info = await fetchSwitchInfo().catch(err => {
     console.warn("[AdvancedAutomation] fetchSwitchInfo failed:", err);
     return { labels:{}, channels:1 };
@@ -1043,7 +1118,8 @@ window.initAdvancedAutomationModal = async function (modalEl) {
       modalEl.dataset?.switchId ||
       scope.dataset?.switchId ||
       "";
-    if (!currentSwitchId) {
+    const isSystemEditor = !!modalRoot.querySelector("[data-automation-scope='system']");
+    if (!currentSwitchId && !isSystemEditor) {
       console.error("initAdvancedAutomationModal: missing data-switch-id");
       return false;
     }
@@ -1101,6 +1177,10 @@ window.initAdvancedAutomationModal = async function (modalEl) {
 
     // ---- load the critical UI path first (fast): switch info + saved automations ----
     await loadSwitchInfoInto(modalRoot);
+    if (!currentSwitchId) {
+      const statusEl = modalRoot.querySelector("#automationSaveStatus");
+      if (statusEl) statusEl.textContent = "Add a switch before creating automations.";
+    }
     await loadAutomationsListInto(modalRoot);
 
     // ---- load sensors in background so slow sensor endpoints don't block the list ----

@@ -104,10 +104,10 @@ Local sensors:
 - `SensorController.data_collection` reads a concrete sensor module.
 - `saiDataLogger.log_readings` writes metric rows to `readings`.
 - In-memory latest-value caches are updated for dashboard and fast stats.
-- Readings listeners notify Home Assistant, farmOS, and the email notification
-  queue when those integrations are enabled. SMTP delivery runs off the
-  readings hot path, and persisted rule state prevents duplicate high alerts
-  across restarts.
+- Readings listeners notify Home Assistant and farmOS when those integrations
+  are enabled.
+- System automation monitors evaluate Notify actors. SMTP delivery runs on a
+  daemon worker thread so it does not block switch monitoring.
 
 Remote Nodus sensors:
 

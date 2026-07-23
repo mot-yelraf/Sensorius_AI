@@ -159,15 +159,9 @@ Fields and selectors:
 - **Sun Peak Time**: read-only solar noon.
 - **Gauge Size**: dashboard gauge size. Options are **Small** and **Large**.
 - **Display Style**: default dashboard metric display. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
-- **Notifications > Email Settings**: enables SMTP delivery and configures the server, port, TLS mode, username, Google App Password, and From/To addresses. **Send Test Email** uses the values currently visible in the form without saving them; a blank password uses the configured credential. Saving with a blank password also preserves that credential.
-- **Notifications > Notification Rules**: adds directional sensor-metric rules using `>` or `<`. A `>` rule alerts above `threshold + hysteresis` and recovers below `threshold - hysteresis`. A `<` rule alerts below `threshold - hysteresis` and recovers above `threshold + hysteresis`. Values inside the hysteresis band do not change state.
-- Automated email guards prevent rapid cycling: a recovered rule waits 10 minutes before another high alert, three failed delivery attempts open a 10-minute circuit breaker, and successful automated messages are capped at 10 per rolling hour and 40 per rolling day. Test emails are excluded.
+- **Notifications**: enables SMTP delivery and configures the server, port, TLS mode, username, Google App Password, and From address. The **To** address is used only by **Send Test Email**. Automation recipients are configured on individual Notify actions.
 - **Dashboard**: returns to the dashboard.
-- **Save**: writes system settings and notification rules to `system_settings/<device_id>/settings.toml`; email connection values are written to the protected project-root `.env`.
-
-| Email settings expanded | Notification rules expanded |
-| --- | --- |
-| ![Email notification settings](<../assets/screenshots/system-settings-notifications-email.png>) | ![Notification rules settings](<../assets/screenshots/system-settings-notification-rules.png>) |
+- **Save**: writes system settings normally; email connection values are written to the protected project-root `.env`.
 
 #### Configure Gmail for Sensorius
 
@@ -188,7 +182,7 @@ after 2-Step Verification is enabled.
 5. Copy the generated 16-character App Password immediately. Google displays
    it only once. Sensorius accepts it with or without the spaces shown by
    Google.
-6. In Sensorius, open **System Settings > Notifications > Email Settings** and
+6. In Sensorius, open **System Settings > System Settings > Notifications** and
    enter:
 
    - **SMTP Server**: `smtp.gmail.com`
@@ -197,11 +191,9 @@ after 2-Step Verification is enabled.
    - **Username**: the complete Gmail address, such as `hub@example.com`
    - **Password**: the generated Google App Password, not the account password
    - **From**: normally the same complete Gmail address
-   - **To**: the notification recipient; separate multiple addresses with
-     commas
    - **Email Notifications**: **Enabled**
 
-7. Select **Send Test Email**. This tests the values currently displayed, so
+7. Enter a test recipient in **To**, then select **Send Test Email**. This tests the values currently displayed, so
    they do not have to be saved first. Check the recipient inbox and spam
    folder if Sensorius reports success but the message is not visible.
 8. After the test succeeds, select **Save**. On later edits, leave **Password**
@@ -523,11 +515,11 @@ Fields and controls:
 Keep labels stable for operator clarity, but the internal switch address is the
 stable `<switch_id>::<channel_id>` key.
 
-### Automations Pane
+### System Automations
 
 ![Switch automations pane](<../assets/screenshots/switch-automations-list.png>)
 
-The Automations pane first shows saved automations for the selected switch. Each item shows the automation name and whether it is enabled.
+Open **System Settings > Automations**. The pane first shows all saved automations. Each item shows the automation name and whether it is enabled.
 
 Controls:
 
@@ -585,10 +577,11 @@ Timer condition fields:
 
 Action fields:
 
-- **Switch**: channel to control. Options come from labeled channels on this switch and use the stable switch key behind the scenes.
+- **Actors**: action target. Switch entries are shown as `<switch_id>:<switch_label>` and use the stable channel ID behind the scenes. When email is enabled, **Notify** is also available.
 - **State**: **On** or **Off**.
 - **Revert Action**: **Previous State** returns the switch to its previous state when the rule is no longer true. **Do Nothing** leaves the switch where the action put it.
 - **Delay Before Action (secs)**: waits 0 to 60 seconds after the rule becomes true before applying the action.
+- **To**: shown for the **Notify** actor; the email is sent once when the automation becomes true and can be sent again after the automation becomes false and later true.
 
 Actions set absolute states, not toggle or invert commands. All actions in one automation share the same condition groups. **Previous State** is captured when an action actually changes a switch; if the switch is already at the requested state, there is no new previous state for that action to restore.
 

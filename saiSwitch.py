@@ -11,6 +11,7 @@ import json
 import time
 import random
 import asyncio
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -18,6 +19,7 @@ from saiUtils import printDM, debug_enabled, get_timestamp
 from saiSwitchFactory import create_switch
 from saiMQTTClient import get_mqtt_client
 from saiDataLogger import saiDataLogger
+from saiEmailNotifications import SMTPEmailSender
 try:
     import requests
 except Exception:
@@ -1386,7 +1388,11 @@ class SwitchController:
                 groups.append(current)
             return groups
 
-        def _eval_single_condition(cond: dict, target_label: str) -> bool:
+        def _eval_single_condition(
+            cond: dict,
+            target_label: str,
+            current_action_state: bool | None = None,
+        ) -> bool:
             """
             Evaluate a single condition for a specific target switch label.
             Uses current_values_map + hysteresis around cond.value where applicable.
@@ -1520,7 +1526,11 @@ class SwitchController:
                     hyst = 0.0
 
                 op = str(cond.get("op", ">") or ">").strip()
-                curr_state = bool(self.get_state(target_label))
+                curr_state = (
+                    bool(current_action_state)
+                    if current_action_state is not None
+                    else bool(self.get_state(target_label))
+                )
 
                 # Interpret "condition truth" as "this condition alone wants the
                 # channel to be ON" using hysteresis around the threshold.
@@ -1543,6 +1553,10 @@ class SwitchController:
             self._advanced_active_actions = active_actions
         if not isinstance(getattr(self, "_advanced_revert_cooldown", None), set):
             self._advanced_revert_cooldown = set()
+        notify_states = getattr(self, "_advanced_notify_states", None)
+        if not isinstance(notify_states, dict):
+            notify_states = {}
+            self._advanced_notify_states = notify_states
         persist_active_actions = False
 
         action_evals: dict[tuple[str, str, str, bool], dict] = {}
@@ -1586,6 +1600,61 @@ class SwitchController:
 
                 # ---- per-action evaluation (so hysteresis uses that channel) ----
                 for act in actions:
+                    action_type = str(act.get("type", "switch") or "switch").strip().lower()
+                    if action_type == "notify":
+                        executor_sid = str(act.get("executor_switch_id", "") or "").strip()
+                        own_sid = str(getattr(self, "switch_id", "") or "").strip()
+                        if not executor_sid or executor_sid.lower() != own_sid.lower():
+                            continue
+                        recipient = str(act.get("to", "") or "").strip()
+                        notify_key = (str(_rule_id), recipient)
+                        was_active = bool(notify_states.get(notify_key, False))
+                        group_results = []
+                        for group in groups:
+                            group_results.append(
+                                all(
+                                    _eval_single_condition(
+                                        cond,
+                                        "",
+                                        current_action_state=was_active,
+                                    )
+                                    for cond in group
+                                )
+                            )
+                        rule_ok = any(group_results)
+                        notify_states[notify_key] = rule_ok
+                        if rule_ok and not was_active and recipient:
+                            rule_name = str(script.get("name", "") or _rule_id).strip()
+                            subject = f"Sensorius automation: {rule_name}"
+                            body = (
+                                f"The Sensorius automation “{rule_name}” became active "
+                                f"on {own_sid}."
+                            )
+
+                            def _send_automation_email(
+                                to_address=recipient,
+                                mail_subject=subject,
+                                mail_body=body,
+                            ):
+                                try:
+                                    SMTPEmailSender().send(
+                                        mail_subject,
+                                        mail_body,
+                                        to_addresses=(to_address,),
+                                    )
+                                except Exception as exc:
+                                    printDM(
+                                        f"[advanced] Notify delivery failed for {to_address}: {exc}",
+                                        location=MODULE,
+                                    )
+
+                            threading.Thread(
+                                target=_send_automation_email,
+                                name=f"SensoriusNotify-{_rule_id}",
+                                daemon=True,
+                            ).start()
+                        continue
+
                     skey = str(act.get("switch_key", "") or "").strip()
                     if "::" not in skey:
                         if DEBUG:
