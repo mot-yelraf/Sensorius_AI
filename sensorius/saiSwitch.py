@@ -1430,16 +1430,16 @@ class SwitchController:
         current_values_map: dict,
     ) -> tuple[str, str]:
         """Build the subject and body for a triggered or cleared automation."""
-        state = "TRIGGERED" if triggered else "CLEARED"
+        notification_state = "ACTIVATED" if triggered else "CLEARED"
         display_name = rule_name or rule_id
-        subject = f"Sensorius {state}: {display_name}"
+        subject = f"Sensorius {notification_state}: {display_name}"
         evaluated_at = datetime.now().astimezone().isoformat()
         hub = socket.gethostname() or "unknown"
 
         body_lines = [
             "Sensorius automation notification",
             "",
-            f"State: {state}",
+            f"State: {notification_state}",
             f"Automation: {display_name}",
             f"Rule ID: {rule_id}",
             f"Evaluation time: {evaluated_at}",

@@ -426,9 +426,9 @@ def test_advanced_notify_actor_reports_triggered_and_cleared_edges(
     SwitchController._evaluate_and_apply_advanced(ctrl, values())
     SwitchController._evaluate_and_apply_advanced(ctrl, values())
     assert len(sent) == 1
-    assert sent[0][0] == "Sensorius TRIGGERED: High temperature"
+    assert sent[0][0] == "Sensorius ACTIVATED: High temperature"
     assert sent[0][2]["to_addresses"] == ("grower@example.com",)
-    assert "State: TRIGGERED" in sent[0][1]
+    assert "State: ACTIVATED" in sent[0][1]
     assert "Hub: sensorius-hub-3" in sent[0][1]
     assert "Group 1: TRUE" in sent[0][1]
     assert (
@@ -453,7 +453,7 @@ def test_advanced_notify_actor_reports_triggered_and_cleared_edges(
     rule_on["value"] = True
     SwitchController._evaluate_and_apply_advanced(ctrl, values())
     assert len(sent) == 3
-    assert sent[2][0] == "Sensorius TRIGGERED: High temperature"
+    assert sent[2][0] == "Sensorius ACTIVATED: High temperature"
 
 
 def test_automation_notification_reports_or_groups_and_switch_actions(
@@ -500,7 +500,8 @@ def test_automation_notification_reports_or_groups_and_switch_actions(
         current_values_map={},
     )
 
-    assert subject == "Sensorius TRIGGERED: Daylight Notification"
+    assert subject == "Sensorius ACTIVATED: Daylight Notification"
+    assert "State: ACTIVATED" in body
     assert "Group 1: FALSE" in body
     assert "[FALSE] Time of day 06:00-18:00; Mon,Tue,Wed,Thu,Fri" in body
     assert "\nOR\nGroup 2: TRUE" in body
