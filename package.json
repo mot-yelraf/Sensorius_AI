@@ -15,7 +15,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "MIT",
+  "license": "BSD-2-Clause",
   "type": "module",
   "bugs": {
     "url": "https://github.com/mot-yelraf/saiSensorius/issues"

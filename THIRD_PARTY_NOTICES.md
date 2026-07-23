@@ -1,8 +1,8 @@
 # Third-Party And Binary Notices
 
-Sensorius source code is distributed under the MIT License in `LICENSE`.
-`package.json` is private tooling metadata and uses the same MIT designation;
-it is not a separately published npm package.
+Sensorius source code is distributed under the BSD 2-Clause License in
+`LICENSE`. `package.json` is private tooling metadata and uses the same
+BSD-2-Clause designation; it is not a separately published npm package.
 
 ## JPL DE421 Ephemeris
 
@@ -35,8 +35,8 @@ that records each deployed path, byte size, and SHA-256 digest.
 
 These are application payloads, not CircuitPython firmware images. No
 third-party CircuitPython runtime binary is bundled in the package directories.
-The repository's MIT license applies to the Sensorius-maintained payloads to
-the extent the project owns the corresponding source.
+The repository's BSD 2-Clause License applies to the Sensorius-maintained
+payloads to the extent the project owns the corresponding source.
 
 Before publishing a new OTA package:
 

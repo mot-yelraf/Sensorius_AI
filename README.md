@@ -127,6 +127,10 @@ farmOS export option:
 
 For a fuller narrative overview of system behavior and design goals, see `ABOUT.md`.
 
+## License
+
+Sensorius is licensed under the [BSD 2-Clause License](LICENSE).
+
 ## Attribution
 
 - System Architecture: TW Farley
