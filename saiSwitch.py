@@ -12,6 +12,7 @@ import time
 import random
 import asyncio
 import threading
+import socket
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -1299,7 +1300,172 @@ class SwitchController:
         except Exception as e:
             if DEBUG:
                 printDM(f"[rules] detection error: {e}", location=MODULE)
-            return False
+        return False
+
+    def _automation_condition_report(
+        self,
+        cond: dict,
+        result: bool,
+        current_values_map: dict,
+    ) -> str:
+        """Format one evaluated automation condition for an email report."""
+        ctype = str(cond.get("type", "") or "").strip().lower()
+        status = "TRUE" if result else "FALSE"
+
+        raw_days = cond.get("days") or []
+        day_names = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+        days = []
+        for raw_day in raw_days:
+            try:
+                day_num = int(raw_day)
+            except Exception:
+                continue
+            if 0 <= day_num <= 6:
+                days.append(day_names[day_num])
+        day_text = ",".join(days) if days else "all days"
+
+        if ctype == "sensor":
+            sensor_id = str(cond.get("sensor", "") or "").strip()
+            metric = str(cond.get("metric", "") or "").strip()
+            op = str(cond.get("op", ">") or ">").strip()
+            threshold = cond.get("value")
+            hyst = cond.get("hyst", 0)
+            actual = None
+            values = self._get_values_for_sensor(sensor_id, current_values_map)
+            if metric in values:
+                actual = values.get(metric)
+            else:
+                wanted = metric.lower().replace("-", "").replace("_", "").replace(" ", "")
+                for key, value in values.items():
+                    normalized = str(key).lower().replace("-", "").replace("_", "").replace(" ", "")
+                    if normalized == wanted:
+                        actual = value
+                        break
+
+            boundary_text = ""
+            try:
+                threshold_num = float(threshold)
+                hyst_num = float(hyst or 0)
+                if op == ">":
+                    boundary_text = (
+                        f"; trigger > {threshold_num + hyst_num:g}; "
+                        f"clear < {threshold_num - hyst_num:g}"
+                    )
+                elif op == "<":
+                    boundary_text = (
+                        f"; trigger < {threshold_num - hyst_num:g}; "
+                        f"clear > {threshold_num + hyst_num:g}"
+                    )
+            except Exception:
+                pass
+            actual_text = "unavailable" if actual is None else str(actual)
+            return (
+                f"[{status}] Sensor {sensor_id}; {metric} {op} {threshold}; "
+                f"value {actual_text}; hysteresis {hyst}{boundary_text}"
+            )
+
+        if ctype == "time":
+            start = str(cond.get("start", "00:00") or "00:00")
+            end = str(cond.get("end", "24:00") or "24:00")
+            now_text = datetime.now().astimezone().strftime("%H:%M %Z")
+            return f"[{status}] Time of day {start}-{end}; {day_text}; now {now_text}"
+
+        if ctype == "astral":
+            event = str(cond.get("astral_event", cond.get("event", "sunrise")) or "sunrise")
+            event = event.replace("_", " ")
+            offset = int(cond.get("offset_min", cond.get("offset_minutes", 0)) or 0)
+            sign = "+" if offset >= 0 else ""
+            return f"[{status}] Astral {event}; offset {sign}{offset} min; {day_text}"
+
+        if ctype == "timer":
+            duration = int(cond.get("duration_min", 1) or 1)
+            period = cond.get("period_min")
+            if period is None:
+                period = int(cond.get("freq_hours", 1) or 1) * 60
+            return f"[{status}] Timer active {duration} min every {int(period)} min"
+
+        return f"[{status}] {ctype or 'unknown'} condition"
+
+    def _automation_action_report(self, action: dict) -> str:
+        """Format one configured automation action for an email report."""
+        action_type = str(action.get("type", "switch") or "switch").strip().lower()
+        if action_type == "notify":
+            return f"Notify: email {str(action.get('to', '') or '').strip()}"
+
+        switch_key = str(action.get("switch_key", "") or "").strip()
+        display_key = switch_key.replace("::", ":", 1)
+        if "::" in switch_key:
+            sid, suffix = switch_key.split("::", 1)
+            try:
+                from saiSwitchSettingsManager import SwitchSettingsManager
+
+                doc = SwitchSettingsManager("switch_settings").load(sid) or {}
+                sw = doc.get("Switch") or {}
+                for idx in range(1, 33):
+                    label = str(sw.get(f"SWITCH_{idx}_LABEL", "") or "").strip()
+                    channel_id = str(sw.get(f"SWITCH_{idx}_CHANNEL_ID", "") or "").strip()
+                    if label and suffix.lower() in {label.lower(), channel_id.lower()}:
+                        display_key = f"{sid}:{label}"
+                        break
+            except Exception:
+                pass
+
+        state = "On" if bool(action.get("set", True)) else "Off"
+        revert = (
+            "Previous State"
+            if str(action.get("revert_action", "") or "").strip().lower() == "previous_state"
+            else "Do Nothing"
+        )
+        delay = max(0, int(action.get("delay_s", 0) or 0))
+        return f"Switch {display_key}: {state}; revert {revert}; delay {delay} sec"
+
+    def _build_automation_notification(
+        self,
+        *,
+        rule_id: str,
+        rule_name: str,
+        triggered: bool,
+        evaluated_groups: list[dict],
+        actions: list[dict],
+        current_values_map: dict,
+    ) -> tuple[str, str]:
+        """Build the subject and body for a triggered or cleared automation."""
+        state = "TRIGGERED" if triggered else "CLEARED"
+        display_name = rule_name or rule_id
+        subject = f"Sensorius {state}: {display_name}"
+        evaluated_at = datetime.now().astimezone().isoformat()
+        hub = socket.gethostname() or "unknown"
+
+        body_lines = [
+            "Sensorius automation notification",
+            "",
+            f"State: {state}",
+            f"Automation: {display_name}",
+            f"Rule ID: {rule_id}",
+            f"Evaluation time: {evaluated_at}",
+            f"Hub: {hub}",
+            "",
+            "Conditions (AND within each group; OR between groups):",
+        ]
+        for group_index, group in enumerate(evaluated_groups, start=1):
+            group_state = "TRUE" if bool(group.get("result", False)) else "FALSE"
+            if group_index > 1:
+                body_lines.append("OR")
+            body_lines.append(f"Group {group_index}: {group_state}")
+            for cond, result in group.get("conditions", []):
+                body_lines.append(
+                    "  " + self._automation_condition_report(
+                        cond,
+                        bool(result),
+                        current_values_map,
+                    )
+                )
+
+        body_lines.extend(["", "Configured actions:"])
+        for action in actions:
+            body_lines.append("  - " + self._automation_action_report(action))
+
+        return subject, "\n".join(body_lines)
 
     def _evaluate_and_apply_advanced(self, current_values_map: dict):
         """
@@ -1609,26 +1775,41 @@ class SwitchController:
                         recipient = str(act.get("to", "") or "").strip()
                         notify_key = (str(_rule_id), recipient)
                         was_active = bool(notify_states.get(notify_key, False))
-                        group_results = []
+                        evaluated_groups = []
                         for group in groups:
-                            group_results.append(
-                                all(
+                            evaluated_conditions = []
+                            group_ok = True
+                            for cond in group:
+                                condition_ok = bool(
                                     _eval_single_condition(
                                         cond,
                                         "",
                                         current_action_state=was_active,
                                     )
-                                    for cond in group
                                 )
+                                evaluated_conditions.append((cond, condition_ok))
+                                if not condition_ok:
+                                    group_ok = False
+                            evaluated_groups.append(
+                                {
+                                    "result": group_ok,
+                                    "conditions": evaluated_conditions,
+                                }
                             )
-                        rule_ok = any(group_results)
+                        rule_ok = any(
+                            bool(group.get("result", False))
+                            for group in evaluated_groups
+                        )
                         notify_states[notify_key] = rule_ok
-                        if rule_ok and not was_active and recipient:
+                        if rule_ok != was_active and recipient:
                             rule_name = str(script.get("name", "") or _rule_id).strip()
-                            subject = f"Sensorius automation: {rule_name}"
-                            body = (
-                                f"The Sensorius automation “{rule_name}” became active "
-                                f"on {own_sid}."
+                            subject, body = self._build_automation_notification(
+                                rule_id=str(_rule_id),
+                                rule_name=rule_name,
+                                triggered=rule_ok,
+                                evaluated_groups=evaluated_groups,
+                                actions=list(actions),
+                                current_values_map=current_values_map,
                             )
 
                             def _send_automation_email(

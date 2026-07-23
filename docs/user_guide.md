@@ -135,13 +135,15 @@ The Events column shows up to five recent On/Off transitions, newest first, with
 
 ## System Settings
 
-System Settings contains hub-level settings, device onboarding, integrations, locations, firmware updates, and maintenance tools.
+System Settings contains hub-level settings, notifications, system-wide
+automations, device onboarding, integrations, locations, firmware updates, and
+maintenance tools.
 
 ### System Settings Pane
 
 ![System settings pane](<../assets/screenshots/system-settings-general.png>)
 
-Fields and selectors:
+#### Fields and Selectors
 
 - **Hostname**: read-only host name for this Sensorius hub. It comes from the active system settings and host runtime.
 - **HTTP Port**: web UI port. Valid range is 1 to 65535. The default is usually 8000. Changing it may require a restart or opening the new URL.
@@ -159,9 +161,16 @@ Fields and selectors:
 - **Sun Peak Time**: read-only solar noon.
 - **Gauge Size**: dashboard gauge size. Options are **Small** and **Large**.
 - **Display Style**: default dashboard metric display. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
-- **Notifications**: enables SMTP delivery and configures the server, port, TLS mode, username, Google App Password, and From address. The **To** address is used only by **Send Test Email**. Automation recipients are configured on individual Notify actions.
+- **Notifications**: enables SMTP delivery and configures the server, port, TLS mode, username, Google App Password, and From address. The **To** address is used only by **Send Test Email**. Automation recipients are configured on individual **Notify** actions under **System Settings > Automations**.
 - **Dashboard**: returns to the dashboard.
 - **Save**: writes system settings normally; email connection values are written to the protected project-root `.env`.
+
+![Notification email settings](<../assets/screenshots/system-settings-notifications.png>)
+
+Enable **Email Notifications** and save the SMTP settings before creating a
+**Notify** action. The automation editor shows **Notify** only while email
+notifications are enabled. Disabling email notifications hides that actor and
+prevents automated email delivery, but does not remove saved automations.
 
 #### Configure Gmail for Sensorius
 
@@ -215,6 +224,103 @@ App Passwords are permitted. Google revokes existing App Passwords when the
 main Google Account password changes; create and save a new App Password if
 email delivery stops afterward. Revoke the Sensorius App Password from the
 Google Account when the hub is retired or no longer uses that account.
+
+### Automations Pane
+
+![System automations pane](<../assets/screenshots/system-automations-list.png>)
+
+Open **System Settings > Automations**. Automations are configured globally
+from System Settings and are no longer edited from an individual switch's
+settings. The saved list shows every automation and whether it is enabled.
+This also allows a notification-only automation to run when no switch is
+installed.
+
+Controls:
+
+- **New**: opens a new automation definition.
+- **Saved Automations**: returns from the editor to the saved list.
+- **Remove**: deletes the selected automation.
+- **Enable** in the editor: sets whether the rule is active. Options are **Yes** and **No**.
+
+For compatibility, automation rules remain stored under the Sensorius runtime
+directory at
+`/Users/<user>/Sensorius/switch_settings/automations/automations.toml` on macOS
+or `/home/<user>/Sensorius/switch_settings/automations/automations.toml` on
+Linux. The System Settings editor loads all saved rules, sensor and metric
+choices, and the available actor directory.
+
+#### Automation Definition
+
+![System automation definition pane](<../assets/screenshots/system-automation-definition.png>)
+
+Top-level fields:
+
+- **Automation Name**: friendly name shown in the saved automation list.
+- **Enable**: **Yes** activates the automation, **No** saves it but does not run it.
+- **Add Condition**: adds another condition row.
+- **Add Action**: adds another action row.
+- **Save**: saves the automation.
+
+Condition **Type** options:
+
+- **sensor**: compares a sensor metric to a threshold.
+- **time of day**: active only inside a daily time window.
+- **astral**: uses sunrise or sunset timing from Astral location.
+- **timer**: active for a repeated duration, such as 5 minutes every hour.
+- **or**: separates groups of conditions. Conditions within a group are AND; groups separated by OR are OR.
+
+##### Sensor Conditions
+
+- **Sensor**: sensor to watch. Options are dashboard-visible sensors.
+- **Metric**: metric from the selected sensor.
+- **Operator**: comparison operator. Options are `>`, `<`, `==`, and `!=`.
+- **Threshold**: numeric value used by the comparison.
+- **Hysteresis**: buffer around the threshold to reduce rapid on/off cycling.
+
+##### Time-of-Day Conditions
+
+- **Start Time**: beginning of the active window.
+- **Stop Time**: end of the active window.
+- **Days**: weekdays when the condition can be true. Options are Mon through Sun.
+
+##### Astral Conditions
+
+- **Event**: sunrise/sunset mode. Options are **sunrise to sunset**, **sunset to sunrise**, **sunrise**, and **sunset**.
+- **Offset (minutes)**: shifts the event by -120 to 120 minutes. Negative starts before the event; positive starts after.
+- **Days**: weekdays when the Astral rule can run.
+
+##### Timer Conditions
+
+- **Every**: repeat interval. Options are 5 minutes, 15 minutes, 30 minutes, 1 hour, 3 hours, 6 hours, 12 hours, and 24 hours.
+- **Duration**: active duration in minutes, from 1 to 60. Duration must be less than the Every interval.
+
+##### Actions
+
+- **Actors**: action target. Switch entries are shown as `<switch_id>:<switch_label>` and use the stable channel ID behind the scenes. When email notifications are enabled, **Notify** is also available.
+- **State**: shown for a switch actor; selects **On** or **Off**.
+- **Revert Action**: shown for a switch actor. **Previous State** returns the switch to its previous state when the rule is no longer true. **Do Nothing** leaves the switch where the action put it.
+- **Delay Before Action (secs)**: shown for a switch actor; waits 0 to 60 seconds after the rule becomes true before applying the action.
+- **To**: shown for the **Notify** actor. Enter the recipient for this automation. Sensorius sends a **TRIGGERED** email when the automation becomes true and a **CLEARED** email when it becomes false. Each message lists the AND/OR condition groups and their results, current sensor values where applicable, and all configured actions.
+
+Switch actions set absolute states, not toggle or invert commands. All actions
+in one automation share the same condition groups. **Previous State** is
+captured when an action actually changes a switch; if the switch is already at
+the requested state, there is no new previous state for that action to restore.
+
+To alternate two switch channels in one timer automation:
+
+1. Disable the automation.
+2. Put the channels in their normal baseline state manually. For example, set Green **On** and Yellow **Off**.
+3. In the automation action rows, choose the state wanted during the timer window. For example, set Green **Off** and Yellow **On**.
+4. Set **Revert Action** to **Previous State** for both rows.
+5. Save and enable the automation.
+
+With that setup, the timer window applies the action states, and the end of the
+window restores the manually set baseline state.
+
+For critical loads, test automations with harmless equipment first. A short
+delay and hysteresis can prevent relay chatter when readings hover near a
+threshold.
 
 If the Astral fields are wrong, biodynamic timing, sunrise/sunset automations, and weather forecast placement may also be wrong.
 
@@ -497,7 +603,9 @@ Switches control things such as pumps, fans, lights, valves, heaters, vents, and
 
 Switch state changes are stored as switch events. These events are available for dashboard state, recent-event lists, full-screen graph overlays, and automation review.
 
-Open Switch Settings from a switch card when you need to label channels, set the switch location, build automations, or check switch health.
+Open Switch Settings from a switch card when you need to label channels, set
+the switch location, or check switch health. Create and edit rules separately
+under **System Settings > Automations**.
 
 ### Switch Settings Pane
 
@@ -514,88 +622,6 @@ Fields and controls:
 
 Keep labels stable for operator clarity, but the internal switch address is the
 stable `<switch_id>::<channel_id>` key.
-
-### System Automations
-
-![Switch automations pane](<../assets/screenshots/switch-automations-list.png>)
-
-Open **System Settings > Automations**. The pane first shows all saved automations. Each item shows the automation name and whether it is enabled.
-
-Controls:
-
-- **New**: opens a new automation definition.
-- **Saved Automations**: returns from the editor to the saved list.
-- **Remove**: deletes the selected automation.
-- **Enable** in the editor: sets whether the rule is active. Options are **Yes** and **No**.
-
-Automation rules are stored under the Sensorius runtime directory, such as `/Users/<user>/Sensorius/switch_settings/automations/automations.toml` on macOS or `/home/<user>/Sensorius/switch_settings/automations/automations.toml` on Linux. The editor loads sensor choices from `/sensor-directory`, metric choices from `/sensor-metrics`, switch labels from `/switch-info`, and existing automation rules from `/advanced/automations`.
-
-### Automation Definition Pane
-
-![Switch automation definition pane](<../assets/screenshots/switch-automation-definition.png>)
-
-Top-level fields:
-
-- **Automation Name**: friendly name shown in the saved automation list.
-- **Enable**: **Yes** activates the automation, **No** saves it but does not run it.
-- **Add Condition**: adds another condition row.
-- **Add Action**: adds another action row.
-- **Save**: saves the automation.
-
-Condition **Type** options:
-
-- **sensor**: compares a sensor metric to a threshold.
-- **time of day**: active only inside a daily time window.
-- **astral**: uses sunrise or sunset timing from Astral location.
-- **timer**: active for a repeated duration, such as 5 minutes every hour.
-- **or**: separates groups of conditions. Conditions within a group are AND; groups separated by OR are OR.
-
-Sensor condition fields:
-
-- **Sensor**: sensor to watch. Options are dashboard-visible sensors.
-- **Metric**: metric from the selected sensor.
-- **Operator**: comparison operator. Options are `>`, `<`, `==`, and `!=`.
-- **Threshold**: numeric value used by the comparison.
-- **Hysteresis**: buffer around the threshold to reduce rapid on/off cycling.
-
-Time-of-day condition fields:
-
-- **Start Time**: beginning of the active window.
-- **Stop Time**: end of the active window.
-- **Days**: weekdays when the condition can be true. Options are Mon through Sun.
-
-Astral condition fields:
-
-- **Event**: sunrise/sunset mode. Options are **sunrise to sunset**, **sunset to sunrise**, **sunrise**, and **sunset**.
-- **Offset (minutes)**: shifts the event by -120 to 120 minutes. Negative starts before the event; positive starts after.
-- **Days**: weekdays when the Astral rule can run.
-
-Timer condition fields:
-
-- **Every**: repeat interval. Options are 5 minutes, 15 minutes, 30 minutes, 1 hour, 3 hours, 6 hours, 12 hours, and 24 hours.
-- **Duration**: active duration in minutes, from 1 to 60. Duration must be less than the Every interval.
-
-Action fields:
-
-- **Actors**: action target. Switch entries are shown as `<switch_id>:<switch_label>` and use the stable channel ID behind the scenes. When email is enabled, **Notify** is also available.
-- **State**: **On** or **Off**.
-- **Revert Action**: **Previous State** returns the switch to its previous state when the rule is no longer true. **Do Nothing** leaves the switch where the action put it.
-- **Delay Before Action (secs)**: waits 0 to 60 seconds after the rule becomes true before applying the action.
-- **To**: shown for the **Notify** actor; the email is sent once when the automation becomes true and can be sent again after the automation becomes false and later true.
-
-Actions set absolute states, not toggle or invert commands. All actions in one automation share the same condition groups. **Previous State** is captured when an action actually changes a switch; if the switch is already at the requested state, there is no new previous state for that action to restore.
-
-To alternate two switch channels in one timer automation:
-
-1. Disable the automation.
-2. Put the channels in their normal baseline state manually. For example, set Green **On** and Yellow **Off**.
-3. In the automation action rows, choose the state wanted during the timer window. For example, set Green **Off** and Yellow **On**.
-4. Set **Revert Action** to **Previous State** for both rows.
-5. Save and enable the automation.
-
-With that setup, the timer window applies the action states, and the end of the window restores the manually set baseline state.
-
-For critical loads, test automations with harmless equipment first. A short delay and hysteresis can prevent relay chatter when readings hover near a threshold.
 
 ### Switch Info Pane
 

@@ -372,7 +372,9 @@ def test_advanced_rule_does_nothing_when_conditions_are_false():
     assert calls == []
 
 
-def test_advanced_notify_actor_sends_once_per_true_edge(monkeypatch: pytest.MonkeyPatch):
+def test_advanced_notify_actor_reports_triggered_and_cleared_edges(
+    monkeypatch: pytest.MonkeyPatch,
+):
     ctrl = _make_controller()
     ctrl.switch_id = "__system__"
     rule_on = {"value": True}
@@ -415,6 +417,7 @@ def test_advanced_notify_actor_sends_once_per_true_edge(monkeypatch: pytest.Monk
         "send",
         lambda _self, subject, body, **kwargs: sent.append((subject, body, kwargs)),
     )
+    monkeypatch.setattr(saiSwitch.socket, "gethostname", lambda: "sensorius-hub-3")
 
     def values():
         return {"sensor-1": {"temperature": 30 if rule_on["value"] else 20}}
@@ -423,13 +426,90 @@ def test_advanced_notify_actor_sends_once_per_true_edge(monkeypatch: pytest.Monk
     SwitchController._evaluate_and_apply_advanced(ctrl, values())
     SwitchController._evaluate_and_apply_advanced(ctrl, values())
     assert len(sent) == 1
+    assert sent[0][0] == "Sensorius TRIGGERED: High temperature"
     assert sent[0][2]["to_addresses"] == ("grower@example.com",)
+    assert "State: TRIGGERED" in sent[0][1]
+    assert "Hub: sensorius-hub-3" in sent[0][1]
+    assert "Group 1: TRUE" in sent[0][1]
+    assert (
+        "[TRUE] Sensor sensor-1; temperature > 25; value 30; hysteresis 1"
+        in sent[0][1]
+    )
+    assert "trigger > 26; clear < 24" in sent[0][1]
+    assert "Configured actions:" in sent[0][1]
+    assert "Notify: email grower@example.com" in sent[0][1]
 
     rule_on["value"] = False
     SwitchController._evaluate_and_apply_advanced(ctrl, values())
+    assert len(sent) == 2
+    assert sent[1][0] == "Sensorius CLEARED: High temperature"
+    assert "State: CLEARED" in sent[1][1]
+    assert "Group 1: FALSE" in sent[1][1]
+    assert (
+        "[FALSE] Sensor sensor-1; temperature > 25; value 20; hysteresis 1"
+        in sent[1][1]
+    )
+
     rule_on["value"] = True
     SwitchController._evaluate_and_apply_advanced(ctrl, values())
-    assert len(sent) == 2
+    assert len(sent) == 3
+    assert sent[2][0] == "Sensorius TRIGGERED: High temperature"
+
+
+def test_automation_notification_reports_or_groups_and_switch_actions(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    ctrl = _make_controller()
+    monkeypatch.setattr(saiSwitch.socket, "gethostname", lambda: "samhain.local")
+    conditions = [
+        {
+            "type": "time",
+            "start": "06:00",
+            "end": "18:00",
+            "days": [0, 1, 2, 3, 4],
+        },
+        {
+            "type": "timer",
+            "duration_min": 5,
+            "period_min": 60,
+        },
+    ]
+
+    subject, body = SwitchController._build_automation_notification(
+        ctrl,
+        rule_id="daylight-notification",
+        rule_name="Daylight Notification",
+        triggered=True,
+        evaluated_groups=[
+            {"result": False, "conditions": [(conditions[0], False)]},
+            {"result": True, "conditions": [(conditions[1], True)]},
+        ],
+        actions=[
+            {
+                "type": "switch",
+                "switch_key": "switch-yuk0nv::LEDS",
+                "set": False,
+                "revert_action": "previous_state",
+                "delay_s": 3,
+            },
+            {
+                "type": "notify",
+                "to": "grower@example.com",
+            },
+        ],
+        current_values_map={},
+    )
+
+    assert subject == "Sensorius TRIGGERED: Daylight Notification"
+    assert "Group 1: FALSE" in body
+    assert "[FALSE] Time of day 06:00-18:00; Mon,Tue,Wed,Thu,Fri" in body
+    assert "\nOR\nGroup 2: TRUE" in body
+    assert "[TRUE] Timer active 5 min every 60 min" in body
+    assert (
+        "Switch switch-yuk0nv:LEDS: Off; revert Previous State; delay 3 sec"
+        in body
+    )
+    assert "Notify: email grower@example.com" in body
 
 
 def test_rules_enabled_parses_string_false_and_maps_channel_id(monkeypatch: pytest.MonkeyPatch):

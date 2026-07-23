@@ -71,6 +71,15 @@ Timer behavior:
 - Minute-based intervals can use `anchor_epoch` so a newly saved rule starts
   from save time.
 
+Notify behavior:
+
+- A false-to-true rule transition sends a **TRIGGERED** message.
+- A true-to-false rule transition sends a **CLEARED** message.
+- Each message identifies the hub and automation, reports every evaluated
+  condition grouped by AND/OR logic, includes current sensor values when
+  applicable, and lists all configured switch and Notify actions.
+- A rule that remains in the same state does not repeatedly send email.
+
 Revert behavior:
 
 - `previous_state` restores the state that existed before the rule applied.
