@@ -23,15 +23,15 @@ from jinja2 import Environment, FileSystemLoader
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-import saiAddDevice
-import saiDataLogger as saiDataLoggerModule
-import saiMQTTIngest
-import saiSensorSettingsManager
-import saiSettings as saiSettingsModule
-import saiSwitchSettingsManager
-import saiWebRoutes
-import saiCalibration
-from sensor_modules.station_weewx import WEEWX_RAIN_24H_METRIC
+import sensorius.saiAddDevice as saiAddDevice
+import sensorius.saiDataLogger as saiDataLoggerModule
+import sensorius.saiMQTTIngest as saiMQTTIngest
+import sensorius.saiSensorSettingsManager as saiSensorSettingsManager
+import sensorius.saiSettings as saiSettingsModule
+import sensorius.saiSwitchSettingsManager as saiSwitchSettingsManager
+import sensorius.saiWebRoutes as saiWebRoutes
+import sensorius.saiCalibration as saiCalibration
+from sensorius.sensor_modules.station_weewx import WEEWX_RAIN_24H_METRIC
 
 _REAL_SENSOR_SETTINGS_MANAGER = saiSensorSettingsManager.SensorSettingsManager
 _REAL_SWITCH_SETTINGS_MANAGER = saiSwitchSettingsManager.SwitchSettingsManager
@@ -4347,7 +4347,7 @@ async def test_dashboard_display_style_prefers_sensor_settings_over_global_defau
 
 
 def test_dashboard_gauge_init_preserves_configured_metric_display_style():
-    from saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config, render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -4372,7 +4372,7 @@ def test_dashboard_gauge_init_preserves_configured_metric_display_style():
 
 
 def test_dashboard_dynamic_sensor_settings_gear_uses_bound_sensor_id():
-    from saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config, render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -4396,7 +4396,7 @@ def test_dashboard_dynamic_sensor_settings_gear_uses_bound_sensor_id():
 
 
 def test_dashboard_biodynamic_calendar_card_has_calendar_button():
-    from saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config, render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -4436,7 +4436,7 @@ def test_dashboard_biodynamic_calendar_card_has_calendar_button():
 
 
 def test_dashboard_weather_forecast_card_has_six_day_button():
-    from saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config, render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -4474,7 +4474,7 @@ def test_dashboard_weather_forecast_card_has_six_day_button():
 
 
 def test_dashboard_weather_forecast_none_hides_forecast_card():
-    from saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config, render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -4501,7 +4501,7 @@ def test_dashboard_weather_forecast_none_hides_forecast_card():
 
 
 def test_dashboard_refresh_pauses_during_modal_and_hidden_tab():
-    from saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config, render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -4531,7 +4531,7 @@ def test_dashboard_refresh_pauses_during_modal_and_hidden_tab():
 
 
 def test_dashboard_micrograph_fetches_are_cached_and_throttled():
-    from saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config, render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -4573,7 +4573,7 @@ def test_dashboard_micrograph_fetches_are_cached_and_throttled():
 
 
 def test_dashboard_initial_graph_styles_are_refreshed_by_configured_style():
-    from saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config, render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -4599,7 +4599,7 @@ def test_dashboard_initial_graph_styles_are_refreshed_by_configured_style():
 
 
 def test_dashboard_metric_card_click_cycles_24hr_graph_to_6hr_graph():
-    from saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config, render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -4625,7 +4625,7 @@ def test_dashboard_metric_card_click_cycles_24hr_graph_to_6hr_graph():
 
 
 def test_dashboard_metric_card_reuses_chart_with_updated_graph_options():
-    from saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config, render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -4650,7 +4650,7 @@ def test_dashboard_metric_card_reuses_chart_with_updated_graph_options():
 
 
 def test_dashboard_metric_card_gauge_view_has_canvas_fallback():
-    from saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config, render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -5430,7 +5430,7 @@ async def test_advanced_automations_list_filters_to_requested_switch_id(tmp_path
                 }
             }
 
-    monkeypatch.setattr("saiAutomationManager.AutomationManager", _FakeAutomationManager)
+    monkeypatch.setattr("sensorius.saiAutomationManager.AutomationManager", _FakeAutomationManager)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.get("/advanced/automations?switch_id=desk-hub")

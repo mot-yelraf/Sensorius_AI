@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from saiEmailNotifications import (
+from sensorius.saiEmailNotifications import (
     EmailConfig,
     EmailNotificationService,
     SMTPEmailSender,
@@ -191,7 +191,7 @@ def test_persisted_active_state_prevents_restart_duplicate(monkeypatch):
 
 def test_recovery_can_reset_without_sending(monkeypatch):
     monkeypatch.setenv("SENSORIUS_EMAIL_ENABLED", "true")
-    monkeypatch.setattr("saiEmailNotifications.time.time", lambda: 1000.0)
+    monkeypatch.setattr("sensorius.saiEmailNotifications.time.time", lambda: 1000.0)
     logger = FakeLogger({"temperature-high": True})
     service = EmailNotificationService(
         settings=FakeSettings([_rule(notify_recovery=False)]),
@@ -212,7 +212,7 @@ def test_recovered_rule_waits_ten_minutes_before_new_high(monkeypatch):
     monkeypatch.setenv("SENSORIUS_EMAIL_ENABLED", "true")
     monkeypatch.setenv("SENSORIUS_EMAIL_REARM_COOLDOWN_SEC", "600")
     now = [1500.0]
-    monkeypatch.setattr("saiEmailNotifications.time.time", lambda: now[0])
+    monkeypatch.setattr("sensorius.saiEmailNotifications.time.time", lambda: now[0])
     logger = FakeLogger(
         {"temperature-high": False},
         {"temperature-high": {"last_recovery_sent_epoch": 1000.0}},
@@ -230,7 +230,7 @@ def test_recovered_rule_waits_ten_minutes_before_new_high(monkeypatch):
 def test_failure_circuit_blocks_rule_for_ten_minutes(monkeypatch):
     monkeypatch.setenv("SENSORIUS_EMAIL_ENABLED", "true")
     now = [1500.0]
-    monkeypatch.setattr("saiEmailNotifications.time.time", lambda: now[0])
+    monkeypatch.setattr("sensorius.saiEmailNotifications.time.time", lambda: now[0])
     logger = FakeLogger(
         guards={"temperature-high": {"failure_retry_after_epoch": 1600.0}},
     )
@@ -260,7 +260,7 @@ def test_global_caps_are_rolling_and_use_requested_defaults(monkeypatch):
 
 
 def test_sqlite_persists_delivery_guards_and_rate_history(tmp_path):
-    from saiDataLogger import saiDataLogger
+    from sensorius.saiDataLogger import saiDataLogger
 
     saiDataLogger._schema_ready = False
     logger = saiDataLogger(db_path=str(tmp_path / "notifications.db"))
@@ -315,7 +315,7 @@ def test_smtp_ssl_sender_logs_in_and_sends(monkeypatch):
         def send_message(self, message):
             calls.append(("send", message["Subject"], message["To"]))
 
-    monkeypatch.setattr("saiEmailNotifications.smtplib.SMTP_SSL", FakeSMTP)
+    monkeypatch.setattr("sensorius.saiEmailNotifications.smtplib.SMTP_SSL", FakeSMTP)
 
     SMTPEmailSender().send("Test subject", "Test body")
 
@@ -346,7 +346,7 @@ def test_smtp_sender_accepts_unsaved_form_config(monkeypatch):
         def send_message(self, _message):
             calls.append(("send",))
 
-    monkeypatch.setattr("saiEmailNotifications.smtplib.SMTP_SSL", FakeSMTP)
+    monkeypatch.setattr("sensorius.saiEmailNotifications.smtplib.SMTP_SSL", FakeSMTP)
     config = EmailConfig(
         enabled=True,
         smtp_host="smtp.gmail.com",
@@ -427,8 +427,8 @@ def test_astral_and_timer_controls_fill_bounded_columns():
 
 def test_automation_stylesheet_is_versioned_for_layout_updates():
     root = Path(__file__).resolve().parents[1]
-    html_source = (root / "saiHtml.py").read_text(encoding="utf-8")
-    routes_source = (root / "saiWebRoutes.py").read_text(encoding="utf-8")
+    html_source = (root / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    routes_source = (root / "sensorius" / "saiWebRoutes.py").read_text(encoding="utf-8")
 
     assert "/ui_static/css/app.css?v={APP_VERSION}" in html_source
     assert "/ui_static/css/app.css?v={APP_VERSION}" in routes_source

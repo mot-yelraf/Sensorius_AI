@@ -14,8 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import saiDailySummary
-
+import sensorius.saiDailySummary as saiDailySummary
 
 class _FakeSettings:
     def get_setting(self, section, key, default=None):

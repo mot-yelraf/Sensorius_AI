@@ -8,7 +8,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from saiRuntimePaths import resolve_runtime_base_dir
+from sensorius.saiRuntimePaths import resolve_runtime_base_dir
 
 
 def _non_pytest_runtime(tmp_path, monkeypatch):
@@ -51,10 +51,10 @@ def test_onboarding_and_automation_writers_use_runtime_roots(tmp_path, monkeypat
     home, checkout = _non_pytest_runtime(tmp_path, monkeypatch)
     runtime = home / "Sensorius"
 
-    import saiAddDevice
-    from saiAutomationManager import AutomationManager
-    from saiOnboardingStore import OnboardingSessionStore
-    from saiSwitchTriggerManager import SwitchTriggerManager
+    import sensorius.saiAddDevice as saiAddDevice
+    from sensorius.saiAutomationManager import AutomationManager
+    from sensorius.saiOnboardingStore import OnboardingSessionStore
+    from sensorius.saiSwitchTriggerManager import SwitchTriggerManager
 
     monkeypatch.setattr(saiAddDevice, "_SYS_BASE_DIR", "system_settings")
     monkeypatch.setattr(saiAddDevice, "_SENSOR_BASE_DIR", "sensor_settings")

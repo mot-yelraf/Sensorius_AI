@@ -4,8 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-import saiUtils
-
+import sensorius.saiUtils as saiUtils
 
 def test_debug_flag_reflects_env_change_without_module_reload(monkeypatch):
     monkeypatch.setenv("SENSORIUS_DEBUG_MODULES", "Sensorius")

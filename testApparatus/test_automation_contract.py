@@ -14,7 +14,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from saiAutomationManager import AutomationManager
+from sensorius.saiAutomationManager import AutomationManager
 from testApparatus.automation_test_harness import adapters, make_manager
 
 
@@ -233,7 +233,7 @@ def test_automation_manager_rule_lookup_expands_case_and_channel_aliases(tmp_pat
                 }
             }
 
-    monkeypatch.setattr("saiSwitchSettingsManager.SwitchSettingsManager", _FakeSwitchSettingsManager)
+    monkeypatch.setattr("sensorius.saiSwitchSettingsManager.SwitchSettingsManager", _FakeSwitchSettingsManager)
 
     state = mgr.get_advanced_state_for_switch_key("SWITCH-X943FM", "SWITCH-X943FM::Pump")
     rule = mgr.get_advanced_rule_for_switch_key("SWITCH-X943FM", "SWITCH-X943FM::Pump")

@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from saiSettings import saiSettings
+from sensorius.saiSettings import saiSettings
 from Sensorius import bootstrap_astral_auto_location
 
 

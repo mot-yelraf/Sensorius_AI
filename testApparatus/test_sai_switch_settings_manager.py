@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from saiSwitchSettingsManager import SwitchSettingsManager
+from sensorius.saiSwitchSettingsManager import SwitchSettingsManager
 
 
 def _write(path: Path, text: str) -> None:

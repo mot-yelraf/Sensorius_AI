@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sensor_modules.base import BaseSensor
+from sensorius.sensor_modules.base import BaseSensor
 
 
 class _StubSensor(BaseSensor):

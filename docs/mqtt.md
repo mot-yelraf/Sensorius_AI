@@ -9,11 +9,11 @@ the contract wins.
 
 Sensorius uses MQTT in three ways:
 
-- Local sensor publishing through `saiMQTTClient.py` when local Pi sensors need
+- Local sensor publishing through `sensorius/saiMQTTClient.py` when local Pi sensors need
   to publish to a non-local broker.
-- Remote discovery and ingest through `saiMQTTIngest.py`.
+- Remote discovery and ingest through `sensorius/saiMQTTIngest.py`.
 - Home Assistant discovery, state, availability, and command routing through
-  `saiHomeAssistantMqtt.py`.
+  `sensorius/saiHomeAssistantMqtt.py`.
 
 The normal Nodus runtime path is MQTT-first. AP-mode HTTP is only for bootstrap
 and diagnostics.
@@ -37,7 +37,7 @@ Home Assistant can use the same broker or a separate broker through
 
 ## Startup Behavior
 
-- `saiMQTTIngest` starts when `SensorNetwork.BROKER` is set.
+- `sensorius.saiMQTTIngest` starts when `SensorNetwork.BROKER` is set.
 - Local sensor MQTT publishers are skipped when the broker is unset, local, or
   treated as this host.
 - Ingest subscribes to Nodus topic families, optional base-topic mirrored
@@ -120,7 +120,7 @@ Command topics are not state topics.
   owns clearing it with an empty retained payload to the same topic after a
   successful result.
 
-`saiMQTTIngest.publish_text` refuses retained command publishes to `/set`
+`sensorius.saiMQTTIngest.publish_text` refuses retained command publishes to `/set`
 topics unless the payload is an empty retained cleanup payload.
 
 For diagnostics, `GET /debug/mqtt-retained-commands` performs a short-lived
@@ -135,9 +135,9 @@ Remote switch commands should use the shared controller path:
 
 1. UI, Home Assistant, or automation calls `set_state(...)`.
 2. `RemoteSwitchController` resolves the label and channel ID.
-3. `saiMQTTIngest.set_switch(...)` publishes one channel-scoped Nodus command.
+3. `sensorius.saiMQTTIngest.set_switch(...)` publishes one channel-scoped Nodus command.
 4. Authoritative Nodus state or event topics update ingest caches.
-5. `saiDataLogger.log_switch_event` records transitions in `sw_events`.
+5. `sensorius.saiDataLogger.log_switch_event` records transitions in `sw_events`.
 
 Do not write switch state directly to the database or publish ad hoc switch
 topics from route handlers.

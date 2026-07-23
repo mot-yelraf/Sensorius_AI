@@ -13,7 +13,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from saiSwitchTriggerManager import SwitchTriggerManager, load_triggers, save_triggers
+from sensorius.saiSwitchTriggerManager import SwitchTriggerManager, load_triggers, save_triggers
 
 
 def test_load_defaults_when_automation_file_missing(tmp_path: Path):

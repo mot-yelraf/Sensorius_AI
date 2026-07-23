@@ -17,9 +17,9 @@ from httpx import ASGITransport, AsyncClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-import saiWebRoutes
-from saiOnboardingStore import OnboardingSessionStore
-from saiOnboardingToken import OnboardingTokenManager
+import sensorius.saiWebRoutes as saiWebRoutes
+from sensorius.saiOnboardingStore import OnboardingSessionStore
+from sensorius.saiOnboardingToken import OnboardingTokenManager
 
 
 class _DummyFastStats:
@@ -85,7 +85,7 @@ class _FakeGcMgr:
 def _default_platform_linux(monkeypatch):
     monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Linux")
     monkeypatch.setattr(
-        "saiAddDevice.get_itaot_meta",
+        "sensorius.saiAddDevice.get_itaot_meta",
         lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "apvpd-test123"}, "error": ""},
     )
     monkeypatch.setattr(saiWebRoutes.subprocess, "run", lambda *a, **k: _cp(stdout="10.0.0.246"))
@@ -105,9 +105,9 @@ async def test_scan_nodus_setup_marks_macos_miss_inconclusive(tmp_path, monkeypa
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Darwin")
-    monkeypatch.setattr("saiAddDevice.PICOW_AP_SSID", "Nodus_Setup")
-    monkeypatch.setattr("saiAddDevice.PICOW_AP_PASSWORD", "password")
-    monkeypatch.setattr("saiAddDevice._get_current_ssid", lambda: "ExampleWiFi")
+    monkeypatch.setattr("sensorius.saiAddDevice.PICOW_AP_SSID", "Nodus_Setup")
+    monkeypatch.setattr("sensorius.saiAddDevice.PICOW_AP_PASSWORD", "password")
+    monkeypatch.setattr("sensorius.saiAddDevice._get_current_ssid", lambda: "ExampleWiFi")
 
     async def _fake_to_thread(func, *args, **kwargs):
         if not args and not kwargs:
@@ -143,10 +143,10 @@ async def test_scan_nodus_setup_linux_rescans_wifi_interface(tmp_path, monkeypat
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Linux")
-    monkeypatch.setattr("saiAddDevice.PICOW_AP_SSID", "Nodus_Setup")
-    monkeypatch.setattr("saiAddDevice.PICOW_AP_PASSWORD", "password")
-    monkeypatch.setattr("saiAddDevice._wifi_interface_name", lambda: "wlan0")
-    monkeypatch.setattr("saiAddDevice._get_current_ssid", lambda: "ExampleWiFi")
+    monkeypatch.setattr("sensorius.saiAddDevice.PICOW_AP_SSID", "Nodus_Setup")
+    monkeypatch.setattr("sensorius.saiAddDevice.PICOW_AP_PASSWORD", "password")
+    monkeypatch.setattr("sensorius.saiAddDevice._wifi_interface_name", lambda: "wlan0")
+    monkeypatch.setattr("sensorius.saiAddDevice._get_current_ssid", lambda: "ExampleWiFi")
 
     seen_cmds: list[list[str]] = []
 
@@ -194,11 +194,11 @@ async def test_v2_start_and_session_and_retry(tmp_path, monkeypatch):
         return out
 
     monkeypatch.setattr(OnboardingTokenManager, "issue_token", _issue_known)
-    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
-    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-test-1"}, "error": ""})
-    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
-    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
-    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
+    monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("sensorius.saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-test-1"}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
+    monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
     monkeypatch.setattr(saiWebRoutes.subprocess, "run", lambda *a, **k: _cp(stdout="10.0.0.246 192.168.4.1"))
 
     app = FastAPI()
@@ -249,11 +249,11 @@ async def test_v2_start_resolves_local_wifi_before_ap_connect(tmp_path, monkeypa
         calls.append(f"reconnect:{ssid}")
         return True, ssid
 
-    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", _resolve)
-    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", _connect)
-    monkeypatch.setattr("saiAddDevice.reconnect_to_network", _reconnect)
-    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-test-order"}, "error": ""})
-    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", _resolve)
+    monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", _connect)
+    monkeypatch.setattr("sensorius.saiAddDevice.reconnect_to_network", _reconnect)
+    monkeypatch.setattr("sensorius.saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-test-order"}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
     monkeypatch.setattr(saiWebRoutes.subprocess, "run", lambda *a, **k: _cp(stdout="10.0.0.246"))
 
     app = FastAPI()
@@ -278,17 +278,17 @@ async def test_v2_start_prefers_itaot_meta_device_id_and_hub_mdns_broker(tmp_pat
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr(saiWebRoutes.socket, "gethostname", lambda: "sensoria-hub-0")
-    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
-    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "my-password"))
-    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-meta-123"}, "error": ""})
-    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
+    monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "my-password"))
+    monkeypatch.setattr("sensorius.saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-meta-123"}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
     init_payloads: list[dict] = []
 
     def _post(payload, **_kwargs):
         init_payloads.append(dict(payload))
         return {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""}
 
-    monkeypatch.setattr("saiAddDevice.post_itaot_init", _post)
+    monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", _post)
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -322,10 +322,10 @@ async def test_v2_start_rewrites_ip_broker_to_hub_mdns(tmp_path, monkeypatch):
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr(saiWebRoutes.socket, "gethostname", lambda: "sensoria-hub-0")
-    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
-    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "my-password"))
-    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-meta-123"}, "error": ""})
-    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
+    monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "my-password"))
+    monkeypatch.setattr("sensorius.saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-meta-123"}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
 
     init_payloads: list[dict] = []
 
@@ -333,7 +333,7 @@ async def test_v2_start_rewrites_ip_broker_to_hub_mdns(tmp_path, monkeypatch):
         init_payloads.append(dict(payload))
         return {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""}
 
-    monkeypatch.setattr("saiAddDevice.post_itaot_init", _post)
+    monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", _post)
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -359,20 +359,20 @@ async def test_v2_start_on_macos_attempts_ap_join_when_not_on_target_ap(tmp_path
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Darwin")
-    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
-    monkeypatch.setattr("saiAddDevice._get_current_ssid", lambda: "ExampleWiFi")
-    monkeypatch.setattr("saiAddDevice.PICOW_AP_SSID", "Nodus_Setup")
-    monkeypatch.setattr("saiAddDevice.PICOW_AP_PASSWORD", "password")
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
+    monkeypatch.setattr("sensorius.saiAddDevice._get_current_ssid", lambda: "ExampleWiFi")
+    monkeypatch.setattr("sensorius.saiAddDevice.PICOW_AP_SSID", "Nodus_Setup")
+    monkeypatch.setattr("sensorius.saiAddDevice.PICOW_AP_PASSWORD", "password")
     connect_calls: list[tuple[str, str, int]] = []
 
     def _fake_connect(ssid, password, *, attempts=3):
         connect_calls.append((ssid, password, attempts))
         return True
 
-    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", _fake_connect)
-    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-auto-join"}, "error": ""})
-    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
-    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
+    monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", _fake_connect)
+    monkeypatch.setattr("sensorius.saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-auto-join"}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
     monkeypatch.setattr(saiWebRoutes.subprocess, "run", lambda *a, **k: _cp(stdout="10.0.0.246"))
 
     app = FastAPI()
@@ -398,12 +398,12 @@ async def test_v2_start_on_macos_uses_existing_manual_join(tmp_path, monkeypatch
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Darwin")
-    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
-    monkeypatch.setattr("saiAddDevice._get_current_ssid", lambda: "Nodus_Setup")
-    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not connect on macOS")))
-    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-manual-join-ok"}, "error": ""})
-    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
-    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
+    monkeypatch.setattr("sensorius.saiAddDevice._get_current_ssid", lambda: "Nodus_Setup")
+    monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not connect on macOS")))
+    monkeypatch.setattr("sensorius.saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-manual-join-ok"}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
     monkeypatch.setattr(saiWebRoutes.subprocess, "run", lambda *a, **k: _cp(stdout="10.0.0.246"))
 
     app = FastAPI()
@@ -426,11 +426,11 @@ async def test_v2_restart_creates_new_session(tmp_path, monkeypatch):
             super().__init__(base_dir=str(tmp_path))
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
-    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
-    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "apvpd-test123"}, "error": ""})
-    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
-    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
-    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
+    monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("sensorius.saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "apvpd-test123"}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
+    monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
     monkeypatch.setattr(saiWebRoutes.subprocess, "run", lambda *a, **k: _cp(stdout="10.0.0.246"))
 
     app = FastAPI()
@@ -462,9 +462,9 @@ async def test_v2_start_init_failed_marks_failed(tmp_path, monkeypatch):
             super().__init__(base_dir=str(tmp_path))
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
-    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
-    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
-    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": False, "status_code": 500, "body": None, "error": "boom"})
+    monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
+    monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": False, "status_code": 500, "body": None, "error": "boom"})
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -493,9 +493,9 @@ async def test_v2_start_meta_fetch_failed_marks_failed(tmp_path, monkeypatch):
             super().__init__(base_dir=str(tmp_path))
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
-    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
-    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
-    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": False, "status_code": 500, "body": None, "error": "boom"})
+    monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
+    monkeypatch.setattr("sensorius.saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": False, "status_code": 500, "body": None, "error": "boom"})
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -524,9 +524,9 @@ async def test_v2_start_init_failed_restores_previous_ssid(tmp_path, monkeypatch
             super().__init__(base_dir=str(tmp_path))
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
-    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
-    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "my-password"))
-    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": False, "status_code": 500, "body": None, "error": "boom"})
+    monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "my-password"))
+    monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": False, "status_code": 500, "body": None, "error": "boom"})
 
     reconnect_calls: list[tuple[str, str]] = []
 
@@ -534,7 +534,7 @@ async def test_v2_start_init_failed_restores_previous_ssid(tmp_path, monkeypatch
         reconnect_calls.append((ssid, password))
         return True, ssid
 
-    monkeypatch.setattr("saiAddDevice.reconnect_to_network", _reconnect)
+    monkeypatch.setattr("sensorius.saiAddDevice.reconnect_to_network", _reconnect)
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -558,10 +558,10 @@ async def test_v2_start_on_macos_init_failed_restores_previous_ssid(tmp_path, mo
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Darwin")
-    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
-    monkeypatch.setattr("saiAddDevice._get_current_ssid", lambda: "Nodus_Setup")
-    monkeypatch.setattr("saiAddDevice.PICOW_AP_SSID", "Nodus_Setup")
-    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": False, "status_code": 500, "body": None, "error": "boom"})
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
+    monkeypatch.setattr("sensorius.saiAddDevice._get_current_ssid", lambda: "Nodus_Setup")
+    monkeypatch.setattr("sensorius.saiAddDevice.PICOW_AP_SSID", "Nodus_Setup")
+    monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": False, "status_code": 500, "body": None, "error": "boom"})
 
     reconnect_calls: list[tuple[str, str]] = []
 
@@ -569,7 +569,7 @@ async def test_v2_start_on_macos_init_failed_restores_previous_ssid(tmp_path, mo
         reconnect_calls.append((ssid, password))
         return True, ssid
 
-    monkeypatch.setattr("saiAddDevice.reconnect_to_network", _reconnect)
+    monkeypatch.setattr("sensorius.saiAddDevice.reconnect_to_network", _reconnect)
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -592,10 +592,10 @@ async def test_v2_start_success_restores_previous_ssid_before_waiting_for_hello(
             super().__init__(base_dir=str(tmp_path))
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
-    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
-    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
-    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-waiting"}, "error": ""})
-    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
+    monkeypatch.setattr("sensorius.saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-waiting"}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
 
     reconnect_calls: list[tuple[str, str]] = []
 
@@ -603,7 +603,7 @@ async def test_v2_start_success_restores_previous_ssid_before_waiting_for_hello(
         reconnect_calls.append((ssid, password))
         return True, ssid
 
-    monkeypatch.setattr("saiAddDevice.reconnect_to_network", _reconnect)
+    monkeypatch.setattr("sensorius.saiAddDevice.reconnect_to_network", _reconnect)
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -629,11 +629,11 @@ async def test_v2_start_success_fails_when_local_wifi_restore_fails(tmp_path, mo
             super().__init__(base_dir=str(tmp_path))
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
-    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
-    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
-    monkeypatch.setattr("saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-restore-fail"}, "error": ""})
-    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
-    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (False, ssid))
+    monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
+    monkeypatch.setattr("sensorius.saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-restore-fail"}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (False, ssid))
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -656,8 +656,8 @@ async def test_v2_start_ap_connect_failed_marks_failed_session(tmp_path, monkeyp
             super().__init__(base_dir=str(tmp_path))
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
-    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: False)
-    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
+    monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: False)
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -686,9 +686,9 @@ async def test_v2_start_network_control_not_authorized(tmp_path, monkeypatch):
             super().__init__(base_dir=str(tmp_path))
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
-    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not connect")))
-    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
-    monkeypatch.setattr("saiAddDevice.linux_network_control_permission_status", lambda: (False, "network_control=auth"))
+    monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not connect")))
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
+    monkeypatch.setattr("sensorius.saiAddDevice.linux_network_control_permission_status", lambda: (False, "network_control=auth"))
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -737,10 +737,10 @@ async def test_v2_hello_matches_token_valid_session_when_multiple_active(tmp_pat
         }
 
     monkeypatch.setattr(OnboardingTokenManager, "issue_token", _issue_deterministic)
-    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
-    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
-    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
-    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
+    monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
+    monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -804,10 +804,10 @@ async def test_v2_config_set_includes_onboard_token_and_settings_payload(tmp_pat
         }
 
     monkeypatch.setattr(OnboardingTokenManager, "issue_token", _issue_deterministic)
-    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
-    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
-    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
-    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
+    monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
+    monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -876,10 +876,10 @@ async def test_v2_ack_rejected_marks_failed(tmp_path, monkeypatch):
         }
 
     monkeypatch.setattr(OnboardingTokenManager, "issue_token", _issue_deterministic)
-    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
-    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
-    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
-    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
+    monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
+    monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -940,10 +940,10 @@ async def test_v2_ack_correlates_by_message_id_with_same_device(tmp_path, monkey
         }
 
     monkeypatch.setattr(OnboardingTokenManager, "issue_token", _issue_deterministic)
-    monkeypatch.setattr("saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
-    monkeypatch.setattr("saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
-    monkeypatch.setattr("saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
-    monkeypatch.setattr("saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
+    monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
+    monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
 
     app = FastAPI()
     settings = _FakeSettings()

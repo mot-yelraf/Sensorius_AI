@@ -196,9 +196,50 @@ start_install_log() {
   _log_installer_context
 }
 
+remove_legacy_python_layout() {
+  local target_dir="$1"
+  local legacy_file removed_count=0
+
+  if [[ ! -f "${target_dir}/Sensorius.py" || ! -f "${target_dir}/sensorius/__init__.py" ]]; then
+    echo "ERROR: refusing legacy Python cleanup because the replacement sensorius package is incomplete in ${target_dir}." >&2
+    return 1
+  fi
+
+  while IFS= read -r -d '' legacy_file; do
+    rm -f -- "${legacy_file}"
+    removed_count=$((removed_count + 1))
+  done < <(find "${target_dir}" -maxdepth 1 -type f \( -name 'sai*.py' -o -name 'sai*.pyc' \) -print0)
+
+  if [[ -d "${target_dir}/__pycache__" ]]; then
+    find "${target_dir}/__pycache__" -maxdepth 1 -type f -name 'sai*.pyc' -delete
+    rmdir "${target_dir}/__pycache__" 2>/dev/null || true
+  fi
+
+  if [[ -d "${target_dir}/sensor_modules" ]]; then
+    rm -rf -- "${target_dir}/sensor_modules"
+    removed_count=$((removed_count + 1))
+  fi
+
+  if [[ -d "${target_dir}/src/sensorius" ]]; then
+    rm -rf -- "${target_dir}/src/sensorius"
+    removed_count=$((removed_count + 1))
+  fi
+  rm -rf -- "${target_dir}/src/sensorius.egg-info"
+  rm -rf -- "${target_dir}/src/__pycache__"
+  rm -f -- "${target_dir}/src/.DS_Store"
+  rmdir "${target_dir}/src" 2>/dev/null || true
+
+  if [[ "${removed_count}" -gt 0 ]]; then
+    echo "Removed legacy flat/transitional Python layout from ${target_dir}."
+  else
+    echo "No legacy Python layout found in ${target_dir}."
+  fi
+}
+
 deploy_project_files() {
   if [[ "${SOURCE_REPO_DIR}" == "${PROJECT_DIR}" ]]; then
     echo "Source and target are the same (${PROJECT_DIR}); skipping file sync."
+    remove_legacy_python_layout "${PROJECT_DIR}"
     return
   fi
 
@@ -268,6 +309,7 @@ deploy_project_files() {
     find "${PROJECT_DIR}" -type f -name '*.md' -delete
   fi
 
+  remove_legacy_python_layout "${PROJECT_DIR}"
   echo "Application files deployed to ${PROJECT_DIR}"
 }
 
@@ -323,7 +365,7 @@ install_pi_gui_autostart() {
     user_home="${HOME}"
   fi
 
-  gui_exec="env WEBKIT_DISABLE_COMPOSITING_MODE=1 GDK_BACKEND=wayland,x11 SENSORIUS_GUI_Y=48 ${venv_path}/bin/python ${project_dir}/saiGuiLauncher.py"
+  gui_exec="env PYTHONPATH=${project_dir} WEBKIT_DISABLE_COMPOSITING_MODE=1 GDK_BACKEND=wayland,x11 SENSORIUS_GUI_Y=48 ${venv_path}/bin/python -m sensorius.saiGuiLauncher"
   labwc_dir="${user_home}/.config/labwc"
   labwc_file="${labwc_dir}/autostart"
 
@@ -333,7 +375,7 @@ install_pi_gui_autostart() {
 
     tmp_file="$(mktemp)"
     if [[ -f "${labwc_file}" ]]; then
-      grep -v 'saiGuiLauncher.py' "${labwc_file}" > "${tmp_file}" || true
+      grep -Ev 'saiGuiLauncher.py|sensorius\.saiGuiLauncher' "${labwc_file}" > "${tmp_file}" || true
     fi
     {
       printf '\n# Sensorius GUI\n'

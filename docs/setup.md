@@ -63,6 +63,18 @@ including `sensorius_data.db*`, `system_settings/`, `sensor_settings/`, and
 `switch_settings/`. It still updates factory templates under those settings
 trees so new defaults can ship without replacing device-specific files.
 
+The Python application package is deployed as `sensorius/` directly below the
+runtime directory; there is no `src/` directory in the installed layout.
+After a successful copy is verified, setup scripts and
+`deploy_scripts/deploy_sai.sh` remove the former root-level `sai*.py` files,
+the former root `sensor_modules/` package, and the transitional
+`src/sensorius/` package. Cleanup is refused if either the new
+`sensorius/__init__.py` or the stable root `Sensorius.py` launcher is missing.
+Runtime settings and databases are not part of this source-layout cleanup.
+Direct Linux/macOS deployment also rewrites a previously installed standalone
+GUI autostart command from `saiGuiLauncher.py` to
+`python -m sensorius.saiGuiLauncher`.
+
 When requirements files change, deploy the source update first, then install
 the changed Python dependencies in the target runtime environment before
 restarting Sensorius.
@@ -327,11 +339,20 @@ From the installed runtime directory:
 
 ```bash
 cd /home/<user>/Sensorius
-python3 Sensorius.py
+.venv/bin/python Sensorius.py
 ```
 
 On macOS, use `/Users/<user>/Sensorius`. On Windows, use the setup script's
 deployed runtime path, normally `C:\Users\<user>\Sensorius`.
+
+The setup scripts install the root `sensorius/` package in editable mode. For a
+development checkout with an existing virtual environment, install it once
+before starting Sensorius:
+
+```bash
+uv pip install --python .venv/bin/python --no-deps --editable .
+.venv/bin/python Sensorius.py
+```
 
 Default UI URLs:
 

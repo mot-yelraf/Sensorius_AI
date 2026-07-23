@@ -12,8 +12,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from saiOnboardingStore import OnboardingSessionStore, OnboardingStates
-from saiOnboardingToken import OnboardingTokenManager
+from sensorius.saiOnboardingStore import OnboardingSessionStore, OnboardingStates
+from sensorius.saiOnboardingToken import OnboardingTokenManager
 
 
 def test_session_store_create_and_active_filter(tmp_path):

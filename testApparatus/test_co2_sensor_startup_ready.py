@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from sensor_modules.base import BaseSensor
-from sensor_modules.sensor_co2 import CO2Sensor
+from sensorius.sensor_modules.base import BaseSensor
+from sensorius.sensor_modules.sensor_co2 import CO2Sensor
 
 
 class _Settings:

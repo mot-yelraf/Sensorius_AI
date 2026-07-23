@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from saiHtml import get_gauge_config, render_dashboard, render_graph_modal
+from sensorius.saiHtml import get_gauge_config, render_dashboard, render_graph_modal
 
 
 def test_soil_fertility_index_gauge_config_uses_contract_scale_and_zones():

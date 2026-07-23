@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-import saiSensorFactory
-from sensor_modules import base as sensor_base
+import sensorius.saiSensorFactory as saiSensorFactory
+from sensorius.sensor_modules import base as sensor_base
 
 
 class _FakeScanI2C:

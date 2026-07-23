@@ -81,7 +81,62 @@ done
 
 [[ -f "${HOSTS_FILE}" ]] || { echo "Hosts file not found: ${HOSTS_FILE}" >&2; exit 1; }
 [[ -d "${SOURCE_DIR}" ]] || { echo "Source directory not found: ${SOURCE_DIR}" >&2; exit 1; }
+[[ -f "${SOURCE_DIR}/Sensorius.py" && -f "${SOURCE_DIR}/sensorius/__init__.py" ]] || {
+  echo "Source does not contain the root sensorius package and launcher: ${SOURCE_DIR}" >&2
+  exit 1
+}
 [[ -x "${RSYNC_BIN}" ]] || { echo "rsync not executable: ${RSYNC_BIN}" >&2; exit 1; }
+
+cleanup_remote_legacy_layout() {
+  local host="$1"
+  local target="$2"
+
+  ssh "${host}" sh -s -- "${target}" <<'REMOTE_CLEANUP'
+set -eu
+target_dir=$1
+if [ ! -f "${target_dir}/Sensorius.py" ] || [ ! -f "${target_dir}/sensorius/__init__.py" ]; then
+  echo "Refusing legacy Python cleanup: replacement package is incomplete in ${target_dir}." >&2
+  exit 1
+fi
+
+if command -v python3 >/dev/null 2>&1; then
+  python3 - "${target_dir}" <<'PYTHON_MIGRATION'
+from pathlib import Path
+import sys
+
+target = sys.argv[1]
+old_launcher = f"{target}/saiGuiLauncher.py"
+new_launcher = "-m sensorius.saiGuiLauncher"
+old_env = "env WEBKIT_DISABLE_COMPOSITING_MODE=1"
+new_env = f"env PYTHONPATH={target} WEBKIT_DISABLE_COMPOSITING_MODE=1"
+paths = (
+    Path.home() / ".config" / "labwc" / "autostart",
+    Path.home() / ".config" / "autostart" / "sensorius-gui.desktop",
+)
+for path in paths:
+    if not path.is_file():
+        continue
+    text = path.read_text(encoding="utf-8")
+    if old_launcher not in text:
+        continue
+    updated = text.replace(old_launcher, new_launcher).replace(old_env, new_env)
+    path.write_text(updated, encoding="utf-8")
+    print(f"Updated legacy GUI launcher command in {path}.")
+PYTHON_MIGRATION
+fi
+
+find "${target_dir}" -maxdepth 1 -type f \( -name 'sai*.py' -o -name 'sai*.pyc' \) -exec rm -f -- {} +
+if [ -d "${target_dir}/__pycache__" ]; then
+  find "${target_dir}/__pycache__" -maxdepth 1 -type f -name 'sai*.pyc' -delete
+  rmdir "${target_dir}/__pycache__" 2>/dev/null || true
+fi
+rm -rf -- "${target_dir}/sensor_modules"
+rm -rf -- "${target_dir}/src/sensorius" "${target_dir}/src/sensorius.egg-info"
+rm -rf -- "${target_dir}/src/__pycache__"
+rm -f -- "${target_dir}/src/.DS_Store"
+rmdir "${target_dir}/src" 2>/dev/null || true
+REMOTE_CLEANUP
+}
 
 EXCLUDES=(
   ".git/"
@@ -180,6 +235,15 @@ while IFS= read -r raw_line || [[ -n "${raw_line}" ]]; do
     echo "Deploy failed for ${host}" >&2
     FAILURES=$((FAILURES + 1))
     continue
+  fi
+
+  if [[ "${DRY_RUN}" -eq 0 ]]; then
+    echo "Removing legacy Python layout -> ${host}:${target}"
+    if ! cleanup_remote_legacy_layout "${host}" "${target}"; then
+      echo "Legacy Python layout cleanup failed for ${host}" >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
   fi
 
   if [[ "${DRY_RUN}" -eq 0 && -n "${post_cmd}" ]]; then

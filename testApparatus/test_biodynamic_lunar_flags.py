@@ -10,8 +10,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-import saiBiodynamics
-
+import sensorius.saiBiodynamics as saiBiodynamics
 
 def test_iau_edge_constellation_sextans_maps_to_leo_for_future_months():
     idx = saiBiodynamics._biodynamic_sign_index_for_constellation("Sex")

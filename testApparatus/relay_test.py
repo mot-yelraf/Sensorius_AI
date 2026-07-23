@@ -5,8 +5,8 @@ when validating board wiring and polarity behavior.
 """
 
 import asyncio
-from saiSwitchFactory import ThreeRelaySwitch
-from saiUtils import printDM
+from sensorius.saiSwitchFactory import ThreeRelaySwitch
+from sensorius.saiUtils import printDM
 
 # --- Configuration ---
 REPEAT_DELAY_SEC = 1.0  # time each relay stays on before switching

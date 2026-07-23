@@ -13,12 +13,12 @@ from typing import Any, Callable
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from saiAutomationManager import AutomationManager, enable_trigger as automation_enable_trigger
-from saiAutomationManager import remove_trigger as automation_remove_trigger
-from saiAutomationManager import save_automations
-from saiSwitchTriggerManager import SwitchTriggerManager, enable_trigger as switch_enable_trigger
-from saiSwitchTriggerManager import remove_trigger as switch_remove_trigger
-from saiSwitchTriggerManager import save_triggers
+from sensorius.saiAutomationManager import AutomationManager, enable_trigger as automation_enable_trigger
+from sensorius.saiAutomationManager import remove_trigger as automation_remove_trigger
+from sensorius.saiAutomationManager import save_automations
+from sensorius.saiSwitchTriggerManager import SwitchTriggerManager, enable_trigger as switch_enable_trigger
+from sensorius.saiSwitchTriggerManager import remove_trigger as switch_remove_trigger
+from sensorius.saiSwitchTriggerManager import save_triggers
 
 
 @dataclass(frozen=True)

@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from saiHomeAssistantMqtt import (
+from sensorius.saiHomeAssistantMqtt import (
     HomeAssistantTopicMap,
     build_sensor_metric_discovery_payload,
     rPiHomeAssistantBridge,

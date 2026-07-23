@@ -12,9 +12,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import saiSensor
-import saiWatchdog
-from saiTaskSupervisor import TaskSupervisor
+import sensorius.saiSensor as saiSensor
+import sensorius.saiWatchdog as saiWatchdog
+from sensorius.saiTaskSupervisor import TaskSupervisor
 
 
 @pytest.mark.asyncio

@@ -11,9 +11,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-import saiSensorSettingsManager
-import saiSettings
-
+import sensorius.saiSensorSettingsManager as saiSensorSettingsManager
+import sensorius.saiSettings as saiSettings
 
 def test_apply_auto_values_does_not_default_sensornetwork_broker_to_localhost(tmp_path, monkeypatch):
     system_root = tmp_path / "system_settings"

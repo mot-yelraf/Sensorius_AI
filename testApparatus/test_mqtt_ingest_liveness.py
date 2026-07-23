@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+import sensorius
+
 if "paho" not in sys.modules:
     paho_mod = types.ModuleType("paho")
     mqtt_pkg = types.ModuleType("paho.mqtt")
@@ -25,10 +27,20 @@ if "paho" not in sys.modules:
     sys.modules["paho.mqtt"] = mqtt_pkg
     sys.modules["paho.mqtt.client"] = mqtt_client_mod
 
-import saiMQTTIngest as ingest_mod
-import saiSensorSettingsManager
-import saiSettings
-import saiSwitchSettingsManager
+import sensorius.saiMQTTIngest as ingest_mod
+import sensorius.saiSensorSettingsManager as saiSensorSettingsManager
+import sensorius.saiSettings as saiSettings
+import sensorius.saiSwitchSettingsManager as saiSwitchSettingsManager
+
+
+def _install_routes_stub(monkeypatch, switch_broadcast):
+    routes_stub = types.SimpleNamespace(
+        app=types.SimpleNamespace(
+            state=types.SimpleNamespace(switch_broadcast=switch_broadcast)
+        )
+    )
+    monkeypatch.setitem(sys.modules, "sensorius.saiWebRoutes", routes_stub)
+    monkeypatch.setattr(sensorius, "saiWebRoutes", routes_stub, raising=False)
 
 
 def _fake_topic_filter_matches(topic_filter: str, topic: str) -> bool:
@@ -844,15 +856,7 @@ def test_confirmed_nodus_state_broadcasts_live_switch_event(monkeypatch):
     async def _fake_broadcast(payload):
         pushed.append(payload)
 
-    monkeypatch.setitem(
-        sys.modules,
-        "saiWebRoutes",
-        types.SimpleNamespace(
-            app=types.SimpleNamespace(
-                state=types.SimpleNamespace(switch_broadcast=_fake_broadcast)
-            )
-        ),
-    )
+    _install_routes_stub(monkeypatch, _fake_broadcast)
     ingest._schedule_coro = lambda coro: asyncio.run(coro)
 
     ingest.handle_nodus_switch_topic("nodus/S1-sw1/state", "OFF")
@@ -2734,15 +2738,7 @@ def test_nodus_meta_patch_last_state_broadcasts_live_switch_update(tmp_path, mon
     async def _fake_broadcast(payload):
         pushed.append(payload)
 
-    monkeypatch.setitem(
-        sys.modules,
-        "saiWebRoutes",
-        types.SimpleNamespace(
-            app=types.SimpleNamespace(
-                state=types.SimpleNamespace(switch_broadcast=_fake_broadcast)
-            )
-        ),
-    )
+    _install_routes_stub(monkeypatch, _fake_broadcast)
     ingest._schedule_coro = lambda coro: asyncio.run(coro)
 
     meta_payload = json.dumps(
@@ -2834,15 +2830,7 @@ def test_device_event_broadcast_includes_channel_ui_key(monkeypatch):
     async def _fake_broadcast(payload):
         pushed.append(payload)
 
-    monkeypatch.setitem(
-        sys.modules,
-        "saiWebRoutes",
-        types.SimpleNamespace(
-            app=types.SimpleNamespace(
-                state=types.SimpleNamespace(switch_broadcast=_fake_broadcast)
-            )
-        ),
-    )
+    _install_routes_stub(monkeypatch, _fake_broadcast)
 
     ingest.handle_switch_event_device(
         "switch/switch-oqs3lr-GP28/event",

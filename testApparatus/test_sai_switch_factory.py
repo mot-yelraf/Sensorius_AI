@@ -19,11 +19,11 @@ if "digitalio" not in sys.modules:
         Pull=types.SimpleNamespace(UP=1, DOWN=0),
     )
 
-import saiSwitchFactory
-from saiDataLogger import saiDataLogger
-from saiSensorSettingsManager import SensorSettingsManager
-from saiSwitchSettingsManager import SwitchSettingsManager
-from saiSwitchFactory import MQTTSwitch
+import sensorius.saiSwitchFactory as saiSwitchFactory
+from sensorius.saiDataLogger import saiDataLogger
+from sensorius.saiSensorSettingsManager import SensorSettingsManager
+from sensorius.saiSwitchSettingsManager import SwitchSettingsManager
+from sensorius.saiSwitchFactory import MQTTSwitch
 
 
 class _MsgInfo:

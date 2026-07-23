@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 
 def test_dashboard_loads_draggable_modal_asset():
-    from saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config, render_dashboard
 
     html = "".join(
         render_dashboard(
@@ -122,8 +122,8 @@ def test_settings_status_feedback_uses_hidden_live_regions_and_common_footers():
 
 def test_obsolete_standalone_advanced_automation_modal_is_removed():
     repo_root = Path(__file__).resolve().parents[1]
-    html = (repo_root / "saiHtml.py").read_text(encoding="utf-8")
-    routes = (repo_root / "saiWebRoutes.py").read_text(encoding="utf-8")
+    html = (repo_root / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    routes = (repo_root / "sensorius" / "saiWebRoutes.py").read_text(encoding="utf-8")
     automation_js = (repo_root / "ui_static" / "js" / "advanced_automation.js").read_text(encoding="utf-8")
     css = (repo_root / "ui_static" / "css" / "app.css").read_text(encoding="utf-8")
 

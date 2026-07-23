@@ -103,8 +103,11 @@ setup_python_env() {
   run_with_heartbeat "Install Python dependencies with uv" \
     uv pip install -r "${REQ_FILE}" --python "${venv_python}"
 
+  run_with_heartbeat "Install Sensorius package" \
+    uv pip install --no-deps --editable "${PROJECT_DIR}" --python "${venv_python}"
+
   run_with_heartbeat "Verify Python runtime imports" \
-    "${venv_python}" -c "import fastapi; import requests; import paho.mqtt.client as mqtt; import lgpio; import webview; import gi; gi.require_version('Gtk','3.0'); gi.require_version('WebKit2','4.1'); import adafruit_scd30; import adafruit_scd4x; from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency check passed')"
+    "${venv_python}" -c "import fastapi; import requests; import paho.mqtt.client as mqtt; import sensorius; import lgpio; import webview; import gi; gi.require_version('Gtk','3.0'); gi.require_version('WebKit2','4.1'); import adafruit_scd30; import adafruit_scd4x; from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency check passed')"
 }
 
 preflight_python_env() {
@@ -126,8 +129,11 @@ preflight_python_env() {
   run_with_heartbeat "Preflight Python dependency build" \
     uv pip install -r "${REQ_FILE}" --python "${preflight_python}"
 
+  run_with_heartbeat "Preflight Sensorius package build" \
+    uv pip install --no-deps --editable "${SOURCE_REPO_DIR}" --python "${preflight_python}"
+
   run_with_heartbeat "Verify preflight runtime imports" \
-    "${preflight_python}" -c "import fastapi; import requests; import paho.mqtt.client as mqtt; import lgpio; import webview; import gi; gi.require_version('Gtk','3.0'); gi.require_version('WebKit2','4.1'); import adafruit_scd30; import adafruit_scd4x; from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency preflight passed')"
+    "${preflight_python}" -c "import fastapi; import requests; import paho.mqtt.client as mqtt; import sensorius; import lgpio; import webview; import gi; gi.require_version('Gtk','3.0'); gi.require_version('WebKit2','4.1'); import adafruit_scd30; import adafruit_scd4x; from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency preflight passed')"
 }
 
 configure_mosquitto_anon_only() {

@@ -14,7 +14,7 @@ except Exception:  # pragma: no cover
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from saiTimeSync import (
+from sensorius.saiTimeSync import (
     TimeSyncService,
     discover_nodus_time_targets,
     find_next_time_transition,

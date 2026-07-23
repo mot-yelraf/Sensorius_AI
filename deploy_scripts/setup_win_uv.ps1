@@ -203,9 +203,41 @@ function Invoke-NativeAllowFailure {
     return $LASTEXITCODE
 }
 
+function Remove-LegacyPythonLayout {
+    $launcher = Join-Path $ProjectDir 'Sensorius.py'
+    $packageInit = Join-Path $ProjectDir 'sensorius\__init__.py'
+    if (-not (Test-Path $launcher -PathType Leaf) -or -not (Test-Path $packageInit -PathType Leaf)) {
+        throw "Refusing legacy Python cleanup because the replacement sensorius package is incomplete in $ProjectDir"
+    }
+
+    Get-ChildItem -LiteralPath $ProjectDir -File -Filter 'sai*.py*' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Extension -in @('.py', '.pyc') } |
+        Remove-Item -Force
+    $legacyCache = Join-Path $ProjectDir '__pycache__'
+    Get-ChildItem -LiteralPath $legacyCache -File -Filter 'sai*.pyc' -ErrorAction SilentlyContinue |
+        Remove-Item -Force
+    if ((Test-Path $legacyCache -PathType Container) -and
+        -not (Get-ChildItem -LiteralPath $legacyCache -Force -ErrorAction SilentlyContinue)) {
+        Remove-Item -LiteralPath $legacyCache -Force
+    }
+    Remove-Item -LiteralPath (Join-Path $ProjectDir 'sensor_modules') -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $ProjectDir 'src\sensorius') -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $ProjectDir 'src\sensorius.egg-info') -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $ProjectDir 'src\__pycache__') -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $ProjectDir 'src\.DS_Store') -Force -ErrorAction SilentlyContinue
+
+    $legacySrc = Join-Path $ProjectDir 'src'
+    if ((Test-Path $legacySrc -PathType Container) -and
+        -not (Get-ChildItem -LiteralPath $legacySrc -Force -ErrorAction SilentlyContinue)) {
+        Remove-Item -LiteralPath $legacySrc -Force
+    }
+    Write-Host "Legacy flat/transitional Python layout removed from $ProjectDir when present."
+}
+
 function Deploy-ProjectFiles {
     if ($SourceRepoDir -eq $ProjectDir) {
         Write-Host "Source and target are the same ($ProjectDir); skipping file sync."
+        Remove-LegacyPythonLayout
         return
     }
 
@@ -226,6 +258,7 @@ function Deploy-ProjectFiles {
         throw "robocopy failed with exit code $rc"
     }
 
+    Remove-LegacyPythonLayout
     Write-Host "Application files deployed to $ProjectDir"
 }
 
@@ -414,11 +447,13 @@ function Install-Requirements {
             Invoke-NativeChecked { uv pip install -r $ReqFile --python $venvPython } 'uv pip install requirements failed'
         }
     }
+
+    Invoke-NativeChecked { uv pip install --no-deps --editable $ProjectDir --python $venvPython } 'uv pip install Sensorius package failed'
 }
 
 function Test-RuntimeImports {
     $venvPython = Join-Path $VenvPath 'Scripts\python.exe'
-    & $venvPython -c "import fastapi; import requests; import paho.mqtt.client as mqtt; from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency check passed')"
+    & $venvPython -c "import fastapi; import requests; import paho.mqtt.client as mqtt; import sensorius; from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency check passed')"
 }
 
 function Ensure-WebView2Runtime {
@@ -571,7 +606,7 @@ try {
     Write-Host ''
     Write-Host 'Setup complete.'
     Write-Host "Activate your environment: $VenvPath\\Scripts\\Activate.ps1"
-    Write-Host "Start Sensorius: python $ProjectDir\\Sensorius.py"
+    Write-Host "Start Sensorius: $VenvPath\\Scripts\\python.exe $ProjectDir\\Sensorius.py"
     Write-Host 'Web UI: open http://127.0.0.1:8000 (or http://<host-ip>:8000 from another device)'
 } catch {
     Write-Host "Setup failed: $($_.Exception.Message)"

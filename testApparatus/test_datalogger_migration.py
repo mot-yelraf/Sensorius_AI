@@ -13,10 +13,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import saiSettings
-from saiCalibration import CalibrationManager
-from saiDataLogger import build_switch_key, saiDataLogger
-from sensor_modules.station_weewx import WEEWX_RAIN_24H_METRIC
+import sensorius.saiSettings as saiSettings
+from sensorius.saiCalibration import CalibrationManager
+from sensorius.saiDataLogger import build_switch_key, saiDataLogger
+from sensorius.sensor_modules.station_weewx import WEEWX_RAIN_24H_METRIC
 
 
 def _create_legacy_db(path: str) -> None:

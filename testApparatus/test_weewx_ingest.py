@@ -8,9 +8,9 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from saiWeeWX import WeeWXArchiveIngest
-from saiMQTTIngest import saiMQTTIngest
-from sensor_modules.station_weewx import INHG_TO_HPA, normalize_weewx_mqtt_payload
+from sensorius.saiWeeWX import WeeWXArchiveIngest
+from sensorius.saiMQTTIngest import saiMQTTIngest
+from sensorius.sensor_modules.station_weewx import INHG_TO_HPA, normalize_weewx_mqtt_payload
 
 
 class _Settings:
@@ -123,8 +123,8 @@ async def test_weewx_archive_sleep_feeds_watchdog_between_long_polls(monkeypatch
     async def _fast_sleep(_seconds):
         await real_sleep(0)
 
-    monkeypatch.setattr("saiWeeWX.HEARTBEAT_INTERVAL_SEC", 20.0)
-    monkeypatch.setattr("saiWeeWX.asyncio.sleep", _fast_sleep)
+    monkeypatch.setattr("sensorius.saiWeeWX.HEARTBEAT_INTERVAL_SEC", 20.0)
+    monkeypatch.setattr("sensorius.saiWeeWX.asyncio.sleep", _fast_sleep)
 
     await ingest._sleep_with_heartbeat(61.0)
 
@@ -146,7 +146,7 @@ async def test_weewx_archive_run_feeds_watchdog_before_import_sleep(monkeypatch,
     async def _stop_sleep(_seconds):
         raise asyncio.CancelledError
 
-    monkeypatch.setattr("saiWeeWX.asyncio.sleep", _stop_sleep)
+    monkeypatch.setattr("sensorius.saiWeeWX.asyncio.sleep", _stop_sleep)
 
     with pytest.raises(asyncio.CancelledError):
         await ingest.run()

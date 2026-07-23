@@ -48,35 +48,37 @@ canonical docs as part of the change.
 
 Primary modules:
 
-- `Sensorius.py`: process entrypoint and runtime wiring.
-- `saiTaskSupervisor.py`: background task supervisor and restart loop.
-- `saiWatchdog.py`: task heartbeat monitor and forced-exit safety behavior.
-- `saiGarbageCollection.py`: watchdog-friendly GC loop.
-- `saiWebServer.py`: FastAPI app creation, static/template mounting, uvicorn,
+- `Sensorius.py`: stable repository-root launcher and compatibility import
+  alias.
+- `sensorius/app.py`: process entrypoint and runtime wiring.
+- `sensorius/saiTaskSupervisor.py`: background task supervisor and restart loop.
+- `sensorius/saiWatchdog.py`: task heartbeat monitor and forced-exit safety behavior.
+- `sensorius/saiGarbageCollection.py`: watchdog-friendly GC loop.
+- `sensorius/saiWebServer.py`: FastAPI app creation, static/template mounting, uvicorn,
   and optional pywebview launch.
-- `saiWebRoutes.py`: UI, API, settings, onboarding, calibration, switch,
+- `sensorius/saiWebRoutes.py`: UI, API, settings, onboarding, calibration, switch,
   graph, and diagnostics routes.
-- `saiSettings.py`: system settings loading, seeding, caching, atomic writes,
+- `sensorius/saiSettings.py`: system settings loading, seeding, caching, atomic writes,
   backup creation, secret obfuscation, and Astral location resolution.
-- `saiSensorSettingsManager.py`: per-sensor TOML manager.
-- `saiSwitchSettingsManager.py`: per-switch TOML manager.
-- `saiDataLogger.py`: SQLite persistence, schema migration, query helpers,
+- `sensorius/saiSensorSettingsManager.py`: per-sensor TOML manager.
+- `sensorius/saiSwitchSettingsManager.py`: per-switch TOML manager.
+- `sensorius/saiDataLogger.py`: SQLite persistence, schema migration, query helpers,
   latest-value caches, and listener callbacks.
-- `saiSensor.py`, `saiSensorFactory.py`, `sensor_modules/`: local sensor
-  detection and readout.
-- `saiSwitch.py`, `saiSwitchFactory.py`: local and remote switch controller
-  behavior.
-- `saiAutomationManager.py`: Advanced automation TOML schema and runtime rule
+- `sensorius/saiSensor.py`, `sensorius/saiSensorFactory.py`, and
+  `sensorius/sensor_modules/`: local sensor detection and readout.
+- `sensorius/saiSwitch.py`, `sensorius/saiSwitchFactory.py`: local and remote
+  switch controller behavior.
+- `sensorius/saiAutomationManager.py`: Advanced automation TOML schema and runtime rule
   cache.
-- `saiMQTTClient.py`: outbound local-sensor MQTT publisher.
-- `saiMQTTIngest.py`: MQTT discovery, topic registration, remote state cache,
+- `sensorius/saiMQTTClient.py`: outbound local-sensor MQTT publisher.
+- `sensorius/saiMQTTIngest.py`: MQTT discovery, topic registration, remote state cache,
   Nodus settings shadowing, onboarding events, calibration events, and optional
   Nodus mirroring.
-- `saiHomeAssistantMqtt.py`: Home Assistant MQTT discovery, state,
+- `sensorius/saiHomeAssistantMqtt.py`: Home Assistant MQTT discovery, state,
   availability, and command bridge.
-- `saiFarmOSBridge.py`: farmOS JSON:API export queue and worker.
-- `saiWeeWX.py`: optional WeeWX archive and MQTT ingest.
-- `saiNodusOTA.py`: Nodus OTA package and job support.
+- `sensorius/saiFarmOSBridge.py`: farmOS JSON:API export queue and worker.
+- `sensorius/saiWeeWX.py`: optional WeeWX archive and MQTT ingest.
+- `sensorius/saiNodusOTA.py`: Nodus OTA package and job support.
 
 Startup sequence:
 
@@ -85,7 +87,7 @@ Startup sequence:
 3. Create supervisor, GC manager, network manager, and data logger.
 4. Build local sensor controllers only when the Pi sensor runtime is available.
 5. Build switch controllers through `build_switch_controller(...)`.
-6. Attach runtime objects to `saiWebRoutes` and `app.state`.
+6. Attach runtime objects to `sensorius.saiWebRoutes` and `app.state`.
 7. Start local MQTT publishers only for local sensors and only when publishing
    to a non-local broker.
 8. Start MQTT ingest when `SensorNetwork.BROKER` is configured.
@@ -96,7 +98,7 @@ Startup sequence:
 
 ## Runtime Paths And State
 
-`saiRuntimePaths.resolve_runtime_base_dir(...)` controls writable settings
+`sensorius.saiRuntimePaths.resolve_runtime_base_dir(...)` controls writable settings
 roots.
 
 - Outside pytest, bare `system_settings`, `sensor_settings`, and
@@ -138,7 +140,7 @@ host-specific runtime configuration.
 - Guard against missing files and missing sections.
 - Preserve factory defaults and add migrations or compatibility defaults for
   existing installations.
-- Secrets saved through `saiSettings` are obfuscated, not encrypted. Do not
+- Secrets saved through `sensorius.saiSettings` are obfuscated, not encrypted. Do not
   treat obfuscation as a security boundary.
 
 Important sections:
@@ -157,7 +159,7 @@ Important sections:
 
 ## Persistence Requirements
 
-Sensorius persists runtime data in SQLite through `saiDataLogger.py`.
+Sensorius persists runtime data in SQLite through `sensorius/saiDataLogger.py`.
 
 Key tables:
 
@@ -173,8 +175,8 @@ Rules:
 - If schema or persistence logic changes, include additive migration logic or a
   compatibility path.
 - Confirm historical query behavior still works after DB changes.
-- Switch events must be written through `saiDataLogger.log_switch_event`.
-- Sensor readings must be written through `saiDataLogger.log_readings` unless a
+- Switch events must be written through `sensorius.saiDataLogger.log_switch_event`.
+- Sensor readings must be written through `sensorius.saiDataLogger.log_readings` unless a
   narrow test bypass is explicitly justified.
 - Do not reintroduce switch-state storage as synthetic `readings` metrics.
 - Preserve canonical switch keys in the form `<channel_id>::<label>`.
@@ -238,7 +240,7 @@ Rules:
 
 - Advanced automation state lives in
   `switch_settings/automations/automations.toml`.
-- Use `saiAutomationManager.py` for reads/writes.
+- Use `sensorius/saiAutomationManager.py` for reads/writes.
 - Preserve `[Meta]`, `[Advanced]`, and `[Scripts]` schema compatibility.
 - Keep `script_json` compact and valid JSON when writing rules.
 - New rule fields require UI, runtime evaluator, and tests.
@@ -267,7 +269,7 @@ Rules:
 
 - farmOS export is optional and uses the built-in `httpx` backend.
 - Do not add `farmOS.py` unless explicitly justified and discussed.
-- Export listens to newly written readings through `saiDataLogger` listeners.
+- Export listens to newly written readings through `sensorius.saiDataLogger` listeners.
 - Queue behavior is in-memory and bounded by `FarmOS.QUEUE_MAX`.
 - Expose meaningful status through `/farmos/status`.
 - Preserve `/farmos/test` behavior when changing auth or payload construction.
@@ -276,7 +278,7 @@ Rules:
 
 - WeeWX ingest is optional.
 - Keep archive and MQTT ingest paths normalized through sensor settings and
-  `saiDataLogger`.
+  `sensorius.saiDataLogger`.
 - Preserve derived rain behavior unless explicitly changing station semantics.
 - Use `testApparatus/test_weewx_ingest.py` and
   `testApparatus/test_weewx_sensor_settings.py` for focused checks.
@@ -290,20 +292,20 @@ Rules:
 - Preserve existing background task structure unless the user requests a larger
   refactor.
 - Keep template, static asset, and route state wiring consistent with
-  `saiWebServer.py` and `saiWebRoutes.py`.
+  `sensorius/saiWebServer.py` and `sensorius/saiWebRoutes.py`.
 - Use existing UI templates under `ui_templates/` and assets under
   `ui_static/`.
 - In Python-rendered JS/HTML, especially `yield "..."` builders in
-  `saiHtml.py`, do not emit JavaScript `//` comments inside generated strings.
+  `sensorius/saiHtml.py`, do not emit JavaScript `//` comments inside generated strings.
   Use Python comments outside emitted strings.
 
 ## Sensor Extension Requirements
 
 When adding a local sensor:
 
-1. Add or update a module under `sensor_modules/`.
+1. Add or update a module under `sensorius/sensor_modules/`.
 2. Preserve the `measurements` list and metric names carefully.
-3. Wire detection through `saiSensorFactory.py`.
+3. Wire detection through `sensorius/saiSensorFactory.py`.
 4. Add factory/default settings if needed.
 5. Add calibration support only when the runtime module can reload safely.
 6. Add focused tests for detection, metric names, and calibration behavior.
@@ -311,7 +313,7 @@ When adding a local sensor:
 When adding a remote/Nodus sensor feature:
 
 1. Update the Nodus MQTT contract docs if the payload changes.
-2. Update `saiMQTTIngest.py` normalization and shadow settings logic.
+2. Update `sensorius/saiMQTTIngest.py` normalization and shadow settings logic.
 3. Preserve retained `meta` and `meta/patch` compatibility.
 4. Verify local dashboard, DB logging, Home Assistant discovery, and
    calibration implications.
@@ -328,8 +330,8 @@ entities. Do not rename metrics casually.
 - Prefer the Python standard library unless a dependency is clearly justified.
 - Avoid heavy dependencies unless necessary.
 - Do not upgrade major dependencies without explicit discussion.
-- Reuse existing utilities before adding helpers, especially in `saiUtils.py`,
-  `saiDataLogger.py`, and `saiMQTTIngest.py`.
+- Reuse existing utilities before adding helpers, especially in `sensorius/saiUtils.py`,
+  `sensorius/saiDataLogger.py`, and `sensorius/saiMQTTIngest.py`.
 - Prefer explicit error handling and clear operator-visible failures over
   layered silent fallbacks.
 - Add concise docstrings to public classes and functions when touching public

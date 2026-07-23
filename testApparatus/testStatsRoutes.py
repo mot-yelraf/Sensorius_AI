@@ -12,7 +12,7 @@ import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from saiStats import create_stats_router, saiStats as StatsImpl
+from sensorius.saiStats import create_stats_router, saiStats as StatsImpl
 
 
 class _FakeSettings:
@@ -78,8 +78,8 @@ async def stats_client(tmp_path, monkeypatch):
     def _fake_logger_ctor(*args, **kwargs):
         return _FakeDataLogger(["sensor_001"])
 
-    monkeypatch.setattr("saiStats.saiStats", _TestStats)
-    monkeypatch.setattr("saiDataLogger.saiDataLogger", _fake_logger_ctor)
+    monkeypatch.setattr("sensorius.saiStats.saiStats", _TestStats)
+    monkeypatch.setattr("sensorius.saiDataLogger.saiDataLogger", _fake_logger_ctor)
 
     app = FastAPI()
     app.include_router(create_stats_router(_FakeSettings(["sensor_001"]), gc_mgr=None))
@@ -113,8 +113,8 @@ async def test_stats_404_when_no_sensors(monkeypatch):
         def __init__(self, db_path="sensorius_data.db"):
             super().__init__(db_path=":memory:")
 
-    monkeypatch.setattr("saiStats.saiStats", _TestStats)
-    monkeypatch.setattr("saiDataLogger.saiDataLogger", lambda *args, **kwargs: _FakeDataLogger([]))
+    monkeypatch.setattr("sensorius.saiStats.saiStats", _TestStats)
+    monkeypatch.setattr("sensorius.saiDataLogger.saiDataLogger", lambda *args, **kwargs: _FakeDataLogger([]))
 
     app = FastAPI()
     app.include_router(create_stats_router(_FakeSettings([]), gc_mgr=None))

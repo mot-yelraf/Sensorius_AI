@@ -3,8 +3,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-import saiGuiLauncher
-
+import sensorius.saiGuiLauncher as saiGuiLauncher
 
 def test_window_geometry_defaults_keep_titlebar_visible(monkeypatch):
     for key in (

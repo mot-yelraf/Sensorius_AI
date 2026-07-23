@@ -248,11 +248,14 @@ install_requirements() {
       run_with_heartbeat "pip install requirements" python -m pip install -r "${REQ_FILE}"
     fi
   fi
+
+  run_with_heartbeat "Install Sensorius package" \
+    python -m pip install --no-deps --editable "${PROJECT_DIR}"
 }
 
 verify_runtime_imports() {
   run_with_heartbeat "Verify Python runtime imports" \
-    "${VENV_PATH}/bin/python" -c "import fastapi; import requests; import paho.mqtt.client as mqtt; from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency check passed')"
+    "${VENV_PATH}/bin/python" -c "import fastapi; import requests; import paho.mqtt.client as mqtt; import sensorius; from zoneinfo import ZoneInfo; ZoneInfo('America/Denver'); print('Python dependency check passed')"
 }
 
 install_mosquitto() {
@@ -399,7 +402,7 @@ main() {
   echo ""
   echo "Setup complete."
   echo "Activate your environment: source ${VENV_PATH}/bin/activate"
-  echo "Start Sensorius: python ${PROJECT_DIR}/Sensorius.py"
+  echo "Start Sensorius: ${VENV_PATH}/bin/python ${PROJECT_DIR}/Sensorius.py"
   echo "Web UI: open http://127.0.0.1:8000 (or http://<host-ip>:8000 from another device)"
   end_ts="$(date +%s)"
   elapsed="$((end_ts - START_TS))"

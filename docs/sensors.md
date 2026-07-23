@@ -12,7 +12,7 @@ epoch column for comparisons and localized in the UI using `[Time].TZ`.
 
 Local Raspberry Pi sensors:
 
-- Detected by `saiSensorFactory.find_sensors(...)` when the `board` runtime is
+- Detected by `sensorius.saiSensorFactory.find_sensors(...)` when the `board` runtime is
   available.
 - Materialized under `sensor_settings/<sensor_id>/sensor.toml`.
 - Read by `SensorController.data_collection`.
@@ -65,7 +65,7 @@ Soil metrics:
   from 7-in-1 soil probes.
 - `Soil Fertility Index` - derived NPK sufficiency score, percent.
 
-WeeWX metrics are defined by `sensor_modules/station_weewx.py`. The logger can
+WeeWX metrics are defined by `sensorius/sensor_modules/station_weewx.py`. The logger can
 derive rolling `Rain Last 24h` from interval `Rain` readings. WeeWX MQTT
 single-field replays are treated as incremental updates so repeated station
 fields do not multiply interval rainfall totals.

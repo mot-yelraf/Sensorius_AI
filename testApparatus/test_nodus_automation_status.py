@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from saiNodusAutomationStatus import (
+from sensorius.saiNodusAutomationStatus import (
     AVAILABILITY_SCHEMA,
     STATUS_SCHEMA,
     NodusAutomationStatusPublisher,
@@ -133,7 +133,7 @@ def test_publisher_run_feeds_watchdog_each_scan(monkeypatch):
         supervisor=supervisor,
     )
     monkeypatch.setattr(
-        "saiNodusAutomationStatus.asyncio.sleep",
+        "sensorius.saiNodusAutomationStatus.asyncio.sleep",
         cancel_after_first_scan,
     )
 

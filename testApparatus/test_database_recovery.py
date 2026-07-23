@@ -11,10 +11,10 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-import saiDataLogger as datalogger_module
-import saiSettings
-from saiDataLogger import saiDataLogger
-from saiStats import saiStats
+import sensorius.saiDataLogger as datalogger_module
+import sensorius.saiSettings as saiSettings
+from sensorius.saiDataLogger import saiDataLogger
+from sensorius.saiStats import saiStats
 
 
 class _StubSettings:
@@ -149,7 +149,7 @@ def test_web_route_sqlite_connect_uses_shared_recovery(tmp_path, monkeypatch: py
     db_path = tmp_path / "sensorius_data.db"
     db_path.write_bytes(b"not sqlite")
 
-    routes = importlib.import_module("saiWebRoutes")
+    routes = importlib.import_module("sensorius.saiWebRoutes")
     conn = routes._sqlite_connect_with_recovery(str(db_path), source="test-web-connect")
     try:
         table = conn.execute(

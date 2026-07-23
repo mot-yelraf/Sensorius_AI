@@ -43,8 +43,14 @@ Manual Setup
 Then run:
 
 ```bash
-python3 Sensorius.py
+.venv/bin/python Sensorius.py
 ```
+
+The setup scripts install the `sensorius` package into that virtual
+environment while preserving `Sensorius.py` as the root launcher. The package
+directory is `sensorius/` at repository/runtime root; installers and direct
+deployments remove the superseded flat Python module layout after verifying
+the replacement package was copied successfully.
 
 Default UI URL: `http://127.0.0.1:8000`
 

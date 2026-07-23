@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from saiWeatherForecast import (
+from sensorius.saiWeatherForecast import (
     build_forecast_payload,
     get_weather_forecast_payload,
     load_weather_forecast_cache,

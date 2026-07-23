@@ -4,10 +4,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from saiSensorSettingsManager import SensorSettingsManager
-import saiWebRoutes
-from saiWebRoutes import ensure_weewx_sensor_settings
-from sensor_modules.station_weewx import (
+from sensorius.saiSensorSettingsManager import SensorSettingsManager
+import sensorius.saiWebRoutes as saiWebRoutes
+from sensorius.saiWebRoutes import ensure_weewx_sensor_settings
+from sensorius.sensor_modules.station_weewx import (
     WEEWX_DISPLAY_METRICS,
     WEEWX_DISPLAY_STYLES,
     WeeWXStationMetadata,

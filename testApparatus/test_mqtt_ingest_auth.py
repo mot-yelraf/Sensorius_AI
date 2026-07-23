@@ -21,8 +21,7 @@ if "paho" not in sys.modules:
     sys.modules["paho.mqtt"] = mqtt_pkg
     sys.modules["paho.mqtt.client"] = mqtt_client_mod
 
-import saiMQTTIngest as ingest_mod
-
+import sensorius.saiMQTTIngest as ingest_mod
 
 class _FakeClient:
     def __init__(self, client_id=None):

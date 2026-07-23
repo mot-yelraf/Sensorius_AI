@@ -7,7 +7,7 @@ an end-to-end bootstrap attempt against a device in setup mode.
 import asyncio
 import json
 import requests
-from saiUtils import get_time_settings
+from sensorius.saiUtils import get_time_settings
 from connect_and_configure_sensor import (
     original_pi_info,
     PICOW_AP_SSID,

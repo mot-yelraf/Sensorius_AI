@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from saiSettings import saiSettings
+from sensorius.saiSettings import saiSettings
 
 
 def _text(value: object) -> str:

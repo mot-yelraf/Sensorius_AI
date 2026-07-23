@@ -9,8 +9,7 @@ from datetime import date
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-import saiBiodynamics
-
+import sensorius.saiBiodynamics as saiBiodynamics
 
 def test_biodynamic_prewarm_month_anchors_are_ordered_by_ui_value():
     anchors = saiBiodynamics.biodynamic_prewarm_month_anchors(

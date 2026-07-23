@@ -12,7 +12,7 @@ still supported, but keep the path rules below in mind.
 
 ## Runtime Path Resolution
 
-Bare settings roots are resolved by `saiRuntimePaths.resolve_runtime_base_dir`.
+Bare settings roots are resolved by `sensorius.saiRuntimePaths.resolve_runtime_base_dir`.
 
 - Outside pytest, `system_settings`, `sensor_settings`, and `switch_settings`
   resolve under the installed runtime directory, for example
@@ -49,7 +49,7 @@ directory.
 
 ## Environment And `.env`
 
-`saiUtils.py` loads a project-root `.env` early at process startup. Environment
+`sensorius/saiUtils.py` loads a project-root `.env` early at process startup. Environment
 variables supplied by the service manager or shell still work. Some runtime
 panels in Advanced Settings write selected values back to `.env`.
 
@@ -169,7 +169,7 @@ System settings are stored in:
 system_settings/<device_id>/settings.toml
 ```
 
-`saiSettings` seeds the file from `system_settings/factory/settings.toml` when
+`sensorius.saiSettings` seeds the file from `system_settings/factory/settings.toml` when
 missing, creates a `.bak` backup once per startup when possible, and writes
 changes atomically.
 
@@ -276,7 +276,7 @@ Runtime notes:
 - WeeWX MQTT settings are applied live through the running MQTT ingest client
   when available. If MQTT ingest is not running, the settings apply when MQTT
   ingest starts.
-- Home Assistant and farmOS secrets are obfuscated at rest by `saiSettings`.
+- Home Assistant and farmOS secrets are obfuscated at rest by `sensorius.saiSettings`.
   This is reversible obfuscation, not encryption.
 - `[WeatherForecast].PROVIDER` accepts `met_no`, `open_meteo`, `us`, or `none`.
   `none` disables the dashboard forecast card.
@@ -360,7 +360,7 @@ At runtime this is under the Sensorius runtime directory, such as
 macOS or `/home/<user>/Sensorius/switch_settings/automations/automations.toml`
 on Linux.
 
-`saiAutomationManager.py` owns this file. The current schema uses:
+`sensorius/saiAutomationManager.py` owns this file. The current schema uses:
 
 - `[Meta]` for schema notes and version.
 - `[Advanced]` for named rules with `enabled` and compact JSON `script_json`.
@@ -389,7 +389,7 @@ sends runtime config over MQTT and expects Nodus to publish retained metadata.
 
 ## Database Retention
 
-`saiDataLogger` defaults to a 90-day retention window controlled by:
+`sensorius.saiDataLogger` defaults to a 90-day retention window controlled by:
 
 ```env
 SENSORIUS_DB_RETENTION_DAYS=90

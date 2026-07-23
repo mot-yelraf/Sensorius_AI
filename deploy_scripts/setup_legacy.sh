@@ -21,7 +21,7 @@ install_pi_gui_autostart() {
     user_home="${HOME}"
   fi
 
-  gui_exec="env WEBKIT_DISABLE_COMPOSITING_MODE=1 GDK_BACKEND=wayland,x11 SENSORIUS_GUI_Y=48 ${venv_python} ${project_dir}/saiGuiLauncher.py"
+  gui_exec="env PYTHONPATH=${project_dir} WEBKIT_DISABLE_COMPOSITING_MODE=1 GDK_BACKEND=wayland,x11 SENSORIUS_GUI_Y=48 ${venv_python} -m sensorius.saiGuiLauncher"
   labwc_dir="${user_home}/.config/labwc"
   labwc_file="${labwc_dir}/autostart"
 
@@ -31,7 +31,7 @@ install_pi_gui_autostart() {
 
     tmp_file="$(mktemp)"
     if [[ -f "${labwc_file}" ]]; then
-      grep -v 'saiGuiLauncher.py' "${labwc_file}" > "${tmp_file}" || true
+      grep -Ev 'saiGuiLauncher.py|sensorius\.saiGuiLauncher' "${labwc_file}" > "${tmp_file}" || true
     fi
     {
       printf '\n# Sensorius GUI\n'
@@ -163,7 +163,8 @@ echo "Installing Python packages from requirements.txt..."
 REQ_FILE="$HOME/saiSensorius/setup_reqs.txt"
 if [[ -f "$REQ_FILE" ]]; then
   pip install -r "$REQ_FILE"
-  python -c "import webview; import gi; gi.require_version('Gtk','3.0'); gi.require_version('WebKit2','4.1'); print('pywebview GTK import check passed')"
+  python -m pip install --no-deps --editable "${PROJECT_DIR}"
+  python -c "import sensorius; import webview; import gi; gi.require_version('Gtk','3.0'); gi.require_version('WebKit2','4.1'); print('pywebview GTK import check passed')"
 else
   echo "ERROR: setup_reqs.txt not found at $REQ_FILE"
   exit 1

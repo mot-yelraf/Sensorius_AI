@@ -18,7 +18,7 @@ At runtime this resolves under the Sensorius runtime directory, for example
 macOS or `/home/<user>/Sensorius/switch_settings/automations/automations.toml`
 on Linux.
 
-`saiAutomationManager.py` owns this file. The current schema is:
+`sensorius/saiAutomationManager.py` owns this file. The current schema is:
 
 - `[Meta]`: version and notes.
 - `[Advanced]`: named rules with `enabled` and compact JSON `script_json`.
@@ -147,7 +147,7 @@ Evaluation order:
 3. Fall back to cached values or DB-backed data paths where implemented.
 4. Evaluate Advanced rules.
 5. Call `set_state(...)` for actions that should change a switch.
-6. Record state changes through `saiDataLogger.log_switch_event`.
+6. Record state changes through `sensorius.saiDataLogger.log_switch_event`.
 
 Manual UI toggles are blocked when an enabled Advanced automation owns the same
 switch key. Disable the automation before manual operation.
@@ -171,7 +171,7 @@ Sensorius rule names while the corresponding lease is fresh.
 ## Extension Notes
 
 - Add new rule fields through the Advanced JSON schema and
-  `saiAutomationManager.py`, then update the UI and tests.
+  `sensorius/saiAutomationManager.py`, then update the UI and tests.
 - Keep the shared switch controller interface stable:
   `get_switch_names`, `get_state`, `set_state`, `override_script`,
   `last_state`, and `run_controladora_monitor`.

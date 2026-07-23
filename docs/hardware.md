@@ -30,7 +30,7 @@ Factory relay templates live under `switch_settings/factory/`.
 | `switch_3_relay.toml` | GPIO5 | Pin 29 | Switch 2 | GPIO20 | Pin 38 |
 | `switch_3_relay.toml` | GPIO5 | Pin 29 | Switch 3 | GPIO21 | Pin 40 |
 
-`saiSwitchFactory.detect_relay_board()` controls whether host switch settings
+`sensorius.saiSwitchFactory.detect_relay_board()` controls whether host switch settings
 are materialized at startup. When no local relay board is detected, local relay
 settings are skipped and remote Nodus switches can still operate.
 

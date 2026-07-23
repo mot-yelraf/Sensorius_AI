@@ -18,7 +18,7 @@ If you start Sensorius manually, run this from the installed Sensorius folder (t
 
 ```bash
 cd ~/Sensorius
-python3 Sensorius.py
+.venv/bin/python Sensorius.py
 ```
 
 The application will start and display the Sensorius dashboard. The first run may take a little longer while it sets up the system's location, database, and calendar data.
@@ -127,7 +127,7 @@ Switch cards show local Raspberry Pi relay channels and remote Nodus switch chan
 
 If an enabled Advanced automation owns a switch channel, Sensorius blocks manual toggles for that channel so the automation remains in control.
 
-Switch state history comes from `saiDataLogger.log_switch_event`, not from synthetic sensor readings. This is why switch events can be overlaid on historical graphs.
+Switch state history comes from `sensorius.saiDataLogger.log_switch_event`, not from synthetic sensor readings. This is why switch events can be overlaid on historical graphs.
 
 Each switch channel also has an auto-off timer. Open the timer control with its gear, enter `0` to disable it or 30-9999 seconds, and click **Ok**. The dashboard accepts values in 30-second steps. The setting is runtime state, not persistent switch configuration, so it must be set again after Sensorius restarts. When a manually controlled channel turns on, the countdown starts; at expiry Sensorius sends one Off command and records a timer-originated switch event. Turning the channel off clears the active countdown. Automation-originated state changes do not start the manual auto-off countdown, and an enabled Advanced automation must be disabled before a manual dashboard toggle is allowed.
 

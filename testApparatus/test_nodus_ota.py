@@ -14,8 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 import httpx
 
-import saiNodusOTA
-from saiNodusOTA import DEFAULT_WAIT_AFTER_PREPARE_S, NodusOTAError, NodusOTAService
+import sensorius.saiNodusOTA as saiNodusOTA
+from sensorius.saiNodusOTA import DEFAULT_WAIT_AFTER_PREPARE_S, NodusOTAError, NodusOTAService
 
 
 def _write_package(

@@ -34,14 +34,14 @@ if "paho" not in sys.modules:
 if not hasattr(sys.modules["paho.mqtt.client"], "Client"):
     sys.modules["paho.mqtt.client"].Client = object
 
-import saiSwitch
-from saiSwitch import (
+import sensorius.saiSwitch as saiSwitch
+from sensorius.saiSwitch import (
     RemoteSwitchController,
     SwitchController,
     build_switch_controller,
     is_remote_switch_settings,
 )
-from saiUtils import SettingsWrapper
+from sensorius.saiUtils import SettingsWrapper
 
 
 def _make_controller() -> SwitchController:
@@ -529,8 +529,7 @@ def test_rules_enabled_parses_string_false_and_maps_channel_id(monkeypatch: pyte
         def stat(self):
             return types.SimpleNamespace(st_mtime=123.0)
 
-    import saiSwitchSettingsManager
-
+    import sensorius.saiSwitchSettingsManager as saiSwitchSettingsManager
     monkeypatch.setattr(saiSwitchSettingsManager, "SwitchSettingsManager", FakeMgr)
 
     ctrl = _make_controller()
@@ -934,8 +933,7 @@ def test_advanced_runtime_ownership_persists_only_previous_state_actions(monkeyp
         def set_setting(self, switch_id, dotted_key, value):
             saved.append((switch_id, dotted_key, value))
 
-    import saiSwitchSettingsManager
-
+    import sensorius.saiSwitchSettingsManager as saiSwitchSettingsManager
     monkeypatch.setattr(saiSwitchSettingsManager, "SwitchSettingsManager", FakeMgr)
 
     ctrl = _make_controller()
@@ -1413,7 +1411,7 @@ def test_resolve_astral_location_delegates_to_settings(monkeypatch: pytest.Monke
 
     import sys
 
-    monkeypatch.setitem(sys.modules, "saiSettings", types.SimpleNamespace(saiSettings=FakeSettings))
+    monkeypatch.setitem(sys.modules, "sensorius.saiSettings", types.SimpleNamespace(saiSettings=FakeSettings))
 
     resolved = SwitchController._resolve_astral_location(ctrl)
 
@@ -1508,7 +1506,7 @@ def test_init_applies_refreshed_settings_for_settings_wrapper(monkeypatch: pytes
     monkeypatch.setattr(saiSwitch, "get_mqtt_client", lambda _sid: FakeMQTT())
     monkeypatch.setattr(saiSwitch, "create_switch", _fake_create_switch)
     monkeypatch.setattr(
-        __import__("saiSwitchFactory"),
+        __import__("sensorius.saiSwitchFactory", fromlist=["*"]),
         "ensure_switch_settings_for_host",
         lambda _sid, _loc: refreshed,
     )

@@ -1,12 +1,12 @@
 # farmOS Integration
 
 Sensorius can export newly written sensor readings to farmOS log entities
-through `saiFarmOSBridge.py`.
+through `sensorius/saiFarmOSBridge.py`.
 
 ## Runtime Flow
 
-1. `saiDataLogger.log_readings` writes sensor metrics.
-2. `saiFarmOSBridge` receives the readings listener callback.
+1. `sensorius.saiDataLogger.log_readings` writes sensor metrics.
+2. `sensorius.saiFarmOSBridge` receives the readings listener callback.
 3. The bridge queues the reading in memory.
 4. The worker loop posts JSON:API log payloads to farmOS with `httpx`.
 5. Failed writes are pushed back to the front of the queue for retry.
@@ -45,7 +45,7 @@ Key behavior:
 - `FLUSH_INTERVAL_SEC`: idle polling interval.
 - `REQUEST_TIMEOUT_SEC`: outbound HTTP timeout.
 
-Secrets are obfuscated at rest by `saiSettings`. This is reversible
+Secrets are obfuscated at rest by `sensorius.saiSettings`. This is reversible
 obfuscation, not encryption.
 
 ## APIs

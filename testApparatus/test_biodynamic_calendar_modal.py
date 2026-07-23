@@ -18,8 +18,7 @@ from httpx import ASGITransport, AsyncClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-import saiWebRoutes
-
+import sensorius.saiWebRoutes as saiWebRoutes
 
 class _DummyFastStats:
     def __init__(self, *_args, **_kwargs):
@@ -60,7 +59,7 @@ class _FakeIngest:
 
 
 def test_biodynamic_calendar_modal_defaults_to_today_when_present():
-    source = Path(__file__).resolve().parents[1] / "saiHtml.py"
+    source = Path(__file__).resolve().parents[1] / "sensorius" / "saiHtml.py"
     text = source.read_text(encoding="utf-8")
 
     assert "const hasSelectedDay = !!(st.selectedDate && days.some((d) => d && d.date === st.selectedDate));" in text

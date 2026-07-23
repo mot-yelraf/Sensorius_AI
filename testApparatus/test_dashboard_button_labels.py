@@ -10,7 +10,7 @@ LEGACY_BUTTON_LABEL = re.compile(
 
 
 def test_navigation_buttons_use_dashboard_label():
-    ui_sources = [ROOT / "saiHtml.py", *(ROOT / "ui_templates").rglob("*.html")]
+    ui_sources = [ROOT / "sensorius" / "saiHtml.py", *(ROOT / "ui_templates").rglob("*.html")]
 
     violations = []
     for source in ui_sources:
@@ -22,7 +22,7 @@ def test_navigation_buttons_use_dashboard_label():
 
 
 def test_generated_navigation_labels_use_dashboard():
-    text = (ROOT / "saiHtml.py").read_text(encoding="utf-8")
+    text = (ROOT / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
 
     assert "closeBtn.textContent = 'Back to Sensorius'" not in text
     assert "closeBtn.textContent = 'Dashboard'" in text

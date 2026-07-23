@@ -9,7 +9,7 @@ Manual start from the installed runtime directory:
 
 ```bash
 cd /home/<user>/Sensorius
-python3 Sensorius.py
+.venv/bin/python Sensorius.py
 ```
 
 On macOS, use `/Users/<user>/Sensorius`. On Windows, use the setup script's
@@ -275,7 +275,7 @@ Operational rules:
 - Use stable channel labels once automations or HA entities depend on them.
 - Keep `SWITCH_N_CHANNEL_ID` stable for a physical channel.
 - Do not write switch events directly to `readings`; use `sw_events` through
-  `saiDataLogger.log_switch_event`.
+  `sensorius.saiDataLogger.log_switch_event`.
 - Manual UI toggles are blocked when an enabled Advanced automation owns the
   same switch key.
 - For timer rules that should return to a normal state, disable the automation,
@@ -316,8 +316,8 @@ Operational rules:
 
 ## Database Operations
 
-The database uses SQLite WAL mode and additive migrations. `saiDataLogger`
-creates core telemetry tables and indexes at startup; `saiWeatherForecast`
+The database uses SQLite WAL mode and additive migrations. `sensorius.saiDataLogger`
+creates core telemetry tables and indexes at startup; `sensorius.saiWeatherForecast`
 creates the forecast cache table on first forecast use.
 
 Key tables:
@@ -404,7 +404,9 @@ a damaged live DB in place when `.recover` cannot produce a valid replacement.
 3. For existing installs, prefer `deploy_scripts/deploy_sai.sh --apply` from
    the source checkout. It preserves `sensorius_data.db*`, `system_settings/`,
    `sensor_settings/`, and `switch_settings/` while updating application code
-   and factory templates.
+   and factory templates. Once the replacement `sensorius/` package and root
+   launcher are present, deployment also removes legacy root `sai*.py`,
+   `sensor_modules/`, and transitional `src/sensorius/` source.
 4. Use `install.sh` or platform setup scripts only when doing a first install,
    repair install, or intentional package/broker/service reconfiguration.
 5. Install changed dependencies in the target runtime environment if

@@ -1,14 +1,14 @@
 # Home Assistant Integration
 
 Sensorius publishes MQTT discovery, state, availability, and switch command
-topics for Home Assistant through `saiHomeAssistantMqtt.py`.
+topics for Home Assistant through `sensorius/saiHomeAssistantMqtt.py`.
 
 ## Runtime Flow
 
 1. Configure `[SensorNetwork]` so Sensorius can connect to the Nodus broker.
 2. Enable `[HomeAssistant]` before startup, or restart Sensorius after enabling
    it.
-3. `saiMQTTIngest` connects to the MQTT broker.
+3. `sensorius.saiMQTTIngest` connects to the MQTT broker.
 4. `rPiHomeAssistantBridge` waits for the HA MQTT connection.
 5. The bridge installs command handlers and publishes retained discovery.
 6. New database readings and switch events publish retained HA state updates.

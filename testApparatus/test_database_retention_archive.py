@@ -6,8 +6,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-import saiWebRoutes
-from saiDataLogger import saiDataLogger
+import sensorius.saiWebRoutes as saiWebRoutes
+from sensorius.saiDataLogger import saiDataLogger
 
 
 def test_advanced_retention_clamps_to_365_days():

@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from saiHtml import canonicalize_metric_name, get_gauge_config
+from sensorius.saiHtml import canonicalize_metric_name, get_gauge_config
 
 
 def test_canonicalize_veml_ppfd_alias():
