@@ -1,9 +1,8 @@
 # Biodynamic Calendar Companion App
 
 This note tracks the standalone Biodynamic Calendar app integration work for
-Sensorius. The implementation lives in
-`/Users/twfarley/Projects/Biodynamic_Calendar`; Sensorius remains the hub and
-owns the runtime database.
+Sensorius. The implementation lives in a separate `Biodynamic_Calendar`
+checkout; Sensorius remains the hub and owns the runtime database.
 
 ## Implemented In Biodynamic Calendar
 
@@ -38,15 +37,15 @@ Run the Biodynamic Calendar app on the Sensorius host and point it at the
 Sensorius runtime database:
 
 ```bash
-cd /Users/twfarley/Projects/Biodynamic_Calendar
+cd /Users/<user>/Projects/Biodynamic_Calendar
 SENSORIUS_DB_PATH=/Users/<user>/Sensorius/sensorius_data.db \
 PYTHONPATH=src uvicorn biodynamic_calendar_app.app:app --host 0.0.0.0 --port 8765
 ```
 
-For a standard macOS install for this user, the database path is:
+For a standard macOS install, the database path is:
 
 ```text
-/Users/twfarley/Sensorius/sensorius_data.db
+/Users/<user>/Sensorius/sensorius_data.db
 ```
 
 The app also recognizes:

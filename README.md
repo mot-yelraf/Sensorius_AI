@@ -48,6 +48,16 @@ python3 Sensorius.py
 
 Default UI URL: `http://127.0.0.1:8000`
 
+## Security Boundary
+
+Sensorius is intended for a trusted private LAN. The default HTTP bind is
+`0.0.0.0`, so permitted devices on that LAN can reach the UI, and the
+application does not provide complete login/session protection for every
+state-changing route. Do not expose Sensorius HTTP or MQTT ports directly to
+the Internet. Use firewall or VLAN controls and a VPN for remote access; set
+`SENSORIUS_HTTP_HOST=127.0.0.1` when access should remain on the host. See
+`SECURITY.md` for the complete deployment boundary and secret-storage limits.
+
 ## Raspberry Pi Wi-Fi Notes
 
 For Raspberry Pi deployments that will onboard Nodus devices over Wi-Fi, best practice is to have the Raspberry Pi use a 2.4 GHz network path.
@@ -111,6 +121,7 @@ farmOS export option:
 - Sensors and metrics: `docs/sensors.md`
 - Hardware and GPIO mapping: `docs/hardware.md`
 - Switch automations: `docs/automations.md`
+- Third-party and binary notices: `THIRD_PARTY_NOTICES.md`
 
 ## Product Overview
 

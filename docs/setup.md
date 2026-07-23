@@ -10,6 +10,26 @@ Review setup scripts before running them on production devices. They are
 designed to be idempotent, but platform package managers, service managers, and
 Wi-Fi tooling differ across OS releases.
 
+## Network Security Before Installation
+
+Deploy Sensorius only on a trusted private LAN. The default web bind,
+`0.0.0.0:8000`, permits access through every interface allowed by the host
+firewall, and the UI does not have complete login/session authentication for
+all state-changing routes. Do not forward the HTTP or MQTT ports from a router
+or publish them through an Internet-facing reverse proxy.
+
+Before first use:
+
+- Place the hub, broker, and Nodus devices on a trusted LAN or isolated IoT
+  VLAN and restrict access with network and host firewalls.
+- Use `SENSORIUS_HTTP_HOST=127.0.0.1` in `.env` for host-only access.
+- Use a VPN or equivalent authenticated private network for remote access.
+- Configure broker authentication and TLS when MQTT crosses a trusted boundary.
+- Set a strong `SAI_WEB_API_KEY` for the selected routes it protects, but do
+  not treat that key as full-site authentication.
+
+See `SECURITY.md` for credential-storage and reporting guidance.
+
 ## Install Versus Deploy
 
 Use `install.sh` or the platform `setup_*.sh` and `setup_*.ps1` scripts for a

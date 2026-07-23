@@ -1,10 +1,9 @@
-# Nodus II Contract
+# Archived Nodus II Contract Copy
 
-This document is the canonical forward-only contract between current
-`cPyNodus_II` firmware and current Sensorius.
-
-The two projects move together. Old topic names and compatibility shims do not
-define the contract. When other docs drift, this document wins.
+> This document is retained for old inbound links and historical comparison.
+> It is not maintained as a second contract. The canonical, current protocol is
+> [`docs/sensorius_contract.md`](sensorius_contract.md); follow that document
+> whenever the two differ.
 
 ## Principles
 

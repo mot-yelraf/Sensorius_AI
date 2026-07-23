@@ -21,6 +21,18 @@ Default web UI:
 http://127.0.0.1:8000
 ```
 
+## Trusted-LAN Operation
+
+Sensorius assumes that clients able to reach its web UI are trusted. It does
+not provide a complete login/session boundary around all settings, onboarding,
+calibration, switch, and maintenance actions. `SAI_WEB_API_KEY` applies only to
+selected protected routes.
+
+Keep HTTP and MQTT behind host/network firewalls, do not configure public port
+forwarding, and use a VPN for remote operation. If LAN clients do not need the
+UI, set `SENSORIUS_HTTP_HOST=127.0.0.1` and restart Sensorius. Review firewall
+and broker access after network, router, or service changes.
+
 Health check:
 
 ```text

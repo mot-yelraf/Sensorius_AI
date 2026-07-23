@@ -31,6 +31,21 @@ The dashboard can also be opened using one of these addresses:
 
 Keep the terminal process running for manual starts.
 
+### Keep Sensorius On A Trusted Network
+
+Sensorius is built for a trusted private LAN. It does not provide a complete
+login/session boundary around every settings, onboarding, calibration, switch,
+or maintenance action. The optional web API key protects selected operations,
+not the whole UI.
+
+Do not expose the Sensorius HTTP or MQTT ports directly to the Internet or use
+router port forwarding. Keep the hub and devices behind a firewall, use an
+isolated IoT VLAN where appropriate, and use a VPN for remote access. If only
+the host computer needs the UI, set `SENSORIUS_HTTP_HOST=127.0.0.1` in `.env`
+and restart Sensorius. Treat `.env`, runtime settings, backups, and diagnostic
+exports as sensitive because stored secrets are not protected by strong
+encryption.
+
 ## Where Sensorius Gets Its Information
 
 Live sensor readings come from local Raspberry Pi sensor controllers and from MQTT-discovered Nodus devices. Sensor readings are written to the local SQLite database, `sensorius_data.db`, in the Sensorius process working directory unless the service or caller passes a different database path. Many service installs use the runtime directory, such as `/Users/<user>/Sensorius/sensorius_data.db` on macOS or `/home/<user>/Sensorius/sensorius_data.db` on Linux.
@@ -649,7 +664,10 @@ Rest, and Transition periods above the calendar grid.
 
 The built-in calendar is part of the Sensorius dashboard. It uses Sensorius Astral settings for latitude, longitude, altitude, and timezone. Calendar notes and daily summaries are stored in the Sensorius SQLite database in `biodynamic_notes` and `biodynamic_daily_summaries`.
 
-The standalone app lives at `~/Projects/Biodynamic_Calendar`, which is `/Users/twfarley/Projects/Biodynamic_Calendar` for this installation. It can run beside Sensorius on port `8765`. When you click the dashboard **Calendar** button, Sensorius checks `http://127.0.0.1:8765/healthz`. If the companion app is available, Sensorius opens it in an overlay at:
+The standalone app can be checked out at `~/Projects/Biodynamic_Calendar`. It
+can run beside Sensorius on port `8765`. When you click the dashboard
+**Calendar** button, Sensorius checks `http://127.0.0.1:8765/healthz`. If the
+companion app is available, Sensorius opens it in an overlay at:
 
 ```text
 http://<sensorius-host>:8765/?source=sensorius
@@ -730,7 +748,7 @@ Companion app fields and controls:
 Run the companion app on the same host as Sensorius:
 
 ```bash
-cd /Users/twfarley/Projects/Biodynamic_Calendar
+cd /Users/<user>/Projects/Biodynamic_Calendar
 SENSORIUS_DB_PATH=/Users/<user>/Sensorius/sensorius_data.db \
 PYTHONPATH=src uvicorn biodynamic_calendar_app.app:app --host 0.0.0.0 --port 8765
 ```
@@ -803,3 +821,5 @@ If the Biodynamic Calendar is unavailable:
 - farmOS: `docs/farmos.md`
 - Hardware: `docs/hardware.md`
 - Biodynamic companion notes: `docs/biodynamic_calendar_companion.md`
+- Security policy and deployment boundary: `SECURITY.md`
+- Third-party and binary notices: `THIRD_PARTY_NOTICES.md`

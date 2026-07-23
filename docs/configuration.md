@@ -55,7 +55,8 @@ panels in Advanced Settings write selected values back to `.env`.
 
 API keys:
 
-- `SAI_WEB_API_KEY` protects selected web endpoints when configured.
+- `SAI_WEB_API_KEY` protects selected web and OTA endpoints when configured.
+  It is not full-site authentication and does not protect every mutating route.
 - `SAI_PEER_API_KEY` is reserved for Sensorius-to-Sensorius peer flows.
 - If keys are missing, Sensorius generates process values at startup. When
   running from a git checkout, it does not write generated keys back into the
@@ -110,6 +111,25 @@ SENSORIUS_AUTOSTART_ENABLED=false
 SAI_WEB_API_KEY=
 SAI_PEER_API_KEY=
 ```
+
+### HTTP Trust Boundary
+
+`SENSORIUS_HTTP_HOST=0.0.0.0` exposes the UI through every network interface
+permitted by the host firewall. This supports phones and workstations on the
+local network, but Sensorius assumes that network is trusted. Do not expose the
+service with public port forwarding or an Internet-facing reverse proxy.
+
+For host-only access, set:
+
+```env
+SENSORIUS_HTTP_HOST=127.0.0.1
+```
+
+Use a firewall or isolated VLAN for LAN deployments and an authenticated VPN
+for remote access. Protect MQTT independently with broker ACLs, credentials,
+and TLS when it crosses a trusted boundary. Settings-manager secret
+obfuscation is reversible and is not encryption; protect `.env`, runtime TOML
+files, backups, and diagnostic exports as sensitive data.
 
 The System Settings **Notifications > Email Settings** form writes the email
 keys to the project-root `.env`, which is restricted to the owning user. The

@@ -113,7 +113,14 @@ Clarity and maintainability take precedence over stylistic cleverness.
 
 ## Testing Expectations
 
-There is currently no single automated test runner. Useful scripts live under `testApparatus/`.
+The automated test suite uses pytest, with tests and focused diagnostic scripts
+under `testApparatus/`. Run the smallest relevant test module first, then the
+broader suite when the change warrants it:
+
+```bash
+pytest testApparatus/test_compile_python.py
+pytest
+```
 
 When submitting changes, describe:
 
@@ -125,7 +132,8 @@ When submitting changes, describe:
 - Whether onboarding still works (if touched)
 - Whether database persistence remains stable (if touched)
 
-If adding automated tests, place them under `testApparatus/` or propose a pytest-based structure.
+Place new automated tests under `testApparatus/` and keep hardware-dependent
+assumptions explicit.
 
 ## Pull Request Guidelines
 
