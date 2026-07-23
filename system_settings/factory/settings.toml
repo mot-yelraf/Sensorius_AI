@@ -1,0 +1,75 @@
+[Network]
+HOSTNAME = ""
+HTTPPORT = 8000
+
+[SensorNetwork]
+BROKER = "localhost"
+MQTTPORT = 1883
+USE_TLS = false
+NODUS_DEBUG_DATA_ONLY = false
+REMOVED_NODUS_IDS = []
+LEGACY_FIRMWARE_HOSTS = []
+LEGACY_POLLER_SUNSET_DATE = "2026-06-30"
+
+[Time]
+TZ = "America/Denver"
+TZ_OFFSET = -25200
+TZ_NAME = "MST"
+
+[Astral]
+AUTO_IP = true
+LATITUDE = ""
+LONGITUDE = ""
+ALTITUDE = ""
+TIMEZONE = ""
+SOURCE = ""
+PROVIDER = ""
+
+[WeatherForecast]
+PROVIDER = "met_no"
+
+[WeeWX]
+ENABLED = false
+AUTO_DISCOVER = false
+DB_PATH = "/var/lib/weewx/weewx.sdb"
+SENSOR_ID = "weewx-station"
+POLL_INTERVAL_SEC = 60
+MQTT_ENABLED = false
+MQTT_TOPIC = "weewx/#"
+UPDATE_PERIOD_SEC = 300
+
+[HomeAssistant]
+ENABLED = false
+HA_USERNAME = ""
+HA_PASSWORD = ""
+HA_BROKER = ""
+HA_MQTTPORT = 1883
+USE_TLS = false
+DISCOVERY_PREFIX = "homeassistant"
+BASE_TOPIC = "sensorius"
+PUBLISH_DISCOVERY_RETAIN = true
+PUBLISH_STATE_RETAIN = true
+PUBLISH_LEGACY_SENSOR_TOPIC = true
+NODUS_PASSTHROUGH = false
+MIRROR_NODUS = true
+
+[FarmOS]
+ENABLED = false
+BASE_URL = ""
+VERIFY_TLS = true
+ACCESS_TOKEN = ""
+CLIENT_ID = "farm"
+CLIENT_SECRET = ""
+USERNAME = ""
+PASSWORD = ""
+LOG_BUNDLE = "observation"
+QUEUE_MAX = 1000
+FLUSH_INTERVAL_SEC = 3.0
+REQUEST_TIMEOUT_SEC = 10.0
+
+[Notifications]
+RULES_JSON = "[]"
+
+[Display]
+gauge_size = "Small"
+display_style = "Gauge"

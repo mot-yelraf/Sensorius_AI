@@ -1,0 +1,54 @@
+[Sensor]
+TYPE = "pi"
+DEVICE = ""
+SERIAL_NUM = ""
+SENSOR_ID = ""
+LOCATION = "Unknown"
+
+[Calibration]
+CALIBRATED = false
+CALIB_STATUS = "Not Calibrated"
+
+[Calibration.System]
+TEMP_OFFSET    = 0.0    
+RH_OFFSET      =  0.0   
+CO2_OFFSET     =  0.0   
+REF_SENSOR_ID  = ""
+REF_RANGE_HOURS = 24
+REF_START_TS   = 0
+REF_END_TS     = 0
+REF_NOTE       = ""
+
+[Calibration.Device]
+TEMP_OFFSET = 0.0       
+RH_OFFSET   = 0.0   
+CO2_OFFSET  = 0.0    
+AQI_OFFSET  = 0.0
+GAS_OFFSET  = 0.0
+LUX_OFFSET  = 0.0
+PPFD_OFFSET = 0.0
+ALTITUDE_METERS = 0.0
+
+APVPD_TEMP_CAL_VAL = 0.0
+APVPD_RH_CAL_VAL = 0.0
+
+SOIL_TEMP_CAL_VAL = 0.0
+SOIL_MOIST_CAL_VAL = 0.0
+SOIL_PH_CAL_VAL = 0.0
+SOIL_EC_CAL_VAL = 0.0
+
+[Display]
+METRIC_1 = ""
+METRIC_2 = ""
+METRIC_3 = ""
+METRIC_4 = ""
+METRIC_5 = ""
+METRIC_6 = ""
+
+[Display.Style]
+METRIC_1 = ""
+METRIC_2 = ""
+METRIC_3 = ""
+METRIC_4 = ""
+METRIC_5 = ""
+METRIC_6 = ""

@@ -1,0 +1,30 @@
+[Network]
+SSID = ""
+PASSWORD = ""
+AP_SSID = "Nodus_Setup"
+AP_PASSWORD = "password"
+HOSTNAME = ""
+HTTPPORT = 8000
+
+[Time]
+TZ = "America/Denver"
+TZ_OFFSET = -25200
+TZ_NAME = "MST"
+
+[Profile]
+ACTIVE_PROFILE = "nodusweb"   # nodusweb | sensorius | weewx | homeassistant
+
+[MQTT]
+BROKER = ""
+PORT = 1883
+USE_TLS = false
+BASE_TOPIC = "nodus"
+USERNAME = ""
+PASSWORD = ""
+
+[HomeAssistant]
+DISCOVERY_PREFIX = "homeassistant"
+BASE_TOPIC = "nodus"
+PUBLISH_DISCOVERY_RETAIN = true
+PUBLISH_STATE_RETAIN = true
+PUBLISH_LEGACY_SENSOR_TOPIC = true

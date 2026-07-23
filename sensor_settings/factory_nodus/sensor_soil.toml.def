@@ -1,0 +1,59 @@
+[Sensor]
+TYPE = "nodus"
+DEVICE = ""
+SERIAL_NUM = ""
+SENSOR_ID = ""
+LOCATION = "Unknown"
+
+[Calibration]
+CALIBRATED = false
+CALIB_STATUS = "Not Calibrated"
+
+[Calibration.Device]
+SOIL_TEMP_CAL_VAL = 0.0
+SOIL_MOIST_CAL_VAL = 0.0
+SOIL_PH_CAL_VAL = 0.0
+SOIL_EC_CAL_VAL = 0.0
+
+[Display]
+METRIC_1 = "Soil Moisture"
+METRIC_2 = "Soil Temp_C"
+METRIC_3 = "Soil pH"
+METRIC_4 = "Soil EC"
+METRIC_5 = "Soil Moisture Deficit"
+METRIC_6 = "Soil Stress Index"
+
+[Display.Style]
+METRIC_1 = "Graph24hr"
+METRIC_2 = "Graph24hr"
+METRIC_3 = "Graph24hr"
+METRIC_4 = "Graph24hr"
+METRIC_5 = "Graph24hr"
+METRIC_6 = "Graph24hr"
+
+[Modbus]
+UART_TX = "GP0"
+UART_RX = "GP1"
+
+MODBUS_ADDR = 1
+MODBUS_BAUD = 9600
+MODBUS_TIMEOUT_S = 0.30
+SOIL_VARIANT = "canonical"
+
+[SoilSensorRegisters]
+TEMPERATURE_REG = 0
+MOISTURE_REG = 1
+EC_REG = 2
+PH_REG = 3
+N_REG = 4
+P_REG = 5
+K_REG = 6
+
+[SoilSensorScales]
+MOISTURE_SCALE = 10.0    
+TEMPERATURE_SCALE = 10.0  
+EC_SCALE = 1.0            
+PH_SCALE = 10.0
+N_SCALE = 1.0
+P_SCALE = 1.0
+K_SCALE = 1.0
