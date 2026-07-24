@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -119,6 +120,55 @@ def test_dashboard_live_refresh_has_recovery_hooks():
     assert "micrographInflightStaleMs" in html
     assert "canvas.dataset.micrographInflightAt" in html
     assert "document.addEventListener('visibilitychange'" in html
+
+
+def test_dashboard_metric_cards_render_and_refresh_trend_arrows():
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["avpd-2k7r1y"],
+            {"avpd-2k7r1y": {"Ambient VPD": 2.8}},
+            {
+                "avpd-2k7r1y": {
+                    "Ambient VPD": {
+                        "min": 2.6,
+                        "avg": 3.1,
+                        "max": 4.0,
+                        "trend": {
+                            "rate_per_hour": -0.25,
+                            "samples": 20,
+                            "window_s": 1140,
+                            "provisional": False,
+                        },
+                    }
+                }
+            },
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=get_gauge_config(),
+            expected_gauge_map={"avpd-2k7r1y": ["Ambient VPD"]},
+        )
+    )
+
+    assert "class='trend-arrow' data-metric='Ambient VPD' data-rate='-0.25'" in html
+    assert "function trendThresholds(metric)" in html
+    assert "return [span * .0025, span * .025]" in html
+    assert "if (pressureTrendMetric(metric)) return [.1, 1]" in html
+    assert "function trendAngle(score)" in html
+    assert "<path d='M2 16H29M22 10L29 16L22 22'/>" in html
+    assert "applyTrendArrow(trendArrowEl, statsMetric, stat.trend)" in html
+    assert "initializeTrendArrows();" in html
+
+
+def test_dashboard_trend_arrow_uses_thin_extended_svg_geometry():
+    css = (
+        Path(__file__).resolve().parents[1] / "ui_static" / "css" / "app.css"
+    ).read_text(encoding="utf-8")
+
+    assert ".trend-arrow{" in css
+    assert "width:2.05rem; height:1.85rem" in css
+    assert "stroke-width:2" in css
+    assert "stroke-linecap:round; stroke-linejoin:round" in css
 
 
 def test_dashboard_switch_layout_drift_schedules_layout_refresh():

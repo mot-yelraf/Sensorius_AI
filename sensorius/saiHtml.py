@@ -135,6 +135,24 @@ def get_gauge_config():
     gauge_config.update(WEEWX_GAUGE_CONFIG)
     return gauge_config
 
+
+def _trend_arrow_html(metric: str, trend: dict | None) -> str:
+    trend = trend or {}
+    return (
+        "<span class='trend-arrow' data-metric='{}' data-rate='{}' "
+        "data-samples='{}' data-window='{}' data-provisional='{}' "
+        "role='img' tabindex='0'>"
+        "<svg viewBox='0 0 32 32' aria-hidden='true' focusable='false'>"
+        "<path d='M2 16H29M22 10L29 16L22 22'/></svg></span>"
+    ).format(
+        html_escape(metric),
+        html_escape(trend.get("rate_per_hour", "")),
+        html_escape(trend.get("samples", 0)),
+        html_escape(trend.get("window_s", 0)),
+        "1" if trend.get("provisional") else "0",
+    )
+
+
 def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no"):
 
     import json
@@ -2041,7 +2059,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             yield "</div>"
             yield "</div>"
 
-            yield f"<div class='metric-current-value' id='{safe_id}_val'>{display_text}</div>"
+            yield "<div class='metric-current-value'>"
+            yield f"<span id='{safe_id}_val'>{display_text}</span>"
+            yield _trend_arrow_html(stat_metric, stat.get("trend"))
+            yield "</div>"
 
             yield f"<div class='metric-stats' id='{safe_id}_stats'>"
 
@@ -4068,7 +4089,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      `<div class='gauge-container'><div class='gauge-view' id='${safe}GaugeContainer'>` +"
     yield "        `<canvas id='${safe}Gauge'></canvas>` +"
     yield "      `</div></div>` +"
-    yield "      `<div class='metric-current-value' id='${safe}_val'>--</div>` +"
+    yield "      `<div class='metric-current-value'><span id='${safe}_val'>--</span>` +"
+    yield "        `<span class='trend-arrow' data-metric='${metric}' role='img' tabindex='0'>` +"
+    yield "          `<svg viewBox='0 0 32 32' aria-hidden='true' focusable='false'>` +"
+    yield "            `<path d='M2 16H29M22 10L29 16L22 22'/></svg></span></div>` +"
     yield "      `<div class='metric-stats' id='${safe}_stats'>` +"
     yield "        `<div>Min<br><small>--</small></div>` +"
     yield "        `<div>Avg<br>--</div>` +"
@@ -4453,6 +4477,76 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  const text = Number.isInteger(precision) ? value.toFixed(precision) : String(value);"
     yield "  return `${text} ${unit}`.trim();"
     yield "}"
+    yield ""
+    yield "const metricTrendAngles = {};"
+    yield "function pressureTrendMetric(metric) {"
+    yield "  const text = String(metric || '').trim();"
+    yield "  return text === 'Pressure' || text === 'Baro-Pressure' || text.endsWith(' Baro-Pressure');"
+    yield "}"
+    yield "function trendThresholds(metric) {"
+    yield "  if (pressureTrendMetric(metric)) return [.1, 1];"
+    yield "  const config = gaugeConfig?.[metric] || {};"
+    yield "  const span = Math.max(.000001, Number(config.max ?? 100) - Number(config.min ?? 0));"
+    yield "  return [span * .0025, span * .025];"
+    yield "}"
+    yield "function trendScore(metric, rate) {"
+    yield "  const numeric = Number(rate);"
+    yield "  const thresholds = trendThresholds(metric);"
+    yield "  const dead = thresholds[0];"
+    yield "  const full = thresholds[1];"
+    yield "  if (!Number.isFinite(numeric) || Math.abs(numeric) <= dead) return 0;"
+    yield "  const strength = Math.min(1, (Math.abs(numeric) - dead) / Math.max(.000001, full - dead));"
+    yield "  return numeric < 0 ? -strength : strength;"
+    yield "}"
+    yield "function trendAngle(score) {"
+    yield "  const numeric = Math.max(-1, Math.min(1, Number(score) || 0));"
+    yield "  if (numeric >= 0) return numeric <= .5 ? -30 * numeric : -15 - 150 * (numeric - .5);"
+    yield "  const strength = -numeric;"
+    yield "  return strength <= .5 ? 100 * strength : 50 + 80 * (strength - .5);"
+    yield "}"
+    yield "function trendRateText(rate) {"
+    yield "  const numeric = Number(rate);"
+    yield "  const absolute = Math.abs(numeric);"
+    yield "  if (!Number.isFinite(numeric)) return '';"
+    yield "  const digits = absolute >= 100 ? 0 : absolute >= 10 ? 1 : absolute >= 1 ? 2 : 3;"
+    yield "  return (numeric > 0 ? '+' : '') + numeric.toFixed(digits);"
+    yield "}"
+    yield "function trendTitle(metric, trend, score) {"
+    yield "  trend = trend || {};"
+    yield "  const rate = Number(trend.rate_per_hour);"
+    yield "  const minutes = Math.max(0, Math.round(Number(trend.window_s || 0) / 60));"
+    yield "  if (!Number.isFinite(rate) || Number(trend.samples || 0) < 6) return 'Learning trend; at least six samples are required';"
+    yield "  const direction = score > 0 ? 'Rising' : score < 0 ? 'Falling' : 'Steady';"
+    yield "  const unit = (gaugeConfig?.[metric] || {}).unit || '';"
+    yield "  const rateUnit = unit ? `${unit}/hour` : 'units/hour';"
+    yield "  return `${direction} ${trendRateText(rate)} ${rateUnit} · ${minutes} minutes${trend.provisional ? ' · provisional' : ''}`;"
+    yield "}"
+    yield "function applyTrendArrow(arrow, metric, trend) {"
+    yield "  if (!arrow) return;"
+    yield "  trend = trend || {};"
+    yield "  const hasTrend = Number.isFinite(Number(trend.rate_per_hour)) && Number(trend.samples || 0) >= 6;"
+    yield "  const score = hasTrend ? trendScore(metric, trend.rate_per_hour) : 0;"
+    yield "  const nextAngle = trendAngle(score);"
+    yield "  const key = `${arrow.closest('.metric-container')?.dataset.sensor || ''}::${metric}`;"
+    yield "  const previous = metricTrendAngles[key];"
+    yield "  arrow.dataset.metric = metric;"
+    yield "  arrow.style.opacity = hasTrend ? '1' : '.35';"
+    yield "  arrow.style.transform = `rotate(${previous === undefined ? nextAngle : previous}deg)`;"
+    yield "  arrow.title = trendTitle(metric, trend, score);"
+    yield "  arrow.setAttribute('aria-label', arrow.title);"
+    yield "  requestAnimationFrame(() => { arrow.style.transform = `rotate(${nextAngle}deg)`; });"
+    yield "  metricTrendAngles[key] = nextAngle;"
+    yield "}"
+    yield "function initializeTrendArrows() {"
+    yield "  document.querySelectorAll('.trend-arrow').forEach(arrow => {"
+    yield "    applyTrendArrow(arrow, arrow.dataset.metric || '', {"
+    yield "      rate_per_hour: arrow.dataset.rate === '' ? null : Number(arrow.dataset.rate),"
+    yield "      samples: Number(arrow.dataset.samples || 0),"
+    yield "      window_s: Number(arrow.dataset.window || 0),"
+    yield "      provisional: arrow.dataset.provisional === '1'"
+    yield "    });"
+    yield "  });"
+    yield "}"
 
     yield "function _normSwitchId(id) {"
     yield "  return String(id || '').trim().toLowerCase();"
@@ -4781,6 +4875,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      }"
     yield ""
     yield "      const stat = sset[statsMetric] || {};"
+    yield "      const trendArrowEl = labelEl?.parentElement?.querySelector('.trend-arrow');"
+    yield "      applyTrendArrow(trendArrowEl, statsMetric, stat.trend);"
     yield "      const min = toFixedOrDash(stat.min);"
     yield "      const avg = toFixedOrDash(stat.avg);"
     yield "      const max = toFixedOrDash(stat.max);"
@@ -7078,6 +7174,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  setTimeout(checkAndRetryIfNoGauges, 1000);"
 
     yield "  initGauge();"
+    yield "  initializeTrendArrows();"
     yield "  initSwitchTimersFromDom();"
     yield "  refreshAndApplySwitchStatus();"
     yield "  setTimeout(updateGauges, 600);"

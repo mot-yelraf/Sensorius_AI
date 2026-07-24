@@ -117,6 +117,9 @@ Local sensors:
 - `SensorController.data_collection` reads a concrete sensor module.
 - `sensorius.saiDataLogger.log_readings` writes metric rows to `readings`.
 - In-memory latest-value caches are updated for dashboard and fast stats.
+- `sensorius.saiStats` adds cached 24-hour min/avg/max values and least-squares
+  trends to dashboard payloads. Ordinary trends use 19 minutes of readings;
+  barometric pressure uses up to three hours.
 - Readings listeners notify Home Assistant and farmOS when those integrations
   are enabled.
 - System automation monitors evaluate Notify actors. SMTP delivery runs on a

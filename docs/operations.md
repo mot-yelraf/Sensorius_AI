@@ -406,7 +406,9 @@ a damaged live DB in place when `.recover` cannot produce a valid replacement.
    `sensor_settings/`, and `switch_settings/` while updating application code
    and factory templates. Once the replacement `sensorius/` package and root
    launcher are present, deployment also removes legacy root `sai*.py`,
-   `sensor_modules/`, and transitional `src/sensorius/` source.
+   `sensor_modules/`, and transitional `src/sensorius/` source. Protected
+   legacy bytecode may be left with a non-fatal notice; it is not imported
+   after its root source modules are removed.
 4. Use `install.sh` or platform setup scripts only when doing a first install,
    repair install, or intentional package/broker/service reconfiguration.
 5. Install changed dependencies in the target runtime environment if

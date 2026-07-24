@@ -92,7 +92,27 @@ Newly materialized Nodus sensors use **24Hr Graph** for their per-metric display
 
 Click a metric tile to cycle **24Hr Graph → 6Hr Graph → Gauge → 24Hr Graph**. This is a convenient temporary view change for the current page. To make the choice persistent, open **Sensor Settings > Sensor Settings**, choose **Gauge**, **6Hr Graph**, or **24Hr Graph** for that metric slot, and click **Save**. **System Settings > Display Style** supplies the fallback when a sensor has no saved style.
 
-The current value comes from the latest reading for that metric. The small history graph comes from `/graph-data`, which reads stored samples from the local database for that sensor and metric.
+The current value comes from the latest reading for that metric. A trend arrow
+beside it uses recent stored readings rather than comparing only the last two
+values. Most metrics use a least-squares fit across the latest 19 minutes.
+Barometric pressure uses up to three hours and identifies a shorter result as
+provisional. Existing database history populates these windows immediately
+after startup; Sensorius does not need to collect a new in-memory window. The
+arrow remains in a learning state until at least six samples cover five
+minutes.
+
+Pointing up indicates a significant increase, slightly upward indicates a
+moderate increase, right indicates neutral, slightly downward indicates a
+moderate decrease, and down indicates a significant decrease. Intermediate
+rates produce intermediate angles, and the arrow moves smoothly when the
+dashboard refreshes. Hover over or focus the arrow to see its rate per hour,
+actual history window, and provisional state.
+
+Trend strength is normalized to the metric's gauge span so unlike units share
+the same visual language. Pressure uses a narrower meteorological scale. The
+arrow communicates direction and relative strength, not whether the change is
+good or bad. The small history graph comes from `/graph-data`, which reads
+stored samples from the local database for that sensor and metric.
 
 The solid line is the stored reading series. The dashed line is the arithmetic average of the visible graph window, repeated across the window as a reference line; it is not another sensor reading or an automation set point. The Min, Avg, and Max values below each tile are calculated from the last 24 hours. Min and Max include their exact timestamps so you can correlate an extreme with a switch event, weather change, irrigation cycle, or equipment problem. Consequently, a six-hour tile can show a 24-hour minimum or maximum that lies outside the six hours drawn in the tile.
 

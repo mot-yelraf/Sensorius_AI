@@ -48,3 +48,23 @@ def test_cleanup_refuses_to_remove_legacy_files_without_replacement_package(tmp_
     assert result.returncode != 0
     assert "replacement sensorius package is incomplete" in result.stderr
     assert legacy.is_file()
+
+
+def test_cleanup_tolerates_owner_protected_legacy_bytecode(tmp_path):
+    (tmp_path / "sensorius").mkdir()
+    (tmp_path / "sensorius" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "Sensorius.py").write_text("# launcher\n", encoding="utf-8")
+    cache_dir = tmp_path / "__pycache__"
+    cache_dir.mkdir()
+    legacy_bytecode = cache_dir / "saiStats.cpython-313.pyc"
+    legacy_bytecode.write_bytes(b"legacy")
+    cache_dir.chmod(0o555)
+
+    try:
+        result = _run_cleanup(tmp_path)
+
+        assert result.returncode == 0, result.stderr
+        assert legacy_bytecode.is_file()
+        assert "owner-protected legacy bytecode remains" in result.stderr
+    finally:
+        cache_dir.chmod(0o755)

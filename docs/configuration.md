@@ -309,6 +309,14 @@ Important sections and keys:
 - `[Display]`: selected metrics and metric display mode.
 - `[Display.Style]`: per-metric display style overrides.
 
+Every dashboard display style places a trend arrow beside the current value.
+The arrow is derived automatically from database history and has no separate
+setting. Ordinary metrics use a 19-minute least-squares trend. Barometric
+pressure uses up to three hours and remains marked provisional until that full
+span is available. The initial calculation uses qualifying readings already
+stored in `sensorius_data.db`. Hovering over or focusing the arrow shows the
+calculated rate per hour and actual history window.
+
 Remote sensor settings are local shadows of device metadata and should not be
 treated as independent truth when a Nodus device publishes a newer retained
 `meta` or correlated `meta/patch`.

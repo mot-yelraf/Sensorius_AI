@@ -49,6 +49,106 @@ class saiStats:
     def _since_epoch_24h(self) -> float:
         return (datetime.now(timezone.utc) - timedelta(days=1)).timestamp()
 
+    @staticmethod
+    def _pressure_metric(metric_name: str) -> bool:
+        name = str(metric_name or "").strip()
+        return name in ("Pressure", "Baro-Pressure") or name.endswith(" Baro-Pressure")
+
+    def _metric_trends(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        sensor_id: str | None = None,
+        window_s: int = 19 * 60,
+        pressure_window_s: int = 3 * 60 * 60,
+        min_samples: int = 6,
+    ) -> dict[str, dict[str, dict]]:
+        """Return recent least-squares rates in metric units per hour."""
+        window_s = max(60, int(window_s or 60))
+        pressure_window_s = max(window_s, int(pressure_window_s or window_s))
+        min_samples = max(2, int(min_samples or 2))
+        params: list[object] = []
+        sensor_clause = ""
+        if sensor_id is not None:
+            sensor_clause = "AND sensor_id = ? COLLATE NOCASE"
+            params.append(str(sensor_id))
+        params.append(pressure_window_s)
+
+        rows = conn.execute(
+            f"""
+            WITH latest AS (
+                SELECT sensor_id, MAX(ts_epoch) AS end_ts
+                FROM readings
+                WHERE value IS NOT NULL
+                  AND ts_epoch IS NOT NULL
+                  {sensor_clause}
+                GROUP BY sensor_id
+            )
+            SELECT r.sensor_id, r.metric, r.value, r.ts_epoch, latest.end_ts
+            FROM readings AS r
+            JOIN latest
+              ON r.sensor_id = latest.sensor_id
+            WHERE r.value IS NOT NULL
+              AND r.ts_epoch >= latest.end_ts - ?
+              AND r.ts_epoch <= latest.end_ts
+            ORDER BY r.ts_epoch ASC
+            """,
+            params,
+        ).fetchall()
+
+        working: dict[tuple[str, str], list[float]] = {}
+        for raw_sensor_id, raw_metric, raw_value, raw_timestamp, raw_end_timestamp in rows:
+            metric = str(raw_metric or "")
+            target_window_s = pressure_window_s if self._pressure_metric(metric) else window_s
+            timestamp = float(raw_timestamp)
+            end_epoch = float(raw_end_timestamp)
+            if timestamp < end_epoch - target_window_s:
+                continue
+            value = float(raw_value)
+            x = (timestamp - end_epoch) / 3600.0
+            key = (str(raw_sensor_id or ""), metric)
+            item = working.get(key)
+            if item is None:
+                working[key] = [
+                    1.0,
+                    x,
+                    value,
+                    x * x,
+                    x * value,
+                    timestamp,
+                    timestamp,
+                    float(target_window_s),
+                ]
+                continue
+            item[0] += 1.0
+            item[1] += x
+            item[2] += value
+            item[3] += x * x
+            item[4] += x * value
+            item[5] = min(item[5], timestamp)
+            item[6] = max(item[6], timestamp)
+
+        trends: dict[str, dict[str, dict]] = {}
+        for (result_sensor_id, metric), item in working.items():
+            count = int(item[0])
+            span_s = max(0, int(item[6] - item[5]))
+            denominator = (count * item[3]) - (item[1] * item[1])
+            if count < min_samples or span_s < 5 * 60 or denominator == 0:
+                continue
+            rate = ((count * item[4]) - (item[1] * item[2])) / denominator
+            target_window_s = int(item[7])
+            trends.setdefault(result_sensor_id, {})[metric] = {
+                "rate_per_hour": round(rate, 6),
+                "samples": count,
+                "window_s": span_s,
+                "target_window_s": target_window_s,
+                "provisional": bool(
+                    self._pressure_metric(metric)
+                    and span_s < max(0, target_window_s - 90)
+                ),
+            }
+        return trends
+
     def get_stats_for_range(self, sensor_id, start_epoch: float, end_epoch: float):
         try:
             return self._get_stats_for_range_impl(sensor_id, start_epoch, end_epoch)
@@ -118,7 +218,14 @@ class saiStats:
         if cached and cached[0] > now_mono:
             return dict(cached[1])
         since_epoch = self._since_epoch_24h()
-        result = self.get_stats_for_range(sensor_id, since_epoch, datetime.now(timezone.utc).timestamp() + 1.0)
+        now_epoch = datetime.now(timezone.utc).timestamp()
+        result = self.get_stats_for_range(sensor_id, since_epoch, now_epoch + 1.0)
+        with sqlite3.connect(self.db_path) as conn:
+            trend_sets = self._metric_trends(conn, sensor_id=sid)
+            trends = next(iter(trend_sets.values()), {})
+        for metric, trend in trends.items():
+            if metric in result:
+                result[metric]["trend"] = trend
         self._stats_cache[sid] = (now_mono + self._stats_cache_ttl_sec, dict(result))
         return result
 
@@ -196,6 +303,14 @@ class saiStats:
                     "max": max_val,
                     "max_ts": max_ts,
                 }
+            trends = self._metric_trends(conn)
+            for sensor_id, sensor_trends in trends.items():
+                sensor_stats = results.get(sensor_id)
+                if sensor_stats is None:
+                    continue
+                for metric, trend in sensor_trends.items():
+                    if metric in sensor_stats:
+                        sensor_stats[metric]["trend"] = trend
 
         self._all_stats_cache = (now_mono + self._stats_cache_ttl_sec, dict(results))
         return results

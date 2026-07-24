@@ -71,6 +71,10 @@ the former root `sensor_modules/` package, and the transitional
 `src/sensorius/` package. Cleanup is refused if either the new
 `sensorius/__init__.py` or the stable root `Sensorius.py` launcher is missing.
 Runtime settings and databases are not part of this source-layout cleanup.
+Legacy `__pycache__/sai*.pyc` files are removed when writable. An
+owner-protected bytecode cache is safe to leave after the corresponding root
+Python sources are gone, so deployment reports one notice and continues
+instead of failing.
 Direct Linux/macOS deployment also rewrites a previously installed standalone
 GUI autostart command from `saiGuiLauncher.py` to
 `python -m sensorius.saiGuiLauncher`.

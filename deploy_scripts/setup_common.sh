@@ -211,8 +211,16 @@ remove_legacy_python_layout() {
   done < <(find "${target_dir}" -maxdepth 1 -type f \( -name 'sai*.py' -o -name 'sai*.pyc' \) -print0)
 
   if [[ -d "${target_dir}/__pycache__" ]]; then
-    find "${target_dir}/__pycache__" -maxdepth 1 -type f -name 'sai*.pyc' -delete
-    rmdir "${target_dir}/__pycache__" 2>/dev/null || true
+    if [[ -w "${target_dir}/__pycache__" ]]; then
+      find "${target_dir}/__pycache__" -maxdepth 1 -type f -name 'sai*.pyc' \
+        -exec rm -f -- {} + 2>/dev/null || true
+    fi
+    if find "${target_dir}/__pycache__" -maxdepth 1 -type f -name 'sai*.pyc' \
+        -print -quit | grep -q .; then
+      echo "NOTICE: owner-protected legacy bytecode remains in ${target_dir}/__pycache__; it is safe to leave in place." >&2
+    else
+      rmdir "${target_dir}/__pycache__" 2>/dev/null || true
+    fi
   fi
 
   if [[ -d "${target_dir}/sensor_modules" ]]; then
