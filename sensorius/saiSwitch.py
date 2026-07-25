@@ -1360,8 +1360,8 @@ class SwitchController:
                 pass
             actual_text = "unavailable" if actual is None else str(actual)
             return (
-                f"[{status}] Sensor {sensor_id}; {metric} {op} {threshold}; "
-                f"value {actual_text}; hysteresis {hyst}{boundary_text}"
+                f"[{status}] Sensor {sensor_id}; value {actual_text}; "
+                f"{metric} {op} {threshold}; hysteresis {hyst}{boundary_text}"
             )
 
         if ctype == "time":

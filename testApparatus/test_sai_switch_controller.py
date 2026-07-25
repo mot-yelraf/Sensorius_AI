@@ -432,7 +432,7 @@ def test_advanced_notify_actor_reports_triggered_and_cleared_edges(
     assert "Hub: sensorius-hub-3" in sent[0][1]
     assert "Group 1: TRUE" in sent[0][1]
     assert (
-        "[TRUE] Sensor sensor-1; temperature > 25; value 30; hysteresis 1"
+        "[TRUE] Sensor sensor-1; value 30; temperature > 25; hysteresis 1"
         in sent[0][1]
     )
     assert "trigger > 26; clear < 24" in sent[0][1]
@@ -446,7 +446,7 @@ def test_advanced_notify_actor_reports_triggered_and_cleared_edges(
     assert "State: CLEARED" in sent[1][1]
     assert "Group 1: FALSE" in sent[1][1]
     assert (
-        "[FALSE] Sensor sensor-1; temperature > 25; value 20; hysteresis 1"
+        "[FALSE] Sensor sensor-1; value 20; temperature > 25; hysteresis 1"
         in sent[1][1]
     )
 

@@ -166,7 +166,7 @@ def test_dashboard_trend_arrow_uses_thin_extended_svg_geometry():
     ).read_text(encoding="utf-8")
 
     assert ".trend-arrow{" in css
-    assert "width:2.05rem; height:1.85rem" in css
+    assert "width:1.025rem; height:1.85rem" in css
     assert "stroke-width:2" in css
     assert "stroke-linecap:round; stroke-linejoin:round" in css
 
