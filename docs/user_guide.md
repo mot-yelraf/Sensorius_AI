@@ -40,11 +40,12 @@ not the whole UI.
 
 Do not expose the Sensorius HTTP or MQTT ports directly to the Internet or use
 router port forwarding. Keep the hub and devices behind a firewall, use an
-isolated IoT VLAN where appropriate, and use a VPN for remote access. If only
-the host computer needs the UI, set `SENSORIUS_HTTP_HOST=127.0.0.1` in `.env`
-and restart Sensorius. Treat `.env`, runtime settings, backups, and diagnostic
-exports as sensitive because stored secrets are not protected by strong
-encryption.
+isolated IoT VLAN where appropriate, and use a VPN or a trusted remote-access
+application such as RustDesk for remote access. On a Raspberry Pi, you can use
+either RustDesk or Raspberry Pi Connect. If only the host computer needs the
+UI, set `SENSORIUS_HTTP_HOST=127.0.0.1` in `.env` and restart Sensorius. Treat
+`.env`, runtime settings, backups, and diagnostic exports as sensitive because
+stored secrets are not protected by strong encryption.
 
 ## Where Sensorius Gets Its Information
 
