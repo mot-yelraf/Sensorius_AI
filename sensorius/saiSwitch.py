@@ -1349,12 +1349,12 @@ class SwitchController:
                 if op == ">":
                     boundary_text = (
                         f"; trigger > {threshold_num + hyst_num:g}; "
-                        f"clear < {threshold_num - hyst_num:g}"
+                        f"clear <= {threshold_num - hyst_num:g}"
                     )
                 elif op == "<":
                     boundary_text = (
                         f"; trigger < {threshold_num - hyst_num:g}; "
-                        f"clear > {threshold_num + hyst_num:g}"
+                        f"clear >= {threshold_num + hyst_num:g}"
                     )
             except Exception:
                 pass
@@ -1419,6 +1419,49 @@ class SwitchController:
         delay = max(0, int(action.get("delay_s", 0) or 0))
         return f"Switch {display_key}: {state}; revert {revert}; delay {delay} sec"
 
+    def _automation_subject_metrics(
+        self,
+        evaluated_groups: list[dict],
+        current_values_map: dict,
+        *,
+        triggered: bool,
+    ) -> list[str]:
+        """Return live sensor metric summaries for groups causing a notification."""
+        summaries = []
+        seen = set()
+        for group in evaluated_groups:
+            if bool(group.get("result", False)) != bool(triggered):
+                continue
+            for cond, _result in group.get("conditions", []):
+                if str(cond.get("type", "") or "").strip().lower() != "sensor":
+                    continue
+                sensor_id = str(cond.get("sensor", "") or "").strip()
+                metric = str(cond.get("metric", "") or "").strip()
+                values = self._get_values_for_sensor(sensor_id, current_values_map)
+                actual = values.get(metric)
+                if actual is None:
+                    wanted = metric.lower().replace("-", "").replace("_", "").replace(" ", "")
+                    for key, value in values.items():
+                        normalized = str(key).lower().replace("-", "").replace("_", "").replace(" ", "")
+                        if normalized == wanted:
+                            actual = value
+                            break
+                if actual is None:
+                    continue
+                summary_key = (sensor_id.lower(), metric.lower())
+                if summary_key in seen:
+                    continue
+                seen.add(summary_key)
+                unit = ""
+                try:
+                    from .saiHomeAssistantMqtt import metric_meta_for_metric
+
+                    unit = str(metric_meta_for_metric(metric).get("unit", "") or "")
+                except Exception:
+                    pass
+                summaries.append(f"{metric} was {actual}{unit}")
+        return summaries
+
     def _build_automation_notification(
         self,
         *,
@@ -1433,17 +1476,18 @@ class SwitchController:
         notification_state = "ACTIVATED" if triggered else "CLEARED"
         display_name = rule_name or rule_id
         subject = f"Sensorius {notification_state}: {display_name}"
+        metric_summaries = self._automation_subject_metrics(
+            evaluated_groups,
+            current_values_map,
+            triggered=triggered,
+        )
+        if metric_summaries:
+            subject += ": " + "; ".join(metric_summaries)
         evaluated_at = datetime.now().astimezone().isoformat()
         hub = socket.gethostname() or "unknown"
 
         body_lines = [
             "Sensorius automation notification",
-            "",
-            f"State: {notification_state}",
-            f"Automation: {display_name}",
-            f"Rule ID: {rule_id}",
-            f"Evaluation time: {evaluated_at}",
-            f"Hub: {hub}",
             "",
             "Conditions (AND within each group; OR between groups):",
         ]
@@ -1454,16 +1498,25 @@ class SwitchController:
             body_lines.append(f"Group {group_index}: {group_state}")
             for cond, result in group.get("conditions", []):
                 body_lines.append(
-                    "  " + self._automation_condition_report(
+                    self._automation_condition_report(
                         cond,
                         bool(result),
                         current_values_map,
                     )
                 )
 
-        body_lines.extend(["", "Configured actions:"])
+        body_lines.extend([
+            "",
+            f"State: {notification_state}",
+            f"Automation: {display_name}",
+            f"Rule ID: {rule_id}",
+            f"Evaluation time: {evaluated_at}",
+            f"Hub: {hub}",
+            "",
+            "Configured actors:",
+        ])
         for action in actions:
-            body_lines.append("  - " + self._automation_action_report(action))
+            body_lines.append("- " + self._automation_action_report(action))
 
         return subject, "\n".join(body_lines)
 

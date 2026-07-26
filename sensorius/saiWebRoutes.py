@@ -13248,8 +13248,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         try:
             trig_mgr = AutomationManager("switch_settings")
             existing = trig_mgr.load(switch_id) or {}
-            existing_ids = set((existing or {}).get("Advanced", {}).keys())
+            existing_advanced = (existing or {}).get("Advanced", {}) or {}
+            existing_ids = set(existing_advanced.keys())
             final_rule_id = rule_id if incoming_rule_id else _unique_rule_id(existing_ids, rule_id)
+            previous_rule = (
+                existing_advanced.get(final_rule_id)
+                if isinstance(existing_advanced, dict)
+                else None
+            )
             trig_mgr.upsert_advanced_rule(
                 hostname=switch_id,
                 rule_id=final_rule_id,
@@ -13258,112 +13264,155 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             )
 
             printDM(f"[{MODULE}] Saved Advanced trigger {rule_id} -> {final_rule_id} for {switch_id}", location=MODULE)
-            # Invalidate rules cache for the matching switch controller so it reloads immediately.
-            try:
-                sc = globals().get("switch_controllers")
-                if isinstance(sc, dict):
-                    for ctrl in sc.values():
-                        if getattr(ctrl, "switch_id", None) == switch_id:
-                            if hasattr(ctrl, "_rules_cache") and isinstance(ctrl._rules_cache, dict):
-                                ctrl._rules_cache["mtime"] = None
-                elif sc and getattr(sc, "switch_id", None) == switch_id:
-                    if hasattr(sc, "_rules_cache") and isinstance(sc._rules_cache, dict):
-                        sc._rules_cache["mtime"] = None
-            except Exception:
-                pass
+            # The system-wide editor persists under "__system__", while actions
+            # target real switch IDs. Reload each old/new action target so edits
+            # take effect without restarting Sensorius.
+            def _rule_target_switch_ids(rule_payload: object) -> set[str]:
+                if not isinstance(rule_payload, dict):
+                    return set()
+                script_payload = rule_payload.get("script_json", "")
+                try:
+                    script_doc = (
+                        script_payload
+                        if isinstance(script_payload, dict)
+                        else json.loads(str(script_payload))
+                    )
+                except Exception:
+                    return set()
+                target_ids: set[str] = set()
+                for action in (script_doc.get("actions") or []):
+                    if not isinstance(action, dict):
+                        continue
+                    action_key = str(action.get("switch_key", "") or "").strip()
+                    if "::" not in action_key:
+                        continue
+                    target_id = action_key.split("::", 1)[0].strip()
+                    if target_id:
+                        target_ids.add(target_id)
+                return target_ids
 
-            # Ensure a monitor exists for this switch_id even when it was discovered
-            # after startup and no supervised controller loop was created.
+            reload_switch_ids = _rule_target_switch_ids(previous_rule)
+            reload_switch_ids.update(
+                _rule_target_switch_ids({"script_json": compact_script})
+            )
+            if switch_id != "__system__":
+                reload_switch_ids.add(switch_id)
+
             try:
-                created_ctrl = None
-                sc = globals().get("switch_controllers")
+                sc = getattr(request.app.state, "switch_controllers", None)
+                if not isinstance(sc, dict):
+                    sc = globals().get("switch_controllers")
                 if not isinstance(sc, dict):
                     sc = {}
-                    globals()["switch_controllers"] = sc
+                globals()["switch_controllers"] = sc
+                request.app.state.switch_controllers = sc
 
-                found_ctrl = None
-                for ctrl in sc.values():
-                    if str(getattr(ctrl, "switch_id", "") or "").strip().lower() == str(switch_id).strip().lower():
-                        found_ctrl = ctrl
-                        break
+                eval_controllers: list[object] = []
+                switch_mgr = SwitchSettingsManager("switch_settings")
+                sensor_source = getattr(request.app.state, "sensor_map", None)
+                if sensor_source is None:
+                    sensor_source = globals().get("sensor_map") or []
+                sensor_candidates = (
+                    sensor_source.values()
+                    if isinstance(sensor_source, dict)
+                    else sensor_source
+                )
 
-                if not found_ctrl:
-                    sw_mgr = SwitchSettingsManager("switch_settings")
-                    sw_doc = sw_mgr.load(switch_id) or {}
-                    if isinstance(sw_doc, dict) and (sw_doc.get("Switch") or {}):
-                        from .saiSwitch import build_switch_controller
-                        sw_loc = str((sw_doc.get("Switch") or {}).get("SWITCH_LOCATION", "") or "").strip().lower()
-                        sensor_match = None
-                        sm = globals().get("sensor_map") or []
-                        candidates = sm.values() if isinstance(sm, dict) else sm
-                        for s in (candidates or []):
-                            try:
-                                if str(getattr(s, "location", "") or "").strip().lower() == sw_loc:
-                                    sensor_match = s
-                                    break
-                            except Exception:
-                                continue
+                for target_switch_id in sorted(reload_switch_ids):
+                    found_ctrl = next(
+                        (
+                            ctrl
+                            for ctrl in sc.values()
+                            if str(getattr(ctrl, "switch_id", "") or "").strip().lower()
+                            == target_switch_id.lower()
+                        ),
+                        None,
+                    )
 
-                        ctrl = build_switch_controller(
-                            switch_settings=sw_doc,
-                            supervisor=None,
-                            sensor=sensor_match,
-                            data_logger=data_logger,
-                        )
-                        if bool(getattr(ctrl, "is_present", False)):
-                            sc[str(switch_id)] = ctrl
-                            try:
-                                request.app.state.switch_controllers = sc
-                            except Exception:
-                                pass
-                            found_ctrl = ctrl
-                            created_ctrl = ctrl
+                    if found_ctrl is None:
+                        sw_doc = switch_mgr.load(target_switch_id) or {}
+                        if isinstance(sw_doc, dict) and (sw_doc.get("Switch") or {}):
+                            from .saiSwitch import build_switch_controller
 
-                if created_ctrl is not None:
-                    task_name = f"{switch_id} Controladora Monitor (dynamic)"
-                    existing_task = _dynamic_switch_monitor_tasks.get(str(switch_id))
-                    if existing_task is None or existing_task.done():
-                        _dynamic_switch_monitor_tasks[str(switch_id)] = asyncio.create_task(
-                            created_ctrl.run_controladora_monitor(created_ctrl.sensor),
-                            name=task_name,
-                        )
-                        printDM(f"[{MODULE}] started dynamic switch monitor for {switch_id}", location=MODULE)
-            except Exception as _ensure_exc:
-                if DEBUG:
-                    printDM(f"[{MODULE}] dynamic monitor ensure failed for {switch_id}: {_ensure_exc}", location=MODULE)
-
-            # Run one immediate evaluation pass so newly saved rules don't wait for the next monitor tick.
-            try:
-                eval_ctrl = found_ctrl if "found_ctrl" in locals() else None
-                if eval_ctrl is not None:
-                    bound_sensor = getattr(eval_ctrl, "sensor", None)
-                    current_values_map = None
-                    if bound_sensor is not None and hasattr(bound_sensor, "current_data_set"):
-                        if getattr(bound_sensor, "present", True) is not False:
-                            try:
-                                raw_values, *_ = bound_sensor.current_data_set()
-                                sensor_key = (
-                                    getattr(bound_sensor, "sensor_id", None)
-                                    or getattr(bound_sensor, "devID", None)
+                            sw_loc = str(
+                                (sw_doc.get("Switch") or {}).get(
+                                    "SWITCH_LOCATION", ""
                                 )
-                                if sensor_key:
-                                    current_values_map = {sensor_key: raw_values}
-                                    eval_ctrl.values = current_values_map
-                            except Exception:
-                                current_values_map = None
+                                or ""
+                            ).strip().lower()
+                            sensor_match = None
+                            for candidate in (sensor_candidates or []):
+                                try:
+                                    if (
+                                        str(
+                                            getattr(candidate, "location", "") or ""
+                                        ).strip().lower()
+                                        == sw_loc
+                                    ):
+                                        sensor_match = candidate
+                                        break
+                                except Exception:
+                                    continue
 
-                    if current_values_map is None:
-                        current_values_map = getattr(eval_ctrl, "values", {}) or {}
+                            candidate_ctrl = build_switch_controller(
+                                switch_settings=sw_doc,
+                                supervisor=None,
+                                sensor=sensor_match,
+                                data_logger=data_logger,
+                            )
+                            if bool(getattr(candidate_ctrl, "is_present", False)):
+                                sc[target_switch_id] = candidate_ctrl
+                                found_ctrl = candidate_ctrl
 
-                    _switch_status_cache_payload = None
-                    _switch_status_cache_until = 0.0
+                    if found_ctrl is None:
+                        continue
 
-                    eval_advanced = getattr(eval_ctrl, "_evaluate_and_apply_advanced", None)
+                    rules_cache = getattr(found_ctrl, "_rules_cache", None)
+                    if isinstance(rules_cache, dict):
+                        rules_cache["mtime"] = None
+                    eval_controllers.append(found_ctrl)
+
+                    monitor_name = f"{target_switch_id} Controladora Monitor"
+                    supervisor = getattr(request.app.state, "supervisor", None)
+                    supervised_names = getattr(supervisor, "_task_names", set())
+                    existing_task = _dynamic_switch_monitor_tasks.get(
+                        target_switch_id
+                    )
+                    if (
+                        monitor_name not in supervised_names
+                        and (existing_task is None or existing_task.done())
+                    ):
+                        _dynamic_switch_monitor_tasks[target_switch_id] = (
+                            asyncio.create_task(
+                                found_ctrl.run_controladora_monitor(
+                                    getattr(found_ctrl, "sensor", None)
+                                ),
+                                name=f"{monitor_name} (dynamic)",
+                            )
+                        )
+                        printDM(
+                            f"[{MODULE}] started dynamic switch monitor for "
+                            f"{target_switch_id}",
+                            location=MODULE,
+                        )
+
+                # Evaluate immediately; the monitor remains the steady-state path.
+                for eval_ctrl in eval_controllers:
+                    current_values_map = getattr(eval_ctrl, "values", {}) or {}
+                    eval_advanced = getattr(
+                        eval_ctrl, "_evaluate_and_apply_advanced", None
+                    )
                     if callable(eval_advanced):
                         eval_advanced(current_values_map)
-            except Exception as _eval_exc:
+
+                _switch_status_cache_payload = None
+                _switch_status_cache_until = 0.0
+            except Exception as _reload_exc:
                 if DEBUG:
-                    printDM(f"[{MODULE}] immediate evaluation failed for {switch_id}: {_eval_exc}", location=MODULE)
+                    printDM(
+                        f"[{MODULE}] live automation reload failed: {_reload_exc}",
+                        location=MODULE,
+                    )
 
             # Sync per-channel override flags based on aggregate enabled state.
             try:

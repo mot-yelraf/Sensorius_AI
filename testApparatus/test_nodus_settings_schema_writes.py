@@ -5439,3 +5439,86 @@ async def test_advanced_automations_list_filters_to_requested_switch_id(tmp_path
     body = res.json()
     assert body["switch_id"] == "desk-hub"
     assert [item["rule_id"] for item in body["items"]] == ["desk-fan-rule", "legacy-local-rule"]
+
+
+@pytest.mark.asyncio
+async def test_system_automation_save_reloads_action_target_controller(tmp_path, monkeypatch):
+    app, _ingest, _system_root, _sensor_root, switch_root = await _build_app(
+        tmp_path, monkeypatch
+    )
+
+    import sensorius.saiAutomationManager as automation_module
+
+    real_automation_manager = automation_module.AutomationManager
+
+    class _TmpAutomationManager(real_automation_manager):
+        def __init__(self, _base_dir="switch_settings"):
+            super().__init__(str(switch_root))
+
+    monkeypatch.setattr(
+        automation_module, "AutomationManager", _TmpAutomationManager
+    )
+
+    switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
+    switch_mgr.save(
+        "switch-8y47n1",
+        {
+            "Switch": {
+                "TYPE": "nodus",
+                "SWITCH_DEVICE_ID": "switch-8y47n1",
+                "SWITCH_LOCATION": "Greenhouse",
+                "SWITCH_1_LABEL": "Water",
+                "SWITCH_1_CHANNEL_ID": "S1-8y47n1",
+            },
+        },
+    )
+
+    class _TargetController:
+        switch_id = "switch-8y47n1"
+        sensor = None
+
+        def __init__(self):
+            self.values = {"soil-8y47n1": {"Soil Moisture": 17.0}}
+            self.override_script = {"Water": True}
+            self._rules_cache = {"mtime": 123.0, "enabled": False}
+            self.evaluations = []
+
+        def _evaluate_and_apply_advanced(self, current_values_map):
+            self.evaluations.append(current_values_map)
+
+    target_ctrl = _TargetController()
+    controllers = {"switch-8y47n1": target_ctrl}
+    saiWebRoutes.switch_controllers = controllers
+    app.state.switch_controllers = controllers
+    app.state.supervisor = SimpleNamespace(
+        _task_names={"switch-8y47n1 Controladora Monitor"}
+    )
+
+    payload = {
+        "switch_id": "__system__",
+        "rule_id": "water-greenhouse-on",
+        "enabled": "true",
+        "script_json": (
+            '{"name":"Water Greenhouse On","enabled":true,'
+            '"conditions":[{"type":"sensor","sensor":"soil-8y47n1",'
+            '"metric":"Soil Moisture","op":"<","value":20,"hyst":1}],'
+            '"actions":[{"type":"switch","switch_key":"switch-8y47n1::Water",'
+            '"set":true,"revert_action":"previous_state","delay_s":0}]}'
+        ),
+    }
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        res = await client.post("/submit-advanced-trigger", json=payload)
+
+    assert res.status_code == 200
+    assert res.json()["ok"] is True
+    assert target_ctrl._rules_cache["mtime"] is None
+    assert target_ctrl.evaluations == [
+        {"soil-8y47n1": {"Soil Moisture": 17.0}}
+    ]
+
+    saved = _TmpAutomationManager().load("__system__")
+    script = saved["Advanced"]["water-greenhouse-on"]["script_json"]
+    assert '"switch_key":"switch-8y47n1::Water"' in script

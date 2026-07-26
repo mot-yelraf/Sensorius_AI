@@ -426,7 +426,10 @@ def test_advanced_notify_actor_reports_triggered_and_cleared_edges(
     SwitchController._evaluate_and_apply_advanced(ctrl, values())
     SwitchController._evaluate_and_apply_advanced(ctrl, values())
     assert len(sent) == 1
-    assert sent[0][0] == "Sensorius ACTIVATED: High temperature"
+    assert (
+        sent[0][0]
+        == "Sensorius ACTIVATED: High temperature: temperature was 30°C"
+    )
     assert sent[0][2]["to_addresses"] == ("grower@example.com",)
     assert "State: ACTIVATED" in sent[0][1]
     assert "Hub: sensorius-hub-3" in sent[0][1]
@@ -435,14 +438,17 @@ def test_advanced_notify_actor_reports_triggered_and_cleared_edges(
         "[TRUE] Sensor sensor-1; value 30; temperature > 25; hysteresis 1"
         in sent[0][1]
     )
-    assert "trigger > 26; clear < 24" in sent[0][1]
-    assert "Configured actions:" in sent[0][1]
+    assert "trigger > 26; clear <= 24" in sent[0][1]
+    assert sent[0][1].index("Conditions (AND within each group") < sent[0][1].index(
+        "State: ACTIVATED"
+    )
+    assert "Configured actors:" in sent[0][1]
     assert "Notify: email grower@example.com" in sent[0][1]
 
     rule_on["value"] = False
     SwitchController._evaluate_and_apply_advanced(ctrl, values())
     assert len(sent) == 2
-    assert sent[1][0] == "Sensorius CLEARED: High temperature"
+    assert sent[1][0] == "Sensorius CLEARED: High temperature: temperature was 20°C"
     assert "State: CLEARED" in sent[1][1]
     assert "Group 1: FALSE" in sent[1][1]
     assert (
@@ -453,7 +459,10 @@ def test_advanced_notify_actor_reports_triggered_and_cleared_edges(
     rule_on["value"] = True
     SwitchController._evaluate_and_apply_advanced(ctrl, values())
     assert len(sent) == 3
-    assert sent[2][0] == "Sensorius ACTIVATED: High temperature"
+    assert (
+        sent[2][0]
+        == "Sensorius ACTIVATED: High temperature: temperature was 30°C"
+    )
 
 
 def test_automation_notification_reports_or_groups_and_switch_actions(
