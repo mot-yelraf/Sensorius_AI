@@ -98,6 +98,26 @@ def test_dashboard_micrograph_uses_soil_fertility_gauge_scale():
     assert "yScaleOptions.max = cfgMax" in html
 
 
+def test_dashboard_micrograph_no_data_does_not_show_toast():
+    gauge_config = get_gauge_config()
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["offline-sensor"],
+            {"offline-sensor": {}},
+            {"offline-sensor": {}},
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=gauge_config,
+            expected_gauge_map={"offline-sensor": ["Temperature"]},
+            expected_display_style_map={"offline-sensor": {"METRIC_1": "Graph24hr"}},
+            display_style="Graph24hr",
+        )
+    )
+
+    assert "window.showToast('No data in selected graph window', 'warn');" not in html
+
+
 def test_dashboard_live_refresh_has_recovery_hooks():
     gauge_config = get_gauge_config()
     html = "".join(
