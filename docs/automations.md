@@ -71,6 +71,31 @@ Timer behavior:
 - Minute-based intervals can use `anchor_epoch` so a newly saved rule starts
   from save time.
 
+BD Transitions behavior:
+
+- `BD Transitions` has no configuration options.
+- The condition becomes true for one automation evaluation when the
+  biodynamic calendar enters a new segment.
+- A transition publishes a dashboard toast containing the local transition
+  date and time plus the outgoing and incoming zodiac sign, element, and plant
+  part.
+- The toast background uses the incoming element's established biodynamic
+  color, with automatically contrasting text.
+- When a rule contains `BD Transitions`, its actor list includes `None`.
+  Selecting `None` evaluates the transition and publishes the automatic toast
+  without sending email or changing a relay.
+- Rules saved with the initial `None` implementation are accepted through a
+  compatibility path that treats an empty switch action as `None` for BD
+  transition rules.
+- The toast remains visible until it is clicked.
+- Toast events are delivered to connected dashboard clients through the live
+  dashboard WebSocket.
+- The first evaluation after service startup establishes the current segment
+  without producing a stale transition toast.
+- A Notify actor sends one transition email rather than a subsequent
+  transition-cleared email. Its subject summarizes the transition time and
+  From/To segments; its body includes the full condition details.
+
 Notify behavior:
 
 - A false-to-true rule transition sends a **TRIGGERED** message.

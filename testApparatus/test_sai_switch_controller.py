@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import types
+import asyncio
 from datetime import datetime, timedelta
 
 import pytest
@@ -1450,6 +1451,365 @@ def test_advanced_rule_supports_astral_condition(monkeypatch: pytest.MonkeyPatch
 
     SwitchController._evaluate_and_apply_advanced(ctrl, {})
     assert calls == [("Fan", True)]
+
+
+def test_advanced_rule_detects_biodynamic_from_to_transition(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    ctrl = _make_controller()
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "rule-bd": {
+                "enabled": True,
+                "script_json": {
+                    "enabled": True,
+                    "conditions": [{
+                        "type": "bd_transitions",
+                        "executor_switch_id": "sw1",
+                    }],
+                    "actions": [{
+                        "switch_key": "sw1::Fan",
+                        "set": True,
+                        "delay_s": 0,
+                    }],
+                },
+            }
+        }
+    }
+    segments = iter([
+        {
+            "transition_at": "2026-07-28T08:00:00-06:00",
+            "sign": "Aries",
+            "element": "Fire",
+            "plant_part": "Fruit",
+            "color": "#f19707",
+            "accent": "#d64b3b",
+        },
+        {
+            "transition_at": "2026-07-28T10:30:00-06:00",
+            "sign": "Taurus",
+            "element": "Earth",
+            "plant_part": "Root",
+            "color": "#e5b172",
+            "accent": "#644817",
+        },
+    ])
+    monkeypatch.setattr(
+        ctrl,
+        "_get_current_biodynamic_transition",
+        lambda: next(segments),
+    )
+    broadcasts = []
+    monkeypatch.setattr(
+        ctrl,
+        "_broadcast_biodynamic_transition",
+        lambda transition: broadcasts.append(transition),
+    )
+    ctrl.get_state = lambda _label: False
+    calls = []
+    ctrl.set_state = lambda label, desired, **_kwargs: calls.append((label, desired))
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    assert calls == []
+    assert broadcasts == []
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+
+    assert calls == [("Fan", True)]
+    assert broadcasts == [{
+        "transition_at": "2026-07-28T10:30:00-06:00",
+        "from": {
+            "sign": "Aries",
+            "element": "Fire",
+            "plant_part": "Fruit",
+            "color": "#f19707",
+            "accent": "#d64b3b",
+        },
+        "to": {
+            "sign": "Taurus",
+            "element": "Earth",
+            "plant_part": "Root",
+            "color": "#e5b172",
+            "accent": "#644817",
+        },
+    }]
+
+
+def test_biodynamic_none_action_generates_toast_without_relay_or_email(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    ctrl = _make_controller()
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "rule-bd-none": {
+                "enabled": True,
+                "script_json": {
+                    "enabled": True,
+                    "conditions": [{
+                        "type": "bd_transitions",
+                        "executor_switch_id": "sw1",
+                    }],
+                    "actions": [{
+                        "type": "none",
+                        "executor_switch_id": "sw1",
+                    }],
+                },
+            }
+        }
+    }
+    segments = iter([
+        {
+            "transition_at": "2026-07-28T08:00:00-06:00",
+            "sign": "Aries",
+            "element": "Fire",
+            "plant_part": "Fruit",
+        },
+        {
+            "transition_at": "2026-07-28T10:30:00-06:00",
+            "sign": "Taurus",
+            "element": "Earth",
+            "plant_part": "Root",
+        },
+    ])
+    monkeypatch.setattr(
+        ctrl,
+        "_get_current_biodynamic_transition",
+        lambda: next(segments),
+    )
+    broadcasts = []
+    monkeypatch.setattr(
+        ctrl,
+        "_broadcast_biodynamic_transition",
+        lambda transition: broadcasts.append(transition),
+    )
+    ctrl.set_state = lambda *_args, **_kwargs: pytest.fail(
+        "None actor must not change a relay"
+    )
+    monkeypatch.setattr(
+        saiSwitch,
+        "SMTPEmailSender",
+        lambda: pytest.fail("None actor must not create an email sender"),
+    )
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+
+    assert len(broadcasts) == 1
+    assert broadcasts[0]["from"]["sign"] == "Aries"
+    assert broadcasts[0]["to"]["sign"] == "Taurus"
+
+
+def test_legacy_empty_bd_switch_action_is_treated_as_none_on_hub_controller(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    ctrl = _make_controller()
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "legacy-bd-none": {
+                "enabled": True,
+                "script_json": {
+                    "enabled": True,
+                    "conditions": [{"type": "bd_transitions"}],
+                    "actions": [{
+                        "type": "switch",
+                        "switch_key": "",
+                        "set": False,
+                    }],
+                },
+            }
+        }
+    }
+    monkeypatch.setattr(saiSwitch.socket, "gethostname", lambda: "sw1")
+    segments = iter([
+        {
+            "transition_at": "2026-07-28T08:00:00-06:00",
+            "sign": "Aries",
+            "element": "Fire",
+            "plant_part": "Fruit",
+        },
+        {
+            "transition_at": "2026-07-29T00:00:00-06:00",
+            "sign": "Taurus",
+            "element": "Earth",
+            "plant_part": "Root",
+        },
+    ])
+    monkeypatch.setattr(
+        ctrl,
+        "_get_current_biodynamic_transition",
+        lambda: next(segments),
+    )
+    broadcasts = []
+    monkeypatch.setattr(
+        ctrl,
+        "_broadcast_biodynamic_transition",
+        lambda transition: broadcasts.append(transition),
+    )
+    ctrl.set_state = lambda *_args, **_kwargs: pytest.fail(
+        "Legacy BD None compatibility must not change a relay"
+    )
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+
+    assert len(broadcasts) == 1
+    assert broadcasts[0]["to"]["element"] == "Earth"
+
+
+def test_biodynamic_transition_email_has_from_to_subject_and_body():
+    ctrl = _make_controller()
+    transition = {
+        "transition_at": "2026-07-28T10:30:00-06:00",
+        "from": {
+            "sign": "Aries",
+            "element": "Fire",
+            "plant_part": "Fruit",
+        },
+        "to": {
+            "sign": "Taurus",
+            "element": "Earth",
+            "plant_part": "Root",
+        },
+    }
+    condition = {
+        "type": "bd_transitions",
+        "_bd_transition": transition,
+    }
+
+    subject, body = SwitchController._build_automation_notification(
+        ctrl,
+        rule_id="rule-bd",
+        rule_name="BD Notice",
+        triggered=True,
+        evaluated_groups=[{
+            "result": True,
+            "conditions": [(condition, True)],
+        }],
+        actions=[{"type": "notify", "to": "grower@example.com"}],
+        current_values_map={},
+    )
+
+    assert "BD Transition" in subject
+    assert "Aries / Fire / Fruit to Taurus / Earth / Root" in subject
+    assert "Jul 28, 2026 10:30 AM" in subject
+    assert "From Aries / Fire / Fruit; To Taurus / Earth / Root" in body
+
+
+def test_biodynamic_notify_sends_transition_without_cleared_followup(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    ctrl = _make_controller()
+    rule_doc = {
+        "Advanced": {
+            "rule-bd": {
+                "enabled": True,
+                "script_json": {
+                    "enabled": True,
+                    "name": "BD Notice",
+                    "conditions": [{
+                        "type": "bd_transitions",
+                        "executor_switch_id": "sw1",
+                    }],
+                    "actions": [{
+                        "type": "notify",
+                        "to": "grower@example.com",
+                        "executor_switch_id": "sw1",
+                    }],
+                },
+            }
+        }
+    }
+    ctrl._load_triggers_dict = lambda: rule_doc
+    segments = iter([
+        {
+            "transition_at": "2026-07-28T08:00:00-06:00",
+            "sign": "Aries",
+            "element": "Fire",
+            "plant_part": "Fruit",
+        },
+        {
+            "transition_at": "2026-07-28T10:30:00-06:00",
+            "sign": "Taurus",
+            "element": "Earth",
+            "plant_part": "Root",
+        },
+        {
+            "transition_at": "2026-07-28T10:30:00-06:00",
+            "sign": "Taurus",
+            "element": "Earth",
+            "plant_part": "Root",
+        },
+    ])
+    monkeypatch.setattr(
+        ctrl,
+        "_get_current_biodynamic_transition",
+        lambda: next(segments),
+    )
+    monkeypatch.setattr(ctrl, "_broadcast_biodynamic_transition", lambda _event: None)
+    sent = []
+
+    class FakeSender:
+        def send(self, subject, body, to_addresses=()):
+            sent.append((subject, body, to_addresses))
+
+    class ImmediateThread:
+        def __init__(self, target, **_kwargs):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    monkeypatch.setattr(saiSwitch, "SMTPEmailSender", FakeSender)
+    monkeypatch.setattr(saiSwitch.threading, "Thread", ImmediateThread)
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+
+    assert len(sent) == 1
+    assert "Aries / Fire / Fruit to Taurus / Earth / Root" in sent[0][0]
+    assert sent[0][2] == ("grower@example.com",)
+
+
+def test_biodynamic_transition_broadcast_reaches_runtime_app(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from sensorius import saiWebRoutes
+
+    ctrl = _make_controller()
+    received = []
+
+    async def fake_broadcast(payload):
+        received.append(payload)
+
+    runtime_app = types.SimpleNamespace(
+        state=types.SimpleNamespace(switch_broadcast=fake_broadcast)
+    )
+    monkeypatch.setattr(saiWebRoutes, "app", runtime_app)
+    transition = {
+        "transition_at": "2026-07-28T10:30:00-06:00",
+        "from": {
+            "sign": "Aries",
+            "element": "Fire",
+            "plant_part": "Fruit",
+        },
+        "to": {
+            "sign": "Taurus",
+            "element": "Earth",
+            "plant_part": "Root",
+        },
+    }
+
+    async def run_broadcast():
+        SwitchController._broadcast_biodynamic_transition(ctrl, transition)
+        await asyncio.sleep(0)
+
+    asyncio.run(run_broadcast())
+
+    assert received == [{
+        "type": "bd_transition",
+        **transition,
+    }]
 
 
 def test_advanced_evaluation_ignores_actions_for_other_switch_ids():

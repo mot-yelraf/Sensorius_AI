@@ -85,6 +85,13 @@ done
   echo "Source does not contain the root sensorius package and launcher: ${SOURCE_DIR}" >&2
   exit 1
 }
+ROOT_VERSION="$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "${SOURCE_DIR}/__init__.py" | head -n 1)"
+PACKAGE_VERSION="$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "${SOURCE_DIR}/sensorius/__init__.py" | head -n 1)"
+if [[ -z "${ROOT_VERSION}" || -z "${PACKAGE_VERSION}" || "${ROOT_VERSION}" != "${PACKAGE_VERSION}" ]]; then
+  echo "Version marker mismatch: root=${ROOT_VERSION:-missing} package=${PACKAGE_VERSION:-missing}" >&2
+  echo "Refusing deploy because the runtime UI and static cache key would report the package version." >&2
+  exit 1
+fi
 [[ -x "${RSYNC_BIN}" ]] || { echo "rsync not executable: ${RSYNC_BIN}" >&2; exit 1; }
 
 cleanup_remote_legacy_layout() {
@@ -158,6 +165,7 @@ EXCLUDES=(
   ".mypy_cache/"
   ".ruff_cache/"
   ".DS_Store"
+  ".lgd-*"
   "*.local/"
   "*.local/***"
   "deploy_scripts/"
@@ -171,6 +179,8 @@ EXCLUDES=(
   "database_archives/***"
   "database_recovery/"
   "database_recovery/***"
+  "cache/"
+  "cache/***"
   "system_settings/***"
   "sensor_settings/***"
   "switch_settings/***"

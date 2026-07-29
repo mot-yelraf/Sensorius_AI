@@ -7,6 +7,7 @@ handling, and Nodus-facing config payload generation.
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import os
 import sqlite3
@@ -5522,3 +5523,67 @@ async def test_system_automation_save_reloads_action_target_controller(tmp_path,
     saved = _TmpAutomationManager().load("__system__")
     script = saved["Advanced"]["water-greenhouse-on"]["script_json"]
     assert '"switch_key":"switch-8y47n1::Water"' in script
+
+
+@pytest.mark.asyncio
+async def test_bd_none_automation_round_trip_preserves_executor(tmp_path, monkeypatch):
+    app, _ingest, _system_root, _sensor_root, switch_root = await _build_app(
+        tmp_path, monkeypatch
+    )
+
+    import sensorius.saiAutomationManager as automation_module
+
+    real_automation_manager = automation_module.AutomationManager
+
+    class _TmpAutomationManager(real_automation_manager):
+        def __init__(self, _base_dir="switch_settings"):
+            super().__init__(str(switch_root))
+
+    monkeypatch.setattr(
+        automation_module, "AutomationManager", _TmpAutomationManager
+    )
+
+    payload = {
+        "switch_id": "sensoria-hub-0",
+        "rule_id": "bd-none",
+        "enabled": "true",
+        "script_json": (
+            '{"name":"BD Transitions","enabled":true,'
+            '"conditions":[{"type":"bd_transitions",'
+            '"executor_switch_id":"sensoria-hub-0"}],'
+            '"actions":[{"type":"none",'
+            '"executor_switch_id":"sensoria-hub-0"}]}'
+        ),
+    }
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        res = await client.post("/submit-advanced-trigger", json=payload)
+
+    assert res.status_code == 200
+    assert res.json()["ok"] is True
+    saved = _TmpAutomationManager().load("sensoria-hub-0")
+    script = json.loads(saved["Advanced"]["bd-none"]["script_json"])
+    assert script["conditions"] == [{
+        "type": "bd_transitions",
+        "sensor": "",
+        "metric": "",
+        "op": ">",
+        "value": None,
+        "hyst": None,
+        "start": "",
+        "end": "",
+        "astral_event": "sunrise",
+        "offset_min": 0,
+        "days": None,
+        "duration_min": None,
+        "freq_hours": None,
+        "period_min": None,
+        "anchor_epoch": None,
+        "executor_switch_id": "sensoria-hub-0",
+    }]
+    assert script["actions"] == [{
+        "type": "none",
+        "executor_switch_id": "sensoria-hub-0",
+    }]

@@ -74,11 +74,16 @@ setup scripts prepare or repair the Python environment, Mosquitto, service
 files, and autostart behavior, while `deploy_sai.sh` only syncs application
 files and optionally runs a per-host post-deploy command.
 
+Before syncing, the deploy script verifies that the repository-root and
+package-level `__version__` markers match. This prevents the UI version and
+versioned static-asset URLs from remaining stale after a deploy.
+
 The deploy script is intended for existing runtime directories such as
 `/home/<user>/Sensorius` or `/Users/<user>/Sensorius`. It excludes installed
 runtime state, including `sensorius_data.db*`, `system_settings/`,
-`sensor_settings/`, and `switch_settings/`, and explicitly allows factory
-templates under those settings trees to update.
+`sensor_settings/`, `switch_settings/`, and generated runtime data under
+`cache/`. Runtime-generated `.lgd-*` named pipes are also preserved. It
+explicitly allows factory templates under those settings trees to update.
 
 Inventory format:
 

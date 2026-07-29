@@ -138,13 +138,25 @@ function getActionOptionEntries(modal) {
     .sort((a, b) => a.idx - b.idx);
 }
 
+function hasBdTransitionCondition(modal) {
+  return [...(modal?.querySelectorAll?.("#conditionsContainer .cond-group") || [])]
+    .some(group => String(group.querySelector("select")?.value || "").trim().toLowerCase() === "bd_transitions");
+}
+
 function fillActionSwitchOptions(selectEl, modal, preferredValue = "") {
   if (!selectEl) return;
 
   const entries = getActionOptionEntries(modal);
   selectEl.innerHTML = "";
 
-  if (!entries.length) {
+  if (hasBdTransitionCondition(modal)) {
+    const opt = create("option");
+    opt.value = "none";
+    opt.textContent = "None";
+    selectEl.appendChild(opt);
+  }
+
+  if (!entries.length && !selectEl.options.length) {
     if (!emailActorEnabled) {
       const opt = create("option");
       opt.value = "";
@@ -188,6 +200,14 @@ function fillActionSwitchOptions(selectEl, modal, preferredValue = "") {
   if (aliasOption) {
     selectEl.value = aliasOption.value;
   }
+}
+
+function refreshActionActorOptions(modal) {
+  modal?.querySelectorAll?.("#actionsContainer select.action-actor").forEach(selectEl => {
+    const preferredValue = String(selectEl.value || "").trim();
+    fillActionSwitchOptions(selectEl, modal, preferredValue);
+    selectEl.dispatchEvent(new Event("change"));
+  });
 }
 
 function setAutomationView(modal, mode) {
@@ -363,6 +383,7 @@ function addCondition(modal, cond) {
     <option value="time">time of day</option>
     <option value="astral">astral</option>
     <option value="timer">timer</option>
+    <option value="bd_transitions">BD Transitions</option>
     <option value="or">or</option>`;
   typeSel.value = initialType;
   typeSel.style.width = "8rem";
@@ -585,7 +606,11 @@ function addCondition(modal, cond) {
   rem.setAttribute("aria-label","Remove condition");
   rem.textContent = "×";
   rem.title = "Remove condition";
-  rem.onclick = () => { group.remove(); updateAstralDependencyWarning(modal); };
+  rem.onclick = () => {
+    group.remove();
+    updateAstralDependencyWarning(modal);
+    refreshActionActorOptions(modal);
+  };
 
   const orChip = create("div","or-chip");
   orChip.textContent = "OR";
@@ -628,6 +653,13 @@ function renderAsTime() {
     group.appendChild(row);
   }
 
+  function renderAsBdTransitions(){
+    group.innerHTML = "";
+    const row = create("div", "cond bd-transitions");
+    row.append(typeWrap, rem);
+    group.appendChild(row);
+  }
+
   function renderAsSensor(){
     group.innerHTML = "";
     const top = create("div", "cond sensor-top");
@@ -648,6 +680,7 @@ function renderAsTime() {
   if (initialType === "time")         renderAsTime();
   else if (initialType === "astral")  renderAsAstral();
   else if (initialType === "timer")   renderAsTimer();
+  else if (initialType === "bd_transitions") renderAsBdTransitions();
   else if (initialType === "or")      renderAsOr();
   else                                renderAsSensor();
 
@@ -656,9 +689,11 @@ function renderAsTime() {
     if (typeSel.value === "time")         renderAsTime();
     else if (typeSel.value === "astral")  renderAsAstral();
     else if (typeSel.value === "timer")   renderAsTimer();
+    else if (typeSel.value === "bd_transitions") renderAsBdTransitions();
     else if (typeSel.value === "or")      renderAsOr();
     else                                  renderAsSensor();
     updateAstralDependencyWarning(modal);
+    refreshActionActorOptions(modal);
   });
 
   container.appendChild(group);
@@ -747,15 +782,19 @@ function addAction(modal, action) {
   container.appendChild(group);
 
   const preferredActor = String(
-    action?.type === "notify" ? "notify" : (action?.switch_key || "")
+    action?.type === "notify"
+      ? "notify"
+      : (action?.type === "none" ? "none" : (action?.switch_key || ""))
   ).trim();
   fillActionSwitchOptions(actorSel, modal, preferredActor);
   const syncActorFields = () => {
     const isNotify = actorSel.value === "notify";
+    const isNone = actorSel.value === "none";
     row.classList.toggle("notify-action", isNotify);
-    setWrap.hidden = isNotify;
-    revertWrap.hidden = isNotify;
-    delayWrap.hidden = isNotify;
+    row.classList.toggle("none-action", isNone);
+    setWrap.hidden = isNotify || isNone;
+    revertWrap.hidden = isNotify || isNone;
+    delayWrap.hidden = isNotify || isNone;
     toWrap.hidden = !isNotify;
   };
   actorSel.addEventListener("change", syncActorFields);
@@ -855,6 +894,8 @@ function serializeForm(modal){
         condition.freq_hours = periodMin / 60;
       }
       return condition;
+    } else if (typeVal === "bd_transitions") {
+      return { type:"bd_transitions", executor_switch_id: currentSwitchId };
     } else if (typeVal === "or"){
       return { type:"or" };
     } else {
@@ -878,6 +919,12 @@ function serializeForm(modal){
         executor_switch_id: currentSwitchId,
       };
     }
+    if (switchKey === "none") {
+      return {
+        type: "none",
+        executor_switch_id: currentSwitchId,
+      };
+    }
     const set = group.querySelector(".action-set")?.value === "on";
     const revertAction = group.querySelector(".action-revert")?.value === "do_nothing"
       ? "do_nothing"
@@ -885,7 +932,11 @@ function serializeForm(modal){
     const delayRaw = parseInt(group.querySelector(".action-delay")?.value || "0", 10);
     const delay_s = Number.isFinite(delayRaw) ? Math.max(0, Math.min(60, delayRaw)) : 0;
     return { type: "switch", switch_key: switchKey, set, revert_action: revertAction, delay_s };
-  }).filter(a => a.type === "notify" ? !!a.to : !!a.switch_key);
+  }).filter(a => {
+    if (a.type === "notify") return !!a.to;
+    if (a.type === "none") return true;
+    return !!a.switch_key;
+  });
 
   if (!actions.length) {
     const fallback = q(modal, "#actionsContainer .action-actor");

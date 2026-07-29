@@ -102,6 +102,9 @@ from . import __version__ as SAI_APP_VERSION
 
 MODULE = "saiWebRoutes"
 DEBUG = debug_enabled(MODULE)
+# Bound by register_routes so background runtime modules can reach app.state
+# without importing saiWebServer and creating an import cycle.
+app = None
 data_logger = saiDataLogger()
 statter = saiStats()
 _ALL_IANA_TIMEZONES: tuple[str, ...] = tuple(sorted(available_timezones()))
@@ -599,6 +602,10 @@ def _is_unknown_location_value(value: object) -> bool:
     return text in {"", "unknown", "n/a", "na", "none", "-"}
 
 async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
+    # Several background services publish dashboard events through
+    # saiWebRoutes.app.state.switch_broadcast. Keep that compatibility binding
+    # pointed at the actual FastAPI instance created by saiWebServer.
+    globals()["app"] = app
     router = APIRouter()
     _BIODYNAMIC_PAYLOAD_CACHE.clear()
     biodynamic_payload_tasks: dict[str, asyncio.Task] = {}
@@ -13085,7 +13092,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if astral_event not in {"sunrise", "sunset", "sunrise_to_sunset", "sunset_to_sunrise"}:
                     astral_event = "sunrise"
 
-                normalized_conditions.append({
+                normalized_condition = {
                     "type":   cond_type,  # 'sensor' / 'time' / 'astral' / 'timer' / 'or'
                     "sensor": str(c.get("sensor",  c.get("sensor_id", ""))).strip(),
                     "metric": str(c.get("metric",  "")).strip(),
@@ -13102,7 +13109,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     "freq_hours":   freq_hours,
                     "period_min":   period_min,
                     "anchor_epoch": anchor_epoch,
-                })
+                }
+                if cond_type == "bd_transitions":
+                    normalized_condition["executor_switch_id"] = norm_switch_id(
+                        str(c.get("executor_switch_id", switch_id) or switch_id)
+                    )
+                normalized_conditions.append(normalized_condition)
 
             # ACTIONS: accept UI shape (switch_label/set) OR legacy (switch/state/delay)
             raw_actions = parsed.get("actions", [])
@@ -13146,6 +13158,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             for a in (raw_actions or []):
                 action_type = str(a.get("type", "switch") or "switch").strip().lower()
+                if action_type == "none":
+                    normalized_actions.append({
+                        "type": "none",
+                        "executor_switch_id": norm_switch_id(
+                            str(a.get("executor_switch_id", switch_id) or switch_id)
+                        ),
+                    })
+                    continue
                 if action_type == "notify":
                     notify_to = str(a.get("to", "") or "").strip()
                     executor_switch_id = norm_switch_id(
@@ -13178,7 +13198,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             try:
                 # Rewrite any action switch_key that references CHn or labels -> canonical switch_id::channel_id
                 for a in normalized_actions:
-                    a["switch_key"] = _automation_action_key(a.get("switch_key") or "")
+                    if str(a.get("type", "switch") or "switch").strip().lower() == "switch":
+                        a["switch_key"] = _automation_action_key(a.get("switch_key") or "")
             except Exception:
                 pass
 

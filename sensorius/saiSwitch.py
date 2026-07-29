@@ -86,6 +86,8 @@ class SwitchController:
         self._advanced_debug_next_idle_log_at = 0.0
         self._advanced_debug_cycle_verbose = False
         self._astral_location_cache = {"value": None, "expires_at": 0.0}
+        self._advanced_bd_transition_keys = {}
+        self._advanced_bd_transition_segments = {}
 
         # Settings accessor that works with either wrapper or dict
         try:
@@ -1384,11 +1386,108 @@ class SwitchController:
                 period = int(cond.get("freq_hours", 1) or 1) * 60
             return f"[{status}] Timer active {duration} min every {int(period)} min"
 
+        if ctype == "bd_transitions":
+            transition = cond.get("_bd_transition")
+            if isinstance(transition, dict):
+                from_text = self._biodynamic_segment_text(transition.get("from"))
+                to_text = self._biodynamic_segment_text(transition.get("to"))
+                transition_at = self._format_biodynamic_transition_time(
+                    transition.get("transition_at")
+                )
+                return (
+                    f"[{status}] Biodynamic Calendar Transition at {transition_at}; "
+                    f"From {from_text}; To {to_text}"
+                )
+            return f"[{status}] Biodynamic Calendar Transition"
+
         return f"[{status}] {ctype or 'unknown'} condition"
+
+    @staticmethod
+    def _biodynamic_segment_text(segment) -> str:
+        if not isinstance(segment, dict):
+            return "Unknown"
+        values = [
+            str(segment.get("sign") or "").strip(),
+            str(segment.get("element") or "").strip(),
+            str(segment.get("plant_part") or "").strip(),
+        ]
+        return " / ".join(value for value in values if value) or "Unknown"
+
+    @staticmethod
+    def _format_biodynamic_transition_time(value) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return "unknown time"
+        try:
+            parsed = datetime.fromisoformat(raw)
+            formatted = parsed.strftime("%b %d, %Y %I:%M %p %Z")
+            return formatted.replace(" 0", " ")
+        except Exception:
+            return raw
+
+    def _get_current_biodynamic_transition(self) -> dict:
+        """Return the current biodynamic segment used by transition automations."""
+        try:
+            from .saiBiodynamics import get_biodynamic_local_now, get_biodynamic_payload
+
+            now_local = get_biodynamic_local_now()
+            payload = get_biodynamic_payload(now_local.date())
+            current = payload.get("current") if isinstance(payload, dict) else {}
+            if not bool(payload.get("ok")) or not isinstance(current, dict):
+                return {}
+            transition_at = str(current.get("window_start") or "").strip()
+            if not transition_at:
+                return {}
+            return {
+                "transition_at": transition_at,
+                "sign": str(current.get("sign") or "").strip(),
+                "element": str(current.get("element") or "").strip(),
+                "plant_part": str(current.get("plant_part") or "").strip(),
+                "color": str(current.get("color") or "").strip(),
+                "accent": str(current.get("accent") or "").strip(),
+            }
+        except Exception as exc:
+            if DEBUG:
+                printDM(f"[advanced] biodynamic transition unavailable: {exc}", location=MODULE)
+            return {}
+
+    def _broadcast_biodynamic_transition(self, transition: dict) -> None:
+        """Publish a biodynamic transition to connected dashboard clients."""
+        try:
+            from . import saiWebRoutes as routes
+
+            bcast = getattr(routes, "app", None)
+            switch_broadcast = getattr(
+                getattr(bcast, "state", object()),
+                "switch_broadcast",
+                None,
+            )
+            if not switch_broadcast:
+                printDM(
+                    "[advanced] BD transition toast unavailable: dashboard broadcaster is not registered",
+                    location=MODULE,
+                    level="warning",
+                )
+                return
+            payload = {
+                "type": "bd_transition",
+                "transition_at": str(transition.get("transition_at") or ""),
+                "from": dict(transition.get("from") or {}),
+                "to": dict(transition.get("to") or {}),
+            }
+            asyncio.create_task(switch_broadcast(payload))
+        except Exception as exc:
+            printDM(
+                f"[advanced] BD transition toast broadcast failed: {exc}",
+                location=MODULE,
+                level="warning",
+            )
 
     def _automation_action_report(self, action: dict) -> str:
         """Format one configured automation action for an email report."""
         action_type = str(action.get("type", "switch") or "switch").strip().lower()
+        if action_type == "none":
+            return "None: biodynamic transition toast only"
         if action_type == "notify":
             return f"Notify: email {str(action.get('to', '') or '').strip()}"
 
@@ -1476,6 +1575,25 @@ class SwitchController:
         notification_state = "ACTIVATED" if triggered else "CLEARED"
         display_name = rule_name or rule_id
         subject = f"Sensorius {notification_state}: {display_name}"
+        bd_transition = None
+        for group in evaluated_groups:
+            for cond, result in group.get("conditions", []):
+                candidate = cond.get("_bd_transition") if isinstance(cond, dict) else None
+                if bool(result) and isinstance(candidate, dict):
+                    bd_transition = candidate
+                    break
+            if bd_transition:
+                break
+        if triggered and bd_transition:
+            from_text = self._biodynamic_segment_text(bd_transition.get("from"))
+            to_text = self._biodynamic_segment_text(bd_transition.get("to"))
+            transition_at = self._format_biodynamic_transition_time(
+                bd_transition.get("transition_at")
+            )
+            subject = (
+                f"Sensorius BD Transition: {from_text} to {to_text} "
+                f"at {transition_at}"
+            )
         metric_summaries = self._automation_subject_metrics(
             evaluated_groups,
             current_values_map,
@@ -1542,6 +1660,9 @@ class SwitchController:
                         either period_min (minutes) or legacy freq_hours.
                         Hour-based rules still align to on-the-hour periods.
                         Minute-based rules may use anchor_epoch to start at save time.
+            * "bd_transitions": true for one evaluation pass when the current
+                        biodynamic calendar segment changes. The condition also
+                        publishes a persistent dashboard toast.
             * "sensor": uses hysteresis around `value` to decide if the channel
                         should be ON, based on the *current state* of the target
                         switch channel.
@@ -1587,6 +1708,7 @@ class SwitchController:
         seconds_since_midnight = (
             now_tm.tm_hour * 3600 + now_tm.tm_min * 60 + now_tm.tm_sec
         )
+        bd_condition_results: dict[str, bool] = {}
 
         def _split_condition_groups(conditions: list[dict]) -> list[list[dict]]:
             """
@@ -1611,6 +1733,7 @@ class SwitchController:
             cond: dict,
             target_label: str,
             current_action_state: bool | None = None,
+            rule_id: str = "",
         ) -> bool:
             """
             Evaluate a single condition for a specific target switch label.
@@ -1683,6 +1806,58 @@ class SwitchController:
                     # Preserve legacy on-the-hour alignment for hourly timers.
                     phase = seconds_since_midnight % period_sec
                 return phase < duration_sec
+
+            # --- BIODYNAMIC TRANSITION CONDITION -----------------------------
+            if ctype == "bd_transitions":
+                executor_sid = str(cond.get("executor_switch_id", "") or "").strip()
+                own_sid = str(getattr(self, "switch_id", "") or "").strip()
+                if executor_sid and executor_sid.lower() != own_sid.lower():
+                    return False
+
+                state_key = str(rule_id or "bd_transitions")
+                if state_key in bd_condition_results:
+                    return bd_condition_results[state_key]
+
+                transition = self._get_current_biodynamic_transition()
+                transition_key = str(transition.get("transition_at") or "").strip()
+                transition_keys = getattr(self, "_advanced_bd_transition_keys", None)
+                if not isinstance(transition_keys, dict):
+                    transition_keys = {}
+                    self._advanced_bd_transition_keys = transition_keys
+                transition_segments = getattr(
+                    self,
+                    "_advanced_bd_transition_segments",
+                    None,
+                )
+                if not isinstance(transition_segments, dict):
+                    transition_segments = {}
+                    self._advanced_bd_transition_segments = transition_segments
+                previous_key = str(transition_keys.get(state_key) or "").strip()
+                previous_segment = transition_segments.get(state_key)
+                triggered = bool(
+                    transition_key
+                    and previous_key
+                    and transition_key != previous_key
+                )
+                if transition_key:
+                    transition_keys[state_key] = transition_key
+                    transition_segments[state_key] = {
+                        "sign": str(transition.get("sign") or ""),
+                        "element": str(transition.get("element") or ""),
+                        "plant_part": str(transition.get("plant_part") or ""),
+                        "color": str(transition.get("color") or ""),
+                        "accent": str(transition.get("accent") or ""),
+                    }
+                bd_condition_results[state_key] = triggered
+                if triggered:
+                    transition_event = {
+                        "transition_at": transition_key,
+                        "from": dict(previous_segment or {}),
+                        "to": dict(transition_segments[state_key]),
+                    }
+                    cond["_bd_transition"] = transition_event
+                    self._broadcast_biodynamic_transition(transition_event)
+                return triggered
 
             # --- SENSOR CONDITION ---------------------------------------------
             if ctype == "sensor":
@@ -1820,6 +1995,51 @@ class SwitchController:
                 # ---- per-action evaluation (so hysteresis uses that channel) ----
                 for act in actions:
                     action_type = str(act.get("type", "switch") or "switch").strip().lower()
+                    has_bd_transition = any(
+                        str(cond.get("type", "") or "").strip().lower()
+                        == "bd_transitions"
+                        for group in groups
+                        for cond in group
+                    )
+                    if (
+                        action_type == "switch"
+                        and not str(act.get("switch_key", "") or "").strip()
+                        and has_bd_transition
+                    ):
+                        # Compatibility for BD None actors saved by v0.26.209.4,
+                        # whose route normalizer rewrote them as empty switches.
+                        action_type = "none"
+                    if action_type == "none":
+                        executor_sid = str(act.get("executor_switch_id", "") or "").strip()
+                        own_sid = str(getattr(self, "switch_id", "") or "").strip()
+                        if not executor_sid:
+                            executor_sid = next(
+                                (
+                                    str(cond.get("executor_switch_id", "") or "").strip()
+                                    for group in groups
+                                    for cond in group
+                                    if str(cond.get("type", "") or "").strip().lower()
+                                    == "bd_transitions"
+                                    and str(cond.get("executor_switch_id", "") or "").strip()
+                                ),
+                                "",
+                            )
+                        if executor_sid and executor_sid.lower() != own_sid.lower():
+                            continue
+                        if (
+                            not executor_sid
+                            and own_sid.lower()
+                            != str(socket.gethostname() or "").strip().lower()
+                        ):
+                            continue
+                        for group in groups:
+                            for cond in group:
+                                _eval_single_condition(
+                                    cond,
+                                    "",
+                                    rule_id=str(_rule_id),
+                                )
+                        continue
                     if action_type == "notify":
                         executor_sid = str(act.get("executor_switch_id", "") or "").strip()
                         own_sid = str(getattr(self, "switch_id", "") or "").strip()
@@ -1838,6 +2058,7 @@ class SwitchController:
                                         cond,
                                         "",
                                         current_action_state=was_active,
+                                        rule_id=str(_rule_id),
                                     )
                                 )
                                 evaluated_conditions.append((cond, condition_ok))
@@ -1854,7 +2075,12 @@ class SwitchController:
                             for group in evaluated_groups
                         )
                         notify_states[notify_key] = rule_ok
-                        if rule_ok != was_active and recipient:
+                        should_notify = (
+                            rule_ok != was_active
+                            and recipient
+                            and (rule_ok or not has_bd_transition)
+                        )
+                        if should_notify:
                             rule_name = str(script.get("name", "") or _rule_id).strip()
                             subject, body = self._build_automation_notification(
                                 rule_id=str(_rule_id),
@@ -1958,7 +2184,11 @@ class SwitchController:
                     for group in groups:
                         grp_ok = True
                         for cond in group:
-                            if not _eval_single_condition(cond, target_label):
+                            if not _eval_single_condition(
+                                cond,
+                                target_label,
+                                rule_id=str(_rule_id),
+                            ):
                                 grp_ok = False
                                 break
                         group_results.append(grp_ok)

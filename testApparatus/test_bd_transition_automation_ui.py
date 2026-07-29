@@ -1,0 +1,61 @@
+from pathlib import Path
+import re
+
+
+def test_runtime_and_repository_version_markers_match():
+    repo_root = Path(__file__).resolve().parents[1]
+
+    def read_version(path):
+        match = re.search(
+            r'^__version__\s*=\s*"([^"]+)"',
+            path.read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+        assert match is not None
+        return match.group(1)
+
+    assert read_version(repo_root / "__init__.py") == read_version(
+        repo_root / "sensorius" / "__init__.py"
+    )
+
+
+def test_web_routes_binds_the_runtime_app_for_background_broadcasts():
+    repo_root = Path(__file__).resolve().parents[1]
+    routes_text = (
+        repo_root / "sensorius" / "saiWebRoutes.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'globals()["app"] = app' in routes_text
+
+
+def test_bd_transition_condition_is_optionless_and_serialized():
+    repo_root = Path(__file__).resolve().parents[1]
+    js_text = (
+        repo_root / "ui_static" / "js" / "advanced_automation.js"
+    ).read_text(encoding="utf-8")
+
+    assert '<option value="bd_transitions">BD Transitions</option>' in js_text
+    assert 'row.append(typeWrap, rem);' in js_text
+    assert 'return { type:"bd_transitions", executor_switch_id: currentSwitchId };' in js_text
+    assert 'opt.value = "none";' in js_text
+    assert 'opt.textContent = "None";' in js_text
+    assert 'type: "none"' in js_text
+    assert "hasBdTransitionCondition(modal)" in js_text
+
+
+def test_bd_transition_toast_is_persistent_and_shows_from_to():
+    repo_root = Path(__file__).resolve().parents[1]
+    html_builder = (
+        repo_root / "sensorius" / "saiHtml.py"
+    ).read_text(encoding="utf-8")
+
+    assert "msg.type === 'bd_transition'" in html_builder
+    assert "From ${segmentText(msg.from)} → To ${segmentText(msg.to)}" in html_builder
+    assert "t.style.backgroundColor = bdColor" in html_builder
+    assert "luminance > 0.62 ? '#111' : '#fff'" in html_builder
+    assert "Click to dismiss" in html_builder
+    assert "setTimeout" not in "\n".join(
+        line
+        for line in html_builder.splitlines()
+        if "bd-transition-toast" in line
+    )

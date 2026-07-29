@@ -452,6 +452,7 @@ canvas{
 }
 .toast.ok{ background:#1f693a; }
 .toast.error{ background:#8b0000; }
+.toast.bd-transition-toast{ cursor:pointer; }
 
 /* Two-pane layout inside modal */
 .split{
