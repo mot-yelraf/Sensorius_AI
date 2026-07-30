@@ -74,6 +74,7 @@ SENSORIUS_DEBUG_MODULES=Sensorius,saiSensor,saiMQTTIngest,saiHtml,saiSwitch,saiW
 SENSORIUS_HTTP_HOST=0.0.0.0
 SENSORIUS_HTTP_PORT=8000
 SENSORIUS_GUI=
+SENSORIUS_OTA_TRUST_DIR=/home/<user>/Sensorius/ota_trust_keys
 
 SENSORIUS_DB_RETENTION_DAYS=90
 
@@ -111,6 +112,10 @@ SENSORIUS_AUTOSTART_ENABLED=false
 SAI_WEB_API_KEY=
 SAI_PEER_API_KEY=
 ```
+
+`SENSORIUS_OTA_TRUST_DIR` contains cPyNodus III OTA public-key documents named
+`<key_id>.json`. Sensorius uses them to verify signed `nodus-ota/v2`
+manifests. Legacy cPyNodus II `nodus-ota/v1` packages do not require a key.
 
 ### HTTP Trust Boundary
 

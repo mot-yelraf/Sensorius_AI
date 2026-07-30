@@ -8,6 +8,7 @@ kept in memory because OTA is an operator-driven maintenance workflow.
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 import os
@@ -27,8 +28,14 @@ from .saiUtils import mdns_hostname, normalize_hostname_base, printDM, debug_ena
 MODULE = "saiNodusOTA"
 DEBUG = debug_enabled(MODULE)
 
-SCHEMA = "nodus-ota/v1"
-FWUPDATE_SCHEMA = "nodus-fwupdate/v1"
+LEGACY_SCHEMA = "nodus-ota/v1"
+SIGNED_SCHEMA = "nodus-ota/v2"
+LEGACY_FWUPDATE_SCHEMA = "nodus-fwupdate/v1"
+SIGNED_FWUPDATE_SCHEMA = "nodus-fwupdate/v2"
+SIGNATURE_SCHEMA = "nodus-ota-signature/v1"
+PUBLIC_KEY_SCHEMA = "nodus-ota-public-key/v1"
+SIGNATURE_ALGORITHM = "rsa-pkcs1v15-sha256"
+_SHA256_DIGEST_INFO = bytes.fromhex("3031300d060960864801650304020105000420")
 DEFAULT_CHUNK_SIZE = 1024
 DEFAULT_HTTP_PORT = 8000
 DEFAULT_TIMEOUT_S = 300.0
@@ -58,6 +65,8 @@ class OTAPackage:
     ref: str
     root: Path
     manifest: dict[str, Any]
+    manifest_bytes: bytes
+    signature: dict[str, Any] | None
     file_count: int
     total_bytes: int
 
@@ -68,6 +77,8 @@ class OTAPackage:
             "ref": self.ref,
             "package_id": str(self.manifest.get("package_id") or ""),
             "schema": str(self.manifest.get("schema") or ""),
+            "authenticated": self.signature is not None,
+            "key_id": str((self.signature or {}).get("key_id") or ""),
             "from_tag": str(self.manifest.get("from_tag") or ""),
             "to_tag": str(self.manifest.get("to_tag") or ""),
             "target_platform": str((target or {}).get("platform") or ""),
@@ -94,10 +105,21 @@ def normalize_manifest_path(path: str) -> str:
 class NodusOTAService:
     """Manage Nodus OTA package validation and asynchronous update jobs."""
 
-    def __init__(self, *, settings=None, mqtt_ingest=None, package_root: str | Path = "ota_packages"):
+    def __init__(
+        self,
+        *,
+        settings=None,
+        mqtt_ingest=None,
+        package_root: str | Path = "ota_packages",
+        trust_root: str | Path | None = None,
+    ):
         self.settings = settings
         self.mqtt_ingest = mqtt_ingest
         self.package_root = Path(package_root)
+        self.trust_root = Path(
+            trust_root
+            or os.getenv("SENSORIUS_OTA_TRUST_DIR", "ota_trust_keys")
+        )
         self.package_root.mkdir(parents=True, exist_ok=True)
         self.history_path = self.package_root / "jobs.json"
         self.jobs: dict[str, dict[str, Any]] = {}
@@ -119,15 +141,20 @@ class NodusOTAService:
         root = self._resolve_package_ref(package_ref)
         manifest_path = root / "manifest.json"
         try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest_bytes = manifest_path.read_bytes()
+            manifest = json.loads(manifest_bytes.decode("utf-8"))
         except OSError as exc:
             raise NodusOTAError("manifest_missing") from exc
         except ValueError as exc:
             raise NodusOTAError("manifest_invalid_json") from exc
         if not isinstance(manifest, dict):
             raise NodusOTAError("manifest_invalid_shape")
-        if manifest.get("schema") != SCHEMA:
+        schema = str(manifest.get("schema") or "")
+        if schema not in {LEGACY_SCHEMA, SIGNED_SCHEMA}:
             raise NodusOTAError("manifest_schema_invalid")
+        signature = None
+        if schema == SIGNED_SCHEMA:
+            signature = self._verify_signed_manifest(root, manifest_bytes)
         if not str(manifest.get("package_id") or "").strip():
             raise NodusOTAError("manifest_package_id_missing")
         files = manifest.get("files")
@@ -140,6 +167,16 @@ class NodusOTAService:
             if not isinstance(entry, dict):
                 raise NodusOTAError("manifest_file_entry_invalid")
             rel_path = normalize_manifest_path(str(entry.get("path") or ""))
+            if schema == LEGACY_SCHEMA and rel_path.startswith(
+                "cpynodus_iii/"
+            ):
+                raise NodusOTAError("unsigned_cpynodus_iii_package")
+            if schema == SIGNED_SCHEMA and not _signed_payload_path_allowed(
+                rel_path
+            ):
+                raise NodusOTAError(
+                    f"manifest_file_path_forbidden:{rel_path}"
+                )
             if rel_path in seen:
                 raise NodusOTAError(f"manifest_duplicate_file:{rel_path}")
             seen.add(rel_path)
@@ -156,15 +193,72 @@ class NodusOTAService:
             total += len(data)
 
         for raw_path in manifest.get("delete") or []:
-            normalize_manifest_path(str(raw_path or ""))
+            rel_path = normalize_manifest_path(str(raw_path or ""))
+            if schema == LEGACY_SCHEMA and rel_path.startswith(
+                "cpynodus_iii/"
+            ):
+                raise NodusOTAError("unsigned_cpynodus_iii_package")
+            if schema == SIGNED_SCHEMA and not _signed_delete_path_allowed(
+                rel_path
+            ):
+                raise NodusOTAError(
+                    f"manifest_delete_path_forbidden:{rel_path}"
+                )
 
         return OTAPackage(
             ref=str(root),
             root=root,
             manifest=manifest,
+            manifest_bytes=manifest_bytes,
+            signature=signature,
             file_count=len(files),
             total_bytes=total,
         )
+
+    def _verify_signed_manifest(
+        self, root: Path, manifest_bytes: bytes
+    ) -> dict[str, Any]:
+        try:
+            signature = json.loads((root / "manifest.sig").read_text(encoding="utf-8"))
+        except OSError as exc:
+            raise NodusOTAError("ota_signature_missing") from exc
+        except ValueError as exc:
+            raise NodusOTAError("ota_signature_invalid_json") from exc
+        if not isinstance(signature, dict):
+            raise NodusOTAError("ota_signature_invalid_shape")
+        if signature.get("schema") != SIGNATURE_SCHEMA:
+            raise NodusOTAError("ota_signature_schema_invalid")
+        if signature.get("algorithm") != SIGNATURE_ALGORITHM:
+            raise NodusOTAError("ota_signature_algorithm_invalid")
+        key_id = str(signature.get("key_id") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", key_id):
+            raise NodusOTAError("ota_signature_key_id_missing")
+        if hashlib.sha256(manifest_bytes).hexdigest() != str(
+            signature.get("manifest_sha256") or ""
+        ).lower():
+            raise NodusOTAError("manifest_signature_digest_mismatch")
+        public_key = self._load_trusted_key(key_id)
+        if not _verify_rsa_signature(manifest_bytes, signature, public_key):
+            raise NodusOTAError("ota_signature_invalid")
+        return signature
+
+    def _load_trusted_key(self, key_id: str) -> dict[str, Any]:
+        candidates = (self.trust_root / f"{key_id}.json",)
+        for path in candidates:
+            try:
+                document = json.loads(path.read_text(encoding="utf-8"))
+            except OSError:
+                continue
+            except ValueError as exc:
+                raise NodusOTAError("ota_trust_key_invalid_json") from exc
+            if (
+                isinstance(document, dict)
+                and document.get("schema") == PUBLIC_KEY_SCHEMA
+                and document.get("algorithm") == SIGNATURE_ALGORITHM
+                and str(document.get("key_id") or "") == key_id
+            ):
+                return document
+        raise NodusOTAError(f"ota_trust_key_missing:{key_id}")
 
     def list_devices(self) -> list[dict[str, Any]]:
         ingest = self.mqtt_ingest
@@ -347,7 +441,18 @@ class NodusOTAService:
                 state["cancel_requested"] = True
                 ota_url = str(state.get("ota_url") or "")
                 if ota_url:
-                    asyncio.create_task(self._abort_ota_session(ota_url), name=f"NodusOTAAbort:{state.get('device_id', '')}")
+                    session_id = str(state.get("ota_session") or "")
+                    abort_call = (
+                        self._abort_ota_session(
+                            ota_url, session_id=session_id
+                        )
+                        if session_id
+                        else self._abort_ota_session(ota_url)
+                    )
+                    asyncio.create_task(
+                        abort_call,
+                        name=f"NodusOTAAbort:{state.get('device_id', '')}",
+                    )
         self._persist_job_history()
         return self.job_snapshot(job_id)
 
@@ -382,7 +487,12 @@ class NodusOTAService:
             required = str(package.summary().get("required_version") or "")
             target_version = str(package.summary().get("to_tag") or "")
             current = self._firmware_version(device_id)
-            if required and current and not job.get("force_version_mismatch"):
+            if package.signature is not None and not current:
+                raise NodusOTAError("firmware_version_unknown")
+            force_mismatch = bool(job.get("force_version_mismatch"))
+            if package.signature is not None:
+                force_mismatch = False
+            if required and current and not force_mismatch:
                 allowed_versions = {required}
                 if target_version:
                     allowed_versions.add(target_version)
@@ -397,12 +507,26 @@ class NodusOTAService:
             state["ota_url"] = url
             state["prepare_started_at"] = time.time()
             package_id = str(package.manifest.get("package_id") or "")
-            self._set_device_state(state, "preparing_mqtt", f"publishing prepare for {package_id}")
-            state["prepare_message_id"] = await asyncio.to_thread(
-                self._publish_prepare,
-                device_id,
-                package_id,
+            ota_session = (
+                uuid.uuid4().hex
+                if package.manifest.get("schema") == SIGNED_SCHEMA
+                else ""
             )
+            state["ota_session"] = ota_session
+            self._set_device_state(state, "preparing_mqtt", f"publishing prepare for {package_id}")
+            if package.signature is None:
+                state["prepare_message_id"] = await asyncio.to_thread(
+                    self._publish_prepare,
+                    device_id,
+                    package_id,
+                )
+            else:
+                state["prepare_message_id"] = await asyncio.to_thread(
+                    self._publish_prepare,
+                    device_id,
+                    package,
+                    ota_session,
+                )
 
             async with httpx.AsyncClient(timeout=10.0) as client:
                 try:
@@ -537,7 +661,36 @@ class NodusOTAService:
     async def _push_package(self, client: httpx.AsyncClient, url: str, package: OTAPackage, state: dict[str, Any], *, chunk_size: int) -> None:
         self._raise_if_cancelled(state)
         self._set_device_state(state, "manifest_sent", "sending manifest", progress=8)
-        begin = await self._request_json(client, "POST", f"{url}/ota/begin", json_body=package.manifest, retry_transient=True)
+        session_headers = self._session_headers(state)
+        begin_headers = dict(session_headers)
+        if package.signature is not None:
+            begin_headers.update(
+                {
+                    "X-Nodus-OTA-Key-Id": str(
+                        package.signature.get("key_id") or ""
+                    ),
+                    "X-Nodus-OTA-Signature": str(
+                        package.signature.get("signature") or ""
+                    ),
+                    "Content-Type": "application/json",
+                }
+            )
+            begin = await self._request_json(
+                client,
+                "POST",
+                f"{url}/ota/begin",
+                content=package.manifest_bytes,
+                headers=begin_headers,
+                retry_transient=True,
+            )
+        else:
+            begin = await self._request_json(
+                client,
+                "POST",
+                f"{url}/ota/begin",
+                json_body=package.manifest,
+                retry_transient=True,
+            )
         if begin.get("accepted") is not True:
             raise NodusOTAError(f"begin_rejected:{begin.get('error', '')}")
 
@@ -570,7 +723,11 @@ class NodusOTAService:
                     "PUT",
                     f"{url}/ota/file?path={quote(rel_path, safe='/')}",
                     content=payload,
-                    headers={"X-Nodus-File-Path": rel_path, "Content-Type": "application/octet-stream"},
+                    headers={
+                        **session_headers,
+                        "X-Nodus-File-Path": rel_path,
+                        "Content-Type": "application/octet-stream",
+                    },
                 )
                 if result.get("accepted") is not True:
                     raise NodusOTAError(f"file_rejected:{rel_path}:{result.get('error', '')}")
@@ -579,7 +736,14 @@ class NodusOTAService:
             state["progress"] = min(85, 10 + int((sent / total) * 70))
 
         self._set_device_state(state, "committing", "committing staged files", progress=88)
-        commit = await self._request_json(client, "POST", f"{url}/ota/commit", json_body={}, retry_transient=True)
+        commit = await self._request_json(
+            client,
+            "POST",
+            f"{url}/ota/commit",
+            json_body={},
+            headers=session_headers,
+            retry_transient=True,
+        )
         if commit.get("accepted") is not True:
             raise NodusOTAError(f"commit_rejected:{commit.get('error', '')}")
         self._set_device_state(state, "rebooting", "commit accepted, rebooting", progress=92)
@@ -596,12 +760,13 @@ class NodusOTAService:
         chunk_size: int,
     ) -> None:
         encoded = quote(rel_path, safe="/")
+        session_headers = self._session_headers(state)
         begin = await self._request_json(
             client,
             "POST",
             f"{url}/ota/file/begin?path={encoded}",
             json_body={},
-            headers={"X-Nodus-File-Path": rel_path},
+            headers={**session_headers, "X-Nodus-File-Path": rel_path},
             retry_transient=True,
         )
         if begin.get("accepted") is not True:
@@ -620,7 +785,11 @@ class NodusOTAService:
                     "PUT",
                     f"{url}/ota/file/chunk?path={encoded}&offset={offset}",
                     content=chunk,
-                    headers={"X-Nodus-File-Path": rel_path, "Content-Type": "application/octet-stream"},
+                    headers={
+                        **session_headers,
+                        "X-Nodus-File-Path": rel_path,
+                        "Content-Type": "application/octet-stream",
+                    },
                     retry_transient=True,
                 )
                 if result.get("accepted") is not True:
@@ -655,17 +824,22 @@ class NodusOTAService:
             "POST",
             f"{url}/ota/file/end?path={encoded}",
             json_body={},
-            headers={"X-Nodus-File-Path": rel_path},
+            headers={**session_headers, "X-Nodus-File-Path": rel_path},
             retry_transient=True,
         )
         if end.get("accepted") is not True:
             raise NodusOTAError(f"file_end_rejected:{rel_path}:{end.get('error', '')}")
         self._set_device_state(state, "file_verified", f"Verified {rel_path}.")
 
-    async def _abort_ota_session(self, url: str) -> bool:
+    async def _abort_ota_session(self, url: str, *, session_id: str = "") -> bool:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(f"{url}/ota/abort", json={})
+                headers = (
+                    {"X-Nodus-OTA-Session": session_id} if session_id else None
+                )
+                response = await client.post(
+                    f"{url}/ota/abort", json={}, headers=headers
+                )
                 data = response.json()
                 return bool(response.status_code < 400 and isinstance(data, dict) and data.get("accepted") is True)
         except Exception:
@@ -683,13 +857,24 @@ class NodusOTAService:
         state["ota_abort_reason"] = str(reason or "")
         state["updated_at"] = time.time()
         try:
-            abort_result = await self._abort_ota_session(url)
+            session_id = str(state.get("ota_session") or "")
+            if session_id:
+                abort_result = await self._abort_ota_session(
+                    url, session_id=session_id
+                )
+            else:
+                abort_result = await self._abort_ota_session(url)
             succeeded = abort_result is not False
             if not succeeded:
                 device_id = str(state.get("device_id") or "")
                 fallback_url = f"http://{mdns_hostname(device_id)}:{DEFAULT_HTTP_PORT}" if device_id else ""
                 if fallback_url and fallback_url != url:
-                    succeeded = await self._abort_ota_session(fallback_url)
+                    if session_id:
+                        succeeded = await self._abort_ota_session(
+                            fallback_url, session_id=session_id
+                        )
+                    else:
+                        succeeded = await self._abort_ota_session(fallback_url)
             state["ota_abort_succeeded"] = bool(succeeded)
         except Exception:
             state["ota_abort_succeeded"] = False
@@ -771,23 +956,47 @@ class NodusOTAService:
             await asyncio.sleep(3.0)
         raise NodusOTAError("ota_confirmation_timeout")
 
-    def _publish_prepare(self, device_id: str, package_id: str) -> str:
+    def _publish_prepare(
+        self, device_id: str, package: OTAPackage, session_id: str = ""
+    ) -> str:
         ingest = self.mqtt_ingest
         if ingest is None or not getattr(ingest, "client", None):
             raise NodusOTAError("mqtt_ingest_unavailable")
         topic = f"nodus/{device_id}/fwupdate"
         message_id = uuid.uuid4().hex
+        if isinstance(package, OTAPackage):
+            package_id = str(package.manifest.get("package_id") or "")
+            signature = package.signature
+        else:
+            package_id = str(package or "")
+            signature = None
         payload = {
-            "schema": FWUPDATE_SCHEMA,
+            "schema": LEGACY_FWUPDATE_SCHEMA,
             "message_id": message_id,
             "command": "prepare",
             "package_id": package_id,
         }
+        if signature is not None:
+            payload.update(
+                {
+                    "schema": SIGNED_FWUPDATE_SCHEMA,
+                    "session_id": session_id,
+                    "manifest_sha256": str(
+                        signature.get("manifest_sha256") or ""
+                    ),
+                    "key_id": str(signature.get("key_id") or ""),
+                }
+            )
         info = ingest.client.publish(topic, json.dumps(payload, separators=(",", ":")), qos=1)
         wait = getattr(info, "wait_for_publish", None)
         if callable(wait):
             wait(timeout=10)
         return message_id
+
+    @staticmethod
+    def _session_headers(state: dict[str, Any]) -> dict[str, str]:
+        session_id = str(state.get("ota_session") or "")
+        return {"X-Nodus-OTA-Session": session_id} if session_id else {}
 
     def _firmware_version(self, device_id: str) -> str:
         ingest = self.mqtt_ingest
@@ -950,6 +1159,75 @@ def _clean_device_id(value: str) -> str:
 
 def _normalize_platform(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+
+
+def _signed_payload_path_allowed(path: str) -> bool:
+    if path in {
+        "boot.py",
+        "code.py",
+        "dataclasses.py",
+        "settings.toml.def",
+        "sensor_i2c.toml.def",
+        "sensor_soil.toml.def",
+        "switch.toml.def",
+    }:
+        return True
+    if path.startswith("cpynodus_iii/"):
+        return path.endswith(".mpy")
+    if path.startswith("boards/"):
+        return path.endswith(".toml.def")
+    return False
+
+
+def _signed_delete_path_allowed(path: str) -> bool:
+    if path in {
+        "settings.toml.def",
+        "sensor_i2c.toml.def",
+        "sensor_soil.toml.def",
+        "switch.toml.def",
+    }:
+        return True
+    if path.startswith("cpynodus_iii/"):
+        return path.endswith(".py") or path.endswith(".mpy")
+    if path.startswith("boards/"):
+        return path.endswith(".toml.def")
+    return False
+
+
+def _verify_rsa_signature(
+    manifest_bytes: bytes,
+    signature: dict[str, Any],
+    public_key: dict[str, Any],
+) -> bool:
+    try:
+        encoded = str(signature.get("signature") or "")
+        signature_bytes = base64.b64decode(encoded, validate=True)
+        modulus = int(str(public_key.get("modulus") or ""), 16)
+        exponent = int(public_key.get("exponent", 65537) or 65537)
+    except (TypeError, ValueError):
+        return False
+    size = (modulus.bit_length() + 7) // 8
+    if size != 256 or len(signature_bytes) != size:
+        return False
+    try:
+        decoded = pow(
+            int.from_bytes(signature_bytes, "big"), exponent, modulus
+        ).to_bytes(size, "big")
+    except (OverflowError, ValueError):
+        return False
+    tail = _SHA256_DIGEST_INFO + hashlib.sha256(manifest_bytes).digest()
+    padding_size = size - len(tail) - 3
+    if padding_size < 8:
+        return False
+    expected = b"\x00\x01" + (b"\xff" * padding_size) + b"\x00" + tail
+    return _constant_time_equal(decoded, expected)
+
+
+def _constant_time_equal(left: bytes, right: bytes) -> bool:
+    mismatch = len(left) ^ len(right)
+    for left_byte, right_byte in zip(left, right):
+        mismatch |= left_byte ^ right_byte
+    return mismatch == 0
 
 
 def _file_transfer_error_retryable(error: str) -> bool:

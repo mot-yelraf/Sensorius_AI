@@ -572,16 +572,23 @@ Canonical prepare topic:
 
 - `nodus/<device_id>/fwupdate`
 
-Canonical prepare payload:
+Signed cPyNodus III prepare payload:
 
 ```json
 {
-  "schema": "nodus-fwupdate/v1",
+  "schema": "nodus-fwupdate/v2",
   "message_id": "fw-20260504T193222Z",
   "command": "prepare",
-  "package_id": "ota-tagA-to-tagB"
+  "package_id": "ota-tagA-to-tagB",
+  "session_id": "32-or-more-random-hex-characters",
+  "manifest_sha256": "64-lowercase-hex-characters",
+  "key_id": "trusted-key-id"
 }
 ```
+
+Unchanged cPyNodus II devices continue to use the legacy
+`nodus-fwupdate/v1` payload containing `message_id`, `command`, and
+`package_id` only.
 
 Canonical replies:
 
@@ -596,6 +603,10 @@ Implemented behavior:
   soft-reboots into temporary OTA mode.
 - OTA mode does not run MQTT. Sensorius or the CLI transfers package files
   over HTTP using the Nodus OTA endpoints.
+- Sensorius verifies signed `nodus-ota/v2` packages locally, sends the exact
+  signed manifest bytes, and includes the one-use session plus signature
+  headers required by cPyNodus III. Unsigned `nodus-ota/v1` remains available
+  for cPyNodus II compatibility.
 - Sensorius allows the existing 60-second reboot settle window followed by a
   90-second OTA HTTP readiness window. Throughout both windows the operator UI
   reports `Nodus OTA mode booting...`; HTTP probe details remain diagnostic.

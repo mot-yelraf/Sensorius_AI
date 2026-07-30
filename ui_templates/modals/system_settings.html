@@ -2986,6 +2986,9 @@
         "Patch base " + (pkg.required_version || "unknown"),
         "Target " + (pkg.target_platform || "unknown"),
         pkg.target_circuitpython ? ("CircuitPython " + pkg.target_circuitpython) : "",
+        pkg.authenticated
+          ? ("Signed (" + (pkg.key_id || "trusted key") + ")")
+          : "Legacy unsigned v1",
         (pkg.file_count || 0) + " files",
         (pkg.total_bytes || 0) + " bytes"
       ].filter(Boolean);

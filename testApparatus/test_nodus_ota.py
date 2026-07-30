@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import shutil
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -52,6 +55,94 @@ def _write_package(
     return pkg
 
 
+def _write_signed_package(root: Path) -> tuple[Path, Path, str]:
+    if shutil.which("openssl") is None:
+        pytest.skip("openssl is required for signed OTA fixture")
+    pkg = _write_package(
+        root,
+        version="v0.26.211.1",
+        to_version="v0.26.211.2",
+        platform="xesp32s3",
+    )
+    old_file = pkg / "files" / "cpynodus_ii" / "app.py"
+    payload = old_file.read_bytes()
+    target = pkg / "files" / "cpynodus_iii" / "app.mpy"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(payload)
+    old_file.unlink()
+    manifest_path = pkg / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["schema"] = "nodus-ota/v2"
+    manifest["target"]["circuitpython"] = "10.2.1"
+    manifest["files"][0]["path"] = "cpynodus_iii/app.mpy"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    private_key = root / "private.pem"
+    subprocess.run(
+        (
+            "openssl",
+            "genpkey",
+            "-algorithm",
+            "RSA",
+            "-pkeyopt",
+            "rsa_keygen_bits:2048",
+            "-out",
+            str(private_key),
+        ),
+        check=True,
+        capture_output=True,
+    )
+    modulus_output = subprocess.run(
+        ("openssl", "rsa", "-in", str(private_key), "-noout", "-modulus"),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    modulus = re.search(r"Modulus=([0-9A-Fa-f]+)", modulus_output).group(1).lower()
+    key_id = hashlib.sha256(bytes.fromhex(modulus)).hexdigest()[:16]
+    signature_bin = root / "manifest.sig.bin"
+    subprocess.run(
+        (
+            "openssl",
+            "dgst",
+            "-sha256",
+            "-sign",
+            str(private_key),
+            "-out",
+            str(signature_bin),
+            str(manifest_path),
+        ),
+        check=True,
+        capture_output=True,
+    )
+    import base64
+
+    manifest_bytes = manifest_path.read_bytes()
+    signature = {
+        "schema": "nodus-ota-signature/v1",
+        "algorithm": "rsa-pkcs1v15-sha256",
+        "key_id": key_id,
+        "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+        "signature": base64.b64encode(signature_bin.read_bytes()).decode("ascii"),
+    }
+    (pkg / "manifest.sig").write_text(json.dumps(signature), encoding="utf-8")
+    trust_root = root / "trust"
+    trust_root.mkdir()
+    public_key = {
+        "schema": "nodus-ota-public-key/v1",
+        "algorithm": "rsa-pkcs1v15-sha256",
+        "key_id": key_id,
+        "modulus": modulus,
+        "exponent": 65537,
+    }
+    (trust_root / f"{key_id}.json").write_text(
+        json.dumps(public_key), encoding="utf-8"
+    )
+    return pkg, trust_root, key_id
+
+
 def test_inspect_package_validates_manifest_and_files(tmp_path):
     pkg = _write_package(tmp_path)
     service = NodusOTAService(package_root=tmp_path / "ota")
@@ -64,6 +155,93 @@ def test_inspect_package_validates_manifest_and_files(tmp_path):
     assert inspected.summary()["target_circuitpython"] == "9.2.8"
     assert inspected.summary()["file_count"] == 1
     assert inspected.summary()["total_bytes"] == len(b"print('ota')\n")
+    assert inspected.summary()["authenticated"] is False
+
+
+def test_inspect_signed_v2_package_requires_and_verifies_trusted_key(tmp_path):
+    pkg, trust_root, key_id = _write_signed_package(tmp_path)
+    service = NodusOTAService(
+        package_root=tmp_path / "ota", trust_root=trust_root
+    )
+
+    inspected = service.inspect_package(str(pkg))
+
+    assert inspected.summary()["schema"] == "nodus-ota/v2"
+    assert inspected.summary()["authenticated"] is True
+    assert inspected.summary()["key_id"] == key_id
+
+
+def test_inspect_signed_v2_package_rejects_manifest_tampering(tmp_path):
+    pkg, trust_root, _key_id = _write_signed_package(tmp_path)
+    manifest_path = pkg / "manifest.json"
+    manifest_path.write_bytes(manifest_path.read_bytes() + b" ")
+    service = NodusOTAService(
+        package_root=tmp_path / "ota", trust_root=trust_root
+    )
+
+    with pytest.raises(NodusOTAError, match="manifest_signature_digest_mismatch"):
+        service.inspect_package(str(pkg))
+
+
+def test_signed_v2_prepare_and_http_transfer_use_session_and_signature(tmp_path):
+    pkg, trust_root, key_id = _write_signed_package(tmp_path)
+    published = []
+
+    class _PublishInfo:
+        def wait_for_publish(self, timeout=None):
+            assert timeout == 10
+
+    class _Client:
+        def publish(self, topic, payload, qos=0):
+            published.append((topic, json.loads(payload), qos))
+            return _PublishInfo()
+
+    service = NodusOTAService(
+        mqtt_ingest=SimpleNamespace(client=_Client()),
+        package_root=tmp_path / "ota",
+        trust_root=trust_root,
+    )
+    package = service.inspect_package(str(pkg))
+    session_id = "s" * 32
+    service._publish_prepare("device-1", package, session_id)
+    requests = []
+
+    async def fake_request_json(client, method, url, **kwargs):
+        requests.append((method, url, kwargs))
+        if "/ota/file/chunk?" in url:
+            return {"accepted": True, "offset": len(b"print('ota')\n")}
+        return {"accepted": True}
+
+    service._request_json = fake_request_json
+    import asyncio
+
+    asyncio.run(
+        service._push_package(
+            types.SimpleNamespace(),
+            "http://device:8000",
+            package,
+            {
+                "bytes_sent": 0,
+                "progress": 0,
+                "ota_session": session_id,
+            },
+            chunk_size=1024,
+        )
+    )
+
+    prepare = published[0][1]
+    assert prepare["schema"] == "nodus-fwupdate/v2"
+    assert prepare["session_id"] == session_id
+    assert prepare["key_id"] == key_id
+    assert prepare["manifest_sha256"] == package.signature["manifest_sha256"]
+    begin = next(item for item in requests if item[1].endswith("/ota/begin"))
+    assert begin[2]["content"] == package.manifest_bytes
+    assert begin[2]["headers"]["X-Nodus-OTA-Signature"]
+    for _method, url, kwargs in requests:
+        if url.endswith("/ota/begin") or "/ota/file/" in url or url.endswith(
+            "/ota/commit"
+        ):
+            assert kwargs["headers"]["X-Nodus-OTA-Session"] == session_id
 
 
 def test_inspect_package_rejects_bad_sha(tmp_path):
@@ -75,6 +253,23 @@ def test_inspect_package_rejects_bad_sha(tmp_path):
     service = NodusOTAService(package_root=tmp_path / "ota")
 
     with pytest.raises(NodusOTAError, match="sha256"):
+        service.inspect_package(str(pkg))
+
+
+def test_inspect_package_rejects_unsigned_cpynodus_iii_module(tmp_path):
+    pkg = _write_package(tmp_path)
+    old_file = pkg / "files" / "cpynodus_ii" / "app.py"
+    target = pkg / "files" / "cpynodus_iii" / "app.py"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(old_file.read_bytes())
+    old_file.unlink()
+    manifest_path = pkg / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["files"][0]["path"] = "cpynodus_iii/app.py"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    service = NodusOTAService(package_root=tmp_path / "ota")
+
+    with pytest.raises(NodusOTAError, match="unsigned_cpynodus_iii_package"):
         service.inspect_package(str(pkg))
 
 
@@ -160,6 +355,38 @@ def test_run_device_blocks_version_mismatch_without_force(tmp_path):
     state = job["devices"]["aht-yuk0nv"]
     assert state["status"] == "failed"
     assert "version_mismatch:current=v0.26.172.5:requires_current=v0.26.174.1" in state["error"]
+
+
+def test_signed_v2_run_device_does_not_allow_force_version_mismatch(tmp_path):
+    pkg_path, trust_root, _key_id = _write_signed_package(tmp_path)
+    service = NodusOTAService(
+        package_root=tmp_path / "ota", trust_root=trust_root
+    )
+    package = service.inspect_package(str(pkg_path))
+    job = {
+        "force_version_mismatch": True,
+        "chunk_size": 1024,
+        "devices": {
+            "device-1": {
+                "device_id": "device-1",
+                "status": "queued",
+                "phase": "queued",
+            }
+        },
+    }
+    service._firmware_version = lambda _device_id: "v0.26.210.1"
+    service._board_type = lambda _device_id: "xesp32s3"
+    published = []
+    service._publish_prepare = lambda *_args: published.append(True)
+
+    import asyncio
+
+    asyncio.run(service._run_device(job, package, "device-1"))
+
+    state = job["devices"]["device-1"]
+    assert state["status"] == "failed"
+    assert state["error"].startswith("version_mismatch:")
+    assert published == []
 
 
 def test_run_device_allows_version_mismatch_with_force(tmp_path):

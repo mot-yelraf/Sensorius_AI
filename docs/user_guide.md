@@ -394,6 +394,11 @@ avoid large single-file compiled updates: command-line OTA testing showed a
 Nodus-side memory allocation failure while transferring an `app.mpy` larger
 than about 50 KB.
 
+cPyNodus III package folders use signed `nodus-ota/v2`. Sensorius displays
+them as authenticated only after verifying `manifest.sig` with an
+operator-installed trusted public key. Existing cPyNodus II `nodus-ota/v1`
+package folders remain supported without a cPyNodus II firmware change.
+
 Future Sensorius releases may accept zip uploads, but the current OTA workflow
 expects the package folder produced by `cPyNodus_II` or `cPyNodus_III`.
 
@@ -401,7 +406,8 @@ Fields and controls:
 
 - **Package Folder**: local OTA package folder produced by `cPyNodus_II` or
   `cPyNodus_III`, selected from the Sensorius host.
-- **Package summary**: package inspection status after selection or inspection.
+- **Package summary**: package inspection status, protocol, authentication
+  state, and signing key ID after selection or inspection.
 - **Package Path**: absolute path to a package on the Sensorius host.
 - **Inspect Package**: reads package metadata and validates that Sensorius can use it.
 - **Concurrent Updates**: number of devices to update at once. Options are numeric values from 1 to 4.

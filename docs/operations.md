@@ -247,6 +247,15 @@ OTA mode.
 Operational rules:
 
 - Verified package targets are `pico2w` and `xesp32s3`.
+- cPyNodus III packages use signed `nodus-ota/v2`. Sensorius verifies the
+  detached RSA/SHA-256 signature with a key from
+  `SENSORIUS_OTA_TRUST_DIR` before a job can start.
+- Existing cPyNodus II packages remain unsigned `nodus-ota/v1` and continue to
+  use their unchanged prepare and HTTP protocol.
+- Signed cPyNodus III packages require an exact known installed version.
+  Sensorius does not apply its legacy force-version option to v2 jobs.
+- Store trusted public-key documents as `<key_id>.json` in the trust
+  directory. Never place an OTA private signing key in Sensorius.
 - Keep package `target.platform` aligned with retained Nodus `mcu` metadata.
   Sensorius rejects known target mismatches before transfer.
 - Update only when device power, Wi-Fi, and broker connectivity are stable.
