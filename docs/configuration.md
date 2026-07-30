@@ -299,6 +299,20 @@ Local Raspberry Pi sensors are detected and seeded from
 Remote Nodus sensors are seeded or updated from retained MQTT metadata and
 patches. WeeWX can also materialize a station-style sensor config.
 
+Nodus shadows also contain Sensorius routing metadata:
+
+```toml
+[Nodus]
+DEVICE_ID = "aht-lux-ykdvea"
+CONFIG_FILE = "sensor_i2c_2.toml"
+```
+
+`DEVICE_ID` is the physical MQTT command target. `CONFIG_FILE` selects the
+child sensor TOML on that Nodus. On a dual-sensor device, each child has its own
+`sensor_settings/<sensor_id>/sensor.toml`, dashboard settings, history, and
+calibration state while sharing device-level heartbeat, restart, and OTA
+operations.
+
 Important sections and keys:
 
 - `[Sensor]`: type, device, serial number, sensor ID, location.

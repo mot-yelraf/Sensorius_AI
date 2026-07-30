@@ -488,6 +488,128 @@ def test_meta_does_not_add_redundant_exact_data_subscription_when_wildcard_exist
     assert ingest.nodus_sensor_topics["apvpd-test123"] == "nodus/apvpd-test123/data"
 
 
+def test_dual_sensor_meta_registers_both_children_on_one_physical_host(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    materialized = []
+    monkeypatch.setattr(
+        ingest,
+        "_ensure_settings_from_itaot",
+        lambda info, host, sensors, switches: materialized.append(
+            (info, host, sensors, switches)
+        ),
+    )
+    meta = {
+        "schema": "nodus-meta/v1",
+        "device_id": "aht-lux-test123",
+        "hostname": "aht-lux-test123",
+        "serial": "test123",
+        "sensor": {
+            "sensor_id": "aht-test123",
+            "device": "aht",
+            "config_file": "sensor_i2c.toml",
+            "data_topic": "nodus/aht-test123/data",
+            "availability_topic": "nodus/aht-test123/availability",
+        },
+        "sensors": [
+            {
+                "sensor_id": "aht-test123",
+                "device": "aht",
+                "config_file": "sensor_i2c.toml",
+                "location": "Bench",
+                "data_topic": "nodus/aht-test123/data",
+                "availability_topic": "nodus/aht-test123/availability",
+            },
+            {
+                "sensor_id": "lux-test123",
+                "device": "lux",
+                "config_file": "sensor_i2c_2.toml",
+                "location": "Canopy",
+                "data_topic": "nodus/lux-test123/data",
+                "availability_topic": "nodus/lux-test123/availability",
+            },
+        ],
+        "location_group": {
+            "location": "Bench",
+            "members": ["aht-test123", "lux-test123"],
+        },
+    }
+
+    valid, _ = ingest._parse_and_subscribe_from_nodus_meta(
+        meta,
+        topic_device_id="aht-lux-test123",
+        retain=True,
+    )
+
+    assert valid is True
+    assert ingest.get_known_devices() == ["aht-test123", "lux-test123"]
+    assert ingest.nodus_sensor_hosts == {
+        "aht-test123": "aht-lux-test123",
+        "lux-test123": "aht-lux-test123",
+    }
+    assert ingest.nodus_sensor_config_files["lux-test123"] == "sensor_i2c_2.toml"
+    assert ingest.nodus_host_sensors["aht-lux-test123"] == [
+        "aht-test123",
+        "lux-test123",
+    ]
+    assert ingest.resolve_nodus_sensor_target("lux-test123") == {
+        "sensor_id": "lux-test123",
+        "device_id": "aht-lux-test123",
+        "config_file": "sensor_i2c_2.toml",
+    }
+    assert materialized[0][1] == "aht-lux-test123"
+    assert [row["sensor_id"] for row in materialized[0][2]] == [
+        "aht-test123",
+        "lux-test123",
+    ]
+
+
+def test_dual_sensor_liveness_resolves_child_to_physical_host(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.host_to_peer_ids["lux-test123"] = ["lux-test123"]
+    ingest.nodus_sensor_hosts["lux-test123"] = "aht-lux-test123"
+
+    assert ingest._resolve_liveness_base("lux-test123") == "aht-lux-test123"
+
+
+def test_dual_sensor_meta_patch_updates_only_target_child(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    meta = {
+        "sensor": {
+            "sensor_id": "aht-test123",
+            "config_file": "sensor_i2c.toml",
+            "location": "Bench",
+        },
+        "sensors": [
+            {
+                "sensor_id": "aht-test123",
+                "config_file": "sensor_i2c.toml",
+                "location": "Bench",
+            },
+            {
+                "sensor_id": "lux-test123",
+                "config_file": "sensor_i2c_2.toml",
+                "location": "Bench",
+            },
+        ],
+    }
+
+    changed = ingest._apply_nodus_meta_patch_update(
+        meta,
+        {
+            "sensor_id": "lux-test123",
+            "name": "sensor_i2c_2.toml",
+            "section": "Sensor",
+            "key": "LOCATION",
+            "value": "Canopy",
+        },
+    )
+
+    assert changed is True
+    assert meta["sensor"]["location"] == "Bench"
+    assert meta["sensors"][0]["location"] == "Bench"
+    assert meta["sensors"][1]["location"] == "Canopy"
+
+
 def test_publish_nodus_calibration_uses_mqtt_command_topic(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     result = ingest.publish_nodus_calibration("apvpd-test123", action="apply", payload={"offsets": [{"key": "Calibration.Device.TEMP_OFFSET", "value": 1.5}]})
@@ -500,6 +622,29 @@ def test_publish_nodus_calibration_uses_mqtt_command_topic(monkeypatch):
     assert body["payload"]["offsets"][0]["key"] == "Calibration.Device.TEMP_OFFSET"
     assert qos == 1
     assert retain is False
+
+
+def test_publish_nodus_calibration_targets_child_on_physical_topic(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    result = ingest.publish_nodus_calibration(
+        "aht-lux-test123",
+        action="apply",
+        sensor_id="lux-test123",
+        name="sensor_i2c_2.toml",
+        payload={
+            "offsets": [
+                {
+                    "key": "Calibration.Device.LUX_OFFSET",
+                    "value": 12.0,
+                }
+            ]
+        },
+    )
+
+    assert result["topic"] == "nodus/aht-lux-test123/calibration/set"
+    body = json.loads(ingest.client.pubs[-1][1])
+    assert body["sensor_id"] == "lux-test123"
+    assert body["name"] == "sensor_i2c_2.toml"
 
 
 def test_local_epoch_seconds_uses_configured_timezone(monkeypatch):
@@ -2257,6 +2402,66 @@ def test_nodus_shadow_seed_uses_nodus_aligned_defaults_when_display_metrics_miss
     assert 'METRIC_4 = "Ambient VPD"' in saved
     assert 'METRIC_5 = "Dewpoint Deficit"' in saved
     assert 'METRIC_6 = "dewVPD Risk"' in saved
+
+
+def test_dual_sensor_shadow_seeds_physical_host_and_config_file(tmp_path, monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    switch_root.mkdir()
+    system_root.mkdir()
+
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    real_settings_cls = saiSettings.saiSettings
+    monkeypatch.setattr(
+        saiSensorSettingsManager,
+        "SensorSettingsManager",
+        lambda *_a, **_k: real_sensor_mgr(str(sensor_root)),
+    )
+    monkeypatch.setattr(
+        saiSwitchSettingsManager,
+        "SwitchSettingsManager",
+        lambda *_a, **_k: real_switch_mgr(str(switch_root)),
+    )
+    monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
+
+    ingest._ensure_settings_from_itaot(
+        {"HOSTNAME": "aht-lux-test123"},
+        "aht-lux-test123",
+        [
+            {
+                "sensor_id": "aht-test123",
+                "device_type": "nodus",
+                "device": "aht",
+                "sensor_type": "nodus",
+                "config_file": "sensor_i2c.toml",
+                "serial": "test123",
+            },
+            {
+                "sensor_id": "lux-test123",
+                "device_type": "nodus",
+                "device": "lux",
+                "sensor_type": "nodus",
+                "config_file": "sensor_i2c_2.toml",
+                "serial": "test123",
+            },
+        ],
+        [],
+    )
+
+    sensor_mgr = real_sensor_mgr(str(sensor_root))
+    assert sensor_mgr.load("aht-test123")["Nodus"] == {
+        "DEVICE_ID": "aht-lux-test123",
+        "CONFIG_FILE": "sensor_i2c.toml",
+    }
+    assert sensor_mgr.load("lux-test123")["Nodus"] == {
+        "DEVICE_ID": "aht-lux-test123",
+        "CONFIG_FILE": "sensor_i2c_2.toml",
+    }
 
 
 def test_ensure_settings_from_itaot_uses_runtime_root_for_bare_system_settings(tmp_path, monkeypatch):

@@ -93,7 +93,10 @@ Retained `nodus/<device_id>/meta` is the compact authoritative startup
 snapshot. Retained `nodus/<device_id>/meta/switch` is the authoritative switch
 channel topic map when switch channels are present. Sensorius uses them to:
 
-- Register sensor data topics.
+- Register every sensor in `meta.sensors`, falling back to the primary
+  compatibility view in `meta.sensor`.
+- Map child sensor IDs and their `config_file` values to the physical Nodus.
+- Register child sensor data and availability topics.
 - Register switch event, state, command, availability, ack, and result topics.
 - Seed or update local shadow settings under `sensor_settings/`,
   `switch_settings/`, and `system_settings/`.
@@ -103,6 +106,10 @@ channel topic map when switch channels are present. Sensorius uses them to:
 Accepted runtime changes should produce non-retained `meta/patch` messages.
 Sensorius applies correlated patches to local shadow settings after config or
 calibration commands.
+
+Dual-sensor config and calibration commands are published on the physical
+device topic and carry the child `sensor_id` plus `name`. Child data,
+availability, dashboard history, and display settings remain sensor-scoped.
 
 ## Commands
 

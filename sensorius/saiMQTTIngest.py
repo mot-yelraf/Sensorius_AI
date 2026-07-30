@@ -414,6 +414,9 @@ class saiMQTTIngest:
         self.nodus_switch_ack_topics: dict[tuple[str, str], str] = {}  # (switch_id, channel_id) -> topic
         self.nodus_switch_result_topics: dict[tuple[str, str], str] = {}  # (switch_id, channel_id) -> topic
         self.nodus_sensor_topics: dict[str, str] = {}  # sensor_id -> topic
+        self.nodus_sensor_hosts: dict[str, str] = {}  # sensor_id -> physical device_id
+        self.nodus_sensor_config_files: dict[str, str] = {}  # sensor_id -> remote TOML name
+        self.nodus_host_sensors: dict[str, list[str]] = {}  # physical device_id -> child sensor IDs
         self.nodus_label_to_channel: dict[tuple[str, str], str] = {}  # (switch_id, norm_label) -> channel_id
         try:
             self.base_topic = (self.settings.get_setting("HomeAssistant", "BASE_TOPIC", "sensorius")
@@ -937,6 +940,11 @@ class saiMQTTIngest:
         return keys
 
     def _resolve_liveness_base(self, device_id: str | None, device_type: str | None = None) -> str:
+        dev = str(device_id or "").strip()
+        physical = str((self.nodus_sensor_hosts or {}).get(dev) or "").strip()
+        if physical:
+            return self._normalize_host_key(physical) or physical
+
         keys = self._liveness_keys_for(device_id, device_type=device_type)
         if (device_type or "").lower() == "switch" or str(device_id or "").strip().startswith("switch-"):
             for key in keys:
@@ -990,7 +998,13 @@ class saiMQTTIngest:
         reason = "no_recent_mqtt"
         availability = None
         try:
-            for key in keys:
+            availability_keys = keys
+            if (
+                base in self.nodus_host_sensors
+                and (self._normalize_host_key(dev) or dev) == base
+            ):
+                availability_keys = [base, f"{base}.local"]
+            for key in availability_keys:
                 availability = self._get_nodus_availability(key)
                 if availability:
                     break
@@ -1414,10 +1428,16 @@ class saiMQTTIngest:
                 if family == "calibration" and leaf == "result":
                     message_id = str(body.get("message_id") or "").strip()
                     status_payload = body.get("status") if isinstance(body.get("status"), dict) else {}
-                    sensor_id = str(status_payload.get("sensor_id") or device_id).strip()
+                    sensor_id = str(
+                        body.get("sensor_id")
+                        or status_payload.get("sensor_id")
+                        or device_id
+                    ).strip()
                     result = {
                         "message_id": message_id,
                         "device_id": device_id,
+                        "sensor_id": sensor_id,
+                        "name": str(body.get("name") or "").strip(),
                         "applied": bool(body.get("applied", False)),
                         "started": bool(body.get("started", False)),
                         "updated": body.get("updated"),
@@ -1507,7 +1527,18 @@ class saiMQTTIngest:
                 printDM(f"[calibration] parse error: {e}", location=MODULE)
             return False
 
-    def publish_nodus_calibration(self, device_id: str, *, action: str, payload: dict | None = None, message_id: str | None = None, qos: int = 1) -> dict:
+    def publish_nodus_calibration(
+        self,
+        device_id: str,
+        *,
+        action: str,
+        payload: dict | None = None,
+        message_id: str | None = None,
+        qos: int = 1,
+        sensor_id: str = "",
+        name: str = "",
+    ) -> dict:
+        """Publish a physical-device calibration command with optional sensor target."""
         device = str(device_id or "").strip()
         action_name = str(action or "").strip().lower()
         if not device or not action_name:
@@ -1519,6 +1550,12 @@ class saiMQTTIngest:
             "message_id": message_id,
             "action": action_name,
         }
+        target_sensor = str(sensor_id or "").strip()
+        target_name = str(name or "").strip()
+        if target_sensor:
+            envelope["sensor_id"] = target_sensor
+        if target_name:
+            envelope["name"] = target_name
         if payload is not None or action_name in {"apply", "set", "update"}:
             envelope["payload"] = payload or {}
         topic = f"nodus/{device}/calibration/set"
@@ -1770,6 +1807,8 @@ class saiMQTTIngest:
                         result = {
                             "message_id": message_id,
                             "device_id": device_id,
+                            "sensor_id": str(payload.get("sensor_id") or "").strip(),
+                            "name": str(payload.get("name") or "").strip(),
                             "applied": bool(payload.get("applied", False)),
                             "updated": payload.get("updated"),
                             "error": str(payload.get("error") or "").strip(),
@@ -2281,7 +2320,10 @@ class saiMQTTIngest:
                                     self._mark_host_status(host, derived)
                         return
                     if status:
-                        base = self._host_from_sid_base(nodus_id)
+                        base = (
+                            self.nodus_sensor_hosts.get(nodus_id)
+                            or self._host_from_sid_base(nodus_id)
+                        )
                         if base:
                             if not retain:
                                 self._maybe_add_mqtt_client(base)
@@ -2289,8 +2331,10 @@ class saiMQTTIngest:
                                 self._maybe_promote_retained_host(base, source="availability")
                             now_t = time.time()
                             self._record_host_seen(base, ts=now_t, retain=retain, report=False)
-                            self.nodus_availability[base] = status
-                            self.nodus_availability[f"{base}.local"] = status
+                            # Sensor availability is child-scoped even when its
+                            # liveness heartbeat is emitted by the physical host.
+                            self.nodus_availability[nodus_id] = status
+                            self.nodus_availability[f"{nodus_id}.local"] = status
 
                             peers = self.host_to_peer_ids.setdefault(base, [])
                             if nodus_id and nodus_id not in peers:
@@ -2306,7 +2350,7 @@ class saiMQTTIngest:
                                 if base not in self.last_heartbeat_ts:
                                     self.heartbeat_stale[base] = True
                                     self.heartbeat_stale[f"{base}.local"] = True
-                            elif status == "offline":
+                            elif status == "offline" and nodus_id == base:
                                 self._mark_host_status(base, "offline")
                     return
             if (is_nodus_root or is_nodus_prefixed):
@@ -2576,6 +2620,11 @@ class saiMQTTIngest:
             parts = topic.split("/", 2)
             if len(parts) >= 2 and parts[0].strip().lower() == "sensor":
                 sid = parts[1]
+        mapped = str(
+            self.nodus_sensor_hosts.get(str(sid or "").strip()) or ""
+        ).strip()
+        if mapped:
+            return self._normalize_host_key(mapped)
         return self._host_from_sid_base(sid)
 
     def _parse_availability_payload(self, payload_text: str, data: dict | None) -> str | None:
@@ -2866,6 +2915,12 @@ class saiMQTTIngest:
 
             sensor = meta.get("sensor") if isinstance(meta.get("sensor"), dict) else {}
             _observe(sensor.get("sensor_id"))
+            sensors = meta.get("sensors")
+            if isinstance(sensors, list):
+                for row in sensors:
+                    if isinstance(row, dict):
+                        _observe(row.get("sensor_id"))
+                        _observe(row.get("config_file"))
 
             switch = meta.get("switch") if isinstance(meta.get("switch"), dict) else {}
             _observe(switch.get("device_id"))
@@ -2925,22 +2980,66 @@ class saiMQTTIngest:
             location_group = _ensure_block(meta, "location_group")
             location_group["location"] = "" if raw_location is None else str(raw_location)
 
+        def _sensor_targets() -> list[dict]:
+            want_id = str(update.get("sensor_id") or "").strip().lower()
+            want_name = str(update.get("name") or "").strip().lower()
+            primary = meta.get("sensor") if isinstance(meta.get("sensor"), dict) else None
+            targets: list[dict] = []
+            sensors = meta.get("sensors")
+            if isinstance(sensors, list) and (want_id or want_name):
+                for row in sensors:
+                    if not isinstance(row, dict):
+                        continue
+                    row_id = str(row.get("sensor_id") or "").strip().lower()
+                    row_name = str(row.get("config_file") or row.get("name") or "").strip().lower()
+                    if want_id and row_id != want_id:
+                        continue
+                    if want_name and row_name != want_name:
+                        continue
+                    targets.append(row)
+            if not targets and primary is not None:
+                primary_id = str(primary.get("sensor_id") or "").strip().lower()
+                primary_name = str(
+                    primary.get("config_file")
+                    or primary.get("name")
+                    or ""
+                ).strip().lower()
+                if (
+                    (not want_id or primary_id == want_id)
+                    and (not want_name or primary_name == want_name)
+                ):
+                    targets.append(primary)
+            if not targets and not (want_id or want_name):
+                if primary is None:
+                    primary = _ensure_block(meta, "sensor")
+                targets.append(primary)
+
+            # Keep the primary compatibility view synchronized when it describes
+            # the same child as a targeted `meta.sensors` entry.
+            if targets and primary is not None and primary not in targets:
+                target_id = str(targets[0].get("sensor_id") or "").strip().lower()
+                primary_id = str(primary.get("sensor_id") or "").strip().lower()
+                if target_id and target_id == primary_id:
+                    targets.append(primary)
+            return targets
+
         if section_key == "display":
-            sensor = _ensure_block(meta, "sensor")
-            display_metrics = self._meta_metric_slot_map(sensor.get("display_metrics"))
-            display_metrics[key_upper] = "" if value is None else str(value)
-            sensor["display_metrics"] = dict(display_metrics)
-            return True
+            targets = _sensor_targets()
+            for sensor in targets:
+                display_metrics = self._meta_metric_slot_map(sensor.get("display_metrics"))
+                display_metrics[key_upper] = "" if value is None else str(value)
+                sensor["display_metrics"] = dict(display_metrics)
+            return bool(targets)
 
         if section_key == "display.style":
-            sensor = _ensure_block(meta, "sensor")
-            display_styles = self._meta_metric_slot_map(sensor.get("display_styles"))
-            display_styles[key_upper] = "" if value is None else str(value)
-            sensor["display_styles"] = dict(display_styles)
-            return True
+            targets = _sensor_targets()
+            for sensor in targets:
+                display_styles = self._meta_metric_slot_map(sensor.get("display_styles"))
+                display_styles[key_upper] = "" if value is None else str(value)
+                sensor["display_styles"] = dict(display_styles)
+            return bool(targets)
 
         if section_key == "sensor":
-            sensor = _ensure_block(meta, "sensor")
             field_name = {
                 "LOCATION": "location",
                 "DEVICE": "device",
@@ -2952,10 +3051,14 @@ class saiMQTTIngest:
                 "EVENT_TOPIC": "event_topic",
                 "AVAILABILITY_TOPIC": "availability_topic",
             }.get(key_upper, key.lower())
-            sensor[field_name] = value
-            if key_upper == "LOCATION":
+            targets = _sensor_targets()
+            for sensor in targets:
+                sensor[field_name] = value
+            if key_upper == "LOCATION" and not (
+                update.get("sensor_id") or update.get("name")
+            ):
                 _update_group_location(value)
-            return True
+            return bool(targets)
 
         if section_key == "profile":
             profile = _ensure_block(meta, "profile")
@@ -2994,15 +3097,28 @@ class saiMQTTIngest:
             return True
 
         if section_key == "calibration":
+            targets = _sensor_targets()
+            if update.get("sensor_id") or update.get("name"):
+                for sensor in targets:
+                    calibration = _ensure_block(sensor, "calibration")
+                    calibration[key_upper] = value
+                return bool(targets)
             calibration = _ensure_block(meta, "calibration")
             calibration[key_upper] = value
             return True
 
         if section_key.startswith("calibration."):
-            calibration = _ensure_block(meta, "calibration")
             child_name = section.split(".", 1)[1].strip()
             if not child_name:
                 return False
+            targets = _sensor_targets()
+            if update.get("sensor_id") or update.get("name"):
+                for sensor in targets:
+                    calibration = _ensure_block(sensor, "calibration")
+                    child = _ensure_block(calibration, child_name)
+                    child[key_upper] = value
+                return bool(targets)
+            calibration = _ensure_block(meta, "calibration")
             child = _ensure_block(calibration, child_name)
             child[key_upper] = value
             return True
@@ -3097,7 +3213,7 @@ class saiMQTTIngest:
         applied_any = False
         system_patch_info: dict[str, object] = {"HOSTNAME": cache_key}
         system_patch_changed = False
-        sensor_patch_info: dict[str, dict[str, object]] = {}
+        sensor_patch_info: dict[str, dict[str, dict[str, object]]] = {}
         sensor_patch_changed = False
         live_switch_state_updates: list[dict[str, object]] = []
 
@@ -3111,15 +3227,36 @@ class saiMQTTIngest:
             if not key:
                 continue
             if section == "calibration" or section.startswith("calibration."):
+                target_sensor_id = str(update.get("sensor_id") or "").strip()
+                target_name = str(update.get("name") or "").strip().lower()
+                if not target_sensor_id and target_name:
+                    for sid, config_file in self.nodus_sensor_config_files.items():
+                        if (
+                            str(config_file or "").strip().lower() == target_name
+                            and self.nodus_sensor_hosts.get(sid) == cache_key
+                        ):
+                            target_sensor_id = sid
+                            break
+                if not target_sensor_id:
+                    primary = (
+                        patched_meta.get("sensor")
+                        if isinstance(patched_meta.get("sensor"), dict)
+                        else {}
+                    )
+                    target_sensor_id = str(primary.get("sensor_id") or cache_key).strip()
                 block_name = "Calibration"
                 if section.startswith("calibration."):
                     suffix = section_raw.split(".", 1)[1].strip() if "." in section_raw else ""
                     if suffix:
                         block_name = f"Calibration.{suffix}"
-                block = sensor_patch_info.get(block_name)
+                target_blocks = sensor_patch_info.get(target_sensor_id)
+                if not isinstance(target_blocks, dict):
+                    target_blocks = {}
+                    sensor_patch_info[target_sensor_id] = target_blocks
+                block = target_blocks.get(block_name)
                 if not isinstance(block, dict):
                     block = {}
-                    sensor_patch_info[block_name] = block
+                    target_blocks[block_name] = block
                 block[key] = update.get("value")
                 sensor_patch_changed = True
                 continue
@@ -3192,22 +3329,25 @@ class saiMQTTIngest:
                     return block
 
                 sensor_mgr = SensorSettingsManager()
-                try:
-                    sensor_doc = sensor_mgr.load(cache_key) or OrderedDict()
-                except Exception:
-                    sensor_doc = OrderedDict()
+                for target_sensor_id, target_blocks in sensor_patch_info.items():
+                    try:
+                        sensor_doc = sensor_mgr.load(target_sensor_id) or OrderedDict()
+                    except Exception:
+                        sensor_doc = OrderedDict()
 
-                changed = False
-                for block_name, items in sensor_patch_info.items():
-                    current = sensor_doc
-                    for segment in [seg for seg in str(block_name or "").split(".") if seg]:
-                        current = _ensure_block(current, segment)
-                    for key, value in (items or {}).items():
-                        if current.get(key) != value:
-                            current[key] = value
-                            changed = True
-                if changed:
-                    sensor_mgr.save(cache_key, sensor_doc)
+                    changed = False
+                    for block_name, items in target_blocks.items():
+                        current = sensor_doc
+                        for segment in [
+                            seg for seg in str(block_name or "").split(".") if seg
+                        ]:
+                            current = _ensure_block(current, segment)
+                        for key, value in (items or {}).items():
+                            if current.get(key) != value:
+                                current[key] = value
+                                changed = True
+                    if changed:
+                        sensor_mgr.save(target_sensor_id, sensor_doc)
             except Exception as e:
                 if DEBUG:
                     printDM(f"[nodus-meta-patch] sensor settings apply failed: {e}", location=MODULE)
@@ -3611,8 +3751,8 @@ class saiMQTTIngest:
         firmware_version = str(meta.get("version") or "").strip()
         board_type = _extract_nodus_board_type(meta)
 
-        sensor_blob = dict(meta.get("sensor")) if isinstance(meta.get("sensor"), dict) else {}
-        if not sensor_blob:
+        primary_sensor_blob = dict(meta.get("sensor")) if isinstance(meta.get("sensor"), dict) else {}
+        if not primary_sensor_blob:
             top_sensor_id = str(meta.get("sensor_id") or meta.get("SENSOR_ID") or "").strip()
             top_data_topic = str(meta.get("data_topic") or meta.get("mqtt_sensor_topic") or "").strip()
             top_has_sensor = bool(
@@ -3622,7 +3762,7 @@ class saiMQTTIngest:
                 or meta.get("metrics")
             )
             if top_has_sensor:
-                sensor_blob = {
+                primary_sensor_blob = {
                     "sensor_id": top_sensor_id or device_id,
                     "device": meta.get("device") or meta.get("DEVICE") or meta.get("SENSOR_DEVICE") or "",
                     "type": meta.get("type") or meta.get("TYPE") or "nodus",
@@ -3641,21 +3781,36 @@ class saiMQTTIngest:
                     "display_metrics": meta.get("display_metrics") or meta.get("metrics") or meta.get("Display") or [],
                     "display_styles": meta.get("display_styles") or meta.get("styles") or [],
                 }
+        sensor_blobs: list[dict] = []
+        raw_sensors = meta.get("sensors")
+        if isinstance(raw_sensors, list):
+            for item in raw_sensors:
+                if isinstance(item, dict):
+                    sensor_blobs.append(dict(item))
+        if not sensor_blobs and primary_sensor_blob:
+            sensor_blobs.append(primary_sensor_blob)
+
         switch_blob = meta.get("switch") if isinstance(meta.get("switch"), dict) else {}
         network_meta = meta.get("network") if isinstance(meta.get("network"), dict) else {}
         location_group = meta.get("location_group") if isinstance(meta.get("location_group"), dict) else {}
 
-        sensor_id = str(sensor_blob.get("sensor_id") or sensor_blob.get("SENSOR_ID") or "").strip()
         switch_id = str(
             switch_blob.get("switch_device_id")
             or switch_blob.get("device_id")
             or ""
         ).strip()
         group_location = str(location_group.get("location") or "").strip()
-        sensor_location = str(sensor_blob.get("location") or sensor_blob.get("LOCATION") or "").strip()
+        primary_sensor_location = str(
+            primary_sensor_blob.get("location")
+            or primary_sensor_blob.get("LOCATION")
+            or ""
+        ).strip()
         switch_location = str(switch_blob.get("location") or "").strip()
-        resolved_location = _pick_location(group_location, switch_location, sensor_location)
-        sensor_hardware = _extract_nodus_sensor_hardware({"sensor": sensor_blob}) or _extract_nodus_sensor_hardware(meta)
+        resolved_location = _pick_location(
+            group_location,
+            switch_location,
+            primary_sensor_location,
+        )
 
         if not retain:
             self._maybe_add_mqtt_client(base)
@@ -3684,16 +3839,40 @@ class saiMQTTIngest:
             self.nodus_firmware_versions[device_id] = firmware_version
         self._record_nodus_board_type(board_type, base, f"{base}.local", device_id)
 
-        # sensor metadata
-        if sensor_id:
+        # Sensor metadata. `meta.sensors` is authoritative for multi-sensor
+        # devices; `meta.sensor` remains the single/primary compatibility view.
+        sensor_ids_for_host: list[str] = []
+        seen_sensor_ids: set[str] = set()
+        for sensor_blob in sensor_blobs:
+            sensor_id = str(
+                sensor_blob.get("sensor_id")
+                or sensor_blob.get("SENSOR_ID")
+                or ""
+            ).strip()
+            if not sensor_id or sensor_id.lower() in seen_sensor_ids:
+                continue
+            seen_sensor_ids.add(sensor_id.lower())
+            sensor_ids_for_host.append(sensor_id)
             touched = True
             if sensor_id not in peer_ids_for_host:
                 peer_ids_for_host.append(sensor_id)
             if firmware_version:
                 self.nodus_firmware_versions[sensor_id] = firmware_version
             self._record_nodus_board_type(board_type, sensor_id)
+            sensor_hardware = (
+                _extract_nodus_sensor_hardware({"sensor": sensor_blob})
+                or _extract_nodus_sensor_hardware(meta)
+            )
             self._record_nodus_sensor_hardware(sensor_hardware, base, f"{base}.local", device_id, sensor_id)
             self.device_type[sensor_id] = "nodus"
+            self.nodus_sensor_hosts[sensor_id] = base
+            config_file = str(
+                sensor_blob.get("config_file")
+                or sensor_blob.get("name")
+                or ""
+            ).strip()
+            if config_file:
+                self.nodus_sensor_config_files[sensor_id] = config_file
             self._record_mqtt_seen(sensor_id, ts=now_t, retain=retain, report=False)
             sensor_device = self._infer_sensor_device_name(
                 sensor_blob.get("device")
@@ -3723,6 +3902,11 @@ class saiMQTTIngest:
             data_topic = _meta_topic(sensor_blob.get("data_topic") or sensor_blob.get("mqtt_sensor_topic"))
             avail_topic = _meta_topic(sensor_blob.get("availability_topic") or sensor_blob.get("mqtt_availability_topic"))
             event_topic = _meta_topic(sensor_blob.get("event_topic") or sensor_blob.get("mqtt_event_topic"))
+            sensor_location = str(
+                sensor_blob.get("location")
+                or sensor_blob.get("LOCATION")
+                or ""
+            ).strip()
             sensor_loc = _pick_location(sensor_location, resolved_location)
 
             if data_topic:
@@ -3747,9 +3931,13 @@ class saiMQTTIngest:
                 "serial": sensor_serial,
                 "mcu": board_type,
                 "hardware": sensor_hardware,
+                "physical_device_id": base,
+                "config_file": config_file,
                 "display_metrics": display_metrics,
                 "display_styles": display_styles,
             })
+        if sensor_ids_for_host:
+            self.nodus_host_sensors[base] = list(sensor_ids_for_host)
 
         # switch metadata
         channels = switch_blob.get("channels")
@@ -3894,7 +4082,7 @@ class saiMQTTIngest:
 
         runtime_ipv4 = _extract_runtime_ipv4addr(network_meta) or _extract_runtime_ipv4addr(meta)
         if runtime_ipv4:
-            for raw_key in (base, device_id, sensor_id, switch_id):
+            for raw_key in (base, device_id, *sensor_ids_for_host, switch_id):
                 key = str(raw_key or "").strip()
                 if not key:
                     continue
@@ -4665,6 +4853,14 @@ class saiMQTTIngest:
             if not dev:
                 return None
 
+            mapped_sensor_host = str(
+                self.nodus_sensor_hosts.get(dev)
+                or self.nodus_sensor_hosts.get(self._normalize_host_key(dev) or "")
+                or ""
+            ).strip()
+            if mapped_sensor_host:
+                return self._normalize_host_key(mapped_sensor_host)
+
             # 1) Exact peer-id → host mapping from discovery
             for host, peers in (self.host_to_peer_ids or {}).items():
                 try:
@@ -4697,6 +4893,23 @@ class saiMQTTIngest:
             return dev or None
         except Exception:
             return None
+
+    def resolve_nodus_sensor_target(self, sensor_id: str) -> dict:
+        """Return physical host and remote config filename for a child sensor."""
+        sid = str(sensor_id or "").strip()
+        if not sid:
+            return {"sensor_id": "", "device_id": "", "config_file": ""}
+        device_id = str(
+            self.nodus_sensor_hosts.get(sid)
+            or self.resolve_nodus_hostname(sid, device_type="sensor")
+            or ""
+        ).strip()
+        config_file = str(self.nodus_sensor_config_files.get(sid) or "").strip()
+        return {
+            "sensor_id": sid,
+            "device_id": self._normalize_host_key(device_id) or device_id,
+            "config_file": config_file,
+        }
 
     def get_nodus_firmware_version(self, device_id: str | None, device_type: str | None = None) -> str:
         """
@@ -5561,6 +5774,17 @@ class saiMQTTIngest:
                     or s.get("SENSOR_HARDWARE")
                     or ""
                 ).strip()
+                physical_device_id = str(
+                    s.get("physical_device_id")
+                    or s.get("device_id")
+                    or system_id
+                    or ""
+                ).strip()
+                config_file = str(
+                    s.get("config_file")
+                    or s.get("name")
+                    or ""
+                ).strip()
                 remote_display_metrics = self._normalize_display_metrics(
                     s.get("display_metrics") or s.get("metrics")
                 )
@@ -5601,6 +5825,24 @@ class saiMQTTIngest:
                         changed = True
                     if device_type and str(sb.get("TYPE", "") or "").strip() != device_type:
                         sb["TYPE"] = device_type
+                        changed = True
+                    if "Nodus" not in data or not isinstance(data["Nodus"], dict):
+                        data["Nodus"] = OrderedDict()
+                        changed = True
+                    nodus_block = data["Nodus"]
+                    if (
+                        physical_device_id
+                        and str(nodus_block.get("DEVICE_ID", "") or "").strip()
+                        != physical_device_id
+                    ):
+                        nodus_block["DEVICE_ID"] = physical_device_id
+                        changed = True
+                    if (
+                        config_file
+                        and str(nodus_block.get("CONFIG_FILE", "") or "").strip()
+                        != config_file
+                    ):
+                        nodus_block["CONFIG_FILE"] = config_file
                         changed = True
 
                     if "Display" not in data or not isinstance(data["Display"], dict):
@@ -5656,6 +5898,9 @@ class saiMQTTIngest:
                         sb["MCU"] = board_type
                     if sensor_hardware:
                         sb["HARDWARE"] = sensor_hardware
+                    data["Nodus"] = OrderedDict()
+                    data["Nodus"]["DEVICE_ID"] = physical_device_id
+                    data["Nodus"]["CONFIG_FILE"] = config_file
 
                     if "Display" not in data or not isinstance(data["Display"], dict):
                         data["Display"] = OrderedDict()
@@ -5688,6 +5933,10 @@ class saiMQTTIngest:
                         sb["MCU"] = board_type
                     if sensor_hardware:
                         sb["HARDWARE"] = sensor_hardware
+
+                    data["Nodus"] = OrderedDict()
+                    data["Nodus"]["DEVICE_ID"] = physical_device_id
+                    data["Nodus"]["CONFIG_FILE"] = config_file
 
                     data["Display"] = OrderedDict()
                     chosen_metrics = remote_display_metrics or _display_defaults_for_device(device_name or device_type)

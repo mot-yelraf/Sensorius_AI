@@ -5,6 +5,10 @@ SERIAL_NUM = ""
 SENSOR_ID = ""
 LOCATION = "Unknown"
 
+[Nodus]
+DEVICE_ID = ""
+CONFIG_FILE = ""
+
 [Calibration]
 CALIBRATED = false
 CALIB_STATUS = "Not Calibrated"

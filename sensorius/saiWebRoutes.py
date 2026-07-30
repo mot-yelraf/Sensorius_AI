@@ -6166,6 +6166,20 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             except Exception:
                 return None
 
+        # Child sensor shadows persist the physical Nodus identity. This keeps
+        # settings and restart commands routed correctly before retained meta
+        # has rebuilt the ingest maps after a Sensorius restart.
+        if (device_type or "").lower() == "sensor":
+            try:
+                sm = _sensor_settings_manager()
+                doc = sm.load(dev_id) if sm else {}
+                nodus = doc.get("Nodus", {}) if isinstance(doc, dict) else {}
+                host = str((nodus or {}).get("DEVICE_ID") or "").strip()
+                if host:
+                    return host
+            except Exception:
+                pass
+
         def _paired_sensor_host_for_switch() -> str | None:
             if not serial:
                 return None
@@ -6879,8 +6893,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         updates_payload: list[dict[str, Any]] = []
         for section, key, value in (updates or []):
             item = {"section": section, "key": key, "value": value}
-            if setting_file_key == "sensor" and sensor_file_name:
-                item["name"] = sensor_file_name
+            if setting_file_key == "sensor":
+                item["sensor_id"] = str(device_id or "").strip()
+                if sensor_file_name:
+                    item["name"] = sensor_file_name
             elif setting_file_key == "switch":
                 item["name"] = "switch.toml"
             updates_payload.append(item)
@@ -7090,10 +7106,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         if dev_kind in ("picow", "pico2w", "nodus"):
                             sblk = (doc.get("Sensor") or {}) if isinstance(doc, dict) else {}
                             sensor_file_name = None
+                            nodus_block = (
+                                doc.get("Nodus")
+                                if isinstance(doc.get("Nodus"), dict)
+                                else {}
+                            )
+                            sensor_file_name = str(
+                                nodus_block.get("CONFIG_FILE") or ""
+                            ).strip() or None
                             if any(k in sblk for k in ("I2C_SCL","I2C_SDA","I2C_BUS","I2C_ADDR")):
-                                sensor_file_name = "sensor_i2c.toml"
+                                sensor_file_name = sensor_file_name or "sensor_i2c.toml"
                             elif any(k in sblk for k in ("UART_TX","UART_RX","UART_BUS","RS485_DIR_PIN","MODBUS_ADDR")):
-                                sensor_file_name = "sensor_soil.toml"
+                                sensor_file_name = sensor_file_name or "sensor_soil.toml"
 
                             resolved_host = _read_hostname_from_system_settings(
                                 dev_id,
@@ -7385,6 +7409,32 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 out.append(norm)
         return out
 
+    def _persisted_nodus_sensor_groups() -> tuple[dict[str, str], dict[str, list[str]]]:
+        """Read child-to-physical Nodus identity from persisted sensor shadows."""
+        child_hosts: dict[str, str] = {}
+        host_children: dict[str, list[str]] = {}
+        try:
+            sensor_mgr = SensorSettingsManager("sensor_settings")
+            for raw_sensor_id in sensor_mgr.list_ids() or []:
+                sensor_id = _normalize_dev_id(raw_sensor_id)
+                if not sensor_id:
+                    continue
+                try:
+                    doc = sensor_mgr.load(raw_sensor_id) or {}
+                except Exception:
+                    continue
+                nodus = doc.get("Nodus") if isinstance(doc.get("Nodus"), dict) else {}
+                host = _normalize_dev_id(nodus.get("DEVICE_ID"))
+                if not host:
+                    continue
+                child_hosts[sensor_id] = host
+                children = host_children.setdefault(host, [])
+                if sensor_id not in children:
+                    children.append(sensor_id)
+        except Exception:
+            pass
+        return child_hosts, host_children
+
     def _collect_removable_ids() -> list[str]:
         """
         Aggregate IDs that are candidates for removal from:
@@ -7421,6 +7471,21 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             and not dev_id.lower().startswith("template")
         ]
 
+        try:
+            from .saiMQTTIngest import get_current_ingest as _get_ing
+            ingest = _get_ing()
+        except Exception:
+            ingest = None
+        persisted_hosts, _ = _persisted_nodus_sensor_groups()
+        sensor_hosts = dict(persisted_hosts)
+        if ingest:
+            sensor_hosts.update(getattr(ingest, "nodus_sensor_hosts", {}) or {})
+        collapsed: set[str] = set()
+        for dev_id in filtered_ids:
+            physical = str(sensor_hosts.get(dev_id) or "").strip()
+            collapsed.add(physical or dev_id)
+        filtered_ids = list(collapsed)
+
         return sorted(filtered_ids)
 
     def _collect_removable_details(device_ids: list[str]) -> dict[str, dict[str, Any]]:
@@ -7430,6 +7495,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         except Exception:
             ingest = None
 
+        _, persisted_groups = _persisted_nodus_sensor_groups()
         now_ts = time.time()
         details: dict[str, dict[str, Any]] = {}
 
@@ -7516,6 +7582,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "url": _device_url(host),
                 "last_seen_s": _last_seen_seconds(dev_id, host),
             }
+            children = list(persisted_groups.get(host, []) or [])
+            if ingest:
+                live_children = (
+                    (getattr(ingest, "nodus_host_sensors", {}) or {}).get(host, [])
+                    or []
+                )
+                for child in live_children:
+                    if child not in children:
+                        children.append(child)
+            if children:
+                details[dev_id]["sensors"] = children
         return details
 
     def _toml_escape(s:str)->str:
@@ -8008,6 +8085,31 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 for sensor_id in list(sensor_topics.keys()):
                     if str(sensor_id or "").strip().lower() in ids_l:
                         sensor_topics.pop(sensor_id, None); _bump()
+        except Exception:
+            pass
+
+        for map_name in ("nodus_sensor_hosts", "nodus_sensor_config_files"):
+            try:
+                mapping = getattr(ing, map_name, None)
+                if isinstance(mapping, dict):
+                    for sensor_id in list(mapping.keys()):
+                        if str(sensor_id or "").strip().lower() in ids_l:
+                            mapping.pop(sensor_id, None)
+                            _bump()
+            except Exception:
+                pass
+        try:
+            mapping = getattr(ing, "nodus_host_sensors", None)
+            if isinstance(mapping, dict):
+                for host in list(mapping.keys()):
+                    host_l = str(host or "").strip().lower()
+                    children = {
+                        str(child or "").strip().lower()
+                        for child in (mapping.get(host) or [])
+                    }
+                    if host_l in ids_l or children & ids_l:
+                        mapping.pop(host, None)
+                        _bump()
         except Exception:
             pass
 
@@ -9794,6 +9896,42 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "meta_patch_fallback": True,
         }
 
+    def _resolve_remote_sensor_target(sensor_id: str) -> dict[str, str]:
+        sid = str(sensor_id or "").strip()
+        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        resolver = getattr(ingest, "resolve_nodus_sensor_target", None)
+        target = resolver(sid) if callable(resolver) else {}
+        device_id = str((target or {}).get("device_id") or "").strip()
+        config_file = str((target or {}).get("config_file") or "").strip()
+
+        try:
+            doc = SensorSettingsManager("sensor_settings").load(sid) or {}
+        except Exception:
+            doc = {}
+        nodus_block = doc.get("Nodus") if isinstance(doc.get("Nodus"), dict) else {}
+        sensor_block = doc.get("Sensor") if isinstance(doc.get("Sensor"), dict) else {}
+        device_id = (
+            device_id
+            or str(nodus_block.get("DEVICE_ID") or "").strip()
+            or sid
+        )
+        config_file = config_file or str(
+            nodus_block.get("CONFIG_FILE") or ""
+        ).strip()
+        if not config_file:
+            sensor_kind = str(sensor_block.get("DEVICE") or "").strip().lower()
+            config_file = (
+                "sensor_soil.toml"
+                if sensor_kind.startswith("soil")
+                or sensor_kind in {"rs485", "modbus"}
+                else "sensor_i2c.toml"
+            )
+        return {
+            "sensor_id": sid,
+            "device_id": device_id,
+            "config_file": config_file,
+        }
+
     async def _publish_remote_calibration_command(
         sensor_id: str,
         *,
@@ -9806,7 +9944,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if not ingest or not hasattr(ingest, "publish_nodus_calibration"):
             return False, "MQTT ingest unavailable", None, None
 
-        publish_result = ingest.publish_nodus_calibration(sensor_id, action=action, payload=payload)
+        target = _resolve_remote_sensor_target(sensor_id)
+        publish_result = ingest.publish_nodus_calibration(
+            target["device_id"],
+            action=action,
+            payload=payload,
+            sensor_id=target["sensor_id"],
+            name=target["config_file"],
+        )
         if not bool(publish_result.get("ok", False)):
             return False, "Failed to publish calibration command", None, None
 
@@ -9827,7 +9972,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return True, "", ack, result
 
     async def _publish_remote_device_calibration_offsets(sensor_id: str, offsets: list[dict]) -> tuple[bool, str, int, list[str], bool]:
-        target_device = str(sensor_id or "").strip()
+        target = _resolve_remote_sensor_target(sensor_id)
+        target_device = str(target.get("device_id") or "").strip()
         if not target_device:
             return False, "Missing sensor_id.", 400, [], False
 
@@ -10626,7 +10772,20 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         if sensor_type in ("picow", "pico2w", "nodus"):
             sensor_device = str((merged_doc.get("Sensor", {}) or {}).get("DEVICE", "") or "")
-            device_toml = guess_device_toml(sensor_device)
+            nodus_block = (
+                merged_doc.get("Nodus")
+                if isinstance(merged_doc.get("Nodus"), dict)
+                else {}
+            )
+            device_toml = str(nodus_block.get("CONFIG_FILE") or "").strip()
+            if not device_toml:
+                ingest_for_target = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+                resolver = getattr(ingest_for_target, "resolve_nodus_sensor_target", None)
+                if callable(resolver):
+                    target_info = resolver(old_id) or {}
+                    device_toml = str(target_info.get("config_file") or "").strip()
+            if not device_toml:
+                device_toml = guess_device_toml(sensor_device)
             await push_updates_to_picow(
                 base_dir,
                 new_id,

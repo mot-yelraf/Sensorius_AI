@@ -263,6 +263,10 @@ Retained `nodus/<device_id>/meta` is the compact authoritative startup
 snapshot. Sensorius uses it to materialize the device, sensor, core MQTT
 topics, and switch presence quickly after connect/reconnect.
 
+`device_id` identifies the physical Nodus. A factory dual-sensor Nodus uses
+`<sensor1>-<sensor2>-<serial>`, while its child sensor IDs remain
+`<sensor1>-<serial>` and `<sensor2>-<serial>`.
+
 The payload must include:
 
 - top-level `schema`, `device_id`, `hostname`, `serial`, `version`, `type`,
@@ -281,6 +285,9 @@ The payload must include:
   `sensor.data_topic`,
   `sensor.event_topic`, `sensor.availability_topic`,
   `sensor.display_metrics`, `sensor.display_styles`
+- optional `sensors` array for a multi-sensor Nodus; every entry carries its
+  own `sensor_id`, logical device, hardware, `config_file`, location, display
+  settings, data topic, event topic, and availability topic
 - `switch.device_id`, `switch.channel_count`, and `switch.meta_topic` when
   switch capability is present
 
@@ -314,14 +321,19 @@ deterministic `nodus/<device_id>/logs/{get,ack,chunk,result}` topic family.
 
 Sensorius compatibility rule:
 
-1. If retained `meta.switch.channels` exists, parse it as the legacy embedded
+1. If `meta.sensors` is non-empty, materialize every child and treat
+   `meta.sensor` as the primary compatibility view; otherwise materialize
+   `meta.sensor`.
+2. Persist the child-to-physical-device and child-to-`config_file` mapping in
+   each local Nodus sensor shadow.
+3. If retained `meta.switch.channels` exists, parse it as the legacy embedded
    switch topic map.
-2. Else if retained `meta.switch.meta_topic` exists, read retained
+4. Else if retained `meta.switch.meta_topic` exists, read retained
    `meta.switch.meta_topic` and parse `nodus-meta-switch/v1`.
-3. Else if `meta.switch.channel_count > 0`, derive the default topic
+5. Else if `meta.switch.channel_count > 0`, derive the default topic
    `nodus/<device_id>/meta/switch` and read retained `nodus-meta-switch/v1`
    as a fallback.
-4. Else treat the device as having no switch channel topic map yet and wait
+6. Else treat the device as having no switch channel topic map yet and wait
    for a later retained `meta` or `meta/switch`.
 
 Password fields in retained `meta` use the same `obf1:` obfuscation format as
@@ -429,10 +441,11 @@ Canonical Sensorius envelope:
   "payload": {
     "updates": [
       {
+        "sensor_id": "lux-ykdvea",
         "section": "Sensor",
         "key": "LOCATION",
-        "value": "OfficeDesk",
-        "name": "sensor_i2c.toml"
+        "value": "Canopy",
+        "name": "sensor_i2c_2.toml"
       }
     ]
   },
@@ -475,6 +488,9 @@ Implemented behavior:
   reboot the device again.
 - Accepted non-duplicate writes publish `config/result` and a non-retained
   `meta/patch` with `source = "config_set"`.
+- Sensor-specific writes use the physical device topic and identify the child
+  with `sensor_id`, `name`, or both. Sensorius publishes both when retained
+  metadata provides them.
 - Accepted non-duplicate standalone restart requests publish `config/result`
   and then reboot after queued MQTT publishes drain.
 - Accepted non-duplicate config writes with `restart = true` publish
@@ -569,11 +585,13 @@ Canonical Sensorius envelope:
 {
   "message_id": "cal-123",
   "action": "apply",
+  "sensor_id": "lux-ykdvea",
+  "name": "sensor_i2c_2.toml",
   "payload": {
     "offsets": [
       {
-        "key": "Calibration.Device.TEMP_OFFSET",
-        "value": 1.5
+        "key": "Calibration.Device.LUX_OFFSET",
+        "value": 12.0
       }
     ]
   }
@@ -718,6 +736,9 @@ Patch rules:
 - `meta/patch` is the incremental sync stream after startup.
 - It does not replace retained startup `meta`.
 - Accepted config, switch, and calibration writes should emit `meta/patch`.
+- Sensor-specific patch entries carry `sensor_id` and `name`; Sensorius updates
+  only the matching `meta.sensors` entry and child shadow. It also updates
+  `meta.sensor` when the target is the primary sensor.
 
 ## Deprecated Doc Shapes
 

@@ -231,9 +231,21 @@ class _FakeIngest:
         out.setdefault("message_id", message_id)
         return out
 
-    def publish_nodus_calibration(self, device_id: str, *, action: str, payload=None, message_id=None, qos=1):
+    def publish_nodus_calibration(
+        self,
+        device_id: str,
+        *,
+        action: str,
+        payload=None,
+        message_id=None,
+        qos=1,
+        sensor_id="",
+        name="",
+    ):
         message = {
             "device_id": device_id,
+            "sensor_id": sensor_id,
+            "name": name,
             "action": action,
             "payload": payload,
             "message_id": message_id or f"test-{len(self.calibration_commands) + 1}",
@@ -1184,6 +1196,68 @@ async def test_submit_sensor_settings_pushes_sensor_and_display_updates_for_nodu
 
 
 @pytest.mark.asyncio
+async def test_submit_second_sensor_settings_targets_physical_host_and_second_file(
+    tmp_path,
+    monkeypatch,
+):
+    app, ingest, system_root, sensor_root, _switch_root = await _build_app(
+        tmp_path,
+        monkeypatch,
+    )
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "lux-test123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "lux",
+                "SENSOR_ID": "lux-test123",
+                "LOCATION": "Bench",
+            },
+            "Nodus": {
+                "DEVICE_ID": "aht-lux-test123",
+                "CONFIG_FILE": "sensor_i2c_2.toml",
+            },
+            "Display": {"METRIC_1": "Lux"},
+        },
+    )
+    ingest.published_json.clear()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        res = await client.post(
+            "/submit-sensor-settings",
+            data={
+                "sensor_id": "lux-test123",
+                "location": "Canopy",
+            },
+        )
+
+    assert res.status_code == 303
+    assert ingest.published_json
+    assert all(
+        row["topic"] == "nodus/aht-lux-test123/config/set"
+        for row in ingest.published_json
+    )
+    updates = [
+        update
+        for row in ingest.published_json
+        for update in row["payload"]["payload"]["updates"]
+    ]
+    assert updates == [
+        {
+            "sensor_id": "lux-test123",
+            "name": "sensor_i2c_2.toml",
+            "section": "Sensor",
+            "key": "LOCATION",
+            "value": "Canopy",
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_submit_sensor_settings_metric_display_mode_stays_local_for_nodus(tmp_path, monkeypatch):
     app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
@@ -1265,8 +1339,20 @@ async def test_submit_sensor_settings_pushes_explicit_blank_metric_clears_for_no
         for row in ingest.published_json
         for update in (((row.get("payload") or {}).get("payload") or {}).get("updates") or [])
     ]
-    assert {"section": "Display", "key": "METRIC_5", "value": "", "name": "sensor_i2c.toml"} in posted
-    assert {"section": "Display", "key": "METRIC_6", "value": "", "name": "sensor_i2c.toml"} in posted
+    assert {
+        "sensor_id": "co2-ykdvea",
+        "section": "Display",
+        "key": "METRIC_5",
+        "value": "",
+        "name": "sensor_i2c.toml",
+    } in posted
+    assert {
+        "sensor_id": "co2-ykdvea",
+        "section": "Display",
+        "key": "METRIC_6",
+        "value": "",
+        "name": "sensor_i2c.toml",
+    } in posted
 
 
 @pytest.mark.asyncio
@@ -2965,6 +3051,49 @@ async def test_calibrate_remote_nodus_uses_mqtt_start(tmp_path, monkeypatch):
     assert res.status_code == 200
     assert res.json()["status"] == "started"
     assert ingest.calibration_commands[-1]["action"] == "start"
+
+
+@pytest.mark.asyncio
+async def test_calibrate_second_sensor_targets_physical_host_and_second_file(
+    tmp_path,
+    monkeypatch,
+):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(
+        tmp_path,
+        monkeypatch,
+    )
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    sensor_mgr.save(
+        "lux-test123",
+        {
+            "Sensor": {
+                "TYPE": "nodus",
+                "DEVICE": "lux",
+                "SENSOR_ID": "lux-test123",
+            },
+            "Nodus": {
+                "DEVICE_ID": "aht-lux-test123",
+                "CONFIG_FILE": "sensor_i2c_2.toml",
+            },
+        },
+    )
+    ingest.next_calibration_result = {
+        "applied": True,
+        "started": True,
+        "status": {"status": "in_progress", "calibrated": False},
+    }
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        res = await client.post("/calibrate", params={"sensor_id": "lux-test123"})
+
+    assert res.status_code == 200
+    command = ingest.calibration_commands[-1]
+    assert command["device_id"] == "aht-lux-test123"
+    assert command["sensor_id"] == "lux-test123"
+    assert command["name"] == "sensor_i2c_2.toml"
 
 
 @pytest.mark.asyncio
@@ -4902,6 +5031,59 @@ async def test_remove_device_list_merges_settings_db_and_ingest_ids(tmp_path, mo
     }
     assert body["device_details"]["switch-db"]["url"] == "http://switch-db.local:8000"
     assert body["device_details"]["switch-db"]["last_seen_s"] is None
+
+
+@pytest.mark.asyncio
+async def test_remove_device_list_groups_dual_sensor_children_under_physical_nodus(
+    tmp_path,
+    monkeypatch,
+):
+    app, ingest, system_root, sensor_root, _switch_root = await _build_app(
+        tmp_path,
+        monkeypatch,
+    )
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    monkeypatch.setenv("SAI_WEB_API_KEY", "test-key")
+    monkeypatch.setattr(saiWebRoutes, "_SYS_BASE_DIR", str(system_root))
+    monkeypatch.setattr(saiMQTTIngest, "get_current_ingest", lambda: ingest)
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+
+    for sensor_id, config_file in (
+        ("aht-test123", "sensor_i2c.toml"),
+        ("lux-test123", "sensor_i2c_2.toml"),
+    ):
+        sensor_mgr.save(
+            sensor_id,
+            {
+                "Sensor": {
+                    "TYPE": "nodus",
+                    "DEVICE": sensor_id.split("-", 1)[0],
+                    "SENSOR_ID": sensor_id,
+                },
+                "Nodus": {
+                    "DEVICE_ID": "aht-lux-test123",
+                    "CONFIG_FILE": config_file,
+                },
+            },
+        )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"x-api-key": "test-key"},
+    ) as client:
+        res = await client.get("/remove-device-list")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert "aht-lux-test123" in body["devices"]
+    assert "aht-test123" not in body["devices"]
+    assert "lux-test123" not in body["devices"]
+    assert body["device_details"]["aht-lux-test123"]["sensors"] == [
+        "aht-test123",
+        "lux-test123",
+    ]
 
 
 @pytest.mark.asyncio
