@@ -1,3 +1,5 @@
+"""Keep operator-visible switch-monitor startup instrumentation intact."""
+
 from pathlib import Path
 
 

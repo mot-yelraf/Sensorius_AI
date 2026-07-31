@@ -1,3 +1,9 @@
+"""Test safe cleanup of legacy deployment layouts.
+
+The deployment script runs only against temporary directory trees, including a
+case with owner-protected bytecode.
+"""
+
 import subprocess
 from pathlib import Path
 

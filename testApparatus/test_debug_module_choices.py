@@ -1,3 +1,5 @@
+"""Keep switch-monitor diagnostics available in advanced debug choices."""
+
 from pathlib import Path
 
 

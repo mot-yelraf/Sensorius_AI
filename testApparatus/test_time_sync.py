@@ -1,3 +1,9 @@
+"""Test timezone transitions and deduplicated remote time synchronization.
+
+Remote Nodus discovery and synchronization are faked; the zoneinfo assertions
+depend only on the Python runtime's installed timezone database.
+"""
+
 from __future__ import annotations
 
 import os

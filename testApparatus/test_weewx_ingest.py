@@ -1,3 +1,9 @@
+"""Test WeeWX archive and MQTT ingest normalization and deduplication.
+
+Archive reads use temporary SQLite databases and MQTT clients are faked, so no
+installed WeeWX service or broker is required.
+"""
+
 import sqlite3
 import os
 import sys

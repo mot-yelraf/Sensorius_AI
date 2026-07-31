@@ -1,4 +1,9 @@
-"""Publish Sensorius automation ownership leases to Nodus devices."""
+"""Publish Sensorius automation ownership leases to Nodus devices.
+
+``build_status_channels`` maps enabled rules to physical channels, while
+``NodusAutomationStatusPublisher`` periodically publishes retained status and
+clears stale ownership through the primary MQTT ingest client.
+"""
 
 from __future__ import annotations
 

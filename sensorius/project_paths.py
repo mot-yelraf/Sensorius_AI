@@ -1,4 +1,8 @@
-"""Paths to source-tree resources used by the Sensorius runtime."""
+"""Resolve source-tree resources used by the Sensorius runtime.
+
+``PROJECT_ROOT`` is fixed at import time, preferring ``SENSORIUS_PROJECT_ROOT``
+when set. :func:`project_path` joins resource names beneath that absolute root.
+"""
 
 from __future__ import annotations
 

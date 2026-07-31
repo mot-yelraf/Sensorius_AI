@@ -1,3 +1,5 @@
+"""Test desktop webview geometry defaults and environment overrides."""
+
 import os
 import sys
 

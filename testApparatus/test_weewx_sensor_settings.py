@@ -1,3 +1,9 @@
+"""Test WeeWX metadata parsing and sensor-settings materialization.
+
+Settings are written only beneath pytest temporary directories and must remain
+excluded from the local hardware sensor-controller pipeline.
+"""
+
 import os
 import sys
 

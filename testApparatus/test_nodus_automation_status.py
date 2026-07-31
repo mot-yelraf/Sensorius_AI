@@ -1,3 +1,9 @@
+"""Test retained Nodus automation ownership and availability publishing.
+
+Fake ingest and automation managers keep the tests independent of a live MQTT
+broker while preserving physical-device topic semantics.
+"""
+
 import asyncio
 import os
 import sys

@@ -1,3 +1,9 @@
+"""Test threshold email rules, delivery guards, and notification UI wiring.
+
+SMTP and time are faked except where the sender contract itself is exercised;
+temporary SQLite databases isolate persisted cooldown and rate-limit state.
+"""
+
 import json
 from pathlib import Path
 

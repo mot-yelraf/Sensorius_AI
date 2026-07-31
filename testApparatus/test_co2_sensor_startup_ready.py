@@ -1,3 +1,9 @@
+"""Test CO2 sensor startup readiness and first-read behavior.
+
+Hardware drivers are replaced with fakes so SCD30 and SCD4x timing, altitude,
+and missing-value handling can be verified without an I2C device.
+"""
+
 import os
 import sys
 from types import SimpleNamespace

@@ -1,3 +1,9 @@
+"""Test SQLite corruption detection and bounded automatic recovery.
+
+Each test uses temporary databases; the optional SQLite CLI recovery case is
+skipped when the command-line tool is unavailable.
+"""
+
 from __future__ import annotations
 
 import os

@@ -1,4 +1,8 @@
-"""Compatibility launcher and import alias for the packaged application."""
+"""Launch Sensorius or expose the packaged application through a legacy import.
+
+Executing this module delegates to :func:`sensorius.app.run_application`;
+importing it aliases the module object to :mod:`sensorius.app` for compatibility.
+"""
 
 import sys
 

@@ -1,3 +1,9 @@
+"""Test modal assets, layout constraints, and accessibility hooks.
+
+These tests inspect generated HTML, JavaScript, and CSS source rather than
+launching a browser.
+"""
+
 import os
 import sys
 from pathlib import Path

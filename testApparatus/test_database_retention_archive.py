@@ -1,3 +1,8 @@
+"""Test database retention bounds, archival, and live-database renewal.
+
+All persistence is isolated beneath pytest temporary directories.
+"""
+
 from __future__ import annotations
 
 import os

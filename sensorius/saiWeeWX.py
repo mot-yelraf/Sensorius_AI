@@ -1,4 +1,9 @@
-"""WeeWX SQLite archive ingest for Linux/Raspberry Pi Sensorius installs."""
+"""Ingest WeeWX SQLite archive readings on supported Sensorius hosts.
+
+``WeeWXArchiveIngest`` polls the latest archive row, normalizes it through the
+station adapter, and writes new timestamps to the shared data logger. Automatic
+archive discovery is Linux-only, and duplicate archive rows are skipped.
+"""
 
 import asyncio
 import os

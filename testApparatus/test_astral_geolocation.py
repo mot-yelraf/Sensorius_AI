@@ -1,3 +1,9 @@
+"""Test automatic Astral location resolution and persistence behavior.
+
+Provider calls are replaced with deterministic fakes so this suite performs no
+external geolocation requests.
+"""
+
 import os
 import sys
 from types import SimpleNamespace

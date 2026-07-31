@@ -1,4 +1,10 @@
-"""WeeWX station adapter helpers for SQLite and MQTT-backed data sources."""
+"""Normalize WeeWX station metadata and readings for Sensorius.
+
+The public parsing and normalization helpers accept WeeWX configuration, archive
+fields, or MQTT payloads and return canonical Sensorius metrics. Unit mappings
+and metric names are compatibility-sensitive because they feed settings,
+persistence, and dashboard configuration.
+"""
 
 import json
 import re

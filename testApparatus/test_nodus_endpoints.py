@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
-"""
-Test Nodus endpoint responsiveness for /hayd and /itaot.
+"""Probe Nodus ``/hayd`` and ``/itaot`` endpoint responsiveness.
 
-Behavior:
-- 11 iterations
-- GET /hayd, then wait 1s
-- GET /itaot, then wait 13s
-- Print request durations (and failures) with timestamps
+This manual diagnostic makes repeated HTTP requests to the configured device,
+prints timing or failure details, and sleeps between calls. It is not an
+isolated pytest test and requires a reachable Nodus host.
 """
 
 from __future__ import annotations

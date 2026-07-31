@@ -1,3 +1,9 @@
+"""Preserve switch-event origin labels across dashboard update paths.
+
+The assertions inspect generated UI source for merge, websocket, and JSON
+refresh behavior.
+"""
+
 from pathlib import Path
 
 

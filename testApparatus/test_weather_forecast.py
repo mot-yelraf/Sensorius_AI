@@ -1,3 +1,8 @@
+"""Test forecast normalization, summaries, and SQLite cache compatibility.
+
+Provider payloads are local fixtures, so the tests require no network access.
+"""
+
 from __future__ import annotations
 
 import sys

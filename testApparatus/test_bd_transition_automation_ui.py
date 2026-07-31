@@ -1,3 +1,9 @@
+"""Test biodynamic-transition automation wiring in generated UI assets.
+
+These source-level checks also keep the package version marker and runtime app
+binding aligned with the UI behavior they support.
+"""
+
 from pathlib import Path
 import re
 

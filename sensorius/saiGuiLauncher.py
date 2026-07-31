@@ -1,4 +1,9 @@
-"""Launch the Sensorius desktop webview against an existing backend service."""
+"""Launch a Sensorius desktop webview against an existing backend service.
+
+The launcher waits briefly for the configured HTTP health endpoint, then opens
+``pywebview`` using optional environment-based URL and window geometry. It does
+not start the backend service itself.
+"""
 
 from __future__ import annotations
 

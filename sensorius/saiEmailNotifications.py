@@ -1,4 +1,11 @@
-"""SMTP email notifications for threshold crossings in sensor readings."""
+"""Send SMTP notifications for threshold crossings in sensor readings.
+
+``EmailNotificationService`` and ``AutomationNotificationService`` apply
+edge-triggering, cooldowns, and rolling delivery caps. Delivery guard state is
+persisted through the configured data logger, and queue access is synchronized
+between reading callbacks and the async worker. ``SMTPEmailSender`` performs
+blocking SMTP work outside the async event loop.
+"""
 
 from __future__ import annotations
 

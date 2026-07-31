@@ -1,3 +1,8 @@
+"""Test dynamic debug configuration without module reloads.
+
+Environment and dotenv state are isolated with pytest monkeypatching.
+"""
+
 import os
 import sys
 from pathlib import Path

@@ -1,3 +1,5 @@
+"""Prevent legacy navigation labels from returning to dashboard UI assets."""
+
 import re
 from pathlib import Path
 
