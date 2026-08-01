@@ -8794,6 +8794,8 @@ def render_graph_modal(switch_installed=None):
       const xMax = localOrUndef(
         win.until_iso !== undefined ? win.until_iso : win.until_epoch_s
       );
+      const xSpanMs = (Number.isFinite(xMin) && Number.isFinite(xMax)) ? (xMax - xMin) : 0;
+      const useDailyXAxis = xSpanMs > (24 * 3600 * 1000);
 
       const datasets = [];
       const series = (data && data.series) || {};
@@ -9011,7 +9013,11 @@ def render_graph_modal(switch_installed=None):
               type: 'time',
               min: xMin,
               max: xMax,
-              time: { unit: 'hour', tooltipFormat: 'PP p' },
+              time: {
+                unit: useDailyXAxis ? 'day' : 'hour',
+                stepSize: 1,
+                tooltipFormat: 'PP p'
+              },
               title: {
                 display: true,
                 text: (typeof TZ_NAME === 'string' && TZ_NAME)
@@ -9020,7 +9026,7 @@ def render_graph_modal(switch_installed=None):
               },
               ticks: {
                 source: 'auto',
-                autoSkip: true,
+                autoSkip: !useDailyXAxis,
                 maxRotation: 0,
                 callback: function(val, idx, ticks){
                   const tval = (ticks[idx] && ('value' in ticks[idx]))

@@ -37,6 +37,17 @@ def test_fullscreen_graph_uses_soil_fertility_gauge_zone_backgrounds():
     assert "y1Opts.min = gaugeAxisBounds.y1.min" in html
 
 
+def test_fullscreen_multiday_graph_marks_every_midnight_on_x_axis():
+    html = "".join(render_graph_modal(switch_installed=False))
+
+    assert "const useDailyXAxis = xSpanMs > (24 * 3600 * 1000);" in html
+    assert "unit: useDailyXAxis ? 'day' : 'hour'" in html
+    assert "stepSize: 1" in html
+    assert "autoSkip: !useDailyXAxis" in html
+    assert "return isMidnight(tval) ? fmtDate(tval) : fmtTime(tval);" in html
+    assert "return isMidnight(v) ? 1.5 : 1;" in html
+
+
 def test_fullscreen_graph_modal_has_astral_selector_and_sky_panel():
     html = "".join(render_graph_modal(switch_installed=False))
 
