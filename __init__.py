@@ -1,3 +1,6 @@
-"""Compatibility version marker for repository-level tooling."""
+"""Compatibility export for repository-level tooling."""
 
-__version__ = "v0.26.213.1"
+try:
+    from .sensorius import __version__
+except ImportError:
+    from sensorius import __version__

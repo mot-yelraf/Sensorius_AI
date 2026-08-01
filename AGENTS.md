@@ -421,8 +421,8 @@ Suggest service restart steps only when they are actually needed.
 
 ## Versioning Rule
 
-When you make a code content change, update `__version__` in
-`__init__.py` using:
+When you make a code content change, update the canonical `__version__` in
+`sensorius/__init__.py` using:
 
 ```text
 v0.<year>.<doy>.<x>
@@ -434,7 +434,7 @@ v0.<year>.<doy>.<x>
 
 Rule:
 
-1. Read the current version from `__init__.py`.
+1. Read the current version from `sensorius/__init__.py`.
 2. If `<year>` and `<doy>` match today, increment `<x>` by 1.
 3. If the day changed, reset `<x>` to `1`.
 4. Preserve zero padding.

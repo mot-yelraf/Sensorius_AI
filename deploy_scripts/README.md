@@ -74,9 +74,10 @@ setup scripts prepare or repair the Python environment, Mosquitto, service
 files, and autostart behavior, while `deploy_sai.sh` only syncs application
 files and optionally runs a per-host post-deploy command.
 
-Before syncing, the deploy script verifies that the repository-root and
-package-level `__version__` markers match. This prevents the UI version and
-versioned static-asset URLs from remaining stale after a deploy.
+The canonical project version is stored once in `sensorius/__init__.py`. The
+deploy script verifies that marker exists before syncing; the repository-root
+`__init__.py` re-exports it for compatibility. The runtime UI and versioned
+static-asset URLs both use the canonical package value.
 
 The deploy script is intended for existing runtime directories such as
 `/home/<user>/Sensorius` or `/Users/<user>/Sensorius`. It excludes installed

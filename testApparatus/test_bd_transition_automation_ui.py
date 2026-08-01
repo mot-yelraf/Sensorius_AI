@@ -1,28 +1,24 @@
 """Test biodynamic-transition automation wiring in generated UI assets.
 
-These source-level checks also keep the package version marker and runtime app
-binding aligned with the UI behavior they support.
+These source-level checks also keep the canonical package version marker and
+runtime app binding aligned with the UI behavior they support.
 """
 
 from pathlib import Path
 import re
 
 
-def test_runtime_and_repository_version_markers_match():
+def test_repository_version_is_stored_once_and_reexported():
     repo_root = Path(__file__).resolve().parents[1]
-
-    def read_version(path):
-        match = re.search(
-            r'^__version__\s*=\s*"([^"]+)"',
-            path.read_text(encoding="utf-8"),
-            re.MULTILINE,
-        )
-        assert match is not None
-        return match.group(1)
-
-    assert read_version(repo_root / "__init__.py") == read_version(
-        repo_root / "sensorius" / "__init__.py"
+    root_source = (repo_root / "__init__.py").read_text(encoding="utf-8")
+    package_source = (repo_root / "sensorius" / "__init__.py").read_text(
+        encoding="utf-8"
     )
+
+    assert re.search(r'^__version__\s*=\s*"[^"]+"', root_source, re.MULTILINE) is None
+    assert re.search(r'^__version__\s*=\s*"[^"]+"', package_source, re.MULTILINE)
+    assert "from .sensorius import __version__" in root_source
+    assert "from sensorius import __version__" in root_source
 
 
 def test_web_routes_binds_the_runtime_app_for_background_broadcasts():

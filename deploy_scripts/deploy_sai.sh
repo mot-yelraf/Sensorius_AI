@@ -85,11 +85,9 @@ done
   echo "Source does not contain the root sensorius package and launcher: ${SOURCE_DIR}" >&2
   exit 1
 }
-ROOT_VERSION="$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "${SOURCE_DIR}/__init__.py" | head -n 1)"
 PACKAGE_VERSION="$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "${SOURCE_DIR}/sensorius/__init__.py" | head -n 1)"
-if [[ -z "${ROOT_VERSION}" || -z "${PACKAGE_VERSION}" || "${ROOT_VERSION}" != "${PACKAGE_VERSION}" ]]; then
-  echo "Version marker mismatch: root=${ROOT_VERSION:-missing} package=${PACKAGE_VERSION:-missing}" >&2
-  echo "Refusing deploy because the runtime UI and static cache key would report the package version." >&2
+if [[ -z "${PACKAGE_VERSION}" ]]; then
+  echo "Canonical version marker missing from ${SOURCE_DIR}/sensorius/__init__.py" >&2
   exit 1
 fi
 [[ -x "${RSYNC_BIN}" ]] || { echo "rsync not executable: ${RSYNC_BIN}" >&2; exit 1; }
