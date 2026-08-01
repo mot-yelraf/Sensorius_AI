@@ -41,11 +41,23 @@ def test_fullscreen_multiday_graph_marks_every_midnight_on_x_axis():
     html = "".join(render_graph_modal(switch_installed=False))
 
     assert "const useDailyXAxis = xSpanMs > (24 * 3600 * 1000);" in html
-    assert "unit: useDailyXAxis ? 'day' : 'hour'" in html
-    assert "stepSize: 1" in html
+    assert "unit: useSixHourXAxis ? 'hour' : (useDailyXAxis ? 'day' : 'hour')" in html
     assert "autoSkip: !useDailyXAxis" in html
-    assert "return isMidnight(tval) ? fmtDate(tval) : fmtTime(tval);" in html
+    assert "if (isMidnight(tval)) return fmtDate(tval);" in html
     assert "return isMidnight(v) ? 1.5 : 1;" in html
+
+
+def test_fullscreen_graph_under_ten_days_adds_six_hour_markers():
+    html = "".join(render_graph_modal(switch_installed=False))
+
+    assert "const useSixHourXAxis = useDailyXAxis && xSpanMs < (10 * 24 * 3600 * 1000);" in html
+    assert "afterBuildTicks: function(axis){" in html
+    assert "const remainder = cursor.getHours() % 6;" in html
+    assert "sixHourTicks.push({ value: cursor.getTime() });" in html
+    assert "cursor.setHours(cursor.getHours() + 6);" in html
+    assert "stepSize: useSixHourXAxis ? 6 : 1" in html
+    assert "return useSixHourXAxis ? fmtDayMarkerTime(tval) : fmtTime(tval);" in html
+    assert ": (useSixHourXAxis ? 'rgba(0,0,0,0.16)' : 'rgba(0,0,0,0.1)');" in html
 
 
 def test_fullscreen_graph_modal_has_astral_selector_and_sky_panel():

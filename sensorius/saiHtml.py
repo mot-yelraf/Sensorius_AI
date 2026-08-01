@@ -8796,6 +8796,7 @@ def render_graph_modal(switch_installed=None):
       );
       const xSpanMs = (Number.isFinite(xMin) && Number.isFinite(xMax)) ? (xMax - xMin) : 0;
       const useDailyXAxis = xSpanMs > (24 * 3600 * 1000);
+      const useSixHourXAxis = useDailyXAxis && xSpanMs < (10 * 24 * 3600 * 1000);
 
       const datasets = [];
       const series = (data && data.series) || {};
@@ -8933,6 +8934,9 @@ def render_graph_modal(switch_installed=None):
       function fmtTime(ms){
         return new Date(ms).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
       }
+      function fmtDayMarkerTime(ms){
+        return new Date(ms).toLocaleTimeString([], { hour:'numeric' });
+      }
 
       if (window.graphChart){
         window.graphChart.destroy();
@@ -9013,9 +9017,23 @@ def render_graph_modal(switch_installed=None):
               type: 'time',
               min: xMin,
               max: xMax,
+              afterBuildTicks: function(axis){
+                if (!useSixHourXAxis || !Number.isFinite(xMin) || !Number.isFinite(xMax)) return;
+                const cursor = new Date(xMin);
+                cursor.setMinutes(0, 0, 0);
+                const remainder = cursor.getHours() % 6;
+                if (remainder !== 0) cursor.setHours(cursor.getHours() + (6 - remainder));
+                if (cursor.getTime() < xMin) cursor.setHours(cursor.getHours() + 6);
+                const sixHourTicks = [];
+                while (cursor.getTime() <= xMax){
+                  sixHourTicks.push({ value: cursor.getTime() });
+                  cursor.setHours(cursor.getHours() + 6);
+                }
+                axis.ticks = sixHourTicks;
+              },
               time: {
-                unit: useDailyXAxis ? 'day' : 'hour',
-                stepSize: 1,
+                unit: useSixHourXAxis ? 'hour' : (useDailyXAxis ? 'day' : 'hour'),
+                stepSize: useSixHourXAxis ? 6 : 1,
                 tooltipFormat: 'PP p'
               },
               title: {
@@ -9032,13 +9050,16 @@ def render_graph_modal(switch_installed=None):
                   const tval = (ticks[idx] && ('value' in ticks[idx]))
                     ? ticks[idx].value
                     : val;
-                  return isMidnight(tval) ? fmtDate(tval) : fmtTime(tval);
+                  if (isMidnight(tval)) return fmtDate(tval);
+                  return useSixHourXAxis ? fmtDayMarkerTime(tval) : fmtTime(tval);
                 }
               },
               grid: {
                 color: function(c){
                   const v = c && c.tick ? c.tick.value : undefined;
-                  return isMidnight(v) ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.1)';
+                  return isMidnight(v)
+                    ? 'rgba(0,0,0,0.25)'
+                    : (useSixHourXAxis ? 'rgba(0,0,0,0.16)' : 'rgba(0,0,0,0.1)');
                 },
                 lineWidth: function(c){
                   const v = c && c.tick ? c.tick.value : undefined;
