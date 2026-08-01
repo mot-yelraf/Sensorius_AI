@@ -65,3 +65,18 @@ def test_bd_transition_toast_is_persistent_and_shows_from_to():
         for line in html_builder.splitlines()
         if "bd-transition-toast" in line
     )
+
+
+def test_email_failure_toast_is_persistent_error_and_click_dismissible():
+    repo_root = Path(__file__).resolve().parents[1]
+    html_builder = (repo_root / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    branch = html_builder[
+        html_builder.index("msg.type === 'email_failure'"):
+        html_builder.index("msg.type === 'bd_transition'")
+    ]
+
+    assert "Email delivery failed after ${attempts}" in branch
+    assert "toast error email-failure-toast" in branch
+    assert "Click to dismiss" in branch
+    assert "addEventListener('click'" in branch
+    assert "setTimeout" not in branch

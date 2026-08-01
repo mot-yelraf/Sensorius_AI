@@ -64,6 +64,24 @@ def _make_controller() -> SwitchController:
     return ctrl
 
 
+class _FakeAutomationEmailDelivery:
+    def __init__(self):
+        self.states = {}
+        self.sent = []
+
+    def persisted_automation_state(self, rule_id, recipient):
+        return bool(self.states.get((rule_id, recipient), False))
+
+    def enqueue_automation_transition(self, **item):
+        self.states[(item["rule_id"], item["recipient"])] = bool(item["triggered"])
+        self.sent.append((
+            item["subject"],
+            item["body"],
+            {"to_addresses": (item["recipient"],)},
+        ))
+        return True
+
+
 def test_set_auto_off_seconds_tracks_runtime_only_deadline(monkeypatch: pytest.MonkeyPatch):
     ctrl = _make_controller()
     ctrl.last_state["Fan"] = True
@@ -403,21 +421,9 @@ def test_advanced_notify_actor_reports_triggered_and_cleared_edges(
             }
         }
     }
-    sent = []
-
-    class ImmediateThread:
-        def __init__(self, *, target, **_kwargs):
-            self.target = target
-
-        def start(self):
-            self.target()
-
-    monkeypatch.setattr(saiSwitch.threading, "Thread", ImmediateThread)
-    monkeypatch.setattr(
-        saiSwitch.SMTPEmailSender,
-        "send",
-        lambda _self, subject, body, **kwargs: sent.append((subject, body, kwargs)),
-    )
+    delivery = _FakeAutomationEmailDelivery()
+    ctrl.email_delivery_service = delivery
+    sent = delivery.sent
     monkeypatch.setattr(saiSwitch.socket, "gethostname", lambda: "sensorius-hub-3")
 
     def values():
@@ -464,6 +470,51 @@ def test_advanced_notify_actor_reports_triggered_and_cleared_edges(
         sent[2][0]
         == "Sensorius ACTIVATED: High temperature: temperature was 30°C"
     )
+
+
+def test_advanced_notify_restart_uses_last_successfully_sent_state():
+    ctrl = _make_controller()
+    ctrl.switch_id = "__system__"
+    rule_on = {"value": True}
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "notify1": {
+                "enabled": True,
+                "script_json": {
+                    "name": "High temperature",
+                    "enabled": True,
+                    "conditions": [{
+                        "type": "sensor",
+                        "sensor": "sensor-1",
+                        "metric": "temperature",
+                        "op": ">",
+                        "value": 25,
+                        "hyst": 1,
+                    }],
+                    "actions": [{
+                        "type": "notify",
+                        "to": "grower@example.com",
+                        "executor_switch_id": "__system__",
+                    }],
+                },
+            }
+        }
+    }
+    delivery = _FakeAutomationEmailDelivery()
+    delivery.states[("notify1", "grower@example.com")] = True
+    ctrl.email_delivery_service = delivery
+    ctrl._get_values_for_sensor = lambda sensor_id, current: current.get(sensor_id, {})
+
+    def values():
+        return {"sensor-1": {"temperature": 30 if rule_on["value"] else 20}}
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, values())
+    assert delivery.sent == []
+
+    rule_on["value"] = False
+    SwitchController._evaluate_and_apply_advanced(ctrl, values())
+    assert len(delivery.sent) == 1
+    assert delivery.sent[0][0] == "Sensorius CLEARED: High temperature: temperature was 20°C"
 
 
 def test_automation_notification_reports_or_groups_and_switch_actions(
@@ -1585,12 +1636,6 @@ def test_biodynamic_none_action_generates_toast_without_relay_or_email(
     ctrl.set_state = lambda *_args, **_kwargs: pytest.fail(
         "None actor must not change a relay"
     )
-    monkeypatch.setattr(
-        saiSwitch,
-        "SMTPEmailSender",
-        lambda: pytest.fail("None actor must not create an email sender"),
-    )
-
     SwitchController._evaluate_and_apply_advanced(ctrl, {})
     SwitchController._evaluate_and_apply_advanced(ctrl, {})
 
@@ -1746,29 +1791,16 @@ def test_biodynamic_notify_sends_transition_without_cleared_followup(
         lambda: next(segments),
     )
     monkeypatch.setattr(ctrl, "_broadcast_biodynamic_transition", lambda _event: None)
-    sent = []
-
-    class FakeSender:
-        def send(self, subject, body, to_addresses=()):
-            sent.append((subject, body, to_addresses))
-
-    class ImmediateThread:
-        def __init__(self, target, **_kwargs):
-            self.target = target
-
-        def start(self):
-            self.target()
-
-    monkeypatch.setattr(saiSwitch, "SMTPEmailSender", FakeSender)
-    monkeypatch.setattr(saiSwitch.threading, "Thread", ImmediateThread)
+    delivery = _FakeAutomationEmailDelivery()
+    ctrl.email_delivery_service = delivery
 
     SwitchController._evaluate_and_apply_advanced(ctrl, {})
     SwitchController._evaluate_and_apply_advanced(ctrl, {})
     SwitchController._evaluate_and_apply_advanced(ctrl, {})
 
-    assert len(sent) == 1
-    assert "Aries / Fire / Fruit to Taurus / Earth / Root" in sent[0][0]
-    assert sent[0][2] == ("grower@example.com",)
+    assert len(delivery.sent) == 1
+    assert "Aries / Fire / Fruit to Taurus / Earth / Root" in delivery.sent[0][0]
+    assert delivery.sent[0][2]["to_addresses"] == ("grower@example.com",)
 
 
 def test_biodynamic_transition_broadcast_reaches_runtime_app(

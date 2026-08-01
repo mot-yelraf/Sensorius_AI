@@ -104,6 +104,15 @@ Notify behavior:
   condition grouped by AND/OR logic, includes current sensor values when
   applicable, and lists all configured switch and Notify actions.
 - A rule that remains in the same state does not repeatedly send email.
+- Notify delivery uses the guarded email queue with persisted delivery state,
+  including the global rolling hourly and 24-hour limits and up to three
+  retries after a failed SMTP attempt.
+- When all delivery attempts fail, connected dashboards show a persistent
+  error toast with the SMTP failure. Click the toast to dismiss it.
+- Sensorius persists the last successfully emailed state for each automation
+  recipient. Restarting while that state is unchanged does not resend it. If
+  the current state changed while Sensorius was stopped, the corresponding
+  ACTIVATED or CLEARED message remains eligible until delivery succeeds.
 
 Revert behavior:
 

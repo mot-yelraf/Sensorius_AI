@@ -11,7 +11,6 @@ import json
 import time
 import random
 import asyncio
-import threading
 import socket
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -20,7 +19,6 @@ from .saiUtils import printDM, debug_enabled, get_timestamp
 from .saiSwitchFactory import create_switch
 from .saiMQTTClient import get_mqtt_client
 from .saiDataLogger import saiDataLogger
-from .saiEmailNotifications import SMTPEmailSender
 try:
     import requests
 except Exception:
@@ -2047,7 +2045,16 @@ class SwitchController:
                             continue
                         recipient = str(act.get("to", "") or "").strip()
                         notify_key = (str(_rule_id), recipient)
-                        was_active = bool(notify_states.get(notify_key, False))
+                        delivery_service = getattr(self, "email_delivery_service", None)
+                        if delivery_service is not None:
+                            was_active = bool(
+                                delivery_service.persisted_automation_state(
+                                    str(_rule_id),
+                                    recipient,
+                                )
+                            )
+                        else:
+                            was_active = bool(notify_states.get(notify_key, False))
                         evaluated_groups = []
                         for group in groups:
                             evaluated_conditions = []
@@ -2074,7 +2081,6 @@ class SwitchController:
                             bool(group.get("result", False))
                             for group in evaluated_groups
                         )
-                        notify_states[notify_key] = rule_ok
                         should_notify = (
                             rule_ok != was_active
                             and recipient
@@ -2091,28 +2097,22 @@ class SwitchController:
                                 current_values_map=current_values_map,
                             )
 
-                            def _send_automation_email(
-                                to_address=recipient,
-                                mail_subject=subject,
-                                mail_body=body,
-                            ):
-                                try:
-                                    SMTPEmailSender().send(
-                                        mail_subject,
-                                        mail_body,
-                                        to_addresses=(to_address,),
-                                    )
-                                except Exception as exc:
-                                    printDM(
-                                        f"[advanced] Notify delivery failed for {to_address}: {exc}",
-                                        location=MODULE,
-                                    )
-
-                            threading.Thread(
-                                target=_send_automation_email,
-                                name=f"SensoriusNotify-{_rule_id}",
-                                daemon=True,
-                            ).start()
+                            if delivery_service is None:
+                                printDM(
+                                    f"[advanced] Notify delivery service unavailable for {recipient}",
+                                    location=MODULE,
+                                    level="warning",
+                                )
+                            else:
+                                delivery_service.enqueue_automation_transition(
+                                    rule_id=str(_rule_id),
+                                    triggered=rule_ok,
+                                    recipient=recipient,
+                                    subject=subject,
+                                    body=body,
+                                )
+                        elif delivery_service is None:
+                            notify_states[notify_key] = rule_ok
                         continue
 
                     skey = str(act.get("switch_key", "") or "").strip()

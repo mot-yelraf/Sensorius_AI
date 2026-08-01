@@ -33,6 +33,7 @@ DEFAULT_REARM_COOLDOWN_SEC = 10 * 60
 DEFAULT_FAILURE_COOLDOWN_SEC = 10 * 60
 DEFAULT_HOURLY_CAP = 10
 DEFAULT_DAILY_CAP = 40
+DEFAULT_RETRY_LIMIT = 3
 
 
 def _env_text(name: str, default: str = "") -> str:
@@ -260,17 +261,27 @@ class SMTPEmailSender:
 class EmailNotificationService:
     """Evaluate reading edges and deliver queued SMTP messages off the hot path."""
 
-    def __init__(self, *, settings, data_logger, supervisor=None, sender=None):
+    def __init__(
+        self,
+        *,
+        settings,
+        data_logger,
+        supervisor=None,
+        sender=None,
+        evaluate_readings: bool = True,
+    ):
         self.settings = settings
         self.data_logger = data_logger
         self.supervisor = supervisor
         self.sender = sender or SMTPEmailSender()
+        self.evaluate_readings = bool(evaluate_readings)
         self._queue: deque[dict[str, Any]] = deque()
         self._queue_lock = threading.RLock()
         self._listener_registered = False
         self._active_by_rule = self._load_states()
         self._delivery_guards = self._load_delivery_guards()
         self._pending_by_rule: set[str] = set()
+        self._pending_automation_targets: dict[str, set[bool]] = {}
         self._sent_epochs_fallback: deque[float] = deque()
         self._last_error = ""
 
@@ -297,6 +308,9 @@ class EmailNotificationService:
 
     def _daily_cap(self) -> int:
         return _env_int("SENSORIUS_EMAIL_MAX_PER_DAY", DEFAULT_DAILY_CAP)
+
+    def _retry_limit(self) -> int:
+        return _env_int("SENSORIUS_EMAIL_RETRY_LIMIT", DEFAULT_RETRY_LIMIT, maximum=20)
 
     def _rules(self) -> list[NotificationRule]:
         try:
@@ -325,7 +339,7 @@ class EmailNotificationService:
                 return None
         return None
 
-    def _set_state(self, rule_id: str, active: bool, value: float, timestamp: str) -> None:
+    def _set_state(self, rule_id: str, active: bool, value: float | None, timestamp: str) -> None:
         self._active_by_rule[rule_id] = bool(active)
         try:
             self.data_logger.set_notification_rule_state(rule_id, active, value, timestamp)
@@ -425,6 +439,8 @@ class EmailNotificationService:
         with self._queue_lock:
             self._queue.append({
                 "rule_id": rule.rule_id,
+                "delivery_id": rule.rule_id,
+                "kind": "threshold",
                 "active": bool(active),
                 "value": value,
                 "timestamp": timestamp,
@@ -432,6 +448,69 @@ class EmailNotificationService:
                 "body": body,
                 "attempts": 0,
             })
+
+    @staticmethod
+    def automation_delivery_id(rule_id: str, recipient: str) -> str:
+        """Return the stable persisted identity for one automation recipient."""
+        return f"automation:{str(rule_id or '').strip()}:{str(recipient or '').strip().lower()}"
+
+    def persisted_automation_state(self, rule_id: str, recipient: str) -> bool:
+        """Return the last successfully delivered state for an automation actor."""
+        delivery_id = self.automation_delivery_id(rule_id, recipient)
+        return bool(self._active_by_rule.get(delivery_id, False))
+
+    def enqueue_automation_transition(
+        self,
+        *,
+        rule_id: str,
+        triggered: bool,
+        recipient: str,
+        subject: str,
+        body: str,
+    ) -> bool:
+        """Queue one automation edge for guarded, persisted SMTP delivery."""
+        rid = str(rule_id or "").strip()
+        to_address = str(recipient or "").strip()
+        if not rid or not to_address or not EmailConfig.from_environment().enabled:
+            return False
+        delivery_id = self.automation_delivery_id(rid, to_address)
+        guard = self._delivery_guards.get(delivery_id, {})
+        if float(guard.get("failure_retry_after_epoch", 0.0) or 0.0) > time.time():
+            return False
+        pending_id = f"{delivery_id}:{time.monotonic_ns()}"
+        target_state = bool(triggered)
+        with self._queue_lock:
+            pending_targets = self._pending_automation_targets.setdefault(delivery_id, set())
+            if target_state in pending_targets:
+                return True
+            pending_targets.add(target_state)
+            self._pending_by_rule.add(pending_id)
+            self._queue.append({
+                "rule_id": delivery_id,
+                "delivery_id": pending_id,
+                "kind": "automation",
+                "active": target_state,
+                "value": None,
+                "timestamp": "",
+                "subject": str(subject or ""),
+                "body": str(body or ""),
+                "to_addresses": (to_address,),
+                "attempts": 0,
+            })
+        return True
+
+    def _clear_automation_pending(self, item: dict[str, Any]) -> None:
+        if str(item.get("kind") or "") != "automation":
+            return
+        rule_id = str(item.get("rule_id") or "")
+        target_state = bool(item.get("active"))
+        with self._queue_lock:
+            pending_targets = self._pending_automation_targets.get(rule_id)
+            if pending_targets is None:
+                return
+            pending_targets.discard(target_state)
+            if not pending_targets:
+                self._pending_automation_targets.pop(rule_id, None)
 
     def _on_readings_written(self, sensor_id: str, timestamp_iso: str, values: dict) -> None:
         if not EmailConfig.from_environment().enabled or not sensor_id or not isinstance(values, dict):
@@ -479,8 +558,89 @@ class EmailNotificationService:
             require_enabled=False,
         )
 
+    async def _deliver_item(self, item: dict[str, Any]) -> None:
+        """Attempt one queued delivery and requeue it within the retry limit."""
+        rule_id = str(item["rule_id"])
+        delivery_id = str(item.get("delivery_id") or rule_id)
+        try:
+            send_kwargs = {}
+            if item.get("to_addresses"):
+                send_kwargs["to_addresses"] = tuple(item["to_addresses"])
+            await asyncio.to_thread(
+                self.sender.send,
+                item["subject"],
+                item["body"],
+                **send_kwargs,
+            )
+            value = item.get("value")
+            self._set_state(
+                rule_id,
+                bool(item["active"]),
+                float(value) if value is not None else None,
+                str(item.get("timestamp") or ""),
+            )
+            self._record_delivery(rule_id, bool(item["active"]), time.time())
+            self._last_error = ""
+            self._pending_by_rule.discard(delivery_id)
+            self._clear_automation_pending(item)
+        except Exception as exc:
+            self._last_error = str(exc)
+            printDM(f"Email notification failed for rule {rule_id}: {exc}", location=MODULE, level="warning")
+            attempts = int(item.get("attempts", 0)) + 1
+            if attempts <= self._retry_limit() and EmailConfig.from_environment().enabled:
+                item["attempts"] = attempts
+                with self._queue_lock:
+                    self._queue.appendleft(item)
+                await asyncio.sleep(float(2 ** attempts))
+            else:
+                self._set_failure_cooldown(
+                    rule_id,
+                    time.time() + self._failure_cooldown_sec(),
+                )
+                self._pending_by_rule.discard(delivery_id)
+                self._clear_automation_pending(item)
+                await self._broadcast_delivery_failure(item, exc, attempts)
+
+    async def _broadcast_delivery_failure(
+        self,
+        item: dict[str, Any],
+        exc: Exception,
+        attempts: int,
+    ) -> None:
+        """Publish an exhausted email delivery failure to dashboard clients."""
+        try:
+            from . import saiWebRoutes as routes
+
+            broadcaster = getattr(
+                getattr(getattr(routes, "app", None), "state", object()),
+                "switch_broadcast",
+                None,
+            )
+            if not callable(broadcaster):
+                return
+            recipients = tuple(item.get("to_addresses") or ())
+            if not recipients:
+                recipients = EmailConfig.from_environment().to_addresses
+            error = " ".join(str(exc or "Unknown SMTP error").split())[:300]
+            result = broadcaster({
+                "type": "email_failure",
+                "subject": str(item.get("subject") or "Email notification")[:240],
+                "recipient": ", ".join(recipients)[:240],
+                "attempts": max(1, int(attempts)),
+                "error": error,
+            })
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception as broadcast_exc:
+            printDM(
+                f"Email failure toast broadcast failed: {broadcast_exc}",
+                location=MODULE,
+                level="warning",
+            )
+
     async def run(self) -> None:
-        self._register_listener_once()
+        if self.evaluate_readings:
+            self._register_listener_once()
         while True:
             if self.supervisor:
                 self.supervisor.feedthedogs("Email Notifications")
@@ -488,7 +648,6 @@ class EmailNotificationService:
             if not item:
                 await asyncio.sleep(1.0)
                 continue
-            rule_id = str(item["rule_id"])
             now_epoch = time.time()
             allowed, retry_at = self._rate_limit(now_epoch)
             if not allowed:
@@ -496,27 +655,7 @@ class EmailNotificationService:
                     self._queue.appendleft(item)
                 await asyncio.sleep(min(30.0, max(1.0, retry_at - now_epoch)))
                 continue
-            try:
-                await asyncio.to_thread(self.sender.send, item["subject"], item["body"])
-                self._set_state(rule_id, bool(item["active"]), float(item["value"]), str(item["timestamp"]))
-                self._record_delivery(rule_id, bool(item["active"]), time.time())
-                self._last_error = ""
-                self._pending_by_rule.discard(rule_id)
-            except Exception as exc:
-                self._last_error = str(exc)
-                printDM(f"Email notification failed for rule {rule_id}: {exc}", location=MODULE, level="warning")
-                attempts = int(item.get("attempts", 0)) + 1
-                if attempts < 3 and EmailConfig.from_environment().enabled:
-                    item["attempts"] = attempts
-                    with self._queue_lock:
-                        self._queue.appendleft(item)
-                    await asyncio.sleep(float(2 ** attempts))
-                else:
-                    self._set_failure_cooldown(
-                        rule_id,
-                        time.time() + self._failure_cooldown_sec(),
-                    )
-                    self._pending_by_rule.discard(rule_id)
+            await self._deliver_item(item)
 
 
 class AutomationNotificationService:
@@ -524,8 +663,16 @@ class AutomationNotificationService:
 
     SYSTEM_ACTOR_ID = "__system__"
 
-    def __init__(self, *, data_logger, supervisor=None, interval_sec: float = 5.0):
+    def __init__(
+        self,
+        *,
+        data_logger,
+        email_delivery_service: EmailNotificationService | None = None,
+        supervisor=None,
+        interval_sec: float = 5.0,
+    ):
         self.data_logger = data_logger
+        self.email_delivery_service = email_delivery_service
         self.supervisor = supervisor
         self.interval_sec = max(1.0, float(interval_sec))
         self._controller = None
@@ -555,6 +702,7 @@ class AutomationNotificationService:
         controller._advanced_debug_next_idle_log_at = 0.0
         controller._advanced_debug_cycle_verbose = False
         controller._advanced_notify_states = {}
+        controller.email_delivery_service = self.email_delivery_service
         controller._astral_location_cache = {"value": None, "expires_at": 0.0}
         self._controller = controller
         return controller

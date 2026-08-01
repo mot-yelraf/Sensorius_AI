@@ -4,8 +4,10 @@ SMTP and time are faked except where the sender contract itself is exercised;
 temporary SQLite databases isolate persisted cooldown and rate-limit state.
 """
 
+import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from sensorius.saiEmailNotifications import (
     EmailConfig,
@@ -263,6 +265,185 @@ def test_global_caps_are_rolling_and_use_requested_defaults(monkeypatch):
     assert retry_at == now - 100 + 3600
     assert service._hourly_cap() == 10
     assert service._daily_cap() == 40
+
+
+def test_automation_delivery_uses_guarded_queue_and_three_retries(monkeypatch):
+    monkeypatch.setenv("SENSORIUS_EMAIL_ENABLED", "true")
+    monkeypatch.delenv("SENSORIUS_EMAIL_RETRY_LIMIT", raising=False)
+    logger = FakeLogger()
+    calls = []
+
+    class FlakySender:
+        def send(self, subject, body, **kwargs):
+            calls.append((subject, body, kwargs))
+            if len(calls) <= 3:
+                raise OSError("temporary SMTP failure")
+
+    async def no_delay(_seconds):
+        return None
+
+    monkeypatch.setattr("sensorius.saiEmailNotifications.asyncio.sleep", no_delay)
+    service = EmailNotificationService(
+        settings=FakeSettings([]),
+        data_logger=logger,
+        sender=FlakySender(),
+    )
+
+    accepted = service.enqueue_automation_transition(
+        rule_id="high-temperature",
+        triggered=True,
+        recipient="grower@example.com",
+        subject="Sensorius ACTIVATED: High temperature",
+        body="State: ACTIVATED",
+    )
+
+    assert accepted is True
+    for _attempt in range(4):
+        asyncio.run(service._deliver_item(service._pop()))
+
+    delivery_id = service.automation_delivery_id(
+        "high-temperature",
+        "grower@example.com",
+    )
+    assert len(calls) == 4
+    assert calls[-1][2]["to_addresses"] == ("grower@example.com",)
+    assert logger.states[delivery_id] is True
+    assert len(logger.events) == 1
+    assert service.persisted_automation_state(
+        "high-temperature",
+        "grower@example.com",
+    ) is True
+    assert service._pop() is None
+
+
+def test_automation_queue_preserves_rapid_activated_and_cleared_edges(monkeypatch):
+    monkeypatch.setenv("SENSORIUS_EMAIL_ENABLED", "true")
+    service = EmailNotificationService(
+        settings=FakeSettings([]),
+        data_logger=FakeLogger(),
+    )
+
+    assert service.enqueue_automation_transition(
+        rule_id="high-temperature",
+        triggered=True,
+        recipient="grower@example.com",
+        subject="ACTIVATED",
+        body="active",
+    )
+    assert service.enqueue_automation_transition(
+        rule_id="high-temperature",
+        triggered=True,
+        recipient="grower@example.com",
+        subject="ACTIVATED duplicate",
+        body="active",
+    )
+    assert service.enqueue_automation_transition(
+        rule_id="high-temperature",
+        triggered=False,
+        recipient="grower@example.com",
+        subject="CLEARED",
+        body="cleared",
+    )
+
+    assert service._pop()["subject"] == "ACTIVATED"
+    assert service._pop()["subject"] == "CLEARED"
+    assert service._pop() is None
+
+
+def test_failed_automation_delivery_does_not_set_sent_state(monkeypatch):
+    monkeypatch.setenv("SENSORIUS_EMAIL_ENABLED", "true")
+    monkeypatch.setenv("SENSORIUS_EMAIL_RETRY_LIMIT", "0")
+
+    class FailedSender:
+        def send(self, _subject, _body, **_kwargs):
+            raise OSError("offline")
+
+    logger = FakeLogger()
+    service = EmailNotificationService(
+        settings=FakeSettings([]),
+        data_logger=logger,
+        sender=FailedSender(),
+    )
+    service.enqueue_automation_transition(
+        rule_id="high-temperature",
+        triggered=True,
+        recipient="grower@example.com",
+        subject="ACTIVATED",
+        body="active",
+    )
+
+    asyncio.run(service._deliver_item(service._pop()))
+
+    delivery_id = service.automation_delivery_id(
+        "high-temperature",
+        "grower@example.com",
+    )
+    assert delivery_id not in logger.states
+    assert service.persisted_automation_state(
+        "high-temperature",
+        "grower@example.com",
+    ) is False
+    assert service._pending_automation_targets == {}
+
+    service._delivery_guards[delivery_id]["failure_retry_after_epoch"] = 0.0
+    assert service.enqueue_automation_transition(
+        rule_id="high-temperature",
+        triggered=True,
+        recipient="grower@example.com",
+        subject="ACTIVATED retry",
+        body="active",
+    )
+    assert service._pop()["subject"] == "ACTIVATED retry"
+
+
+def test_exhausted_email_delivery_broadcasts_persistent_toast(monkeypatch):
+    from sensorius import saiWebRoutes
+
+    monkeypatch.setenv("SENSORIUS_EMAIL_ENABLED", "true")
+    monkeypatch.setenv("SENSORIUS_EMAIL_RETRY_LIMIT", "0")
+    broadcasts = []
+
+    async def broadcast(payload):
+        broadcasts.append(payload)
+
+    monkeypatch.setattr(
+        saiWebRoutes,
+        "app",
+        SimpleNamespace(state=SimpleNamespace(switch_broadcast=broadcast)),
+    )
+
+    class FailedSender:
+        def send(self, _subject, _body, **_kwargs):
+            raise OSError("Network is unreachable\n")
+
+    logger = FakeLogger()
+    service = EmailNotificationService(
+        settings=FakeSettings([]),
+        data_logger=logger,
+        sender=FailedSender(),
+    )
+    service.enqueue_automation_transition(
+        rule_id="high-temperature",
+        triggered=True,
+        recipient="grower@example.com",
+        subject="Sensorius ACTIVATED: High temperature",
+        body="State: ACTIVATED",
+    )
+
+    asyncio.run(service._deliver_item(service._pop()))
+
+    assert broadcasts == [{
+        "type": "email_failure",
+        "subject": "Sensorius ACTIVATED: High temperature",
+        "recipient": "grower@example.com",
+        "attempts": 1,
+        "error": "Network is unreachable",
+    }]
+    delivery_id = service.automation_delivery_id(
+        "high-temperature",
+        "grower@example.com",
+    )
+    assert logger.guards[delivery_id]["failure_retry_after_epoch"] > 0
 
 
 def test_sqlite_persists_delivery_guards_and_rate_history(tmp_path):

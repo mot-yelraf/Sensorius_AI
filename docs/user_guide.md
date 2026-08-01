@@ -321,7 +321,7 @@ Condition **Type** options:
 - **State**: shown for a switch actor; selects **On** or **Off**.
 - **Revert Action**: shown for a switch actor. **Previous State** returns the switch to its previous state when the rule is no longer true. **Do Nothing** leaves the switch where the action put it.
 - **Delay Before Action (secs)**: shown for a switch actor; waits 0 to 60 seconds after the rule becomes true before applying the action.
-- **To**: shown for the **Notify** actor. Enter the recipient for this automation. Sensorius sends a **TRIGGERED** email when the automation becomes true and a **CLEARED** email when it becomes false. Each message lists the AND/OR condition groups and their results, current sensor values where applicable, and all configured actions.
+- **To**: shown for the **Notify** actor. Enter the recipient for this automation. Sensorius sends a **TRIGGERED** email when the automation becomes true and a **CLEARED** email when it becomes false. Each message lists the AND/OR condition groups and their results, current sensor values where applicable, and all configured actions. Delivery uses the global rolling hourly and 24-hour email limits and retries a failed SMTP attempt up to three times. If every attempt fails, connected dashboards display an error toast that remains visible until clicked. Sensorius records the state only after successful email delivery, preventing duplicate messages after a restart while still detecting a changed state after downtime.
 
 Switch actions set absolute states, not toggle or invert commands. All actions
 in one automation share the same condition groups. **Previous State** is
@@ -675,6 +675,27 @@ Open the graph tool when you want to compare readings over time, investigate spi
 ![Full-screen VPD graph](<../assets/screenshots/graph-vpd-24-hour.png>)
 
 The full-screen graph displays one to three metric series. The first selected metric uses the left axis. The second and third selected metrics use the right axis. When average data is available, a purple dashed line labeled **Average** shows that series' arithmetic average over the selected visible window. VPD graphs show VPD range coloring, and some metrics show gauge-zone background bands. These colored bands come from metric display zones, not automation thresholds.
+
+On the dashboard, a WeeWX **Wind Direction** card configured as a **6Hr Graph**
+or **24Hr Graph** displays a wind rose instead of a direction line. Sixteen
+direction sectors show how frequently wind arrived from each compass direction.
+Stacked blue bands show wind speed in **0-5**, **5-15**, **15-30**, and **30+ mph**
+ranges, progressing from light blue for low speed to dark blue for high speed.
+The card title changes to **Wind-Rose (6hr)** or **Wind-Rose (24hr)** for the
+selected graph window and returns to **Wind Direction (deg)** in compass mode.
+
+Each wind rose uses only observations from its selected 6-hour or 24-hour
+window. Sector lengths are normalized independently: the most frequent
+direction in that window reaches the outer ring, and the other sectors are
+scaled relative to it. Therefore, sector lengths should be compared within one
+rose, not as an absolute scale between the 6-hour and 24-hour roses. The center
+label gives the dominant compass direction and its actual percentage of samples
+for the selected window.
+
+The large **mph** value below the rose is the latest wind-speed reading and may
+change as live station data arrives. The **Min**, **Avg**, and **Max** row is
+intentionally fixed to the trailing 24 hours in both wind-rose views; it does
+not change to a 6-hour summary when the 6-hour rose is selected.
 
 Switch event overlays appear as vertical lines. The legend shows which colors mean ON and OFF for each selected switch channel.
 

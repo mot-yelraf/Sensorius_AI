@@ -105,6 +105,7 @@ SENSORIUS_EMAIL_REARM_COOLDOWN_SEC=600
 SENSORIUS_EMAIL_FAILURE_COOLDOWN_SEC=600
 SENSORIUS_EMAIL_MAX_PER_HOUR=10
 SENSORIUS_EMAIL_MAX_PER_DAY=40
+SENSORIUS_EMAIL_RETRY_LIMIT=3
 
 SENSORIUS_AUTOSTART_SCOPE=user
 SENSORIUS_AUTOSTART_ENABLED=false
@@ -112,6 +113,11 @@ SENSORIUS_AUTOSTART_ENABLED=false
 SAI_WEB_API_KEY=
 SAI_PEER_API_KEY=
 ```
+
+Advanced Automation Notify messages use the guarded email delivery queue.
+Successful ACTIVATED and CLEARED deliveries count toward the rolling hourly
+and 24-hour caps. A failed SMTP attempt is retried up to
+`SENSORIUS_EMAIL_RETRY_LIMIT` times before the failure cooldown begins.
 
 `SENSORIUS_OTA_TRUST_DIR` contains cPyNodus III OTA public-key documents named
 `<key_id>.json`. Sensorius uses them to verify signed `nodus-ota/v2`

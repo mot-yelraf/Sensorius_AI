@@ -98,6 +98,59 @@ def test_dashboard_micrograph_uses_soil_fertility_gauge_scale():
     assert "yScaleOptions.max = cfgMax" in html
 
 
+def test_weewx_wind_direction_micrograph_renders_speed_banded_wind_rose():
+    gauge_config = get_gauge_config()
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["weewx-station"],
+            {"weewx-station": {"Wind Direction": 270.0, "Wind Speed": 12.5}},
+            {"weewx-station": {"Wind Speed": {"min": 2.0, "avg": 8.0, "max": 18.0}}},
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=gauge_config,
+            expected_gauge_map={"weewx-station": ["Wind Direction"]},
+            expected_display_style_map={"weewx-station": {"METRIC_1": "Graph24hr"}},
+            display_style="Graph24hr",
+        )
+    )
+
+    assert "function renderWindRoseMicrograph(canvas, directionSeries, speedSeries, rangeLabel)" in html
+    assert "metricNormForRequest === 'wind direction'" in html
+    assert "'&sensor_id2=' + encodeURIComponent(sensor)" in html
+    assert "encodeURIComponent('Wind Speed')" in html
+    assert "const directionNames = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];" in html
+    assert "{ min: 0, max: 5, label: '0-5', color: '#bde8ff' }" in html
+    assert "{ min: 30, max: Infinity, label: '30+', color: '#0b376d' }" in html
+    assert "renderWindRoseMicrograph(canvas, seriesObj, speedSeries, xTitleText)" in html
+    assert "canvas.setAttribute('aria-label', `${rangeLabel} wind rose." in html
+    assert "title.textContent = 'Wind-Rose (6hr)';" in html
+    assert "title.textContent = 'Wind-Rose (24hr)';" in html
+    assert "title.textContent = `Wind Direction (${unit})`;" in html
+    assert "window.updateMetricCardTitle(container, norm)" in html
+
+
+def test_weewx_direction_only_compass_matches_wind_rose_canvas_height():
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["weewx-station"],
+            {"weewx-station": {"Wind Direction": 270.0, "Wind Speed": 3.1}},
+            {"weewx-station": {"Wind Speed": {"min": 0.0, "avg": 1.7, "max": 7.4}}},
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=get_gauge_config(),
+            expected_gauge_map={"weewx-station": ["Wind Direction"]},
+            expected_display_style_map={"weewx-station": {"METRIC_1": "Gauge"}},
+            display_style="Gauge",
+        )
+    )
+
+    compass = html[html.index("function drawCompassGauge"):html.index("function getMetricCanvasSize")]
+    assert "const cssSize = 205;" in compass
+    assert "class='micrograph-canvas' width='260' height='205'" in html
+
+
 def test_dashboard_micrograph_no_data_does_not_show_toast():
     gauge_config = get_gauge_config()
     html = "".join(
