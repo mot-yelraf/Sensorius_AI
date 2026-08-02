@@ -63,6 +63,12 @@ def test_fullscreen_graph_under_ten_days_adds_six_hour_markers():
 def test_fullscreen_graph_modal_has_astral_selector_and_sky_panel():
     html = "".join(render_graph_modal(switch_installed=False))
 
+    assert 'id="fullscreen_graph_dashboard" class="button black"' in html
+    assert 'title="Return to dashboard"' in html
+    assert "top:1rem;" in html
+    assert "left:1rem;" in html
+    assert "bottom:1rem;left:50%" not in html
+    assert "Close full screen graph" not in html
     assert "<select id='astral_select' title='Astral graph selection'>" in html
     assert "<option value='sun_moon'>Sun &amp; Moon</option>" in html
     assert "value='14d'" in html
@@ -73,7 +79,7 @@ def test_fullscreen_graph_modal_has_astral_selector_and_sky_panel():
     assert 'id="fullscreen_astral_graph"' in html
     assert "function drawFullscreenAstralGraph(payload, xMin, xMax)" in html
     assert "flex:0 0 clamp(120px, 18vh, 190px);" in html
-    assert "#fullscreen_graph_container.has-astral{ padding-bottom:5.75rem; }" in html
+    assert "#fullscreen_graph_container.has-astral{ padding-bottom:3.5rem; }" in html
     assert "const padB = 34;" in html
     assert "const buildSmoothAstralKeys = (points) => {" in html
     assert "key.s = sign * Math.min(leftMag, rightMag);" in html

@@ -1711,13 +1711,6 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ".bio-open-btn:disabled{opacity:.75;cursor:wait;}"
     yield ".bio-open-btn .spinner{width:12px;height:12px;border-width:2px;display:none;}"
     yield ".bio-open-btn.loading .spinner{display:inline-block;}"
-    yield "body.bd-companion-open{overflow:hidden;}"
-    yield ".bd-companion-overlay{position:fixed;inset:0;z-index:9999;background:#f7fbff;display:flex;flex-direction:column;}"
-    yield ".bd-companion-bar{height:46px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.35rem .75rem;background:#27313a;color:#fff;box-sizing:border-box;box-shadow:0 1px 4px rgba(0,0,0,.24);}"
-    yield ".bd-companion-title{font-size:.78rem;font-weight:800;letter-spacing:.03em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}"
-    yield ".bd-companion-close{display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.55);border-radius:999px;background:#fff;color:#27313a;padding:.32rem .72rem;font-size:.68rem;font-weight:800;letter-spacing:.02em;cursor:pointer;white-space:nowrap;}"
-    yield ".bd-companion-close:hover{filter:brightness(1.06);}"
-    yield ".bd-companion-frame{width:100%;min-width:0;flex:1 1 auto;border:0;background:#fff;}"
     yield ".bio-month{font-size:.9rem;font-weight:700;text-align:center;color:#27313a;padding-top:.15rem;}"
     yield ".bio-legend{display:flex;align-items:center;justify-content:center;gap:.32rem .65rem;flex-wrap:wrap;margin:.4rem 0 .15rem;color:#4f5961;font-size:.55rem;font-weight:700;}"
     yield ".bio-legend-item{display:inline-flex;align-items:center;gap:.25rem;white-space:nowrap;}"
@@ -3779,69 +3772,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  btn.classList.toggle('loading', !!isLoading);"
     yield "  btn.setAttribute('aria-busy', isLoading ? 'true' : 'false');"
     yield "}"
-    yield "function biodynamicCompanionUrl(){"
-    yield "  const url = new URL(window.location.href);"
-    yield "  url.protocol = 'http:';"
-    yield "  url.port = '8765';"
-    yield "  url.pathname = '/';"
-    yield "  url.search = '?source=sensorius';"
-    yield "  url.hash = '';"
-    yield "  return url.toString();"
-    yield "}"
-    yield "window.closeBiodynamicCompanion = function(){"
-    yield "  const existing = document.getElementById('bdCompanionOverlay');"
-    yield "  if (existing) existing.remove();"
-    yield "  document.body.classList.remove('bd-companion-open');"
-    yield "};"
-    yield "function openBiodynamicCompanion(url){"
-    yield "  window.closeBiodynamicCompanion();"
-    yield "  const overlay = document.createElement('div');"
-    yield "  overlay.id = 'bdCompanionOverlay';"
-    yield "  overlay.className = 'bd-companion-overlay';"
-    yield "  overlay.setAttribute('role', 'dialog');"
-    yield "  overlay.setAttribute('aria-label', 'Biodynamic Calendar app');"
-    yield "  const bar = document.createElement('div');"
-    yield "  bar.className = 'bd-companion-bar';"
-    yield "  const title = document.createElement('div');"
-    yield "  title.className = 'bd-companion-title';"
-    yield "  title.textContent = 'Biodynamic Calendar';"
-    yield "  const closeBtn = document.createElement('button');"
-    yield "  closeBtn.type = 'button';"
-    yield "  closeBtn.className = 'bd-companion-close';"
-    yield "  closeBtn.textContent = 'Dashboard';"
-    yield "  closeBtn.setAttribute('aria-label', 'Return to Sensorius dashboard');"
-    yield "  closeBtn.addEventListener('click', window.closeBiodynamicCompanion);"
-    yield "  const frame = document.createElement('iframe');"
-    yield "  frame.className = 'bd-companion-frame';"
-    yield "  frame.title = 'Biodynamic Calendar app';"
-    yield "  frame.src = url;"
-    yield "  bar.appendChild(title);"
-    yield "  bar.appendChild(closeBtn);"
-    yield "  overlay.appendChild(bar);"
-    yield "  overlay.appendChild(frame);"
-    yield "  document.body.appendChild(overlay);"
-    yield "  document.body.classList.add('bd-companion-open');"
-    yield "  closeBtn.focus();"
-    yield "}"
-    yield "if (!window.__bdCompanionEscBound) {"
-    yield "  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') window.closeBiodynamicCompanion(); });"
-    yield "  window.__bdCompanionEscBound = true;"
-    yield "}"
-    yield "window.openBiodynamicCalendar = async function(){"
-    yield "  setBioOpenButtonLoading(true);"
-    yield "  try {"
-    yield "    const resp = await fetch('/api/biodynamic-calendar-companion', { cache:'no-store' });"
-    yield "    const payload = await resp.json().catch(() => ({}));"
-    yield "    if (resp.ok && payload && payload.ok) {"
-    yield "      openBiodynamicCompanion(biodynamicCompanionUrl());"
-    yield "      setBioOpenButtonLoading(false);"
-    yield "      return;"
-    yield "    }"
-    yield "  } catch (e) {"
-    yield "    console.warn('BD Calendar companion probe failed', e);"
-    yield "  }"
-    yield "  if (window.openBiodynamicCalendarModal) await window.openBiodynamicCalendarModal(); else setBioOpenButtonLoading(false);"
-    yield "};"
+    yield "window.openBiodynamicCalendar = function(){ window.location.assign('/calendar'); };"
     yield "window.openBiodynamicCalendarModal = async function(){"
     yield "  try {"
     yield "    if (!window.BackdropModal) return;"
@@ -7528,7 +7459,14 @@ def render_graph_modal(switch_installed=None):
     #fullscreen_graph_container {
       display: none; position: fixed; top:0; left:0; width:100%; height:100vh;
       background:white; z-index:1001; flex-direction:column; justify-content:flex-start;
-      padding:2.75rem 1rem 3.5rem 1rem; overflow:hidden; box-sizing:border-box;
+      padding:4.25rem 1rem 3.5rem 1rem; overflow:hidden; box-sizing:border-box;
+    }
+    #fullscreen_graph_dashboard{
+      position:absolute;
+      top:1rem;
+      left:1rem;
+      z-index:1002;
+      margin:0;
     }
     #fullscreen_graph_stack{
       flex:1;
@@ -7558,7 +7496,7 @@ def render_graph_modal(switch_installed=None):
       flex:1 1 auto;
       min-height:0;
     }
-    #fullscreen_graph_container.has-astral{ padding-bottom:5.75rem; }
+    #fullscreen_graph_container.has-astral{ padding-bottom:3.5rem; }
     #fullscreen_graph_container.has-astral #fullscreen_astral_panel{ display:block; }
     #fullscreen_graph,
     #fullscreen_astral_graph{
@@ -7849,11 +7787,11 @@ def render_graph_modal(switch_installed=None):
     # ---------- Fullscreen canvas ----------
     yield """
     <div id="fullscreen_graph_container">
-        <button class='button black'
-                title="Close full screen graph"
+        <button id="fullscreen_graph_dashboard" class="button black"
+                title="Return to dashboard"
                 onclick="closeFullscreenGraph()"
-                style="position:absolute;bottom:1rem;left:50%;transform:translateX(-50%);z-index:1002;">
-            Close
+                type="button">
+            Dashboard
         </button>
         <div id="fullscreen_graph_stack">
             <div id="fullscreen_data_panel" class="fullscreen-chart-panel">

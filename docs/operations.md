@@ -337,20 +337,22 @@ Key tables:
 - `sw_events`: switch state transitions.
 - `biodynamic_notes`: calendar note text.
 - `biodynamic_daily_summaries`: generated daily summaries.
+- `biodynamic_plantings`: planting plans used by the integrated calendar.
+- `biodynamic_calendar_cache`: versioned month and daily-guidance payloads.
 - `weather_forecast`: cached dashboard forecast payloads, created by the
   weather forecast helper when forecasts are used.
 
-Biodynamic month payloads are also cached as JSON files under the Sensorius
-runtime directory, normally `/home/<user>/Sensorius/cache/biodynamic/` on
-Linux or `/Users/<user>/Sensorius/cache/biodynamic/` on macOS. This cache is
-keyed by month, rounded Astral location, timezone, altitude, ephemeris name,
-and cache schema version. It can be removed safely; Sensorius will rebuild
-missing months in the background or on calendar demand.
+Biodynamic month and daily-guidance payloads used by the full-screen calendar
+are cached in the `biodynamic_calendar_cache` SQLite table. Legacy dashboard
+payloads can also use JSON files under `/home/<user>/Sensorius/cache/biodynamic/`
+on Linux or `/Users/<user>/Sensorius/cache/biodynamic/` on macOS. Both caches
+are disposable and rebuild when missing or when location/calculation versions
+change.
 
-After startup settles, the web server also warms generated biodynamic month
-payloads in the background so later browser sessions can reuse the shared disk
-cache. Defaults are intentionally conservative: current month first, then nearby
-months, with pauses between builds. Operators can tune this with:
+After startup settles, the integrated calendar warms the current month,
+current-day Astral/guidance data, nearby months, and future planning months in
+a single paced background worker. Primary monitoring and control startup does
+not wait for this work. Operators can tune it with:
 
 - `SENSORIUS_BIODYNAMIC_PREWARM_ENABLED`
 - `SENSORIUS_BIODYNAMIC_PREWARM_DELAY_SEC`

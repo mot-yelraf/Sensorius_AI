@@ -218,22 +218,10 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "const reportEl = document.getElementById('bioPrintReportSheet');" in text
     assert "<div class='bio-print-title'>Biodynamic Calendar Report</div>" in text
     assert "<div class='bio-print-section-title'>Calendar</div><div class='bio-print-calendar'>${grid}</div><div class='bio-print-section-title'>Daily Summary and Notes</div>" in text
-    assert "function biodynamicCompanionUrl(){" in text
-    assert "url.protocol = 'http:';" in text
-    assert "url.port = '8765';" in text
-    assert "url.search = '?source=sensorius';" in text
-    assert ".bd-companion-overlay{position:fixed;inset:0;z-index:9999;" in text
-    assert ".bd-companion-frame{width:100%;min-width:0;flex:1 1 auto;border:0;background:#fff;}" in text
-    assert "window.closeBiodynamicCompanion = function(){" in text
-    assert "function openBiodynamicCompanion(url){" in text
-    assert "closeBtn.textContent = 'Dashboard';" in text
-    assert "closeBtn.setAttribute('aria-label', 'Return to Sensorius dashboard');" in text
-    assert "frame.src = url;" in text
-    assert "window.openBiodynamicCalendar = async function(){" in text
-    assert "fetch('/api/biodynamic-calendar-companion', { cache:'no-store' });" in text
-    assert "openBiodynamicCompanion(biodynamicCompanionUrl());" in text
-    assert "window.location.assign(biodynamicCompanionUrl());" not in text
-    assert "if (window.openBiodynamicCalendarModal) await window.openBiodynamicCalendarModal(); else setBioOpenButtonLoading(false);" in text
+    assert "window.openBiodynamicCalendar = function(){ window.location.assign('/calendar'); };" in text
+    assert "function biodynamicCompanionUrl(){" not in text
+    assert "url.port = '8765';" not in text
+    assert "fetch('/api/biodynamic-calendar-companion'" not in text
     assert "@media print{@page{size:portrait;margin:.35in}@page bio-report{size:portrait;margin:.35in}body.bio-printing *{visibility:hidden !important}" in text
     assert "body.bio-printing #bioPrintReportSheet{display:block !important;position:absolute;left:0;top:0;width:100%;padding:.08in;background:#fff;color:#000;box-sizing:border-box;page:bio-report}" in text
     assert "bio-print-calendar-mode" not in text
@@ -346,67 +334,18 @@ async def test_biodynamic_calendar_api_concurrent_month_requests_single_flight(m
 
 
 @pytest.mark.asyncio
-async def test_biodynamic_calendar_companion_status_endpoint(monkeypatch):
+async def test_integrated_biodynamic_calendar_routes_replace_companion_probe(monkeypatch):
     monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
-
-    async def _fake_probe():
-        return {"ok": True, "port": 8765, "health_path": "/healthz", "source_query": "source=sensorius"}
-
-    monkeypatch.setattr(saiWebRoutes, "_probe_biodynamic_companion_app", _fake_probe)
 
     app = FastAPI()
     await saiWebRoutes.register_routes(app, _HubSettings(), _FakeNetMgr(), _FakeGcMgr(), _FakeIngest())
+    paths = {route.path for route in app.routes}
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        res = await client.get("/api/biodynamic-calendar-companion")
-
-    assert res.status_code == 200
-    assert res.json() == {
-        "ok": True,
-        "port": 8765,
-        "health_path": "/healthz",
-        "source_query": "source=sensorius",
-    }
-
-
-@pytest.mark.asyncio
-async def test_biodynamic_calendar_companion_probe_accepts_root_page_when_health_missing(monkeypatch):
-    class _Resp:
-        def __init__(self, status_code, text):
-            self.status_code = status_code
-            self.text = text
-
-    responses = [
-        _Resp(404, '{"detail":"Not Found"}'),
-        _Resp(200, "<title>Biodynamic Calendar</title><section class='calendar-shell'></section>"),
-    ]
-    seen_urls = []
-
-    class _FakeAsyncClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def get(self, url):
-            seen_urls.append(url)
-            return responses.pop(0)
-
-    monkeypatch.setattr(saiWebRoutes.httpx, "AsyncClient", _FakeAsyncClient)
-
-    payload = await saiWebRoutes._probe_biodynamic_companion_app()
-
-    assert payload["ok"] is True
-    assert payload["probe_path"] == "/?source=sensorius"
-    assert payload["health_status_code"] == 404
-    assert seen_urls == [
-        "http://127.0.0.1:8765/healthz",
-        "http://127.0.0.1:8765/?source=sensorius",
-    ]
+    assert "/calendar" in paths
+    assert "/calendar/report" in paths
+    assert "/api/biodynamic-calendar-app/calendar" in paths
+    assert "/api/biodynamic-calendar-app/calendar-range" in paths
+    assert "/api/biodynamic-calendar-companion" not in paths
 
 
 @pytest.mark.asyncio

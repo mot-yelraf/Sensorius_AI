@@ -23,9 +23,10 @@ def test_navigation_buttons_use_dashboard_label():
     assert not violations, f"Legacy Home/Back button labels found in: {violations}"
 
 
-def test_generated_navigation_labels_use_dashboard():
+def test_generated_calendar_navigation_uses_integrated_route():
     text = (ROOT / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
 
     assert "closeBtn.textContent = 'Back to Sensorius'" not in text
-    assert "closeBtn.textContent = 'Dashboard'" in text
+    assert "window.openBiodynamicCalendar = function(){ window.location.assign('/calendar'); };" in text
+    assert "url.port = '8765'" not in text
     assert ">Dashboard</button>" in text

@@ -306,6 +306,50 @@ def test_biodynamic_daily_summaries_round_trip(tmp_path, monkeypatch: pytest.Mon
         saiDataLogger._schema_ready = False
 
 
+def test_integrated_biodynamic_calendar_storage_round_trip(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    class _StubSettings:
+        def __init__(self, apply_live=False):
+            self.apply_live = apply_live
+
+        def get_setting(self, section, key):
+            if section == "Time" and key in ("TZ", "tz"):
+                return "America/Denver"
+            return None
+
+    monkeypatch.setattr(saiSettings, "saiSettings", _StubSettings)
+    saiDataLogger._schema_ready = False
+    logger = saiDataLogger(db_path=str(tmp_path / "integrated-calendar.db"))
+    planting = {
+        "id": "planting-test",
+        "name": "Tomato",
+        "variety": "Brandywine",
+        "plant_type": "fruiting vegetable",
+        "plant_part": "Fruit",
+        "start_method": "seed",
+        "start_date": "2026-03-08",
+        "expected_harvest_date": "2026-06-20",
+        "days_to_maturity": 104,
+        "harvest_window_days": 3,
+        "location": "Bed 2",
+        "attributes": "trellis",
+        "notes": "",
+    }
+
+    try:
+        assert logger.save_biodynamic_planting(planting)
+        assert logger.get_biodynamic_plantings() == [planting]
+        assert logger.save_biodynamic_calendar_cache("v1:2026-03", "location-a", {"ok": True, "month": "2026-03"})
+        assert logger.get_biodynamic_calendar_cache("v1:2026-03", "location-a") == {"ok": True, "month": "2026-03"}
+        assert logger.get_biodynamic_calendar_cache("v1:2026-03", "location-b") is None
+        assert logger.delete_biodynamic_planting("planting-test")
+        assert logger.get_biodynamic_plantings() == []
+        assert logger.clear_biodynamic_calendar_cache()
+        assert logger.get_biodynamic_calendar_cache("v1:2026-03", "location-a") is None
+    finally:
+        logger.close()
+        saiDataLogger._schema_ready = False
+
+
 def test_available_metrics_by_sensor_caches_and_invalidates_on_write(tmp_path, monkeypatch: pytest.MonkeyPatch):
     class _StubSettings:
         def __init__(self, apply_live=False):

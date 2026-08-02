@@ -52,7 +52,12 @@ macOS, Windows, and non-Pi Linux hub:
   `switch_settings/<switch_id>/switch.toml`.
 - `sensorius/saiDataLogger.py`: SQLite persistence for readings, sensor
   liveness events,
-  switch identities, switch events, biodynamic notes, and daily summaries.
+  switch identities, switch events, biodynamic notes, plantings, calendar
+  cache entries, and daily summaries.
+- `sensorius/saiBiodynamicCalendarApp.py`: integrated full-screen calendar
+  routes, shared cache access, and paced background warming.
+- `sensorius/biodynamic_calendar/`: BD Calendar calculations, Astral payloads,
+  and planting guidance.
 - `sensorius/saiSensor.py`, `sensorius/saiSensorFactory.py`, and
   `sensorius/sensor_modules/`: local sensor runtime.
 - `sensorius/saiSwitch.py`, `sensorius/saiSwitchFactory.py`, and
@@ -104,11 +109,12 @@ macOS, Windows, and non-Pi Linux hub:
 9. If Home Assistant is enabled, the HA bridge waits for MQTT connection,
    installs command handlers, and publishes retained discovery.
 10. Always-on services are registered: WeeWX archive ingest, farmOS bridge,
-    daily summary writer, Time Sync Manager, watchdog, GC, local sensor data
-    collection, and switch monitor loops. A lightweight loop-lag monitor is
-    also started.
+    Time Sync Manager, watchdog, GC, local sensor data collection, and switch
+    monitor loops. A lightweight loop-lag monitor is also started.
 11. `WebServerController` registers FastAPI routes and runs uvicorn. The web
-    server can run with zero local sensors.
+    server can run with zero local sensors. After startup settles, the
+    integrated calendar begins its delayed single-worker cache warm without
+    holding up monitoring or control readiness.
 
 ## Data Flow
 

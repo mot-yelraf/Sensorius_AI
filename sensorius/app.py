@@ -22,7 +22,6 @@ from .saiWebServer import WebServerController, launch_webview
 from .saiWatchdog import WatchdogMonitor
 from .saiMQTTIngest import saiMQTTIngest
 from .saiFarmOSBridge import saiFarmOSBridge
-from .saiDailySummary import DailySummaryService
 from .saiWeeWX import WeeWXArchiveIngest
 from .saiSettings import saiSettings
 from .saiSensorSettingsManager import SensorSettingsManager
@@ -606,7 +605,6 @@ async def main():
     # --- Always-on supervisors ---
     weewx_ingest = WeeWXArchiveIngest(settings=settings, data_logger=data_logger, supervisor=supervisor)
     farmos_bridge = saiFarmOSBridge(settings=settings, data_logger=data_logger, supervisor=supervisor)
-    daily_summary_service = DailySummaryService(settings=settings, data_logger=data_logger, supervisor=supervisor)
     email_notifications = EmailNotificationService(
         settings=settings,
         data_logger=data_logger,
@@ -625,7 +623,6 @@ async def main():
     )
     supervisor.add(weewx_ingest.run, name="WeeWX Archive Ingest", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(farmos_bridge.run, name="FarmOS Bridge", fatal_on_timeout=False, fatal_on_error=False)
-    supervisor.add(daily_summary_service.run, name="Daily Summary Writer", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(
         email_notifications.run,
         name="Email Notifications",

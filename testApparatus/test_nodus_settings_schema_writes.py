@@ -4556,11 +4556,9 @@ def test_dashboard_biodynamic_calendar_card_has_calendar_button():
     assert "#bioBox{width:230px;box-sizing:border-box;overflow:hidden;align-items:stretch;}" in html
     assert "#bioBox .astro-card{width:100%;min-width:0;align-items:stretch;box-sizing:border-box;height:100%;}" in html
     assert "text-transform:uppercase" in html
-    assert "fetch('/api/biodynamic-calendar-companion', { cache:'no-store' });" in html
-    assert "openBiodynamicCompanion(biodynamicCompanionUrl());" in html
-    assert "Return to Sensorius dashboard" in html
-    assert "closeBtn.textContent = 'Dashboard';" in html
-    assert "window.location.assign(biodynamicCompanionUrl());" not in html
+    assert "window.openBiodynamicCalendar = function(){ window.location.assign('/calendar'); };" in html
+    assert "fetch('/api/biodynamic-calendar-companion'" not in html
+    assert "url.port = '8765'" not in html
     assert "bioOpenBtn.addEventListener('click'" in html
     assert "window.openBiodynamicCalendar) window.openBiodynamicCalendar();" in html
 

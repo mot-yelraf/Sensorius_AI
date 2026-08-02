@@ -20,6 +20,7 @@ Operational characteristics:
 """
 
 import sqlite3
+import json
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -1016,6 +1017,42 @@ class saiDataLogger:
                         cur.execute("""
                             CREATE INDEX IF NOT EXISTS idx_biodynamic_daily_summaries_date
                             ON biodynamic_daily_summaries(summary_date DESC)
+                        """)
+                        cur.execute("""
+                            CREATE TABLE IF NOT EXISTS biodynamic_plantings (
+                                planting_id TEXT PRIMARY KEY,
+                                name TEXT NOT NULL,
+                                variety TEXT,
+                                plant_type TEXT,
+                                plant_part TEXT,
+                                start_method TEXT,
+                                start_date TEXT NOT NULL,
+                                expected_harvest_date TEXT,
+                                days_to_maturity INTEGER,
+                                harvest_window_days INTEGER,
+                                location TEXT,
+                                attributes TEXT,
+                                notes TEXT,
+                                planting_json TEXT NOT NULL,
+                                created_at TEXT NOT NULL,
+                                updated_at TEXT NOT NULL
+                            )
+                        """)
+                        cur.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_biodynamic_plantings_dates
+                            ON biodynamic_plantings(start_date, expected_harvest_date)
+                        """)
+                        cur.execute("""
+                            CREATE TABLE IF NOT EXISTS biodynamic_calendar_cache (
+                                cache_key TEXT PRIMARY KEY,
+                                location_key TEXT NOT NULL,
+                                payload_json TEXT NOT NULL,
+                                created_at TEXT NOT NULL
+                            )
+                        """)
+                        cur.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_biodynamic_calendar_cache_created
+                            ON biodynamic_calendar_cache(created_at DESC)
                         """)
 
                         # ---- email notification edge state -------------------
@@ -2480,6 +2517,181 @@ class saiDataLogger:
             return True
         except Exception as e:
             printDM(f"[save_biodynamic_daily_summary] error for {summary_date}: {e}", location=MODULE)
+            return False
+
+    def get_biodynamic_plantings(self) -> list[dict[str, object]]:
+        """Return normalized planting records used by the integrated calendar."""
+        try:
+            with self._open_conn() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT planting_json
+                    FROM biodynamic_plantings
+                    ORDER BY start_date ASC, name ASC
+                    """
+                ).fetchall()
+            plantings = []
+            for row in rows:
+                try:
+                    value = json.loads(str(row["planting_json"] or "{}"))
+                except Exception:
+                    continue
+                if isinstance(value, dict):
+                    plantings.append(value)
+            return plantings
+        except Exception as e:
+            printDM(f"[get_biodynamic_plantings] error: {e}", location=MODULE)
+            return []
+
+    def save_biodynamic_planting(self, planting: dict[str, object]) -> bool:
+        """Insert or update a validated integrated-calendar planting record."""
+        try:
+            planting_id = str(planting.get("id") or "").strip()
+            name = str(planting.get("name") or "").strip()
+            start_date = str(planting.get("start_date") or "").strip()
+            if not planting_id or not name or not start_date:
+                return False
+            now_iso = datetime.now(getattr(self, "local_tz", LOCAL_TIMEZONE)).isoformat()
+            with self._writer_lock:
+                self._ensure_writer()
+                self._writer_conn.execute(
+                    """
+                    INSERT INTO biodynamic_plantings(
+                        planting_id, name, variety, plant_type, plant_part, start_method,
+                        start_date, expected_harvest_date, days_to_maturity, harvest_window_days,
+                        location, attributes, notes, planting_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(planting_id) DO UPDATE SET
+                        name=excluded.name,
+                        variety=excluded.variety,
+                        plant_type=excluded.plant_type,
+                        plant_part=excluded.plant_part,
+                        start_method=excluded.start_method,
+                        start_date=excluded.start_date,
+                        expected_harvest_date=excluded.expected_harvest_date,
+                        days_to_maturity=excluded.days_to_maturity,
+                        harvest_window_days=excluded.harvest_window_days,
+                        location=excluded.location,
+                        attributes=excluded.attributes,
+                        notes=excluded.notes,
+                        planting_json=excluded.planting_json,
+                        updated_at=excluded.updated_at
+                    """,
+                    (
+                        planting_id,
+                        name,
+                        str(planting.get("variety") or ""),
+                        str(planting.get("plant_type") or ""),
+                        str(planting.get("plant_part") or ""),
+                        str(planting.get("start_method") or ""),
+                        start_date,
+                        str(planting.get("expected_harvest_date") or ""),
+                        planting.get("days_to_maturity"),
+                        planting.get("harvest_window_days"),
+                        str(planting.get("location") or ""),
+                        str(planting.get("attributes") or ""),
+                        str(planting.get("notes") or ""),
+                        json.dumps(planting, sort_keys=True, separators=(",", ":")),
+                        now_iso,
+                        now_iso,
+                    ),
+                )
+                self._writer_conn.commit()
+            return True
+        except Exception as e:
+            printDM(f"[save_biodynamic_planting] error: {e}", location=MODULE)
+            return False
+
+    def delete_biodynamic_planting(self, planting_id: str) -> bool:
+        """Delete one planting record by its stable identifier."""
+        try:
+            target = str(planting_id or "").strip()
+            if not target:
+                return False
+            with self._writer_lock:
+                self._ensure_writer()
+                cur = self._writer_conn.execute(
+                    "DELETE FROM biodynamic_plantings WHERE planting_id = ?",
+                    (target,),
+                )
+                self._writer_conn.commit()
+                return int(cur.rowcount or 0) > 0
+        except Exception as e:
+            printDM(f"[delete_biodynamic_planting] error: {e}", location=MODULE)
+            return False
+
+    def get_biodynamic_calendar_cache(self, cache_key: str, location_key: str) -> dict[str, object] | None:
+        """Load a persisted calendar calculation for the matching location."""
+        try:
+            with self._open_conn() as conn:
+                row = conn.execute(
+                    """
+                    SELECT payload_json
+                    FROM biodynamic_calendar_cache
+                    WHERE cache_key = ? AND location_key = ?
+                    LIMIT 1
+                    """,
+                    (str(cache_key), str(location_key)),
+                ).fetchone()
+            if not row:
+                return None
+            payload = json.loads(str(row["payload_json"] or "{}"))
+            return payload if isinstance(payload, dict) else None
+        except Exception as e:
+            printDM(f"[get_biodynamic_calendar_cache] error: {e}", location=MODULE)
+            return None
+
+    def save_biodynamic_calendar_cache(
+        self,
+        cache_key: str,
+        location_key: str,
+        payload: dict[str, object],
+        *,
+        max_entries: int = 120,
+    ) -> bool:
+        """Persist one versioned calendar payload and trim older cache rows."""
+        try:
+            now_iso = datetime.now(getattr(self, "local_tz", LOCAL_TIMEZONE)).isoformat()
+            serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+            with self._writer_lock:
+                self._ensure_writer()
+                self._writer_conn.execute(
+                    """
+                    INSERT INTO biodynamic_calendar_cache(cache_key, location_key, payload_json, created_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(cache_key) DO UPDATE SET
+                        location_key=excluded.location_key,
+                        payload_json=excluded.payload_json,
+                        created_at=excluded.created_at
+                    """,
+                    (str(cache_key), str(location_key), serialized, now_iso),
+                )
+                self._writer_conn.execute(
+                    """
+                    DELETE FROM biodynamic_calendar_cache
+                    WHERE cache_key NOT IN (
+                        SELECT cache_key FROM biodynamic_calendar_cache
+                        ORDER BY created_at DESC LIMIT ?
+                    )
+                    """,
+                    (max(1, int(max_entries)),),
+                )
+                self._writer_conn.commit()
+            return True
+        except Exception as e:
+            printDM(f"[save_biodynamic_calendar_cache] error: {e}", location=MODULE)
+            return False
+
+    def clear_biodynamic_calendar_cache(self) -> bool:
+        """Clear integrated-calendar calculations after a location change."""
+        try:
+            with self._writer_lock:
+                self._ensure_writer()
+                self._writer_conn.execute("DELETE FROM biodynamic_calendar_cache")
+                self._writer_conn.commit()
+            return True
+        except Exception as e:
+            printDM(f"[clear_biodynamic_calendar_cache] error: {e}", location=MODULE)
             return False
 
     # ------------------------------- SWITCH API ------------------

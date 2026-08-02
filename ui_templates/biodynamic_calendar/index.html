@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Biodynamic Calendar{% if app_version %} {{ app_version }}{% endif %}</title>
+  <link rel="icon" type="image/svg+xml" href="/ui_static/biodynamic_calendar/favicon.svg?v={{ app_version }}">
+  <link rel="stylesheet" href="/ui_static/biodynamic_calendar/app.css?v={{ app_version }}">
+</head>
+<body class="{% if sensorius_launch %}sensorius-launch{% endif %}">
+  <a class="dashboard-return" href="/" aria-label="Return to Sensorius dashboard">Dashboard</a>
+  <main class="page">
+    <header class="standalone-app-header">
+      <div class="header-title-group">
+        <h1>Biodynamic Calendar{% if app_version %} <span class="title-version">{{ app_version }}</span>{% endif %}</h1>
+        <div class="header-meta">
+          <span id="headerLocation">Location loading&hellip;</span>
+          <span aria-hidden="true">&middot;</span>
+          <span id="headerDate">Today</span>
+          <span aria-hidden="true">&middot;</span>
+          <a id="printBtn" class="header-report" href="/calendar/report" target="_blank" rel="noopener" aria-label="Open monthly report for printing">Report <span class="print-icon" aria-hidden="true">&#128424;&#65038;</span></a>
+        </div>
+      </div>
+    </header>
+    <section class="hero-grid">
+      <section class="panel astro-panel sun-panel sun-moon-panel" id="sunMoonPositionPanel" role="button" tabindex="0" aria-label="Open 29 day Sun/Moon position graphic" title="29 day Sun/Moon position">
+        <div class="astro-head">
+          <h2>Sun/Moon Position</h2>
+        </div>
+        <div class="position-chart">
+          <div class="position-axis sun-position-axis" aria-label="Sun Position event times">
+            <div class="position-axis-title">Sun Position</div>
+            <div class="position-axis-track">
+              <span class="position-event sun-position-event" id="sunPositionRiseMarker" style="--x: 25%; --tx: -50%;">
+                <span class="position-event-text"><span>Rise</span><strong id="sunriseStat">--</strong></span>
+              </span>
+              <span class="position-event sun-position-event" id="sunPositionNoonMarker" style="--x: 50%; --tx: -50%;">
+                <span class="position-event-text"><span>Noon</span><strong id="sunNoonStat">--</strong></span>
+              </span>
+              <span class="position-event sun-position-event" id="sunPositionSetMarker" style="--x: 75%; --tx: -50%;">
+                <span class="position-event-text"><span>Set</span><strong id="sunsetStat">--</strong></span>
+              </span>
+            </div>
+          </div>
+          <canvas id="sunGraph" class="sun-graph" width="520" height="190" aria-label="24 hour Sun and Moon position graph"></canvas>
+          <div class="position-axis moon-position-axis" aria-label="Moon Position event times">
+            <div class="position-axis-track">
+              <span class="position-event moon-position-event" id="moonPositionRiseMarker" style="--x: 25%; --tx: -50%;">
+                <span class="position-event-text"><span>Rise</span><strong id="moonAxisRiseStat">--</strong></span>
+              </span>
+              <span class="position-event moon-position-event" id="moonPositionSetMarker" style="--x: 75%; --tx: -50%;">
+                <span class="position-event-text"><span>Set</span><strong id="moonAxisSetStat">--</strong></span>
+              </span>
+            </div>
+            <div class="position-axis-title">Moon Position</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel astro-panel moon-panel moon-phase-panel" id="moonPhasePanel" role="button" tabindex="0" aria-label="Open 29 day Sun/Moon position and phase graphic" title="29 day Sun/Moon position and phase">
+        <div class="astro-head">
+          <h2 title="29 day Sun/Moon position and phase">Moon Phase</h2>
+          <div class="moon-view-toggle" role="group" aria-label="Moon view mode">
+            <button type="button" class="moon-view-btn active" id="moonViewLocal" data-moon-view="local" aria-pressed="true">Local</button>
+            <button type="button" class="moon-view-btn" id="moonViewReference" data-moon-view="reference" aria-pressed="false">Ref</button>
+          </div>
+        </div>
+        <div class="moon-body" title="29 day Sun/Moon position and phase">
+          <div class="moon-meta moon-meta-left">
+            <div><span>Moonrise</span><strong id="moonRiseStat">--</strong></div>
+            <div><span>Illumination</span><strong id="moonLitStat">--</strong></div>
+          </div>
+          <div class="moon-center">
+          <canvas id="moonPhaseCanvas" class="moon-canvas" width="168" height="168" aria-label="Moon phase graphic"></canvas>
+            <div id="moonPhaseLabel" class="moon-phase-label">--</div>
+          </div>
+          <div class="moon-meta moon-meta-right">
+            <div><span>Moonset</span><strong id="moonSetStat">--</strong></div>
+            <div><span id="moonNextPhaseStatLabel">Next Phase</span><strong id="moonNextPhaseStat">--</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel astro-panel cosmic-panel" aria-labelledby="cosmicAttributesTitle">
+        <div class="astro-head cosmic-head">
+          <h2 id="cosmicAttributesTitle">Astral Attributes</h2>
+        </div>
+        <div id="cosmicAttributes" class="cosmic-scroll" aria-live="polite">
+          <div class="cosmic-empty">Astral attributes loading&hellip;</div>
+        </div>
+      </section>
+    </section>
+
+    <section class="sun-moon-overlay" id="sunMoon29Overlay" aria-hidden="true">
+      <section class="panel sun-moon-29-card" id="sunMoon29Card" role="button" tabindex="0" aria-label="Close 29 day Sun/Moon position and phase graphic" title="Click to close">
+        <div class="sun-moon-29-head">
+          <h2>29 Day Sun/Moon Position/Phase</h2>
+          <span id="sunMoon29Meta">--</span>
+        </div>
+        <canvas id="sunMoon29Canvas" width="1120" height="220" aria-label="29 day Sun and Moon position and moon phase graph"></canvas>
+      </section>
+    </section>
+
+    <section class="calendar-shell">
+      <section class="calendar-plan">
+        <section class="panel calendar-panel">
+          <div class="nav">
+            <button id="prevBtn" type="button">&larr;</button>
+            <div>
+              <div id="monthLabel" class="month">--</div>
+              <div id="summaryLine" class="summary-line">Set location to load calendar.</div>
+            </div>
+            <button id="nextBtn" type="button">&rarr;</button>
+          </div>
+          <div class="calendar-legend" aria-label="Calendar legend">
+            <span><i class="legend-dot legend-root"></i>Root</span>
+            <span><i class="legend-dot legend-leaf"></i>Leaf</span>
+            <span><i class="legend-dot legend-flower"></i>Flower</span>
+            <span><i class="legend-dot legend-fruit"></i>Fruit</span>
+            <span><i class="legend-dot legend-rest"></i>Rest</span>
+            <span><i class="legend-transition"></i>Transition</span>
+          </div>
+          <div id="calendar" class="calendar"></div>
+        </section>
+
+        <details class="panel range-panel">
+          <summary class="range-head">
+            <h2>Twelve-Month Overview</h2>
+            <div id="rangeStatus" class="hint"></div>
+          </summary>
+          <div class="calendar-legend range-legend" aria-label="Twelve-month calendar legend">
+            <span><i class="legend-dot legend-root"></i>Root</span>
+            <span><i class="legend-dot legend-leaf"></i>Leaf</span>
+            <span><i class="legend-dot legend-flower"></i>Flower</span>
+            <span><i class="legend-dot legend-fruit"></i>Fruit</span>
+            <span><i class="legend-dot legend-rest"></i>Rest</span>
+            <span><i class="legend-transition"></i>Transition</span>
+          </div>
+          <div id="rangeCalendar" class="range-calendar"></div>
+        </details>
+      </section>
+
+      <section class="details">
+        <section class="panel day-inspector">
+          <div class="inspector-head">
+            <span class="eyebrow">Selected Day</span>
+          <div id="selectedDate" class="date-label">Select a day</div>
+          </div>
+          <details class="inspector-section" open>
+            <summary>Summary</summary>
+          <div id="selectedFacts" class="selected-facts"></div>
+            <div id="dailySummary" class="summary-box"></div>
+          </details>
+          <details class="inspector-section planting-panel">
+            <summary>Plantings</summary>
+          <div id="plantingStatus" class="hint" aria-live="polite"></div>
+          <div id="plantingList" class="planting-list"></div>
+          <details id="plantingEditor" class="planting-editor">
+            <summary>Add planting</summary>
+          <form id="plantingForm" class="planting-form">
+            <input name="id" type="hidden">
+            <div class="planting-grid">
+              <label>Plant<input name="name" type="text" placeholder="Tomato" required></label>
+              <label>Variety<input name="variety" type="text" placeholder="Brandywine"></label>
+              <label>Focus
+                <select name="plant_part">
+                  <option value="">Auto</option>
+                  <option value="Root">Root</option>
+                  <option value="Leaf">Leaf</option>
+                  <option value="Flower">Flower</option>
+                  <option value="Fruit">Fruit</option>
+                </select>
+              </label>
+              <label>Start
+                <select name="start_method">
+                  <option value="seed">Seed</option>
+                  <option value="transplant">Transplant</option>
+                </select>
+              </label>
+              <label>Start Date<input name="start_date" type="date" required></label>
+              <label>Harvest<input name="expected_harvest_date" type="date"></label>
+              <label>Days to Maturity<input name="days_to_maturity" type="number" min="1" max="730" inputmode="numeric"></label>
+              <label>Location<input name="location" type="text" placeholder="Bed 2"></label>
+              <label class="wide">Plant Type<input name="plant_type" type="text" placeholder="Fruiting vegetable"></label>
+              <label class="wide">Attributes<textarea name="attributes" rows="2" placeholder="Spacing, succession, hardening, trellis, harvest window..."></textarea></label>
+            </div>
+            <div class="planting-actions">
+              <button id="savePlantingBtn" type="submit">Save Planting</button>
+              <button id="clearPlantingBtn" type="button" class="secondary-btn">Clear</button>
+            </div>
+          </form>
+          </details>
+          </details>
+          <details class="inspector-section">
+            <summary>Note</summary>
+          <div id="selectedMeta" class="date-label"></div>
+          <textarea id="noteInput" class="note-box" placeholder="Add a note for the selected biodynamic day..."></textarea>
+          <div class="note-actions">
+            <button id="saveNoteBtn" type="button">Save Note</button>
+          </div>
+          </details>
+        </section>
+      </section>
+    </section>
+    <section id="printReport" class="print-report" aria-hidden="true"></section>
+  </main>
+
+  <script id="bd-calendar-bootstrap" type="application/json">{{ plantings|tojson }}</script>
+  <script type="module" src="/ui_static/biodynamic_calendar/app.js?v={{ app_version }}"></script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # Sensorius User Guide
 
-Sensorius Automatio Instrumentorum, also called Sensorius AI or Sensorius, is an environmental sensing and automation hub for gardens, greenhouses, grow rooms, small farms, and other places where environmental conditions matter. It gives you live readings, historical graphs, switch control, calibration tools, optional integrations with Home Assistant, WeeWX, and farmOS, and a built-in biodynamic calendar. If the Biodynamic Calendar app is installed on the same host, Sensorius provides the richer companion calendar.
+Sensorius Automatio Instrumentorum, also called Sensorius AI or Sensorius, is an environmental sensing and automation hub for gardens, greenhouses, grow rooms, small farms, and other places where environmental conditions matter. It gives you live readings, historical graphs, switch control, calibration tools, optional integrations with Home Assistant, WeeWX, and farmOS, and a fully integrated biodynamic calendar.
 
 Sensorius can run as a Raspberry Pi hub with directly connected sensors and relays, as well as Wi-Fi Nodus sensors and switches that communicate through MQTT. It can also run on macOS, Windows, or Linux as a hub for Wi-Fi Nodus sensors and switches. In normal use, both kinds of devices appear together on the same dashboard.
 
@@ -718,33 +718,26 @@ The graph definition modal has these panes and fields:
 - **Home**: closes the graph setup modal.
 - **Save**: saves the current graph setup after asking for a setup name.
 - **Graph It**: loads data from `/graph-data` and opens the full-screen graph.
-- **Close** on the full-screen graph: returns to the dashboard.
+- **Dashboard** in the top-left of the full-screen graph: closes the graph and returns to the dashboard.
 
 Use switch overlays to answer practical questions: whether a fan cooled the greenhouse, whether irrigation raised soil moisture, or whether lights changed VPD.
 
 ## BD Calendar
 
-Sensorius includes a built-in biodynamic calendar and can also open the standalone Biodynamic Calendar app when that app is running on the same host.
+Sensorius includes the full BD Calendar application. It runs in the Sensorius web process and opens as a full-screen page when the dashboard **Calendar** button is selected.
 
 The built-in month view includes a color legend for Root, Leaf, Flower, Fruit,
 Rest, and Transition periods above the calendar grid.
 
-The built-in calendar is part of the Sensorius dashboard. It uses Sensorius Astral settings for latitude, longitude, altitude, and timezone. Calendar notes and daily summaries are stored in the Sensorius SQLite database in `biodynamic_notes` and `biodynamic_daily_summaries`.
+The calendar uses Sensorius Astral settings for latitude, longitude, altitude,
+and timezone. Notes, summaries, planting records, and computed cache entries
+are stored in the Sensorius SQLite database. It is available at
+`http://<sensorius-host>:8000/calendar`; **Dashboard** in the top-left returns
+to the dashboard.
 
-The standalone app can be checked out at `~/Projects/Biodynamic_Calendar`. It
-can run beside Sensorius on port `8765`. When you click the dashboard
-**Calendar** button, Sensorius checks `http://127.0.0.1:8765/healthz`. If the
-companion app is available, Sensorius opens it in an overlay at:
+### Full-Screen Calendar
 
-```text
-http://<sensorius-host>:8765/?source=sensorius
-```
-
-If the companion app is not available, Sensorius opens the built-in calendar modal.
-
-### Built-In Calendar
-
-The built-in calendar shows:
+The full-screen calendar shows:
 
 - Current biodynamic sign, element, and plant focus.
 - Current day's biodynamic windows.
@@ -757,9 +750,9 @@ The built-in calendar shows:
 
 Daily summaries come from Sensorius' biodynamic summary storage. For the current day, the summary may include a **24hr Forecast** section if weather forecast data is enabled in System Settings.
 
-The built-in calendar is best for quick dashboard use: checking today's planting focus, adding a note, printing a monthly report, and reviewing daily summaries without leaving Sensorius.
+The dashboard BD card remains available for a quick current-status view. The Calendar button opens the full application for month planning, planting records, notes, daily guidance, and reports.
 
-### Companion Biodynamic Calendar App
+### Integrated BD Calendar Features
 
 ![Biodynamic Calendar app overview](<../assets/screenshots/BD Calendar App - 1.png>)
 
@@ -771,29 +764,25 @@ The built-in calendar is best for quick dashboard use: checking today's planting
 
 ![Biodynamic Calendar notes and print tools](<../assets/screenshots/BD Calendar App - 5.png>)
 
-The companion app has more capabilities than the built-in calendar:
+The integrated application provides:
 
-- A full standalone calendar UI.
+- A full-screen calendar UI.
 - Sun/Moon Position panel with a 24-hour position graph.
 - Clickable 29-day Sun/Moon position and moon phase overlay.
 - Moon Phase panel with **Local** and **Ref** modes.
-- Manual and automatic location management.
+- Sensorius-managed Astral location and timezone.
 - Next 12 Months overview.
 - Planting records with crop details.
 - Notes and print reports.
-- Sensorius SQLite storage support when started with `SENSORIUS_DB_PATH` or `BD_CALENDAR_STORE=sensorius`.
+- Sensorius SQLite storage for notes, summaries, planting records, and cache entries.
 
 Companion app fields and controls:
 
-- **Latitude**: manual latitude for calendar and Astral calculations. If the app is using Sensorius storage, this can come from Sensorius Astral settings.
-- **Longitude**: manual longitude. Latitude and longitude must both be filled for manual location.
-- **Timezone**: IANA timezone name such as `America/Denver`. It controls day boundaries and displayed times.
-- **Save Location**: stores the entered latitude, longitude, and timezone.
-- **Reset Location**: clears manual location and re-runs auto-detection. Auto-detection prefers Sensorius Astral settings, then IP geolocation, then a timezone-city fallback.
+- **Location**: comes from the Astral and Time sections in Sensorius System Settings. Change it there to invalidate and rebuild calendar data.
 - **Local / Ref** in Moon Phase: switches between the local visual moon orientation and a reference moon phase view.
 - **Previous / Next month arrows**: move the main month calendar.
 - **Calendar day cells**: select a day. The selected day drives the Daily Summary, selected facts, notes, and planting context.
-- **Next 12 Months**: shows a longer planning range. It comes from the companion app's calendar range API and uses the same location.
+- **Next 12 Months**: shows a longer planning range assembled from the shared background cache.
 - **Daily Summary**: explains the selected day, including biodynamic focus and relevant timing.
 - **Plant**: crop or plant name, such as Tomato.
 - **Variety**: cultivar or variety name.
@@ -812,15 +801,7 @@ Companion app fields and controls:
 - **Save Note**: stores the note for that date.
 - **Print**: prints the selected calendar/report view.
 
-Run the companion app on the same host as Sensorius:
-
-```bash
-cd /Users/<user>/Projects/Biodynamic_Calendar
-SENSORIUS_DB_PATH=/Users/<user>/Sensorius/sensorius_data.db \
-PYTHONPATH=src uvicorn biodynamic_calendar_app.app:app --host 0.0.0.0 --port 8765
-```
-
-Adjust `SENSORIUS_DB_PATH` if your active Sensorius database is in a different working directory. For direct use, open `http://127.0.0.1:8765/` on the host or `http://<sensorius-host-ip>:8765/` from another device on the same network.
+No separate BD Calendar service, port, database path environment variable, or startup entry is required.
 
 ## Good Operating Habits
 
@@ -872,8 +853,8 @@ If Home Assistant does not show entities:
 If the Biodynamic Calendar is unavailable:
 
 - Confirm latitude, longitude, and timezone in **System Settings > System Settings**.
-- If using the companion app, confirm `http://127.0.0.1:8765/healthz` returns `ok` on the Sensorius host.
-- If using the built-in calendar, confirm Sensorius can write to the SQLite database for notes and summaries.
+- Confirm the normal Sensorius `/healthz` endpoint responds and that Sensorius can write to its SQLite database.
+- If the calendar is still warming, leave Sensorius running for several minutes and verify the Astral location is complete.
 
 ## Related Documentation
 
@@ -887,6 +868,6 @@ If the Biodynamic Calendar is unavailable:
 - Home Assistant: `docs/homeassistant.md`
 - farmOS: `docs/farmos.md`
 - Hardware: `docs/hardware.md`
-- Biodynamic companion notes: `docs/biodynamic_calendar_companion.md`
+- Integrated Biodynamic Calendar and companion migration: `docs/biodynamic_calendar_companion.md`
 - Security policy and deployment boundary: `SECURITY.md`
 - Third-party and binary notices: `THIRD_PARTY_NOTICES.md`
