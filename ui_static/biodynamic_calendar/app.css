@@ -228,7 +228,7 @@ button:active {
 
 .hero-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(320px, 1fr));
+  grid-template-columns: minmax(320px, 1fr) 214px minmax(320px, 1fr);
   grid-auto-rows: 214px;
   gap: var(--layout-gap);
   align-items: stretch;
@@ -240,7 +240,22 @@ button:active {
 }
 
 .hero-grid .planetary-panel {
+  grid-column: 3;
+}
+
+.hero-calendar-mark {
   grid-column: 2;
+  height: 214px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.hero-calendar-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform: scale(1.24);
 }
 
 .hero-center {
@@ -437,6 +452,7 @@ button:disabled:hover {
   background:
     linear-gradient(180deg, rgba(127, 151, 105, 0.16), rgba(255, 252, 242, 0.94)),
     rgba(255, 252, 242, 0.92);
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1552,6 +1568,12 @@ button:disabled:hover {
 
   .hero-grid .cosmic-panel {
     grid-column: auto;
+  }
+
+  .hero-calendar-mark {
+    grid-column: auto;
+    justify-self: center;
+    width: 214px;
   }
 
   .hero-grid {
