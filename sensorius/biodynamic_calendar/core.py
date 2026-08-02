@@ -53,7 +53,7 @@ class BiodynamicConfig:
 
 
 # Increment when persisted calendar or daily-summary calculation output changes.
-CALCULATION_IMPLEMENTATION_VERSION = 4
+CALCULATION_IMPLEMENTATION_VERSION = 5
 
 
 @dataclass(frozen=True)
@@ -538,6 +538,7 @@ def _cosmic_attributes(
     obs,
     ts,
     eph,
+    constellation_at,
 ) -> dict[str, object]:
     from skyfield import almanac, eclipselib
     from skyfield.framelib import ecliptic_frame
@@ -552,10 +553,13 @@ def _cosmic_attributes(
         ("Saturn", "saturn barycenter"),
     )
     longitudes: dict[str, float] = {}
+    planet_zodiac: list[dict[str, str]] = []
     for label, key in planet_specs:
         apparent = earth.at(current_t).observe(eph[key]).apparent()
         _lat, lon, _distance = apparent.frame_latlon(ecliptic_frame)
         longitudes[label] = float(lon.degrees) % 360.0
+        sign_index = _biodynamic_sign_index_for_constellation(str(constellation_at(apparent)))
+        planet_zodiac.append({"body": label, "sign": str(_SIGNS[sign_index]["name"])})
 
     aspect_angles = (("Conjunction", 0.0), ("Square", 90.0), ("Trine", 120.0), ("Opposition", 180.0))
     aspects: list[dict[str, object]] = []
@@ -644,6 +648,7 @@ def _cosmic_attributes(
 
     return {
         "planetary_aspects": aspects,
+        "planet_zodiac": planet_zodiac,
         "moon_direction_window": direction_window,
         "moon_distance": {
             "km": round(distance_km),
@@ -1454,8 +1459,16 @@ def get_astro_payload(
 
         cosmic_attributes: dict[str, object] = {}
         try:
-            _, cosmic_ts, cosmic_eph, _constellation_at = _skyfield_runtime()
-            cosmic_attributes = _cosmic_attributes(summary_local, sunrise, sunset, obs, cosmic_ts, cosmic_eph)
+            _, cosmic_ts, cosmic_eph, cosmic_constellation_at = _skyfield_runtime()
+            cosmic_attributes = _cosmic_attributes(
+                summary_local,
+                sunrise,
+                sunset,
+                obs,
+                cosmic_ts,
+                cosmic_eph,
+                cosmic_constellation_at,
+            )
         except Exception:
             cosmic_attributes = {}
 

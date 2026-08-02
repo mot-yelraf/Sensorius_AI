@@ -87,6 +87,14 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     assert "/ui_static/biodynamic_calendar/app.js" in template
     assert "/api/biodynamic-calendar-app/calendar" in javascript
     assert "/calendar/report?key=" in javascript
+    assert "Sun/Moon Position</h2>" not in template
+    assert "Moon Phase</h2>" not in template
+    assert '<h2 id="cosmicAttributesTitle">Moon Attributes</h2>' in template
+    assert '<h2 id="planetaryAspectsTitle">Planetary Aspects</h2>' in template
+    assert 'id="planetaryAttributes"' in template
+    assert "cosmic.planet_zodiac" in javascript
+    assert "Current Major Aspects" in javascript
+    assert "Planet Zodiac" in javascript
     assert "window.location.assign('/calendar')" in dashboard
     assert "url.port = '8765'" not in dashboard
 

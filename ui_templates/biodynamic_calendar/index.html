@@ -23,81 +23,22 @@
       </div>
     </header>
     <section class="hero-grid">
-      <section class="panel astro-panel sun-panel sun-moon-panel" id="sunMoonPositionPanel" role="button" tabindex="0" aria-label="Open 29 day Sun/Moon position graphic" title="29 day Sun/Moon position">
-        <div class="astro-head">
-          <h2>Sun/Moon Position</h2>
-        </div>
-        <div class="position-chart">
-          <div class="position-axis sun-position-axis" aria-label="Sun Position event times">
-            <div class="position-axis-title">Sun Position</div>
-            <div class="position-axis-track">
-              <span class="position-event sun-position-event" id="sunPositionRiseMarker" style="--x: 25%; --tx: -50%;">
-                <span class="position-event-text"><span>Rise</span><strong id="sunriseStat">--</strong></span>
-              </span>
-              <span class="position-event sun-position-event" id="sunPositionNoonMarker" style="--x: 50%; --tx: -50%;">
-                <span class="position-event-text"><span>Noon</span><strong id="sunNoonStat">--</strong></span>
-              </span>
-              <span class="position-event sun-position-event" id="sunPositionSetMarker" style="--x: 75%; --tx: -50%;">
-                <span class="position-event-text"><span>Set</span><strong id="sunsetStat">--</strong></span>
-              </span>
-            </div>
-          </div>
-          <canvas id="sunGraph" class="sun-graph" width="520" height="190" aria-label="24 hour Sun and Moon position graph"></canvas>
-          <div class="position-axis moon-position-axis" aria-label="Moon Position event times">
-            <div class="position-axis-track">
-              <span class="position-event moon-position-event" id="moonPositionRiseMarker" style="--x: 25%; --tx: -50%;">
-                <span class="position-event-text"><span>Rise</span><strong id="moonAxisRiseStat">--</strong></span>
-              </span>
-              <span class="position-event moon-position-event" id="moonPositionSetMarker" style="--x: 75%; --tx: -50%;">
-                <span class="position-event-text"><span>Set</span><strong id="moonAxisSetStat">--</strong></span>
-              </span>
-            </div>
-            <div class="position-axis-title">Moon Position</div>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel astro-panel moon-panel moon-phase-panel" id="moonPhasePanel" role="button" tabindex="0" aria-label="Open 29 day Sun/Moon position and phase graphic" title="29 day Sun/Moon position and phase">
-        <div class="astro-head">
-          <h2 title="29 day Sun/Moon position and phase">Moon Phase</h2>
-          <div class="moon-view-toggle" role="group" aria-label="Moon view mode">
-            <button type="button" class="moon-view-btn active" id="moonViewLocal" data-moon-view="local" aria-pressed="true">Local</button>
-            <button type="button" class="moon-view-btn" id="moonViewReference" data-moon-view="reference" aria-pressed="false">Ref</button>
-          </div>
-        </div>
-        <div class="moon-body" title="29 day Sun/Moon position and phase">
-          <div class="moon-meta moon-meta-left">
-            <div><span>Moonrise</span><strong id="moonRiseStat">--</strong></div>
-            <div><span>Illumination</span><strong id="moonLitStat">--</strong></div>
-          </div>
-          <div class="moon-center">
-          <canvas id="moonPhaseCanvas" class="moon-canvas" width="168" height="168" aria-label="Moon phase graphic"></canvas>
-            <div id="moonPhaseLabel" class="moon-phase-label">--</div>
-          </div>
-          <div class="moon-meta moon-meta-right">
-            <div><span>Moonset</span><strong id="moonSetStat">--</strong></div>
-            <div><span id="moonNextPhaseStatLabel">Next Phase</span><strong id="moonNextPhaseStat">--</strong></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel astro-panel cosmic-panel" aria-labelledby="cosmicAttributesTitle">
+      <section class="panel astro-panel cosmic-panel moon-attributes-panel" aria-labelledby="cosmicAttributesTitle">
         <div class="astro-head cosmic-head">
-          <h2 id="cosmicAttributesTitle">Astral Attributes</h2>
+          <h2 id="cosmicAttributesTitle">Moon Attributes</h2>
         </div>
         <div id="cosmicAttributes" class="cosmic-scroll" aria-live="polite">
-          <div class="cosmic-empty">Astral attributes loading&hellip;</div>
+          <div class="cosmic-empty">Moon attributes loading&hellip;</div>
         </div>
       </section>
-    </section>
 
-    <section class="sun-moon-overlay" id="sunMoon29Overlay" aria-hidden="true">
-      <section class="panel sun-moon-29-card" id="sunMoon29Card" role="button" tabindex="0" aria-label="Close 29 day Sun/Moon position and phase graphic" title="Click to close">
-        <div class="sun-moon-29-head">
-          <h2>29 Day Sun/Moon Position/Phase</h2>
-          <span id="sunMoon29Meta">--</span>
+      <section class="panel astro-panel cosmic-panel planetary-panel" aria-labelledby="planetaryAspectsTitle">
+        <div class="astro-head cosmic-head">
+          <h2 id="planetaryAspectsTitle">Planetary Aspects</h2>
         </div>
-        <canvas id="sunMoon29Canvas" width="1120" height="220" aria-label="29 day Sun and Moon position and moon phase graph"></canvas>
+        <div id="planetaryAttributes" class="cosmic-scroll" aria-live="polite">
+          <div class="cosmic-empty">Planetary information loading&hellip;</div>
+        </div>
       </section>
     </section>
 

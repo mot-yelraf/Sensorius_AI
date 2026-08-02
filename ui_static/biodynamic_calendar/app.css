@@ -206,23 +206,19 @@ button:active {
 
 .hero-grid {
   display: grid;
-  grid-template-columns: var(--top-left-col) var(--top-middle-col) var(--top-right-col);
+  grid-template-columns: repeat(2, minmax(320px, 1fr));
   grid-auto-rows: 214px;
   gap: var(--layout-gap);
   align-items: stretch;
   margin-bottom: var(--layout-gap);
 }
 
-.hero-grid .sun-moon-panel {
+.hero-grid .moon-attributes-panel {
   grid-column: 1;
 }
 
-.hero-grid .moon-phase-panel {
+.hero-grid .planetary-panel {
   grid-column: 2;
-}
-
-.hero-grid .cosmic-panel {
-  grid-column: 3;
 }
 
 .hero-center {
@@ -464,6 +460,22 @@ button:disabled:hover {
 
 .cosmic-line strong {
   color: #27313a;
+}
+
+.planet-zodiac-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px 14px;
+}
+
+.planet-zodiac-list .cosmic-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.planet-zodiac-list .cosmic-line + .cosmic-line {
+  margin-top: 0;
 }
 
 .cosmic-empty {
@@ -1516,8 +1528,6 @@ button:disabled:hover {
     grid-column: auto;
   }
 
-  .hero-grid .sun-moon-panel,
-  .hero-grid .moon-phase-panel,
   .hero-grid .cosmic-panel {
     grid-column: auto;
   }

@@ -330,33 +330,11 @@ function renderPlantings() {
 }
 
 function renderAstro(astro) {
-  const moonPhaseLabel = document.getElementById("moonPhaseLabel");
   if (!astro || !astro.ok) {
-    updateSunMoonPositionTimes(null);
-    document.getElementById("moonLitStat").textContent = "--";
-    document.getElementById("moonRiseStat").textContent = "--";
-    document.getElementById("moonSetStat").textContent = "--";
-    document.getElementById("moonNextPhaseStatLabel").textContent = "Next Phase";
-    document.getElementById("moonNextPhaseStat").textContent = "--";
-    moonPhaseLabel.textContent = "--";
-    drawSunGraph(null);
-    drawMoonPhase(null);
     renderCosmicAttributes(null);
     return;
   }
-  moonPhaseLabel.textContent = astro.moon_phase_label || "Moon";
-  updateSunMoonPositionTimes(astro);
-  document.getElementById("moonLitStat").textContent = Number.isFinite(Number(astro.moon_lit_pct)) ? `${Math.round(Number(astro.moon_lit_pct))}%` : "--";
-  document.getElementById("moonRiseStat").textContent = formatTime(astro.moon_rise);
-  document.getElementById("moonSetStat").textContent = formatTime(astro.moon_set);
-  document.getElementById("moonNextPhaseStatLabel").textContent = astro.moon_next_phase_label || "Next Phase";
-  document.getElementById("moonNextPhaseStat").textContent = formatIsoDate(astro.moon_next_phase_date || astro.moon_next_full);
-  drawSunGraph(astro);
-  drawMoonPhase(astro);
   renderCosmicAttributes(astro.cosmic_attributes || null);
-  if (sunMoon29IsOpen()) {
-    drawSunMoon29Day(astro);
-  }
 }
 
 function formatCosmicDateTime(value) {
@@ -371,10 +349,12 @@ function formatDaylightMinutes(value) {
 }
 
 function renderCosmicAttributes(cosmic) {
-  const target = document.getElementById("cosmicAttributes");
-  if (!target) return;
+  const moonTarget = document.getElementById("cosmicAttributes");
+  const planetTarget = document.getElementById("planetaryAttributes");
+  if (!moonTarget || !planetTarget) return;
   if (!cosmic || typeof cosmic !== "object" || !Object.keys(cosmic).length) {
-    target.innerHTML = '<div class="cosmic-empty">Astral attributes unavailable.</div>';
+    moonTarget.innerHTML = '<div class="cosmic-empty">Moon attributes unavailable.</div>';
+    planetTarget.innerHTML = '<div class="cosmic-empty">Planetary information unavailable.</div>';
     return;
   }
 
@@ -382,6 +362,10 @@ function renderCosmicAttributes(cosmic) {
   const aspectLines = aspects.length
     ? aspects.map((item) => `<div class="cosmic-line"><strong>${esc(item.bodies || "--")}</strong> ${esc(item.aspect || "")} · ${esc(item.orb_deg)}° orb</div>`).join("")
     : '<div class="cosmic-line">No major aspect within 3°.</div>';
+  const zodiac = Array.isArray(cosmic.planet_zodiac) ? cosmic.planet_zodiac : [];
+  const zodiacLines = zodiac.length
+    ? zodiac.map((item) => `<div class="cosmic-line"><strong>${esc(item.body || "--")}</strong><span>${esc(item.sign || "--")}</span></div>`).join("")
+    : '<div class="cosmic-line">Planet zodiac information unavailable.</div>';
 
   const direction = cosmic.moon_direction_window || {};
   const distance = cosmic.moon_distance || {};
@@ -393,16 +377,7 @@ function renderCosmicAttributes(cosmic) {
     ? eclipses.map((item) => `<div class="cosmic-line"><strong>${esc(item.kind || "Eclipse")}</strong> · ${formatCosmicDateTime(item.at)}</div>`).join("")
     : '<div class="cosmic-line">No lunar eclipse in the next year.</div>';
 
-  const daylight = cosmic.daylight_season || {};
-  const change = Number(daylight.daylight_change_minutes || 0);
-  const season = daylight.next_season || {};
-  const changeText = `${change > 0 ? "+" : ""}${Math.round(change)} min tomorrow`;
-
-  target.innerHTML = `
-    <section class="cosmic-group">
-      <h3>Planetary Aspects</h3>
-      ${aspectLines}
-    </section>
+  moonTarget.innerHTML = `
     <section class="cosmic-group">
       <h3>Moon Direction Window</h3>
       <div class="cosmic-line"><strong>${esc(String(direction.direction || "--").replace(/^./, (letter) => letter.toUpperCase()))}</strong></div>
@@ -418,10 +393,16 @@ function renderCosmicAttributes(cosmic) {
       <h3>Eclipses</h3>
       ${eclipseLines}
     </section>
+  `;
+
+  planetTarget.innerHTML = `
     <section class="cosmic-group">
-      <h3>Daylight / Season</h3>
-      <div class="cosmic-line"><strong>${formatDaylightMinutes(daylight.daylight_minutes)}</strong> · ${esc(changeText)}</div>
-      <div class="cosmic-line">${esc(season.kind || "Next seasonal event")} · ${formatCosmicDateTime(season.at)}</div>
+      <h3>Current Major Aspects</h3>
+      ${aspectLines}
+    </section>
+    <section class="cosmic-group">
+      <h3>Planet Zodiac</h3>
+      <div class="planet-zodiac-list">${zodiacLines}</div>
     </section>
   `;
 }
@@ -1712,58 +1693,6 @@ document.getElementById("nextBtn").addEventListener("click", () => {
   navigateCalendarMonth(1);
 });
 
-document.addEventListener("click", (ev) => {
-  const btn = ev.target instanceof Element ? ev.target.closest("[data-moon-view]") : null;
-  if (!btn) return;
-  const mode = btn.getAttribute("data-moon-view") === "reference" ? "reference" : "local";
-  setMoonViewMode(mode);
-  drawMoonPhase((state.payload || {}).astro || null);
-});
-
-document.addEventListener("click", (ev) => {
-  const target = ev.target instanceof Element ? ev.target : null;
-  if (!target) return;
-  if (target.closest("#sunMoon29Card")) {
-    ev.preventDefault();
-    ev.stopPropagation();
-    closeSunMoon29Day();
-    return;
-  }
-  if (target.id === "sunMoon29Overlay") {
-    ev.preventDefault();
-    closeSunMoon29Day();
-    return;
-  }
-  if (isSunMoon29Trigger(target)) {
-    ev.preventDefault();
-    openSunMoon29Day();
-  }
-});
-
-document.addEventListener("keydown", (ev) => {
-  const target = ev.target instanceof Element ? ev.target : null;
-  if (ev.key === "Escape" && sunMoon29IsOpen()) {
-    ev.preventDefault();
-    closeSunMoon29Day();
-    return;
-  }
-  if (!target || (ev.key !== "Enter" && ev.key !== " ")) return;
-  if (target.closest("#sunMoon29Card")) {
-    ev.preventDefault();
-    closeSunMoon29Day();
-    return;
-  }
-  if (isSunMoon29Trigger(target)) {
-    ev.preventDefault();
-    openSunMoon29Day();
-  }
-});
-
-function redrawCurrentAstro() {
-  drawSunGraph((state.payload || {}).astro || null);
-  if (sunMoon29IsOpen()) drawSunMoon29Day((state.payload || {}).astro || null);
-}
-
 async function refreshCurrentStatus() {
   const nextMonth = state.followCurrentMonth ? currentMonthKey() : (state.month || currentMonthKey());
   const monthChanged = Boolean(state.month && nextMonth && state.month !== nextMonth);
@@ -1777,7 +1706,6 @@ async function refreshCurrentStatus() {
   });
 }
 
-setInterval(redrawCurrentAstro, SUN_REDRAW_MS);
 setInterval(() => { void refreshCurrentStatus(); }, STATUS_REFRESH_MS);
 
 loadCalendar("");

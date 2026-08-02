@@ -767,9 +767,8 @@ The dashboard BD card remains available for a quick current-status view. The Cal
 The integrated application provides:
 
 - A full-screen calendar UI.
-- Sun/Moon Position panel with a 24-hour position graph.
-- Clickable 29-day Sun/Moon position and moon phase overlay.
-- Moon Phase panel with **Local** and **Ref** modes.
+- Moon Attributes panel with lunar direction, distance, declination, and eclipse information.
+- Planetary Aspects panel with current major aspects and planet zodiac placements from Skyfield.
 - Sensorius-managed Astral location and timezone.
 - Next 12 Months overview.
 - Planting records with crop details.
@@ -779,7 +778,6 @@ The integrated application provides:
 Companion app fields and controls:
 
 - **Location**: comes from the Astral and Time sections in Sensorius System Settings. Change it there to invalidate and rebuild calendar data.
-- **Local / Ref** in Moon Phase: switches between the local visual moon orientation and a reference moon phase view.
 - **Previous / Next month arrows**: move the main month calendar.
 - **Calendar day cells**: select a day. The selected day drives the Daily Summary, selected facts, notes, and planting context.
 - **Next 12 Months**: shows a longer planning range assembled from the shared background cache.
