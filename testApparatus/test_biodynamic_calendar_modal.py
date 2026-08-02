@@ -218,7 +218,9 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "const reportEl = document.getElementById('bioPrintReportSheet');" in text
     assert "<div class='bio-print-title'>Biodynamic Calendar Report</div>" in text
     assert "<div class='bio-print-section-title'>Calendar</div><div class='bio-print-calendar'>${grid}</div><div class='bio-print-section-title'>Daily Summary and Notes</div>" in text
-    assert "window.openBiodynamicCalendar = function(){ window.location.assign('/calendar'); };" in text
+    assert "window.openBiodynamicCalendar = function(){" in text
+    assert "window.requestAnimationFrame(function(){" in text
+    assert "window.requestAnimationFrame(function(){ window.location.assign('/calendar'); });" in text
     assert "function biodynamicCompanionUrl(){" not in text
     assert "url.port = '8765';" not in text
     assert "fetch('/api/biodynamic-calendar-companion'" not in text

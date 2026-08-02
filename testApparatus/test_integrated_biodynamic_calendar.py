@@ -80,7 +80,8 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     javascript = (root / "ui_static" / "biodynamic_calendar" / "app.js").read_text(encoding="utf-8")
     dashboard = (root / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
 
-    assert 'href="/" aria-label="Return to Sensorius dashboard"' in template
+    assert 'id="dashboardReturn" href="/" aria-label="Return to Sensorius dashboard"' in template
+    assert 'class="dashboard-return-spinner"' in template
     assert "body {\n  margin: 0;\n  font-family:" in stylesheet
     assert "background: #f5fffa;" in stylesheet
     assert "radial-gradient(circle at top left" not in stylesheet
@@ -95,6 +96,9 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     assert "cosmic.planet_zodiac" in javascript
     assert "Current Major Aspects" in javascript
     assert "Planet Zodiac" in javascript
+    assert 'dashboardReturn.classList.add("is-loading")' in javascript
+    assert 'window.requestAnimationFrame(() => {' in javascript
+    assert 'window.requestAnimationFrame(() => window.location.assign(destination))' in javascript
     assert "window.location.assign('/calendar')" in dashboard
     assert "url.port = '8765'" not in dashboard
 
@@ -170,8 +174,8 @@ async def test_integrated_calendar_page_and_month_api_render(monkeypatch):
         payload = await client.get("/api/biodynamic-calendar-app/calendar?month=2026-03")
 
     assert page.status_code == 200
-    assert '<a class="dashboard-return" href="/"' in page.text
-    assert ">Dashboard</a>" in page.text
+    assert '<a class="dashboard-return" id="dashboardReturn" href="/"' in page.text
+    assert '<span class="dashboard-return-label">Dashboard</span>' in page.text
     assert "Back to Sensorius" not in page.text
     assert "/ui_static/biodynamic_calendar/app.js" in page.text
     assert payload.status_code == 200

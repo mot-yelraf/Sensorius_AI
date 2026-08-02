@@ -8,7 +8,10 @@
   <link rel="stylesheet" href="/ui_static/biodynamic_calendar/app.css?v={{ app_version }}">
 </head>
 <body class="{% if sensorius_launch %}sensorius-launch{% endif %}">
-  <a class="dashboard-return" href="/" aria-label="Return to Sensorius dashboard">Dashboard</a>
+  <a class="dashboard-return" id="dashboardReturn" href="/" aria-label="Return to Sensorius dashboard">
+    <span class="dashboard-return-spinner" aria-hidden="true"></span>
+    <span class="dashboard-return-label">Dashboard</span>
+  </a>
   <main class="page">
     <header class="standalone-app-header">
       <div class="header-title-group">

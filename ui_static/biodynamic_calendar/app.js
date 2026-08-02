@@ -1693,6 +1693,24 @@ document.getElementById("nextBtn").addEventListener("click", () => {
   navigateCalendarMonth(1);
 });
 
+const dashboardReturn = document.getElementById("dashboardReturn");
+if (dashboardReturn) {
+  dashboardReturn.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    if (dashboardReturn.classList.contains("is-loading")) return;
+    dashboardReturn.classList.add("is-loading");
+    dashboardReturn.setAttribute("aria-busy", "true");
+    const destination = dashboardReturn.href;
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => window.location.assign(destination));
+    });
+  });
+  window.addEventListener("pageshow", () => {
+    dashboardReturn.classList.remove("is-loading");
+    dashboardReturn.removeAttribute("aria-busy");
+  });
+}
+
 async function refreshCurrentStatus() {
   const nextMonth = state.followCurrentMonth ? currentMonthKey() : (state.month || currentMonthKey());
   const monthChanged = Boolean(state.month && nextMonth && state.month !== nextMonth);
