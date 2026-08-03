@@ -103,6 +103,18 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     assert "transform: scale(1.24);" not in stylesheet
     assert 'viewBox="61 61 390 390"' in calendar_icon
     assert '<circle cx="256" cy="256" r="182" fill="none" stroke="#173f35" stroke-width="26"/>' in calendar_icon
+    for plant_part in ("root", "leaf", "flower", "fruit", "rest"):
+        assert f'id="legend-icon-{plant_part}"' in template
+        assert template.count(f'href="#legend-icon-{plant_part}"') == 2
+    assert ".legend-root { color: #644817; }" in stylesheet
+    assert ".legend-leaf { color: #2f6eb8; }" in stylesheet
+    assert ".legend-flower { color: #d8ac00; }" in stylesheet
+    assert ".legend-fruit { color: #d64b3b; }" in stylesheet
+    assert ".legend-rest { color: #6d7680; }" in stylesheet
+    assert 'class="day-number"' in javascript
+    assert "plantPartIconMarkup(partLabel)" in javascript
+    assert ".day-part-icon" in stylesheet
+    assert "top: 6px;" in stylesheet
     assert 'id="planetaryAttributes"' in template
     assert "cosmic.planet_zodiac" in javascript
     assert "Current Major Aspects" in javascript

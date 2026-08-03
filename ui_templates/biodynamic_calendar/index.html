@@ -60,12 +60,34 @@
             </div>
             <button id="nextBtn" type="button">&rarr;</button>
           </div>
+          <svg class="legend-icon-defs" aria-hidden="true" focusable="false">
+            <defs>
+              <symbol id="legend-icon-root" viewBox="0 0 24 24">
+                <path d="M12 3v6m-5-3c1.2 1.7 2.9 2.7 5 3 2.1-.3 3.8-1.3 5-3M12 9v11m0-8-4 3m4-1 4 3m-8-2-2 5m10-3 2 3m-6-3-2 4m2-2 2 2"/>
+              </symbol>
+              <symbol id="legend-icon-leaf" viewBox="0 0 24 24">
+                <path d="M12 20V9m0 5c-5.2.2-7.7-2.5-7.5-7.9 5.1-.2 7.7 2.4 7.5 7.9Zm0-3c.2-4.8 2.7-7.2 7.5-7-.1 4.8-2.6 7.2-7.5 7Z"/>
+                <path d="m6.5 8.1 5.5 5.4m5.8-7.1L12 11"/>
+              </symbol>
+              <symbol id="legend-icon-flower" viewBox="0 0 24 24">
+                <path d="M12 8.2C8.5 5.7 8.9 2.4 12 2c3.1.4 3.5 3.7 0 6.2Zm3.1 2.3c.8-4.2 4-5.1 5.5-2.4.9 3-1.9 4.6-5.5 2.4Zm-1.2 3.6c4.2-.5 5.9 2.4 3.6 4.4-2.7 1.5-4.9-.9-3.6-4.4Zm-3.8 0c1.3 3.5-.9 5.9-3.6 4.4-2.3-2-.6-4.9 3.6-4.4Zm-1.2-3.6C5.3 12.7 2.5 11.1 3.4 8.1c1.5-2.7 4.7-1.8 5.5 2.4Z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </symbol>
+              <symbol id="legend-icon-fruit" viewBox="0 0 24 24">
+                <path d="M12 8c-1.8-2.8-4.5-3.2-6.5-1.4C3.3 8.7 4.2 12.8 6 16c1.5 2.6 3.5 4.6 6 4.6s4.5-2 6-4.6c1.8-3.2 2.7-7.3.5-9.4C16.5 4.8 13.8 5.2 12 8Z"/>
+                <path d="M12 8c-.2-3 1-4.8 3.5-5.5M13.5 4.2c2.4-.7 4.1-.1 5.1 1.8" fill="none"/>
+              </symbol>
+              <symbol id="legend-icon-rest" viewBox="0 0 24 24">
+                <path d="M3.5 8h8l-8 8h8M13 5.5h5.5L13 11h5.5M15 13.5h4.5L15 18h4.5"/>
+              </symbol>
+            </defs>
+          </svg>
           <div class="calendar-legend" aria-label="Calendar legend">
-            <span><i class="legend-dot legend-root"></i>Root</span>
-            <span><i class="legend-dot legend-leaf"></i>Leaf</span>
-            <span><i class="legend-dot legend-flower"></i>Flower</span>
-            <span><i class="legend-dot legend-fruit"></i>Fruit</span>
-            <span><i class="legend-dot legend-rest"></i>Rest</span>
+            <span><svg class="legend-plant-icon legend-root" aria-hidden="true"><use href="#legend-icon-root"></use></svg>Root</span>
+            <span><svg class="legend-plant-icon legend-leaf" aria-hidden="true"><use href="#legend-icon-leaf"></use></svg>Leaf</span>
+            <span><svg class="legend-plant-icon legend-flower" aria-hidden="true"><use href="#legend-icon-flower"></use></svg>Flower</span>
+            <span><svg class="legend-plant-icon legend-fruit" aria-hidden="true"><use href="#legend-icon-fruit"></use></svg>Fruit</span>
+            <span><svg class="legend-plant-icon legend-rest" aria-hidden="true"><use href="#legend-icon-rest"></use></svg>Rest</span>
             <span><i class="legend-transition"></i>Transition</span>
           </div>
           <div id="calendar" class="calendar"></div>
@@ -77,11 +99,11 @@
             <div id="rangeStatus" class="hint"></div>
           </summary>
           <div class="calendar-legend range-legend" aria-label="Twelve-month calendar legend">
-            <span><i class="legend-dot legend-root"></i>Root</span>
-            <span><i class="legend-dot legend-leaf"></i>Leaf</span>
-            <span><i class="legend-dot legend-flower"></i>Flower</span>
-            <span><i class="legend-dot legend-fruit"></i>Fruit</span>
-            <span><i class="legend-dot legend-rest"></i>Rest</span>
+            <span><svg class="legend-plant-icon legend-root" aria-hidden="true"><use href="#legend-icon-root"></use></svg>Root</span>
+            <span><svg class="legend-plant-icon legend-leaf" aria-hidden="true"><use href="#legend-icon-leaf"></use></svg>Leaf</span>
+            <span><svg class="legend-plant-icon legend-flower" aria-hidden="true"><use href="#legend-icon-flower"></use></svg>Flower</span>
+            <span><svg class="legend-plant-icon legend-fruit" aria-hidden="true"><use href="#legend-icon-fruit"></use></svg>Fruit</span>
+            <span><svg class="legend-plant-icon legend-rest" aria-hidden="true"><use href="#legend-icon-rest"></use></svg>Rest</span>
             <span><i class="legend-transition"></i>Transition</span>
           </div>
           <div id="rangeCalendar" class="range-calendar"></div>

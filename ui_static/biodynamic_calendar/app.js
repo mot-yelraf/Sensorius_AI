@@ -122,6 +122,12 @@ function dayBackground(day) {
   return `linear-gradient(90deg, ${dividerStops.join(", ")}), ${base}`;
 }
 
+function plantPartIconMarkup(value, className = "day-part-icon") {
+  const part = String(value || "").trim().toLowerCase();
+  const icon = ["root", "leaf", "flower", "fruit", "rest"].includes(part) ? part : "rest";
+  return `<svg class="${className} part-${icon}" aria-hidden="true" focusable="false"><use href="#legend-icon-${icon}"></use></svg>`;
+}
+
 function formatTime(value) {
   const m = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
   if (!m) return "--";
@@ -1259,9 +1265,10 @@ function render(options = {}) {
     if (plantingMarkers.active) classes.push("plant-active");
     if (state.selectedDate === day.date) classes.push("selected");
     const partLabel = String(day.dominant_plant_part || "").trim() || "--";
-    const style = `background:${dayBackground(day)};border-color:${day.dominant_color || "#d7d0bf"};color:${dayTextColor(day)};`;
+    const style = `background:${dayBackground(day)};border-color:${esc(day.dominant_color || "#d7d0bf")};color:${dayTextColor(day)};`;
     const markerTitle = plantingMarkers.labels.length ? ` | ${plantingMarkers.labels.join(" | ")}` : "";
-    return `<button type="button" class="${classes.join(" ")}" data-date="${esc(day.date)}" style="${style}" title="${esc(day.date || "")} ${esc(day.dominant_sign || "")} ${esc(day.dominant_plant_part || "")}${esc(markerTitle)}"><span class="day-number">${esc(day.day)}</span><span class="day-meta">${esc(partLabel)}</span></button>`;
+    const accessibleLabel = `${day.date || ""} ${day.dominant_sign || ""} ${partLabel}${markerTitle}`.trim();
+    return `<button type="button" class="${classes.join(" ")}" data-date="${esc(day.date)}" style="${style}" title="${esc(accessibleLabel)}" aria-label="${esc(accessibleLabel)}"><span class="day-number">${esc(day.day)}</span>${plantPartIconMarkup(partLabel)}</button>`;
   }).join("");
   calendarEl.innerHTML = html;
   calendarEl.querySelectorAll(".bio-day").forEach((btn) => btn.addEventListener("click", () => {

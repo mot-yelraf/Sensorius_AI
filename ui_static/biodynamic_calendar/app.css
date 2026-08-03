@@ -881,6 +881,41 @@ button:disabled:hover {
   gap: 5px;
 }
 
+.legend-icon-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.legend-plant-icon {
+  width: 22px;
+  height: 22px;
+  padding: 2px;
+  box-sizing: border-box;
+  overflow: visible;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  background: #fffdf7;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.65;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: 0 0 auto;
+}
+
+.legend-plant-icon.legend-flower,
+.legend-plant-icon.legend-fruit {
+  fill: currentColor;
+}
+
+.legend-root { color: #644817; }
+.legend-leaf { color: #2f6eb8; }
+.legend-flower { color: #d8ac00; }
+.legend-fruit { color: #d64b3b; }
+.legend-rest { color: #6d7680; }
+
 .legend-dot {
   display: inline-block;
   width: 15px;
@@ -888,11 +923,6 @@ button:disabled:hover {
   border-radius: 3px;
 }
 
-.legend-root { background: #644817; }
-.legend-leaf { background: #2f6eb8; }
-.legend-flower { background: #c4dcf8; border: 1px solid #8da6c2; }
-.legend-fruit { background: #d64b3b; }
-.legend-rest { background: #d7dbe0; border: 1px solid #aeb5bd; }
 .legend-transition {
   display: inline-block;
   width: 12px;
@@ -909,35 +939,54 @@ button:disabled:hover {
 }
 
 .bio-day {
-  min-height: 36px;
+  position: relative;
+  min-height: 52px;
   border: 2px solid #d7d0bf;
   border-radius: 12px;
   background: #fff;
   color: #27313a;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
 }
 
 .bio-day .day-number {
+  position: absolute;
+  z-index: 1;
+  top: 6px;
+  left: 8px;
   display: block;
-  font-size: 1.26rem;
-  font-weight: 700;
+  font-size: 1rem;
+  font-weight: 800;
   line-height: 1;
 }
 
-.bio-day .day-meta {
-  display: block;
-  max-width: 100%;
-  font-size: 0.56rem;
-  font-weight: 800;
-  line-height: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.day-part-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 30px;
+  height: 30px;
+  padding: 4px;
+  box-sizing: border-box;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  background: rgba(255, 253, 247, 0.92);
+  box-shadow: 0 1px 2px rgba(39, 49, 58, 0.18);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.65;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform: translate(-50%, -50%);
+}
+
+.day-part-icon.part-root { color: #644817; }
+.day-part-icon.part-leaf { color: #2f6eb8; }
+.day-part-icon.part-flower { color: #d8ac00; fill: currentColor; }
+.day-part-icon.part-fruit { color: #d64b3b; fill: currentColor; }
+.day-part-icon.part-rest { color: #6d7680; }
+
+.bio-day.out .day-part-icon {
+  background: rgba(255, 253, 247, 0.82);
 }
 
 .bio-day.today {
@@ -952,10 +1001,8 @@ button:disabled:hover {
   border: 2px solid currentColor;
   border-radius: 50%;
   top: 5px;
-  left: 5px;
+  right: 5px;
 }
-
-.bio-day.today { position: relative; }
 
 .bio-day.selected {
   border-color: #111827 !important;
@@ -967,7 +1014,7 @@ button:disabled:hover {
 }
 
 .bio-day.out .day-number,
-.bio-day.out .day-meta {
+.bio-day.out .day-part-icon {
   opacity: 0.68;
 }
 
@@ -1660,6 +1707,23 @@ button:disabled:hover {
 
   .segment-list li {
     display: block;
+  }
+
+  .bio-day {
+    min-height: 54px;
+  }
+
+  .bio-day .day-number {
+    top: 4px;
+    left: 5px;
+    font-size: 0.75rem;
+  }
+
+  .day-part-icon {
+    top: 64%;
+    width: 24px;
+    height: 24px;
+    padding: 3px;
   }
 }
 
