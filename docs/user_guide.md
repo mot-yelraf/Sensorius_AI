@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../assets/screenshots/01-sensorius-overview-v4.png" alt="Sensorius system overview" width="1200">
+</p>
+
 # Sensorius User Guide
 
 Sensorius Automatio Instrumentorum, also called Sensorius AI or Sensorius, is an environmental sensing and automation hub for gardens, greenhouses, grow rooms, small farms, and other places where environmental conditions matter. It gives you live readings, historical graphs, switch control, calibration tools, optional integrations with Home Assistant, WeeWX, and farmOS, and a fully integrated biodynamic calendar.

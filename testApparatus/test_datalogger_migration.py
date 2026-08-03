@@ -473,6 +473,52 @@ def test_latest_timestamps_bulk_lookup_uses_one_result_per_sensor(tmp_path, monk
         saiDataLogger._schema_ready = False
 
 
+def test_bulk_latest_values_reconciles_stale_memory_cache(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    class _StubSettings:
+        def __init__(self, apply_live=False):
+            self.apply_live = apply_live
+
+        def get_setting(self, section, key):
+            if section == "Time" and key in ("TZ", "tz"):
+                return "America/Denver"
+            return None
+
+    monkeypatch.setattr(saiSettings, "saiSettings", _StubSettings)
+
+    db_path = tmp_path / "latest-values-cache.db"
+    saiDataLogger._schema_ready = False
+    dashboard_logger = saiDataLogger(db_path=str(db_path))
+
+    try:
+        dashboard_logger.log_readings(
+            "2026-05-24T12:00:00",
+            "co2-ykdvea",
+            {"CO2": 700.0, "Temperature": 24.0},
+        )
+        values, timestamps = dashboard_logger.get_latest_values_and_timestamps(["co2-ykdvea"])
+        assert values["co2-ykdvea"]["CO2"] == 700.0
+        assert timestamps["co2-ykdvea"] == "2026-05-24T12:00:00-06:00"
+
+        # Simulate a committed writer that does not share this logger's RAM cache.
+        with dashboard_logger._writer_lock:
+            dashboard_logger._writer_conn.execute(
+                "INSERT INTO readings (timestamp, ts_epoch, sensor_id, metric, value) VALUES (?, ?, ?, ?, ?)",
+                ("2026-05-24T12:05:00-06:00", 1779645900.0, "co2-ykdvea", "CO2", 725.0),
+            )
+            dashboard_logger._writer_conn.commit()
+        assert dashboard_logger.sensor_values["co2-ykdvea"]["CO2"] == 700.0
+
+        values, timestamps = dashboard_logger.get_latest_values_and_timestamps(["co2-ykdvea"])
+
+        assert values["co2-ykdvea"]["CO2"] == 725.0
+        assert values["co2-ykdvea"]["Temperature"] == 24.0
+        assert timestamps["co2-ykdvea"] == "2026-05-24T12:05:00-06:00"
+        assert dashboard_logger.sensor_values["co2-ykdvea"]["CO2"] == 725.0
+    finally:
+        dashboard_logger.close()
+        saiDataLogger._schema_ready = False
+
+
 def test_calibration_manager_uses_bulk_metrics_lookup_for_calibratable_sensors():
     class _Logger:
         def __init__(self):

@@ -224,6 +224,31 @@ def test_dashboard_live_refresh_has_recovery_hooks():
     assert "document.addEventListener('visibilitychange'" in html
 
 
+def test_dashboard_renders_centered_overview_graphic_at_bottom():
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            [],
+            {},
+            {},
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=get_gauge_config(),
+            expected_gauge_map={},
+        )
+    )
+    css = (Path(__file__).resolve().parents[1] / "ui_static" / "css" / "app.css").read_text(encoding="utf-8")
+
+    graphic = "<div class='dashboard-overview-graphic'>"
+    assert graphic in html
+    assert "src='/ui_static/01-sensorius-overview-v4.png'" in html
+    assert html.index(graphic) < html.index("<div id='modal-host'></div>")
+    assert ".dashboard-overview-graphic{" in css
+    assert "order:9999;" in css
+    assert "justify-content:center;" in css
+    assert "width:min(100%, 522px);" in css
+
+
 def test_dashboard_metric_cards_render_and_refresh_trend_arrows():
     html = "".join(
         render_dashboard(

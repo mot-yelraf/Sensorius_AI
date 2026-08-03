@@ -68,6 +68,20 @@ body{
   padding:1rem;
 }
 
+.dashboard-overview-graphic{
+  order:9999;
+  flex:0 0 100%;
+  display:flex;
+  justify-content:center;
+  padding:1rem 0;
+}
+
+.dashboard-overview-graphic img{
+  display:block;
+  width:min(100%, 522px);
+  height:auto;
+}
+
 /* Each sensor’s row of metrics */
 .sensor-row{
   display:flex;

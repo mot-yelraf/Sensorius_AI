@@ -2149,13 +2149,13 @@ class saiDataLogger:
         return result
 
     def get_latest_values_and_timestamps(self, sensor_ids: list[str]) -> tuple[dict[str, dict], dict[str, str]]:
+        """Return the newest persisted packet for each sensor and refresh RAM snapshots."""
         clean_ids = [str(sid or "").strip() for sid in (sensor_ids or []) if str(sid or "").strip()]
         if not clean_ids:
             return {}, {}
 
         values_out: dict[str, dict] = {}
         timestamps_out: dict[str, str] = {}
-        missing_ids: list[str] = []
 
         for sid in clean_ids:
             cached_values = self.sensor_values.get(sid)
@@ -2164,21 +2164,14 @@ class saiDataLogger:
                 values_out[sid] = dict(cached_values)
             if cached_ts:
                 timestamps_out[sid] = cached_ts
-            if not cached_values or not cached_ts:
-                missing_ids.append(sid)
 
-        if not missing_ids:
-            values_out = {
-                sid: self._with_fallback_derived_metrics(sid, values)
-                for sid, values in values_out.items()
-            }
-            for sid, values in values_out.items():
-                if values:
-                    self.sensor_values[sid] = dict(values)
-            return values_out, timestamps_out
-
-        sid_map = {sid.lower(): sid for sid in missing_ids}
+        # The database may be written through another logger instance or process.
+        # Always reconcile the dashboard snapshot with persisted data so a populated
+        # RAM cache cannot remain stale while graph queries continue to advance.
+        sid_map = {sid.lower(): sid for sid in clean_ids}
         placeholders = ",".join("?" for _ in sid_map)
+        db_values: dict[str, dict] = {}
+        db_timestamps: dict[str, str] = {}
         try:
             with self._open_conn() as conn:
                 cur = conn.cursor()
@@ -2213,18 +2206,22 @@ class saiDataLogger:
             ts = row[1]
             metric = row[2]
             value = row[3]
-            if sid not in values_out:
-                values_out[sid] = {}
+            if sid not in db_values:
+                db_values[sid] = {}
             if metric:
-                values_out[sid][metric] = value
-            if ts and sid not in timestamps_out:
-                timestamps_out[sid] = ts
+                db_values[sid][metric] = value
+            if ts and sid not in db_timestamps:
+                db_timestamps[sid] = ts
 
-        for sid in missing_ids:
-            if sid in values_out and values_out[sid]:
-                self.sensor_values[sid] = dict(values_out[sid])
-            if sid in timestamps_out and timestamps_out[sid]:
-                self.sensor_timestamps[sid] = timestamps_out[sid]
+        for sid in clean_ids:
+            if sid in db_values and db_values[sid]:
+                reconciled = dict(values_out.get(sid) or {})
+                reconciled.update(db_values[sid])
+                values_out[sid] = reconciled
+                self.sensor_values[sid] = dict(reconciled)
+            if sid in db_timestamps and db_timestamps[sid]:
+                timestamps_out[sid] = db_timestamps[sid]
+                self.sensor_timestamps[sid] = db_timestamps[sid]
 
         values_out = {
             sid: self._with_fallback_derived_metrics(sid, values)

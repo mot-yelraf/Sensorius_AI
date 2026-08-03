@@ -77,6 +77,9 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     root = Path(__file__).resolve().parents[1]
     template = (root / "ui_templates" / "biodynamic_calendar" / "index.html").read_text(encoding="utf-8")
     stylesheet = (root / "ui_static" / "biodynamic_calendar" / "app.css").read_text(encoding="utf-8")
+    calendar_icon = (root / "ui_static" / "biodynamic_calendar" / "bd-calendar-icon-512.svg").read_text(
+        encoding="utf-8"
+    )
     javascript = (root / "ui_static" / "biodynamic_calendar" / "app.js").read_text(encoding="utf-8")
     dashboard = (root / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
 
@@ -96,7 +99,10 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     assert '/ui_static/biodynamic_calendar/bd-calendar-icon-512.svg' in template
     assert "grid-template-columns: minmax(320px, 1fr) 214px minmax(320px, 1fr);" in stylesheet
     assert "border-radius: 50%;" in stylesheet
-    assert "transform: scale(1.24);" in stylesheet
+    assert "object-fit: contain;" in stylesheet
+    assert "transform: scale(1.24);" not in stylesheet
+    assert 'viewBox="61 61 390 390"' in calendar_icon
+    assert '<circle cx="256" cy="256" r="182" fill="none" stroke="#173f35" stroke-width="26"/>' in calendar_icon
     assert 'id="planetaryAttributes"' in template
     assert "cosmic.planet_zodiac" in javascript
     assert "Current Major Aspects" in javascript
