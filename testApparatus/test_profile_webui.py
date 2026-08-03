@@ -29,6 +29,10 @@ def test_build_js_helper_discovers_current_dashboard_target_shapes():
     assert "switch_count" in helper
     assert "metric_count" in helper
     assert "weatherForecastModal" in helper
+    assert "profileDashboardRefresh" in helper
+    assert "overview_image_requested" in helper
+    assert "overview.complete" in helper
+    assert "pageMetrics()" in helper
 
 
 def test_modal_scenarios_accept_explicit_targets():
@@ -47,8 +51,10 @@ def test_modal_scenarios_accept_explicit_targets():
     assert "visibleMetricTargets()" in fullscreen_graph.js_factory
     assert "graphButton" in fullscreen_graph.js_factory
     assert "fullscreen_graph_container" in fullscreen_graph.js_factory
-    assert "bioPrevMonthBtn" in month_selectors.js_factory
-    assert "bioNextMonthBtn" in month_selectors.js_factory
+    assert "prevBtn" in month_selectors.js_factory
+    assert "nextBtn" in month_selectors.js_factory
+    assert "monthLabel" in month_selectors.js_factory
+    assert "document.getElementById('calendar')" in month_selectors.js_factory
     assert "next month render" in month_selectors.js_factory
     assert "second next month render" in month_selectors.js_factory
     assert "previous month render" in month_selectors.js_factory
@@ -83,6 +89,32 @@ def test_summary_counts_skipped_and_failed_scenario_samples():
     assert block["error_count"] == 1
     assert block["total_ms"]["median_ms"] == 20
     assert block["alerts"] == ["Graph load failed"]
+
+
+def test_summary_reports_dashboard_refresh_and_renderer_metrics():
+    summary = profile_webui.build_summary(
+        {
+            "dashboard": [
+                {
+                    "navigation": {"load_event_ms": 12, "dom_content_loaded_ms": 8, "response_end_ms": 5},
+                    "page": {"transfer_size": 1200, "decoded_body_size": 2400},
+                    "renderer": {"task_ms": 4, "script_ms": 2, "js_heap_used_mb": 12},
+                    "refresh": {"ok": True, "total_ms": 20, "overview_image_requested": False},
+                },
+                {
+                    "navigation": {"load_event_ms": 14, "dom_content_loaded_ms": 9, "response_end_ms": 6},
+                    "page": {"transfer_size": 1400, "decoded_body_size": 2600},
+                    "renderer": {"task_ms": 6, "script_ms": 3, "js_heap_used_mb": 14},
+                    "refresh": {"ok": True, "total_ms": 30, "overview_image_requested": True},
+                },
+            ]
+        },
+        (),
+    )
+
+    assert summary["dashboard"]["refresh_total_ms"]["median_ms"] == 25
+    assert summary["dashboard"]["renderer_task_ms"]["median_ms"] == 5
+    assert summary["dashboard"]["overview_image_refresh_requests"] == 1
 
 
 def test_scenario_error_skip_only_marks_optional_missing_targets():

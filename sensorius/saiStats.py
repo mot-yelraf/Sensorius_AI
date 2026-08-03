@@ -63,11 +63,11 @@ class saiStats:
         pressure_window_s: int = 3 * 60 * 60,
         min_samples: int = 6,
     ) -> dict[str, dict[str, dict]]:
-        """Return recent least-squares rates in metric units per hour."""
+        """Return recent least-squares rates for sensors active in the last 24h."""
         window_s = max(60, int(window_s or 60))
         pressure_window_s = max(window_s, int(pressure_window_s or window_s))
         min_samples = max(2, int(min_samples or 2))
-        params: list[object] = []
+        params: list[object] = [self._since_epoch_24h()]
         sensor_clause = ""
         if sensor_id is not None:
             sensor_clause = "AND sensor_id = ? COLLATE NOCASE"
@@ -81,6 +81,7 @@ class saiStats:
                 FROM readings
                 WHERE value IS NOT NULL
                   AND ts_epoch IS NOT NULL
+                  AND ts_epoch >= ?
                   {sensor_clause}
                 GROUP BY sensor_id
             )
@@ -230,7 +231,7 @@ class saiStats:
         return result
 
     def get_all_stats_fast(self):
-        """Return 24h stats for all sensors in one DB pass for websocket broadcasting."""
+        """Return batched 24h stats for all sensors for dashboard updates."""
         try:
             return self._get_all_stats_fast_impl()
         except sqlite3.DatabaseError as exc:
@@ -239,7 +240,7 @@ class saiStats:
             raise
 
     def _get_all_stats_fast_impl(self):
-        """Return 24h stats for all sensors in one DB pass for websocket broadcasting."""
+        """Return batched 24h stats without sorting every reading twice."""
         now_mono = time.monotonic()
         if self._all_stats_cache and self._all_stats_cache[0] > now_mono:
             return {
@@ -253,7 +254,7 @@ class saiStats:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                WITH filtered AS (
+                WITH filtered AS MATERIALIZED (
                     SELECT
                         sensor_id,
                         metric,
@@ -264,33 +265,41 @@ class saiStats:
                     WHERE value IS NOT NULL
                       AND ts_epoch >= ?
                 ),
-                ranked AS (
+                aggregates AS (
                     SELECT
                         sensor_id,
                         metric,
-                        value,
-                        timestamp,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY sensor_id, metric
-                            ORDER BY value ASC, ts ASC, timestamp ASC
-                        ) AS rn_min,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY sensor_id, metric
-                            ORDER BY value DESC, ts DESC, timestamp DESC
-                        ) AS rn_max,
-                        AVG(value) OVER (PARTITION BY sensor_id, metric) AS avg_value
+                        MIN(value) AS min_val,
+                        AVG(value) AS avg_val,
+                        MAX(value) AS max_val
                     FROM filtered
+                    GROUP BY sensor_id, metric
                 )
                 SELECT
                     sensor_id,
                     metric,
-                    MAX(CASE WHEN rn_min = 1 THEN value END) AS min_val,
-                    MAX(CASE WHEN rn_min = 1 THEN timestamp END) AS min_ts,
-                    MAX(avg_value) AS avg_val,
-                    MAX(CASE WHEN rn_max = 1 THEN value END) AS max_val,
-                    MAX(CASE WHEN rn_max = 1 THEN timestamp END) AS max_ts
-                FROM ranked
-                GROUP BY sensor_id, metric
+                    min_val,
+                    (
+                        SELECT timestamp
+                        FROM filtered AS min_row
+                        WHERE min_row.sensor_id = aggregates.sensor_id
+                          AND min_row.metric = aggregates.metric
+                          AND min_row.value = aggregates.min_val
+                        ORDER BY min_row.ts ASC, min_row.timestamp ASC
+                        LIMIT 1
+                    ) AS min_ts,
+                    avg_val,
+                    max_val,
+                    (
+                        SELECT timestamp
+                        FROM filtered AS max_row
+                        WHERE max_row.sensor_id = aggregates.sensor_id
+                          AND max_row.metric = aggregates.metric
+                          AND max_row.value = aggregates.max_val
+                        ORDER BY max_row.ts DESC, max_row.timestamp DESC
+                        LIMIT 1
+                    ) AS max_ts
+                FROM aggregates
                 """,
                 (since_epoch,),
             )

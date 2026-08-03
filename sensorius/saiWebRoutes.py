@@ -93,7 +93,7 @@ from .saiFastStats import FastStats
 from .saiSensorSettingsManager import SensorSettingsManager, infer_direct_local_device, is_direct_local_sensor_id
 from .saiSwitchSettingsManager import SwitchSettingsManager
 from .saiBiodynamics import get_biodynamic_payload, get_biodynamic_local_now, get_skyfield_runtime_if_installed
-from .saiDailySummary import DailySummaryService, DEFAULT_FORECAST_DAYS
+from .saiDailySummary import DailySummaryService, DEFAULT_PREWARM_DAYS, get_summary_prewarm_days
 from .saiNodusOTA import NodusOTAError, NodusOTAService
 from .saiEmailNotifications import EmailConfig, SMTPEmailSender, normalize_notification_rules
 from .saiWeatherForecast import get_weather_forecast_payload, normalize_weather_forecast_provider
@@ -571,6 +571,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     astro_payload_cache_lock = threading.Lock()
     astro_payload_cache_generation = 0
     main_loop = asyncio.get_running_loop()
+    daily_summary_service = DailySummaryService(settings=settings, data_logger=data_logger)
+    app.state.daily_summary_service = daily_summary_service
     ota_service = getattr(app.state, "nodus_ota_service", None)
     if ota_service is None:
         ota_service = NodusOTAService(settings=settings, mqtt_ingest=mqtt_ingest)
@@ -614,6 +616,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         try:
             from .saiBiodynamics import clear_biodynamic_payload_cache
             clear_biodynamic_payload_cache()
+        except Exception:
+            pass
+        try:
+            calendar_service = getattr(app.state, "biodynamic_calendar_service", None)
+            if calendar_service is not None:
+                calendar_service.clear_dynamic_cache()
         except Exception:
             pass
 
@@ -781,11 +789,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         async def _warm_summary_window() -> None:
             try:
-                service = DailySummaryService(settings=settings, data_logger=data_logger)
                 await asyncio.to_thread(
-                    service.ensure_summaries_for_window,
+                    daily_summary_service.ensure_summaries_for_window,
                     window_start,
-                    days=DEFAULT_FORECAST_DAYS,
+                    days=get_summary_prewarm_days(),
                     refresh_start=True,
                 )
                 setattr(app.state, "_biodynamic_summary_window_month", month_key)
@@ -5599,14 +5606,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     timeout_sec=2.5,
                 )
                 if resolved.get("lat") is not None and resolved.get("lon") is not None and resolved.get("tz"):
-                    service = DailySummaryService(settings=settings, data_logger=data_logger)
                     repair_dates = [
                         visible_date
                         for visible_date in visible_dates
-                        if service.summary_needs_location_repair(daily_summaries.get(visible_date.isoformat(), ""))
+                        if daily_summary_service.summary_needs_location_repair(
+                            daily_summaries.get(visible_date.isoformat(), "")
+                        )
                     ]
                     if repair_dates:
-                        await asyncio.to_thread(service.repair_summaries_for_dates, repair_dates)
+                        await asyncio.to_thread(daily_summary_service.repair_summaries_for_dates, repair_dates)
                         daily_summaries = await asyncio.to_thread(
                             data_logger.get_biodynamic_daily_summaries_for_range,
                             range_start,

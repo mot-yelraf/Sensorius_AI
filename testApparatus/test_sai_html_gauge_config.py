@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from sensorius.saiHtml import get_gauge_config, render_dashboard, render_graph_modal
+from sensorius.saiHtml import APP_VERSION, get_gauge_config, render_dashboard, render_graph_modal
 
 
 def test_soil_fertility_index_gauge_config_uses_contract_scale_and_zones():
@@ -241,7 +241,7 @@ def test_dashboard_renders_centered_overview_graphic_at_bottom():
 
     graphic = "<div class='dashboard-overview-graphic'>"
     assert graphic in html
-    assert "src='/ui_static/01-sensorius-overview-v4.png'" in html
+    assert f"src='/ui_static/01-sensorius-overview-v4.png?v={APP_VERSION}'" in html
     assert html.index(graphic) < html.index("<div id='modal-host'></div>")
     assert ".dashboard-overview-graphic{" in css
     assert "order:9999;" in css

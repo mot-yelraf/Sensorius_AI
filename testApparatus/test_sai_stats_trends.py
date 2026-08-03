@@ -75,6 +75,85 @@ def test_fast_all_sensor_stats_include_database_backed_trends(tmp_path):
     assert pressure["provisional"] is True
 
 
+def test_fast_all_sensor_stats_preserve_deterministic_extrema_timestamps(tmp_path):
+    db_path = tmp_path / "all-stats-extrema.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE readings (
+                timestamp TEXT,
+                ts_epoch REAL,
+                sensor_id TEXT,
+                metric TEXT,
+                value REAL
+            )
+            """
+        )
+        conn.executemany(
+            """
+            INSERT INTO readings(timestamp, ts_epoch, sensor_id, metric, value)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                ("2026-08-03T12:00:02Z", 102.0, "sensor-a", "Temperature", 1.0),
+                ("2026-08-03T12:00:01Z", 101.0, "sensor-a", "Temperature", 1.0),
+                ("2026-08-03T12:00:03Z", 103.0, "sensor-a", "Temperature", 3.0),
+                ("2026-08-03T12:00:04Z", 104.0, "sensor-a", "Temperature", 3.0),
+                ("2026-08-03T12:00:05Z", 105.0, "sensor-a", "Temperature", 2.0),
+            ),
+        )
+
+    statter = saiStats(str(db_path))
+    statter._since_epoch_24h = lambda: 100.0
+
+    temperature = statter.get_all_stats_fast()["sensor-a"]["Temperature"]
+
+    assert temperature["min"] == 1.0
+    assert temperature["min_ts"] == "2026-08-03T12:00:01Z"
+    assert temperature["avg"] == 2.0
+    assert temperature["max"] == 3.0
+    assert temperature["max_ts"] == "2026-08-03T12:00:04Z"
+
+
+def test_metric_trends_ignore_sensors_without_readings_in_last_24_hours(tmp_path):
+    db_path = tmp_path / "bounded-trends.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE readings (
+                timestamp TEXT,
+                ts_epoch REAL,
+                sensor_id TEXT,
+                metric TEXT,
+                value REAL
+            )
+            """
+        )
+        rows = []
+        for index in range(6):
+            rows.extend(
+                (
+                    ("", 100.0 + (index * 60), "stale-sensor", "Temperature", 10.0 + index),
+                    ("", 1100.0 + (index * 60), "recent-sensor", "Temperature", 20.0 + index),
+                )
+            )
+        conn.executemany(
+            """
+            INSERT INTO readings(timestamp, ts_epoch, sensor_id, metric, value)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+
+        statter = saiStats(str(db_path))
+        statter._since_epoch_24h = lambda: 1000.0
+        trends = statter._metric_trends(conn)
+
+    assert "stale-sensor" not in trends
+    assert trends["recent-sensor"]["Temperature"]["samples"] == 6
+    assert trends["recent-sensor"]["Temperature"]["window_s"] == 5 * 60
+
+
 def test_trends_require_six_samples_spanning_five_minutes(tmp_path):
     db_path = tmp_path / "short-trend-history.db"
     _seed_readings_db(db_path, samples=5)

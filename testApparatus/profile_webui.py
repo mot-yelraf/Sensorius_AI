@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Profile Sensorius Web UI flows in a real Chrome session.
+"""Profile Sensorius Web UI flows in a real Chromium session.
 
 Profiles:
 - dashboard initial load
@@ -8,10 +8,10 @@ Profiles:
 - switch settings modal
 - 6 day weather forecast modal
 - full-screen graph modal
-- biodynamic calendar modal
-- biodynamic calendar month selectors
+- integrated biodynamic calendar navigation and initial render
+- integrated biodynamic calendar month selectors
 
-The script launches headless Chrome with the DevTools protocol enabled,
+The script launches headless Chromium with the DevTools protocol enabled,
 drives the dashboard UI, and prints summary timing stats plus raw samples.
 """
 
@@ -38,7 +38,6 @@ import websockets
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000/"
 DEFAULT_CHROME_PATHS = (
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
     "google-chrome",
     "chromium",
@@ -84,6 +83,16 @@ def parse_args() -> argparse.Namespace:
 
 def resolve_chrome_path(explicit: str) -> str:
     candidates = [explicit] if explicit else []
+    if not explicit:
+        candidates.extend(
+            str(path)
+            for path in sorted(
+                (Path.home() / "Library" / "Caches" / "ms-playwright").glob(
+                    "chromium_headless_shell-*/chrome-headless-shell-mac-*/chrome-headless-shell"
+                ),
+                reverse=True,
+            )
+        )
     candidates.extend(DEFAULT_CHROME_PATHS)
     for candidate in candidates:
         if not candidate:
@@ -210,6 +219,7 @@ class CDPClient:
         await self.send("Page.enable")
         await self.send("Runtime.enable")
         await self.send("Network.enable")
+        await self.send("Performance.enable")
 
     async def navigate(self, url: str, timeout_sec: float) -> None:
         await self.send("Page.navigate", {"url": url})
@@ -240,6 +250,14 @@ class CDPClient:
             raise RuntimeError(text)
         value = result.get("result", {}).get("value")
         return value
+
+    async def performance_metrics(self) -> dict[str, float]:
+        result = await self.send("Performance.getMetrics")
+        return {
+            str(item.get("name") or ""): float(item.get("value") or 0.0)
+            for item in result.get("metrics", [])
+            if item.get("name")
+        }
 
 
 def _js_string(value: str) -> str:
@@ -405,6 +423,24 @@ def build_js_helper(timeout_ms: int) -> str:
         decoded_body_size: Number(nav.decodedBodySize || 0),
       }};
     }},
+    pageMetrics() {{
+      const resources = performance.getEntriesByType('resource').map((entry) => ({{
+        name: String(entry.name || ''),
+        initiator_type: String(entry.initiatorType || ''),
+        duration_ms: Number((entry.duration || 0).toFixed(2)),
+        transfer_size: Number(entry.transferSize || 0),
+        encoded_body_size: Number(entry.encodedBodySize || 0),
+        decoded_body_size: Number(entry.decodedBodySize || 0),
+      }}));
+      const slowest = resources.slice().sort((a, b) => b.duration_ms - a.duration_ms).slice(0, 8);
+      return {{
+        resource_count: resources.length,
+        transfer_size: resources.reduce((sum, item) => sum + item.transfer_size, 0),
+        encoded_body_size: resources.reduce((sum, item) => sum + item.encoded_body_size, 0),
+        decoded_body_size: resources.reduce((sum, item) => sum + item.decoded_body_size, 0),
+        slowest,
+      }};
+    }},
     discoverTargets() {{
       const sensorIds = this.sensorIds();
       const switchIds = this.switchIds();
@@ -493,6 +529,31 @@ def build_js_helper(timeout_ms: int) -> str:
         window.fetch = originalFetch;
         window.alert = originalAlert;
       }}
+    }},
+    async profileDashboardRefresh() {{
+      if (typeof window.updateGauges !== 'function') throw new Error('updateGauges is unavailable');
+      await window.updateGauges({{ ignoreVisibility: true, ignoreModal: true }});
+      await this.nextPaint();
+      const overview = document.querySelector("img[src*='01-sensorius-overview-v4.png']");
+      if (overview && !overview.complete) {{
+        await Promise.race([
+          new Promise(resolve => overview.addEventListener('load', resolve, {{ once: true }})),
+          new Promise(resolve => overview.addEventListener('error', resolve, {{ once: true }})),
+          this.sleep(5000),
+        ]);
+      }}
+      performance.clearResourceTimings();
+      const started = performance.now();
+      await window.updateGauges({{ ignoreVisibility: true, ignoreModal: true }});
+      await this.nextPaint();
+      const resources = performance.getEntriesByType('resource').map((entry) => String(entry.name || ''));
+      return {{
+        ok: true,
+        total_ms: Number((performance.now() - started).toFixed(2)),
+        resource_count: resources.length,
+        resources,
+        overview_image_requested: resources.some((url) => url.includes('01-sensorius-overview-v4.png')),
+      }};
     }},
   }};
   return true;
@@ -675,27 +736,8 @@ SCENARIOS = (
     ),
     Scenario(
         name="calendar",
-        label="Calendar",
-        js_factory="""
-(() => window.__sensProfiler.profileAction({
-  label: 'biodynamic calendar modal',
-  open: async () => {
-    if (typeof window.openBiodynamicCalendarModal === 'function') {
-      await window.openBiodynamicCalendarModal();
-      return '';
-    }
-    const trigger = await window.__sensProfiler.waitFor(
-      () => document.getElementById('bioOpenBtn'),
-      window.__sensProfiler.timeoutMs,
-      'calendar trigger'
-    );
-    window.__sensProfiler.click(trigger);
-    return '';
-  },
-  waitFor: () => document.getElementById('biodynamicCalendarModal'),
-  ready: (modal) => modal.querySelector('#bioModalCalendar .bio-day'),
-}))()
-""",
+        label="Integrated Calendar",
+        js_factory="",
     ),
     Scenario(
         name="calendar_month_selectors",
@@ -703,34 +745,12 @@ SCENARIOS = (
         js_factory="""
 (() => window.__sensProfiler.profileAction({
   label: 'biodynamic calendar month selectors',
-  setup: async () => {
-    if (typeof window.openBiodynamicCalendarModal === 'function') {
-      await window.openBiodynamicCalendarModal();
-    } else {
-      const trigger = await window.__sensProfiler.waitFor(
-        () => document.getElementById('bioOpenBtn'),
-        window.__sensProfiler.timeoutMs,
-        'calendar trigger'
-      );
-      window.__sensProfiler.click(trigger);
-    }
-    const modal = await window.__sensProfiler.waitFor(
-      () => document.getElementById('biodynamicCalendarModal'),
-      window.__sensProfiler.timeoutMs,
-      'biodynamic calendar modal'
-    );
-    await window.__sensProfiler.waitFor(
-      () => modal.querySelector('#bioModalCalendar .bio-day'),
-      window.__sensProfiler.timeoutMs,
-      'biodynamic calendar ready'
-    );
-  },
   open: async () => {
-    const modal = document.getElementById('biodynamicCalendarModal');
-    const label = document.getElementById('bioModalMonthLabel');
-    const prev = document.getElementById('bioPrevMonthBtn');
-    const next = document.getElementById('bioNextMonthBtn');
-    if (!modal || !label || !prev || !next) throw new Error('Calendar month controls not found');
+    const calendar = document.getElementById('calendar');
+    const label = document.getElementById('monthLabel');
+    const prev = document.getElementById('prevBtn');
+    const next = document.getElementById('nextBtn');
+    if (!calendar || !label || !prev || !next) throw new Error('Integrated calendar month controls not found');
 
     const initialLabel = String(label.textContent || '').trim();
     const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -745,7 +765,7 @@ SCENARIOS = (
     const shiftMonth = async (button, beforeLabel, labelText) => {
       window.__sensProfiler.click(button);
       await window.__sensProfiler.waitFor(
-        () => String(label.textContent || '').trim() && String(label.textContent || '').trim() !== beforeLabel && modal.querySelector('#bioModalCalendar .bio-day'),
+        () => String(label.textContent || '').trim() && String(label.textContent || '').trim() !== beforeLabel && calendar.querySelector('.bio-day') && calendar.getAttribute('aria-busy') !== 'true',
         window.__sensProfiler.timeoutMs,
         labelText
       );
@@ -768,8 +788,8 @@ SCENARIOS = (
     }
     return `${initialLabel} -> ${nextLabel} -> ${secondNextLabel} -> ${prevLabel} -> ${finalLabel}`;
   },
-  waitFor: () => document.getElementById('biodynamicCalendarModal'),
-  ready: (modal) => modal.querySelector('#bioModalCalendar .bio-day'),
+  waitFor: () => document.getElementById('calendar'),
+  ready: (calendar) => calendar.querySelector('.bio-day') && calendar.getAttribute('aria-busy') !== 'true',
 }))()
 """,
     ),
@@ -821,13 +841,94 @@ def preflight_dashboard(base_url: str, timeout_sec: float) -> None:
         raise RuntimeError(f"Dashboard preflight failed for {base_url}: {exc}") from exc
 
 
+def performance_delta(before: dict[str, float], after: dict[str, float]) -> dict[str, float]:
+    seconds_metrics = ("TaskDuration", "ScriptDuration", "LayoutDuration", "RecalcStyleDuration")
+    result = {
+        f"{name.replace('Duration', '').lower()}_ms": round(
+            max(0.0, after.get(name, 0.0) - before.get(name, 0.0)) * 1000.0,
+            2,
+        )
+        for name in seconds_metrics
+    }
+    result["js_heap_used_mb"] = round(after.get("JSHeapUsedSize", 0.0) / (1024.0 * 1024.0), 2)
+    result["nodes"] = round(after.get("Nodes", 0.0), 0)
+    result["documents"] = round(after.get("Documents", 0.0), 0)
+    return result
+
+
 async def collect_dashboard_sample(client: CDPClient) -> dict[str, Any]:
     nav = await client.evaluate("window.__sensProfiler.navMetrics()")
+    page = await client.evaluate("window.__sensProfiler.pageMetrics()")
     targets = await client.evaluate("window.__sensProfiler.discoverTargets()")
+    performance_after = await client.performance_metrics()
+    try:
+        refresh = await client.evaluate("window.__sensProfiler.profileDashboardRefresh()")
+    except Exception as exc:
+        refresh = {"ok": False, "error": str(exc)}
     return {
         "ok": True,
         "navigation": nav,
+        "page": page,
+        "renderer": performance_delta({}, performance_after),
+        "refresh": refresh,
         "targets": targets,
+    }
+
+
+async def navigate_to_integrated_calendar(
+    client: CDPClient,
+    base_url: str,
+    timeout_sec: float,
+    timeout_ms: int,
+) -> dict[str, Any]:
+    started = time.monotonic()
+    await client.evaluate(
+        """
+(() => {
+  const trigger = document.getElementById('bioOpenBtn');
+  if (!trigger) throw new Error('Calendar dashboard trigger not found');
+  trigger.click();
+  return true;
+})()
+"""
+    )
+    deadline = time.monotonic() + max(float(timeout_sec), 1.0)
+    last_error = ""
+    while time.monotonic() < deadline:
+        try:
+            ready = await client.evaluate(
+                "window.location.pathname === '/calendar' && "
+                "document.readyState === 'complete' && "
+                "!!document.querySelector('#calendar .bio-day') && "
+                "document.getElementById('calendar').getAttribute('aria-busy') !== 'true'"
+            )
+            if ready:
+                break
+        except Exception as exc:  # execution context changes during navigation
+            last_error = str(exc)
+        await asyncio.sleep(0.05)
+    else:
+        raise TimeoutError(f"Timed out loading integrated calendar from {base_url}: {last_error}")
+
+    await client.evaluate(build_js_helper(timeout_ms))
+    nav = await client.evaluate("window.__sensProfiler.navMetrics()")
+    page = await client.evaluate("window.__sensProfiler.pageMetrics()")
+    after = await client.performance_metrics()
+    return {
+        "ok": True,
+        "total_ms": round((time.monotonic() - started) * 1000.0, 2),
+        "navigation": nav,
+        "page": page,
+        "renderer": performance_delta({}, after),
+        "selected_value": str(await client.evaluate("document.getElementById('monthLabel').textContent || ''")).strip(),
+        "fetch_count": sum(1 for item in (page or {}).get("slowest", []) if item.get("initiator_type") == "fetch"),
+        "fetch_total_ms": 0.0,
+        "max_fetch_ms": max(
+            [float(item.get("duration_ms") or 0.0) for item in (page or {}).get("slowest", []) if item.get("initiator_type") == "fetch"],
+            default=0.0,
+        ),
+        "long_task_total_ms": 0.0,
+        "alerts": [],
     }
 
 
@@ -876,6 +977,25 @@ async def configure_profiler_targets(client: CDPClient, args: argparse.Namespace
     )
 
 
+async def ensure_profiler_helper(
+    client: CDPClient,
+    args: argparse.Namespace,
+    timeout_ms: int,
+) -> None:
+    deadline = time.monotonic() + max(float(args.timeout_sec), 1.0)
+    last_error = ""
+    while time.monotonic() < deadline:
+        try:
+            if await client.evaluate("document.readyState === 'complete'"):
+                await client.evaluate(build_js_helper(timeout_ms))
+                await configure_profiler_targets(client, args)
+                return
+        except Exception as exc:  # execution context can change during a recovery reload
+            last_error = str(exc)
+        await asyncio.sleep(0.05)
+    raise TimeoutError(f"Timed out restoring profiler helper after dashboard refresh: {last_error}")
+
+
 def summarize_metric(values: list[float]) -> dict[str, float] | None:
     vals = [float(v) for v in values if isinstance(v, (int, float))]
     if not vals:
@@ -892,9 +1012,21 @@ def summarize_metric(values: list[float]) -> dict[str, float] | None:
 def build_summary(samples: dict[str, list[dict[str, Any]]], scenarios: tuple[Scenario, ...] = SCENARIOS) -> dict[str, Any]:
     out: dict[str, Any] = {}
     dashboard_nav = [item.get("navigation") or {} for item in samples.get("dashboard", [])]
+    dashboard_pages = [item.get("page") or {} for item in samples.get("dashboard", [])]
+    dashboard_renderers = [item.get("renderer") or {} for item in samples.get("dashboard", [])]
+    dashboard_refreshes = [item.get("refresh") or {} for item in samples.get("dashboard", [])]
     out["dashboard"] = {
         "load_event_ms": summarize_metric([item.get("load_event_ms") for item in dashboard_nav]),
         "dom_content_loaded_ms": summarize_metric([item.get("dom_content_loaded_ms") for item in dashboard_nav]),
+        "response_end_ms": summarize_metric([item.get("response_end_ms") for item in dashboard_nav]),
+        "resource_transfer_bytes": summarize_metric([item.get("transfer_size") for item in dashboard_pages]),
+        "resource_decoded_bytes": summarize_metric([item.get("decoded_body_size") for item in dashboard_pages]),
+        "renderer_task_ms": summarize_metric([item.get("task_ms") for item in dashboard_renderers]),
+        "renderer_script_ms": summarize_metric([item.get("script_ms") for item in dashboard_renderers]),
+        "js_heap_used_mb": summarize_metric([item.get("js_heap_used_mb") for item in dashboard_renderers]),
+        "refresh_total_ms": summarize_metric([item.get("total_ms") for item in dashboard_refreshes]),
+        "refresh_error_count": sum(1 for item in dashboard_refreshes if item.get("ok") is False),
+        "overview_image_refresh_requests": sum(1 for item in dashboard_refreshes if item.get("overview_image_requested")),
     }
     for scenario in scenarios:
         rows = samples.get(scenario.name, [])
@@ -942,6 +1074,15 @@ def print_summary(
     print("Dashboard")
     print(f"  load_event_ms: {json.dumps(dash.get('load_event_ms'))}")
     print(f"  dom_content_loaded_ms: {json.dumps(dash.get('dom_content_loaded_ms'))}")
+    print(f"  response_end_ms: {json.dumps(dash.get('response_end_ms'))}")
+    print(f"  resource_transfer_bytes: {json.dumps(dash.get('resource_transfer_bytes'))}")
+    print(f"  resource_decoded_bytes: {json.dumps(dash.get('resource_decoded_bytes'))}")
+    print(f"  renderer_task_ms: {json.dumps(dash.get('renderer_task_ms'))}")
+    print(f"  renderer_script_ms: {json.dumps(dash.get('renderer_script_ms'))}")
+    print(f"  js_heap_used_mb: {json.dumps(dash.get('js_heap_used_mb'))}")
+    print(f"  refresh_total_ms: {json.dumps(dash.get('refresh_total_ms'))}")
+    print(f"  refresh_errors: {dash.get('refresh_error_count', 0)}")
+    print(f"  overview_image_refresh_requests: {dash.get('overview_image_refresh_requests', 0)}")
     print()
     for scenario in scenarios:
         block = summary.get(scenario.name, {})
@@ -965,6 +1106,14 @@ def print_summary(
 
 async def run(args: argparse.Namespace) -> dict[str, Any]:
     scenarios = select_scenarios(args.scenarios)
+    dashboard_scenarios = tuple(
+        scenario for scenario in scenarios if scenario.name not in {"calendar", "calendar_month_selectors"}
+    )
+    calendar_scenario = next((scenario for scenario in scenarios if scenario.name == "calendar"), None)
+    calendar_month_scenario = next(
+        (scenario for scenario in scenarios if scenario.name == "calendar_month_selectors"),
+        None,
+    )
     if not args.skip_preflight:
         preflight_dashboard(args.base_url, args.timeout_sec)
     chrome = ChromeSession(resolve_chrome_path(args.chrome_path), args.debug_port)
@@ -986,15 +1135,52 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
                 await client.evaluate(build_js_helper(timeout_ms))
                 await configure_profiler_targets(client, args)
                 results["dashboard"].append(await collect_dashboard_sample(client))
+                await ensure_profiler_helper(client, args, timeout_ms)
                 await pause_between_scenarios(client, args.cooldown_ms)
 
-                for scenario in scenarios:
+                for scenario in dashboard_scenarios:
                     sample = await collect_scenario_sample(client, scenario, args.timeout_sec)
                     sample["sample_index"] = index + 1
                     results[scenario.name].append(sample)
                     if args.fail_fast and sample.get("ok") is False and not sample.get("skipped"):
                         raise RuntimeError(str(sample.get("error") or f"{scenario.name} failed"))
                     await pause_between_scenarios(client, args.cooldown_ms)
+
+                if calendar_scenario or calendar_month_scenario:
+                    try:
+                        calendar_sample = await navigate_to_integrated_calendar(
+                            client,
+                            args.base_url,
+                            args.timeout_sec,
+                            timeout_ms,
+                        )
+                    except Exception as exc:
+                        calendar_sample = {"ok": False, "skipped": False, "error": str(exc)}
+                    calendar_sample["sample_index"] = index + 1
+                    if calendar_scenario:
+                        results[calendar_scenario.name].append(calendar_sample)
+                    if args.fail_fast and calendar_sample.get("ok") is False:
+                        raise RuntimeError(str(calendar_sample.get("error") or "integrated calendar failed"))
+                    await pause_between_scenarios(client, args.cooldown_ms)
+
+                    if calendar_month_scenario:
+                        if calendar_sample.get("ok") is True:
+                            month_sample = await collect_scenario_sample(
+                                client,
+                                calendar_month_scenario,
+                                args.timeout_sec,
+                            )
+                        else:
+                            month_sample = {
+                                "ok": False,
+                                "skipped": False,
+                                "error": "Integrated calendar did not load",
+                            }
+                        month_sample["sample_index"] = index + 1
+                        results[calendar_month_scenario.name].append(month_sample)
+                        if args.fail_fast and month_sample.get("ok") is False:
+                            raise RuntimeError(str(month_sample.get("error") or "calendar month selectors failed"))
+                        await pause_between_scenarios(client, args.cooldown_ms)
 
             summary = build_summary(results, scenarios)
             payload = {

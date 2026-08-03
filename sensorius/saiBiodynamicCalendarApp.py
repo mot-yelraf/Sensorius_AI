@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+import threading
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -31,6 +32,12 @@ from .saiUtils import debug_enabled, printDM
 MODULE = "saiBiodynamicCalendarApp"
 DEBUG = debug_enabled(MODULE)
 _MAX_CACHE_ENTRIES = 120
+_REGISTERED_SERVICE: "BiodynamicCalendarService | None" = None
+
+
+def get_registered_biodynamic_calendar_service() -> "BiodynamicCalendarService | None":
+    """Return the process-wide calendar service shared by UI and automations."""
+    return _REGISTERED_SERVICE
 
 
 def _env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
@@ -109,10 +116,13 @@ class BiodynamicCalendarService:
         self.supervisor = supervisor
         self.legacy_root = legacy_root or (Path.home() / ".biodynamic_calendar")
         self._build_lock = asyncio.Lock()
+        self._sync_build_lock = threading.RLock()
+        self._transition_lock = threading.Lock()
         self._month_tasks: dict[str, asyncio.Task] = {}
         self._summary_tasks: dict[str, asyncio.Task] = {}
         self._astro_cache: tuple[float, str, dict[str, object]] | None = None
         self._warm_task: asyncio.Task | None = None
+        self._transition_cache: tuple[str, float, dict[str, object]] | None = None
         self._legacy_import_lock = asyncio.Lock()
         self._legacy_import_done = False
 
@@ -276,18 +286,66 @@ class BiodynamicCalendarService:
 
     def build_month_sync(self, anchor: date, config: BiodynamicConfig) -> dict[str, object]:
         """Load or synchronously build one persisted month payload."""
-        cached = self._load_month(anchor, config)
-        if cached is not None:
-            return cached
-        payload = get_biodynamic_payload(anchor, config=config)
-        if payload.get("ok"):
-            self.data_logger.save_biodynamic_calendar_cache(
-                self._month_cache_key(anchor),
-                self._location_key(config),
-                payload,
-                max_entries=_MAX_CACHE_ENTRIES,
-            )
-        return dict(payload)
+        with self._sync_build_lock:
+            cached = self._load_month(anchor, config)
+            if cached is not None:
+                return cached
+            payload = get_biodynamic_payload(anchor, config=config)
+            if payload.get("ok"):
+                self.data_logger.save_biodynamic_calendar_cache(
+                    self._month_cache_key(anchor),
+                    self._location_key(config),
+                    payload,
+                    max_entries=_MAX_CACHE_ENTRIES,
+                )
+            return dict(payload)
+
+    def clear_dynamic_cache(self) -> None:
+        """Discard the small current-transition cache after location changes."""
+        with self._transition_lock:
+            self._transition_cache = None
+
+    def current_transition_sync(self) -> dict[str, object]:
+        """Return the current persisted BD segment without rebuilding a month per monitor tick."""
+        now_mono = time.monotonic()
+        with self._transition_lock:
+            cached = self._transition_cache
+            if cached and cached[1] > now_mono:
+                return dict(cached[2])
+
+            config, _location = self.location()
+            if config is None:
+                self._transition_cache = ("", now_mono + 30.0, {})
+                return {}
+            location_key = self._location_key(config)
+            now_local = datetime.now(ZoneInfo(config.timezone_name))
+            payload = self.build_month_sync(now_local.date().replace(day=1), config)
+            current = payload.get("current") if isinstance(payload, dict) else {}
+            if not payload.get("ok") or not isinstance(current, dict):
+                self._transition_cache = (location_key, now_mono + 30.0, {})
+                return {}
+
+            transition_at = str(current.get("window_start") or "").strip()
+            if not transition_at:
+                self._transition_cache = (location_key, now_mono + 30.0, {})
+                return {}
+            result = {
+                "transition_at": transition_at,
+                "window_end": str(current.get("window_end") or "").strip(),
+                "sign": str(current.get("sign") or "").strip(),
+                "element": str(current.get("element") or "").strip(),
+                "plant_part": str(current.get("plant_part") or "").strip(),
+                "color": str(current.get("color") or "").strip(),
+                "accent": str(current.get("accent") or "").strip(),
+            }
+            ttl = 300.0
+            try:
+                window_end = datetime.fromisoformat(str(result["window_end"]))
+                ttl = max(1.0, min((window_end - now_local).total_seconds(), 300.0))
+            except Exception:
+                pass
+            self._transition_cache = (location_key, now_mono + ttl, dict(result))
+            return result
 
     async def month(self, anchor: date, config: BiodynamicConfig) -> dict[str, object]:
         cached = await asyncio.to_thread(self._load_month, anchor, config)
@@ -424,9 +482,12 @@ class BiodynamicCalendarService:
             await asyncio.sleep(pause)
 
     async def shutdown(self) -> None:
+        global _REGISTERED_SERVICE
         if self._warm_task is not None and not self._warm_task.done():
             self._warm_task.cancel()
             await asyncio.gather(self._warm_task, return_exceptions=True)
+        if _REGISTERED_SERVICE is self:
+            _REGISTERED_SERVICE = None
 
 
 def register_biodynamic_calendar_routes(
@@ -437,12 +498,14 @@ def register_biodynamic_calendar_routes(
     data_logger,
 ) -> BiodynamicCalendarService:
     """Register the full-screen calendar and its namespaced API routes."""
+    global _REGISTERED_SERVICE
     service = BiodynamicCalendarService(
         settings=settings,
         data_logger=data_logger,
         supervisor=getattr(app.state, "supervisor", None),
     )
     app.state.biodynamic_calendar_service = service
+    _REGISTERED_SERVICE = service
     app.add_event_handler("startup", service.ensure_background_warm)
     app.add_event_handler("shutdown", service.shutdown)
 

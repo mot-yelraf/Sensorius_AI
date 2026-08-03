@@ -54,6 +54,9 @@ macOS, Windows, and non-Pi Linux hub:
   liveness events,
   switch identities, switch events, biodynamic notes, plantings, calendar
   cache entries, and daily summaries.
+- `sensorius/saiFastStats.py`: optional live-statistics websocket
+  broadcaster. It remains dormant without subscribers and performs database
+  aggregation outside the asyncio event loop.
 - `sensorius/saiBiodynamicCalendarApp.py`: integrated full-screen calendar
   routes, shared cache access, and paced background warming.
 - `sensorius/biodynamic_calendar/`: BD Calendar calculations, Astral payloads,
@@ -115,6 +118,12 @@ macOS, Windows, and non-Pi Linux hub:
     server can run with zero local sensors. After startup settles, the
     integrated calendar begins its delayed single-worker cache warm without
     holding up monitoring or control readiness.
+
+The integrated calendar service is also the runtime source for biodynamic
+transition automations. It reads versioned month payloads from the shared
+Sensorius SQLite database and keeps only the current transition in memory until
+that window ends. This avoids recalculating or cloning a complete calendar
+month in every switch monitor loop.
 
 ## Data Flow
 

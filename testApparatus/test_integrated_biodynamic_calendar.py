@@ -48,6 +48,50 @@ class _Logger:
         return True
 
 
+def test_current_transition_reuses_persisted_month_until_window_end():
+    logger = _Logger()
+    service = calendar_app.BiodynamicCalendarService(settings=_Settings(), data_logger=logger)
+    config, _location = service.location()
+    assert config is not None
+    now_local = calendar_app.datetime.now(calendar_app.ZoneInfo(config.timezone_name))
+    anchor = now_local.date().replace(day=1)
+    logger.cache[(service._month_cache_key(anchor), service._location_key(config))] = {
+        "ok": True,
+        "calendar": [
+            {
+                "date": now_local.date().isoformat(),
+                "segments": [
+                    {
+                        "start": "00:00",
+                        "end": "24:00",
+                        "sign": "Taurus",
+                        "element": "Earth",
+                        "plant_part": "Root",
+                        "color": "#123456",
+                        "accent": "#abcdef",
+                    }
+                ],
+            }
+        ],
+    }
+    reads = {"count": 0}
+    original_get = logger.get_biodynamic_calendar_cache
+
+    def _counted_get(key, location):
+        reads["count"] += 1
+        return original_get(key, location)
+
+    logger.get_biodynamic_calendar_cache = _counted_get
+
+    first = service.current_transition_sync()
+    second = service.current_transition_sync()
+
+    assert first["transition_at"].startswith(now_local.date().isoformat())
+    assert first["plant_part"] == "Root"
+    assert second == first
+    assert reads["count"] == 1
+
+
 @pytest.mark.asyncio
 async def test_integrated_month_build_is_single_flight_and_persisted(monkeypatch):
     calls = []
@@ -124,6 +168,8 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     assert 'window.requestAnimationFrame(() => window.location.assign(destination))' in javascript
     assert "window.location.assign('/calendar')" in dashboard
     assert "url.port = '8765'" not in dashboard
+    assert "state.followCurrentMonth || state.selectionPinned" in javascript
+    assert "monthlyPrintHints" not in javascript
 
 
 @pytest.mark.asyncio

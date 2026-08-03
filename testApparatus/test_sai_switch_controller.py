@@ -64,6 +64,31 @@ def _make_controller() -> SwitchController:
     return ctrl
 
 
+def test_biodynamic_automation_prefers_shared_calendar_transition(monkeypatch: pytest.MonkeyPatch):
+    import sensorius.saiBiodynamicCalendarApp as calendar_app
+
+    calls = {"count": 0}
+
+    class _SharedCalendar:
+        def current_transition_sync(self):
+            calls["count"] += 1
+            return {
+                "transition_at": "2026-08-03T12:00:00-06:00",
+                "sign": "Taurus",
+                "element": "Earth",
+                "plant_part": "Root",
+                "color": "#123456",
+                "accent": "#abcdef",
+            }
+
+    monkeypatch.setattr(calendar_app, "_REGISTERED_SERVICE", _SharedCalendar())
+
+    transition = SwitchController._get_current_biodynamic_transition(_make_controller())
+
+    assert transition["plant_part"] == "Root"
+    assert calls["count"] == 1
+
+
 class _FakeAutomationEmailDelivery:
     def __init__(self):
         self.states = {}

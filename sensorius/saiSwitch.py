@@ -774,7 +774,7 @@ class SwitchController:
             try:
                 observer.elevation = float(resolved.get("altitude") or 0.0)
             except Exception:
-                observer.elevation = 0.0
+                pass
             s = _astral_sun(observer, date=now_local.date(), tzinfo=tz)
             sunrise_dt = s.get("sunrise")
             sunset_dt = s.get("sunset")
@@ -1426,6 +1426,15 @@ class SwitchController:
     def _get_current_biodynamic_transition(self) -> dict:
         """Return the current biodynamic segment used by transition automations."""
         try:
+            from .saiBiodynamicCalendarApp import get_registered_biodynamic_calendar_service
+
+            shared_service = get_registered_biodynamic_calendar_service()
+            if shared_service is not None:
+                transition = shared_service.current_transition_sync()
+                if isinstance(transition, dict) and transition.get("transition_at"):
+                    return dict(transition)
+
+            # Startup/standalone compatibility before the shared web service is registered.
             from .saiBiodynamics import get_biodynamic_local_now, get_biodynamic_payload
 
             now_local = get_biodynamic_local_now()

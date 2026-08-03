@@ -21,6 +21,17 @@ import inspect
 
 MODULE = "saiWebServer"
 DEBUG = debug_enabled(MODULE)
+_IMMUTABLE_STATIC_ASSETS = {"01-sensorius-overview-v4.png"}
+
+
+class SensoriusStaticFiles(StaticFiles):
+    """Serve explicitly versioned large assets without navigation revalidation."""
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        if str(path or "").lstrip("/") in _IMMUTABLE_STATIC_ASSETS:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
 
 
 class WebServerController:
@@ -54,7 +65,7 @@ class WebServerController:
             raise FileNotFoundError(f"[{MODULE}] Required ui_templates directory not found at {ui_templates_dir}")
 
         # Static + templates
-        self.app.mount("/ui_static", StaticFiles(directory=str(ui_static_dir)), name="ui_static")
+        self.app.mount("/ui_static", SensoriusStaticFiles(directory=str(ui_static_dir)), name="ui_static")
         self.templates = Jinja2Templates(directory=str(ui_templates_dir))
         # Make templates available to route modules without circular imports
         self.app.state.templates = self.templates

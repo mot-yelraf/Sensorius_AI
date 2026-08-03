@@ -145,6 +145,11 @@ sudo systemctl restart sensorius.service
 
 ## Logs
 
+The optional `/ws/live` statistics broadcaster does not query SQLite until a
+client subscribes. Its 24-hour aggregation runs in a worker thread so a large
+readings database cannot block dashboard HTTP requests, MQTT ingest, sensor
+collection, or automation tasks.
+
 Console logging is enabled by default. File logging is controlled by:
 
 ```env
@@ -342,12 +347,13 @@ Key tables:
 - `weather_forecast`: cached dashboard forecast payloads, created by the
   weather forecast helper when forecasts are used.
 
-Biodynamic month and daily-guidance payloads used by the full-screen calendar
-are cached in the `biodynamic_calendar_cache` SQLite table. Legacy dashboard
-payloads can also use JSON files under `/home/<user>/Sensorius/cache/biodynamic/`
-on Linux or `/Users/<user>/Sensorius/cache/biodynamic/` on macOS. Both caches
-are disposable and rebuild when missing or when location/calculation versions
-change.
+Biodynamic month and daily-guidance payloads used by the full-screen calendar,
+daily summaries, and transition automations are cached in the
+`biodynamic_calendar_cache` SQLite table. A compatibility fallback can use JSON
+files under `/home/<user>/Sensorius/cache/biodynamic/` on Linux or
+`/Users/<user>/Sensorius/cache/biodynamic/` on macOS before the integrated
+service is registered. Both caches are disposable and rebuild when missing or
+when location/calculation versions change.
 
 After startup settles, the integrated calendar warms the current month,
 current-day Astral/guidance data, nearby months, and future planning months in
@@ -359,6 +365,12 @@ not wait for this work. Operators can tune it with:
 - `SENSORIUS_BIODYNAMIC_PREWARM_PAUSE_SEC`
 - `SENSORIUS_BIODYNAMIC_PREWARM_PAST_MONTHS`
 - `SENSORIUS_BIODYNAMIC_PREWARM_FUTURE_MONTHS`
+- `SENSORIUS_BIODYNAMIC_SUMMARY_PREWARM_DAYS` (default `45`, bounded to `62`)
+
+Month navigation does not generate a daily summary merely because a future
+month is displayed. Detailed guidance is generated when a day is selected and
+then reused from SQLite. Print staging uses already cached guidance and the
+calendar-day fallback instead of launching one background request per day.
 
 Retention is controlled by:
 

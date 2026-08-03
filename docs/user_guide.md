@@ -750,9 +750,13 @@ The full-screen calendar shows:
 - Daily Summary for the selected day.
 - Daily Notes for the selected day.
 - Save Note.
-- Print Report for the selected month calendar with dated daily summaries and notes.
+- Print Report for the selected month calendar with dated BD hints, cached daily summaries, and notes.
 
-Daily summaries come from Sensorius' biodynamic summary storage. For the current day, the summary may include a **24hr Forecast** section if weather forecast data is enabled in System Settings.
+Daily summaries come from Sensorius' biodynamic summary storage and are
+generated on demand when a day is selected. Browsing future months does not
+generate summaries for their default day. For the current day, the summary may
+include a **24hr Forecast** section if weather forecast data is enabled in
+System Settings.
 
 The dashboard BD card remains available for a quick current-status view. The Calendar button opens the full application for month planning, planting records, notes, daily guidance, and reports.
 

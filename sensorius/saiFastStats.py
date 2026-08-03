@@ -8,6 +8,7 @@ Design goals:
 """
 
 import asyncio
+import inspect
 from contextlib import suppress
 
 import orjson
@@ -39,6 +40,7 @@ class FastStats:
         self.subs: set[WebSocket] = set()
 
         self._subs_lock = asyncio.Lock()
+        self._subscriber_event = asyncio.Event()
         self._task: asyncio.Task | None = None
         self._warned_stats_fallback = False
         self._warned_stats_unavailable = False
@@ -68,6 +70,11 @@ class FastStats:
     async def _run(self):
         try:
             while True:
+                await self._subscriber_event.wait()
+                async with self._subs_lock:
+                    if not self.subs:
+                        self._subscriber_event.clear()
+                        continue
                 try:
                     payload = {
                         # Shallow-copy to avoid iterator/view races with concurrent writers.
@@ -94,11 +101,12 @@ class FastStats:
         # Preferred fast path: statter provides an all-sensors aggregator.
         fast_getter = getattr(self.statter, "get_all_stats_fast", None)
         if callable(fast_getter):
-            maybe = fast_getter()
-            if asyncio.iscoroutine(maybe):
-                result = await maybe
+            if inspect.iscoroutinefunction(fast_getter):
+                result = await fast_getter()
             else:
-                result = maybe
+                result = await asyncio.to_thread(fast_getter)
+                if inspect.isawaitable(result):
+                    result = await result
             return result or {}
 
         # Compatibility fallback for older/leaner saiStats implementations.
@@ -178,10 +186,13 @@ class FastStats:
         await ws.accept()
         async with self._subs_lock:
             self.subs.add(ws)
+            self._subscriber_event.set()
 
     async def remove(self, ws: WebSocket):
         async with self._subs_lock:
             self.subs.discard(ws)
+            if not self.subs:
+                self._subscriber_event.clear()
         with suppress(Exception):
             await ws.close()
 

@@ -1135,7 +1135,7 @@ function promoteCachedMonth(monthKey, preferredDate = "", options = {}) {
   state.selectedDate = preferredDate || "";
   render({
     preserveNoteDraft: options.preserveNoteDraft === true,
-    refreshSummary: options.refreshSummary !== false,
+    refreshSummary: options.refreshSummary !== false && (state.followCurrentMonth || state.selectionPinned),
   });
   if (options.refreshRange !== false) {
     void loadCalendarRange(monthKey);
@@ -1281,7 +1281,7 @@ function render(options = {}) {
   }
   void selectDay(state.selectedDate, {
     preserveNoteDraft: options.preserveNoteDraft === true,
-    refreshSummary: options.refreshSummary !== false,
+    refreshSummary: options.refreshSummary !== false && (state.followCurrentMonth || state.selectionPinned),
   });
 }
 
@@ -1325,19 +1325,6 @@ function fallbackHintForDay(day) {
 function compactPrintHint(summary, day) {
   const text = String(summary || "").replace(/^Biodynamic Hints\s*/i, "").trim();
   return text || fallbackHintForDay(day);
-}
-
-async function monthlyPrintHints(payload) {
-  const days = printMonthDays(payload);
-  return Promise.all(days.map(async (day) => {
-    try {
-      const summary = await fetchDailySummary(day.date);
-      return { day, summary: compactPrintHint(summary, day) };
-    } catch (err) {
-      // Fall back to calendar payload details when the summary endpoint is unavailable.
-    }
-    return { day, summary: fallbackHintForDay(day) };
-  }));
 }
 
 function immediatePrintHints(payload) {
@@ -1500,8 +1487,6 @@ function stageCurrentMonthReport() {
   } catch (err) {
     return false;
   }
-  // Enrich the cache after staging so a future report can include full daily guidance.
-  void monthlyPrintHints(payload);
   return true;
 }
 

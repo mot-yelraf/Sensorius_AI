@@ -294,7 +294,7 @@ async def test_biodynamic_calendar_api_default_month_uses_biodynamic_local_time(
     assert res_next.status_code == 200
     assert captured[0].isoformat() == "2026-03-01"
     assert captured[-1].isoformat() == "2026-04-01"
-    assert window_calls == [("2026-03-01", saiWebRoutes.DEFAULT_FORECAST_DAYS, True)]
+    assert window_calls == [("2026-03-01", saiWebRoutes.DEFAULT_PREWARM_DAYS, True)]
 
 
 @pytest.mark.asyncio

@@ -285,6 +285,48 @@ def test_annual_forecast_window_anchors_to_month_start(monkeypatch):
     assert calls == [(date(2026, 5, 1), saiDailySummary.DEFAULT_FORECAST_DAYS, True)]
 
 
+def test_background_summary_prewarm_is_bounded_and_configurable(monkeypatch):
+    monkeypatch.delenv("SENSORIUS_BIODYNAMIC_SUMMARY_PREWARM_DAYS", raising=False)
+    assert saiDailySummary.DEFAULT_PREWARM_DAYS == 45
+    assert saiDailySummary.DailySummaryService.prewarm_days() == 45
+
+    monkeypatch.setenv("SENSORIUS_BIODYNAMIC_SUMMARY_PREWARM_DAYS", "500")
+    assert saiDailySummary.DailySummaryService.prewarm_days() == 62
+
+
+def test_daily_summary_reuses_registered_integrated_month(monkeypatch):
+    import sensorius.saiBiodynamicCalendarApp as calendar_app
+
+    settings = _FakeSettings()
+    logger = _FakeLogger()
+    calls = []
+
+    class _SharedCalendar:
+        def __init__(self):
+            self.settings = settings
+            self.data_logger = logger
+
+        def location(self):
+            return object(), {"ok": True}
+
+        def build_month_sync(self, anchor, _config):
+            calls.append(anchor)
+            return {"ok": True, "calendar": [{"date": "2026-03-08"}]}
+
+    monkeypatch.setattr(calendar_app, "_REGISTERED_SERVICE", _SharedCalendar())
+    monkeypatch.setattr(
+        saiDailySummary,
+        "get_biodynamic_payload",
+        lambda _anchor: (_ for _ in ()).throw(AssertionError("legacy calculator should not run")),
+    )
+    service = saiDailySummary.DailySummaryService(settings=settings, data_logger=logger)
+
+    payload = service._biodynamic_payload_for_date(date(2026, 3, 8))
+
+    assert payload["ok"] is True
+    assert calls == [date(2026, 3, 1)]
+
+
 class _FakeSupervisor:
     def __init__(self):
         self.feed_calls = []

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import os
 from datetime import date, datetime, time as dtime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -27,8 +28,18 @@ except Exception:
 MODULE = "saiDailySummary"
 DEBUG = debug_enabled(MODULE)
 DEFAULT_FORECAST_DAYS = 366
+DEFAULT_PREWARM_DAYS = 45
 _GROUNDING_REMINDER = "Suggestion: prioritize actual plant health, irrigation status, weather, and disease pressure over calendar timing."
 _KNOWN_CROP_STAGES = {"seedling", "veg", "maturing", "mature", "harvest"}
+
+
+def get_summary_prewarm_days() -> int:
+    """Return the configured low-resource summary warming horizon."""
+    try:
+        configured = int(os.getenv("SENSORIUS_BIODYNAMIC_SUMMARY_PREWARM_DAYS", DEFAULT_PREWARM_DAYS))
+    except (TypeError, ValueError):
+        configured = DEFAULT_PREWARM_DAYS
+    return max(1, min(configured, 62))
 
 
 def _month_start(anchor_date: date) -> date:
@@ -349,7 +360,7 @@ class DailySummaryService:
                 lines.append(f"Astral data unavailable: {exc}")
 
         try:
-            payload = get_biodynamic_payload(summary_date)
+            payload = self._biodynamic_payload_for_date(summary_date)
             if not payload.get("ok"):
                 reason = str(payload.get("reason") or "unavailable")
                 lines.append(f"Biodynamic: unavailable ({reason})")
@@ -378,6 +389,30 @@ class DailySummaryService:
         except Exception as exc:
             lines.append(f"Biodynamic: unavailable ({exc})")
         return lines, biodynamic_day
+
+    def _biodynamic_payload_for_date(self, summary_date: date) -> dict:
+        """Reuse the integrated persisted month cache when it belongs to this runtime."""
+        try:
+            from .saiBiodynamicCalendarApp import get_registered_biodynamic_calendar_service
+
+            calendar_service = get_registered_biodynamic_calendar_service()
+            if (
+                calendar_service is not None
+                and calendar_service.data_logger is self.data_logger
+                and calendar_service.settings is self.settings
+            ):
+                config, _location = calendar_service.location()
+                if config is not None:
+                    return calendar_service.build_month_sync(summary_date.replace(day=1), config)
+        except Exception as exc:
+            if DEBUG:
+                printDM(f"[daily-summary] shared calendar lookup skipped: {exc}", location=MODULE)
+        return get_biodynamic_payload(summary_date)
+
+    @staticmethod
+    def prewarm_days() -> int:
+        """Return the bounded summary horizon used by background/UI warming."""
+        return get_summary_prewarm_days()
 
     def build_summary_text(self, summary_date: date, *, crop_stage: str | None = None, plant_state: dict | None = None) -> str:
         astral_lines, biodynamic_day = self._astral_summary_lines(summary_date)
@@ -490,10 +525,24 @@ class DailySummaryService:
             await asyncio.sleep(chunk)
             remaining -= chunk
 
-    async def _ensure_summaries_for_window_async(self, start_date: date, heartbeat_every_s: float = 5.0) -> int:
+    async def _ensure_summaries_for_window_async(
+        self,
+        start_date: date,
+        heartbeat_every_s: float = 5.0,
+        *,
+        days: int | None = None,
+    ) -> int:
         """Run summary generation off the event loop while heartbeats continue."""
+        if days is None:
+            threaded_call = asyncio.to_thread(self.ensure_summaries_for_window, start_date)
+        else:
+            threaded_call = asyncio.to_thread(
+                self.ensure_summaries_for_window,
+                start_date,
+                days=max(1, int(days)),
+            )
         task = asyncio.create_task(
-            asyncio.to_thread(self.ensure_summaries_for_window, start_date),
+            threaded_call,
             name="DailySummaryService.ensure_summaries_for_window",
         )
         try:
@@ -516,7 +565,10 @@ class DailySummaryService:
                 self._feed_watchdog()
                 now_local = datetime.now(self.local_tz)
                 window_start = self.forecast_window_start(now_local.date())
-                await self._ensure_summaries_for_window_async(window_start)
+                await self._ensure_summaries_for_window_async(
+                    window_start,
+                    days=self.prewarm_days(),
+                )
                 next_run = datetime.combine(_next_month_start(window_start), dtime(0, 0, 1), self.local_tz)
                 sleep_s = max((next_run - now_local).total_seconds(), 1.0)
             except Exception as exc:
