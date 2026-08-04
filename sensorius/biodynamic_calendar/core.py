@@ -53,7 +53,7 @@ class BiodynamicConfig:
 
 
 # Increment when persisted calendar or daily-summary calculation output changes.
-CALCULATION_IMPLEMENTATION_VERSION = 5
+CALCULATION_IMPLEMENTATION_VERSION = 7
 
 
 @dataclass(frozen=True)

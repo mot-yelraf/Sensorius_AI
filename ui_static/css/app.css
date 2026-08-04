@@ -580,8 +580,8 @@ canvas{
 .switch-dialog-content .modal-footer{
   margin-left:-.9rem;
   margin-right:-.9rem;
-  padding-left:.9rem;
-  padding-right:.9rem;
+  padding-left:.85rem;
+  padding-right:.85rem;
 }
 .automation-chooser{
   display:flex;
@@ -778,9 +778,30 @@ canvas{
 .sensor-pane-footer{
   flex:0 0 auto;
   margin-top:auto;
+  padding:.75rem .85rem;
+  position:relative;
+  border-top:0;
+  border-bottom:0;
+  box-sizing:border-box;
   display:flex;
   flex-direction:column;
   align-items:stretch;
+}
+.sensor-pane-footer::before{
+  content:"";
+  position:absolute;
+  top:0;
+  left:.85rem;
+  right:.85rem;
+  border-top:1px solid #e6ece8;
+}
+.switch-dialog-content .sensor-pane-footer::before{
+  left:1.75rem;
+  right:1.75rem;
+}
+.sensor-pane-footer .button{
+  margin-top:0;
+  margin-bottom:0;
 }
 .sensor-pane-footer-row{
   display:flex;

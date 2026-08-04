@@ -1715,7 +1715,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ".bio-legend{display:flex;align-items:center;justify-content:center;gap:.32rem .65rem;flex-wrap:wrap;margin:.4rem 0 .15rem;color:#4f5961;font-size:.55rem;font-weight:700;}"
     yield ".bio-legend-item{display:inline-flex;align-items:center;gap:.25rem;white-space:nowrap;}"
     yield ".bio-legend-swatch{width:.8rem;height:.55rem;border:1px solid rgba(39,49,58,.25);border-radius:3px;box-sizing:border-box;flex:0 0 auto;}"
-    yield ".bio-legend-root{background:#644817}.bio-legend-leaf{background:#2f6eb8}.bio-legend-flower{background:#c4dcf8}.bio-legend-fruit{background:#d64b3b}.bio-legend-rest{background:#d7dbe0}.bio-legend-transition{background:linear-gradient(90deg,#d64b3b 0 50%,#644817 50% 100%)}"
+    yield ".bio-legend-root{background:#644817}.bio-legend-leaf{background:#277a00}.bio-legend-flower{background:#c4dcf8}.bio-legend-fruit{background:#d64b3b}.bio-legend-rest{background:#d7dbe0}.bio-legend-transition{background:linear-gradient(90deg,#d64b3b 0 50%,#644817 50% 100%)}"
     yield ".bio-calendar-wrap{position:relative;min-height:294px;}"
     yield ".bio-calendar{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-top:.35rem;}"
     yield ".bio-loading-overlay{display:none;position:absolute;inset:0;z-index:4;align-items:center;justify-content:center;background:rgba(255,253,246,.72);border-radius:8px;}"

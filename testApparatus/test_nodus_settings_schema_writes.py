@@ -671,12 +671,15 @@ def test_system_settings_sections_match_integration_accordions():
 
     section_markup = 'class="integration-block system-section-block"'
     assert text.count(section_markup) == 4
-    assert f'<details {section_markup} open>' in text
+    assert f'<details {section_markup} data-runtime-section="system-general">' in text
     assert text.index("<summary>System Settings</summary>") < text.index("<summary>Notifications</summary>")
     assert text.index("<summary>Notifications</summary>") < text.index("<summary>Astral</summary>")
     assert text.index("<summary>Astral</summary>") < text.index("<summary>Display</summary>")
     assert text.count('class="button blue btn-system-save"') == 4
-    assert text.count('class="button black btn-back-system">Dashboard</button>') >= 4
+    system_pane = text[text.index('<div class="settings-pane" id="pane-system">'):text.index('<div class="settings-pane" id="pane-automations"')]
+    assert system_pane.count('class="button black btn-back-system">Dashboard</button>') == 1
+    assert system_pane.count('class="pane-footer section-action-footer"') == 4
+    assert 'class="pane-footer pane-global-footer"' in system_pane
     assert 'id="btn-system-save"' not in text
 
 
@@ -695,8 +698,8 @@ def test_notifications_has_one_email_action_row():
 
     email_section = text[text.index("<summary>Notifications</summary>"):text.index("<summary>Astral</summary>")]
     assert "<summary>Notification Rules</summary>" not in email_section
-    assert 'class="pane-footer"' in email_section
-    assert 'class="button black btn-back-system">Dashboard</button>' in email_section
+    assert 'class="pane-footer section-action-footer"' in email_section
+    assert 'class="button black btn-back-system">Dashboard</button>' not in email_section
     assert 'class="button blue btn-system-save">Save</button>' in email_section
 
 

@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/ui_static/biodynamic_calendar/favicon.svg?v={{ app_version }}">
   <link rel="stylesheet" href="/ui_static/biodynamic_calendar/app.css?v={{ app_version }}">
 </head>
-<body class="{% if sensorius_launch %}sensorius-launch{% endif %}">
+<body class="{% if sensorius_launch %}sensorius-launch{% endif %}" data-runtime-instance-id="{{ runtime_instance_id | default('') }}">
   <a class="dashboard-return" id="dashboardReturn" href="/" aria-label="Return to Sensorius dashboard">
     <span class="dashboard-return-spinner" aria-hidden="true"></span>
     <span class="dashboard-return-label">Dashboard</span>
@@ -93,7 +93,7 @@
           <div id="calendar" class="calendar"></div>
         </section>
 
-        <details class="panel range-panel">
+        <details class="panel range-panel" data-runtime-section="calendar-twelve-month-overview">
           <summary class="range-head">
             <h2>Twelve-Month Overview</h2>
             <div id="rangeStatus" class="hint"></div>
@@ -116,16 +116,16 @@
             <span class="eyebrow">Selected Day</span>
           <div id="selectedDate" class="date-label">Select a day</div>
           </div>
-          <details class="inspector-section" open>
+          <details class="inspector-section" data-runtime-section="calendar-summary">
             <summary>Summary</summary>
           <div id="selectedFacts" class="selected-facts"></div>
             <div id="dailySummary" class="summary-box"></div>
           </details>
-          <details class="inspector-section planting-panel">
+          <details class="inspector-section planting-panel" data-runtime-section="calendar-plantings">
             <summary>Plantings</summary>
           <div id="plantingStatus" class="hint" aria-live="polite"></div>
           <div id="plantingList" class="planting-list"></div>
-          <details id="plantingEditor" class="planting-editor">
+          <details id="plantingEditor" class="planting-editor" data-runtime-section="calendar-planting-editor">
             <summary>Add planting</summary>
           <form id="plantingForm" class="planting-form">
             <input name="id" type="hidden">
@@ -161,7 +161,7 @@
           </form>
           </details>
           </details>
-          <details class="inspector-section">
+          <details class="inspector-section" data-runtime-section="calendar-note">
             <summary>Note</summary>
           <div id="selectedMeta" class="date-label"></div>
           <textarea id="noteInput" class="note-box" placeholder="Add a note for the selected biodynamic day..."></textarea>

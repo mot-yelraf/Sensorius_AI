@@ -144,9 +144,11 @@
 #setupPiModal .integration-block[open] > summary::before { transform: rotate(90deg); }
 #setupPiModal .integration-block[open] > summary { border-bottom: 1px solid #d6dfd8; }
 #setupPiModal .integration-block-content { padding: .85rem; }
-#setupPiModal .integration-block .pane-footer {
+#setupPiModal .integration-block .pane-footer,
+#setupPiModal .advanced-section .pane-footer {
   margin: .85rem -.85rem -.85rem;
 }
+#setupPiModal .advanced-section .pane-footer { grid-column: 1 / -1; }
 #setupPiModal #pane-locations,
 #setupPiModal #pane-remove {
   height: 100%;
@@ -165,6 +167,18 @@
   margin-right: -.85rem;
   margin-bottom: -.75rem;
   border-top: 1px solid #e6ece8;
+}
+#setupPiModal .section-action-footer { justify-content: flex-end; }
+#setupPiModal .pane-global-footer {
+  flex: 0 0 auto;
+  justify-content: flex-start;
+}
+#setupPiModal #systemSettingsForm > .integrations-list,
+#setupPiModal #pane-integrations > .integrations-list,
+#setupPiModal #pane-advanced > .advanced-sections {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 #setupPiModal .field-grid-stack {
   display: grid;
@@ -267,10 +281,44 @@
 #setupPiModal .notification-enable-control select { width: auto; min-width: 8rem; }
 #setupPiModal .email-action-grid { align-items: center; margin-top: .65rem; margin-bottom: 0; }
 #setupPiModal .notification-test-control { display: flex; align-items: center; gap: .65rem; flex-wrap: wrap; }
-#setupPiModal .field-grid-advanced {
+#setupPiModal .advanced-sections {
+  display: flex;
+  flex-direction: column;
+  gap: .65rem;
+  padding-right: .15rem;
+}
+#setupPiModal .advanced-section {
+  border: 1px solid #d6dfd8;
+  border-radius: 10px;
+  background: #fafdfb;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+#setupPiModal .advanced-section > summary {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  padding: .72rem .85rem;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 700;
+  list-style: none;
+  user-select: none;
+}
+#setupPiModal .advanced-section > summary::-webkit-details-marker { display: none; }
+#setupPiModal .advanced-section > summary::before {
+  content: "\25B6";
+  width: 1rem;
+  flex: 0 0 1rem;
+  transition: transform .15s ease;
+}
+#setupPiModal .advanced-section[open] > summary::before { transform: rotate(90deg); }
+#setupPiModal .advanced-section[open] > summary { border-bottom: 1px solid #d6dfd8; }
+#setupPiModal .advanced-section-content { padding: .85rem; }
+#setupPiModal .advanced-section-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(220px, 1fr));
-  gap: 1.8rem .9rem;
+  gap: .85rem;
   max-width: 980px;
   margin-inline: auto;
   align-items: start;
@@ -281,14 +329,28 @@
 #setupPiModal .adv-center input[type="checkbox"] {
   width: auto;
 }
-#setupPiModal .adv-span-all {
-  grid-column: 1 / -1;
-}
-#setupPiModal .adv-db-actions {
-  flex-direction: row;
+#setupPiModal .adv-action-cell {
+  min-height: 100%;
   justify-content: center;
-  gap: .75rem;
-  flex-wrap: wrap;
+}
+#setupPiModal .adv-action-cell .button {
+  width: 100%;
+}
+#setupPiModal .adv-log-path {
+  margin-top: .42rem;
+  padding: .42rem .5rem;
+  border-radius: 7px;
+  background: #eef5f0;
+  color: #344139;
+  font-size: .72rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+#setupPiModal .adv-log-path-label {
+  display: block;
+  font-weight: 700;
+  margin-bottom: .16rem;
 }
 #setupPiModal .ha-enabled-wrap {
   display: flex;
@@ -645,7 +707,7 @@
     grid-template-columns: 1fr;
     max-width: 100%;
   }
-  #setupPiModal .field-grid-advanced {
+  #setupPiModal .advanced-section-grid {
     grid-template-columns: 1fr;
     max-width: 100%;
   }
@@ -666,7 +728,8 @@
 
 <div id="setupPiModal"
      class="modal-backdrop"
-     style="display:flex; z-index:9999;">
+     style="display:flex; z-index:9999;"
+     data-runtime-instance-id="{{ runtime_instance_id | default('') }}">
   <div class="system-settings-shell" data-ha-enabled="{{ ha_enabled | default(false) }}"
        data-ha-use-tls="{{ ha_use_tls | default(false) }}"
        data-ha-username="{{ ha_username | default('') }}"
@@ -712,7 +775,7 @@
             <h3 class="pane-title">System Settings</h3>
             <form method="POST" action="/submit-pi-setup" id="systemSettingsForm" style="display:flex;flex-direction:column;gap:.42rem;flex:1;min-height:0;">
               <div class="integrations-list">
-                <details class="integration-block system-section-block" open>
+                <details class="integration-block system-section-block" data-runtime-section="system-general">
                   <summary>System Settings</summary>
                   <div class="integration-block-content">
               <div class="field-grid-top">
@@ -762,14 +825,13 @@
                   </select>
                 </div>
               </div>
-                    <div class="pane-footer">
-                      <button type="button" class="button black btn-back-system">Dashboard</button>
+                    <div class="pane-footer section-action-footer">
                       <button type="submit" class="button blue btn-system-save">Save</button>
                     </div>
                   </div>
                 </details>
 
-                <details class="integration-block system-section-block">
+                <details class="integration-block system-section-block" data-runtime-section="system-notifications">
                   <summary>Notifications</summary>
                   <div class="integration-block-content">
                         <div class="email-grid-three">
@@ -822,14 +884,13 @@
                             <input type="email" id="email_to" name="email_to" value="{{ email_to | default('') }}" placeholder="you@gmail.com" autocomplete="off">
                           </div>
                         </div>
-                        <div class="pane-footer">
-                          <button type="button" class="button black btn-back-system">Dashboard</button>
+                        <div class="pane-footer section-action-footer">
                           <button type="submit" class="button blue btn-system-save">Save</button>
                         </div>
                   </div>
                 </details>
 
-                <details class="integration-block system-section-block">
+                <details class="integration-block system-section-block" data-runtime-section="system-astral">
                   <summary>Astral</summary>
                   <div class="integration-block-content">
               <div class="field-grid-astral">
@@ -864,14 +925,13 @@
                   <input type="text" id="astral_noon" value="{{ astral_noon | default('--') }}" readonly>
                 </div>
               </div>
-                    <div class="pane-footer">
-                      <button type="button" class="button black btn-back-system">Dashboard</button>
+                    <div class="pane-footer section-action-footer">
                       <button type="submit" class="button blue btn-system-save">Save</button>
                     </div>
                   </div>
                 </details>
 
-                <details class="integration-block system-section-block">
+                <details class="integration-block system-section-block" data-runtime-section="system-display">
                   <summary>Display</summary>
                   <div class="integration-block-content">
               <div class="field-grid-stack">
@@ -891,8 +951,7 @@
                   </select>
                 </div>
               </div>
-                    <div class="pane-footer">
-                      <button type="button" class="button black btn-back-system">Dashboard</button>
+                    <div class="pane-footer section-action-footer">
                       <button type="submit" class="button blue btn-system-save">Save</button>
                     </div>
                   </div>
@@ -900,6 +959,9 @@
               </div>
 
               <div class="status-text sai-live-status" id="system-status" aria-live="polite"></div>
+              <div class="pane-footer pane-global-footer">
+                <button type="button" class="button black btn-back-system">Dashboard</button>
+              </div>
             </form>
           </div>
 
@@ -962,7 +1024,7 @@
           <div class="settings-pane" id="pane-integrations" hidden>
             <h3 class="pane-title">Integrations</h3>
             <div class="integrations-list">
-              <details class="integration-block" open>
+              <details class="integration-block" data-runtime-section="integrations-home-assistant">
                 <summary>Home Assistant</summary>
                 <div class="integration-block-content">
             <div class="ha-enabled-wrap">
@@ -1008,14 +1070,13 @@
 
             <div class="status-text sai-live-status" id="ha-status" aria-live="polite"></div>
 
-            <div class="pane-footer">
-              <button type="button" class="button black btn-back-system">Dashboard</button>
+            <div class="pane-footer section-action-footer">
               <button type="button" class="button blue" id="btn-ha-save">Save</button>
             </div>
                 </div>
               </details>
 
-              <details class="integration-block">
+              <details class="integration-block" data-runtime-section="integrations-weewx">
                 <summary>WeeWX</summary>
                 <div class="integration-block-content">
             <div class="ha-enabled-wrap">
@@ -1061,14 +1122,13 @@
 
             <div class="status-text sai-live-status" id="weewx-status" aria-live="polite"></div>
 
-            <div class="pane-footer">
-              <button type="button" class="button black btn-back-system">Dashboard</button>
+            <div class="pane-footer section-action-footer">
               <button type="button" class="button blue" id="btn-weewx-save">Save</button>
             </div>
                 </div>
               </details>
 
-              <details class="integration-block">
+              <details class="integration-block" data-runtime-section="integrations-farmos">
                 <summary>FarmOS</summary>
                 <div class="integration-block-content">
             <div class="ha-enabled-wrap">
@@ -1130,13 +1190,15 @@
 
             <div class="status-text sai-live-status" id="farm-status" aria-live="polite"></div>
 
-            <div class="pane-footer">
-              <button type="button" class="button black btn-back-system">Dashboard</button>
+            <div class="pane-footer section-action-footer">
               <button type="button" class="button neutral" id="btn-farm-test">Test Connection</button>
               <button type="button" class="button blue" id="btn-farm-save">Save</button>
             </div>
                 </div>
               </details>
+            </div>
+            <div class="pane-footer pane-global-footer">
+              <button type="button" class="button black btn-back-system">Dashboard</button>
             </div>
           </div>
 
@@ -1275,55 +1337,85 @@
 
           <div class="settings-pane" id="pane-advanced" hidden>
             <h3 class="pane-title">Advanced</h3>
-            <div class="field-grid-advanced">
-              <div class="field-stack adv-center">
-                <label for="adv-autostart-enabled">Auto-start Sensorius on login</label>
-                <input type="checkbox" id="adv-autostart-enabled">
-              </div>
+            <div class="advanced-sections">
+              <details class="advanced-section" id="adv-section-startup" data-runtime-section="advanced-startup">
+                <summary>Start-up</summary>
+                <div class="advanced-section-content advanced-section-grid">
+                  <div class="field-stack adv-center">
+                    <label for="adv-autostart-enabled">Auto Start on login</label>
+                    <input type="checkbox" id="adv-autostart-enabled">
+                  </div>
 
-              <div class="field-stack">
-                <label for="adv-autostart-scope">Auto-start scope</label>
-                <select id="adv-autostart-scope">
-                  <option value="user">User-level (default)</option>
-                  <option value="system">System-level</option>
-                </select>
-              </div>
+                  <div class="field-stack">
+                    <label for="adv-autostart-scope">Auto-start scope</label>
+                    <select id="adv-autostart-scope">
+                      <option value="user">User-level (default)</option>
+                      <option value="system">System-level</option>
+                    </select>
+                  </div>
+                  <div class="pane-footer section-action-footer">
+                    <button type="button" class="button blue btn-advanced-save">Save</button>
+                  </div>
+                </div>
+              </details>
 
-              <div class="field-stack">
-                <label for="adv-db-retention">Maximum Days of Data (30-365)</label>
-                <input type="number" id="adv-db-retention" min="30" max="365" step="1" value="90">
-              </div>
+              <details class="advanced-section" id="adv-section-database" data-runtime-section="advanced-database">
+                <summary>Database</summary>
+                <div class="advanced-section-content advanced-section-grid">
+                  <div class="field-stack">
+                    <label for="adv-db-retention">Maximum Days of Data (30-365)</label>
+                    <input type="number" id="adv-db-retention" min="30" max="365" step="1" value="90">
+                  </div>
 
-              <div class="field-stack adv-center">
-                <label for="adv-file-log">SENSORIUS_FILE_LOG</label>
-                <input type="checkbox" id="adv-file-log">
-              </div>
+                  <div class="field-stack adv-action-cell">
+                    <button type="button" class="button neutral" id="btn-archive-db">Archive Database</button>
+                  </div>
 
-              <div class="field-stack">
-                <label for="adv-log-level">SENSORIUS_LOG_LEVEL</label>
-                <select id="adv-log-level">
-                  <option value="DEBUG">DEBUG</option>
-                  <option value="INFO">INFO</option>
-                  <option value="WARNING">WARNING</option>
-                  <option value="ERROR">ERROR</option>
-                  <option value="CRITICAL">CRITICAL</option>
-                </select>
-              </div>
+                  <div class="field-stack adv-action-cell">
+                    <button type="button" class="button red" id="btn-renew-db">Renew Database</button>
+                  </div>
+                  <div class="pane-footer section-action-footer">
+                    <button type="button" class="button blue btn-advanced-save">Save</button>
+                  </div>
+                </div>
+              </details>
 
-              <div class="field-stack">
-                <label>SENSORIUS_DEBUG_MODULES</label>
-                <div id="adv-debug-modules" class="adv-debug-scroll"></div>
-              </div>
+              <details class="advanced-section" id="adv-section-debug" data-runtime-section="advanced-debug">
+                <summary>Debug</summary>
+                <div class="advanced-section-content advanced-section-grid">
+                  <div class="field-stack adv-center">
+                    <label for="adv-file-log">Sensorius_File_Log</label>
+                    <input type="checkbox" id="adv-file-log">
+                    <div class="adv-log-path" id="adv-log-path" hidden>
+                      <span class="adv-log-path-label">Log file path</span>
+                      <span id="adv-log-path-value"></span>
+                    </div>
+                  </div>
 
-              <div class="field-stack adv-span-all adv-center adv-db-actions">
-                <button type="button" class="button neutral" id="btn-archive-db">Archive Database</button>
-                <button type="button" class="button red" id="btn-new-db">New Database</button>
-              </div>
+                  <div class="field-stack">
+                    <label for="adv-log-level">Log Level</label>
+                    <select id="adv-log-level">
+                      <option value="DEBUG">DEBUG</option>
+                      <option value="INFO">INFO</option>
+                      <option value="WARNING">WARNING</option>
+                      <option value="ERROR">ERROR</option>
+                      <option value="CRITICAL">CRITICAL</option>
+                    </select>
+                  </div>
+
+                  <div class="field-stack">
+                    <label>Modules to Debug</label>
+                    <div id="adv-debug-modules" class="adv-debug-scroll"></div>
+                  </div>
+                  <div class="pane-footer section-action-footer">
+                    <button type="button" class="button blue btn-advanced-save">Save</button>
+                  </div>
+                </div>
+              </details>
             </div>
             <div class="status-text sai-live-status" id="adv-status" aria-live="polite"></div>
-            <div class="pane-footer">
+            <div class="pane-footer pane-global-footer">
               <button type="button" class="button black btn-back-system">Dashboard</button>
-              <button type="button" class="button blue" id="btn-advanced-save">Save</button>
             </div>
           </div>
         </section>
@@ -1339,6 +1431,29 @@
   root.dataset.initialized = "1";
 
   const shell = root.querySelector(".system-settings-shell");
+  const runtimeSectionStore = window.__sensoriusExpandableSectionState || (window.__sensoriusExpandableSectionState = {
+    runtimeInstanceId: "",
+    sections: {},
+  });
+  function syncRuntimeExpandableIdentity(nextRuntimeInstanceId) {
+    const nextId = String(nextRuntimeInstanceId || "").trim();
+    if (!nextId || runtimeSectionStore.runtimeInstanceId === nextId) return;
+    runtimeSectionStore.runtimeInstanceId = nextId;
+    runtimeSectionStore.sections = {};
+    root.querySelectorAll("details[data-runtime-section]").forEach((section) => { section.open = false; });
+  }
+  syncRuntimeExpandableIdentity(root.dataset.runtimeInstanceId);
+  root.querySelectorAll("details[data-runtime-section]").forEach((section) => {
+    const stateKey = "system-settings:" + section.dataset.runtimeSection;
+    if (Object.prototype.hasOwnProperty.call(runtimeSectionStore.sections, stateKey)) {
+      section.open = !!runtimeSectionStore.sections[stateKey];
+    } else {
+      section.open = false;
+    }
+    section.addEventListener("toggle", () => {
+      runtimeSectionStore.sections[stateKey] = !!section.open;
+    });
+  });
   const onboardingV2Enabled = String(shell?.dataset?.onboardingV2Enabled || "true").toLowerCase() !== "false";
   const formEl = document.getElementById("systemSettingsForm");
   const menu = document.getElementById("systemSettingsMenu");
@@ -1459,6 +1574,12 @@
 
   function setSystemSaveButtonsBusy(isBusy) {
     root.querySelectorAll(".btn-system-save").forEach((btn) => {
+      setButtonBusy(btn, isBusy, "Saving...");
+    });
+  }
+
+  function setAdvancedSaveButtonsBusy(isBusy) {
+    root.querySelectorAll(".btn-advanced-save").forEach((btn) => {
       setButtonBusy(btn, isBusy, "Saving...");
     });
   }
@@ -2209,10 +2330,13 @@
         throw new Error("HTTP " + resp.status);
       }
       const js = await resp.json();
+      syncRuntimeExpandableIdentity(js.runtime_instance_id);
       document.getElementById("adv-autostart-enabled").checked = !!js.autostart_enabled;
       document.getElementById("adv-autostart-scope").value = js.autostart_scope || "user";
       document.getElementById("adv-log-level").value = js.log_level || "DEBUG";
       document.getElementById("adv-file-log").checked = !!js.file_log;
+      document.getElementById("adv-log-path-value").textContent = js.log_file_path || "";
+      updateAdvancedLogPathVisibility();
       document.getElementById("adv-db-retention").value = String(js.db_retention_days || 90);
       setStatus("adv-autostart-note", js.autostart_scope_note || "");
 
@@ -2243,6 +2367,12 @@
     }
   }
 
+  function updateAdvancedLogPathVisibility() {
+    const enabled = !!document.getElementById("adv-file-log")?.checked;
+    const pathEl = document.getElementById("adv-log-path");
+    if (pathEl) pathEl.hidden = !enabled;
+  }
+
   async function saveAdvancedSettings() {
     try {
       const dbgChecks = [...document.querySelectorAll("#adv-debug-modules input[type='checkbox']")];
@@ -2257,7 +2387,7 @@
       };
 
       setStatus("adv-status", "Saving...");
-      setButtonBusy("btn-advanced-save", true, "Saving...");
+      setAdvancedSaveButtonsBusy(true);
       const resp = await fetch("/advanced/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2281,7 +2411,7 @@
       setStatus("adv-status", msg);
       showSettingsToast(msg, "error");
     } finally {
-      setButtonBusy("btn-advanced-save", false);
+      setAdvancedSaveButtonsBusy(false);
     }
   }
 
@@ -3313,8 +3443,8 @@
     }
   }
 
-  function newDatabase() {
-    if (!window.confirm("Archive the current database and create a new empty database? This is a drastic recovery action.")) return;
+  function renewDatabase() {
+    if (!window.confirm("Archive the current database and renew it with a new empty database? This is a drastic recovery action.")) return;
     window.location.href = "/new-database";
   }
 
@@ -3454,10 +3584,10 @@
     if (ev.target && ev.target.id === "btn-archive-db") {
       archiveDatabase();
     }
-    if (ev.target && ev.target.id === "btn-new-db") {
-      newDatabase();
+    if (ev.target && ev.target.id === "btn-renew-db") {
+      renewDatabase();
     }
-    if (ev.target && ev.target.id === "btn-advanced-save") {
+    if (ev.target && ev.target.classList && ev.target.classList.contains("btn-advanced-save")) {
       saveAdvancedSettings();
     }
     if (ev.target && ev.target.classList && ev.target.classList.contains("btn-back-system")) {
@@ -3469,6 +3599,9 @@
   });
 
   document.addEventListener("change", (ev) => {
+    if (ev?.target?.id === "adv-file-log") {
+      updateAdvancedLogPathVisibility();
+    }
     if (ev?.target?.id === "remove-device-confirm") {
       toggleRemoveEnable();
     }

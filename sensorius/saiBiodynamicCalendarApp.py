@@ -521,6 +521,7 @@ def register_biodynamic_calendar_routes(
                 "plantings": await asyncio.to_thread(data_logger.get_biodynamic_plantings),
                 "app_version": SAI_APP_VERSION,
                 "sensorius_launch": True,
+                "runtime_instance_id": str(getattr(request.app.state, "ui_runtime_instance_id", "") or ""),
             },
         )
 

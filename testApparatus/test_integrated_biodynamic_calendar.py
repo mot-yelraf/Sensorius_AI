@@ -151,13 +151,14 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
         assert f'id="legend-icon-{plant_part}"' in template
         assert template.count(f'href="#legend-icon-{plant_part}"') == 2
     assert ".legend-root { color: #644817; }" in stylesheet
-    assert ".legend-leaf { color: #2f6eb8; }" in stylesheet
+    assert ".legend-leaf { color: #277a00; }" in stylesheet
     assert ".legend-flower { color: #d8ac00; }" in stylesheet
     assert ".legend-fruit { color: #d64b3b; }" in stylesheet
     assert ".legend-rest { color: #6d7680; }" in stylesheet
     assert 'class="day-number"' in javascript
     assert "plantPartIconMarkup(partLabel)" in javascript
     assert ".day-part-icon" in stylesheet
+    assert ".day-part-icon.part-leaf { color: #277a00; }" in stylesheet
     assert "top: 6px;" in stylesheet
     assert 'id="planetaryAttributes"' in template
     assert "cosmic.planet_zodiac" in javascript
@@ -170,6 +171,40 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     assert "url.port = '8765'" not in dashboard
     assert "state.followCurrentMonth || state.selectionPinned" in javascript
     assert "monthlyPrintHints" not in javascript
+
+
+def test_leaf_icons_are_green_without_changing_water_background_accent():
+    from sensorius import saiBiodynamics
+    from sensorius.biodynamic_calendar import core
+
+    root = Path(__file__).resolve().parents[1]
+    stylesheet = (root / "ui_static" / "biodynamic_calendar" / "app.css").read_text(encoding="utf-8")
+    dashboard = (root / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+
+    assert ".legend-leaf { color: #277a00; }" in stylesheet
+    assert ".day-part-icon.part-leaf { color: #277a00; }" in stylesheet
+    assert ".bio-legend-leaf{background:#277a00}" in dashboard
+    for signs in (saiBiodynamics._SIGNS, core._SIGNS):
+        leaf_signs = [sign for sign in signs if sign["plant_part"] == "Leaf"]
+        assert leaf_signs
+        assert all(sign["color"] == "#277A00" for sign in leaf_signs)
+        assert all(sign["accent"] == "#2f6eb8" for sign in leaf_signs)
+
+
+def test_all_calendar_expandables_default_closed_and_use_process_scoped_state():
+    root = Path(__file__).resolve().parents[1]
+    template = (root / "ui_templates" / "biodynamic_calendar" / "index.html").read_text(encoding="utf-8")
+    javascript = (root / "ui_static" / "biodynamic_calendar" / "app.js").read_text(encoding="utf-8")
+    routes = (root / "sensorius" / "saiBiodynamicCalendarApp.py").read_text(encoding="utf-8")
+
+    assert template.count("<details") == 5
+    assert template.count("data-runtime-section=") == 5
+    assert not any(" open>" in line for line in template.splitlines() if "<details" in line)
+    assert 'data-runtime-section="calendar-astral-details"' in javascript
+    assert "window.__sensoriusExpandableSectionState" in javascript
+    assert 'section.addEventListener("toggle"' in javascript
+    assert "new MutationObserver" in javascript
+    assert '"runtime_instance_id": str(getattr(request.app.state, "ui_runtime_instance_id", "") or "")' in routes
 
 
 @pytest.mark.asyncio

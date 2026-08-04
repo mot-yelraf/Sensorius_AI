@@ -62,6 +62,7 @@ try:
 except Exception:
     pwd = None
 from .saiUtils import (
+    DEFAULT_LOG_FILE,
     printDM,
     debug_enabled,
     get_timestamp,
@@ -561,6 +562,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     # saiWebRoutes.app.state.switch_broadcast. Keep that compatibility binding
     # pointed at the actual FastAPI instance created by saiWebServer.
     globals()["app"] = app
+    if not str(getattr(app.state, "ui_runtime_instance_id", "") or "").strip():
+        app.state.ui_runtime_instance_id = uuid4().hex
     router = APIRouter()
     _BIODYNAMIC_PAYLOAD_CACHE.clear()
     biodynamic_payload_tasks: dict[str, asyncio.Task] = {}
@@ -4236,6 +4239,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         system_modal_html = templates.get_template("modals/system_settings.html").render(
             app_name_long=APP_NAME_LONG,
             app_version=APP_VERSION,
+            runtime_instance_id=app.state.ui_runtime_instance_id,
             hostname=hostname,
             httpport=httpport,
             broker=broker,
@@ -9122,6 +9126,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             log_level = "DEBUG"
 
         file_log = _is_true_text(env_map.get("SENSORIUS_FILE_LOG"), default=False)
+        log_file = str(env_map.get("SENSORIUS_LOG_FILE", DEFAULT_LOG_FILE) or DEFAULT_LOG_FILE).strip()
+        log_file_path = str(Path(log_file).expanduser().resolve())
         dbg_raw = str(env_map.get("SENSORIUS_DEBUG_MODULES", "") or "")
         debug_modules = [m.strip() for m in dbg_raw.split(",") if m.strip()]
 
@@ -9145,10 +9151,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "autostart_enabled": bool(autostart_enabled),
             "log_level": log_level,
             "file_log": bool(file_log),
+            "log_file_path": log_file_path,
             "debug_module_choices": list(_ADV_DEBUG_MODULE_CHOICES),
             "debug_modules": debug_modules,
             "db_retention_days": retention_days,
             "runtime_health": runtime_health,
+            "runtime_instance_id": app.state.ui_runtime_instance_id,
             "autostart_note": "If you manually run 'python Sensorius.py', stop that instance before enabling auto-start to avoid duplicate instances.",
             "autostart_scope_note": "macOS user-level launchctl is default. System-level may require admin privileges.",
         })

@@ -1,5 +1,39 @@
 const bootstrapElement = document.getElementById("bd-calendar-bootstrap");
 const initialPlantings = JSON.parse(bootstrapElement?.textContent || "[]");
+const runtimeSectionStore = window.__sensoriusExpandableSectionState || (window.__sensoriusExpandableSectionState = {
+  runtimeInstanceId: "",
+  sections: {},
+});
+const runtimeInstanceId = String(document.body?.dataset?.runtimeInstanceId || "").trim();
+if (runtimeInstanceId && runtimeSectionStore.runtimeInstanceId !== runtimeInstanceId) {
+  runtimeSectionStore.runtimeInstanceId = runtimeInstanceId;
+  runtimeSectionStore.sections = {};
+}
+function bindRuntimeExpandableSection(section) {
+  if (!(section instanceof HTMLDetailsElement) || section.dataset.runtimeSectionBound === "1") return;
+  const stateKey = `biodynamic-calendar:${section.dataset.runtimeSection || section.id || "section"}`;
+  if (Object.prototype.hasOwnProperty.call(runtimeSectionStore.sections, stateKey)) {
+    section.open = !!runtimeSectionStore.sections[stateKey];
+  } else {
+    section.open = false;
+  }
+  section.dataset.runtimeSectionBound = "1";
+  section.addEventListener("toggle", () => {
+    runtimeSectionStore.sections[stateKey] = !!section.open;
+  });
+}
+function bindRuntimeExpandableSections(container = document) {
+  if (container instanceof HTMLDetailsElement && container.matches("details[data-runtime-section]")) {
+    bindRuntimeExpandableSection(container);
+  }
+  container.querySelectorAll?.("details[data-runtime-section]").forEach(bindRuntimeExpandableSection);
+}
+bindRuntimeExpandableSections();
+new MutationObserver((mutations) => {
+  mutations.forEach((mutation) => mutation.addedNodes.forEach((node) => {
+    if (node instanceof Element) bindRuntimeExpandableSections(node);
+  }));
+}).observe(document.body, { childList: true, subtree: true });
 const state = {
   month: "",
   payload: null,
@@ -1032,7 +1066,7 @@ function renderDailyGuidance(container, summary) {
     group("Best actions", actions),
     group("Cautions", warnings, "warning"),
     group("Plant guidance", plants, "plants"),
-    technical.length ? `<details class="technical-details"><summary>Astral details</summary><div class="astral-details-body">${astralDetails}</div></details>` : "",
+    technical.length ? `<details class="technical-details" data-runtime-section="calendar-astral-details"><summary>Astral details</summary><div class="astral-details-body">${astralDetails}</div></details>` : "",
   ].join("") || `<div class="empty-list">Daily guidance unavailable.</div>`;
 }
 
