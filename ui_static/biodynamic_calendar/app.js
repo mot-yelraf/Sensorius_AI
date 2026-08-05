@@ -1510,14 +1510,9 @@ function stageCurrentMonthReport() {
   const payload = state.payload || {};
   if (!payload.ok) return false;
   const report = document.getElementById("printReport");
-  const printButton = document.getElementById("printBtn");
   try {
     const hints = immediatePrintHints(payload);
     report.innerHTML = buildPrintReport(payload, hints);
-    const title = `${payload.month_label || state.month || "Selected Month"} Biodynamic Calendar`;
-    const key = `bd-calendar-report-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    window.localStorage.setItem(key, JSON.stringify({ title, html: report.innerHTML }));
-    printButton.href = `/calendar/report?key=${encodeURIComponent(key)}`;
   } catch (err) {
     return false;
   }
@@ -1699,7 +1694,8 @@ document.getElementById("saveNoteBtn").addEventListener("click", async () => {
 });
 
 document.getElementById("printBtn").addEventListener("click", (ev) => {
-  if (!stageCurrentMonthReport()) ev.preventDefault();
+  ev.preventDefault();
+  if (stageCurrentMonthReport()) window.print();
 });
 
 function navigateCalendarMonth(delta) {

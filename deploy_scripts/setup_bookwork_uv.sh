@@ -64,7 +64,8 @@ install_system_packages() {
     i2c-tools \
     libffi-dev libssl-dev \
     libjpeg-dev zlib1g-dev libopenjp2-7 \
-    ca-certificates curl
+    ca-certificates curl \
+    cups cups-client cups-ipp-utils cups-filters-core-drivers avahi-daemon
 }
 
 ensure_uv() {
@@ -209,6 +210,7 @@ main() {
   ensure_uv
   setup_python_env
   configure_system
+  configure_rpi_printer
   configure_boot_start
 
   echo ""

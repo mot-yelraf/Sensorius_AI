@@ -372,6 +372,45 @@ month is displayed. Detailed guidance is generated when a day is selected and
 then reused from SQLite. Print staging uses already cached guidance and the
 calendar-day fallback instead of launching one background request per day.
 
+### Raspberry Pi Report Printer
+
+Inspect the local CUPS state with:
+
+```bash
+lpstat -t
+lpstat -e
+driverless --std-ipp-uris
+```
+
+A healthy Sensorius Pi has one enabled default printer whose device URI begins
+with `ipp://` or `ipps://`. A disabled `implicitclass://` destination with
+`No destination host name supplied by cups-browsed` is a broken discovery
+proxy, not a BD Calendar report failure.
+
+Use the deployed helper for normal repair rather than editing
+`/etc/cups/printers.conf`:
+
+```bash
+sudo /home/<user>/Sensorius/scripts/setup_rpi_printer.sh --user <user>
+```
+
+The helper queries printer capabilities before changing CUPS, creates a
+permanent IPP Everywhere queue, sets the user and system defaults, and verifies
+the stored device URI. It holds existing jobs on a queue before repairing it
+and leaves any proxy that still owns jobs in place. Review those jobs before
+canceling or releasing them:
+
+```bash
+lpstat -W not-completed -o
+sudo cancel <job-id>
+lp -i <job-id> -H resume
+```
+
+When multiple reachable printers or unrelated proxy queues exist, the helper
+does not disable `cups-browsed` automatically. Use `--uri` to identify the
+intended physical printer, and use `--keep-cups-browsed` when its other remote
+queues are required.
+
 Retention is controlled by:
 
 ```env

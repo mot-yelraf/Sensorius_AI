@@ -142,6 +142,52 @@ Bookworm setup performs the normal Pi install work:
   `/home/<user>/Sensorius` or `/Users/<user>/Sensorius`.
 - Configures and enables `sensorius.service`.
 - Configures hostname/timezone prompts where supported.
+- Installs CUPS driverless-printing tools and offers to configure a local
+  network printer for Sensorius reports.
+
+### Raspberry Pi Report Printer
+
+The Bookworm and Trixie deployment paths install CUPS, IPP discovery tools,
+and `/home/<user>/Sensorius/scripts/setup_rpi_printer.sh`. During an
+interactive deployment, the helper lists reachable IPP Everywhere/AirPrint
+printers and offers to make one the local default. It creates a permanent
+direct `ipp://` or `ipps://` queue rather than relying on a transient
+`implicitclass://` queue.
+
+The helper does not print a test page or cancel existing jobs. It refuses to
+choose automatically when more than one reachable printer is present. When
+there is exactly one printer and no unrelated CUPS proxy queues, it replaces
+matching proxies with the verified direct queue and disables `cups-browsed` so
+the same printer does not appear twice.
+
+If the printer is added to the network after Sensorius is installed, run:
+
+```bash
+sudo /home/<user>/Sensorius/scripts/setup_rpi_printer.sh --user <user>
+```
+
+List printers without changing CUPS:
+
+```bash
+/home/<user>/Sensorius/scripts/setup_rpi_printer.sh --list
+```
+
+For an unattended deployment with exactly one reachable printer, set
+`SENSORIUS_PRINTER_SETUP=auto`. Set it to `skip` to omit printer setup:
+
+```bash
+sudo SENSORIUS_PRINTER_SETUP=auto ./install.sh
+sudo SENSORIUS_PRINTER_SETUP=skip ./install.sh
+```
+
+If multiple printers are present, select one interactively or pass the exact
+URI reported by `--list`:
+
+```bash
+sudo /home/<user>/Sensorius/scripts/setup_rpi_printer.sh \
+  --user <user> \
+  --uri 'ipp://printer-host.local:631/ipp/print'
+```
 
 ## Raspberry Pi OS Trixie
 

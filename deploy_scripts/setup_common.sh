@@ -321,6 +321,37 @@ deploy_project_files() {
   echo "Application files deployed to ${PROJECT_DIR}"
 }
 
+configure_rpi_printer() {
+  local helper_path target_user setup_mode
+  helper_path="${PROJECT_DIR}/scripts/setup_rpi_printer.sh"
+  target_user="${SUDO_USER:-$(id -un)}"
+  setup_mode="${SENSORIUS_PRINTER_SETUP:-prompt}"
+
+  case "${setup_mode}" in
+    0|false|no|off|skip)
+      echo "Skipping Raspberry Pi printer setup (SENSORIUS_PRINTER_SETUP=${setup_mode})."
+      return
+      ;;
+  esac
+
+  if [[ ! -f "${helper_path}" ]]; then
+    echo "WARNING: Raspberry Pi printer helper not found at ${helper_path}." >&2
+    return
+  fi
+
+  echo ""
+  echo "Checking for a local driverless printer for Sensorius reports..."
+  if [[ "${setup_mode}" =~ ^(1|true|yes|on|auto)$ ]]; then
+    if ! bash "${helper_path}" --user "${target_user}" --yes; then
+      echo "WARNING: printer setup did not complete; Sensorius installation will continue." >&2
+    fi
+  else
+    if ! bash "${helper_path}" --user "${target_user}"; then
+      echo "WARNING: printer setup did not complete; Sensorius installation will continue." >&2
+    fi
+  fi
+}
+
 install_networkmanager_polkit_rule() {
   local username="$1"
   local rules_dir="/etc/polkit-1/rules.d"

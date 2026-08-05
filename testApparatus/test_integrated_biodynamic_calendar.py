@@ -134,7 +134,12 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     assert "radial-gradient(circle at top left" not in stylesheet
     assert "/ui_static/biodynamic_calendar/app.js" in template
     assert "/api/biodynamic-calendar-app/calendar" in javascript
-    assert "/calendar/report?key=" in javascript
+    assert 'id="printBtn" class="header-report" type="button"' in template
+    assert 'class="print-icon" viewBox="0 0 24 24"' in template
+    assert 'target="_blank"' not in template
+    assert "window.localStorage" not in javascript
+    assert "if (stageCurrentMonthReport()) window.print();" in javascript
+    assert ".dashboard-return {\n    display: none !important;" in stylesheet
     assert "Sun/Moon Position</h2>" not in template
     assert "Moon Phase</h2>" not in template
     assert '<h2 id="cosmicAttributesTitle">Moon Attributes</h2>' in template

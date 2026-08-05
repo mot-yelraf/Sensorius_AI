@@ -15,4 +15,5 @@ deploy_project_files
 cp -f "${SCRIPT_DIR}/setup_reqs_trixie.txt" "${PROJECT_DIR}/setup_reqs.txt"
 
 export SCRIPT_DIR SOURCE_REPO_DIR PROJECT_DIR VENV_PATH
-exec "${SCRIPT_DIR}/setup_trixie_legacy.sh" "$@"
+"${SCRIPT_DIR}/setup_trixie_legacy.sh" "$@"
+configure_rpi_printer

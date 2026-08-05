@@ -752,6 +752,22 @@ The full-screen calendar shows:
 - Save Note.
 - Print Report for the selected month calendar with dated BD hints, cached daily summaries, and notes.
 
+### Printing Calendar Reports
+
+On the Raspberry Pi desktop shell, **Report** uses the Pi's default CUPS
+printer. Raspberry Pi deployment offers to configure a permanent driverless
+network-printer queue. If the printer was connected later, an administrator
+can rerun `/home/<user>/Sensorius/scripts/setup_rpi_printer.sh` once; ordinary
+report users do not need to configure the printer for every report.
+
+When the calendar is opened from another computer or mobile device, printing
+uses that device's browser and printers instead of the Raspberry Pi printer.
+Saving as PDF also occurs on the device displaying the print dialog.
+
+Before relying on local Pi printing, confirm that its print dialog shows one
+enabled default destination. If duplicate entries or a disabled destination
+appear, use the printer troubleshooting section in the Operations guide.
+
 Daily summaries come from Sensorius' biodynamic summary storage and are
 generated on demand when a day is selected. Browsing future months does not
 generate summaries for their default day. For the current day, the summary may

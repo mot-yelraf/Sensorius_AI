@@ -21,7 +21,13 @@
           <span aria-hidden="true">&middot;</span>
           <span id="headerDate">Today</span>
           <span aria-hidden="true">&middot;</span>
-          <a id="printBtn" class="header-report" href="/calendar/report" target="_blank" rel="noopener" aria-label="Open monthly report for printing">Report <span class="print-icon" aria-hidden="true">&#128424;&#65038;</span></a>
+          <button id="printBtn" class="header-report" type="button" aria-label="Print monthly report">
+            Report
+            <svg class="print-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M7 8V3h10v5M7 17H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M7 14h10v7H7z"/>
+              <circle cx="18" cy="11" r="1"/>
+            </svg>
+          </button>
         </div>
       </div>
     </header>

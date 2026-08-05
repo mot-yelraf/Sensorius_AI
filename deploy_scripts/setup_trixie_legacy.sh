@@ -155,6 +155,7 @@ apt_pkgs=(
   i2c-tools
   libffi-dev libssl-dev
   libjpeg-dev zlib1g-dev libopenjp2-7
+  cups cups-client cups-ipp-utils cups-filters-core-drivers avahi-daemon
   make libbz2-dev libreadline-dev libsqlite3-dev libncursesw5-dev
   xz-utils tk-dev libxml2-dev libxmlsec1-dev liblzma-dev
 )

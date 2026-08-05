@@ -124,8 +124,10 @@ body {
   background: transparent;
   color: inherit;
   padding: 2px 5px;
+  font-family: inherit;
   font-size: inherit;
   font-weight: 800;
+  line-height: inherit;
   cursor: pointer;
   text-decoration: none;
 }
@@ -137,8 +139,15 @@ body {
 
 .print-icon {
   display: inline-block;
+  width: 1em;
+  height: 1em;
   margin-left: 2px;
-  font-size: 0.9em;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  vertical-align: -0.14em;
 }
 
 .location-settings[open] > summary {
@@ -1467,6 +1476,10 @@ button:disabled:hover {
 }
 
 @media print {
+  .dashboard-return {
+    display: none !important;
+  }
+
   body {
     background: #fff;
     color: #111827;

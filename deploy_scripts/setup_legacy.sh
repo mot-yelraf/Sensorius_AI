@@ -144,7 +144,8 @@ sudo apt install -y \
   python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1 \
   i2c-tools \
   libffi-dev libssl-dev \
-  libjpeg-dev zlib1g-dev libopenjp2-7
+  libjpeg-dev zlib1g-dev libopenjp2-7 \
+  cups cups-client cups-ipp-utils cups-filters-core-drivers avahi-daemon
 
 echo "Preparing Python 3.11 virtual environment..."
 # Create new venv with access to system packages (e.g., gi, GTK)

@@ -22,3 +22,4 @@ sed \
 
 export SCRIPT_DIR SOURCE_REPO_DIR PROJECT_DIR
 bash "${TMP_SCRIPT}" "$@"
+configure_rpi_printer
