@@ -7346,7 +7346,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "</script>"
 
     yield "<div class='dashboard-overview-graphic'>"
-    yield f"  <img src='/ui_static/01-sensorius-overview-v4.png?v={APP_VERSION}' alt='Sensorius system overview' loading='lazy'>"
+    yield f"  <img src='/ui_static/01-sensorius-overview-v5.png?v={APP_VERSION}' alt='Sensorius system overview' loading='lazy'>"
     yield "</div>"
     yield "<div id='modal-host'></div>"
     yield "</div>"

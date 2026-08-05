@@ -534,7 +534,7 @@ def build_js_helper(timeout_ms: int) -> str:
       if (typeof window.updateGauges !== 'function') throw new Error('updateGauges is unavailable');
       await window.updateGauges({{ ignoreVisibility: true, ignoreModal: true }});
       await this.nextPaint();
-      const overview = document.querySelector("img[src*='01-sensorius-overview-v4.png']");
+      const overview = document.querySelector("img[src*='01-sensorius-overview-v5.png']");
       if (overview && !overview.complete) {{
         await Promise.race([
           new Promise(resolve => overview.addEventListener('load', resolve, {{ once: true }})),
@@ -552,7 +552,7 @@ def build_js_helper(timeout_ms: int) -> str:
         total_ms: Number((performance.now() - started).toFixed(2)),
         resource_count: resources.length,
         resources,
-        overview_image_requested: resources.some((url) => url.includes('01-sensorius-overview-v4.png')),
+        overview_image_requested: resources.some((url) => url.includes('01-sensorius-overview-v5.png')),
       }};
     }},
   }};

@@ -241,12 +241,13 @@ def test_dashboard_renders_centered_overview_graphic_at_bottom():
 
     graphic = "<div class='dashboard-overview-graphic'>"
     assert graphic in html
-    assert f"src='/ui_static/01-sensorius-overview-v4.png?v={APP_VERSION}'" in html
+    assert f"src='/ui_static/01-sensorius-overview-v5.png?v={APP_VERSION}'" in html
     assert html.index(graphic) < html.index("<div id='modal-host'></div>")
     assert ".dashboard-overview-graphic{" in css
     assert "order:9999;" in css
     assert "justify-content:center;" in css
     assert "width:min(100%, 522px);" in css
+    assert "border-radius:12px;" in css
 
 
 def test_dashboard_metric_cards_render_and_refresh_trend_arrows():

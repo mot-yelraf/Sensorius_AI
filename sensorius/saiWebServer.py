@@ -21,7 +21,7 @@ import inspect
 
 MODULE = "saiWebServer"
 DEBUG = debug_enabled(MODULE)
-_IMMUTABLE_STATIC_ASSETS = {"01-sensorius-overview-v4.png"}
+_IMMUTABLE_STATIC_ASSETS = {"01-sensorius-overview-v5.png"}
 
 
 class SensoriusStaticFiles(StaticFiles):

@@ -49,12 +49,12 @@ def test_prewarm_startup_handler_schedules_without_returning_awaitable(monkeypat
 
 @pytest.mark.asyncio
 async def test_versioned_overview_asset_has_immutable_cache_header(tmp_path):
-    (tmp_path / "01-sensorius-overview-v4.png").write_bytes(b"image")
+    (tmp_path / "01-sensorius-overview-v5.png").write_bytes(b"image")
     app = FastAPI()
     app.mount("/ui_static", SensoriusStaticFiles(directory=str(tmp_path)))
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/ui_static/01-sensorius-overview-v4.png?v=test")
+        response = await client.get("/ui_static/01-sensorius-overview-v5.png?v=test")
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
