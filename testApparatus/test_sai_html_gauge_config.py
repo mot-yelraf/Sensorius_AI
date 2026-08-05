@@ -127,6 +127,54 @@ def test_dashboard_micrograph_uses_soil_fertility_gauge_scale():
     assert "yScaleOptions.max = cfgMax" in html
 
 
+def test_dashboard_micrograph_moves_duration_to_card_title_and_shows_time_ticks():
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["avpd-test123"],
+            {"avpd-test123": {"Ambient VPD": 1.2}},
+            {"avpd-test123": {"Ambient VPD": {"min": 1.0, "avg": 1.1, "max": 1.3}}},
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=get_gauge_config(),
+            expected_gauge_map={"avpd-test123": ["Ambient VPD"]},
+            expected_display_style_map={"avpd-test123": {"METRIC_1": "Graph24hr"}},
+            display_style="Gauge",
+        )
+    )
+
+    assert "<div class='metric-title'>24hr Ambient VPD (kPa)</div>" in html
+    assert "const durationPrefix = normalized === 'Graph6hr' ? '6hr '" in html
+    assert "title.textContent = durationPrefix + baseTitle;" in html
+    assert "title: { display: false }" in html
+    assert "display: true," in html
+    assert "unit: 'hour'," in html
+    assert "major: { enabled: true }," in html
+    assert "callback: formatXAxisTick" in html
+    assert "return month + pad2(date.getDate());" in html
+    assert "return pad2(date.getHours()) + ':' + pad2(date.getMinutes());" in html
+
+
+def test_dashboard_gauge_title_has_no_graph_duration():
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["avpd-test123"],
+            {"avpd-test123": {"Ambient VPD": 1.2}},
+            {"avpd-test123": {"Ambient VPD": {"min": 1.0, "avg": 1.1, "max": 1.3}}},
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=get_gauge_config(),
+            expected_gauge_map={"avpd-test123": ["Ambient VPD"]},
+            expected_display_style_map={"avpd-test123": {"METRIC_1": "Gauge"}},
+            display_style="Graph24hr",
+        )
+    )
+
+    assert "<div class='metric-title'>Ambient VPD (kPa)</div>" in html
+    assert "<div class='metric-title'>24hr Ambient VPD (kPa)</div>" not in html
+
+
 def test_weewx_wind_direction_micrograph_renders_speed_banded_wind_rose():
     gauge_config = get_gauge_config()
     html = "".join(
@@ -153,9 +201,9 @@ def test_weewx_wind_direction_micrograph_renders_speed_banded_wind_rose():
     assert "{ min: 30, max: Infinity, label: '30+', color: '#0b376d' }" in html
     assert "renderWindRoseMicrograph(canvas, seriesObj, speedSeries, xTitleText)" in html
     assert "canvas.setAttribute('aria-label', `${rangeLabel} wind rose." in html
-    assert "title.textContent = 'Wind-Rose (6hr)';" in html
-    assert "title.textContent = 'Wind-Rose (24hr)';" in html
-    assert "title.textContent = `Wind Direction (${unit})`;" in html
+    assert "baseTitle = 'Wind-Rose';" in html
+    assert "baseTitle = `Wind Direction (${unit})`;" in html
+    assert "title.textContent = durationPrefix + baseTitle;" in html
     assert "window.updateMetricCardTitle(container, norm)" in html
 
 
