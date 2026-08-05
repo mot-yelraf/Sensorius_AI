@@ -153,12 +153,15 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     assert ".legend-root { color: #644817; }" in stylesheet
     assert ".legend-leaf { color: #277a00; }" in stylesheet
     assert ".legend-flower { color: #d8ac00; }" in stylesheet
-    assert ".legend-fruit { color: #d64b3b; }" in stylesheet
+    assert '<circle cx="9" cy="9" r="2.3"/>' in template
+    assert '<circle cx="11.5" cy="21" r="2.1"/>' in template
+    assert ".legend-fruit { color: #4c3a7f; }" in stylesheet
     assert ".legend-rest { color: #6d7680; }" in stylesheet
     assert 'class="day-number"' in javascript
     assert "plantPartIconMarkup(partLabel)" in javascript
     assert ".day-part-icon" in stylesheet
     assert ".day-part-icon.part-leaf { color: #277a00; }" in stylesheet
+    assert ".day-part-icon.part-fruit { color: #4c3a7f; fill: currentColor; }" in stylesheet
     assert "top: 6px;" in stylesheet
     assert 'id="planetaryAttributes"' in template
     assert "cosmic.planet_zodiac" in javascript
@@ -189,6 +192,23 @@ def test_leaf_icons_are_green_without_changing_water_background_accent():
         assert leaf_signs
         assert all(sign["color"] == "#277A00" for sign in leaf_signs)
         assert all(sign["accent"] == "#2f6eb8" for sign in leaf_signs)
+
+
+def test_fruit_uses_grape_purple_without_changing_fire_background_accent():
+    from sensorius import saiBiodynamics
+    from sensorius.biodynamic_calendar import core
+
+    root = Path(__file__).resolve().parents[1]
+    dashboard = (root / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+
+    assert ".bio-legend-fruit{background:#4c3a7f}" in dashboard
+    assert "const actionColor = isFruit ? '#4c3a7f' : color;" in dashboard
+    assert "openBtn.style.color = isFruit ? '#fff' : textOnHex(actionColor);" in dashboard
+    for signs in (saiBiodynamics._SIGNS, core._SIGNS):
+        fruit_signs = [sign for sign in signs if sign["plant_part"] == "Fruit"]
+        assert fruit_signs
+        assert all(sign["color"] == "#f19707" for sign in fruit_signs)
+        assert all(sign["accent"] == "#d64b3b" for sign in fruit_signs)
 
 
 def test_all_calendar_expandables_default_closed_and_use_process_scoped_state():

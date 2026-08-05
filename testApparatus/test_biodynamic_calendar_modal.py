@@ -88,6 +88,7 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     for label in ("Root", "Leaf", "Flower", "Fruit", "Rest", "Transition"):
         assert f"</span>{label}</span>" in text
     assert ".bio-legend-leaf{background:#277a00}" in text
+    assert ".bio-legend-fruit{background:#4c3a7f}" in text
     assert ".bio-day-num{font-size:.66rem;font-weight:800;line-height:1;display:inline-flex;align-items:center;justify-content:center;min-width:1.45em;height:1.45em;border-radius:999px;background:rgba(255,253,246,.88);border:1px solid rgba(39,49,58,.18);color:#27313a;box-shadow:0 1px 2px rgba(39,49,58,.18);}" in text
     assert ".bio-day-meta{" not in text
     assert ".bio-print-day-num{font-size:9pt;font-weight:800;line-height:1;display:inline-flex;align-items:center;justify-content:center;min-width:1.45em;height:1.45em;border-radius:999px;background:rgba(255,253,246,.9);border:1px solid rgba(39,49,58,.18);color:#27313a;}" in text
@@ -114,9 +115,9 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert text.index("<div class='astro-title'>Biodynamic Calendar</div>") < text.index("<div class='bio-window' id='bioDateLine'>Loading biodynamic date...</div>") < text.index("<div class='bio-daylight' id='bioDaylightLine'>Hours of Daylight: --</div>") < text.index("<div class='bio-main' id='bioCurrentPanel'>")
     assert text.index("<div class='astro-box' id='moonBox' aria-live='polite' role='button'") < text.index("<div class='astro-box' id='sunBox' aria-live='polite' role='button'")
     assert "#bioCurrentBadge" not in text
-    assert "openBtn.style.background = color;" in text
-    assert "openBtn.style.color = textOnHex(color);" in text
-    assert "const actionColor = String(cur.accent || color);" not in text
+    assert "const actionColor = isFruit ? '#4c3a7f' : color;" in text
+    assert "openBtn.style.background = actionColor;" in text
+    assert "openBtn.style.color = isFruit ? '#fff' : textOnHex(actionColor);" in text
     assert "const bioNowParts = () => {" in text
     assert "return { iso: d.toISOString(), dayKey: `${parts.year}-${parts.month}-${parts.day}`, minuteOfDay: Math.max(0, Math.min(1439, (hour24 * 60) + minute)) };" in text
     assert "let __lastBiodynamicMinuteKey = '';" in text

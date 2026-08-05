@@ -913,7 +913,7 @@ button:disabled:hover {
 .legend-root { color: #644817; }
 .legend-leaf { color: #277a00; }
 .legend-flower { color: #d8ac00; }
-.legend-fruit { color: #d64b3b; }
+.legend-fruit { color: #4c3a7f; }
 .legend-rest { color: #6d7680; }
 
 .legend-dot {
@@ -982,7 +982,7 @@ button:disabled:hover {
 .day-part-icon.part-root { color: #644817; }
 .day-part-icon.part-leaf { color: #277a00; }
 .day-part-icon.part-flower { color: #d8ac00; fill: currentColor; }
-.day-part-icon.part-fruit { color: #d64b3b; fill: currentColor; }
+.day-part-icon.part-fruit { color: #4c3a7f; fill: currentColor; }
 .day-part-icon.part-rest { color: #6d7680; }
 
 .bio-day.out .day-part-icon {
