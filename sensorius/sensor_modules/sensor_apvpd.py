@@ -6,7 +6,7 @@ metrics from the paired probes.
 """
 
 from ..saiUtils import printDM, debug_enabled
-from .base import BaseSensor, find_sensor_bus
+from .base import BAROMETRIC_PRESSURE_PRECISION, BaseSensor, find_sensor_bus
 
 MODULE = "VPDPlantSensor"
 DEBUG = debug_enabled("saiSensorFactory")
@@ -184,7 +184,7 @@ class VPDPlantSensor(BaseSensor):
                     "Baro-Pressure",
                     "hPa",
                     lambda: self._altitude_adjusted_pressure_hpa(self.thp280.pressure),
-                    None,
+                    BAROMETRIC_PRESSURE_PRECISION,
                 ),
 
                 # Plant metrics (APVPD device calibration only)
@@ -246,7 +246,7 @@ class VPDPlantSensor(BaseSensor):
                     "Plant Baro-Pressure",
                     "hPa",
                     lambda: self._altitude_adjusted_pressure_hpa(self.thp280_plant.pressure),
-                    None,
+                    BAROMETRIC_PRESSURE_PRECISION,
                 ),
             ]
         except Exception as e:

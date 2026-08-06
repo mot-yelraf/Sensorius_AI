@@ -49,7 +49,8 @@ Common environmental metrics:
 - `Dew-Point_F` or `Dew Point_F` - degrees F.
 - `Dewpoint Depression` or `Dew Point Deficit` - degrees C.
 - `DewVPD Risk` - percent.
-- `Baro-Pressure` or `Bar-Pressure` - hPa.
+- `Baro-Pressure`, `Plant Baro-Pressure`, or legacy `Bar-Pressure` - hPa,
+  normalized and displayed at `0.1 hPa` resolution.
 - `Air Quality` - derived AQI.
 
 Soil metrics:

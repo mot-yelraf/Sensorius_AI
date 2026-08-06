@@ -336,6 +336,31 @@ def test_dashboard_metric_cards_render_and_refresh_trend_arrows():
     assert "initializeTrendArrows();" in html
 
 
+def test_barometric_pressure_uses_one_decimal_in_gauges_and_graph_axes():
+    gauge_config = get_gauge_config()
+
+    assert gauge_config["Baro-Pressure"]["display_precision"] == 1
+    assert gauge_config["Plant Baro-Pressure"]["display_precision"] == 1
+
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["avpd-2k7r1y"],
+            {"avpd-2k7r1y": {"Baro-Pressure": 1008.9}},
+            {"avpd-2k7r1y": {}},
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=gauge_config,
+            expected_gauge_map={"avpd-2k7r1y": ["Baro-Pressure"]},
+        )
+    )
+
+    assert "1008.9 hPa" in html
+    assert "if (isBarometricPressure) return num.toFixed(1);" in html
+    assert "if (pressureAxis) return num.toFixed(1);" in html
+    assert "context.dataset.pressureMetric" in html
+
+
 def test_dashboard_trend_arrow_uses_thin_extended_svg_geometry():
     css = (
         Path(__file__).resolve().parents[1] / "ui_static" / "css" / "app.css"

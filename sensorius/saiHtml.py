@@ -104,7 +104,7 @@ def get_gauge_config():
         "Dew Point Deficit": {"unit": "°C", "min": 0, "max": 30, "ticks": [0, 5, 10, 15, 20, 25, 30], "zones": [{"strokeStyle": "#0033cc", "min": 0, "max": 2}, {"strokeStyle": "#66cc66", "min": 2, "max": 8}, {"strokeStyle": "#ffcc00", "min": 8, "max": 15}, {"strokeStyle": "#f00", "min": 15, "max": 30}]},
         "DewVPD Risk": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#66cc66", "min": 0, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 60}, {"strokeStyle": "#bf9000", "min": 60, "max": 100}]},
         "Ambient VPD": {"unit": "kPa", "min": 0.0, "max": 5.0, "ticks": [0, 0.4, 0.8, 1.2, 1.6, 2, 3, 4, 5], "zones": [{"strokeStyle": "#0033cc", "min": 0.0, "max": 0.4}, {"strokeStyle": "#66cc66", "min": 0.4, "max": 0.8}, {"strokeStyle": "#03a603", "min": 0.8, "max": 1.2}, {"strokeStyle": "#3e803e", "min": 1.2, "max": 1.6}, {"strokeStyle": "#bf9000", "min": 1.6, "max": 5.0}]},
-        "Baro-Pressure": {"unit": "hPa", "min": 700, "max": 1100, "ticks": [700, 750, 800, 850, 900, 950, 1000, 1050, 1100], "zones": [{"strokeStyle": "#add8e6", "min": 700, "max": 1100}]},
+        "Baro-Pressure": {"unit": "hPa", "display_precision": 1, "min": 700, "max": 1100, "ticks": [700, 750, 800, 850, 900, 950, 1000, 1050, 1100], "zones": [{"strokeStyle": "#add8e6", "min": 700, "max": 1100}]},
         "Temperature_F": {"unit": "°F", "min": 0, "max": 140, "ticks": [0, 32, 50, 70, 90, 110, 140], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 32}, {"strokeStyle": "#3399ff", "min": 32, "max": 50}, {"strokeStyle": "#66cc66", "min": 50, "max": 86}, {"strokeStyle": "#ffcc00", "min": 86, "max": 104}, {"strokeStyle": "#f00", "min": 104, "max": 140}]},
         "Plant Temperature": {"unit": "°C", "min": -20, "max": 60, "ticks": [-20, 0, 10, 20, 30, 40, 60], "zones": [{"strokeStyle": "#00f", "min": -20, "max": 0}, {"strokeStyle": "#3399ff", "min": 0, "max": 10}, {"strokeStyle": "#66cc66", "min": 10, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 40}, {"strokeStyle": "#f00", "min": 40, "max": 60}]},
         "Plant Rel-Humidity": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#bf9000", "min": 0, "max": 20}, {"strokeStyle": "#ffcc00", "min": 20, "max": 30}, {"strokeStyle": "#add8e6", "min": 30, "max": 70}, {"strokeStyle": "#66b2ff", "min": 70, "max": 80}, {"strokeStyle": "#0033cc", "min": 80, "max": 100}]},
@@ -114,7 +114,7 @@ def get_gauge_config():
         "Plant Dew Point Deficit": {"unit": "°C", "min": 0, "max": 30, "ticks": [0, 5, 10, 15, 20, 25, 30], "zones": [{"strokeStyle": "#0033cc", "min": 0, "max": 2}, {"strokeStyle": "#66cc66", "min": 2, "max": 8}, {"strokeStyle": "#ffcc00", "min": 8, "max": 15}, {"strokeStyle": "#f00", "min": 15, "max": 30}]},
         "Plant DewVPD Risk": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#66cc66", "min": 0, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 60}, {"strokeStyle": "#bf9000", "min": 60, "max": 100}]},
         "Plant VPD": {"unit": "kPa", "min": 0.0, "max": 5.0, "ticks": [0, 0.4, 0.8, 1.2, 1.6, 2, 3, 4, 5], "zones": [{"strokeStyle": "#0033cc", "min": 0.0, "max": 0.4}, {"strokeStyle": "#66cc66", "min": 0.4, "max": 0.8}, {"strokeStyle": "#03a603", "min": 0.8, "max": 1.2}, {"strokeStyle": "#3e803e", "min": 1.2, "max": 1.6}, {"strokeStyle": "#bf9000", "min": 1.6, "max": 5.0}]},
-        "Plant Baro-Pressure": {"unit": "hPa", "min": 700, "max": 1100, "ticks": [700, 750, 800, 850, 900, 950, 1000, 1050, 1100], "zones": [{"strokeStyle": "#add8e6", "min": 700, "max": 1100}]},
+        "Plant Baro-Pressure": {"unit": "hPa", "display_precision": 1, "min": 700, "max": 1100, "ticks": [700, 750, 800, 850, 900, 950, 1000, 1050, 1100], "zones": [{"strokeStyle": "#add8e6", "min": 700, "max": 1100}]},
         "Plant Temperature_F": {"unit": "°F", "min": 0, "max": 140, "ticks": [0, 32, 50, 70, 90, 110, 140], "zones": [{"strokeStyle": "#00f", "min": 0, "max": 32}, {"strokeStyle": "#3399ff", "min": 32, "max": 50}, {"strokeStyle": "#66cc66", "min": 50, "max": 86}, {"strokeStyle": "#ffcc00", "min": 86, "max": 104}, {"strokeStyle": "#f00", "min": 104, "max": 140}]},
         "Soil Moisture": {"unit": "%", "min": 0, "max": 100, "ticks": [0, 20, 40, 60, 80, 100], "zones": [{"strokeStyle": "#bf9000", "min": 0, "max": 20}, {"strokeStyle": "#ffcc00", "min": 20, "max": 50}, {"strokeStyle": "#add8e6", "min": 50, "max": 70}, {"strokeStyle": "#66b2ff", "min": 70, "max": 80}, {"strokeStyle": "#0033cc", "min": 80, "max": 100}]},
         "Soil Temp_C": {"unit": "°C", "min": -20, "max": 60, "ticks": [-20, 0, 10, 20, 30, 40, 60], "zones": [{"strokeStyle": "#00f", "min": -20, "max": 0}, {"strokeStyle": "#3399ff", "min": 0, "max": 10}, {"strokeStyle": "#66cc66", "min": 10, "max": 30}, {"strokeStyle": "#ffcc00", "min": 30, "max": 40}, {"strokeStyle": "#f00", "min": 40, "max": 60}]},
@@ -5233,6 +5233,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      }"
     yield "    }"
     yield "    const isSoilFertilityIndex = metricNorm === 'soil fertility index' || metricNorm.endsWith(' soil fertility index');"
+    yield "    const isBarometricPressure = pressureTrendMetric(metricName);"
     yield "    const metricConfig = gaugeConfig?.[metricName] || gaugeConfig?.[metric] || (isSoilFertilityIndex ? gaugeConfig?.['Soil Fertility Index'] : null);"
     yield "    const metricUnit = String(metricConfig?.unit || '').trim();"
     yield "    const metricZones = Array.isArray(metricConfig?.zones) ? metricConfig.zones.map(z => ({"
@@ -5246,6 +5247,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const formatYAxisTick = (val) => {"
     yield "      const num = Number(val);"
     yield "      if (!Number.isFinite(num)) return val;"
+    yield "      if (isBarometricPressure) return num.toFixed(1);"
     yield "      return Number(num.toFixed(2)).toString();"
     yield "    };"
     yield "    const formatXAxisTick = (val) => {"
@@ -5274,7 +5276,12 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      animation: false,"
     yield "      plugins: {"
     yield "        legend: { display: false },"
-    yield "        tooltip: { enabled: true },"
+    yield "        tooltip: { enabled: true, callbacks: { label: (context) => {"
+    yield "          const num = Number(context.parsed?.y);"
+    yield "          if (!Number.isFinite(num)) return '';"
+    yield "          const text = isBarometricPressure ? num.toFixed(1) : Number(num.toFixed(2)).toString();"
+    yield "          return metricUnit ? `${text} ${metricUnit}` : text;"
+    yield "        } } },"
     yield "        micrographZones: metricZones"
     yield "      },"
     yield "      scales: {"
@@ -8805,6 +8812,7 @@ def render_graph_modal(switch_installed=None):
           data: points,
           borderColor: baseColor,
           yAxisID: yAxisID,
+          pressureMetric: pressureTrendMetric(graphMetricNameFromKey(k)),
           order: 1,
           tension: 0.2,
           pointRadius: (points.length <= 1 ? 3 : 0),
@@ -8830,6 +8838,7 @@ def render_graph_modal(switch_installed=None):
               borderColor: 'purple',
               borderDash: [6, 3],
               yAxisID: yAxisID,
+              pressureMetric: pressureTrendMetric(graphMetricNameFromKey(k)),
               order: 2,
               tension: 0.2,
               pointRadius: (rollPoints.length <= 1 ? 3 : 0),
@@ -8848,6 +8857,8 @@ def render_graph_modal(switch_installed=None):
 
       const leftIsVPD  = isVPDLabel(leftName);
       const rightIsVPD = rightNames.some(isVPDLabel);
+      const leftIsBarometricPressure = datasets.some(function(d){ return d.yAxisID === 'y1' && d.pressureMetric; });
+      const rightIsBarometricPressure = datasets.some(function(d){ return d.yAxisID === 'y2' && d.pressureMetric; });
       const anyVPD     = leftIsVPD || rightIsVPD;
 
       const legendContainer = document.getElementById('switch_legend');
@@ -8930,9 +8941,10 @@ def render_graph_modal(switch_installed=None):
             (rightNames.join(' / ') || '')
       };
 
-      const formatYAxisTick = function(val){
+      const formatYAxisTick = function(val, pressureAxis){
         const num = Number(val);
         if (!Number.isFinite(num)) return val;
+        if (pressureAxis) return num.toFixed(1);
         return Number(num.toFixed(2)).toString();
       };
 
@@ -8940,7 +8952,7 @@ def render_graph_modal(switch_installed=None):
         position: 'left',
         beginAtZero: false,
         title: { display: true, text: axisTitles.y1 },
-        ticks: { callback: formatYAxisTick }
+        ticks: { callback: function(val){ return formatYAxisTick(val, leftIsBarometricPressure); } }
       };
       const y2Opts = {
         position: 'right',
@@ -8948,7 +8960,7 @@ def render_graph_modal(switch_installed=None):
         title: { display: (keys.length > 1), text: axisTitles.y2 },
         grid: { drawOnChartArea: false },
         display: (keys.length > 1),
-        ticks: { callback: formatYAxisTick }
+        ticks: { callback: function(val){ return formatYAxisTick(val, rightIsBarometricPressure); } }
       };
 
       if (leftIsVPD){
@@ -9042,7 +9054,16 @@ def render_graph_modal(switch_installed=None):
           plugins: {
             annotation: { annotations: allAnnotations },
             vpdZones: { enabled: anyVPD },
-            gaugeZonesBackgroundGraph: { zonesByAxis: gaugeZonesByAxis }
+            gaugeZonesBackgroundGraph: { zonesByAxis: gaugeZonesByAxis },
+            tooltip: { callbacks: { label: function(context){
+              const label = context.dataset.label || '';
+              const numeric = Number(context.parsed && context.parsed.y);
+              if (!Number.isFinite(numeric)) return label;
+              const text = context.dataset.pressureMetric
+                ? numeric.toFixed(1)
+                : Number(numeric.toFixed(2)).toString();
+              return label ? (label + ': ' + text) : text;
+            } } }
           }
         },
         plugins: pluginsArr

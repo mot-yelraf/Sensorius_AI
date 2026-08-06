@@ -6,7 +6,7 @@ and vapor-pressure deficit for Sensorius.
 """
 
 from ..saiUtils import printDM, debug_enabled
-from .base import BaseSensor, find_sensor_bus
+from .base import BAROMETRIC_PRESSURE_PRECISION, BaseSensor, find_sensor_bus
 
 MODULE = "VPDSensor"
 DEBUG = debug_enabled("saiSensorFactory")
@@ -52,7 +52,7 @@ class VPDSensor(BaseSensor):
                     "Baro-Pressure",
                     "hPa",
                     lambda: self._altitude_adjusted_pressure_hpa(self.thp280.pressure),
-                    None,
+                    BAROMETRIC_PRESSURE_PRECISION,
                 ),
             ]
         except Exception as e:

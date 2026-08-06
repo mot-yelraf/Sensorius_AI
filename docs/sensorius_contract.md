@@ -224,6 +224,8 @@ Canonical `/data` payload:
 `values` is a dynamic metric map. Soil 7-in-1 devices may include raw N/P/K
 nutrient readings and derived metrics such as `Soil Fertility Index` when the
 relevant sensor registers and `[NPK]` targets are available.
+`Baro-Pressure` and `Plant Baro-Pressure` values are normalized to one decimal
+place in hPa before publication and storage.
 
 Canonical heartbeat payload:
 

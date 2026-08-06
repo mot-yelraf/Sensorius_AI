@@ -14,6 +14,7 @@ from ..saiUtils import printDM, debug_enabled, get_timestamp
 MODULE = "BaseSensor"
 DEBUG = debug_enabled("saiSensorFactory")
 I2C_READ_PROBE_ADDRS = frozenset({0x61, 0x62})
+BAROMETRIC_PRESSURE_PRECISION = 1
 
 
 class BaseSensor:

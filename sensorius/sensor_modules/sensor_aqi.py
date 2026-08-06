@@ -7,7 +7,7 @@ sensor.
 
 import math
 from ..saiUtils import printDM, debug_enabled
-from .base import BaseSensor, find_sensor_bus
+from .base import BAROMETRIC_PRESSURE_PRECISION, BaseSensor, find_sensor_bus
 
 MODULE = "AQISensor"
 DEBUG = debug_enabled("saiSensorFactory")
@@ -61,7 +61,7 @@ class AQISensor(BaseSensor):
                 ("Ambient VPD",   "kPa",  lambda: self._get_calibrated_vpd(), 3),
                 ("Baro-Pressure", "hPa",
                  lambda: self._altitude_adjusted_pressure_hpa(self.bme680.pressure),
-                 None),
+                 BAROMETRIC_PRESSURE_PRECISION),
             ]
         except Exception as e:
             self.present = False
