@@ -247,34 +247,6 @@ def build_weather_display_forecast(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_weather_decisions(forecast: dict[str, Any]) -> list[dict[str, str]]:
-    """Build concise environmental guidance from the canonical forecast."""
-    if not forecast.get("ok"):
-        return [{"icon": "◌", "title": "Forecast decisions", "status": "Waiting for forecast", "detail": "Confirm the Astral location and forecast provider."}]
-    rain_mm = float(forecast.get("precipitation_mm") or 0.0)
-    low_f = _safe_float(forecast.get("low_f"))
-    return [
-        {
-            "icon": "♒",
-            "title": "Irrigation",
-            "status": "Delay watering" if rain_mm >= 2.0 else "Watering window open",
-            "detail": f"About {rain_mm:g} mm forecast in the next 24 hours.",
-        },
-        {
-            "icon": "❄",
-            "title": "Frost protection",
-            "status": "Protect tender plants" if low_f is not None and low_f <= 36 else "No frost signal",
-            "detail": f"Forecast low {round(low_f)}°F." if low_f is not None else "Forecast low unavailable.",
-        },
-        {
-            "icon": "☀",
-            "title": "Outdoor work",
-            "status": "Review hourly conditions",
-            "detail": str(forecast.get("wind") or "Wind outlook unavailable.").replace("\n", " · "),
-        },
-    ]
-
-
 def _windy_url(latitude: float, longitude: float) -> str:
     query = urlencode(
         {
@@ -285,6 +257,7 @@ def _windy_url(latitude: float, longitude: float) -> str:
             "marker": "true",
             "location": "coordinates",
             "type": "map",
+            "overlay": "radar",
         }
     )
     return f"https://embed.windy.com/embed2.html?{query}"
@@ -406,7 +379,6 @@ def register_weather_forecast_app_routes(
                 "latest": latest,
                 "moon": moon,
                 "forecast": forecast,
-                "decisions": build_weather_decisions(forecast),
                 "windy_iframe_url": _windy_url(float(location.get("latitude") or 0.0), float(location.get("longitude") or 0.0)),
                 "runtime_instance_id": str(getattr(request.app.state, "ui_runtime_instance_id", "") or ""),
             },

@@ -682,6 +682,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "weather_forecast_provider": normalize_weather_forecast_provider(
                 fresh_settings.get_setting("WeatherForecast", "PROVIDER", "met_no")
             ),
+            "weather_forecast_theme": normalize_weather_theme(
+                fresh_settings.get_setting("WeatherForecast", "THEME", "garden")
+            ),
             "gauge_config": get_gauge_config(),
         }
         _DASHBOARD_DISPLAY_SETTINGS_CACHE = (
@@ -2866,6 +2869,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         gauge_config = dict(display_settings.get("gauge_config") or {})
         displayStyle = str(display_settings.get("display_style") or "Gauge")
         weatherForecastProvider = normalize_weather_forecast_provider(display_settings.get("weather_forecast_provider") or "met_no")
+        weatherForecastTheme = normalize_weather_theme(display_settings.get("weather_forecast_theme") or "garden")
         try:
             configured_weewx_id = str(
                 settings.get_setting("WeeWX", "SENSOR_ID", WEEWX_DEFAULT_SENSOR_ID)
@@ -3377,6 +3381,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 expected_display_style_map = expected_display_style_map,
                 display_style = displayStyle,
                 weather_forecast_provider = weatherForecastProvider,
+                weather_forecast_theme = weatherForecastTheme,
                 astro_payload=astro_payload,
                 biodynamic_payload=biodynamic_payload,
             ))

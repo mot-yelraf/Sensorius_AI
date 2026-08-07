@@ -292,7 +292,7 @@ a { color: inherit; }
   grid-template-columns: 1fr minmax(15rem, 0.72fr) 1fr;
   align-items: center;
   min-height: 14rem;
-  margin-bottom: 0.85rem;
+  margin-top: 0.85rem;
   padding: 1.25rem 1.5rem 2.5rem;
   background: linear-gradient(105deg, rgba(4, 16, 40, 0.94), rgba(7, 35, 51, 0.78));
 }
@@ -320,7 +320,7 @@ a { color: inherit; }
 .solar-times small { color: rgba(235,247,240,.42); }
 
 .conditions-row { display: grid; grid-template-columns: 0.82fr 1.48fr 0.82fr; gap: 0.85rem; align-items: stretch; }
-.readings-panel, .forecast-panel, .decisions-panel { min-height: 32rem; padding: 1.25rem; }
+.readings-panel, .forecast-panel, .daylight-card { min-height: 32rem; padding: 1.25rem; }
 .reading-hero { display: grid; grid-template-columns: 8.5rem 1fr; align-items: center; min-height: 12rem; border-bottom: 1px solid var(--line); }
 .reading-hero > div:last-child { text-align: left; }
 .reading-hero .temperature-number { font-size: clamp(4.5rem, 7vw, 6.5rem); }
@@ -363,35 +363,27 @@ a { color: inherit; }
 .forecast-day strong { font-size: 0.76rem; }
 .forecast-day strong em { color: #6dc8ff; font-style: normal; font-weight: 600; }
 .forecast-day small { margin-top: 0.25rem; color: var(--accent-2); font-size: 0.48rem; }
-.forecast-dialog { width: min(72rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); margin: auto; padding: 0; overflow: auto; color: #1c2d36; border: 1px solid #c7dae7; border-radius: 1rem; background: #f5faff; box-shadow: 0 30px 100px rgba(0,15,19,.5); }
+.forecast-dialog { width: min(72rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); margin: auto; padding: 0; overflow: auto; color: var(--ink); border: 1px solid var(--line); border-radius: 1rem; background: var(--glass-strong); box-shadow: 0 30px 100px rgba(0,15,19,.5); }
 .forecast-dialog::backdrop { background: rgba(2,18,23,.72); backdrop-filter: blur(8px); }
-.forecast-dialog > header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.3rem; background: #dceefe; border-bottom: 1px solid #bed6e8; }
+.forecast-dialog > header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.3rem; background: var(--glass); border-bottom: 1px solid var(--line); }
 .forecast-dialog > header h2 { margin: 0; font: 700 1.45rem Georgia, serif; text-transform: uppercase; }
-.forecast-dialog > header button { width: 2.4rem; height: 2.4rem; border: 0; background: transparent; color: #1c2d36; font-size: 1.7rem; cursor: pointer; }
-.forecast-dialog-meta { margin: 1.2rem 1.3rem; color: #52677a; text-align: center; font-size: 0.78rem; }
+.forecast-dialog > header button { width: 2.4rem; height: 2.4rem; border: 1px solid var(--line); background: color-mix(in srgb, var(--glass-soft) 72%, white 28%); color: var(--ink); font-size: 1.7rem; cursor: pointer; }
+.forecast-dialog-meta { margin: 1.2rem 1.3rem; color: var(--muted); text-align: center; font-size: 0.78rem; }
 .forecast-detail-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.8rem; padding: 0 1.3rem 1.3rem; }
-.forecast-detail-grid article { min-height: 14rem; padding: 1rem; border: 1px solid #c7d9e7; border-radius: 0.75rem; background: white; text-align: center; }
-.forecast-detail-grid h3 { margin: 0; color: #214b70; font: 700 1rem Georgia, serif; }
+.forecast-detail-grid article { min-height: 14rem; padding: 1rem; border: 1px solid var(--line); border-radius: 0.75rem; background: var(--glass); text-align: center; }
+.forecast-detail-grid h3 { margin: 0; color: var(--accent); font: 700 1rem Georgia, serif; }
 .forecast-detail-grid article > p { min-height: 2.8rem; margin: 0.55rem 0 0.9rem; line-height: 1.35; }
 .forecast-detail-grid dl { display: grid; grid-template-columns: 3.2rem 1fr; gap: 0.25rem 0.5rem; margin: 0; font-size: 0.72rem; }
-.forecast-detail-grid dt { color: #52677a; font-weight: 800; text-align: right; }
+.forecast-detail-grid dt { color: var(--muted); font-weight: 800; text-align: right; }
 .forecast-detail-grid dd { margin: 0; text-align: left; }
 .forecast-detail-grid dd { white-space: pre-line; }
 .forecast-dialog-empty { padding: 2rem; text-align: center; }
 .forecast-empty { min-height: 22rem; display: grid; place-content: center; text-align: center; color: var(--muted); }
 .forecast-empty span { color: var(--accent-2); font-size: 4rem; }
 .forecast-empty p { max-width: 20rem; font-size: 0.75rem; }
-.decision-list { display: grid; gap: 0.65rem; margin-top: 1rem; }
-.decision-card { display: grid; grid-template-columns: 2.8rem 1fr; gap: 0.7rem; align-items: start; padding: 0.85rem; border: 1px solid var(--line); background: rgba(2,28,35,.24); }
-.decision-icon { display: grid; place-items: center; width: 2.6rem; height: 2.6rem; border: 1px solid color-mix(in srgb, var(--accent) 52%, transparent); border-radius: 50%; color: var(--accent); font-size: 1.25rem; }
-.decision-card small, .decision-card strong { display: block; }
-.decision-card small { color: var(--muted); font-size: 0.58rem; }
-.decision-card strong { margin-top: 0.2rem; color: var(--accent); font-size: 0.86rem; }
-.decision-card p { margin: 0.3rem 0 0; color: var(--muted); font-size: 0.62rem; line-height: 1.35; }
-.decision-solar { display: flex; justify-content: space-between; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.58rem; }
 .map-row { display: grid; grid-template-columns: 0.82fr 1.48fr 0.82fr; gap: 0.85rem; padding: 0.85rem 0; }
-.centered-map { grid-column: 2 / 4; width: 100%; min-height: 31rem; }
-.centered-map iframe { min-height: 26rem; }
+.full-width-map { grid-column: 1 / 4; width: 100%; min-height: 31rem; }
+.full-width-map iframe { min-height: 26rem; }
 .daylight-card { min-height: 31rem; padding: 1.2rem; }
 .daylight-card .card-heading { display: block; }
 .daylight-card h2 { margin-top: 0.25rem; font: 500 2rem Georgia, serif; }
@@ -507,11 +499,10 @@ a { color: inherit; }
   .moon-orbit { grid-template-columns: repeat(4, 1fr); row-gap: 1rem; }
   .moon-orbit::before { display: none; }
   .conditions-row { grid-template-columns: 1fr 1fr; }
-  .decisions-panel { grid-column: 1 / 3; min-height: auto; }
-  .decision-list { grid-template-columns: repeat(3, 1fr); }
+  .daylight-card { min-height: auto; }
   .lunar-header { grid-template-columns: 1fr minmax(12rem, .7fr) 1fr; }
   .map-row { grid-template-columns: 1fr 1fr; }
-  .centered-map { grid-column: 2; }
+  .full-width-map { grid-column: 1 / 3; }
 }
 
 @media (max-width: 760px) {
@@ -544,15 +535,13 @@ a { color: inherit; }
   .lunar-arc { left: 16%; right: 16%; }
   .solar-times small { display: none; }
   .conditions-row { grid-template-columns: 1fr; }
-  .readings-panel, .forecast-panel, .decisions-panel { min-height: auto; }
-  .decisions-panel { grid-column: 1; }
-  .decision-list { grid-template-columns: 1fr; }
+  .readings-panel, .forecast-panel, .daylight-card { min-height: auto; }
   .hourly-strip { grid-template-columns: repeat(4, 1fr); row-gap: 0.8rem; }
   .daily-strip { grid-template-columns: repeat(3, 1fr); }
   .forecast-detail-grid { grid-template-columns: 1fr; }
   .reading-hero { grid-template-columns: 7rem 1fr; }
   .map-row { grid-template-columns: 1fr; }
-  .centered-map { grid-column: 1; }
+  .full-width-map { grid-column: 1; }
   .daylight-card { min-height: auto; }
 }
 

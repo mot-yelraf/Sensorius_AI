@@ -4603,10 +4603,14 @@ def test_dashboard_weather_forecast_card_has_six_day_button():
             expected_gauge_map={"co2-ykdvea": ["CO2"]},
             expected_display_style_map={"co2-ykdvea": {"METRIC_1": "Gauge"}},
             display_style="Gauge",
+            weather_forecast_theme="desert",
         )
     )
 
     assert "24 Hour Forecast</div>" in html
+    assert "class='astro-box weather-theme-desert' id='weatherForecastBox'" in html
+    assert "background:var(--forecast-bg)" in html
+    assert "background:var(--forecast-button)" in html
     assert "Loading forecast..." not in html
     assert "class='forecast-open-btn' id='forecastFiveDayBtn'" in html
     assert "<span class='forecast-open-btn-label'>6 Day Forecast</span>" in html

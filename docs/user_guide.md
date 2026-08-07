@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../assets/screenshots/01-sensorius-overview-v4.png" alt="Sensorius system overview" width="1200">
+  <img src="../assets/screenshots/01-sensorius-overview-v5.png" alt="Sensorius system overview" width="1200">
 </p>
 
 # Sensorius User Guide
@@ -752,14 +752,15 @@ Caelus full-screen weather display at
 `http://<sensorius-host>:8000/weather-forecast`. **Dashboard** in the top-left
 returns to the Sensorius dashboard.
 
-![Caelus weather forecast using the WeeWX weather station on sensorius-hub-3](<../assets/screenshots/weather-forecast-caelus-overview.png>)
+![Weather Forecast full-screen overview with current readings, forecast, sunlight, and regional radar](<../assets/screenshots/weather-forecast-caelus-overview.png>)
 
 The weather display uses the existing Sensorius Astral latitude, longitude,
-and timezone. It includes the current Moon and phase cycle, sunrise/sunset and
-daylight track, the selected sensor's latest current readings, the canonical
-Sensorius forecast, six-day details, environmental guidance, and the regional
-Windy map. It does not run a separate weather service or maintain a separate
-settings file or readings database.
+and timezone. Its top row presents the selected sensor's latest current
+readings, the canonical Sensorius forecast, and the sunrise/sunset daylight
+track. A full-width Windy map opens in radar view below that row, followed by
+the current Moon and phase cycle at the bottom. The display also provides
+theme-matched six-day details. It does not run a separate weather service or
+maintain a separate settings file or readings database.
 
 Current Readings displays the selected sensor's configured **Display Metrics**
 in their saved order, including their standard Sensorius units. This allows a
@@ -773,7 +774,7 @@ any predicted precipitation within that window. Select **6-day details** under
 **Looking Ahead** to open the detailed outlook with daily conditions,
 temperature, relative humidity, wind, and precipitation.
 
-![Caelus detailed six-day weather outlook](<../assets/screenshots/weather-forecast-caelus-six-day.png>)
+![Theme-matched detailed six-day weather outlook](<../assets/screenshots/weather-forecast-caelus-six-day.png>)
 
 ## BD Calendar
 

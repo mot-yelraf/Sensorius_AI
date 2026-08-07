@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
@@ -129,6 +130,13 @@ def test_weather_display_forecast_uses_canonical_sensorius_contract():
     assert payload["days"][0]["temp_range"].endswith("64-82°F")
 
 
+def test_windy_map_defaults_to_radar_overlay():
+    query = parse_qs(urlparse(weather_app._windy_url(32.77, -108.28)).query)
+
+    assert query["overlay"] == ["radar"]
+    assert query["type"] == ["map"]
+
+
 def test_open_meteo_hour_windows_do_not_show_rain_until_precipitation_window():
     payload = _forecast_payload()
     payload["provider"] = "open_meteo"
@@ -191,6 +199,10 @@ async def test_integrated_weather_routes_render_dashboard_and_namespaced_apis(mo
         "unit": "hPa",
     }
     assert "Baro-Pressure" in page.text
+    assert "Environmental decisions" not in page.text
+    assert 'class="glass-card map-card full-width-map"' in page.text
+    assert page.text.index('id="conditions"') < page.text.index('id="map"') < page.text.index('id="moon"')
+    assert "overlay=radar" in page.text
     assert forecast.json()["days"][0]["label"] == "Sat Aug 8"
 
 
@@ -208,3 +220,13 @@ def test_weather_integration_settings_are_present():
     assert 'name="weather_forecast_theme" form="systemSettingsForm"' in template
     assert 'name="weather_forecast_provider" form="systemSettingsForm"' in template
     assert 'fetch("/sensor-directory"' in template
+
+
+def test_six_day_dialog_uses_selected_theme_palette():
+    css = (ROOT / "ui_static" / "weather_forecast" / "app.css").read_text(encoding="utf-8")
+
+    assert ".forecast-dialog {" in css
+    assert "background: var(--glass-strong)" in css
+    assert ".forecast-detail-grid article" in css
+    assert "background: var(--glass)" in css
+    assert "color: var(--accent)" in css

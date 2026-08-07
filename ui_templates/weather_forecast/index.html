@@ -31,25 +31,6 @@
       <div class="station-state {{ 'is-live' if latest.ok else 'is-waiting' }}"><span class="status-dot"></span>{{ 'Station reporting' if latest.ok else 'Sensor standing by' }}</div>
     </section>
 
-    <section class="glass-card lunar-header" id="moon" data-lunar-header>
-      {% set moon_altitude = moon.get('moon_altitude') %}
-      {% set phase_illuminations = (0, 15, 50, 85, 100, 85, 50, 15) %}
-      <div class="lunar-arc" aria-hidden="true"></div>
-      <div class="lunar-side lunar-side-left">
-        {% for phase in moon.cycle[:4] %}<div class="lunar-step"><canvas class="lunar-step-disk" width="96" height="96" data-phase-moon data-phase-index="{{ phase.index }}" data-illumination="{{ phase.get('illumination', phase_illuminations[phase.index]) }}" data-bright-limb-angle="{{ phase.get('bright_limb_angle', 0) }}" data-disk-rotation="{{ phase.get('disk_rotation', 0) }}" role="img" aria-label="Local view of the {{ phase.name }}"></canvas><small>{{ phase.name }}</small></div>{% endfor %}
-      </div>
-      <div class="lunar-current">
-        <p class="eyebrow">Moon now · live</p>
-        <canvas class="lunar-current-disk" id="currentMoonDisk" width="192" height="192" data-illumination="{{ moon.illumination }}" data-bright-limb-angle="{{ moon.get('bright_limb_angle', 0) }}" data-disk-rotation="{{ moon.get('disk_rotation', 0) }}" role="img" aria-label="Observer-local view of the {{ moon.name }}, {{ moon.illumination }} percent illuminated"></canvas>
-        <h2 id="currentMoonName">{{ moon.name }}</h2>
-        <p><strong id="currentMoonIllumination">{{ moon.illumination }}%</strong> illuminated · lunar day <span id="currentMoonAge">{{ moon.age_days }}</span><br><span class="observer-view-label" id="moonLocalView">Observer-local orientation{% if moon_altitude is not none %} · {{ moon_altitude }}° altitude{% if moon_altitude < 0 %} (below horizon){% endif %}{% endif %}</span></p>
-      </div>
-      <div class="lunar-side lunar-side-right">
-        {% for phase in moon.cycle[4:] %}<div class="lunar-step"><canvas class="lunar-step-disk" width="96" height="96" data-phase-moon data-phase-index="{{ phase.index }}" data-illumination="{{ phase.get('illumination', phase_illuminations[phase.index]) }}" data-bright-limb-angle="{{ phase.get('bright_limb_angle', 0) }}" data-disk-rotation="{{ phase.get('disk_rotation', 0) }}" role="img" aria-label="Local view of the {{ phase.name }}"></canvas><small>{{ phase.name }}</small></div>{% endfor %}
-      </div>
-      <div class="solar-times"><span>☀ Sunrise <strong id="sunriseTime">{{ moon.sunrise }}</strong></span><span>Sunset <strong id="sunsetTime">{{ moon.sunset }}</strong> ◐</span><small id="lunarUpdated">Updated {{ moon.updated_at[11:16] }} UTC</small></div>
-    </section>
-
     <section class="conditions-row" id="conditions" aria-label="Weather overview">
       <article class="glass-card readings-panel">
         <div class="card-heading"><div><p class="eyebrow">Current readings</p><h2>{{ latest.sensor_id or 'Sensor not selected' }}</h2></div><span class="weather-badge">{{ 'Live' if latest.ok else 'Waiting' }}</span></div>
@@ -71,24 +52,38 @@
         {% else %}<div class="forecast-empty"><span>◌</span><p>{{ forecast.reason or 'Set an Astral location and forecast provider to load the forecast.' }}</p></div>{% endif %}
       </article>
 
-      <article class="glass-card decisions-panel">
-        <div class="card-heading"><div><p class="eyebrow">Environmental decisions</p><h2>Useful next moves</h2></div></div>
-        <div class="decision-list">{% for decision in decisions %}<div class="decision-card"><span class="decision-icon" aria-hidden="true">{{ decision.icon }}</span><div><small>{{ decision.title }}</small><strong>{{ decision.status }}</strong><p>{{ decision.detail }}</p></div></div>{% endfor %}</div>
-        <div class="decision-solar"><span>Sunrise {{ moon.sunrise }}</span><span>Sunset {{ moon.sunset }}</span></div>
-      </article>
-    </section>
-
-    <section class="map-row" id="map">
       <article class="glass-card daylight-card">
         <div class="card-heading compact"><div><p class="eyebrow">Sunlight today</p><h2 id="daylightDuration">{{ moon.get('daylight_duration', '—') }}</h2></div><span class="sun-state" id="sunState">{{ 'Sun above horizon' if moon.get('sun_is_up', false) else 'Sun below horizon' }}</span></div>
         <div class="daylight-orbit" aria-hidden="true"><span class="daylight-sun" id="daylightSun" data-daylight-progress="{{ moon.get('daylight_progress', 0) }}">☀</span></div>
         <dl class="daylight-times"><div><dt>Sunrise</dt><dd id="mapSunriseTime">{{ moon.sunrise }}</dd></div><div><dt>Solar noon</dt><dd id="solarNoonTime">{{ moon.get('solar_noon', '—') }}</dd></div><div><dt>Sunset</dt><dd id="mapSunsetTime">{{ moon.sunset }}</dd></div></dl>
         <p class="daylight-note"><strong id="daylightHours">{{ moon.get('daylight_hours') if moon.get('daylight_hours') is not none else '—' }}</strong> hours between sunrise and sunset · {{ moon.timezone }}</p>
       </article>
-      <article class="glass-card map-card centered-map">
+    </section>
+
+    <section class="map-row" id="map">
+      <article class="glass-card map-card full-width-map">
         <div class="card-heading compact map-heading"><div><p class="eyebrow">Weather in motion</p><h2>Regional radar</h2></div><div class="map-tools"><button type="button" data-reset-windy title="Close Windy's forecast panel and return to the station map">× Close forecast</button><span>Windy</span></div></div>
         <iframe data-windy-map src="{{ windy_iframe_url }}" title="Regional Windy weather map" loading="lazy" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
       </article>
+    </section>
+
+    <section class="glass-card lunar-header" id="moon" data-lunar-header>
+      {% set moon_altitude = moon.get('moon_altitude') %}
+      {% set phase_illuminations = (0, 15, 50, 85, 100, 85, 50, 15) %}
+      <div class="lunar-arc" aria-hidden="true"></div>
+      <div class="lunar-side lunar-side-left">
+        {% for phase in moon.cycle[:4] %}<div class="lunar-step"><canvas class="lunar-step-disk" width="96" height="96" data-phase-moon data-phase-index="{{ phase.index }}" data-illumination="{{ phase.get('illumination', phase_illuminations[phase.index]) }}" data-bright-limb-angle="{{ phase.get('bright_limb_angle', 0) }}" data-disk-rotation="{{ phase.get('disk_rotation', 0) }}" role="img" aria-label="Local view of the {{ phase.name }}"></canvas><small>{{ phase.name }}</small></div>{% endfor %}
+      </div>
+      <div class="lunar-current">
+        <p class="eyebrow">Moon now · live</p>
+        <canvas class="lunar-current-disk" id="currentMoonDisk" width="192" height="192" data-illumination="{{ moon.illumination }}" data-bright-limb-angle="{{ moon.get('bright_limb_angle', 0) }}" data-disk-rotation="{{ moon.get('disk_rotation', 0) }}" role="img" aria-label="Observer-local view of the {{ moon.name }}, {{ moon.illumination }} percent illuminated"></canvas>
+        <h2 id="currentMoonName">{{ moon.name }}</h2>
+        <p><strong id="currentMoonIllumination">{{ moon.illumination }}%</strong> illuminated · lunar day <span id="currentMoonAge">{{ moon.age_days }}</span><br><span class="observer-view-label" id="moonLocalView">Observer-local orientation{% if moon_altitude is not none %} · {{ moon_altitude }}° altitude{% if moon_altitude < 0 %} (below horizon){% endif %}{% endif %}</span></p>
+      </div>
+      <div class="lunar-side lunar-side-right">
+        {% for phase in moon.cycle[4:] %}<div class="lunar-step"><canvas class="lunar-step-disk" width="96" height="96" data-phase-moon data-phase-index="{{ phase.index }}" data-illumination="{{ phase.get('illumination', phase_illuminations[phase.index]) }}" data-bright-limb-angle="{{ phase.get('bright_limb_angle', 0) }}" data-disk-rotation="{{ phase.get('disk_rotation', 0) }}" role="img" aria-label="Local view of the {{ phase.name }}"></canvas><small>{{ phase.name }}</small></div>{% endfor %}
+      </div>
+      <div class="solar-times"><span>☀ Sunrise <strong id="sunriseTime">{{ moon.sunrise }}</strong></span><span>Sunset <strong id="sunsetTime">{{ moon.sunset }}</strong> ◐</span><small id="lunarUpdated">Updated {{ moon.updated_at[11:16] }} UTC</small></div>
     </section>
   </main>
 

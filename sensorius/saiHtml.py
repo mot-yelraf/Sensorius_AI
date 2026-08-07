@@ -153,7 +153,7 @@ def _trend_arrow_html(metric: str, trend: dict | None) -> str:
     )
 
 
-def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no"):
+def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="garden"):
 
     import json
     import os
@@ -1142,6 +1142,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     display_style_js = display_style.lower()
     weather_forecast_provider = normalize_weather_forecast_provider(weather_forecast_provider)
     weather_forecast_enabled = weather_forecast_provider != "none"
+    weather_forecast_theme = str(weather_forecast_theme or "").strip().lower()
+    if weather_forecast_theme not in {"garden", "island", "river", "desert"}:
+        weather_forecast_theme = "garden"
 
     yield "<!DOCTYPE html>"
     yield f"<html><head><title>{APP_NAME_LONG}</title>"
@@ -1668,19 +1671,22 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "#sunBox,#moonBox{cursor:pointer;}"
     yield "#sunBox:focus-visible,#moonBox:focus-visible{outline:2px solid #2e4f89;outline-offset:3px;}"
     yield "#moonBox .astro-card{width:100%;min-width:0;align-items:stretch;box-sizing:border-box;}"
-    yield "#weatherForecastBox{width:230px;box-sizing:border-box;overflow:hidden;background:#e8f3ff;}"
+    yield "#weatherForecastBox{--forecast-bg:#173f3d;--forecast-button:#285650;--forecast-border:#5b8377;--forecast-ink:#f6fbf7;--forecast-muted:#c5d9d1;width:230px;box-sizing:border-box;overflow:hidden;background:var(--forecast-bg);border-color:var(--forecast-border);color:var(--forecast-ink);}"
+    yield "#weatherForecastBox.weather-theme-island{--forecast-bg:#123d5a;--forecast-button:#255571;--forecast-border:#6793aa;--forecast-muted:#c9e1ec;}"
+    yield "#weatherForecastBox.weather-theme-river{--forecast-bg:#163f49;--forecast-button:#285763;--forecast-border:#648b91;--forecast-muted:#c7dfe0;}"
+    yield "#weatherForecastBox.weather-theme-desert{--forecast-bg:#5a3033;--forecast-button:#704448;--forecast-border:#a8786d;--forecast-muted:#ead4ca;}"
     yield "#weatherForecastBox .astro-card{width:100%;min-width:0;align-items:stretch;box-sizing:border-box;text-align:left;height:100%;}"
     yield "#weatherForecastBox .astro-title{width:100%;text-align:center;}"
-    yield ".forecast-status{font-size:.55rem;line-height:1.1;text-align:center;color:#51616f;min-height:1.1em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}"
-    yield ".forecast-current{border:1px solid #cfdce8;border-radius:8px;background:#fff;padding:.42rem .48rem;display:flex;flex-direction:column;gap:.3rem;min-width:0;}"
-    yield ".forecast-current-summary{font-size:.68rem;line-height:1.16;color:#27313a;text-align:center;min-height:2.35em;overflow-wrap:anywhere;}"
+    yield ".forecast-status{font-size:.55rem;line-height:1.1;text-align:center;color:var(--forecast-muted);min-height:1.1em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}"
+    yield ".forecast-current{border:1px solid var(--forecast-border);border-radius:8px;background:var(--forecast-bg);padding:.42rem .48rem;display:flex;flex-direction:column;gap:.3rem;min-width:0;}"
+    yield ".forecast-current-summary{font-size:.68rem;line-height:1.16;color:var(--forecast-ink);text-align:center;min-height:2.35em;overflow-wrap:anywhere;}"
     yield ".forecast-current-grid{display:grid;grid-template-columns:auto minmax(0,1fr);gap:.15rem .4rem;align-items:start;font-size:.64rem;line-height:1.12;}"
-    yield ".forecast-current-grid dt{font-weight:700;color:#52606d;margin:0;}"
-    yield ".forecast-current-grid dd{margin:0;color:#27313a;overflow-wrap:anywhere;}"
+    yield ".forecast-current-grid dt{font-weight:700;color:var(--forecast-muted);margin:0;}"
+    yield ".forecast-current-grid dd{margin:0;color:var(--forecast-ink);overflow-wrap:anywhere;}"
     yield ".forecast-wind-value{white-space:normal;}"
     yield ".forecast-wind-line{display:block;}"
     yield ".forecast-card-actions{margin-top:auto;padding-top:.35rem;display:flex;justify-content:center;}"
-    yield ".forecast-open-btn{display:inline-flex;align-items:center;justify-content:center;gap:.35rem;min-width:136px;border:1px solid #2c5e8f;border-radius:999px;background:#f6fbff;color:#1f496f;padding:.38rem .72rem;font-size:.66rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;cursor:pointer;transition:filter .12s ease,box-shadow .12s ease;white-space:nowrap;}"
+    yield ".forecast-open-btn{display:inline-flex;align-items:center;justify-content:center;gap:.35rem;min-width:136px;border:1px solid var(--forecast-border);border-radius:999px;background:var(--forecast-button);color:var(--forecast-ink);padding:.38rem .72rem;font-size:.66rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;cursor:pointer;transition:filter .12s ease,box-shadow .12s ease;white-space:nowrap;}"
     yield ".forecast-open-btn:hover{filter:brightness(1.04);box-shadow:0 1px 3px rgba(0,0,0,.16);}"
     yield ".forecast-open-btn:disabled{opacity:.75;cursor:wait;}"
     yield ".forecast-open-btn .spinner{width:12px;height:12px;border-width:2px;display:none;}"
@@ -1808,7 +1814,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "<div class='dash-top-row'>"
     yield "<div class='dash-left-col'>"
     if weather_forecast_enabled:
-        yield "<div class='astro-box' id='weatherForecastBox' aria-live='polite'>"
+        yield f"<div class='astro-box weather-theme-{weather_forecast_theme}' id='weatherForecastBox' aria-live='polite'>"
         yield "  <div class='astro-card'>"
         yield "    <div class='astro-title'>24 Hour Forecast</div>"
         yield "    <span class='spinner dashboard-card-spinner' aria-hidden='true'></span>"
