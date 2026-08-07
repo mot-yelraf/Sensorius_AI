@@ -1,0 +1,210 @@
+"""Focused coverage for the full-screen integrated Weather Forecast."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import httpx
+import pytest
+from fastapi import APIRouter, FastAPI
+from fastapi.templating import Jinja2Templates
+
+import sensorius.saiWeatherForecastApp as weather_app
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class _Settings:
+    values = {
+        ("WeatherForecast", "THEME"): "river",
+        ("WeatherForecast", "CURRENT_SENSOR_ID"): "nodus-weather",
+        ("WeatherForecast", "PROVIDER"): "met_no",
+    }
+
+    def get_setting(self, section, key, default=None):
+        return self.values.get((section, key), default)
+
+    def resolve_astral_location(self, **_kwargs):
+        return {"lat": 32.77, "lon": -108.28, "tz": "America/Denver", "source": "manual"}
+
+
+class _Logger:
+    db_path = ":memory:"
+
+    def get_latest_values(self, sensor_id):
+        assert sensor_id == "nodus-weather"
+        return {
+            "Temperature": 20.0,
+            "Rel-Humidity": 45.0,
+            "Baro-Pressure": 1012.3,
+            "Wind Speed": 3.5,
+            "Wind Gust": 8.0,
+            "Rain Last 24h": 0.15,
+            "UV Index": 2.0,
+            "Solar Radiation": 350.0,
+        }
+
+    def get_latest_timestamp(self, _sensor_id):
+        return "2026-08-07T10:00:00-06:00"
+
+
+class _SensorSettings:
+    def get_display_metrics(self, sensor_id):
+        assert sensor_id == "nodus-weather"
+        return ["Baro-Pressure", "Temperature", "Rel-Humidity", "Wind Speed"]
+
+
+def _forecast_payload():
+    hour = {
+        "time": "2026-08-07T16:00:00Z",
+        "local_time": "2026-08-07T10:00:00-06:00",
+        "local_date": "2026-08-07",
+        "temp_c": 20.0,
+        "rh": 45.0,
+        "wind_mps": 2.0,
+        "precip_mm": 0.2,
+        "symbol": "partlycloudy_day",
+    }
+    return {
+        "ok": True,
+        "provider": "met_no",
+        "location": {"latitude": 32.77, "longitude": -108.28, "timezone": "America/Denver"},
+        "current_24h": {
+            "overall": "Partly cloudy early",
+            "temp_range": "20.0-25.0°C / 68-77°F",
+            "rh_range": "35-55%",
+            "wind": "Mostly light\n1-4 m/s / 2-9 mph",
+        },
+        "hourly": [hour] * 24,
+        "days": [
+            {
+                "date": "2026-08-08",
+                "label": "Sat Aug 8",
+                "forecast": "Clear early",
+                "temp_range": "18.0-28.0°C / 64-82°F",
+                "rh_range": "30-60%",
+                "wind": "Mostly light",
+                "precip_mm": 0.0,
+            }
+        ],
+    }
+
+
+def test_current_weather_metric_adapter_converts_temperature_and_preserves_zero():
+    payload = weather_app.normalize_current_weather_readings(
+        "nodus-weather",
+        {"Temperature": 0.0, "Rel-Humidity": 0.0, "Wind Speed": 0.0, "Baro-Pressure": 1010.0},
+        "2026-08-07T10:00:00",
+    )
+    assert payload["ok"] is True
+    assert payload["temperature_c"] == 0.0
+    assert payload["temperature_f"] == 32.0
+    assert payload["humidity"] == 0.0
+    assert payload["wind_speed_mph"] == 0.0
+
+
+def test_current_readings_follow_configured_display_metrics_order_and_units():
+    metrics = weather_app.build_display_metrics(
+        {"Temperature": 0.0, "CO2": 734.2, "Rel-Humidity": 45.125},
+        ["CO2", "Temperature", "Rel-Humidity", "Missing Metric"],
+    )
+
+    assert [metric["name"] for metric in metrics] == [
+        "CO2",
+        "Temperature",
+        "Rel-Humidity",
+        "Missing Metric",
+    ]
+    assert metrics[0] == {"name": "CO2", "value": 734.2, "unit": "ppm"}
+    assert metrics[1] == {"name": "Temperature", "value": 0.0, "unit": "°C"}
+    assert metrics[2]["value"] == 45.12
+    assert metrics[3]["value"] is None
+
+
+def test_weather_display_forecast_uses_canonical_sensorius_contract():
+    payload = weather_app.build_weather_display_forecast(_forecast_payload())
+    assert payload["ok"] is True
+    assert payload["provider_label"] == "MET Norway"
+    assert payload["hours"][0]["temperature_f"] == 68
+    assert payload["days"][0]["temp_range"].endswith("64-82°F")
+
+
+def test_open_meteo_hour_windows_do_not_show_rain_until_precipitation_window():
+    payload = _forecast_payload()
+    payload["provider"] = "open_meteo"
+    payload["current_24h"]["overall"] = "Clear early, rain/showers evening"
+    payload["hourly"] = []
+    for hour in range(11, 24):
+        payload["hourly"].append(
+            {
+                "local_time": f"2026-08-07T{hour:02d}:00:00-06:00",
+                "temp_c": 25.0,
+                "cloud": 5.0 if hour < 15 else 95.0,
+                "precip_mm": 2.9 if hour == 21 else 0.0,
+                "symbol": "",
+            }
+        )
+
+    display = weather_app.build_weather_display_forecast(payload)
+
+    assert display["icon"] == "☀️"
+    assert [window["precipitation_mm"] for window in display["hours"][:4]] == [0.0, 0.0, 0.0, 2.9]
+    assert [window["icon"] for window in display["hours"][:4]] == ["☀️", "🌤️", "☁️", "🌧️"]
+
+
+@pytest.mark.asyncio
+async def test_integrated_weather_routes_render_dashboard_and_namespaced_apis(monkeypatch):
+    async def _fake_forecast(*_args, **_kwargs):
+        return _forecast_payload()
+
+    monkeypatch.setattr(weather_app, "get_weather_forecast_payload", _fake_forecast)
+    app = FastAPI()
+    app.state.templates = Jinja2Templates(directory=str(ROOT / "ui_templates"))
+    app.state.ui_runtime_instance_id = "test-runtime"
+    router = APIRouter()
+    weather_app.register_weather_forecast_app_routes(
+        router,
+        app=app,
+        settings=_Settings(),
+        data_logger=_Logger(),
+        sensor_settings_manager=_SensorSettings(),
+    )
+    app.include_router(router)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        page = await client.get("/weather-forecast")
+        current = await client.get("/api/weather-forecast-app/current-readings")
+        forecast = await client.get("/api/weather-forecast-app/forecast")
+
+    assert page.status_code == 200
+    assert 'class="dashboard-return"' in page.text
+    assert ">Dashboard<" in page.text
+    assert "System Settings" not in page.text
+    assert "/ui_static/weather_forecast/app.js" in page.text
+    assert "theme-river" in page.text
+    assert current.json()["sensor_id"] == "nodus-weather"
+    assert current.json()["temperature_f"] == 68.0
+    assert current.json()["display_metrics"][0] == {
+        "name": "Baro-Pressure",
+        "value": 1012.3,
+        "unit": "hPa",
+    }
+    assert "Baro-Pressure" in page.text
+    assert forecast.json()["days"][0]["label"] == "Sat Aug 8"
+
+
+def test_dashboard_button_launches_full_screen_weather_app():
+    html_source = (ROOT / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    assert "window.location.assign('/weather-forecast')" in html_source
+
+
+def test_weather_integration_settings_are_present():
+    template = (ROOT / "ui_templates" / "modals" / "system_settings.html").read_text(encoding="utf-8")
+    assert "integrations-weather-forecast" in template
+    assert 'name="weather_forecast_theme"' in template
+    assert 'name="weather_forecast_sensor_id"' in template
+    assert 'name="weather_forecast_sensor_id" form="systemSettingsForm"' in template
+    assert 'name="weather_forecast_theme" form="systemSettingsForm"' in template
+    assert 'name="weather_forecast_provider" form="systemSettingsForm"' in template
+    assert 'fetch("/sensor-directory"' in template

@@ -56,7 +56,7 @@ def test_collapsible_sections_own_save_actions_and_panes_own_dashboard_action():
     assert 'root.querySelectorAll(".btn-advanced-save")' in template
 
     integrations = template[template.index('<div class="settings-pane" id="pane-integrations"'):template.index('<div class="settings-pane" id="pane-locations"')]
-    assert integrations.count('class="pane-footer section-action-footer"') == 3
+    assert integrations.count('class="pane-footer section-action-footer"') == 4
     assert integrations.count('class="button black btn-back-system">Dashboard</button>') == 1
     assert 'class="pane-footer pane-global-footer"' in integrations
 
@@ -88,8 +88,8 @@ def test_all_system_accordions_default_closed_and_use_process_scoped_state():
     template = (ROOT / "ui_templates" / "modals" / "system_settings.html").read_text(encoding="utf-8")
     routes = (ROOT / "sensorius" / "saiWebRoutes.py").read_text(encoding="utf-8")
 
-    assert template.count("<details") == 10
-    assert template.count("data-runtime-section=") == 10
+    assert template.count("<details") == 11
+    assert template.count("data-runtime-section=") == 11
     assert not any(" open>" in line for line in template.splitlines() if "<details" in line)
     assert "window.__sensoriusExpandableSectionState" in template
     assert 'section.addEventListener("toggle"' in template

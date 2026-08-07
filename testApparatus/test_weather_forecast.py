@@ -175,6 +175,9 @@ def test_weather_forecast_cache_round_trip(tmp_path):
 
     assert load_weather_forecast_cache(str(db_path), latitude=33.0, longitude=-108.2804) is None
 
+    # A station-location correction must not reuse a forecast from kilometres away.
+    assert load_weather_forecast_cache(str(db_path), latitude=32.7900, longitude=-108.2749) is None
+
 
 def test_weather_forecast_cache_normalizes_legacy_display_strings(tmp_path):
     hourly = normalize_met_forecast(_sample_met_payload(), tz_name="America/Denver")

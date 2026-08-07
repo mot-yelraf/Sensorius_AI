@@ -647,27 +647,24 @@ SCENARIOS = (
     ),
     Scenario(
         name="weather_forecast",
-        label="6 Day Weather Forecast",
+        label="Full-Screen Weather Forecast",
         js_factory="""
-(() => window.__sensProfiler.profileAction({
-  label: '6 day weather forecast modal',
-  open: async () => {
-    if (window.__weatherForecastEnabled === false) throw new Error('Weather forecast disabled on dashboard');
-    if (typeof window.openWeatherForecastModal === 'function') {
-      await window.openWeatherForecastModal();
-      return '';
-    }
-    const trigger = await window.__sensProfiler.waitFor(
-      () => document.getElementById('forecastFiveDayBtn'),
-      window.__sensProfiler.timeoutMs,
-      'weather forecast trigger'
-    );
-    window.__sensProfiler.click(trigger);
-    return '';
-  },
-  waitFor: () => document.getElementById('weatherForecastModal'),
-  ready: (modal) => modal.querySelector('.forecast-days .forecast-day'),
-}))()
+(async () => {
+  if (window.__weatherForecastEnabled === false) throw new Error('Weather forecast disabled on dashboard');
+  const started = performance.now();
+  const response = await fetch('/weather-forecast', {cache: 'no-store'});
+  const html = await response.text();
+  const ready = response.ok
+    && html.includes('id="dashboardReturn"')
+    && html.includes('id="forecastDialog"');
+  return {
+    ok: ready,
+    total_ms: Number((performance.now() - started).toFixed(2)),
+    status: response.status,
+    decoded_body_size: html.length,
+    target: '/weather-forecast',
+  };
+})()
 """,
     ),
     Scenario(

@@ -29,7 +29,10 @@ OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 NWS_POINTS_URL = "https://api.weather.gov/points/{latitude:.4f},{longitude:.4f}"
 FORECAST_CACHE_TABLE = "weather_forecast"
 FORECAST_REFRESH_SEC = 6 * 60 * 60
-FORECAST_COORD_TOLERANCE_DEG = 0.05
+# Keep cached forecasts tied to the configured station coordinates.  The old
+# 0.05-degree window could reuse data from a location several kilometres away
+# after an Astral correction.
+FORECAST_COORD_TOLERANCE_DEG = 0.0005
 USER_AGENT = f"Sensorius/{SAI_APP_VERSION} weather-forecast"
 FORECAST_PROVIDER_MET_NO = "met_no"
 FORECAST_PROVIDER_OPEN_METEO = "open_meteo"

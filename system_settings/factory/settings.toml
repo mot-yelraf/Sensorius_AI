@@ -27,6 +27,8 @@ PROVIDER = ""
 
 [WeatherForecast]
 PROVIDER = "met_no"
+THEME = "garden"
+CURRENT_SENSOR_ID = ""
 
 [WeeWX]
 ENABLED = false

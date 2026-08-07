@@ -334,6 +334,14 @@ The database uses SQLite WAL mode and additive migrations. `sensorius.saiDataLog
 creates core telemetry tables and indexes at startup; `sensorius.saiWeatherForecast`
 creates the forecast cache table on first forecast use.
 
+The full-screen weather display is served by the main Sensorius process at
+`/weather-forecast`. Its namespaced read-only endpoints are
+`/api/weather-forecast-app/forecast`,
+`/api/weather-forecast-app/astronomy`, and
+`/api/weather-forecast-app/current-readings`. It requires no additional
+service, port, database, or restart after changing its provider, theme, or
+selected sensor.
+
 Key tables:
 
 - `readings`: sensor metric samples.

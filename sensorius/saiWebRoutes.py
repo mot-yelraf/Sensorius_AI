@@ -98,6 +98,7 @@ from .saiDailySummary import DailySummaryService, DEFAULT_PREWARM_DAYS, get_summ
 from .saiNodusOTA import NodusOTAError, NodusOTAService
 from .saiEmailNotifications import EmailConfig, SMTPEmailSender, normalize_notification_rules
 from .saiWeatherForecast import get_weather_forecast_payload, normalize_weather_forecast_provider
+from .saiWeatherForecastApp import normalize_weather_theme
 from .saiAddDevice import _SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR, get_hub_settings_path
 from . import __version__ as SAI_APP_VERSION
 
@@ -4133,6 +4134,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         weather_forecast_provider = normalize_weather_forecast_provider(
             settings.get_setting("WeatherForecast", "PROVIDER", "met_no")
         )
+        weather_forecast_theme = normalize_weather_theme(
+            settings.get_setting("WeatherForecast", "THEME", "garden")
+        )
+        weather_forecast_sensor_id = str(
+            settings.get_setting("WeatherForecast", "CURRENT_SENSOR_ID", "") or ""
+        ).strip()
         ha_enabled = bool(settings.get_setting("HomeAssistant", "ENABLED", False))
         ha_username = settings.get_setting("HomeAssistant", "HA_USERNAME", "") or ""
         ha_password_raw = settings.get_setting("HomeAssistant", "HA_PASSWORD", "") or ""
@@ -4252,6 +4259,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             gauge_size=gauge_size,
             display_style=display_style,
             weather_forecast_provider=weather_forecast_provider,
+            weather_forecast_theme=weather_forecast_theme,
+            weather_forecast_sensor_id=weather_forecast_sensor_id,
             astral_lat=astral_lat,
             astral_lon=astral_lon,
             astral_altitude=astral_altitude,
@@ -8604,6 +8613,25 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         display_style = str(form.get("display_style", "") or "").strip()
         raw_weather_forecast_provider = str(form.get("weather_forecast_provider", "met_no") or "").strip()
         weather_forecast_provider = normalize_weather_forecast_provider(raw_weather_forecast_provider)
+        raw_weather_forecast_theme = str(
+            form.get("weather_forecast_theme", settings.get_setting("WeatherForecast", "THEME", "garden")) or ""
+        ).strip().lower()
+        if raw_weather_forecast_theme not in {"garden", "island", "river", "desert"}:
+            return _modal_error_response(request, "Weather Forecast theme is not supported.", status_code=400)
+        weather_forecast_theme = normalize_weather_theme(raw_weather_forecast_theme)
+        weather_forecast_sensor_id = str(
+            form.get(
+                "weather_forecast_sensor_id",
+                settings.get_setting("WeatherForecast", "CURRENT_SENSOR_ID", ""),
+            )
+            or ""
+        ).strip()
+        if weather_forecast_sensor_id and not re.match(r"^[A-Za-z0-9._-]+$", weather_forecast_sensor_id):
+            return _modal_error_response(
+                request,
+                "Weather Forecast sensor ID may contain only letters, numbers, dot, underscore, and dash.",
+                status_code=400,
+            )
         email_form_present = "email_enabled" in form
         notification_rules_form_present = "notification_rules_json" in form
         email_enabled = str(form.get("email_enabled", "false") or "").strip().lower() in ("1", "true", "on", "yes")
@@ -8747,6 +8775,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         settings.replace_setting("Display", "gauge_size", gauge_size)
         settings.replace_setting("Display", "display_style", display_style)
         settings.replace_setting("WeatherForecast", "PROVIDER", weather_forecast_provider)
+        settings.replace_setting("WeatherForecast", "THEME", weather_forecast_theme)
+        settings.replace_setting("WeatherForecast", "CURRENT_SENSOR_ID", weather_forecast_sensor_id)
         if notification_rules_form_present:
             settings.replace_setting(
                 "Notifications",
@@ -14975,12 +15005,20 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
 
     from .saiBiodynamicCalendarApp import register_biodynamic_calendar_routes
+    from .saiWeatherForecastApp import register_weather_forecast_app_routes
     from .saiStats import create_stats_router
     register_biodynamic_calendar_routes(
         router,
         app=app,
         settings=settings,
         data_logger=data_logger,
+    )
+    register_weather_forecast_app_routes(
+        router,
+        app=app,
+        settings=settings,
+        data_logger=data_logger,
+        sensor_settings_manager=SensorSettingsManager("sensor_settings"),
     )
     app.include_router(create_stats_router(settings, gc_mgr))
     app.include_router(router)

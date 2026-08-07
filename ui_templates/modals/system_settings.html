@@ -814,16 +814,6 @@
                     {% endfor %}
                   </datalist>
                 </div>
-                <div class="field-stack">
-                  <label for="weather_forecast_provider">Weather Forecast</label>
-                  {% set selected_weather_forecast_provider = weather_forecast_provider | default('met_no') %}
-                  <select id="weather_forecast_provider" name="weather_forecast_provider">
-                    <option value="met_no" {% if selected_weather_forecast_provider == "met_no" %}selected{% endif %}>MET Norway</option>
-                    <option value="us" {% if selected_weather_forecast_provider == "us" %}selected{% endif %}>US</option>
-                    <option value="open_meteo" {% if selected_weather_forecast_provider == "open_meteo" %}selected{% endif %}>Open-Meteo</option>
-                    <option value="none" {% if selected_weather_forecast_provider == "none" %}selected{% endif %}>None</option>
-                  </select>
-                </div>
               </div>
                     <div class="pane-footer section-action-footer">
                       <button type="submit" class="button blue btn-system-save">Save</button>
@@ -1024,6 +1014,45 @@
           <div class="settings-pane" id="pane-integrations" hidden>
             <h3 class="pane-title">Integrations</h3>
             <div class="integrations-list">
+              <details class="integration-block" data-runtime-section="integrations-weather-forecast">
+                <summary>Weather Forecast</summary>
+                <div class="integration-block-content">
+                  {% set selected_weather_forecast_provider = weather_forecast_provider | default('met_no') %}
+                  {% set selected_weather_forecast_theme = weather_forecast_theme | default('garden') %}
+                  <div class="ha-grid">
+                    <div class="field-stack">
+                      <label for="weather_forecast_provider">Forecast Provider</label>
+                      <select id="weather_forecast_provider" name="weather_forecast_provider" form="systemSettingsForm">
+                        <option value="met_no" {% if selected_weather_forecast_provider == "met_no" %}selected{% endif %}>MET Norway</option>
+                        <option value="us" {% if selected_weather_forecast_provider == "us" %}selected{% endif %}>US · National Weather Service</option>
+                        <option value="open_meteo" {% if selected_weather_forecast_provider == "open_meteo" %}selected{% endif %}>Open-Meteo</option>
+                        <option value="none" {% if selected_weather_forecast_provider == "none" %}selected{% endif %}>Disabled</option>
+                      </select>
+                    </div>
+                    <div class="field-stack">
+                      <label for="weather_forecast_theme">Theme</label>
+                      <select id="weather_forecast_theme" name="weather_forecast_theme" form="systemSettingsForm">
+                        <option value="garden" {% if selected_weather_forecast_theme == "garden" %}selected{% endif %}>Mountain Garden</option>
+                        <option value="island" {% if selected_weather_forecast_theme == "island" %}selected{% endif %}>Ocean Island</option>
+                        <option value="river" {% if selected_weather_forecast_theme == "river" %}selected{% endif %}>Forest River</option>
+                        <option value="desert" {% if selected_weather_forecast_theme == "desert" %}selected{% endif %}>Desert Bloom</option>
+                      </select>
+                    </div>
+                    <div class="field-stack" style="grid-column:1/-1;">
+                      <label for="weather_forecast_sensor_id">Current Readings Sensor</label>
+                      <select id="weather_forecast_sensor_id" name="weather_forecast_sensor_id" form="systemSettingsForm" data-selected="{{ weather_forecast_sensor_id | default('') }}">
+                        <option value="">None selected</option>
+                        {% if weather_forecast_sensor_id %}<option value="{{ weather_forecast_sensor_id }}" selected>{{ weather_forecast_sensor_id }}</option>{% endif %}
+                      </select>
+                    </div>
+                  </div>
+                  <p class="status-text">The forecast uses the Sensorius Astral location. Current Readings follows the selected sensor's configured Display Metrics.</p>
+                  <div class="pane-footer section-action-footer">
+                    <button type="submit" class="button blue btn-system-save" form="systemSettingsForm">Save</button>
+                  </div>
+                </div>
+              </details>
+
               <details class="integration-block" data-runtime-section="integrations-home-assistant">
                 <summary>Home Assistant</summary>
                 <div class="integration-block-content">
@@ -1462,6 +1491,9 @@
   const tzOptionsEl = document.getElementById("tz-options");
   const astralLatEl = document.getElementById("astral_lat");
   const astralLonEl = document.getElementById("astral_lon");
+  const notificationRulesInput = document.getElementById("notification_rules_json");
+  const notificationRuleList = document.getElementById("notification-rule-list");
+  let notificationSensorDirectory = [];
   let locationsLoaded = false;
   let onboardWs = null;
   let onboardSessionId = "";
@@ -1528,6 +1560,7 @@
     });
 
     if (paneId === "pane-integrations") {
+      hydrateWeatherForecastSensors();
       hydrateHAFromData();
       hydrateWeeWXFromData();
       hydrateFarmFromData();
@@ -1555,6 +1588,41 @@
       startAddScan();
     }
     if (paneId !== "pane-add") stopAddScan();
+  }
+
+  async function hydrateWeatherForecastSensors() {
+    const select = document.getElementById("weather_forecast_sensor_id");
+    if (!select || select.dataset.hydrated === "1") return;
+    const selected = String(select.value || select.dataset.selected || "");
+    try {
+      const response = await fetch("/sensor-directory", {cache: "no-store"});
+      const rows = await response.json().catch(() => []);
+      if (!response.ok || !Array.isArray(rows)) throw new Error("sensor_directory_failed");
+      select.replaceChildren();
+      const empty = document.createElement("option");
+      empty.value = "";
+      empty.textContent = "None selected";
+      select.appendChild(empty);
+      rows.forEach((row) => {
+        const sensorId = String(row && row.id || "").trim();
+        if (!sensorId) return;
+        const option = document.createElement("option");
+        option.value = sensorId;
+        const location = String(row && row.location || "").trim();
+        option.textContent = location && location !== "Unknown" ? `${location} · ${sensorId}` : sensorId;
+        select.appendChild(option);
+      });
+      if (selected && !Array.from(select.options).some((option) => option.value === selected)) {
+        const retained = document.createElement("option");
+        retained.value = selected;
+        retained.textContent = `${selected} · unavailable`;
+        select.appendChild(retained);
+      }
+      select.value = selected;
+      select.dataset.hydrated = "1";
+    } catch (_error) {
+      select.dataset.hydrated = "0";
+    }
   }
 
   function setStatus(id, text) {

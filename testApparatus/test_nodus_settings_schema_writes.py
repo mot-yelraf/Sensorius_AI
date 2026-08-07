@@ -651,18 +651,20 @@ def test_system_settings_template_has_astral_altitude_field():
     assert text.index('id="astral_lat"') < text.index('id="astral_lon"') < text.index('id="astral_altitude"')
 
 
-def test_system_settings_template_has_weather_forecast_selector_right_of_timezone():
+def test_system_settings_template_has_weather_forecast_integration_controls():
     source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
     text = source.read_text(encoding="utf-8")
 
     assert 'class="field-grid-network"' in text
-    assert '<label for="weather_forecast_provider">Weather Forecast</label>' in text
+    assert 'data-runtime-section="integrations-weather-forecast"' in text
+    assert '<label for="weather_forecast_provider">Forecast Provider</label>' in text
     assert 'name="weather_forecast_provider"' in text
     assert '<option value="met_no"' in text
     assert '<option value="us"' in text
     assert '<option value="open_meteo"' in text
     assert '<option value="none"' in text
-    assert text.index('id="tz"') < text.index('id="weather_forecast_provider"')
+    assert 'name="weather_forecast_theme"' in text
+    assert 'name="weather_forecast_sensor_id"' in text
 
 
 def test_system_settings_sections_match_integration_accordions():
@@ -675,7 +677,7 @@ def test_system_settings_sections_match_integration_accordions():
     assert text.index("<summary>System Settings</summary>") < text.index("<summary>Notifications</summary>")
     assert text.index("<summary>Notifications</summary>") < text.index("<summary>Astral</summary>")
     assert text.index("<summary>Astral</summary>") < text.index("<summary>Display</summary>")
-    assert text.count('class="button blue btn-system-save"') == 4
+    assert text.count('class="button blue btn-system-save"') == 5
     system_pane = text[text.index('<div class="settings-pane" id="pane-system">'):text.index('<div class="settings-pane" id="pane-automations"')]
     assert system_pane.count('class="button black btn-back-system">Dashboard</button>') == 1
     assert system_pane.count('class="pane-footer section-action-footer"') == 4
@@ -718,7 +720,7 @@ def test_system_settings_weewx_pane_omits_inline_mqtt_instructions():
     text = source.read_text(encoding="utf-8")
 
     assert "id=\"pane-integrations\"" in text
-    assert text.count('class="integration-block"') == 3
+    assert text.count('class="integration-block"') == 4
     assert "id=\"weewx-conf-example\"" not in text
     assert "Configure the WeeWX MQTT extension" not in text
     assert "[StdRESTful]" not in text
@@ -741,6 +743,16 @@ def test_system_settings_save_applies_dashboard_weather_forecast_change():
     assert "body.get(\"weather_forecast_provider\")" in text
     assert "window.loadWeatherForecast(true)" in text
     assert "window.location.reload()" in text
+
+
+def test_system_settings_save_tolerates_absent_notification_rule_editor():
+    source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
+    text = source.read_text(encoding="utf-8")
+
+    declaration = 'const notificationRulesInput = document.getElementById("notification_rules_json");'
+    assert declaration in text
+    assert text.index(declaration) < text.index("function syncNotificationRulesInput()")
+    assert "if (!notificationRulesInput || !notificationRuleList) return;" in text
 
 
 def test_remove_device_success_reloads_dashboard():
@@ -997,6 +1009,8 @@ async def test_submit_pi_setup_persists_weather_forecast_provider(tmp_path, monk
                 "gauge_size": "medium",
                 "display_style": "grid",
                 "weather_forecast_provider": "open_meteo",
+                "weather_forecast_theme": "desert",
+                "weather_forecast_sensor_id": "nodus-weather",
             },
             follow_redirects=False,
         )
@@ -1004,6 +1018,8 @@ async def test_submit_pi_setup_persists_weather_forecast_provider(tmp_path, monk
     assert res.status_code == 303
     stored = _RouteFakeSaiSettings.STORED_SETTINGS
     assert stored["WeatherForecast"]["PROVIDER"] == "open_meteo"
+    assert stored["WeatherForecast"]["THEME"] == "desert"
+    assert stored["WeatherForecast"]["CURRENT_SENSOR_ID"] == "nodus-weather"
 
 
 @pytest.mark.asyncio
@@ -4597,7 +4613,7 @@ def test_dashboard_weather_forecast_card_has_six_day_button():
     assert "<span class='spinner dashboard-card-spinner' aria-hidden='true'></span>" in html
     assert "/api/weather-forecast?days=1" in html
     assert "/api/weather-forecast?days=1&force_refresh=true" in html
-    assert "/api/weather-forecast?days=6" in html
+    assert "window.location.assign('/weather-forecast')" in html
     assert "window.__weatherForecastProvider = weatherForecastProvider;" in html
     assert "function setWeatherForecastCardLoading(isLoading){" in html
     assert "setDashboardCardLoading('weatherForecastBox', isLoading);" in html
@@ -4605,7 +4621,7 @@ def test_dashboard_weather_forecast_card_has_six_day_button():
     assert "setWeatherForecastCardLoading(false);" in html
     assert "window.loadWeatherForecast = loadWeatherForecast;" in html
     assert "forecastFiveDayBtn.addEventListener('click'" in html
-    assert "window.openWeatherForecastModal) window.openWeatherForecastModal();" in html
+    assert "window.location.assign('/weather-forecast')" in html
 
 
 def test_dashboard_weather_forecast_none_hides_forecast_card():

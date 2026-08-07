@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123c45">
+  <title>Weather Forecast {{ app_version }}</title>
+  <link rel="stylesheet" href="/ui_static/weather_forecast/app.css?v={{ app_version }}">
+  <script src="/ui_static/weather_forecast/app.js?v={{ app_version }}" defer></script>
+</head>
+<body class="theme-{{ settings.theme }}" data-runtime-instance-id="{{ runtime_instance_id }}">
+  {% macro reading(value, suffix='') -%}{{ value if value is not none else '—' }}{{ suffix if value is not none else '' }}{%- endmacro %}
+  <div class="world-scene" aria-hidden="true"><span class="scene-sun"></span><span class="scene-ridge scene-ridge-far"></span><span class="scene-ridge scene-ridge-near"></span></div>
+
+  <a class="dashboard-return" id="dashboardReturn" href="/" aria-label="Return to Sensorius dashboard">
+    <span class="dashboard-return-spinner" aria-hidden="true"></span>
+    <span class="dashboard-return-label">Dashboard</span>
+  </a>
+
+  <main id="top" class="dashboard-shell">
+    <section class="station-intro" aria-labelledby="station-title">
+      <div>
+        <p class="eyebrow">Sensorius weather forecast</p>
+        <h1 id="station-title">{{ location.name or 'Your weather, alive.' }}</h1>
+        <p class="station-subtitle">
+          {% if latest.ok %}{{ latest.sensor_id }} · Last observation <time>{{ latest.timestamp | replace('T', ' · ') }}</time>
+          {% elif settings.sensor_id %}Waiting for readings from {{ settings.sensor_id }}
+          {% else %}Choose a Current Readings sensor in Integrations → Weather Forecast{% endif %}
+        </p>
+      </div>
+      <div class="station-state {{ 'is-live' if latest.ok else 'is-waiting' }}"><span class="status-dot"></span>{{ 'Station reporting' if latest.ok else 'Sensor standing by' }}</div>
+    </section>
+
+    <section class="glass-card lunar-header" id="moon" data-lunar-header>
+      {% set moon_altitude = moon.get('moon_altitude') %}
+      {% set phase_illuminations = (0, 15, 50, 85, 100, 85, 50, 15) %}
+      <div class="lunar-arc" aria-hidden="true"></div>
+      <div class="lunar-side lunar-side-left">
+        {% for phase in moon.cycle[:4] %}<div class="lunar-step"><canvas class="lunar-step-disk" width="96" height="96" data-phase-moon data-phase-index="{{ phase.index }}" data-illumination="{{ phase.get('illumination', phase_illuminations[phase.index]) }}" data-bright-limb-angle="{{ phase.get('bright_limb_angle', 0) }}" data-disk-rotation="{{ phase.get('disk_rotation', 0) }}" role="img" aria-label="Local view of the {{ phase.name }}"></canvas><small>{{ phase.name }}</small></div>{% endfor %}
+      </div>
+      <div class="lunar-current">
+        <p class="eyebrow">Moon now · live</p>
+        <canvas class="lunar-current-disk" id="currentMoonDisk" width="192" height="192" data-illumination="{{ moon.illumination }}" data-bright-limb-angle="{{ moon.get('bright_limb_angle', 0) }}" data-disk-rotation="{{ moon.get('disk_rotation', 0) }}" role="img" aria-label="Observer-local view of the {{ moon.name }}, {{ moon.illumination }} percent illuminated"></canvas>
+        <h2 id="currentMoonName">{{ moon.name }}</h2>
+        <p><strong id="currentMoonIllumination">{{ moon.illumination }}%</strong> illuminated · lunar day <span id="currentMoonAge">{{ moon.age_days }}</span><br><span class="observer-view-label" id="moonLocalView">Observer-local orientation{% if moon_altitude is not none %} · {{ moon_altitude }}° altitude{% if moon_altitude < 0 %} (below horizon){% endif %}{% endif %}</span></p>
+      </div>
+      <div class="lunar-side lunar-side-right">
+        {% for phase in moon.cycle[4:] %}<div class="lunar-step"><canvas class="lunar-step-disk" width="96" height="96" data-phase-moon data-phase-index="{{ phase.index }}" data-illumination="{{ phase.get('illumination', phase_illuminations[phase.index]) }}" data-bright-limb-angle="{{ phase.get('bright_limb_angle', 0) }}" data-disk-rotation="{{ phase.get('disk_rotation', 0) }}" role="img" aria-label="Local view of the {{ phase.name }}"></canvas><small>{{ phase.name }}</small></div>{% endfor %}
+      </div>
+      <div class="solar-times"><span>☀ Sunrise <strong id="sunriseTime">{{ moon.sunrise }}</strong></span><span>Sunset <strong id="sunsetTime">{{ moon.sunset }}</strong> ◐</span><small id="lunarUpdated">Updated {{ moon.updated_at[11:16] }} UTC</small></div>
+    </section>
+
+    <section class="conditions-row" id="conditions" aria-label="Weather overview">
+      <article class="glass-card readings-panel">
+        <div class="card-heading"><div><p class="eyebrow">Current readings</p><h2>{{ latest.sensor_id or 'Sensor not selected' }}</h2></div><span class="weather-badge">{{ 'Live' if latest.ok else 'Waiting' }}</span></div>
+        {% set display_metrics = latest.display_metrics | default([]) %}
+        {% set primary_metric = display_metrics[0] if display_metrics else none %}
+        <div class="reading-hero"><div class="weather-symbol compact-symbol" aria-hidden="true"><span class="symbol-sun"></span><span class="symbol-cloud"></span></div><div><span class="temperature-number">{{ reading(primary_metric.value if primary_metric else none) }}</span><span class="temperature-unit">{{ primary_metric.unit if primary_metric else '' }}</span><p>{{ primary_metric.name if primary_metric else 'No Display Metrics configured' }}</p></div></div>
+        <div class="current-reading-list">
+          {% for metric in display_metrics[1:] %}<div><span>{{ metric.name }}</span><strong>{{ reading(metric.value, (' ' ~ metric.unit) if metric.unit else '') }}</strong></div>{% endfor %}
+        </div>
+      </article>
+
+      <article class="glass-card forecast-panel">
+        <div class="card-heading"><div><p class="eyebrow">Today’s forecast</p><h2>{{ forecast.condition }}</h2></div><span class="provider-label">{{ forecast.provider_label }}</span></div>
+        {% if forecast.ok %}
+          <div class="forecast-summary"><span class="forecast-main-icon" aria-hidden="true">{{ forecast.icon }}</span><div><span><strong>{{ reading(forecast.high_f, '°') }}</strong> high</span><span><strong>{{ reading(forecast.low_f, '°') }}</strong> low</span><span><strong>{{ forecast.precipitation_mm }} mm</strong> rain</span></div></div>
+          <div class="hourly-strip">{% for hour in forecast.hours %}<div class="forecast-hour"><time>{{ hour.label }}</time><span aria-hidden="true">{{ hour.icon }}</span><strong>{{ reading(hour.temperature_f, '°') }}</strong><small>{{ hour.precipitation_mm }} mm</small></div>{% endfor %}</div>
+          <p class="forecast-meta">{{ 'Cached forecast · provider temporarily unavailable' if forecast.stale else 'Updated from ' ~ forecast.provider_label }}</p>
+          {% if forecast.days %}<div class="future-heading"><span>Looking ahead</span><button type="button" data-open-forecast>6-day details</button></div><div class="daily-strip">{% for day in forecast.days %}<article class="forecast-day"><time datetime="{{ day.date }}">{{ day.label }}</time><span aria-hidden="true">{{ day.icon }}</span><strong>{{ day.temp_range }}</strong><small>{{ day.precipitation_mm }} mm</small></article>{% endfor %}</div>{% endif %}
+        {% else %}<div class="forecast-empty"><span>◌</span><p>{{ forecast.reason or 'Set an Astral location and forecast provider to load the forecast.' }}</p></div>{% endif %}
+      </article>
+
+      <article class="glass-card decisions-panel">
+        <div class="card-heading"><div><p class="eyebrow">Environmental decisions</p><h2>Useful next moves</h2></div></div>
+        <div class="decision-list">{% for decision in decisions %}<div class="decision-card"><span class="decision-icon" aria-hidden="true">{{ decision.icon }}</span><div><small>{{ decision.title }}</small><strong>{{ decision.status }}</strong><p>{{ decision.detail }}</p></div></div>{% endfor %}</div>
+        <div class="decision-solar"><span>Sunrise {{ moon.sunrise }}</span><span>Sunset {{ moon.sunset }}</span></div>
+      </article>
+    </section>
+
+    <section class="map-row" id="map">
+      <article class="glass-card daylight-card">
+        <div class="card-heading compact"><div><p class="eyebrow">Sunlight today</p><h2 id="daylightDuration">{{ moon.get('daylight_duration', '—') }}</h2></div><span class="sun-state" id="sunState">{{ 'Sun above horizon' if moon.get('sun_is_up', false) else 'Sun below horizon' }}</span></div>
+        <div class="daylight-orbit" aria-hidden="true"><span class="daylight-sun" id="daylightSun" data-daylight-progress="{{ moon.get('daylight_progress', 0) }}">☀</span></div>
+        <dl class="daylight-times"><div><dt>Sunrise</dt><dd id="mapSunriseTime">{{ moon.sunrise }}</dd></div><div><dt>Solar noon</dt><dd id="solarNoonTime">{{ moon.get('solar_noon', '—') }}</dd></div><div><dt>Sunset</dt><dd id="mapSunsetTime">{{ moon.sunset }}</dd></div></dl>
+        <p class="daylight-note"><strong id="daylightHours">{{ moon.get('daylight_hours') if moon.get('daylight_hours') is not none else '—' }}</strong> hours between sunrise and sunset · {{ moon.timezone }}</p>
+      </article>
+      <article class="glass-card map-card centered-map">
+        <div class="card-heading compact map-heading"><div><p class="eyebrow">Weather in motion</p><h2>Regional radar</h2></div><div class="map-tools"><button type="button" data-reset-windy title="Close Windy's forecast panel and return to the station map">× Close forecast</button><span>Windy</span></div></div>
+        <iframe data-windy-map src="{{ windy_iframe_url }}" title="Regional Windy weather map" loading="lazy" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
+      </article>
+    </section>
+  </main>
+
+  <footer class="site-footer"><p>Created by Peace Hill Studios</p></footer>
+
+  <dialog class="forecast-dialog" id="forecastDialog" aria-labelledby="forecastDialogTitle">
+    <header><div><p class="eyebrow">Weather outlook</p><h2 id="forecastDialogTitle">6-day forecast</h2></div><button type="button" data-close-forecast aria-label="Close six-day forecast">×</button></header>
+    <p class="forecast-dialog-meta">Forecast from {{ forecast.provider_label }} · {{ '%.4f' | format(location.latitude) }}, {{ '%.4f' | format(location.longitude) }}</p>
+    {% if forecast.days %}<div class="forecast-detail-grid">{% for day in forecast.days %}<article><h3>{{ day.label }}</h3><p>{{ day.summary }}</p><dl><dt>Temp</dt><dd>{{ day.temp_range }}</dd><dt>RH</dt><dd>{{ day.rh_range }}</dd><dt>Wind</dt><dd>{{ day.wind }}</dd><dt>Rain</dt><dd>{{ day.precipitation_mm }} mm</dd></dl></article>{% endfor %}</div>{% else %}<p class="forecast-dialog-empty">Future forecast data is not available yet.</p>{% endif %}
+  </dialog>
+</body>
+</html>

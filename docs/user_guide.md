@@ -176,7 +176,6 @@ maintenance tools.
 - **MQTT Port**: MQTT broker port. Valid range is 1 to 65535. Common values are 1883 without TLS and 8883 with TLS.
 - **Sensorius Hub**: MQTT broker hostname or IP used by Sensorius and Nodus devices.
 - **Time Zone**: IANA timezone name, such as `America/Denver`. It controls dashboard time labels, graph time labels, Astral timing, and calendar day boundaries.
-- **Weather Forecast**: forecast provider for the dashboard and current-day biodynamic summary. Options are **MET Norway**, **US**, **Open-Meteo**, and **None**.
 - **Latitude**: Astral latitude. Leave both Latitude and Longitude empty, then Save, to re-detect automatically.
 - **Longitude**: Astral longitude. Latitude and Longitude must both be filled for manual coordinates.
 - **Altitude (m)**: altitude in meters. Valid range is -500 to 10000.
@@ -189,6 +188,13 @@ maintenance tools.
 - **Notifications**: enables SMTP delivery and configures the server, port, TLS mode, username, Google App Password, and From address. The **To** address is used only by **Send Test Email**. Automation recipients are configured on individual **Notify** actions under **System Settings > Automations**.
 - **Dashboard**: returns to the dashboard.
 - **Save**: writes system settings normally; email connection values are written to the protected project-root `.env`.
+
+The **Integrations > Weather Forecast** section controls the forecast provider,
+the full-screen scene theme, and the Sensorius sensor used for Current
+Readings. Provider options are **MET Norway**, **US · National Weather
+Service**, **Open-Meteo**, and **Disabled**. Current Readings can use any live
+sensor in the sensor directory and shows that sensor's configured Display
+Metrics in their saved order.
 
 ![Notification email settings](<../assets/screenshots/system-settings-notifications.png>)
 
@@ -725,6 +731,26 @@ The graph definition modal has these panes and fields:
 - **Dashboard** in the top-left of the full-screen graph: closes the graph and returns to the dashboard.
 
 Use switch overlays to answer practical questions: whether a fan cooled the greenhouse, whether irrigation raised soil moisture, or whether lights changed VPD.
+
+## Weather Forecast
+
+Select **6 Day Forecast** on the dashboard forecast card to open the native
+full-screen weather display at
+`http://<sensorius-host>:8000/weather-forecast`. **Dashboard** in the top-left
+returns to the Sensorius dashboard.
+
+The weather display uses the existing Sensorius Astral latitude, longitude,
+and timezone. It includes the current Moon and phase cycle, sunrise/sunset and
+daylight track, the selected sensor's latest current readings, the canonical
+Sensorius forecast, six-day details, environmental guidance, and the regional
+Windy map. It does not run a separate weather service or maintain a separate
+settings file or readings database.
+
+Current Readings displays the selected sensor's configured **Display Metrics**
+in their saved order, including their standard Sensorius units. This allows a
+weather station, a Nodus environmental sensor, or a WeeWX station with fewer
+metrics to use the same full-screen view without requiring weather-only metric
+names.
 
 ## BD Calendar
 

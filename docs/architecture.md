@@ -82,6 +82,11 @@ macOS, Windows, and non-Pi Linux hub:
   and known Nodus devices.
 - `sensorius/saiWeatherForecast.py`: dashboard weather forecast provider
   and SQLite cache helpers.
+- `sensorius/saiWeatherForecastApp.py`: native full-screen weather routes,
+  canonical forecast presentation adapter, selected-sensor reading adapter,
+  and environmental guidance.
+- `sensorius/saiWeatherAstronomy.py`: observer-local Moon rendering data and
+  solar/daylight calculations for the weather display.
 - `sensorius/saiNodusOTA.py`: Nodus OTA package and job support used by web
   routes.
 
@@ -172,6 +177,14 @@ Weather forecast:
 - Forecast payloads are cached in SQLite in `weather_forecast` and reused for
   up to six hours. If the selected provider fails, the dashboard can continue
   to show the latest cached forecast for that provider marked as stale.
+- `/weather-forecast` is a Sensorius-owned full-screen application. It reuses
+  the same forecast cache and Astral location as the dashboard rather than
+  starting a separate Caelus process.
+- The selected `[WeatherForecast].CURRENT_SENSOR_ID` is resolved through
+  `saiDataLogger`; `SensorSettingsManager` supplies the selected sensor's
+  ordered Display Metrics and the shared gauge configuration supplies units.
+  This keeps Current Readings compatible with Nodus, WeeWX, and future weather
+  station sensor types without a weather-specific metric requirement.
 
 Switches:
 

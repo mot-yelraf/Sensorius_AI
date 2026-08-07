@@ -44,10 +44,9 @@ def test_modal_scenarios_accept_explicit_targets():
 
     assert "__sensProfilerTargetSensorId" in sensor.js_factory
     assert "__sensProfilerTargetSwitchId" in switch.js_factory
-    assert "openWeatherForecastModal" in forecast.js_factory
-    assert "forecastFiveDayBtn" in forecast.js_factory
-    assert "weatherForecastModal" in forecast.js_factory
-    assert ".forecast-days .forecast-day" in forecast.js_factory
+    assert "fetch('/weather-forecast'" in forecast.js_factory
+    assert 'id="dashboardReturn"' in forecast.js_factory
+    assert 'id="forecastDialog"' in forecast.js_factory
     assert "visibleMetricTargets()" in fullscreen_graph.js_factory
     assert "graphButton" in fullscreen_graph.js_factory
     assert "fullscreen_graph_container" in fullscreen_graph.js_factory

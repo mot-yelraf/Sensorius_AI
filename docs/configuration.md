@@ -291,6 +291,12 @@ Runtime notes:
   This is reversible obfuscation, not encryption.
 - `[WeatherForecast].PROVIDER` accepts `met_no`, `open_meteo`, `us`, or `none`.
   `none` disables the dashboard forecast card.
+- `[WeatherForecast].THEME` selects the full-screen weather scene: `garden`,
+  `island`, `river`, or `desert`.
+- `[WeatherForecast].CURRENT_SENSOR_ID` selects the Sensorius/Nodus sensor whose
+  latest logged values populate Current Readings. The panel follows that
+  sensor's ordered `[Display].METRIC_1` through `METRIC_6` settings. An empty
+  value leaves the Current Readings panel unbound.
 
 ## Sensor Settings
 
