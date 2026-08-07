@@ -7878,6 +7878,11 @@ def render_graph_modal(switch_installed=None):
       return (parts.length ? parts[parts.length - 1] : seriesKey || '').trim();
     }
 
+    function graphPressureMetric(metric){
+      const text = String(metric || '').trim();
+      return text === 'Pressure' || text === 'Baro-Pressure' || text.endsWith(' Baro-Pressure');
+    }
+
     function normalizeGraphGaugeMetricName(value){
       return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
     }
@@ -8812,7 +8817,7 @@ def render_graph_modal(switch_installed=None):
           data: points,
           borderColor: baseColor,
           yAxisID: yAxisID,
-          pressureMetric: pressureTrendMetric(graphMetricNameFromKey(k)),
+          pressureMetric: graphPressureMetric(graphMetricNameFromKey(k)),
           order: 1,
           tension: 0.2,
           pointRadius: (points.length <= 1 ? 3 : 0),
@@ -8838,7 +8843,7 @@ def render_graph_modal(switch_installed=None):
               borderColor: 'purple',
               borderDash: [6, 3],
               yAxisID: yAxisID,
-              pressureMetric: pressureTrendMetric(graphMetricNameFromKey(k)),
+              pressureMetric: graphPressureMetric(graphMetricNameFromKey(k)),
               order: 2,
               tension: 0.2,
               pointRadius: (rollPoints.length <= 1 ? 3 : 0),

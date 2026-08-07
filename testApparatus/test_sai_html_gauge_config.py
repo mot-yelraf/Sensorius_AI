@@ -60,6 +60,17 @@ def test_fullscreen_graph_under_ten_days_adds_six_hour_markers():
     assert ": (useSixHourXAxis ? 'rgba(0,0,0,0.16)' : 'rgba(0,0,0,0.1)');" in html
 
 
+def test_fullscreen_graph_defines_pressure_helper_in_modal_script_scope():
+    html = "".join(render_graph_modal(switch_installed=False))
+
+    helper = "function graphPressureMetric(metric){"
+    call = "pressureMetric: graphPressureMetric(graphMetricNameFromKey(k))"
+    assert helper in html
+    assert call in html
+    assert html.index(helper) < html.index(call)
+    assert "pressureMetric: pressureTrendMetric(" not in html
+
+
 def test_fullscreen_graph_modal_has_astral_selector_and_sky_panel():
     html = "".join(render_graph_modal(switch_installed=False))
 
