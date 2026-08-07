@@ -185,7 +185,7 @@ maintenance tools.
 - **Sun Peak Time**: read-only solar noon.
 - **Gauge Size**: dashboard gauge size. Options are **Small** and **Large**.
 - **Display Style**: default dashboard metric display. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
-- **Notifications**: enables SMTP delivery and configures the server, port, TLS mode, username, Google App Password, and From address. The **To** address is used only by **Send Test Email**. Automation recipients are configured on individual **Notify** actions under **System Settings > Automations**.
+- **Notifications**: enables SMTP delivery and configures the server, port, TLS mode, username, Google App Password, and From address. **To** accepts one or more comma-separated addresses used only by **Send Test Email**. Automation recipients are configured on individual **Notify** actions under **System Settings > Automations**.
 - **Dashboard**: returns to the dashboard.
 - **Save**: writes system settings normally; email connection values are written to the protected project-root `.env`.
 
@@ -226,7 +226,7 @@ after 2-Step Verification is enabled.
    - **From**: normally the same complete Gmail address
    - **Email Notifications**: **Enabled**
 
-7. Enter a test recipient in **To**, then select **Send Test Email**. This tests the values currently displayed, so
+7. Enter one test recipient, or multiple comma-separated recipients, in **To**, then select **Send Test Email**. This tests the values currently displayed, so
    they do not have to be saved first. Check the recipient inbox and spam
    folder if Sensorius reports success but the message is not visible.
 8. After the test succeeds, select **Save**. On later edits, leave **Password**

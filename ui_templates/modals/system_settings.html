@@ -870,8 +870,8 @@
                             <span class="status-text sai-live-status" id="email-test-status" aria-live="polite"></span>
                           </div>
                           <div class="field-stack">
-                            <label for="email_to">To <span class="muted">(test only)</span></label>
-                            <input type="email" id="email_to" name="email_to" value="{{ email_to | default('') }}" placeholder="you@gmail.com" autocomplete="off">
+                            <label for="email_to">To <span class="muted">(test only; comma-separated)</span></label>
+                            <input type="email" id="email_to" name="email_to" value="{{ email_to | default('') }}" placeholder="one@example.com, two@example.com" autocomplete="off" multiple>
                           </div>
                         </div>
                         <div class="pane-footer section-action-footer">

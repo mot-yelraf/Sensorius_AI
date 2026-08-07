@@ -561,7 +561,10 @@ def test_notifications_ui_has_email_only_layout_and_test_recipient():
     assert text.index('id="email_username"', email_start) < text.index('id="email_app_password"', email_start)
     assert text.index('id="email_enabled"', email_start) < text.index('id="email_from"', email_start)
     assert text.index('id="btn-email-test"', email_start) < text.index('id="email_to"', email_start)
-    assert '(test only)' in text
+    assert '(test only; comma-separated)' in text
+    assert 'id="email_to" name="email_to"' in text
+    assert 'autocomplete="off" multiple' in text
+    assert 'placeholder="one@example.com, two@example.com"' in text
     assert 'class="notification-enable-control"' in text
     assert 'class="email-grid-two email-action-grid"' in text
     assert 'class="notification-test-control"' in text

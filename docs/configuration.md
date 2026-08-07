@@ -148,8 +148,9 @@ password field is never populated in HTML; leaving it blank preserves the
 current app password. `ssl` uses implicit TLS (normally port 465), while
 `starttls` upgrades a plain SMTP connection (normally port 587).
 
-The form's **To** value is only for test delivery. Runtime recipients are
-stored on Notify actions in `switch_settings/automations/automations.toml`.
+The form's **To** value accepts one or more comma-separated addresses and is
+only for test delivery. Runtime recipients are stored on Notify actions in
+`switch_settings/automations/automations.toml`.
 Notify actions send on the false-to-true edge of their automation conditions.
 
 GUI behavior:
