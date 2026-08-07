@@ -189,13 +189,6 @@ maintenance tools.
 - **Dashboard**: returns to the dashboard.
 - **Save**: writes system settings normally; email connection values are written to the protected project-root `.env`.
 
-The **Integrations > Weather Forecast** section controls the forecast provider,
-the full-screen scene theme, and the Sensorius sensor used for Current
-Readings. Provider options are **MET Norway**, **US · National Weather
-Service**, **Open-Meteo**, and **Disabled**. Current Readings can use any live
-sensor in the sensor directory and shows that sensor's configured Display
-Metrics in their saved order.
-
 ![Notification email settings](<../assets/screenshots/system-settings-notifications.png>)
 
 Enable **Email Notifications** and save the SMTP settings before creating a
@@ -458,10 +451,30 @@ Before removing a device, update any automations, Home Assistant dashboards, far
 
 ### Integrations Pane
 
-System Settings presents Home Assistant, WeeWX, and FarmOS under one
-**Integrations** menu item. Each integration is an independently expandable
-block. Scroll the right pane vertically when the expanded blocks exceed the
-available height.
+System Settings presents Weather Forecast, Home Assistant, WeeWX, and FarmOS
+under one **Integrations** menu item. Each integration is an independently
+expandable block. Scroll the right pane vertically when the expanded blocks
+exceed the available height.
+
+#### Weather Forecast
+
+![Weather Forecast integration pane showing the forecast source, Caelus theme, and WeeWX Current Readings sensor](<../assets/screenshots/system-integrations-weather-forecast.png>)
+
+Fields and selectors:
+
+- **Forecast Provider**: selects the forecast source used by the dashboard and
+  Caelus. Options are **MET Norway**, **US · National Weather Service**,
+  **Open-Meteo**, and **Disabled**.
+- **Theme**: selects the Caelus full-screen scene. Options are **Mountain
+  Garden**, **Ocean Island**, **Forest River**, and **Desert Bloom**.
+- **Current Readings Sensor**: selects any live sensor in the sensor directory.
+  Caelus displays that sensor's configured Display Metrics in their saved
+  order. A WeeWX station can therefore supply outdoor temperature, humidity,
+  rain, wind direction, and barometric pressure.
+- **Save**: writes `[WeatherForecast]` provider, theme, and sensor selection.
+
+Forecast placement, astronomy, sunrise, and sunset continue to use the
+latitude, longitude, and timezone under **System Settings > Astral**.
 
 #### Home Assistant
 
@@ -732,12 +745,14 @@ The graph definition modal has these panes and fields:
 
 Use switch overlays to answer practical questions: whether a fan cooled the greenhouse, whether irrigation raised soil moisture, or whether lights changed VPD.
 
-## Weather Forecast
+## Caelus Weather Forecast
 
-Select **6 Day Forecast** on the dashboard forecast card to open the native
-full-screen weather display at
+Select **6 Day Forecast** on the dashboard forecast card to open the integrated
+Caelus full-screen weather display at
 `http://<sensorius-host>:8000/weather-forecast`. **Dashboard** in the top-left
 returns to the Sensorius dashboard.
+
+![Caelus weather forecast using the WeeWX weather station on sensorius-hub-3](<../assets/screenshots/weather-forecast-caelus-overview.png>)
 
 The weather display uses the existing Sensorius Astral latitude, longitude,
 and timezone. It includes the current Moon and phase cycle, sunrise/sunset and
@@ -751,6 +766,14 @@ in their saved order, including their standard Sensorius units. This allows a
 weather station, a Nodus environmental sensor, or a WeeWX station with fewer
 metrics to use the same full-screen view without requiring weather-only metric
 names.
+
+The hourly strip summarizes the next 24 hours in three-hour windows. Each
+window derives its icon from its own cloud and precipitation data and totals
+any predicted precipitation within that window. Select **6-day details** under
+**Looking Ahead** to open the detailed outlook with daily conditions,
+temperature, relative humidity, wind, and precipitation.
+
+![Caelus detailed six-day weather outlook](<../assets/screenshots/weather-forecast-caelus-six-day.png>)
 
 ## BD Calendar
 
