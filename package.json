@@ -11,16 +11,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mot-yelraf/saiSensorius.git"
+    "url": "git+https://github.com/mot-yelraf/Sensorius_AI.git"
   },
   "keywords": [],
   "author": "",
   "license": "BSD-2-Clause",
   "type": "module",
   "bugs": {
-    "url": "https://github.com/mot-yelraf/saiSensorius/issues"
+    "url": "https://github.com/mot-yelraf/Sensorius_AI/issues"
   },
-  "homepage": "https://github.com/mot-yelraf/saiSensorius#readme",
+  "homepage": "https://github.com/mot-yelraf/Sensorius_AI#readme",
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "@types/node": "^26.0.1",
