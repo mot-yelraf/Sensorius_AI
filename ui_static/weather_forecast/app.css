@@ -263,7 +263,13 @@ a { color: inherit; }
 .map-tools button { padding: 0.42rem 0.65rem; border: 1px solid var(--line); background: rgba(7, 35, 39, 0.38); color: var(--ink); font: inherit; font-size: 0.62rem; cursor: pointer; }
 .map-tools button:hover, .map-tools button:focus-visible { border-color: var(--accent-2); color: var(--accent-2); }
 .map-tools button:disabled { cursor: wait; opacity: 0.55; }
+.windy-map-interaction { position: relative; flex: 1; display: flex; min-height: 20rem; }
 .map-card iframe { flex: 1; width: 100%; min-height: 20rem; border: 0; filter: saturate(0.78) contrast(1.05); }
+.windy-map-guard { position: absolute; inset: 0; display: grid; place-items: center; padding: 1rem; border: 0; background: transparent; color: var(--ink); cursor: pointer; }
+.windy-map-guard span { padding: 0.65rem 0.9rem; border: 1px solid var(--line); background: rgba(5, 27, 33, 0.88); box-shadow: 0 8px 24px rgba(1, 17, 21, 0.3); font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em; }
+.windy-map-guard:hover span, .windy-map-guard:focus-visible span { border-color: var(--accent); }
+.windy-map-guard:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.windy-map-interaction.is-active .windy-map-guard { display: none; }
 
 .moon-summary { display: flex; align-items: center; justify-content: space-between; gap: 2rem; }
 .moon-summary p:last-child { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.72rem; }
@@ -383,7 +389,7 @@ a { color: inherit; }
 .forecast-empty p { max-width: 20rem; font-size: 0.75rem; }
 .map-row { display: grid; grid-template-columns: 0.82fr 1.48fr 0.82fr; gap: 0.85rem; padding: 0.85rem 0; }
 .full-width-map { grid-column: 1 / 4; width: 100%; min-height: 31rem; }
-.full-width-map iframe { min-height: 26rem; }
+.full-width-map iframe, .full-width-map .windy-map-interaction { min-height: 26rem; }
 .daylight-card { min-height: 31rem; padding: 1.2rem; }
 .daylight-card .card-heading { display: block; }
 .daylight-card h2 { margin-top: 0.25rem; font: 500 2rem Georgia, serif; }

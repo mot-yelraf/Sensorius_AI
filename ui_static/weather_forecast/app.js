@@ -153,6 +153,25 @@
 
   const windyFrame = document.querySelector("[data-windy-map]");
   const windyResetButton = document.querySelector("[data-reset-windy]");
+  const windyInteraction = document.querySelector("[data-windy-interaction]");
+  const windyGuard = document.querySelector("[data-windy-guard]");
+  if (windyFrame && windyInteraction && windyGuard) {
+    const setWindyActive = (active) => {
+      windyInteraction.classList.toggle("is-active", active);
+      windyFrame.setAttribute("tabindex", active ? "0" : "-1");
+    };
+    windyGuard.addEventListener("click", () => {
+      setWindyActive(true);
+      windyFrame.focus();
+    });
+    windyInteraction.addEventListener("mouseleave", () => setWindyActive(false));
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && windyInteraction.classList.contains("is-active")) {
+        setWindyActive(false);
+        windyGuard.focus();
+      }
+    });
+  }
   if (windyFrame && windyResetButton) {
     windyResetButton.addEventListener("click", () => {
       const mapUrl = windyFrame.getAttribute("src");

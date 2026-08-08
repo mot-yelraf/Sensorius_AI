@@ -137,6 +137,17 @@ def test_windy_map_defaults_to_radar_overlay():
     assert query["type"] == ["map"]
 
 
+def test_windy_map_requires_deliberate_interaction():
+    template = (ROOT / "ui_templates" / "weather_forecast" / "index.html").read_text()
+    script = (ROOT / "ui_static" / "weather_forecast" / "app.js").read_text()
+
+    assert "data-windy-interaction" in template
+    assert "data-windy-guard" in template
+    assert 'tabindex="-1"' in template
+    assert 'windyGuard.addEventListener("click"' in script
+    assert 'windyInteraction.addEventListener("mouseleave"' in script
+
+
 def test_open_meteo_hour_windows_do_not_show_rain_until_precipitation_window():
     payload = _forecast_payload()
     payload["provider"] = "open_meteo"

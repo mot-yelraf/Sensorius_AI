@@ -63,7 +63,12 @@
     <section class="map-row" id="map">
       <article class="glass-card map-card full-width-map">
         <div class="card-heading compact map-heading"><div><p class="eyebrow">Weather in motion</p><h2>Regional radar</h2></div><div class="map-tools"><button type="button" data-reset-windy title="Close Windy's forecast panel and return to the station map">× Close forecast</button><span>Windy</span></div></div>
-        <iframe data-windy-map src="{{ windy_iframe_url }}" title="Regional Windy weather map" loading="lazy" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
+        <div class="windy-map-interaction" data-windy-interaction>
+          <iframe data-windy-map src="{{ windy_iframe_url }}" title="Regional Windy weather map" loading="lazy" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer" tabindex="-1"></iframe>
+          <button class="windy-map-guard" type="button" data-windy-guard aria-label="Activate the Windy weather map">
+            <span>Click to interact with map</span>
+          </button>
+        </div>
       </article>
     </section>
 

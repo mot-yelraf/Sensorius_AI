@@ -864,6 +864,10 @@ the current Moon and phase cycle at the bottom. The display also provides
 theme-matched six-day details. It does not run a separate weather service or
 maintain a separate settings file or readings database.
 
+The Windy map is initially interaction-locked so the mouse wheel continues to
+scroll the Caelus page. Click the map to enable its zoom and pan controls; move
+the pointer outside the map (or press Escape) to lock it again.
+
 Current Readings displays the selected sensor's configured **Display Metrics**
 in their saved order, including their standard Sensorius units. This allows a
 weather station, a Nodus environmental sensor, or a WeeWX station with fewer
