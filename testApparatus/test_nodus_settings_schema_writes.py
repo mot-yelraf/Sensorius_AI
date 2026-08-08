@@ -675,16 +675,18 @@ def test_system_settings_sections_match_integration_accordions():
     text = source.read_text(encoding="utf-8")
 
     section_markup = 'class="integration-block system-section-block"'
-    assert text.count(section_markup) == 5
+    assert text.count(section_markup) == 6
     assert f'<details {section_markup} data-runtime-section="system-general">' in text
-    assert text.index("<summary>System Settings</summary>") < text.index("<summary>Astral</summary>")
+    assert f'<details {section_markup} id="nodus-wifi-section" data-runtime-section="system-wifi">' in text
+    assert text.index("<summary>System Settings</summary>") < text.index("<summary>Nodus Wifi Update</summary>")
+    assert text.index("<summary>Nodus Wifi Update</summary>") < text.index("<summary>Astral</summary>")
     assert text.index("<summary>Astral</summary>") < text.index("<summary>Weather Forecast</summary>")
     assert text.index("<summary>Weather Forecast</summary>") < text.index("<summary>Notifications</summary>")
     assert text.index("<summary>Notifications</summary>") < text.index("<summary>Display</summary>")
     assert text.count('class="button blue btn-system-save"') == 5
     system_pane = text[text.index('<div class="settings-pane" id="pane-system">'):text.index('<div class="settings-pane" id="pane-automations"')]
     assert system_pane.count('class="button black btn-back-system">Dashboard</button>') == 1
-    assert system_pane.count('class="pane-footer section-action-footer"') == 5
+    assert system_pane.count('class="pane-footer section-action-footer"') == 6
     assert 'class="pane-footer pane-global-footer"' in system_pane
     assert 'id="btn-system-save"' not in text
 
@@ -729,7 +731,7 @@ def test_system_settings_weewx_pane_omits_inline_mqtt_instructions():
     text = source.read_text(encoding="utf-8")
 
     assert "id=\"pane-integrations\"" in text
-    assert text.count('class="integration-block"') == 4
+    assert text.count('class="integration-block"') == 3
     assert "id=\"weewx-conf-example\"" not in text
     assert "Configure the WeeWX MQTT extension" not in text
     assert "[StdRESTful]" not in text
@@ -5244,6 +5246,9 @@ async def test_remove_device_expands_nodus_switch_suffix_cleanup(tmp_path, monke
     assert "nodus/avpd-zbcalz/meta" in cleared_topics
     assert "nodus/switch-zbcalz/meta" in cleared_topics
     assert "nodus/S1-zbcalz/state" in cleared_topics
+    assert "avpd-zbcalz" in ingest._removed_nodus_ids
+    assert "switch-zbcalz" in ingest._removed_nodus_ids
+    assert "s1-zbcalz" in ingest._removed_nodus_ids
     assert "switch-zbcalz" not in ingest._switch_state_cache
     assert saiWebRoutes.switch_controllers == {}
     assert app.state.switch_controllers == {}
@@ -5304,10 +5309,25 @@ async def test_remove_device_expands_nodus_sensor_suffix_cleanup(tmp_path, monke
     assert "nodus/S1-x943fm/state" in cleared_topics
     assert "nodus/S1-x943fm/availability" in cleared_topics
     assert "nodus/S1-x943fm/config/ack" in cleared_topics
+    assert "aqi-x943fm" in ingest._removed_nodus_ids
+    assert "switch-x943fm" in ingest._removed_nodus_ids
+    assert "s1-x943fm" in ingest._removed_nodus_ids
 
 
 @pytest.mark.asyncio
-async def test_remove_device_groups_selected_sensor_and_switch_and_suppresses_replay(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("selected_ids", "cleanup_target"),
+    [
+        (["aht-1jm5s1", "switch-1jm5s1"], "aht-1jm5s1"),
+        (["switch-1jm5s1", "aht-1jm5s1"], "switch-1jm5s1"),
+    ],
+)
+async def test_remove_device_groups_selected_sensor_and_switch_and_suppresses_replay(
+    tmp_path,
+    monkeypatch,
+    selected_ids,
+    cleanup_target,
+):
     app, ingest, system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
@@ -5347,7 +5367,7 @@ async def test_remove_device_groups_selected_sensor_and_switch_and_suppresses_re
     ) as client:
         res = await client.post(
             "/remove-device",
-            json={"device_ids": ["aht-1jm5s1", "switch-1jm5s1"]},
+            json={"device_ids": selected_ids},
         )
 
     assert res.status_code == 200
@@ -5358,7 +5378,7 @@ async def test_remove_device_groups_selected_sensor_and_switch_and_suppresses_re
     assert "aht-1jm5s1" in ingest._removed_nodus_ids
     assert "switch-1jm5s1" in ingest._removed_nodus_ids
     assert body["results"]["aht-1jm5s1"] == body["results"]["switch-1jm5s1"]
-    assert body["results"]["aht-1jm5s1"]["cleanup_targets"] == ["aht-1jm5s1"]
+    assert body["results"]["aht-1jm5s1"]["cleanup_targets"] == [cleanup_target]
     assert body["results"]["aht-1jm5s1"]["remaining_ids"] == []
 
 
@@ -5803,3 +5823,239 @@ async def test_bd_none_automation_round_trip_preserves_executor(tmp_path, monkey
         "type": "none",
         "executor_switch_id": "sensoria-hub-0",
     }]
+
+
+@pytest.mark.asyncio
+async def test_nodus_wifi_inventory_reports_only_live_devices_as_eligible(tmp_path, monkeypatch):
+    app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    ingest.mqtt_clients = ["apvpd-live123", "co2-offline123"]
+    ingest.nodus_liveness = {
+        "apvpd-live123": {"state": "online", "last_seen_s": 1.5},
+        "co2-offline123": {"state": "offline", "last_seen_s": 95.0},
+    }
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers={"sec-fetch-site": "same-origin"}
+    ) as client:
+        response = await client.get("/api/nodus-wifi/devices")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store, max-age=0"
+    payload = response.json()
+    assert payload["eligible_count"] == 1
+    by_id = {row["device_id"]: row for row in payload["devices"]}
+    assert by_id["apvpd-live123"]["eligible"] is True
+    assert by_id["co2-offline123"]["eligible"] is False
+    assert by_id["co2-offline123"]["reason"] == "device is offline"
+
+
+@pytest.mark.asyncio
+async def test_nodus_wifi_inventory_excludes_retained_only_removed_switch(tmp_path, monkeypatch):
+    app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    ingest.mqtt_clients = ["co2-live123"]
+    ingest.nodus_liveness = {"co2-live123": {"state": "online", "last_seen_s": 1.5}}
+    ingest.device_status["switch-stale1"] = "offline"
+    ingest.nodus_firmware_versions["switch-stale1"] = "v0.26.180.1"
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers={"sec-fetch-site": "same-origin"}
+    ) as client:
+        response = await client.get("/api/nodus-wifi/devices")
+
+    assert response.status_code == 200
+    assert [row["device_id"] for row in response.json()["devices"]] == ["co2-live123"]
+
+
+@pytest.mark.asyncio
+async def test_nodus_wifi_current_credentials_are_transient_and_not_cacheable(tmp_path, monkeypatch):
+    app, _ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        saiAddDevice,
+        "resolve_pi_wifi_credentials",
+        lambda: ("Current Network", "current-secret"),
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers={"sec-fetch-site": "same-origin"}
+    ) as client:
+        response = await client.get("/api/nodus-wifi/current")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store, max-age=0"
+    assert response.headers["pragma"] == "no-cache"
+    assert response.json() == {
+        "ok": True,
+        "ssid": "Current Network",
+        "password": "current-secret",
+        "password_available": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_nodus_wifi_update_stages_all_devices_before_restart(tmp_path, monkeypatch):
+    app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    ingest.mqtt_clients = ["apvpd-live123", "co2-live456"]
+    ingest.nodus_liveness = {
+        "apvpd-live123": {"state": "online"},
+        "co2-live456": {"state": "online"},
+    }
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers={"sec-fetch-site": "same-origin"}
+    ) as client:
+        response = await client.post(
+            "/api/nodus-wifi/update",
+            json={
+                "ssid": "Replacement Network",
+                "password": "replacement-secret",
+                "device_ids": ["apvpd-live123", "co2-live456"],
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["staged"] == 2
+    assert payload["restarting"] == 2
+    assert "replacement-secret" not in response.text
+    assert len(ingest.published_json) == 6
+    assert [row["payload"]["restart"] for row in ingest.published_json] == [False, False, False, False, True, True]
+    for row in ingest.published_json[:4]:
+        assert row["retain"] is False
+        assert len(row["payload"]["payload"]["updates"]) == 1
+    updates_by_device = {}
+    for row in ingest.published_json[:4]:
+        updates_by_device.setdefault(row["topic"], []).append(row["payload"]["payload"]["updates"][0])
+    assert updates_by_device == {
+        "nodus/apvpd-live123/config/set": [
+            {"section": "Network", "key": "SSID", "value": "Replacement Network"},
+            {"section": "Network", "key": "PASSWORD", "value": "replacement-secret"},
+        ],
+        "nodus/co2-live456/config/set": [
+            {"section": "Network", "key": "SSID", "value": "Replacement Network"},
+            {"section": "Network", "key": "PASSWORD", "value": "replacement-secret"},
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_nodus_wifi_update_restarts_only_successfully_staged_devices(tmp_path, monkeypatch):
+    app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    ingest.mqtt_clients = ["apvpd-live123", "co2-live456"]
+    ingest.nodus_liveness = {
+        "apvpd-live123": {"state": "online"},
+        "co2-live456": {"state": "online"},
+    }
+
+    async def _result_for_message(message_id: str, timeout: float = 0):
+        if message_id == "cfg-3":
+            return {"message_id": message_id, "applied": False, "error": "write_failed"}
+        return {"message_id": message_id, "applied": True, "updated": 2, "error": ""}
+
+    ingest.wait_for_config_result = _result_for_message
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers={"sec-fetch-site": "same-origin"}
+    ) as client:
+        response = await client.post(
+            "/api/nodus-wifi/update",
+            json={
+                "ssid": "Replacement Network",
+                "password": "replacement-secret",
+                "device_ids": ["apvpd-live123", "co2-live456"],
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is False
+    assert payload["staged"] == 1
+    assert payload["restarting"] == 1
+    assert [row["payload"]["restart"] for row in ingest.published_json] == [False, False, False, True]
+    config_topics = [row["topic"] for row in ingest.published_json if row["payload"]["restart"] is False]
+    assert config_topics.count("nodus/apvpd-live123/config/set") == 2
+    assert config_topics.count("nodus/co2-live456/config/set") == 1
+    by_id = {row["device_id"]: row for row in payload["results"]}
+    assert by_id["apvpd-live123"]["status"] == "restarting"
+    assert by_id["co2-live456"]["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_nodus_wifi_update_rejects_invalid_credentials_without_publish(tmp_path, monkeypatch):
+    app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    ingest.mqtt_clients = ["apvpd-live123"]
+    ingest.nodus_liveness = {"apvpd-live123": {"state": "online"}}
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers={"sec-fetch-site": "same-origin"}
+    ) as client:
+        response = await client.post(
+            "/api/nodus-wifi/update",
+            json={"ssid": "Replacement Network", "password": "short", "device_ids": ["apvpd-live123"]},
+        )
+
+    assert response.status_code == 400
+    assert ingest.published_json == []
+    assert response.headers["cache-control"] == "no-store, max-age=0"
+
+
+def test_nodus_wifi_update_ui_is_transient_and_revealable():
+    source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
+    template = source.read_text(encoding="utf-8")
+
+    assert 'data-target="pane-wifi">Wi-Fi Settings</button>' not in template
+    assert '<summary>Nodus Wifi Update</summary>' in template
+    assert template.index('<summary>System Settings</summary>') < template.index('<summary>Nodus Wifi Update</summary>')
+    assert template.index('<summary>Nodus Wifi Update</summary>') < template.index('<summary>Astral</summary>')
+    assert 'id="nodus-wifi-ssid" value="" autocomplete="off"' in template
+    assert 'type="password" id="nodus-wifi-password" value="" autocomplete="new-password"' in template
+    assert 'id="nodus-wifi-password-toggle">Show</button>' in template
+    assert "Stage replacement Wi-Fi credentials on every currently connected Nodus." not in template
+    assert '<div class="integration-state-title nodus-wifi-device-title">' in template
+    assert '<span>Nodus Devices</span>' in template
+    assert "Physical Nodus devices" not in template
+    assert 'updateButton.disabled = nodusWifiRequestActive || !hasEligibleDevice || !ssid || !password' in template
+    assert 'ev.target.id === "nodus-wifi-ssid" || ev.target.id === "nodus-wifi-password"' in template
+    assert 'clearNodusWifiCredentials();' in template
+    assert 'fetch("/api/nodus-wifi/current"' in template
+    assert 'fetch("/api/nodus-wifi/update"' in template
+    assert 'statePanel.classList.remove("ok", "fail")' in template
+    assert 'if (loadFailed || !rows.length || !healthy.length) statePanel.classList.add("fail")' in template
+    assert 'else if (healthy.length === rows.length) statePanel.classList.add("ok")' in template
+    assert 'renderNodusWifiDevices([], true)' in template
+    assert 'loadNodusWifiDevices({silent: true})' in template
+    assert 'if (!nodusWifiRequestActive) await loadNodusWifiDevices({silent: true})' in template
+    assert '}, 5000);' in template
+    assert 'if (silent) return nodusWifiDevices' in template
+    assert 'stopNodusWifiAutoRefresh();' in template
+    assert 'id="nodus-wifi-confirm-dialog"' in template
+    assert 'id="nodus-wifi-confirm-accept">Update Devices</button>' in template
+    assert 'await confirmNodusWifiUpdate(ssid, targets)' in template
+    assert 'Stage Wi-Fi network “${ssid}” on ${targets.length}' in template
+    assert 'const confirmed = window.confirm(' not in template[template.index('async function updateNodusWifiCredentials()'):]
+
+
+def test_nodus_config_debug_summary_redacts_password_values():
+    ingest = object.__new__(saiMQTTIngest.saiMQTTIngest)
+    summary = ingest._summarize_nodus_config_payload(
+        {
+            "payload": {
+                "updates": [
+                    {"section": "Network", "key": "SSID", "value": "Replacement Network"},
+                    {"section": "Network", "key": "PASSWORD", "value": "replacement-secret"},
+                ]
+            }
+        }
+    )
+
+    assert "Replacement Network" in summary
+    assert "replacement-secret" not in summary
+    assert "<redacted>" in summary
+
+
+def test_wifi_credential_helpers_do_not_log_plaintext_passwords():
+    source = Path(__file__).resolve().parents[1] / "sensorius" / "saiAddDevice.py"
+    module_text = source.read_text(encoding="utf-8")
+
+    assert 'psk: {psk}' not in module_text
+    assert '/itaot-init payload={raw_payload' not in module_text

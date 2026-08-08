@@ -404,6 +404,15 @@ def test_removed_nodus_family_ignores_switch_replay_and_persists(monkeypatch):
     assert ingest.data_logger.switch_identities == []
 
 
+def test_removed_composite_sensor_hostname_suppresses_switch_family(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    ingest.suppress_nodus_devices(["aht-lux-xesps3"], persist=True)
+
+    assert ingest.is_nodus_device_removed("switch-xesps3") is True
+    assert ingest.is_nodus_device_removed("S1-xesps3") is True
+
+
 def test_valid_reonboarding_family_can_be_allowed_again(monkeypatch):
     values = {
         ("SensorNetwork", "REMOVED_NODUS_IDS"): [
@@ -486,6 +495,45 @@ def test_meta_does_not_add_redundant_exact_data_subscription_when_wildcard_exist
     assert ("nodus/apvpd-test123/data", 0) not in ingest.client.subs
     assert "nodus/apvpd-test123/data" not in ingest.registered_topics
     assert ingest.nodus_sensor_topics["apvpd-test123"] == "nodus/apvpd-test123/data"
+
+
+def test_nodus_meta_does_not_cache_or_materialize_wifi_credentials(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    materialized = []
+    monkeypatch.setattr(
+        ingest,
+        "_ensure_settings_from_itaot",
+        lambda info, host, sensors, switches: materialized.append((info, host, sensors, switches)),
+    )
+    meta = {
+        "schema": "nodus-meta/v1",
+        "device_id": "apvpd-test123",
+        "network": {
+            "hostname": "apvpd-test123",
+            "ssid": "Replacement Network",
+            "password": "replacement-secret",
+        },
+        "sensor": {
+            "sensor_id": "apvpd-test123",
+            "data_topic": "nodus/apvpd-test123/data",
+            "availability_topic": "nodus/apvpd-test123/availability",
+        },
+    }
+
+    valid, _ = ingest._parse_and_subscribe_from_nodus_meta(
+        meta,
+        topic_device_id="apvpd-test123",
+        retain=True,
+    )
+
+    assert valid is True
+    assert "ssid" not in ingest.discovery_cache["apvpd-test123"]["network"]
+    assert "password" not in ingest.discovery_cache["apvpd-test123"]["network"]
+    assert materialized
+    assert "SSID" not in materialized[0][0]["Network"]
+    assert "PASSWORD" not in materialized[0][0]["Network"]
+    assert "Replacement Network" not in json.dumps(ingest.discovery_cache)
+    assert "replacement-secret" not in json.dumps(ingest.discovery_cache)
 
 
 def test_dual_sensor_meta_registers_both_children_on_one_physical_host(monkeypatch):
@@ -608,6 +656,47 @@ def test_dual_sensor_meta_patch_updates_only_target_child(monkeypatch):
     assert meta["sensor"]["location"] == "Bench"
     assert meta["sensors"][0]["location"] == "Bench"
     assert meta["sensors"][1]["location"] == "Canopy"
+
+
+def test_nodus_meta_patch_discards_wifi_credentials_before_caching(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    monkeypatch.setattr(ingest, "_ensure_settings_from_itaot", lambda *_a, **_k: None)
+    ingest._parse_and_subscribe_from_nodus_meta(
+        {
+            "schema": "nodus-meta/v1",
+            "device_id": "apvpd-test123",
+            "network": {"hostname": "apvpd-test123", "ssid": "Old Network"},
+            "sensor": {
+                "sensor_id": "apvpd-test123",
+                "data_topic": "nodus/apvpd-test123/data",
+                "availability_topic": "nodus/apvpd-test123/availability",
+            },
+        },
+        topic_device_id="apvpd-test123",
+        retain=True,
+    )
+
+    valid, _ = ingest._apply_nodus_meta_patch(
+        {
+            "schema": "nodus-meta-patch/v1",
+            "device_id": "apvpd-test123",
+            "message_id": "cfg-wifi-1",
+            "source": "config_set",
+            "updates": [
+                {"section": "Network", "key": "SSID", "value": "Replacement Network"},
+                {"section": "Network", "key": "PASSWORD", "value": "replacement-secret"},
+            ],
+        },
+        topic_device_id="apvpd-test123",
+        retain=False,
+    )
+
+    assert valid is False
+    assert "ssid" not in ingest.discovery_cache["apvpd-test123"]["network"]
+    assert "password" not in ingest.discovery_cache["apvpd-test123"]["network"]
+    assert "cfg-wifi-1" not in ingest.meta_patch_by_message
+    assert "Replacement Network" not in json.dumps(ingest.meta_patch_by_message)
+    assert "replacement-secret" not in json.dumps(ingest.meta_patch_by_message)
 
 
 def test_publish_nodus_calibration_uses_mqtt_command_topic(monkeypatch):
@@ -2699,7 +2788,9 @@ def test_nodus_meta_updates_existing_local_shadow_tomls_from_meta_payload(tmp_pa
     ingest._on_message(ingest.client, None, _Msg("nodus/apvpd-test123/meta", payload, retain=True))
 
     settings_saved = (system_dir / "settings.toml").read_text(encoding="utf-8")
-    assert 'SSID = "ExampleWiFi"' in settings_saved
+    assert 'SSID = "OldWifi"' in settings_saved
+    assert 'PASSWORD = "old-pass"' in settings_saved
+    assert "ExampleWiFi" not in settings_saved
     assert 'PASSWORD = "obf1:BASE64NONCE:BASE64CIPHER"' in settings_saved
     assert 'ACTIVE_PROFILE = "sensorius"' in settings_saved
     assert 'BROKER = "sensorius.local"' in settings_saved

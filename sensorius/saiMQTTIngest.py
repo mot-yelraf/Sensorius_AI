@@ -636,11 +636,13 @@ class saiMQTTIngest:
         value = normalize_hostname_base(device_id)
         if not value or "-" not in value:
             return ""
-        prefix, suffix = value.split("-", 1)
+        prefix = value.split("-", 1)[0]
+        suffix = value.rsplit("-", 1)[-1]
         prefix_l = prefix.lower()
         if prefix_l not in _NODUS_FAMILY_PREFIXES and not re.fullmatch(r"s\d+", prefix_l):
             return ""
-        return suffix.lower().strip()
+        suffix = suffix.lower().strip()
+        return suffix if re.fullmatch(r"[a-z0-9]{5,32}", suffix) else ""
 
     def _load_removed_nodus_ids(self) -> set[str]:
         removed: set[str] = set()
@@ -3181,6 +3183,19 @@ class saiMQTTIngest:
         if not isinstance(patch, dict):
             return False, False
 
+        # Never retain or mirror Wi-Fi credentials echoed by older firmware.
+        # They are write-only fleet-operation inputs from Sensorius' view.
+        patch = copy.deepcopy(patch)
+        patch["updates"] = [
+            update
+            for update in (patch.get("updates") or [])
+            if not (
+                isinstance(update, dict)
+                and str(update.get("section") or "").strip().lower() == "network"
+                and str(update.get("key") or "").strip().upper() in {"SSID", "PASSWORD"}
+            )
+        ]
+
         schema = str(patch.get("schema") or "").strip().lower()
         if schema and schema != "nodus-meta-patch/v1":
             return False, False
@@ -3704,6 +3719,17 @@ class saiMQTTIngest:
         if not isinstance(meta, dict):
             return False, False
 
+        # Wi-Fi credentials are operational inputs, not discovery metadata.
+        # Keep received values out of the long-lived discovery cache and
+        # Nodus shadow settings even when older firmware includes it in meta.
+        meta = copy.deepcopy(meta)
+        network_for_redaction = meta.get("network")
+        if isinstance(network_for_redaction, dict):
+            network_for_redaction.pop("ssid", None)
+            network_for_redaction.pop("SSID", None)
+            network_for_redaction.pop("password", None)
+            network_for_redaction.pop("PASSWORD", None)
+
         schema = str(meta.get("schema") or "").strip().lower()
         if schema and schema != "nodus-meta/v1":
             return False, False
@@ -4115,8 +4141,6 @@ class saiMQTTIngest:
                             or meta.get("hostname")
                             or base
                         ).strip() or base,
-                        "SSID": str(network_meta.get("ssid") or "").strip(),
-                        "PASSWORD": str(network_meta.get("password") or ""),
                     },
                     "Profile": {
                         "ACTIVE_PROFILE": str(profile_meta.get("active_profile") or "").strip(),
@@ -7262,7 +7286,16 @@ class saiMQTTIngest:
                     continue
                 section = str(item.get("section") or "").strip()
                 key = str(item.get("key") or "").strip()
-                value = repr(item.get("value"))
+                sensitive = key.upper() in {
+                    "PASSWORD",
+                    "PASS",
+                    "TOKEN",
+                    "SECRET",
+                    "API_KEY",
+                    "MQTT_PASSWORD",
+                    "HA_PASSWORD",
+                }
+                value = "'<redacted>'" if sensitive else repr(item.get("value"))
                 name = str(item.get("name") or "").strip()
                 suffix = f"@{name}" if name else ""
                 parts.append(f"{section}.{key}={value}{suffix}")

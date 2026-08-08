@@ -153,6 +153,26 @@
 #setupPiModal #pane-remove {
   height: 100%;
 }
+#setupPiModal .wifi-device-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) auto;
+  gap: .3rem .8rem;
+  align-items: center;
+  padding: .55rem .65rem;
+  border-bottom: 1px solid #e6ece8;
+}
+#setupPiModal .wifi-device-row:last-child { border-bottom: 0; }
+#setupPiModal .wifi-device-name { font-weight: 700; overflow-wrap: anywhere; }
+#setupPiModal .wifi-device-detail { grid-column: 1 / -1; color: #4b5750; font-size: .84rem; }
+#setupPiModal .wifi-device-state { font-size: .8rem; font-weight: 700; text-transform: uppercase; }
+#setupPiModal .wifi-device-state.online,
+#setupPiModal .wifi-device-state.restarting { color: #176b36; }
+#setupPiModal .wifi-device-state.failed,
+#setupPiModal .wifi-device-state.restart_failed,
+#setupPiModal .wifi-device-state.unavailable { color: #8b0000; }
+#setupPiModal .wifi-device-state.offline,
+#setupPiModal .wifi-device-state.skipped,
+#setupPiModal .wifi-device-state.unknown { color: #755800; }
 #setupPiModal .pane-title {
   margin: .05rem 0 .55rem 0;
   font-size: 1.05rem;
@@ -611,6 +631,7 @@
   gap: .5rem;
   font-weight: 700;
 }
+#setupPiModal .nodus-wifi-device-title { justify-content: center; }
 #setupPiModal .integration-dot {
   width: 12px;
   height: 12px;
@@ -677,6 +698,56 @@
 #setupPiModal .yellow  { background-color: #ffc107; color: #212529; }
 #setupPiModal .blue    { background-color: #2259f2; color: white; }
 #setupPiModal .neutral { background-color: #f7f1c1; color: #212529; }
+#setupPiModal .sai-system-dialog-backdrop[hidden] { display: none !important; }
+#setupPiModal .sai-system-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10020;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(24, 36, 29, .38);
+  backdrop-filter: blur(2px);
+}
+#setupPiModal .sai-system-dialog {
+  width: min(34rem, calc(100vw - 2rem));
+  overflow: hidden;
+  border: 1px solid #cbd8d0;
+  border-radius: 16px;
+  background: #f8fcf9;
+  color: #202522;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .28);
+}
+#setupPiModal .sai-system-dialog-header {
+  padding: .9rem 1.1rem;
+  border-bottom: 1px solid #d6dfd8;
+  text-align: center;
+}
+#setupPiModal .sai-system-dialog-header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+#setupPiModal .sai-system-dialog-body {
+  padding: 1.1rem 1.25rem;
+  font-size: .96rem;
+}
+#setupPiModal .sai-system-dialog-body p { margin: 0 0 .9rem; }
+#setupPiModal .sai-system-dialog-body p:last-child { margin-bottom: 0; }
+#setupPiModal .sai-system-dialog-device-list {
+  margin: 0 0 .9rem;
+  padding-left: 1.4rem;
+  font-weight: 700;
+}
+#setupPiModal .sai-system-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: .65rem;
+  padding: .85rem 1.1rem;
+  border-top: 1px solid #d6dfd8;
+  background: #f1f7f3;
+}
+#setupPiModal .sai-system-dialog-actions .button { min-width: 7.5rem; }
 
 @media (max-width: 900px) {
   #setupPiModal .system-settings-split {
@@ -824,6 +895,46 @@
               </div>
                     <div class="pane-footer section-action-footer">
                       <button type="submit" class="button blue btn-system-save">Save</button>
+                    </div>
+                  </div>
+                </details>
+
+                <details class="integration-block system-section-block" id="nodus-wifi-section" data-runtime-section="system-wifi">
+                  <summary>Nodus Wifi Update</summary>
+                  <div class="integration-block-content">
+                    <div class="field-grid-stack">
+                      <div class="field-stack">
+                        <label for="nodus-wifi-ssid">SSID</label>
+                        <input type="text" id="nodus-wifi-ssid" value="" autocomplete="off" spellcheck="false" maxlength="32">
+                      </div>
+                      <div class="field-stack">
+                        <label for="nodus-wifi-password">Password</label>
+                        <div class="inline-actions">
+                          <input type="password" id="nodus-wifi-password" value="" autocomplete="new-password" style="flex:1;">
+                          <button type="button" class="button black" id="nodus-wifi-password-toggle">Show</button>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="detail" id="nodus-wifi-current-status" style="margin:.65rem 0;" aria-live="polite">
+                      Current host Wi-Fi credentials load when this section opens. They remain transient and are not written to
+                      Sensorius settings, logs, or the database. Use MQTT TLS when credentials must cross an untrusted network.
+                    </div>
+                    <div class="integration-state" style="margin-bottom:.55rem;">
+                      <div class="integration-state-title nodus-wifi-device-title">
+                        <span class="integration-dot"></span>
+                        <span>Nodus Devices</span>
+                      </div>
+                      <div class="integration-state-detail" id="nodus-wifi-device-summary">Open this section to check connected devices.</div>
+                    </div>
+                    <div id="nodus-wifi-device-list" class="remove-scroll">
+                      <div class="detail">Open this section to check connected devices.</div>
+                    </div>
+                    <div class="status-text sai-live-status" id="nodus-wifi-status" aria-live="polite"></div>
+                    <div class="pane-footer section-action-footer">
+                      <div class="inline-actions">
+                        <button type="button" class="button neutral" id="btn-nodus-wifi-refresh">Refresh Devices</button>
+                        <button type="button" class="button blue" id="btn-nodus-wifi-update" disabled>Update</button>
+                      </div>
                     </div>
                   </div>
                 </details>
@@ -1441,6 +1552,23 @@
       </div>
     </div>
   </div>
+  <div id="nodus-wifi-confirm-dialog" class="sai-system-dialog-backdrop" hidden
+       role="dialog" aria-modal="true" aria-labelledby="nodus-wifi-confirm-title">
+    <div class="sai-system-dialog">
+      <div class="sai-system-dialog-header">
+        <h3 id="nodus-wifi-confirm-title">Confirm Nodus Wi-Fi Update</h3>
+      </div>
+      <div class="sai-system-dialog-body">
+        <p id="nodus-wifi-confirm-message"></p>
+        <ul id="nodus-wifi-confirm-devices" class="sai-system-dialog-device-list"></ul>
+        <p>After the devices restart, change the router credentials and reconnect this Sensorius host.</p>
+      </div>
+      <div class="sai-system-dialog-actions">
+        <button type="button" class="button neutral" id="nodus-wifi-confirm-cancel">Cancel</button>
+        <button type="button" class="button blue" id="nodus-wifi-confirm-accept">Update Devices</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -1485,6 +1613,9 @@
   const notificationRuleList = document.getElementById("notification-rule-list");
   let notificationSensorDirectory = [];
   let locationsLoaded = false;
+  let nodusWifiDevices = [];
+  let nodusWifiRequestActive = false;
+  let nodusWifiRefreshTimer = null;
   let onboardWs = null;
   let onboardSessionId = "";
   let onboardSessionState = "";
@@ -1506,9 +1637,12 @@
   let otaPollTimer = null;
   function openSetupModal() {
     root.style.display = "flex";
+    if (document.getElementById("nodus-wifi-section")?.open) startNodusWifiAutoRefresh();
   }
 
   function closeSetupModal() {
+    stopNodusWifiAutoRefresh();
+    clearNodusWifiCredentials();
     root.style.display = "none";
     if (onboardWs) {
       try { onboardWs.close(); } catch (_e) {}
@@ -1678,6 +1812,294 @@
       toast.remove();
       if (!container.children.length) container.remove();
     }, 2500);
+  }
+
+  function clearNodusWifiCredentials() {
+    const ssidInput = document.getElementById("nodus-wifi-ssid");
+    const passwordInput = document.getElementById("nodus-wifi-password");
+    const toggle = document.getElementById("nodus-wifi-password-toggle");
+    if (ssidInput) ssidInput.value = "";
+    if (passwordInput) {
+      passwordInput.value = "";
+      passwordInput.type = "password";
+    }
+    if (toggle) toggle.textContent = "Show";
+    syncNodusWifiUpdateButton();
+  }
+
+  function syncNodusWifiUpdateButton() {
+    const updateButton = document.getElementById("btn-nodus-wifi-update");
+    const ssid = String(document.getElementById("nodus-wifi-ssid")?.value || "").trim();
+    const password = String(document.getElementById("nodus-wifi-password")?.value || "");
+    const hasEligibleDevice = nodusWifiDevices.some((row) => row && row.eligible === true);
+    if (updateButton) {
+      updateButton.disabled = nodusWifiRequestActive || !hasEligibleDevice || !ssid || !password;
+    }
+  }
+
+  function renderNodusWifiDevices(devices, loadFailed = false) {
+    const list = document.getElementById("nodus-wifi-device-list");
+    const summary = document.getElementById("nodus-wifi-device-summary");
+    if (!list || !summary) return;
+    list.replaceChildren();
+    const rows = Array.isArray(devices) ? devices : [];
+    const eligible = rows.filter((row) => row && row.eligible === true);
+    const healthyStates = new Set(["online", "staging", "staged", "restarting"]);
+    const healthy = rows.filter((row) => {
+      const state = String(row && (row.result_status || row.status) || "unknown").toLowerCase();
+      return healthyStates.has(state);
+    });
+    const statePanel = summary.closest(".integration-state");
+    if (statePanel) {
+      statePanel.classList.remove("ok", "fail");
+      if (loadFailed || !rows.length || !healthy.length) statePanel.classList.add("fail");
+      else if (healthy.length === rows.length) statePanel.classList.add("ok");
+    }
+    if (!rows.length) {
+      const empty = document.createElement("div");
+      empty.className = "detail";
+      empty.textContent = "No Nodus devices are currently known to Sensorius.";
+      list.appendChild(empty);
+    } else {
+      rows.forEach((row) => {
+        const device = document.createElement("div");
+        device.className = "wifi-device-row";
+        const name = document.createElement("div");
+        name.className = "wifi-device-name";
+        name.textContent = String(row.device_id || "Unknown Nodus");
+        const state = document.createElement("div");
+        const stateText = String(row.result_status || row.status || "unknown").toLowerCase();
+        state.className = "wifi-device-state " + stateText.replace(/[^a-z_]/g, "");
+        state.textContent = stateText.replace(/_/g, " ");
+        const detail = document.createElement("div");
+        detail.className = "wifi-device-detail";
+        const detailParts = [];
+        if (row.message) detailParts.push(String(row.message));
+        else if (row.reason) detailParts.push(String(row.reason));
+        if (row.firmware_version) detailParts.push("Firmware " + String(row.firmware_version));
+        if (row.last_seen_s != null) detailParts.push("last report " + String(row.last_seen_s) + "s ago");
+        detail.textContent = detailParts.join(" · ") || (row.eligible ? "Ready for credential staging" : "Not eligible");
+        device.append(name, state, detail);
+        list.appendChild(device);
+      });
+    }
+    summary.textContent = eligible.length
+      ? `${eligible.length} online device${eligible.length === 1 ? "" : "s"} ready; ${rows.length - eligible.length} unavailable.`
+      : "No online Nodus devices are eligible for an update.";
+    syncNodusWifiUpdateButton();
+  }
+
+  async function loadCurrentNodusWifiCredentials() {
+    const ssidInput = document.getElementById("nodus-wifi-ssid");
+    const passwordInput = document.getElementById("nodus-wifi-password");
+    const currentStatus = document.getElementById("nodus-wifi-current-status");
+    if (currentStatus) currentStatus.textContent = "Reading the host’s active Wi-Fi credentials...";
+    try {
+      const response = await fetch("/api/nodus-wifi/current", {
+        cache: "no-store",
+        headers: {"X-Requested-With": "XMLHttpRequest"},
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error("current_wifi_unavailable");
+      if (ssidInput) ssidInput.value = String(payload.ssid || "");
+      if (passwordInput) {
+        passwordInput.value = String(payload.password || "");
+        passwordInput.type = "password";
+      }
+      if (currentStatus) {
+        if (payload.ssid && payload.password_available) {
+          currentStatus.textContent = "Loaded the host’s active Wi-Fi credentials. Use Show to verify the password before editing.";
+        } else if (payload.ssid) {
+          currentStatus.textContent = "Loaded the host’s active SSID, but its saved password is unavailable. Enter the replacement password manually.";
+        } else {
+          currentStatus.textContent = "The host’s active Wi-Fi credentials are unavailable. Enter both replacement values manually.";
+        }
+      }
+    } catch (_error) {
+      if (currentStatus) currentStatus.textContent = "The host’s active Wi-Fi credentials are unavailable. Enter both replacement values manually.";
+    } finally {
+      syncNodusWifiUpdateButton();
+    }
+  }
+
+  async function loadNodusWifiDevices(options = {}) {
+    const silent = options && options.silent === true;
+    const refreshButton = document.getElementById("btn-nodus-wifi-refresh");
+    if (!silent) {
+      setButtonBusy(refreshButton, true, "Checking...");
+      setStatus("nodus-wifi-status", "Checking current Nodus connections...");
+    }
+    try {
+      const response = await fetch("/api/nodus-wifi/devices", {
+        cache: "no-store",
+        headers: {"X-Requested-With": "XMLHttpRequest"},
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(payload.error || "Unable to load Nodus devices."));
+      nodusWifiDevices = Array.isArray(payload.devices) ? payload.devices : [];
+      renderNodusWifiDevices(nodusWifiDevices);
+      if (!silent) setStatus("nodus-wifi-status", "");
+      return nodusWifiDevices;
+    } catch (error) {
+      if (silent) return nodusWifiDevices;
+      nodusWifiDevices = [];
+      renderNodusWifiDevices([], true);
+      const message = error && error.message ? error.message : "Unable to load Nodus devices.";
+      setStatus("nodus-wifi-status", message);
+      showSettingsToast(message, "error");
+      return [];
+    } finally {
+      if (!silent) setButtonBusy(refreshButton, false);
+    }
+  }
+
+  function stopNodusWifiAutoRefresh() {
+    if (nodusWifiRefreshTimer) clearTimeout(nodusWifiRefreshTimer);
+    nodusWifiRefreshTimer = null;
+  }
+
+  function startNodusWifiAutoRefresh() {
+    stopNodusWifiAutoRefresh();
+    const section = document.getElementById("nodus-wifi-section");
+    if (!section?.open || !root.isConnected || root.style.display === "none") return;
+    nodusWifiRefreshTimer = window.setTimeout(async () => {
+      nodusWifiRefreshTimer = null;
+      if (!nodusWifiRequestActive) await loadNodusWifiDevices({silent: true});
+      startNodusWifiAutoRefresh();
+    }, 5000);
+  }
+
+  function resetNodusWifiPane() {
+    clearNodusWifiCredentials();
+    setStatus("nodus-wifi-status", "");
+    loadCurrentNodusWifiCredentials();
+    loadNodusWifiDevices();
+  }
+
+  function confirmNodusWifiUpdate(ssid, targets) {
+    const dialog = document.getElementById("nodus-wifi-confirm-dialog");
+    const message = document.getElementById("nodus-wifi-confirm-message");
+    const deviceList = document.getElementById("nodus-wifi-confirm-devices");
+    const cancelButton = document.getElementById("nodus-wifi-confirm-cancel");
+    const acceptButton = document.getElementById("nodus-wifi-confirm-accept");
+    if (!dialog || !message || !deviceList || !cancelButton || !acceptButton) return Promise.resolve(false);
+    message.textContent = `Stage Wi-Fi network “${ssid}” on ${targets.length} Nodus device${targets.length === 1 ? "" : "s"}, then restart successful devices?`;
+    deviceList.replaceChildren(...targets.map((row) => {
+      const item = document.createElement("li");
+      item.textContent = String(row.device_id || "");
+      return item;
+    }));
+    const previouslyFocused = document.activeElement;
+    dialog.hidden = false;
+    return new Promise((resolve) => {
+      function finish(confirmed) {
+        dialog.hidden = true;
+        cancelButton.removeEventListener("click", cancel);
+        acceptButton.removeEventListener("click", accept);
+        dialog.removeEventListener("click", backdropClick);
+        document.removeEventListener("keydown", keydown);
+        if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus();
+        resolve(confirmed);
+      }
+      function cancel() { finish(false); }
+      function accept() { finish(true); }
+      function backdropClick(event) { if (event.target === dialog) cancel(); }
+      function keydown(event) {
+        if (event.key === "Escape") cancel();
+      }
+      cancelButton.addEventListener("click", cancel);
+      acceptButton.addEventListener("click", accept);
+      dialog.addEventListener("click", backdropClick);
+      document.addEventListener("keydown", keydown);
+      acceptButton.focus();
+    });
+  }
+
+  const nodusWifiSection = document.getElementById("nodus-wifi-section");
+  if (nodusWifiSection) {
+    nodusWifiSection.addEventListener("toggle", () => {
+      if (nodusWifiSection.open) {
+        resetNodusWifiPane();
+        startNodusWifiAutoRefresh();
+      } else {
+        stopNodusWifiAutoRefresh();
+      }
+    });
+    if (nodusWifiSection.open) {
+      resetNodusWifiPane();
+      startNodusWifiAutoRefresh();
+    }
+  }
+
+  async function updateNodusWifiCredentials() {
+    if (nodusWifiRequestActive) return;
+    const ssidInput = document.getElementById("nodus-wifi-ssid");
+    const passwordInput = document.getElementById("nodus-wifi-password");
+    const ssid = String(ssidInput?.value || "");
+    const password = String(passwordInput?.value || "");
+    const targets = nodusWifiDevices.filter((row) => row && row.eligible === true);
+    if (!ssid) {
+      setStatus("nodus-wifi-status", "Enter the replacement SSID.");
+      ssidInput?.focus();
+      return;
+    }
+    if (!password) {
+      setStatus("nodus-wifi-status", "Enter the replacement Wi-Fi password.");
+      passwordInput?.focus();
+      return;
+    }
+    if (!targets.length) {
+      setStatus("nodus-wifi-status", "No online Nodus devices are eligible for the update.");
+      return;
+    }
+    const confirmed = await confirmNodusWifiUpdate(ssid, targets);
+    if (!confirmed) return;
+
+    const requestBody = JSON.stringify({
+      ssid: ssid,
+      password: password,
+      device_ids: targets.map((row) => String(row.device_id || "")),
+    });
+    clearNodusWifiCredentials();
+    nodusWifiRequestActive = true;
+    setButtonBusy("btn-nodus-wifi-update", true, "Staging...");
+    setStatus("nodus-wifi-status", "Staging credentials on all online devices before any restart...");
+    renderNodusWifiDevices(nodusWifiDevices.map((row) => row.eligible ? {...row, result_status: "staging", message: "Waiting for device confirmation..."} : row));
+    try {
+      const response = await fetch("/api/nodus-wifi/update", {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        body: requestBody,
+      });
+      const payload = await response.json().catch(() => ({}));
+      const resultRows = Array.isArray(payload.results) ? payload.results : [];
+      const resultMap = new Map(resultRows.map((row) => [String(row.device_id || "").toLowerCase(), row]));
+      nodusWifiDevices = nodusWifiDevices.map((row) => {
+        const result = resultMap.get(String(row.device_id || "").toLowerCase());
+        return result
+          ? {...row, eligible: false, result_status: result.status, message: result.message}
+          : row;
+      });
+      renderNodusWifiDevices(nodusWifiDevices);
+      if (!response.ok) throw new Error(String(payload.error || "Wi-Fi credential update failed."));
+      const message = payload.ok
+        ? `${payload.restarting || 0} Nodus device${payload.restarting === 1 ? " is" : "s are"} restarting. Change the router credentials now.`
+        : `${payload.staged || 0} of ${payload.requested || targets.length} devices staged; review the per-device results before changing the router.`;
+      setStatus("nodus-wifi-status", message);
+      showSettingsToast(message, payload.ok ? "ok" : "error");
+    } catch (error) {
+      const message = error && error.message ? error.message : "Wi-Fi credential update failed.";
+      setStatus("nodus-wifi-status", message + " Re-enter the credentials to retry.");
+      showSettingsToast(message, "error");
+    } finally {
+      nodusWifiRequestActive = false;
+      setButtonBusy("btn-nodus-wifi-update", false);
+      renderNodusWifiDevices(nodusWifiDevices);
+    }
   }
 
   function normalizeWeatherForecastProvider(raw) {
@@ -3563,6 +3985,19 @@
   });
 
   document.addEventListener("click", function(ev) {
+    if (ev.target && ev.target.id === "nodus-wifi-password-toggle") {
+      const input = document.getElementById("nodus-wifi-password");
+      if (!input) return;
+      const show = input.type === "password";
+      input.type = show ? "text" : "password";
+      ev.target.textContent = show ? "Hide" : "Show";
+    }
+    if (ev.target && ev.target.id === "btn-nodus-wifi-refresh") {
+      loadNodusWifiDevices();
+    }
+    if (ev.target && ev.target.id === "btn-nodus-wifi-update") {
+      updateNodusWifiCredentials();
+    }
     if (ev.target && ev.target.id === "ha-pass-toggle") {
       const input = document.getElementById("ha-password");
       if (!input) return;
@@ -3653,6 +4088,12 @@
         stopAddScan();
       }
       goHomeFromSettings();
+    }
+  });
+
+  document.addEventListener("input", function(ev) {
+    if (ev.target && (ev.target.id === "nodus-wifi-ssid" || ev.target.id === "nodus-wifi-password")) {
+      syncNodusWifiUpdateButton();
     }
   });
 

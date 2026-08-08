@@ -6708,7 +6708,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             except Exception:
                 client_desc = ""
             printDM(
-                f"[push_nodus_setting:{device_type}:{device_id}] preparing publish target={target_device} topic=nodus/{target_device}/config/set update={update_payload} {client_desc}".strip(),
+                f"[push_nodus_setting:{device_type}:{device_id}] preparing publish target={target_device} topic=nodus/{target_device}/config/set update={str(update_payload.get('section') or '').strip()}.{str(update_payload.get('key') or '').strip()} {client_desc}".strip(),
                 location=MODULE,
             )
 
@@ -6753,7 +6753,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         if DEBUG:
             printDM(
-                f"[push_nodus_setting:{device_type}:{device_id}] OK via MQTT nodus/{target_device}/config/set: {update_payload}",
+                f"[push_nodus_setting:{device_type}:{device_id}] OK via MQTT nodus/{target_device}/config/set: {str(update_payload.get('section') or '').strip()}.{str(update_payload.get('key') or '').strip()}",
                 location=MODULE,
             )
         return True
@@ -6842,6 +6842,302 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 location=MODULE,
             )
         return True, "Device restarting..."
+
+    def _nodus_wifi_inventory() -> list[dict[str, Any]]:
+        """Return deduplicated physical Nodus targets and current MQTT liveness."""
+        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        if not ingest:
+            return []
+        try:
+            raw_devices = ota_service.list_devices()
+        except Exception:
+            raw_devices = []
+
+        inventory: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        known_physical_ids: set[str] = set()
+        known_ids: set[str] = set()
+        for getter_name in ("get_known_devices", "get_known_switch_devices"):
+            getter = getattr(ingest, getter_name, None)
+            if not callable(getter):
+                continue
+            try:
+                known_ids.update(
+                    normalize_hostname_base(str(value or ""))
+                    for value in (getter() or [])
+                )
+            except Exception:
+                pass
+        known_ids.discard("")
+        sensor_hosts = getattr(ingest, "nodus_sensor_hosts", {}) or {}
+        resolver = getattr(ingest, "resolve_nodus_hostname", None)
+        for known_id in known_ids:
+            physical = normalize_hostname_base(str(sensor_hosts.get(known_id) or ""))
+            if not physical and callable(resolver):
+                try:
+                    physical = normalize_hostname_base(
+                        str(
+                            resolver(
+                                known_id,
+                                device_type="switch" if known_id.startswith("switch-") else None,
+                            )
+                            or ""
+                        )
+                    )
+                except Exception:
+                    physical = ""
+            known_physical_ids.add(str(physical or known_id).lower())
+
+        command_supported = all(
+            callable(getattr(ingest, name, None))
+            for name in ("publish_nodus_config", "wait_for_config_ack", "wait_for_config_result")
+        )
+        for raw in raw_devices:
+            if not isinstance(raw, dict):
+                continue
+            device_id = normalize_hostname_base(
+                str(raw.get("device_id") or raw.get("host") or "")
+            )
+            key = str(device_id or "").strip().lower()
+            if not device_id or key in seen:
+                continue
+            if key not in known_physical_ids:
+                continue
+            removed = getattr(ingest, "is_nodus_device_removed", None)
+            if callable(removed):
+                try:
+                    if removed(device_id):
+                        continue
+                except Exception:
+                    pass
+            seen.add(key)
+            liveness = {}
+            getter = getattr(ingest, "get_nodus_liveness", None)
+            if callable(getter):
+                try:
+                    liveness = getter(device_id) or {}
+                except Exception:
+                    liveness = {}
+            state = str(liveness.get("state") or raw.get("status") or "unknown").strip().lower()
+            eligible = state == "online" and command_supported
+            reason = ""
+            if not command_supported:
+                reason = "configuration commands unavailable"
+            elif state != "online":
+                reason = f"device is {state or 'unknown'}"
+            inventory.append(
+                {
+                    "device_id": device_id,
+                    "status": state or "unknown",
+                    "eligible": eligible,
+                    "reason": reason,
+                    "firmware_version": str(raw.get("firmware_version") or ""),
+                    "last_seen_s": liveness.get("last_seen_s", raw.get("last_seen_s")),
+                }
+            )
+        return sorted(inventory, key=lambda row: str(row.get("device_id") or "").lower())
+
+    def _nodus_wifi_response(payload: dict[str, Any], *, status_code: int = 200) -> JSONResponse:
+        return JSONResponse(
+            payload,
+            status_code=status_code,
+            headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
+        )
+
+    def _validate_nodus_wifi_credentials(ssid: str, password: str) -> str:
+        try:
+            ssid_bytes = ssid.encode("utf-8", errors="strict")
+        except UnicodeError:
+            return "SSID contains invalid text."
+        if not ssid_bytes or len(ssid_bytes) > 32:
+            return "SSID must contain between 1 and 32 UTF-8 bytes."
+        password_ok = 8 <= len(password) <= 63 or bool(re.fullmatch(r"[0-9A-Fa-f]{64}", password))
+        if not password_ok:
+            return "Password must contain 8 to 63 characters, or be a 64-digit hexadecimal key."
+        return ""
+
+    @router.get("/api/nodus-wifi/current", response_class=JSONResponse)
+    async def api_nodus_wifi_current(request: Request):
+        """Read the host's active Wi-Fi credentials for transient form display."""
+        _require_protected_access(request, require_csrf=True)
+        try:
+            from . import saiAddDevice
+
+            ssid, password = await asyncio.to_thread(saiAddDevice.resolve_pi_wifi_credentials)
+        except Exception:
+            ssid, password = "", ""
+        return _nodus_wifi_response(
+            {
+                "ok": True,
+                "ssid": str(ssid or ""),
+                "password": str(password or ""),
+                "password_available": bool(password),
+            }
+        )
+
+    @router.get("/api/nodus-wifi/devices", response_class=JSONResponse)
+    async def api_nodus_wifi_devices(request: Request):
+        """List physical Nodus devices eligible for a coordinated Wi-Fi update."""
+        _require_protected_access(request, require_csrf=True)
+        devices = _nodus_wifi_inventory()
+        return _nodus_wifi_response(
+            {
+                "ok": True,
+                "devices": devices,
+                "eligible_count": sum(1 for row in devices if row.get("eligible") is True),
+            }
+        )
+
+    @router.post("/api/nodus-wifi/update", response_class=JSONResponse)
+    async def api_nodus_wifi_update(request: Request):
+        """Stage new credentials on online Nodus devices, then restart successes."""
+        _require_protected_access(request, require_csrf=True)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        ssid = str((body or {}).get("ssid") or "")
+        password = str((body or {}).get("password") or "")
+        validation_error = _validate_nodus_wifi_credentials(ssid, password)
+        if validation_error:
+            return _nodus_wifi_response({"ok": False, "error": validation_error}, status_code=400)
+
+        requested_raw = (body or {}).get("device_ids")
+        if requested_raw is not None and not isinstance(requested_raw, list):
+            return _nodus_wifi_response({"ok": False, "error": "device_ids must be a list."}, status_code=400)
+        requested = [str(value or "").strip() for value in (requested_raw or []) if str(value or "").strip()]
+        invalid = [value for value in requested if not _is_valid_device_id(value)]
+        if invalid:
+            return _nodus_wifi_response({"ok": False, "error": "One or more device IDs are invalid."}, status_code=400)
+
+        inventory = _nodus_wifi_inventory()
+        inventory_by_id = {str(row.get("device_id") or "").lower(): row for row in inventory}
+        if requested_raw is None:
+            requested_keys = [key for key, row in inventory_by_id.items() if row.get("eligible") is True]
+        else:
+            requested_keys = list(dict.fromkeys(value.lower() for value in requested))
+
+        results: dict[str, dict[str, Any]] = {}
+        targets: list[str] = []
+        for key in requested_keys:
+            row = inventory_by_id.get(key)
+            device_id = str((row or {}).get("device_id") or key)
+            if not row:
+                results[key] = {
+                    "device_id": device_id,
+                    "status": "unavailable",
+                    "staged": False,
+                    "restarted": False,
+                    "message": "Device is no longer available.",
+                }
+            elif row.get("eligible") is not True:
+                results[key] = {
+                    "device_id": device_id,
+                    "status": "skipped",
+                    "staged": False,
+                    "restarted": False,
+                    "message": str(row.get("reason") or "Device is not online."),
+                }
+            else:
+                targets.append(device_id)
+
+        if not targets:
+            return _nodus_wifi_response(
+                {
+                    "ok": False,
+                    "error": "No online Nodus devices are eligible for the update.",
+                    "results": list(results.values()),
+                },
+                status_code=409,
+            )
+
+        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        concurrency = asyncio.Semaphore(4)
+
+        async def _stage_one(device_id: str) -> dict[str, Any]:
+            async with concurrency:
+                try:
+                    staged = await push_nodus_settings_batch(
+                        device_id=device_id,
+                        device_type="wifi",
+                        setting_file_key="system",
+                        updates=[
+                            ("Network", "SSID", ssid),
+                            ("Network", "PASSWORD", password),
+                        ],
+                        sensor_file_name=None,
+                    )
+                    if not staged:
+                        raise RuntimeError("configuration_not_applied")
+                    return {
+                        "device_id": device_id,
+                        "status": "staged",
+                        "staged": True,
+                        "restarted": False,
+                        "message": "Credentials staged and confirmed.",
+                    }
+                except Exception as exc:
+                    error_code = str(exc or "stage_failed")
+                    safe_messages = {
+                        "configuration_not_applied": "Device did not confirm both credential updates.",
+                    }
+                    if DEBUG:
+                        printDM(
+                            f"[nodus-wifi:{device_id}] credential staging failed error={error_code}",
+                            location=MODULE,
+                        )
+                    return {
+                        "device_id": device_id,
+                        "status": "failed",
+                        "staged": False,
+                        "restarted": False,
+                        "message": safe_messages.get(error_code, "Credential update failed."),
+                    }
+
+        staged_rows = await asyncio.gather(*(_stage_one(device_id) for device_id in targets))
+        for row in staged_rows:
+            results[str(row.get("device_id") or "").lower()] = row
+
+        staged_devices = [str(row.get("device_id") or "") for row in staged_rows if row.get("staged") is True]
+
+        async def _restart_one(device_id: str) -> dict[str, Any]:
+            async with concurrency:
+                ok, message = await _request_nodus_device_restart(
+                    target_device=device_id,
+                    device_id=device_id,
+                    device_type="system",
+                )
+                if ok:
+                    return {
+                        "device_id": device_id,
+                        "status": "restarting",
+                        "staged": True,
+                        "restarted": True,
+                        "message": "Credentials confirmed; device is restarting.",
+                    }
+                return {
+                    "device_id": device_id,
+                    "status": "restart_failed",
+                    "staged": True,
+                    "restarted": False,
+                    "message": str(message or "Credentials were staged, but restart failed."),
+                }
+
+        restarted_rows = await asyncio.gather(*(_restart_one(device_id) for device_id in staged_devices))
+        for row in restarted_rows:
+            results[str(row.get("device_id") or "").lower()] = row
+
+        ordered_results = [results[key] for key in requested_keys if key in results]
+        all_restarted = bool(ordered_results) and all(row.get("restarted") is True for row in ordered_results)
+        return _nodus_wifi_response(
+            {
+                "ok": all_restarted,
+                "requested": len(requested_keys),
+                "staged": sum(1 for row in ordered_results if row.get("staged") is True),
+                "restarting": sum(1 for row in ordered_results if row.get("restarted") is True),
+                "results": ordered_results,
+            }
+        )
 
     async def push_nodus_settings_batch(
         *,
@@ -7624,9 +7920,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             val = str(raw or "").strip()
             if not val or "-" not in val:
                 return
-            prefix, suffix = val.split("-", 1)
-            prefix_l = prefix.lower()
-            if not suffix:
+            prefix_l = val.split("-", 1)[0].lower()
+            suffix = val.rsplit("-", 1)[-1]
+            if not re.fullmatch(r"[A-Za-z0-9]{5,32}", suffix):
                 return
             sensor_prefixes = ("apvpd", "avpd", "aqi", "aht", "aht10", "ahtx0", "co2", "lux", "veml", "soil")
             is_switch_peer = prefix_l == "switch" or re.fullmatch(r"s\d+", prefix_l, flags=re.IGNORECASE)
@@ -8495,7 +8791,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if remote_remove and mqtt_ingest:
             suppress = getattr(mqtt_ingest, "suppress_nodus_devices", None)
             if callable(suppress):
-                suppression = suppress(requested_ids, persist=True) or suppression
+                suppression = suppress(related_ids, persist=True) or suppression
                 if suppression.get("persistence_supported") and not suppression.get("persisted"):
                     return JSONResponse(
                         {"error": "removed_device_suppression_persist_failed", "device_ids": requested_ids},

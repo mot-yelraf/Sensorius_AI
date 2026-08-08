@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../assets/screenshots/dashboard-samhain.png" alt="Current Sensorius dashboard" width="1200">
+  <img src="../ui_static/01-sensorius-overview-v5.png" alt="Sensorius system overview" width="1200">
 </p>
 
 # Sensorius User Guide
@@ -68,17 +68,12 @@ For Nodus devices, Sensorius also listens for MQTT metadata and state messages. 
 
 The dashboard is the main operating view. It is where you check current conditions, see switch state, open settings, and review quick trends.
 
-| `samhain` | `sensoria-hub-0` |
-| --- | --- |
-| ![Dashboard on samhain](<../assets/screenshots/dashboard-samhain.png>) | ![Dashboard on sensoria-hub-0](<../assets/screenshots/dashboard-sensoria-hub-0.png>) |
+![Dashboard overview using a synthetic example host](<../assets/screenshots/dashboard-overview.png>)
 
-| `sensorius-hub-1` | `sensorius-hub-3` |
-| --- | --- |
-| ![Dashboard on sensorius-hub-1](<../assets/screenshots/dashboard-sensorius-hub-1.png>) | ![Dashboard on sensorius-hub-3](<../assets/screenshots/dashboard-sensorius-hub-3.png>) |
-
-These examples show hubs with different local, MQTT, and WeeWX device sets.
-Sensor names, locations, metrics, switch channels, forecast source, and live
-values will vary by installation.
+This synthesized example is based on a representative Sensorius dashboard and
+uses the neutral host identity `sensorius-demo`. Sensor names, locations,
+metrics, switch channels, forecast source, and live values will vary by
+installation.
 
 The dashboard presents:
 
@@ -148,7 +143,7 @@ In **All** mode, Sensorius keeps any saved metric slots first, then appends othe
 
 #### Sensor Names, Raspberry Pi Buses, And Locations
 
-A directly connected Raspberry Pi sensor ID has the form `<kind>-<bus>-<hostname>`, for example `avpd-i2c-1-sensoria-hub-0`. The kind identifies the sensor family, the bus segment identifies the Linux I2C interface used during discovery, and the final segment identifies the hub. `i2c-1` is the normal sensor bus on GPIO2/GPIO3. `i2c-0` is the secondary bus on GPIO0/GPIO1 used for supported plant-probe arrangements. A dual-bus APVPD device is represented by one sensor ID using its primary `i2c-1` descriptor even though its plant probe also uses `i2c-0`.
+A directly connected Raspberry Pi sensor ID has the form `<kind>-<bus>-<hostname>`, for example `avpd-i2c-1-sensorius-demo`. The kind identifies the sensor family, the bus segment identifies the Linux I2C interface used during discovery, and the final segment identifies the hub. `i2c-1` is the normal sensor bus on GPIO2/GPIO3. `i2c-0` is the secondary bus on GPIO0/GPIO1 used for supported plant-probe arrangements. A dual-bus APVPD device is represented by one sensor ID using its primary `i2c-1` descriptor even though its plant probe also uses `i2c-0`.
 
 The technical sensor or switch ID remains the stable identity used by settings, database history, MQTT, and switch keys. **Location** is the friendly, editable place name used to group and filter dashboard cards and to make automation selectors understandable. A card header shows both: use the ID when diagnosing wiring, topics, or stored settings, and use the location when operating the system. Renaming a location does not rename the device or disconnect its history.
 
@@ -172,9 +167,15 @@ maintenance tools.
 
 ### System Settings Pane
 
-![Current System Settings overview](<../assets/screenshots/system-settings-overview.png>)
+The main pane contains six expandable sections. Open one to review or change
+its settings.
 
-#### Fields and Selectors
+#### System Settings
+
+![System Settings section open](<../assets/screenshots/system-settings-overview.png>)
+
+The **System Settings** section contains the hub and primary MQTT connection
+settings:
 
 - **Hostname**: read-only host name for this Sensorius hub. It comes from the active system settings and host runtime.
 - **HTTP Port**: web UI port. Valid range is 1 to 65535. The default is usually 8000. Changing it may require a restart or opening the new URL.
@@ -182,16 +183,97 @@ maintenance tools.
 - **MQTT Port**: MQTT broker port. Valid range is 1 to 65535. Common values are 1883 without TLS and 8883 with TLS.
 - **Sensorius Hub**: MQTT broker hostname or IP used by Sensorius and Nodus devices.
 - **Time Zone**: IANA timezone name, such as `America/Denver`. It controls dashboard time labels, graph time labels, Astral timing, and calendar day boundaries.
-- **Latitude**: Astral latitude. Leave both Latitude and Longitude empty, then Save, to re-detect automatically.
-- **Longitude**: Astral longitude. Latitude and Longitude must both be filled for manual coordinates.
-- **Altitude (m)**: altitude in meters. Valid range is -500 to 10000.
-- **Gauge Size**: dashboard gauge size. Options are **Small** and **Large**.
-- **Display Style**: default dashboard metric display. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
-- **Notifications**: enables SMTP delivery and configures the server, port, TLS mode, username, Google App Password, and From address. **To** accepts one or more comma-separated addresses used only by **Send Test Email**. Automation recipients are configured on individual **Notify** actions under **System Settings > Automations**.
 - **Dashboard**: returns to the dashboard.
-- **Save**: writes system settings normally; email connection values are written to the protected project-root `.env`.
+- **Save**: writes the values in this section.
+
+#### Nodus Wifi Update
+
+![Nodus Wifi Update section open](<../assets/screenshots/system-settings-nodus-wifi-update.png>)
+
+Open the **Nodus Wifi Update** section in the main **System Settings** pane to
+send a replacement network name and password to connected Nodus devices before
+changing the router. The section appears between **System Settings** and
+**Astral**.
+
+##### Before You Begin
+
+- Keep the router on its existing Wi-Fi credentials until Sensorius finishes
+  the update and reports the result for every expected Nodus.
+- Power on every Nodus you intend to update and confirm that each one appears
+  as **online**. An offline Nodus cannot receive the new credentials.
+- Have the router administration password available. Also be prepared to
+  reconnect the Sensorius host computer to the replacement Wi-Fi network after
+  the router restarts.
+
+##### Update Procedure
+
+1. Open **System Settings**, then expand **Nodus Wifi Update** between the
+   **System Settings** and **Astral** sections.
+2. Wait for the device scan to finish. Check that every Nodus you expect to
+   update is listed as **online**. Resolve missing or offline devices before
+   continuing.
+3. Review the **SSID** and **Password** fields. Sensorius attempts to populate
+   them with the host computer's current Wi-Fi credentials when the operating
+   system permits access. The password is masked; select **Show** to inspect it
+   and **Hide** to mask it again. Enter the credentials manually if either
+   field could not be read.
+4. Replace the SSID, password, or both with the credentials the router will use
+   after the change. These values are case-sensitive.
+5. Select **Update**, review the confirmation list, and confirm the update.
+   **Do not change or restart the router yet.**
+6. Sensorius sends the SSID and password one setting at a time to every
+   eligible Nodus, waiting for each setting to be acknowledged and saved. It
+   completes this staging pass before sending restart commands. Only devices
+   that confirm both settings are restarted.
+7. Review every per-device result:
+   - **Restarting** means the new credentials were saved and the restart
+     command was accepted.
+   - **Failed** means the credentials were not confirmed.
+   - **Restart failed** means the credentials were saved, but Sensorius could
+     not confirm the restart command.
+   - **Skipped** or **unavailable** means the device was not eligible for the
+     update, commonly because it was offline.
+8. When all expected devices report **Restarting**, sign in to the router,
+   change its SSID and password to the same values, and allow it to reboot.
+9. Reconnect the Sensorius host computer to the replacement Wi-Fi network. A
+   host using a wired Ethernet connection may remain reachable throughout the
+   change.
+10. Reopen the Sensorius dashboard and verify that every Nodus returns online.
+    A Nodus may enter AP mode while the router is unavailable and can take one
+    AP restart cycle, typically about 5 to 10 minutes, to rejoin.
+
+If the results are mixed, do not assume the fleet update is complete.
+Successful devices have already received the new credentials and may be
+restarting, while failed or skipped devices still use the old credentials.
+Retry any device that remains reachable, or recover it through Nodus AP mode,
+before completing the network cutover. After the router change, a Nodus that
+does not return online must be connected to and corrected through AP mode.
+
+The host credentials are loaded transiently into the form. Both fields are
+cleared immediately after submission or when the settings window closes.
+Sensorius does not save either value in hub settings, the database, browser
+storage, logs, or metadata shadows. The credential-read response and the
+non-retained MQTT command necessarily carry the values in transit; enable MQTT
+TLS and protect access to the Sensorius web UI.
+
+#### Astral
+
+![Astral section open](<../assets/screenshots/system-settings-astral.png>)
+
+The **Astral** section sets the physical location used for sunrise, sunset,
+moon, biodynamic, weather, and location-aware automation calculations:
+
+- **Latitude**: leave both Latitude and Longitude empty, then select **Save**,
+  to detect the location automatically.
+- **Longitude**: Latitude and Longitude must both be supplied when entering a
+  location manually.
+- **Altitude (m)**: altitude in meters. Valid values range from -500 to 10000.
+- **Save**: writes the Astral location. Changing it causes dependent calendar
+  and astronomy information to be recalculated.
 
 #### Weather Forecast
+
+![Weather Forecast section open](<../assets/screenshots/system-settings-weather-forecast.png>)
 
 The **Weather Forecast** block appears in the System Settings pane between
 **Astral** and **Notifications**.
@@ -215,12 +297,20 @@ Readings panel follows the selected sensor's configured **Display Metrics**.
 
 #### Notifications
 
+![Notifications section open](<../assets/screenshots/system-settings-notifications.png>)
+
 Enable **Email Notifications** and save the SMTP settings before creating a
 **Notify** action. The automation editor shows **Notify** only while email
 notifications are enabled. Disabling email notifications hides that actor and
 prevents automated email delivery, but does not remove saved automations.
 
-#### Configure Gmail for Sensorius
+The section configures the SMTP server, port, TLS mode, username, App Password,
+sender address, and enabled state. **To** accepts one or more comma-separated
+addresses used only by **Send Test Email**. Automation recipients are set on
+individual **Notify** actions under **System Settings > Automations**. Email
+connection values are saved in the protected project-root `.env` file.
+
+##### Configure Gmail for Sensorius
 
 Sensorius sends Gmail messages through Google's authenticated SMTP service. Do
 not enter the normal password for the Google Account. Google requires an App
@@ -273,7 +363,21 @@ main Google Account password changes; create and save a new App Password if
 email delivery stops afterward. Revoke the Sensorius App Password from the
 Google Account when the hub is retired or no longer uses that account.
 
+#### Display
+
+![Display section open](<../assets/screenshots/system-settings-display.png>)
+
+The **Display** section supplies system-wide dashboard defaults:
+
+- **Gauge Size**: dashboard gauge size. Options are **Small** and **Large**.
+- **Display Style**: default metric display when a sensor has no saved
+  per-metric style. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
+- **Save**: writes the display defaults. Reload the dashboard to see changes
+  that are not applied immediately.
+
 ### Automations Pane
+
+![System automations pane](<../assets/screenshots/system-automations-list.png>)
 
 Open **System Settings > Automations**. Automations are configured globally
 from System Settings and are no longer edited from an individual switch's
@@ -296,6 +400,8 @@ Linux. The System Settings editor loads all saved rules, sensor and metric
 choices, and the available actor directory.
 
 #### Automation Definition
+
+![System automation definition pane](<../assets/screenshots/system-automation-definition.png>)
 
 Top-level fields:
 
@@ -370,6 +476,8 @@ If the Astral fields are wrong, biodynamic timing, sunrise/sunset automations, a
 
 ### Edit Locations Pane
 
+![Edit Locations pane](<../assets/screenshots/system-settings-edit-locations.png>)
+
 The Edit Locations pane lists sensors and switches together.
 
 Fields:
@@ -381,6 +489,8 @@ Fields:
 Locations should describe places people recognize: Greenhouse 1, West Bed, Seedling Bench, Main Pump, Hoop House, or Barn Weather Station.
 
 ### Add Device Pane
+
+![Add Device pane](<../assets/screenshots/system-settings-add-device.png>)
 
 Use Add Device to onboard a factory-bootstrapped Nodus device.
 
@@ -397,6 +507,8 @@ Fields and status rows:
 On macOS, Sensorius first attempts to join `Nodus_Setup` automatically using native Wi-Fi tooling, including setup networks shown under Other Networks. If automatic joining fails, the pane may instruct you to join `Nodus_Setup` manually from Wi-Fi settings, then return and click Add. For Raspberry Pi deployments that onboard over Wi-Fi, use a 2.4 GHz network path. If the router combines 2.4 GHz and 5 GHz under one SSID, ethernet on the Raspberry Pi is usually the most reliable setup. If Add Device reports `network_control_not_authorized`, the Linux/Raspberry Pi service install did not grant NetworkManager control; use the Operations guide to repair the service authorization.
 
 ### Update Device Pane
+
+![Update Device pane](<../assets/screenshots/system-settings-update-device.png>)
 
 Use Update Device for Nodus over-the-air (OTA) firmware packages.
 
@@ -442,6 +554,8 @@ and reports a concise recovery message.
 
 ### Remove Device Pane
 
+![Remove Device pane](<../assets/screenshots/system-settings-remove-device.png>)
+
 Use Remove Device when a sensor or switch should no longer appear in Sensorius.
 
 Fields and controls:
@@ -449,7 +563,7 @@ Fields and controls:
 - **Device checkbox list**: removable devices known from settings, discovery, and runtime state.
 - **Device detail**: may show URL or last-seen age when known.
 - **I understand this deletes settings and data**: required confirmation checkbox.
-- **Remove Selected**: removes the selected physical-device identity group in one operation, deletes its settings and related local data, clears runtime caches and retained MQTT/Home Assistant topics, and verifies that the device no longer appears.
+- **Remove Selected**: treats a selected sensor, switch, or both entries from the same Nodus as one physical-device removal. It deletes the complete sensor-and-switch identity family, settings, and related local data; clears runtime caches and retained MQTT/Home Assistant topics; suppresses retained replay for every related identity; and verifies that the device no longer appears.
 
 Removed Nodus identities remain ignored if retained or newly arriving MQTT
 messages are received later. Run Add Device onboarding again to intentionally
@@ -466,6 +580,8 @@ available height.
 
 #### Home Assistant
 
+![Home Assistant integration pane](<../assets/screenshots/system-integrations-home-assistant.png>)
+
 Fields and selectors:
 
 - **Enabled**: turns Home Assistant integration on or off. Options are **No** and **Yes**.
@@ -480,6 +596,8 @@ Fields and selectors:
 Expected flow: configure the broker, enable the integration, let Sensorius publish retained discovery topics, then let Home Assistant observe sensors and switches through MQTT.
 
 #### WeeWX
+
+![WeeWX integration pane](<../assets/screenshots/system-integrations-weewx.png>)
 
 Fields and selectors:
 
@@ -503,6 +621,8 @@ when MQTT ingest starts.
 
 #### FarmOS
 
+![FarmOS integration pane](<../assets/screenshots/system-integrations-farmos.png>)
+
 Fields and selectors:
 
 - **Enabled**: turns farmOS export on or off. Options are **No** and **Yes**.
@@ -521,6 +641,8 @@ Fields and selectors:
 farmOS export listens for new readings written by Sensorius. Check the FarmOS status if exports stop; it reports enabled state, queue depth, token state, and last error.
 
 ### Advanced Pane
+
+![Advanced settings pane](<../assets/screenshots/system-settings-advanced.png>)
 
 Advanced settings affect startup, logging, and stored data. Change them only when you understand the impact.
 
@@ -542,6 +664,8 @@ Open Sensor Settings from a sensor card when you need to organize a sensor, choo
 
 ### Sensor Settings Pane
 
+![Sensor settings pane](<../assets/screenshots/sensor-settings-display-metrics.png>)
+
 Fields and selectors:
 
 - **Location**: the practical place where the sensor is installed, such as Greenhouse, Seed Rack, Bed 2, Propagation Tent, or North Field. This is saved in that sensor's `sensor.toml` and is also used by the dashboard, location editor, and automation selector labels.
@@ -557,6 +681,8 @@ Use clear location names. They are visible to nontechnical users and make later 
 Metric slot order is authoritative in **Pick 6** mode: Metric 1 is the leftmost tile and Metric 6 is the rightmost. Display Style 1 applies to Metric 1, Display Style 2 to Metric 2, and so on. Saving these fields is the supported way to make a dashboard order or display style persistent.
 
 ### Sensor Calibration Pane
+
+![Sensor calibration pane](<../assets/screenshots/sensor-settings-device-calibration.png>)
 
 The Sensor Calibration pane adjusts the selected physical device. It is meant for cases where one sensor is consistently high or low compared with a trusted reference.
 
@@ -576,6 +702,8 @@ Common fields and controls:
 Calibration data comes from the sensor's `Calibration` section, Nodus metadata, and device-specific calibration endpoints. Apply small changes, then watch the dashboard and graphs to confirm the readings now track your trusted reference.
 
 ### System Calibration Pane
+
+![System calibration pane](<../assets/screenshots/sensor-settings-system-calibration.png>)
 
 System Calibration compares multiple temperature/RH sensors to a reference sensor over recent history.
 
@@ -602,6 +730,8 @@ For the best calibration results:
 6. Select the reference sensor, check each additional sensor that you want to calibrate, and click **Preview Calibration**. Review the corrections, then click **Apply Calibration**.
 
 ### Sensor Info Pane
+
+![Sensor information pane](<../assets/screenshots/sensor-settings-device-info.png>)
 
 The Sensor Info pane is a health and diagnostics view.
 
@@ -631,6 +761,8 @@ under **System Settings > Automations**.
 
 ### Switch Settings Pane
 
+![Switch settings pane](<../assets/screenshots/switch-settings-channels.png>)
+
 Fields and controls:
 
 - **Location**: where the switch device or relay box is installed. This is saved in `switch_settings/<switch_id>/switch.toml` and is shown on the dashboard and location editor.
@@ -644,6 +776,8 @@ Keep labels stable for operator clarity, but the internal switch address is the
 stable `<switch_id>::<channel_id>` key.
 
 ### Switch Info Pane
+
+![Switch information pane](<../assets/screenshots/switch-settings-device-info.png>)
 
 The Switch Info pane shows:
 
@@ -662,6 +796,8 @@ Use this pane when commands do not seem to reach a switch or when a remote relay
 ## Graph & History
 
 Open the graph tool when you want to compare readings over time, investigate spikes, or see whether a switch action changed the environment.
+
+![Full-screen historical graph](<../assets/screenshots/graph-vpd-24-hour.png>)
 
 The full-screen graph displays one to three metric series. The first selected metric uses the left axis. The second and third selected metrics use the right axis. When average data is available, a purple dashed line labeled **Average** shows that series' arithmetic average over the selected visible window. VPD graphs show VPD range coloring, and some metrics show gauge-zone background bands. These colored bands come from metric display zones, not automation thresholds.
 
@@ -739,6 +875,8 @@ window derives its icon from its own cloud and precipitation data and totals
 any predicted precipitation within that window. Select **6-day details** under
 **Looking Ahead** to open the detailed outlook with daily conditions,
 temperature, relative humidity, wind, and precipitation.
+
+![Detailed six-day weather outlook](<../assets/screenshots/weather-forecast-caelus-six-day.png>)
 
 ## BD Calendar
 

@@ -518,6 +518,32 @@ Implemented behavior:
 - Nodus does not clear `nodus/<device_id>/config/set`; Sensorius owns retained
   command cleanup for commands it publishes retained.
 
+### Coordinated Wi-Fi credential rotation
+
+Sensorius stages fleet Wi-Fi changes while the existing network is still
+available:
+
+1. Build a deduplicated list of physical Nodus hosts whose MQTT liveness state
+   is `online`.
+2. Publish `Network.SSID` and `Network.PASSWORD` as two non-retained
+   `config/set` envelopes per host, with one update and `restart = false` in
+   each envelope.
+3. Wait for the correlated accepted `config/ack` and successful
+   `config/result` after each setting before publishing the next setting.
+4. After the staging pass is complete, issue a separate correlated restart
+   request only to hosts whose credential write succeeded.
+
+The network updates use the same one-key-at-a-time pacing as ordinary runtime
+configuration. SSID and password still form one logical credential change:
+both must succeed before the host is eligible for restart. Fleet commands
+remain bounded to four concurrent physical hosts.
+
+Wi-Fi SSIDs and passwords used by this flow are write-only protocol values.
+Nodus must not include them in retained `meta`, `meta/patch`, acknowledgments,
+results, errors, or diagnostic logging. Sensorius discards `network.ssid`,
+`network.password`, `Network.SSID`, and `Network.PASSWORD` if older firmware
+echoes them in metadata.
+
 ## Switch `config/set`
 
 Canonical topic:

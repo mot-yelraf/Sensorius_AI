@@ -755,7 +755,10 @@ def resolve_pi_wifi_credentials() -> Tuple[str, str]:
     if _is_placeholder_psk(psk):
         psk = ""
     if DEBUG:
-        printDM(f"Success: ssid: {ssid}, psk: {psk}", location=f"{MODULE}.resolve_pi_wifi_credentials")
+        printDM(
+            f"Resolved active Wi-Fi credentials: ssid={ssid!r}, password_available={bool(psk)}",
+            location=f"{MODULE}.resolve_pi_wifi_credentials",
+        )
 
     return ssid, psk
 
@@ -1119,7 +1122,10 @@ def post_itaot_init(payload: Dict[str, Any], timeout_sec: float = 8.0) -> Dict[s
         )
         status = int(getattr(resp, "status_code", 0) or 0)
         if DEBUG:
-            printDM(f"/itaot-init payload={raw_payload } response={resp}", location=f"{MODULE}.post_itaot_init")
+            printDM(
+                f"/itaot-init payload_bytes={len(raw_payload.encode('utf-8'))} response={resp}",
+                location=f"{MODULE}.post_itaot_init",
+            )
 
         body: Optional[Dict[str, Any]] = None
         try:

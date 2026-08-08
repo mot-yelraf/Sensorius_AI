@@ -69,6 +69,7 @@ def test_system_sections_include_weather_forecast_in_requested_order():
     ]
     expected_sections = (
         'data-runtime-section="system-general"',
+        'data-runtime-section="system-wifi"',
         'data-runtime-section="system-astral"',
         'data-runtime-section="system-weather-forecast"',
         'data-runtime-section="system-notifications"',
@@ -109,8 +110,8 @@ def test_all_system_accordions_default_closed_and_use_process_scoped_state():
     template = (ROOT / "ui_templates" / "modals" / "system_settings.html").read_text(encoding="utf-8")
     routes = (ROOT / "sensorius" / "saiWebRoutes.py").read_text(encoding="utf-8")
 
-    assert template.count("<details") == 11
-    assert template.count("data-runtime-section=") == 11
+    assert template.count("<details") == 12
+    assert template.count("data-runtime-section=") == 12
     assert not any(" open>" in line for line in template.splitlines() if "<details" in line)
     assert "window.__sensoriusExpandableSectionState" in template
     assert 'section.addEventListener("toggle"' in template

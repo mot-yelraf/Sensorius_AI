@@ -181,6 +181,13 @@ System settings are stored in:
 system_settings/<device_id>/settings.toml
 ```
 
+The **System Settings > Wi-Fi Settings** pane is a fleet operation rather than
+stored hub configuration. It reads the host's active SSID and saved password
+from the operating system when available, displays them transiently, and never
+writes them to this file. Sensorius sends edited values in non-retained Nodus
+MQTT commands, clears the browser fields after submission or modal close, and
+omits both values from logs and metadata shadows.
+
 `sensorius.saiSettings` seeds the file from `system_settings/factory/settings.toml` when
 missing, creates a `.bak` backup once per startup when possible, and writes
 changes atomically.
