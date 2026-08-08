@@ -649,14 +649,16 @@ def test_system_settings_template_has_astral_altitude_field():
     assert '<label for="astral_altitude">Altitude (m)</label>' in text
     assert 'id="astral_altitude" name="astral_altitude"' in text
     assert text.index('id="astral_lat"') < text.index('id="astral_lon"') < text.index('id="astral_altitude"')
+    for removed_id in ("astral_sunrise", "astral_sunset", "astral_daylight", "astral_noon"):
+        assert f'id="{removed_id}"' not in text
 
 
-def test_system_settings_template_has_weather_forecast_integration_controls():
+def test_system_settings_template_has_weather_forecast_controls():
     source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
     text = source.read_text(encoding="utf-8")
 
     assert 'class="field-grid-network"' in text
-    assert 'data-runtime-section="integrations-weather-forecast"' in text
+    assert 'data-runtime-section="system-weather-forecast"' in text
     assert '<label for="weather_forecast_provider">Forecast Provider</label>' in text
     assert 'name="weather_forecast_provider"' in text
     assert '<option value="met_no"' in text
@@ -665,6 +667,7 @@ def test_system_settings_template_has_weather_forecast_integration_controls():
     assert '<option value="none"' in text
     assert 'name="weather_forecast_theme"' in text
     assert 'name="weather_forecast_sensor_id"' in text
+    assert "The forecast uses the Sensorius Astral location." not in text
 
 
 def test_system_settings_sections_match_integration_accordions():
@@ -672,15 +675,16 @@ def test_system_settings_sections_match_integration_accordions():
     text = source.read_text(encoding="utf-8")
 
     section_markup = 'class="integration-block system-section-block"'
-    assert text.count(section_markup) == 4
+    assert text.count(section_markup) == 5
     assert f'<details {section_markup} data-runtime-section="system-general">' in text
-    assert text.index("<summary>System Settings</summary>") < text.index("<summary>Notifications</summary>")
-    assert text.index("<summary>Notifications</summary>") < text.index("<summary>Astral</summary>")
-    assert text.index("<summary>Astral</summary>") < text.index("<summary>Display</summary>")
+    assert text.index("<summary>System Settings</summary>") < text.index("<summary>Astral</summary>")
+    assert text.index("<summary>Astral</summary>") < text.index("<summary>Weather Forecast</summary>")
+    assert text.index("<summary>Weather Forecast</summary>") < text.index("<summary>Notifications</summary>")
+    assert text.index("<summary>Notifications</summary>") < text.index("<summary>Display</summary>")
     assert text.count('class="button blue btn-system-save"') == 5
     system_pane = text[text.index('<div class="settings-pane" id="pane-system">'):text.index('<div class="settings-pane" id="pane-automations"')]
     assert system_pane.count('class="button black btn-back-system">Dashboard</button>') == 1
-    assert system_pane.count('class="pane-footer section-action-footer"') == 4
+    assert system_pane.count('class="pane-footer section-action-footer"') == 5
     assert 'class="pane-footer pane-global-footer"' in system_pane
     assert 'id="btn-system-save"' not in text
 
@@ -698,11 +702,16 @@ def test_notifications_has_one_email_action_row():
     source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
     text = source.read_text(encoding="utf-8")
 
-    email_section = text[text.index("<summary>Notifications</summary>"):text.index("<summary>Astral</summary>")]
+    email_section = text[text.index("<summary>Notifications</summary>"):text.index("<summary>Display</summary>")]
     assert "<summary>Notification Rules</summary>" not in email_section
     assert 'class="pane-footer section-action-footer"' in email_section
     assert 'class="button black btn-back-system">Dashboard</button>' not in email_section
     assert 'class="button blue btn-system-save">Save</button>' in email_section
+    assert 'class="email-grid-two email-server-grid"' in email_section
+    assert 'class="email-port-security-grid"' in email_section
+    assert email_section.index('for="email_smtp_host"') < email_section.index('class="email-port-security-grid"')
+    assert email_section.index('for="email_smtp_port"') < email_section.index('for="email_security"')
+    assert email_section.index('for="email_security"') < email_section.index('for="email_username"')
 
 
 def test_system_settings_template_uses_compact_field_spacing():

@@ -2,7 +2,11 @@ body {
   margin: 0;
   font-family: "Avenir Next", "Segoe UI", sans-serif;
   color: #27313a;
-  background: #f5fffa;
+  background: #dff5e8;
+  background-image: url("/ui_static/leaf-pattern.svg");
+  background-repeat: repeat;
+  background-size: 240px 180px;
+  background-attachment: fixed;
 }
 
 .page {

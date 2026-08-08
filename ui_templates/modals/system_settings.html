@@ -210,7 +210,8 @@
   max-width: 340px;
   margin-inline: auto;
 }
-#setupPiModal .field-grid-astral {
+#setupPiModal .field-grid-astral,
+#setupPiModal .weather-forecast-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: .5rem .9rem;
@@ -244,15 +245,20 @@
 #setupPiModal .notification-subsection[open] > summary::before { transform: rotate(90deg); }
 #setupPiModal .notification-subsection[open] > summary { border-bottom: 1px solid #e6ece8; }
 #setupPiModal .notification-subsection-content { padding: .75rem; }
-#setupPiModal .email-grid-three,
 #setupPiModal .email-grid-two {
   display: grid;
   gap: .5rem .9rem;
   width: 100%;
   margin-bottom: .55rem;
 }
-#setupPiModal .email-grid-three { grid-template-columns: minmax(220px, 2fr) minmax(100px, .7fr) minmax(150px, 1fr); }
 #setupPiModal .email-grid-two { grid-template-columns: repeat(2, minmax(220px, 1fr)); }
+#setupPiModal .email-port-security-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(100px, 1fr));
+  gap: .5rem .9rem;
+  min-width: 0;
+  align-items: end;
+}
 #setupPiModal .notification-rule-list { display: flex; flex-direction: column; gap: .6rem; }
 #setupPiModal .notification-rule-row {
   border: 1px solid #dfe7e1;
@@ -703,7 +709,8 @@
     grid-template-columns: 1fr;
     max-width: 100%;
   }
-  #setupPiModal .field-grid-astral {
+  #setupPiModal .field-grid-astral,
+  #setupPiModal .weather-forecast-grid {
     grid-template-columns: 1fr;
     max-width: 100%;
   }
@@ -711,8 +718,8 @@
     grid-template-columns: 1fr;
     max-width: 100%;
   }
-  #setupPiModal .email-grid-three,
   #setupPiModal .email-grid-two,
+  #setupPiModal .email-port-security-grid,
   #setupPiModal .notification-rule-grid {
     grid-template-columns: 1fr;
   }
@@ -821,24 +828,87 @@
                   </div>
                 </details>
 
+                <details class="integration-block system-section-block" data-runtime-section="system-astral">
+                  <summary>Astral</summary>
+                  <div class="integration-block-content">
+              <div class="field-grid-astral">
+                <div class="field-stack">
+                  <label for="astral_lat">Latitude</label>
+                  <input type="text" id="astral_lat" name="astral_lat" value="{{ astral_lat | default('') }}" placeholder="Auto-detect" title="Enter manual coordinates. To reposition lat/long both fields must be empty, then save.">
+                </div>
+                <div class="field-stack">
+                  <label for="astral_lon">Longitude</label>
+                  <input type="text" id="astral_lon" name="astral_lon" value="{{ astral_lon | default('') }}" placeholder="Auto-detect" title="Enter manual coordinates. To reposition lat/long both fields must be empty, then save.">
+                </div>
+                <div class="field-stack">
+                  <label for="astral_altitude">Altitude (m)</label>
+                  <input type="text" id="astral_altitude" name="astral_altitude" value="{{ astral_altitude | default('') }}" placeholder="1600" inputmode="decimal" title="Enter altitude in meters.">
+                </div>
+              </div>
+                    <div class="pane-footer section-action-footer">
+                      <button type="submit" class="button blue btn-system-save">Save</button>
+                    </div>
+                  </div>
+                </details>
+
+                <details class="integration-block system-section-block" data-runtime-section="system-weather-forecast">
+                  <summary>Weather Forecast</summary>
+                  <div class="integration-block-content">
+                    {% set selected_weather_forecast_provider = weather_forecast_provider | default('met_no') %}
+                    {% set selected_weather_forecast_theme = weather_forecast_theme | default('garden') %}
+                    <div class="weather-forecast-grid">
+                      <div class="field-stack">
+                        <label for="weather_forecast_sensor_id">Current Readings Sensor</label>
+                        <select id="weather_forecast_sensor_id" name="weather_forecast_sensor_id" data-selected="{{ weather_forecast_sensor_id | default('') }}">
+                          <option value="">None selected</option>
+                          {% if weather_forecast_sensor_id %}<option value="{{ weather_forecast_sensor_id }}" selected>{{ weather_forecast_sensor_id }}</option>{% endif %}
+                        </select>
+                      </div>
+                      <div class="field-stack">
+                        <label for="weather_forecast_provider">Forecast Provider</label>
+                        <select id="weather_forecast_provider" name="weather_forecast_provider">
+                          <option value="met_no" {% if selected_weather_forecast_provider == "met_no" %}selected{% endif %}>MET Norway</option>
+                          <option value="us" {% if selected_weather_forecast_provider == "us" %}selected{% endif %}>US · National Weather Service</option>
+                          <option value="open_meteo" {% if selected_weather_forecast_provider == "open_meteo" %}selected{% endif %}>Open-Meteo</option>
+                          <option value="none" {% if selected_weather_forecast_provider == "none" %}selected{% endif %}>Disabled</option>
+                        </select>
+                      </div>
+                      <div class="field-stack">
+                        <label for="weather_forecast_theme">Theme</label>
+                        <select id="weather_forecast_theme" name="weather_forecast_theme">
+                          <option value="garden" {% if selected_weather_forecast_theme == "garden" %}selected{% endif %}>Mountain Garden</option>
+                          <option value="island" {% if selected_weather_forecast_theme == "island" %}selected{% endif %}>Ocean Island</option>
+                          <option value="river" {% if selected_weather_forecast_theme == "river" %}selected{% endif %}>Forest River</option>
+                          <option value="desert" {% if selected_weather_forecast_theme == "desert" %}selected{% endif %}>Desert Bloom</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="pane-footer section-action-footer">
+                      <button type="submit" class="button blue btn-system-save">Save</button>
+                    </div>
+                  </div>
+                </details>
+
                 <details class="integration-block system-section-block" data-runtime-section="system-notifications">
                   <summary>Notifications</summary>
                   <div class="integration-block-content">
-                        <div class="email-grid-three">
+                        <div class="email-grid-two email-server-grid">
                           <div class="field-stack">
                             <label for="email_smtp_host">SMTP Server</label>
                             <input type="text" id="email_smtp_host" name="email_smtp_host" value="{{ email_smtp_host | default('smtp.gmail.com') }}" autocomplete="off">
                           </div>
-                          <div class="field-stack">
-                            <label for="email_smtp_port">Port</label>
-                            <input type="number" id="email_smtp_port" name="email_smtp_port" value="{{ email_smtp_port | default(465) }}" min="1" max="65535" step="1">
-                          </div>
-                          <div class="field-stack">
-                            <label for="email_security">Security</label>
-                            <select id="email_security" name="email_security">
-                              <option value="ssl" {% if email_security == 'ssl' %}selected{% endif %}>SSL/TLS</option>
-                              <option value="starttls" {% if email_security == 'starttls' %}selected{% endif %}>STARTTLS</option>
-                            </select>
+                          <div class="email-port-security-grid">
+                            <div class="field-stack">
+                              <label for="email_smtp_port">Port</label>
+                              <input type="number" id="email_smtp_port" name="email_smtp_port" value="{{ email_smtp_port | default(465) }}" min="1" max="65535" step="1">
+                            </div>
+                            <div class="field-stack">
+                              <label for="email_security">Security</label>
+                              <select id="email_security" name="email_security">
+                                <option value="ssl" {% if email_security == 'ssl' %}selected{% endif %}>SSL/TLS</option>
+                                <option value="starttls" {% if email_security == 'starttls' %}selected{% endif %}>STARTTLS</option>
+                              </select>
+                            </div>
                           </div>
                         </div>
                         <div class="email-grid-two">
@@ -877,47 +947,6 @@
                         <div class="pane-footer section-action-footer">
                           <button type="submit" class="button blue btn-system-save">Save</button>
                         </div>
-                  </div>
-                </details>
-
-                <details class="integration-block system-section-block" data-runtime-section="system-astral">
-                  <summary>Astral</summary>
-                  <div class="integration-block-content">
-              <div class="field-grid-astral">
-                <div class="field-stack">
-                  <label for="astral_lat">Latitude</label>
-                  <input type="text" id="astral_lat" name="astral_lat" value="{{ astral_lat | default('') }}" placeholder="Auto-detect" title="Enter manual coordinates. To reposition lat/long both fields must be empty, then save.">
-                </div>
-                <div class="field-stack">
-                  <label for="astral_lon">Longitude</label>
-                  <input type="text" id="astral_lon" name="astral_lon" value="{{ astral_lon | default('') }}" placeholder="Auto-detect" title="Enter manual coordinates. To reposition lat/long both fields must be empty, then save.">
-                </div>
-                <div class="field-stack">
-                  <label for="astral_altitude">Altitude (m)</label>
-                  <input type="text" id="astral_altitude" name="astral_altitude" value="{{ astral_altitude | default('') }}" placeholder="1600" inputmode="decimal" title="Enter altitude in meters.">
-                </div>
-              </div>
-              <div class="field-grid-stack">
-                <div class="field-stack">
-                  <label for="astral_sunrise">Sunrise</label>
-                  <input type="text" id="astral_sunrise" value="{{ astral_sunrise | default('--') }}" readonly>
-                </div>
-                <div class="field-stack">
-                  <label for="astral_sunset">Sunset</label>
-                  <input type="text" id="astral_sunset" value="{{ astral_sunset | default('--') }}" readonly>
-                </div>
-                <div class="field-stack">
-                  <label for="astral_daylight">Daylight Hours</label>
-                  <input type="text" id="astral_daylight" value="{{ astral_daylight | default('--') }}" readonly>
-                </div>
-                <div class="field-stack">
-                  <label for="astral_noon">Sun Peak Time</label>
-                  <input type="text" id="astral_noon" value="{{ astral_noon | default('--') }}" readonly>
-                </div>
-              </div>
-                    <div class="pane-footer section-action-footer">
-                      <button type="submit" class="button blue btn-system-save">Save</button>
-                    </div>
                   </div>
                 </details>
 
@@ -1014,45 +1043,6 @@
           <div class="settings-pane" id="pane-integrations" hidden>
             <h3 class="pane-title">Integrations</h3>
             <div class="integrations-list">
-              <details class="integration-block" data-runtime-section="integrations-weather-forecast">
-                <summary>Weather Forecast</summary>
-                <div class="integration-block-content">
-                  {% set selected_weather_forecast_provider = weather_forecast_provider | default('met_no') %}
-                  {% set selected_weather_forecast_theme = weather_forecast_theme | default('garden') %}
-                  <div class="ha-grid">
-                    <div class="field-stack">
-                      <label for="weather_forecast_provider">Forecast Provider</label>
-                      <select id="weather_forecast_provider" name="weather_forecast_provider" form="systemSettingsForm">
-                        <option value="met_no" {% if selected_weather_forecast_provider == "met_no" %}selected{% endif %}>MET Norway</option>
-                        <option value="us" {% if selected_weather_forecast_provider == "us" %}selected{% endif %}>US · National Weather Service</option>
-                        <option value="open_meteo" {% if selected_weather_forecast_provider == "open_meteo" %}selected{% endif %}>Open-Meteo</option>
-                        <option value="none" {% if selected_weather_forecast_provider == "none" %}selected{% endif %}>Disabled</option>
-                      </select>
-                    </div>
-                    <div class="field-stack">
-                      <label for="weather_forecast_theme">Theme</label>
-                      <select id="weather_forecast_theme" name="weather_forecast_theme" form="systemSettingsForm">
-                        <option value="garden" {% if selected_weather_forecast_theme == "garden" %}selected{% endif %}>Mountain Garden</option>
-                        <option value="island" {% if selected_weather_forecast_theme == "island" %}selected{% endif %}>Ocean Island</option>
-                        <option value="river" {% if selected_weather_forecast_theme == "river" %}selected{% endif %}>Forest River</option>
-                        <option value="desert" {% if selected_weather_forecast_theme == "desert" %}selected{% endif %}>Desert Bloom</option>
-                      </select>
-                    </div>
-                    <div class="field-stack" style="grid-column:1/-1;">
-                      <label for="weather_forecast_sensor_id">Current Readings Sensor</label>
-                      <select id="weather_forecast_sensor_id" name="weather_forecast_sensor_id" form="systemSettingsForm" data-selected="{{ weather_forecast_sensor_id | default('') }}">
-                        <option value="">None selected</option>
-                        {% if weather_forecast_sensor_id %}<option value="{{ weather_forecast_sensor_id }}" selected>{{ weather_forecast_sensor_id }}</option>{% endif %}
-                      </select>
-                    </div>
-                  </div>
-                  <p class="status-text">The forecast uses the Sensorius Astral location. Current Readings follows the selected sensor's configured Display Metrics.</p>
-                  <div class="pane-footer section-action-footer">
-                    <button type="submit" class="button blue btn-system-save" form="systemSettingsForm">Save</button>
-                  </div>
-                </div>
-              </details>
-
               <details class="integration-block" data-runtime-section="integrations-home-assistant">
                 <summary>Home Assistant</summary>
                 <div class="integration-block-content">

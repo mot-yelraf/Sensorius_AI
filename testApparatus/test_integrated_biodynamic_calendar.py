@@ -130,7 +130,9 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     assert 'id="dashboardReturn" href="/" aria-label="Return to Sensorius dashboard"' in template
     assert 'class="dashboard-return-spinner"' in template
     assert "body {\n  margin: 0;\n  font-family:" in stylesheet
-    assert "background: #f5fffa;" in stylesheet
+    assert "background: #dff5e8;" in stylesheet
+    assert 'background-image: url("/ui_static/leaf-pattern.svg");' in stylesheet
+    assert (root / "ui_static" / "leaf-pattern.svg").is_file()
     assert "radial-gradient(circle at top left" not in stylesheet
     assert "/ui_static/biodynamic_calendar/app.js" in template
     assert "/api/biodynamic-calendar-app/calendar" in javascript

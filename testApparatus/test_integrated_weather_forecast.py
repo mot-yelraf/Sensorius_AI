@@ -211,14 +211,37 @@ def test_dashboard_button_launches_full_screen_weather_app():
     assert "window.location.assign('/weather-forecast')" in html_source
 
 
-def test_weather_integration_settings_are_present():
+def test_dashboard_reuses_detailed_forecast_moon_surface_and_leaf_background():
+    html_source = (ROOT / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    dashboard_css = (ROOT / "ui_static" / "css" / "app.css").read_text(encoding="utf-8")
+
+    assert "dashboardMoonSurfaceImage.src = '/ui_static/weather_forecast/moon-surface.png?v=1'" in html_source
+    assert "surfacePixels[sourceOff] * brightness" in html_source
+    assert "const textureRadius = Math.min(w, h) * 0.44" in html_source
+    assert "edgeDistance / 1.35" in html_source
+    assert "#moonPhaseCanvas{width:88px;height:88px;border:0;border-radius:50%;background:transparent;}" in html_source
+    assert "ctx.strokeStyle = 'rgba(255, 240, 198, 0.28)'" not in html_source
+    assert "<body class='dashboard-page'>" in html_source
+    assert 'background-image:url("/ui_static/leaf-pattern.svg")' in dashboard_css
+
+
+def test_weather_forecast_system_settings_are_present():
     template = (ROOT / "ui_templates" / "modals" / "system_settings.html").read_text(encoding="utf-8")
-    assert "integrations-weather-forecast" in template
+    user_guide = (ROOT / "docs" / "user_guide.md").read_text(encoding="utf-8")
+    assert "system-weather-forecast" in template
     assert 'name="weather_forecast_theme"' in template
     assert 'name="weather_forecast_sensor_id"' in template
-    assert 'name="weather_forecast_sensor_id" form="systemSettingsForm"' in template
-    assert 'name="weather_forecast_theme" form="systemSettingsForm"' in template
-    assert 'name="weather_forecast_provider" form="systemSettingsForm"' in template
+    weather_section = template[
+        template.index('data-runtime-section="system-weather-forecast"'):
+        template.index('data-runtime-section="system-notifications"')
+    ]
+    assert 'class="weather-forecast-grid"' in weather_section
+    assert weather_section.index('for="weather_forecast_sensor_id"') < weather_section.index('for="weather_forecast_provider"')
+    assert weather_section.index('for="weather_forecast_provider"') < weather_section.index('for="weather_forecast_theme"')
+    assert template.index('data-runtime-section="system-astral"') < template.index('data-runtime-section="system-weather-forecast"')
+    assert template.index('data-runtime-section="system-weather-forecast"') < template.index('data-runtime-section="system-notifications"')
+    assert "The forecast uses the Sensorius Astral location." not in template
+    assert "Current Readings panel follows the selected sensor's configured **Display Metrics**" in " ".join(user_guide.split())
     assert 'fetch("/sensor-directory"' in template
 
 

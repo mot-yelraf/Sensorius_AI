@@ -56,9 +56,30 @@ def test_collapsible_sections_own_save_actions_and_panes_own_dashboard_action():
     assert 'root.querySelectorAll(".btn-advanced-save")' in template
 
     integrations = template[template.index('<div class="settings-pane" id="pane-integrations"'):template.index('<div class="settings-pane" id="pane-locations"')]
-    assert integrations.count('class="pane-footer section-action-footer"') == 4
+    assert integrations.count('class="pane-footer section-action-footer"') == 3
     assert integrations.count('class="button black btn-back-system">Dashboard</button>') == 1
     assert 'class="pane-footer pane-global-footer"' in integrations
+
+
+def test_system_sections_include_weather_forecast_in_requested_order():
+    template = (ROOT / "ui_templates" / "modals" / "system_settings.html").read_text(encoding="utf-8")
+    system_pane = template[
+        template.index('<div class="settings-pane" id="pane-system">'):
+        template.index('<div class="settings-pane" id="pane-automations"')
+    ]
+    expected_sections = (
+        'data-runtime-section="system-general"',
+        'data-runtime-section="system-astral"',
+        'data-runtime-section="system-weather-forecast"',
+        'data-runtime-section="system-notifications"',
+        'data-runtime-section="system-display"',
+    )
+
+    assert all(section in system_pane for section in expected_sections)
+    assert [system_pane.index(section) for section in expected_sections] == sorted(
+        system_pane.index(section) for section in expected_sections
+    )
+    assert "integrations-weather-forecast" not in template
 
 
 def test_sensor_and_switch_footers_match_system_footer_spacing_and_divider():

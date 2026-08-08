@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../assets/screenshots/01-sensorius-overview-v5.png" alt="Sensorius system overview" width="1200">
+  <img src="../assets/screenshots/dashboard-samhain.png" alt="Current Sensorius dashboard" width="1200">
 </p>
 
 # Sensorius User Guide
@@ -68,11 +68,17 @@ For Nodus devices, Sensorius also listens for MQTT metadata and state messages. 
 
 The dashboard is the main operating view. It is where you check current conditions, see switch state, open settings, and review quick trends.
 
-| Retained dashboard overview | Current capability overview |
+| `samhain` | `sensoria-hub-0` |
 | --- | --- |
-| ![Dashboard overview](<../assets/screenshots/Dashboard-1.png>) | ![Current dashboard capability overview](<../assets/screenshots/dashboard-current-overview.png>) |
+| ![Dashboard on samhain](<../assets/screenshots/dashboard-samhain.png>) | ![Dashboard on sensoria-hub-0](<../assets/screenshots/dashboard-sensoria-hub-0.png>) |
 
-![Dashboard devices and switches](<../assets/screenshots/dashboard-devices-and-switches.png>)
+| `sensorius-hub-1` | `sensorius-hub-3` |
+| --- | --- |
+| ![Dashboard on sensorius-hub-1](<../assets/screenshots/dashboard-sensorius-hub-1.png>) | ![Dashboard on sensorius-hub-3](<../assets/screenshots/dashboard-sensorius-hub-3.png>) |
+
+These examples show hubs with different local, MQTT, and WeeWX device sets.
+Sensor names, locations, metrics, switch channels, forecast source, and live
+values will vary by installation.
 
 The dashboard presents:
 
@@ -166,7 +172,7 @@ maintenance tools.
 
 ### System Settings Pane
 
-![System settings pane](<../assets/screenshots/system-settings-general.png>)
+![Current System Settings overview](<../assets/screenshots/system-settings-overview.png>)
 
 #### Fields and Selectors
 
@@ -179,17 +185,35 @@ maintenance tools.
 - **Latitude**: Astral latitude. Leave both Latitude and Longitude empty, then Save, to re-detect automatically.
 - **Longitude**: Astral longitude. Latitude and Longitude must both be filled for manual coordinates.
 - **Altitude (m)**: altitude in meters. Valid range is -500 to 10000.
-- **Sunrise**: read-only calculated sunrise for the current Astral location.
-- **Sunset**: read-only calculated sunset.
-- **Daylight Hours**: read-only daylight duration.
-- **Sun Peak Time**: read-only solar noon.
 - **Gauge Size**: dashboard gauge size. Options are **Small** and **Large**.
 - **Display Style**: default dashboard metric display. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
 - **Notifications**: enables SMTP delivery and configures the server, port, TLS mode, username, Google App Password, and From address. **To** accepts one or more comma-separated addresses used only by **Send Test Email**. Automation recipients are configured on individual **Notify** actions under **System Settings > Automations**.
 - **Dashboard**: returns to the dashboard.
 - **Save**: writes system settings normally; email connection values are written to the protected project-root `.env`.
 
-![Notification email settings](<../assets/screenshots/system-settings-notifications.png>)
+#### Weather Forecast
+
+The **Weather Forecast** block appears in the System Settings pane between
+**Astral** and **Notifications**.
+
+Fields and selectors:
+
+- **Forecast Provider**: selects the forecast source used by the dashboard and
+  Caelus. Options are **MET Norway**, **US · National Weather Service**,
+  **Open-Meteo**, and **Disabled**.
+- **Theme**: selects the Caelus full-screen scene. Options are **Mountain
+  Garden**, **Ocean Island**, **Forest River**, and **Desert Bloom**.
+- **Current Readings Sensor**: selects any live sensor in the sensor directory.
+  Caelus displays that sensor's configured Display Metrics in their saved
+  order. A WeeWX station can therefore supply outdoor temperature, humidity,
+  rain, wind direction, and barometric pressure.
+- **Save**: writes `[WeatherForecast]` provider, theme, and sensor selection.
+
+Forecast placement, astronomy, sunrise, and sunset use the latitude,
+longitude, and timezone under **System Settings > Astral**. The Current
+Readings panel follows the selected sensor's configured **Display Metrics**.
+
+#### Notifications
 
 Enable **Email Notifications** and save the SMTP settings before creating a
 **Notify** action. The automation editor shows **Notify** only while email
@@ -251,8 +275,6 @@ Google Account when the hub is retired or no longer uses that account.
 
 ### Automations Pane
 
-![System automations pane](<../assets/screenshots/system-automations-list.png>)
-
 Open **System Settings > Automations**. Automations are configured globally
 from System Settings and are no longer edited from an individual switch's
 settings. The saved list shows every automation and whether it is enabled.
@@ -274,8 +296,6 @@ Linux. The System Settings editor loads all saved rules, sensor and metric
 choices, and the available actor directory.
 
 #### Automation Definition
-
-![System automation definition pane](<../assets/screenshots/system-automation-definition.png>)
 
 Top-level fields:
 
@@ -348,13 +368,7 @@ threshold.
 
 If the Astral fields are wrong, biodynamic timing, sunrise/sunset automations, and weather forecast placement may also be wrong.
 
-| Astral settings expanded | Display settings expanded |
-| --- | --- |
-| ![Astral settings](<../assets/screenshots/system-settings-astral.png>) | ![Display settings](<../assets/screenshots/system-settings-display.png>) |
-
 ### Edit Locations Pane
-
-![Edit locations pane](<../assets/screenshots/system-settings-edit-locations.png>)
 
 The Edit Locations pane lists sensors and switches together.
 
@@ -367,8 +381,6 @@ Fields:
 Locations should describe places people recognize: Greenhouse 1, West Bed, Seedling Bench, Main Pump, Hoop House, or Barn Weather Station.
 
 ### Add Device Pane
-
-![Add device pane](<../assets/screenshots/system-settings-add-device.png>)
 
 Use Add Device to onboard a factory-bootstrapped Nodus device.
 
@@ -385,8 +397,6 @@ Fields and status rows:
 On macOS, Sensorius first attempts to join `Nodus_Setup` automatically using native Wi-Fi tooling, including setup networks shown under Other Networks. If automatic joining fails, the pane may instruct you to join `Nodus_Setup` manually from Wi-Fi settings, then return and click Add. For Raspberry Pi deployments that onboard over Wi-Fi, use a 2.4 GHz network path. If the router combines 2.4 GHz and 5 GHz under one SSID, ethernet on the Raspberry Pi is usually the most reliable setup. If Add Device reports `network_control_not_authorized`, the Linux/Raspberry Pi service install did not grant NetworkManager control; use the Operations guide to repair the service authorization.
 
 ### Update Device Pane
-
-![Update device pane](<../assets/screenshots/system-settings-update-device.png>)
 
 Use Update Device for Nodus over-the-air (OTA) firmware packages.
 
@@ -432,8 +442,6 @@ and reports a concise recovery message.
 
 ### Remove Device Pane
 
-![Remove device pane](<../assets/screenshots/system-settings-remove-device.png>)
-
 Use Remove Device when a sensor or switch should no longer appear in Sensorius.
 
 Fields and controls:
@@ -451,34 +459,12 @@ Before removing a device, update any automations, Home Assistant dashboards, far
 
 ### Integrations Pane
 
-System Settings presents Weather Forecast, Home Assistant, WeeWX, and FarmOS
-under one **Integrations** menu item. Each integration is an independently
-expandable block. Scroll the right pane vertically when the expanded blocks
-exceed the available height.
-
-#### Weather Forecast
-
-![Weather Forecast integration pane showing the forecast source, Caelus theme, and WeeWX Current Readings sensor](<../assets/screenshots/system-integrations-weather-forecast.png>)
-
-Fields and selectors:
-
-- **Forecast Provider**: selects the forecast source used by the dashboard and
-  Caelus. Options are **MET Norway**, **US · National Weather Service**,
-  **Open-Meteo**, and **Disabled**.
-- **Theme**: selects the Caelus full-screen scene. Options are **Mountain
-  Garden**, **Ocean Island**, **Forest River**, and **Desert Bloom**.
-- **Current Readings Sensor**: selects any live sensor in the sensor directory.
-  Caelus displays that sensor's configured Display Metrics in their saved
-  order. A WeeWX station can therefore supply outdoor temperature, humidity,
-  rain, wind direction, and barometric pressure.
-- **Save**: writes `[WeatherForecast]` provider, theme, and sensor selection.
-
-Forecast placement, astronomy, sunrise, and sunset continue to use the
-latitude, longitude, and timezone under **System Settings > Astral**.
+System Settings presents Home Assistant, WeeWX, and FarmOS under the
+**Integrations** menu item. Each integration is an independently expandable
+block. Scroll the right pane vertically when the expanded blocks exceed the
+available height.
 
 #### Home Assistant
-
-![Home Assistant pane](<../assets/screenshots/system-integrations-home-assistant.png>)
 
 Fields and selectors:
 
@@ -494,8 +480,6 @@ Fields and selectors:
 Expected flow: configure the broker, enable the integration, let Sensorius publish retained discovery topics, then let Home Assistant observe sensors and switches through MQTT.
 
 #### WeeWX
-
-![WeeWX pane](<../assets/screenshots/system-integrations-weewx.png>)
 
 Fields and selectors:
 
@@ -519,8 +503,6 @@ when MQTT ingest starts.
 
 #### FarmOS
 
-![FarmOS pane](<../assets/screenshots/system-integrations-farmos.png>)
-
 Fields and selectors:
 
 - **Enabled**: turns farmOS export on or off. Options are **No** and **Yes**.
@@ -539,8 +521,6 @@ Fields and selectors:
 farmOS export listens for new readings written by Sensorius. Check the FarmOS status if exports stop; it reports enabled state, queue depth, token state, and last error.
 
 ### Advanced Pane
-
-![Advanced settings pane](<../assets/screenshots/system-settings-advanced.png>)
 
 Advanced settings affect startup, logging, and stored data. Change them only when you understand the impact.
 
@@ -562,8 +542,6 @@ Open Sensor Settings from a sensor card when you need to organize a sensor, choo
 
 ### Sensor Settings Pane
 
-![Sensor settings pane](<../assets/screenshots/sensor-settings-display-metrics.png>)
-
 Fields and selectors:
 
 - **Location**: the practical place where the sensor is installed, such as Greenhouse, Seed Rack, Bed 2, Propagation Tent, or North Field. This is saved in that sensor's `sensor.toml` and is also used by the dashboard, location editor, and automation selector labels.
@@ -579,8 +557,6 @@ Use clear location names. They are visible to nontechnical users and make later 
 Metric slot order is authoritative in **Pick 6** mode: Metric 1 is the leftmost tile and Metric 6 is the rightmost. Display Style 1 applies to Metric 1, Display Style 2 to Metric 2, and so on. Saving these fields is the supported way to make a dashboard order or display style persistent.
 
 ### Sensor Calibration Pane
-
-![Sensor calibration pane](<../assets/screenshots/sensor-settings-device-calibration.png>)
 
 The Sensor Calibration pane adjusts the selected physical device. It is meant for cases where one sensor is consistently high or low compared with a trusted reference.
 
@@ -600,8 +576,6 @@ Common fields and controls:
 Calibration data comes from the sensor's `Calibration` section, Nodus metadata, and device-specific calibration endpoints. Apply small changes, then watch the dashboard and graphs to confirm the readings now track your trusted reference.
 
 ### System Calibration Pane
-
-![System calibration pane](<../assets/screenshots/sensor-settings-system-calibration.png>)
 
 System Calibration compares multiple temperature/RH sensors to a reference sensor over recent history.
 
@@ -628,8 +602,6 @@ For the best calibration results:
 6. Select the reference sensor, check each additional sensor that you want to calibrate, and click **Preview Calibration**. Review the corrections, then click **Apply Calibration**.
 
 ### Sensor Info Pane
-
-![Sensor info pane](<../assets/screenshots/sensor-settings-device-info.png>)
 
 The Sensor Info pane is a health and diagnostics view.
 
@@ -659,8 +631,6 @@ under **System Settings > Automations**.
 
 ### Switch Settings Pane
 
-![Switch settings pane](<../assets/screenshots/switch-settings-channels.png>)
-
 Fields and controls:
 
 - **Location**: where the switch device or relay box is installed. This is saved in `switch_settings/<switch_id>/switch.toml` and is shown on the dashboard and location editor.
@@ -674,8 +644,6 @@ Keep labels stable for operator clarity, but the internal switch address is the
 stable `<switch_id>::<channel_id>` key.
 
 ### Switch Info Pane
-
-![Switch info pane](<../assets/screenshots/switch-settings-device-info.png>)
 
 The Switch Info pane shows:
 
@@ -694,8 +662,6 @@ Use this pane when commands do not seem to reach a switch or when a remote relay
 ## Graph & History
 
 Open the graph tool when you want to compare readings over time, investigate spikes, or see whether a switch action changed the environment.
-
-![Full-screen VPD graph](<../assets/screenshots/graph-vpd-24-hour.png>)
 
 The full-screen graph displays one to three metric series. The first selected metric uses the left axis. The second and third selected metrics use the right axis. When average data is available, a purple dashed line labeled **Average** shows that series' arithmetic average over the selected visible window. VPD graphs show VPD range coloring, and some metrics show gauge-zone background bands. These colored bands come from metric display zones, not automation thresholds.
 
@@ -724,7 +690,7 @@ Switch event overlays appear as vertical lines. The legend shows which colors me
 
 ### Graph Definition Modal
 
-![Full-screen graph definition modal](<../assets/screenshots/graph-setup-vpd-switch-overlay.png>)
+![Current full-screen graph definition modal](<../assets/screenshots/graph-setup-overview.png>)
 
 The graph definition modal has these panes and fields:
 
@@ -752,7 +718,7 @@ Caelus full-screen weather display at
 `http://<sensorius-host>:8000/weather-forecast`. **Dashboard** in the top-left
 returns to the Sensorius dashboard.
 
-![Weather Forecast full-screen overview with current readings, forecast, sunlight, and regional radar](<../assets/screenshots/weather-forecast-caelus-overview.png>)
+![Current Weather Forecast overview with current readings, forecast, sunlight, and regional radar](<../assets/screenshots/weather-forecast-overview.png>)
 
 The weather display uses the existing Sensorius Astral latitude, longitude,
 and timezone. Its top row presents the selected sensor's latest current
@@ -773,8 +739,6 @@ window derives its icon from its own cloud and precipitation data and totals
 any predicted precipitation within that window. Select **6-day details** under
 **Looking Ahead** to open the detailed outlook with daily conditions,
 temperature, relative humidity, wind, and precipitation.
-
-![Theme-matched detailed six-day weather outlook](<../assets/screenshots/weather-forecast-caelus-six-day.png>)
 
 ## BD Calendar
 
@@ -828,15 +792,7 @@ The dashboard BD card remains available for a quick current-status view. The Cal
 
 ### Integrated BD Calendar Features
 
-![Biodynamic Calendar app overview](<../assets/screenshots/BD Calendar App - 1.png>)
-
-![Biodynamic Calendar month view](<../assets/screenshots/BD Calendar App -2.png>)
-
-![Biodynamic Calendar detail view](<../assets/screenshots/BD Calendar App -3.png>)
-
-![Biodynamic Calendar planting tools](<../assets/screenshots/BD Calendar App - 4.png>)
-
-![Biodynamic Calendar notes and print tools](<../assets/screenshots/BD Calendar App - 5.png>)
+![Current Biodynamic Calendar overview](<../assets/screenshots/biodynamic-calendar-overview.png>)
 
 The integrated application provides:
 
@@ -844,7 +800,7 @@ The integrated application provides:
 - Moon Attributes panel with lunar direction, distance, declination, and eclipse information.
 - Planetary Aspects panel with current major aspects and planet zodiac placements from Skyfield.
 - Sensorius-managed Astral location and timezone.
-- Next 12 Months overview.
+- Twelve-Month Overview.
 - Planting records with crop details.
 - Notes and print reports.
 - Sensorius SQLite storage for notes, summaries, planting records, and cache entries.
@@ -854,7 +810,7 @@ Companion app fields and controls:
 - **Location**: comes from the Astral and Time sections in Sensorius System Settings. Change it there to invalidate and rebuild calendar data.
 - **Previous / Next month arrows**: move the main month calendar.
 - **Calendar day cells**: select a day. The selected day drives the Daily Summary, selected facts, notes, and planting context.
-- **Next 12 Months**: shows a longer planning range assembled from the shared background cache.
+- **Twelve-Month Overview**: shows a longer planning range assembled from the shared background cache.
 - **Daily Summary**: explains the selected day, including biodynamic focus and relevant timing.
 - **Plant**: crop or plant name, such as Tomato.
 - **Variety**: cultivar or variety name.
