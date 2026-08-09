@@ -91,7 +91,7 @@ class CO2Sensor(BaseSensor):
                 ("CO2", "ppm", lambda: self._get_calibrated_co2(), None),
                 ("Temperature", "°C", lambda: self._get_calibrated_temp_c(), 2),
                 ("Temperature_F", "°F", lambda: self._get_calibrated_temp_f(), 1),
-                ("Rel-Humidity", "%", lambda: self._get_calibrated_rh(), 2),
+                ("Rel-Humidity", "%", lambda: self._get_calibrated_rh(), 1),
                 (
                     "Humidity",
                     "g/m³",

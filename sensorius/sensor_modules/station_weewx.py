@@ -114,7 +114,7 @@ WEEWX_FIELD_MAP = {
 WEEWX_METRIC_PRECISION = {
     "Temperature_F": 1,
     "Dew Point_F": 1,
-    "Rel-Humidity": 0,
+    "Rel-Humidity": 1,
     "Baro-Pressure": 1,
     "Wind Speed": 1,
     "Wind Direction": 0,

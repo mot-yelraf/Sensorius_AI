@@ -142,7 +142,7 @@ class VPDPlantSensor(BaseSensor):
                     "Rel-Humidity",
                     "%",
                     lambda: self._get_calibrated_ambient_rh(),
-                    2,
+                    1,
                 ),
                 (
                     "Humidity",
@@ -204,7 +204,7 @@ class VPDPlantSensor(BaseSensor):
                     "Plant Rel-Humidity",
                     "%",
                     lambda: self._get_calibrated_plant_rh(),
-                    2,
+                    1,
                 ),
                 (
                     "Plant Humidity",

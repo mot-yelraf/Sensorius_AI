@@ -97,7 +97,7 @@ def test_weewx_archive_ingest_maps_latest_archive_row(tmp_path):
     assert timestamp == 1777908000
     assert sensor_id == "weewx-test"
     assert values["Temperature_F"] == 48.7
-    assert values["Rel-Humidity"] == 66
+    assert values["Rel-Humidity"] == 65.6
     assert values["Wind Speed"] == 2.5
     assert values["Wind Direction"] == 270
     assert values["Rain"] == 0.01
@@ -175,7 +175,7 @@ def test_weewx_mqtt_json_payload_maps_to_sensorius_metrics():
     assert reading.timestamp == 1777908000
     assert reading.values == {
         "Temperature_F": 48.7,
-        "Rel-Humidity": 66,
+        "Rel-Humidity": 65.6,
         "Baro-Pressure": pytest.approx(round(30.1655675484948 * INHG_TO_HPA, 1)),
     }
 
@@ -204,7 +204,7 @@ def test_weewx_mqtt_metric_loop_payload_maps_to_sensorius_units():
     assert reading.timestamp == "1777943700.0"
     assert reading.values == {
         "Temperature_F": 68.0,
-        "Rel-Humidity": 27,
+        "Rel-Humidity": 26.9,
         "Wind Speed": 7.0,
         "Wind Direction": 334,
         "Rain": 0.0,

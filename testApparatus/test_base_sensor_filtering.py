@@ -4,12 +4,22 @@ The tests in this module verify that metrics flagged to bypass smoothing are
 left unsmoothed by the shared `BaseSensor` filter pipeline.
 """
 
+import ast
 from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sensorius.sensor_modules.base import BAROMETRIC_PRESSURE_PRECISION, BaseSensor
+
+
+DEVICE_RH_MODULES = (
+    "sensor_aht.py",
+    "sensor_apvpd.py",
+    "sensor_aqi.py",
+    "sensor_co2.py",
+    "sensor_vpd.py",
+)
 
 
 class _StubSensor(BaseSensor):
@@ -61,3 +71,23 @@ def test_no_filter_metrics_bypass_iir_smoothing():
     assert values_2["Temperature"] == 22.0
     assert values_1["Baro-Pressure"] == 1008.9
     assert values_2["Baro-Pressure"] == 1008.9
+
+
+def test_device_relative_humidity_metrics_use_one_decimal_place():
+    """Keep every local hardware RH measurement at tenths-of-a-percent precision."""
+    module_dir = Path(__file__).resolve().parents[1] / "sensorius" / "sensor_modules"
+
+    for module_name in DEVICE_RH_MODULES:
+        tree = ast.parse((module_dir / module_name).read_text(encoding="utf-8"))
+        rh_precisions = {
+            node.elts[0].value: node.elts[3].value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Tuple)
+            and len(node.elts) == 4
+            and isinstance(node.elts[0], ast.Constant)
+            and str(node.elts[0].value).endswith("Rel-Humidity")
+            and isinstance(node.elts[3], ast.Constant)
+        }
+
+        assert rh_precisions
+        assert set(rh_precisions.values()) == {1}
