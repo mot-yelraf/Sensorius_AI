@@ -337,8 +337,11 @@ Nodus devices use 2.4 GHz Wi-Fi. For Raspberry Pi onboarding:
 - Router band steering and roaming behavior are outside Sensorius setup.
 
 When `sensorius.service` runs as a non-root user, that service user must be
-authorized to control NetworkManager before Add Device can temporarily join the
-`Nodus_Setup` access point. The Linux and Raspberry Pi setup scripts install
+authorized to control NetworkManager before Add Device can temporarily join a
+`Nodus-<serial-number>` access point. Legacy `Nodus_Setup` and `Nodus-Setup`
+names remain supported. Add Device lists all visible Nodus setup networks and,
+after one device completes onboarding, rescans so another device can be added.
+The Linux and Raspberry Pi setup scripts install
 this authorization automatically when they create `sensorius.service`.
 
 For older installs, hand-created services, or repair checks, confirm the active

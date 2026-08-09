@@ -731,7 +731,8 @@ def test_system_settings_weewx_pane_omits_inline_mqtt_instructions():
     text = source.read_text(encoding="utf-8")
 
     assert "id=\"pane-integrations\"" in text
-    assert text.count('class="integration-block"') == 3
+    integrations_pane = text[text.index('id="pane-integrations"'):text.index('id="pane-locations"')]
+    assert integrations_pane.count('class="integration-block"') == 3
     assert "id=\"weewx-conf-example\"" not in text
     assert "Configure the WeeWX MQTT extension" not in text
     assert "[StdRESTful]" not in text
@@ -754,6 +755,18 @@ def test_system_settings_save_applies_dashboard_weather_forecast_change():
     assert "body.get(\"weather_forecast_provider\")" in text
     assert "window.loadWeatherForecast(true)" in text
     assert "window.location.reload()" in text
+
+
+def test_system_settings_save_serializes_only_clicked_section():
+    source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
+    text = source.read_text(encoding="utf-8")
+
+    assert 'saveButton?.closest(".system-section-block")' in text
+    assert "const body = sectionFormBody(section);" in text
+    assert 'section.querySelectorAll("input[name], select[name], textarea[name]")' in text
+    assert "new URLSearchParams(new FormData(form))" not in text
+    assert 'classList.contains("btn-system-save")' in text
+    assert "saveSystemSettings(ev.target);" in text
 
 
 def test_system_settings_save_tolerates_absent_notification_rule_editor():
@@ -1034,6 +1047,126 @@ async def test_submit_pi_setup_persists_weather_forecast_provider(tmp_path, monk
 
 
 @pytest.mark.asyncio
+async def test_submit_pi_setup_display_section_does_not_write_other_sections(tmp_path, monkeypatch):
+    initial = {
+        "Network": {"HTTPPORT": 8123},
+        "SensorNetwork": {"BROKER": "hub.local", "MQTTPORT": 8883, "USE_TLS": True},
+        "Time": {"TZ": "America/Denver", "TZ_OFFSET": -21600, "TZ_NAME": "MDT"},
+        "Astral": {
+            "LATITUDE": "40.015000",
+            "LONGITUDE": "-105.270500",
+            "ALTITUDE": "1624.00",
+            "TIMEZONE": "America/Denver",
+            "SOURCE": "manual",
+            "PROVIDER": "",
+        },
+        "Display": {"gauge_size": "Small", "display_style": "Gauge"},
+        "WeatherForecast": {"PROVIDER": "open_meteo", "THEME": "desert", "CURRENT_SENSOR_ID": "weather-one"},
+    }
+    app = await _build_route_app_with_settings(tmp_path, monkeypatch, initial)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-pi-setup",
+            data={"gauge_size": "Large", "display_style": "Graph24hr"},
+            headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
+        )
+
+    assert res.status_code == 200
+    stored = _RouteFakeSaiSettings.STORED_SETTINGS
+    assert stored["Display"] == {"gauge_size": "Large", "display_style": "Graph24hr"}
+    for section in ("Network", "SensorNetwork", "Time", "Astral", "WeatherForecast"):
+        assert stored[section] == initial[section]
+
+
+@pytest.mark.asyncio
+async def test_submit_pi_setup_astral_section_uses_saved_timezone_without_writing_other_sections(tmp_path, monkeypatch):
+    initial = {
+        "Network": {"HTTPPORT": 8123},
+        "SensorNetwork": {"BROKER": "hub.local"},
+        "Time": {"TZ": "America/Denver", "TZ_OFFSET": -21600, "TZ_NAME": "MDT"},
+        "Astral": {"LATITUDE": "", "LONGITUDE": "", "ALTITUDE": ""},
+        "Display": {"gauge_size": "Small", "display_style": "Gauge"},
+    }
+    app = await _build_route_app_with_settings(tmp_path, monkeypatch, initial)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-pi-setup",
+            data={"astral_lat": "39.7392", "astral_lon": "-104.9903", "astral_altitude": "1609"},
+            headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
+        )
+
+    assert res.status_code == 200
+    stored = _RouteFakeSaiSettings.STORED_SETTINGS
+    assert stored["Astral"]["LATITUDE"] == "39.739200"
+    assert stored["Astral"]["LONGITUDE"] == "-104.990300"
+    assert stored["Astral"]["ALTITUDE"] == "1609.00"
+    assert stored["Astral"]["TIMEZONE"] == "America/Denver"
+    for section in ("Network", "SensorNetwork", "Time", "Display"):
+        assert stored[section] == initial[section]
+
+
+@pytest.mark.asyncio
+async def test_advanced_database_save_writes_only_retention_setting(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setenv("SENSORIUS_DB_RETENTION_DAYS", "90")
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "SENSORIUS_LOG_LEVEL=WARNING\n"
+        "SENSORIUS_FILE_LOG=true\n"
+        "SENSORIUS_DEBUG_MODULES=saiDataLogger\n"
+        "SENSORIUS_DB_RETENTION_DAYS=90\n"
+        "SENSORIUS_AUTOSTART_SCOPE=user\n"
+        "SENSORIUS_AUTOSTART_ENABLED=false\n",
+        encoding="utf-8",
+    )
+    app = await _build_route_app_with_settings(tmp_path, monkeypatch, {})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/advanced/save", json={"db_retention_days": 120})
+
+    assert res.status_code == 200
+    saved_env = env_path.read_text(encoding="utf-8")
+    assert "SENSORIUS_DB_RETENTION_DAYS=120" in saved_env
+    assert "SENSORIUS_LOG_LEVEL=WARNING" in saved_env
+    assert "SENSORIUS_FILE_LOG=true" in saved_env
+    assert "SENSORIUS_DEBUG_MODULES=saiDataLogger" in saved_env
+    assert "SENSORIUS_AUTOSTART_SCOPE=user" in saved_env
+    assert "SENSORIUS_AUTOSTART_ENABLED=false" in saved_env
+
+
+def test_advanced_save_builds_payload_from_clicked_section_only():
+    source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
+    text = source.read_text(encoding="utf-8")
+
+    assert 'saveButton?.closest(".advanced-section")' in text
+    assert 'section.id === "adv-section-startup"' in text
+    assert 'section.id === "adv-section-database"' in text
+    assert 'section.id === "adv-section-debug"' in text
+    assert "saveAdvancedSettings(ev.target);" in text
+
+
+def test_sensor_and_switch_save_forms_are_scoped_to_settings_panes():
+    modal_root = Path(__file__).resolve().parents[1] / "ui_templates" / "modals"
+    sensor_text = (modal_root / "sensor_settings.html").read_text(encoding="utf-8")
+    switch_text = (modal_root / "switch_settings.html").read_text(encoding="utf-8")
+
+    sensor_settings_pane = sensor_text[
+        sensor_text.index('id="sensor-settings-pane"'):sensor_text.index('id="sensor-calibration-pane"')
+    ]
+    assert 'action="/submit-sensor-settings"' in sensor_settings_pane
+    assert 'new URLSearchParams(new FormData(form))' in sensor_text
+    assert sensor_text.index("</form>") < sensor_text.index('id="sensor-calibration-pane"')
+
+    switch_settings_pane = switch_text[
+        switch_text.index('id="switchSettingsPane"'):switch_text.index('id="switchStatisticsPane"')
+    ]
+    assert 'action="/submit-switch-settings"' in switch_settings_pane
+    assert switch_text.index("</form>") < switch_text.index('id="switchStatisticsPane"')
+
+
+@pytest.mark.asyncio
 async def test_submit_homeassistant_settings_persists_enabled_tls_and_port(tmp_path, monkeypatch):
     app = await _build_route_app_with_settings(tmp_path, monkeypatch, {})
 
@@ -1124,6 +1257,9 @@ async def test_submit_sensor_settings_ajax_returns_json_success(tmp_path, monkey
     body = res.json()
     assert body["ok"] is True
     assert body["sensor_id"] == "apvpd-test123"
+    saved = sensor_mgr.load("apvpd-test123")
+    assert saved["Sensor"]["LOCATION"] == "Grow Tent"
+    assert saved["Display"]["METRIC_1"] == "Temperature"
 
 
 @pytest.mark.asyncio
@@ -1153,6 +1289,9 @@ async def test_submit_switch_settings_ajax_returns_json_success(tmp_path, monkey
     body = res.json()
     assert body["ok"] is True
     assert body["switch_id"] == "switch-1"
+    saved = switch_mgr.load("switch-1")
+    assert saved["Switch"]["SWITCH_LOCATION"] == "Grow Tent"
+    assert saved["Switch"]["SWITCH_1_LABEL"] == "Fan"
 
 
 @pytest.mark.asyncio

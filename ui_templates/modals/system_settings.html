@@ -894,7 +894,7 @@
                 </div>
               </div>
                     <div class="pane-footer section-action-footer">
-                      <button type="submit" class="button blue btn-system-save">Save</button>
+                      <button type="button" class="button blue btn-system-save">Save</button>
                     </div>
                   </div>
                 </details>
@@ -957,7 +957,7 @@
                 </div>
               </div>
                     <div class="pane-footer section-action-footer">
-                      <button type="submit" class="button blue btn-system-save">Save</button>
+                      <button type="button" class="button blue btn-system-save">Save</button>
                     </div>
                   </div>
                 </details>
@@ -995,7 +995,7 @@
                       </div>
                     </div>
                     <div class="pane-footer section-action-footer">
-                      <button type="submit" class="button blue btn-system-save">Save</button>
+                      <button type="button" class="button blue btn-system-save">Save</button>
                     </div>
                   </div>
                 </details>
@@ -1056,7 +1056,7 @@
                           </div>
                         </div>
                         <div class="pane-footer section-action-footer">
-                          <button type="submit" class="button blue btn-system-save">Save</button>
+                          <button type="button" class="button blue btn-system-save">Save</button>
                         </div>
                   </div>
                 </details>
@@ -1082,7 +1082,7 @@
                 </div>
               </div>
                     <div class="pane-footer section-action-footer">
-                      <button type="submit" class="button blue btn-system-save">Save</button>
+                      <button type="button" class="button blue btn-system-save">Save</button>
                     </div>
                   </div>
                 </details>
@@ -1346,40 +1346,68 @@
 
           <div class="settings-pane" id="pane-add" hidden>
             <h3 class="pane-title">Add Device</h3>
-            <div class="status-text">Click <strong>Add</strong> to start onboarding a device.</div>
-            <div class="status-text" id="add-scan-status" aria-live="polite">Scanning for Nodus_Setup...</div>
-            <div id="add-mac-hint" class="detail" hidden style="margin:.35rem 0 .8rem 0; padding:.6rem .8rem; border:1px solid #c9d7cf; border-radius:10px; background:#f4faf6;"></div>
-            <ul class="onboard-steps">
-              <li id="step-1" class="step pending">
-                <span class="icon">•</span>
-                <span class="label">Connected to Nodus setup AP</span>
-                <div class="detail" id="step-1-detail"></div>
-              </li>
-              <li id="step-2" class="step pending">
-                <span class="icon">•</span>
-                <span class="label">Bootstrap sent to Nodus</span>
-                <div class="detail" id="step-2-detail"></div>
-              </li>
-              <li id="step-3" class="step pending">
-                <span class="icon">•</span>
-                <span class="label">Sensorius rejoined <span id="step-3-ssid">your Wi-Fi</span></span>
-                <div class="detail" id="step-3-detail"></div>
-              </li>
-              <li id="step-4" class="step pending">
-                <span class="icon">•</span>
-                <span class="label">Waiting for Nodus to reboot and connect</span>
-                <div class="detail" id="step-4-detail"></div>
-              </li>
-            </ul>
-            <div id="onboard-terminal-badge" class="onboard-badge" hidden></div>
+            <div class="integrations-list">
+              <details class="integration-block" id="add-nodus-section" open>
+                <summary>Nodus Device(s)</summary>
+                <div class="integration-block-content">
+                  <div class="status-text">Select one setup network, then click <strong>Add</strong>. After it joins your Wi-Fi, the remaining Nodus devices will be scanned again.</div>
+                  <div class="status-text" id="add-scan-status" aria-live="polite">Scanning for Nodus devices...</div>
+                  <div class="field-stack" id="add-device-network-field" hidden>
+                    <label for="add-device-network">Nodus setup network</label>
+                    <select id="add-device-network" name="target_ap"></select>
+                  </div>
+                  <div id="add-mac-hint" class="detail" hidden style="margin:.35rem 0 .8rem 0; padding:.6rem .8rem; border:1px solid #c9d7cf; border-radius:10px; background:#f4faf6;"></div>
+                  <ul class="onboard-steps">
+                    <li id="step-1" class="step pending">
+                      <span class="icon">•</span>
+                      <span class="label">Connected to Nodus setup AP</span>
+                      <div class="detail" id="step-1-detail"></div>
+                    </li>
+                    <li id="step-2" class="step pending">
+                      <span class="icon">•</span>
+                      <span class="label">Bootstrap sent to Nodus</span>
+                      <div class="detail" id="step-2-detail"></div>
+                    </li>
+                    <li id="step-3" class="step pending">
+                      <span class="icon">•</span>
+                      <span class="label">Sensorius rejoined <span id="step-3-ssid">your Wi-Fi</span></span>
+                      <div class="detail" id="step-3-detail"></div>
+                    </li>
+                    <li id="step-4" class="step pending">
+                      <span class="icon">•</span>
+                      <span class="label">Waiting for Nodus to reboot and connect</span>
+                      <div class="detail" id="step-4-detail"></div>
+                    </li>
+                  </ul>
+                  <div id="onboard-terminal-badge" class="onboard-badge" hidden></div>
+                  <div class="pane-footer" style="justify-content:flex-end;">
+                    <div class="inline-actions">
+                      <button type="button" class="button yellow" id="btn-onboard-retry">Retry</button>
+                      <button type="button" class="button green" id="btn-onboard-add" disabled>Add</button>
+                    </div>
+                  </div>
+                </div>
+              </details>
+
+              <details class="integration-block" id="add-ecowitt-section">
+                <summary>Ecowitt Gateway</summary>
+                <div class="integration-block-content">
+                  <div class="field-grid-stack">
+                    <div class="field-stack">
+                      <label for="ecowitt-gateway-url">Ecowitt Gateway URL</label>
+                      <input type="url" id="ecowitt-gateway-url" name="ecowitt_gateway_url" placeholder="http://192.168.1.100" autocomplete="url">
+                    </div>
+                    <div class="field-stack">
+                      <label for="ecowitt-polling-interval">Polling Interval</label>
+                      <input type="number" id="ecowitt-polling-interval" name="ecowitt_polling_interval" placeholder="Seconds" min="1" step="1" inputmode="numeric">
+                    </div>
+                  </div>
+                  <div class="detail" style="margin-top:.55rem;">Gateway setup will be enabled when Ecowitt sensor support is added.</div>
+                </div>
+              </details>
+            </div>
             <div class="pane-footer">
-              <div class="inline-actions">
-                <button type="button" class="button black btn-back-system">Dashboard</button>
-              </div>
-              <div class="inline-actions">
-                <button type="button" class="button yellow" id="btn-onboard-retry">Retry</button>
-                <button type="button" class="button green" id="btn-onboard-add" disabled>Add</button>
-              </div>
+              <button type="button" class="button black btn-back-system">Dashboard</button>
             </div>
           </div>
 
@@ -1602,7 +1630,6 @@
     });
   });
   const onboardingV2Enabled = String(shell?.dataset?.onboardingV2Enabled || "true").toLowerCase() !== "false";
-  const formEl = document.getElementById("systemSettingsForm");
   const menu = document.getElementById("systemSettingsMenu");
   const panes = root.querySelectorAll(".settings-pane");
   const tzInput = document.getElementById("tz");
@@ -1625,6 +1652,7 @@
   let addScanTimer = null;
   let addScanActive = false;
   let addScanAttempt = 0;
+  let addSetupNetworks = [];
   const addScanMax = 3;
   const addScanDelayMs = 5000;
   const addScanDelaySec = Math.max(1, Math.round(addScanDelayMs / 1000));
@@ -1777,18 +1805,6 @@
     }
     btn.disabled = !!isBusy;
     btn.textContent = isBusy ? (busyLabel || "Saving...") : (btn.dataset.baseLabel || "Save");
-  }
-
-  function setSystemSaveButtonsBusy(isBusy) {
-    root.querySelectorAll(".btn-system-save").forEach((btn) => {
-      setButtonBusy(btn, isBusy, "Saving...");
-    });
-  }
-
-  function setAdvancedSaveButtonsBusy(isBusy) {
-    root.querySelectorAll(".btn-advanced-save").forEach((btn) => {
-      setButtonBusy(btn, isBusy, "Saving...");
-    });
   }
 
   async function readErrorMessage(resp, fallbackText) {
@@ -2332,14 +2348,30 @@
     }
   }
 
-  async function saveSystemSettings() {
+  function sectionFormBody(section) {
+    const body = new URLSearchParams();
+    if (!section) return body;
+    section.querySelectorAll("input[name], select[name], textarea[name]").forEach((control) => {
+      if (control.disabled || !control.name) return;
+      if ((control.type === "checkbox" || control.type === "radio") && !control.checked) return;
+      if (control instanceof HTMLSelectElement && control.multiple) {
+        [...control.selectedOptions].forEach((option) => body.append(control.name, option.value));
+        return;
+      }
+      body.append(control.name, control.value);
+    });
+    return body;
+  }
+
+  async function saveSystemSettings(saveButton) {
     const form = document.getElementById("systemSettingsForm");
-    if (!form) return;
+    const section = saveButton?.closest(".system-section-block");
+    if (!form || !section) return;
     try {
-      setSystemSaveButtonsBusy(true);
+      setButtonBusy(saveButton, true, "Saving...");
       setStatus("system-status", "Saving...");
       syncNotificationRulesInput();
-      const body = new URLSearchParams(new FormData(form));
+      const body = sectionFormBody(section);
       const resp = await fetch(form.action, {
         method: "POST",
         headers: {
@@ -2362,14 +2394,16 @@
       const savedMessage = String(js.message || "Saved.");
       setStatus("system-status", savedMessage);
       showSettingsToast("System settings saved", "ok");
-      applyDashboardWeatherForecastChange(body.get("weather_forecast_provider"));
+      if (body.has("weather_forecast_provider")) {
+        applyDashboardWeatherForecastChange(body.get("weather_forecast_provider"));
+      }
     } catch (e) {
       console.error(e);
       const msg = e && e.message ? e.message : "Failed to save System settings.";
       setStatus("system-status", msg);
       showSettingsToast(msg, "error");
     } finally {
-      setSystemSaveButtonsBusy(false);
+      setButtonBusy(saveButton, false);
     }
   }
 
@@ -2868,21 +2902,27 @@
     if (pathEl) pathEl.hidden = !enabled;
   }
 
-  async function saveAdvancedSettings() {
+  async function saveAdvancedSettings(saveButton) {
     try {
-      const dbgChecks = [...document.querySelectorAll("#adv-debug-modules input[type='checkbox']")];
-      const debugModules = dbgChecks.filter((el) => el.checked).map((el) => el.value);
-      const payload = {
-        autostart_enabled: !!document.getElementById("adv-autostart-enabled")?.checked,
-        autostart_scope: (document.getElementById("adv-autostart-scope")?.value || "user").trim(),
-        log_level: (document.getElementById("adv-log-level")?.value || "DEBUG").trim(),
-        file_log: !!document.getElementById("adv-file-log")?.checked,
-        debug_modules: debugModules,
-        db_retention_days: parseInt(document.getElementById("adv-db-retention")?.value || "90", 10),
-      };
+      const section = saveButton?.closest(".advanced-section");
+      if (!section) return;
+      const payload = {};
+      if (section.id === "adv-section-startup") {
+        payload.autostart_enabled = !!document.getElementById("adv-autostart-enabled")?.checked;
+        payload.autostart_scope = (document.getElementById("adv-autostart-scope")?.value || "user").trim();
+      } else if (section.id === "adv-section-database") {
+        payload.db_retention_days = parseInt(document.getElementById("adv-db-retention")?.value || "90", 10);
+      } else if (section.id === "adv-section-debug") {
+        const dbgChecks = [...document.querySelectorAll("#adv-debug-modules input[type='checkbox']")];
+        payload.log_level = (document.getElementById("adv-log-level")?.value || "DEBUG").trim();
+        payload.file_log = !!document.getElementById("adv-file-log")?.checked;
+        payload.debug_modules = dbgChecks.filter((el) => el.checked).map((el) => el.value);
+      } else {
+        return;
+      }
 
       setStatus("adv-status", "Saving...");
-      setAdvancedSaveButtonsBusy(true);
+      setButtonBusy(saveButton, true, "Saving...");
       const resp = await fetch("/advanced/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2906,7 +2946,7 @@
       setStatus("adv-status", msg);
       showSettingsToast(msg, "error");
     } finally {
-      setAdvancedSaveButtonsBusy(false);
+      setButtonBusy(saveButton, false);
     }
   }
 
@@ -3021,7 +3061,7 @@
       onboardPollTimer = null;
     }
     setAddMacHint(null);
-    setAddScanStatus("Scanning for Nodus_Setup...");
+    setAddScanStatus("Scanning for Nodus devices...");
   }
 
   function setOnboardBadge(text, kind) {
@@ -3140,8 +3180,9 @@
       markOnboardStep(4, true, "Waiting for Nodus to reboot and connect", "Device online");
       stopOnboardCountdown();
       setOnboardBadge("Device onboarded successfully.", "ok");
-      setAddScanStatus("Device onboarded successfully.");
-      if (addBtn && !addScanActive) addBtn.disabled = false;
+      onboardSessionState = "ONLINE";
+      setAddScanStatus("Device onboarded successfully. Scanning for another Nodus...");
+      startAddScan();
       return;
     }
     if (state === "FAILED") {
@@ -3181,7 +3222,6 @@
   }
 
   async function startOnboard() {
-    if (!formEl) return;
     const addBtn = document.getElementById("btn-onboard-add");
     if (addBtn && addBtn.disabled) return;
     if (onboardingV2Enabled) onboardSessionState = "STARTING";
@@ -3191,7 +3231,9 @@
 
     try {
       resetOnboardUI();
-      const fd = new FormData(formEl);
+      const fd = new FormData();
+      const selectedSetupNetwork = String(document.getElementById("add-device-network")?.value || "").trim();
+      if (selectedSetupNetwork) fd.set("target_ap", selectedSetupNetwork);
       if (!onboardingV2Enabled) {
         const resLegacy = await fetch("/onboard-device", { method: "POST", body: fd });
         if (!resLegacy.ok) {
@@ -3343,6 +3385,23 @@
     if (el) el.textContent = msg || "";
   }
 
+  function renderAddSetupNetworks(ssids) {
+    addSetupNetworks = [...new Set((ssids || []).map((value) => String(value || "").trim()).filter(Boolean))];
+    const field = document.getElementById("add-device-network-field");
+    const select = document.getElementById("add-device-network");
+    if (!field || !select) return;
+    const previous = String(select.value || "");
+    select.replaceChildren();
+    addSetupNetworks.forEach((ssid) => {
+      const option = document.createElement("option");
+      option.value = ssid;
+      option.textContent = ssid;
+      select.appendChild(option);
+    });
+    if (addSetupNetworks.includes(previous)) select.value = previous;
+    field.hidden = addSetupNetworks.length === 0;
+  }
+
   function stopAddScan() {
     addScanActive = false;
     if (addScanTimer) {
@@ -3362,11 +3421,14 @@
       const js = await resp.json();
       if (!addScanActive || isOnboardInProgressState()) return;
       const targetSsid = (js && js.ssid) ? js.ssid : "Nodus_Setup";
+      const setupNetworks = Array.isArray(js?.ssids) ? js.ssids : (js?.found && targetSsid ? [targetSsid] : []);
+      renderAddSetupNetworks(setupNetworks);
       const platformName = (js && js.platform) ? String(js.platform) : "";
       const detailMsg = (js && js.message) ? String(js.message) : "no scan details";
       setAddMacHint(js);
       if (js && js.found) {
-        setAddScanStatus(platformName === "Darwin" ? detailMsg : `${targetSsid} found`);
+        const count = setupNetworks.length;
+        setAddScanStatus(platformName === "Darwin" ? detailMsg : `${count} Nodus setup network${count === 1 ? "" : "s"} found`);
         if (addBtn) addBtn.disabled = false;
         stopAddScan();
         return;
@@ -3416,8 +3478,9 @@
     addScanAttempt = 0;
     const addBtn = document.getElementById("btn-onboard-add");
     if (addBtn) addBtn.disabled = true;
+    renderAddSetupNetworks([]);
     setAddMacHint(null);
-    setAddScanStatus("Scanning for Nodus_Setup...");
+    setAddScanStatus("Scanning for Nodus devices...");
     scanAddAttempt();
   }
 
@@ -4000,6 +4063,9 @@
   });
 
   document.addEventListener("click", function(ev) {
+    if (ev.target && ev.target.classList && ev.target.classList.contains("btn-system-save")) {
+      saveSystemSettings(ev.target);
+    }
     if (ev.target && ev.target.id === "nodus-wifi-password-toggle") {
       const input = document.getElementById("nodus-wifi-password");
       if (!input) return;
@@ -4096,7 +4162,7 @@
       renewDatabase();
     }
     if (ev.target && ev.target.classList && ev.target.classList.contains("btn-advanced-save")) {
-      saveAdvancedSettings();
+      saveAdvancedSettings(ev.target);
     }
     if (ev.target && ev.target.classList && ev.target.classList.contains("btn-back-system")) {
       if (document.getElementById("pane-add") && !document.getElementById("pane-add").hidden) {
@@ -4131,7 +4197,6 @@
     systemSettingsForm.dataset.ajaxBound = "1";
     systemSettingsForm.addEventListener("submit", function(ev) {
       ev.preventDefault();
-      saveSystemSettings();
     });
   }
   refreshTimezoneOptionsFromCoords();

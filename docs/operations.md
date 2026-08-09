@@ -93,8 +93,10 @@ Useful web routes:
 ## Add Device Wi-Fi Authorization
 
 On Raspberry Pi, Add Device temporarily moves the Sensorius host from its normal
-Wi-Fi network to `Nodus_Setup`, posts bootstrap data to the Nodus AP, and then
-rejoins the normal network. If logs show:
+Wi-Fi network to the selected `Nodus-<serial-number>` setup network, posts
+bootstrap data to the Nodus AP, and then
+rejoins the normal network. Legacy `Nodus_Setup` and `Nodus-Setup` names remain
+supported. If logs show:
 
 ```text
 org.freedesktop.NetworkManager.network-control request failed: not authorized

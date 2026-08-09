@@ -10,6 +10,7 @@ import os
 import sys
 import time
 import subprocess
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -112,7 +113,7 @@ async def test_scan_nodus_setup_marks_macos_miss_inconclusive(tmp_path, monkeypa
     async def _fake_to_thread(func, *args, **kwargs):
         if not args and not kwargs:
             return func(*args, **kwargs)
-        return False, "ok"
+        return False, "ok", []
 
     monkeypatch.setattr(saiWebRoutes.asyncio, "to_thread", _fake_to_thread)
 
@@ -130,7 +131,7 @@ async def test_scan_nodus_setup_marks_macos_miss_inconclusive(tmp_path, monkeypa
         assert body.get("password") == "password"
         assert body.get("current_ssid") == "ExampleWiFi"
         assert body.get("manual_join_required") is False
-        assert "Click Add" in body.get("message", "")
+        assert "Other Networks" in body.get("message", "")
 
 
 @pytest.mark.asyncio
@@ -155,7 +156,7 @@ async def test_scan_nodus_setup_linux_rescans_wifi_interface(tmp_path, monkeypat
         if cmd[:4] == ["nmcli", "dev", "wifi", "rescan"]:
             return _cp(stdout="")
         if cmd[:5] == ["nmcli", "-t", "-f", "SSID", "dev"] and "ifname" in cmd:
-            return _cp(stdout="ExampleWiFi\nNodus_Setup\n")
+            return _cp(stdout="ExampleWiFi\nNodus-1002\nNodus_Setup\nNodus-1001\n")
         return _cp(stdout="ExampleWiFi\n")
 
     monkeypatch.setattr(saiWebRoutes.subprocess, "run", _fake_run)
@@ -171,9 +172,30 @@ async def test_scan_nodus_setup_linux_rescans_wifi_interface(tmp_path, monkeypat
         body = res.json()
         assert body.get("found") is True
         assert body.get("platform") == "Linux"
+        assert body.get("ssids") == ["Nodus-1001", "Nodus-1002", "Nodus_Setup"]
+        assert body.get("ssid") == "Nodus-1001"
 
     assert ["nmcli", "dev", "wifi", "rescan", "ifname", "wlan0"] in seen_cmds
     assert any(cmd[:6] == ["nmcli", "-t", "-f", "SSID", "dev", "wifi"] and "wlan0" in cmd for cmd in seen_cmds)
+
+
+def test_add_device_ui_selects_discovered_ap_and_rescans_after_success():
+    source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
+    text = source.read_text(encoding="utf-8")
+
+    assert 'id="add-device-network" name="target_ap"' in text
+    assert '<details class="integration-block" id="add-nodus-section" open>' in text
+    assert '<summary>Nodus Device(s)</summary>' in text
+    assert '<details class="integration-block" id="add-ecowitt-section">' in text
+    assert '<summary>Ecowitt Gateway</summary>' in text
+    assert 'id="ecowitt-gateway-url" name="ecowitt_gateway_url"' in text
+    assert 'id="ecowitt-polling-interval" name="ecowitt_polling_interval"' in text
+    assert 'fd.set("target_ap", selectedSetupNetwork)' in text
+    assert "const fd = new FormData();" in text
+    assert "new FormData(formEl)" not in text
+    assert "Array.isArray(js?.ssids)" in text
+    online_block = text[text.index('if (state === "ONLINE")'):text.index('if (state === "FAILED")')]
+    assert "startAddScan();" in online_block
 
 
 @pytest.mark.asyncio
@@ -381,11 +403,14 @@ async def test_v2_start_on_macos_attempts_ap_join_when_not_on_target_ap(tmp_path
     await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        res = await client.post("/onboard-device/v2/start", data={"device_id": "aqi-auto-join"})
+        res = await client.post(
+            "/onboard-device/v2/start",
+            data={"device_id": "aqi-auto-join", "target_ap": "Nodus-1002"},
+        )
         assert res.status_code == 200
         assert res.json().get("ok") is True
 
-    assert connect_calls == [("Nodus_Setup", "password", 3)]
+    assert connect_calls == [("Nodus-1002", "password", 3)]
 
 
 @pytest.mark.asyncio

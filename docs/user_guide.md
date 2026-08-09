@@ -183,7 +183,8 @@ maintenance tools.
 ### System Settings Pane
 
 The main pane contains six expandable sections. Open one to review or change
-its settings.
+its settings. Each section-level **Save** submits and writes only the controls
+inside that section; values in the other expandable sections are left unchanged.
 
 #### System Settings
 
@@ -511,7 +512,11 @@ Locations should describe places people recognize: Greenhouse 1, West Bed, Seedl
 
 ![Add Device pane](<../assets/screenshots/system-settings-add-device.png>)
 
-Use Add Device to onboard a factory-bootstrapped Nodus device.
+Use Add Device to onboard a factory-bootstrapped Nodus device. The page groups
+device types into expandable sections. **Nodus Device(s)** contains the active
+Nodus onboarding workflow. **Ecowitt Gateway** currently provides placeholder
+fields for the gateway URL and polling interval; Ecowitt discovery, validation,
+and persistence are not enabled yet.
 
 Fields and status rows:
 
@@ -523,7 +528,17 @@ Fields and status rows:
 - **Retry**: retries the current onboarding session.
 - **Add**: starts onboarding when the setup AP is available or manual joining is required.
 
-On macOS, Sensorius first attempts to join `Nodus_Setup` automatically using native Wi-Fi tooling, including setup networks shown under Other Networks. If automatic joining fails, the pane may instruct you to join `Nodus_Setup` manually from Wi-Fi settings, then return and click Add. For Raspberry Pi deployments that onboard over Wi-Fi, use a 2.4 GHz network path. If the router combines 2.4 GHz and 5 GHz under one SSID, ethernet on the Raspberry Pi is usually the most reliable setup. If Add Device reports `network_control_not_authorized`, the Linux/Raspberry Pi service install did not grant NetworkManager control; use the Operations guide to repair the service authorization.
+On macOS, Sensorius first attempts to join the selected `Nodus-<serial-number>`
+setup network automatically using native Wi-Fi tooling, including setup networks
+shown under Other Networks. The legacy `Nodus_Setup` and `Nodus-Setup` names
+remain supported. If automatic joining fails, the pane may instruct you to join
+the setup network manually from Wi-Fi settings, then return and click Add. For
+Raspberry Pi deployments that onboard over Wi-Fi, use a 2.4 GHz network path. If
+the router combines 2.4 GHz and 5 GHz under one SSID, ethernet on the Raspberry
+Pi is usually the most reliable setup. If Add Device reports
+`network_control_not_authorized`, the Linux/Raspberry Pi service install did not
+grant NetworkManager control; use the Operations guide to repair the service
+authorization.
 
 ### Update Device Pane
 
@@ -675,7 +690,7 @@ Fields and controls:
 - **SENSORIUS_DEBUG_MODULES**: module-specific debug checkboxes. Options are loaded from the app's advanced status endpoint.
 - **Archive Database**: creates a SQLite database snapshot under `database_archives/` next to the active database and downloads the snapshot.
 - **New Database**: archives the current SQLite database, deletes the active database files, and creates a new empty database. This is an intentionally drastic recovery action.
-- **Save**: writes advanced settings.
+- **Save**: writes only the settings in its Start-up, Database, or Debug section.
 
 ## Sensor Settings
 
@@ -693,7 +708,10 @@ Fields and selectors:
 - **Display Style 1-6**: display style for each selected metric. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
 - **Dashboard**: closes the modal and returns to the dashboard.
 - **Restart Device**: appears for devices that support remote restart, such as supported Nodus devices. It sends a restart request to the device.
-- **Save**: writes the changes to `sensor_settings/<sensor_id>/sensor.toml`. For remote Nodus devices, Sensorius also pushes a correlated settings update over MQTT when needed.
+- **Save**: writes only the Sensor Settings pane values to
+  `sensor_settings/<sensor_id>/sensor.toml`. Calibration and Sensor Info pane
+  state are not submitted. For remote Nodus devices, Sensorius also pushes a
+  correlated settings update over MQTT when needed.
 
 Use clear location names. They are visible to nontechnical users and make later automation rules easier to understand.
 
@@ -789,7 +807,9 @@ Fields and controls:
 - **Dashboard timer gear**: opens the channel's manual auto-off timer. Use `0` to disable it or 30-9999 seconds; the dashboard rounds entries to a 30-second step. The value lasts only until Sensorius restarts.
 - **Dashboard**: closes the modal.
 - **Restart Device**: appears for supported remote switches and sends a restart request.
-- **Save**: writes changes to switch settings. For remote Nodus switches, Sensorius also sends a settings update over MQTT when needed.
+- **Save**: writes only the Switch Settings pane values. Switch Info is not
+  submitted. For remote Nodus switches, Sensorius also sends a settings update
+  over MQTT when needed.
 
 Keep labels stable for operator clarity, but the internal switch address is the
 stable `<switch_id>::<channel_id>` key.

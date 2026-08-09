@@ -20,6 +20,8 @@ ITAOT_INIT_URL     = f"http://{PICOW_ADDR}:{HTTPPORT}/itaot-init"
 ITAOT_META_URL     = f"http://{PICOW_ADDR}:{HTTPPORT}/itaot-meta"
 DEFAULT_ENCODING   = "base64"
 
+LEGACY_NODUS_AP_SSIDS = frozenset({"Nodus_Setup", "Nodus-Setup"})
+
 import os
 import re
 import json
@@ -112,6 +114,15 @@ def _ensure_dir(path: Path) -> None:
 def _sanitize_for_fs(name: str) -> str:
     name = (name or "").strip()
     return re.sub(r"[^A-Za-z0-9._-]+", "_", name)
+
+
+def is_nodus_setup_ssid(ssid: str) -> bool:
+    """Return whether *ssid* is a legacy or serial-numbered Nodus setup AP."""
+    value = str(ssid or "").strip()
+    if value in LEGACY_NODUS_AP_SSIDS:
+        return True
+    return bool(re.fullmatch(r"Nodus-[A-Za-z0-9][A-Za-z0-9._-]*", value))
+
 
 def _decode_bytes(data_str: str, encoding: str) -> bytes:
     enc = (encoding or DEFAULT_ENCODING).lower()

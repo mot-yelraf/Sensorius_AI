@@ -2137,10 +2137,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         return False, f"Unsupported platform: {platform.system()}"
 
-    def _scan_for_ssid(target_ssid: str) -> tuple[bool, str]:
+    def _scan_for_ssid(target_ssid: str) -> tuple[bool, str, list[str]]:
         ssid = str(target_ssid or "").strip()
-        if not ssid:
-            return False, "SSID missing"
+        from . import saiAddDevice as _add_device
+
+        def _matching_ssids(values: list[str]) -> list[str]:
+            unique = {str(value or "").strip() for value in values if str(value or "").strip()}
+            if ssid:
+                return [ssid] if ssid in unique else []
+            return sorted(value for value in unique if _add_device.is_nodus_setup_ssid(value))
+
         sys_name = platform.system().lower()
         try:
             if sys_name == "linux":
@@ -2171,29 +2177,31 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         errors.append((p.stderr or p.stdout or "nmcli list failed").strip())
                         continue
                     lines = [ln.strip() for ln in (p.stdout or "").splitlines() if ln.strip()]
-                    if ssid in lines:
-                        return True, "ok"
+                    matches = _matching_ssids(lines)
+                    if matches:
+                        return True, "ok", matches
 
                 detail = "; ".join(x for x in errors if x).strip()
-                return False, detail or "ok"
+                return False, detail or "ok", []
 
             if sys_name == "darwin":
                 airport = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport"
                 if not Path(airport).exists():
-                    return False, "airport tool not found"
+                    return False, "airport tool not found", []
                 # Prefer plist output (-x) for robust parsing across spacing/alignment changes.
                 p_xml = subprocess.run([airport, "-s", "-x"], capture_output=True, timeout=8)
                 if p_xml.returncode == 0 and p_xml.stdout:
                     try:
                         rows = plistlib.loads(p_xml.stdout)
-                        wanted = ssid.strip()
+                        scanned_ssids: list[str] = []
                         for row in (rows or []):
                             if not isinstance(row, dict):
                                 continue
                             candidate = str(row.get("SSID_STR") or row.get("SSID") or "").strip()
-                            if candidate == wanted:
-                                return True, "ok"
-                        return False, "ok"
+                            if candidate:
+                                scanned_ssids.append(candidate)
+                        matches = _matching_ssids(scanned_ssids)
+                        return bool(matches), "ok", matches
                     except Exception:
                         pass
 
@@ -2203,17 +2211,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     err = p.stderr or p.stdout
                     if not err and p_xml.returncode != 0:
                         err = (p_xml.stderr or b"").decode(errors="ignore")
-                    return False, (err or "airport scan failed").strip()
-                wanted = ssid.strip()
+                    return False, (err or "airport scan failed").strip(), []
+                scanned_ssids = []
                 for ln in (p.stdout or "").splitlines():
                     line = ln.rstrip()
                     if not line or line.lstrip().startswith("SSID "):
                         continue
                     bssid = re.search(r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}", line)
                     candidate = line[:bssid.start()].strip() if bssid else line.strip()
-                    if candidate == wanted:
-                        return True, "ok"
-                return False, "ok"
+                    if candidate:
+                        scanned_ssids.append(candidate)
+                matches = _matching_ssids(scanned_ssids)
+                return bool(matches), "ok", matches
 
             if sys_name == "windows":
                 p = subprocess.run(
@@ -2221,15 +2230,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     capture_output=True, text=True, timeout=10
                 )
                 if p.returncode != 0:
-                    return False, (p.stderr or p.stdout or "netsh scan failed").strip()
+                    return False, (p.stderr or p.stdout or "netsh scan failed").strip(), []
+                scanned_ssids = []
                 for ln in (p.stdout or "").splitlines():
                     m = re.match(r"^\s*SSID\s+\d+\s*:\s*(.*)$", ln, flags=re.IGNORECASE)
-                    if m and m.group(1).strip() == ssid:
-                        return True, "ok"
-                return False, "ok"
+                    if m and m.group(1).strip():
+                        scanned_ssids.append(m.group(1).strip())
+                matches = _matching_ssids(scanned_ssids)
+                return bool(matches), "ok", matches
         except Exception as ex:
-            return False, str(ex)
-        return False, f"unsupported platform: {platform.system()}"
+            return False, str(ex), []
+        return False, f"unsupported platform: {platform.system()}", []
 
     @router.get("/", response_class=HTMLResponse)
     async def current_data_page(
@@ -5352,7 +5363,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         factory_target_ap = (saiAddDevice.PICOW_AP_SSID or "Nodus_Setup").strip() or "Nodus_Setup"
         target_ap = str(form.get("target_ap", "") or "").strip() or factory_target_ap
         target_ap_password_raw = form.get("target_ap_password")
-        if target_ap_password_raw is None and target_ap == factory_target_ap:
+        if target_ap_password_raw is None and saiAddDevice.is_nodus_setup_ssid(target_ap):
             target_ap_password = str(saiAddDevice.PICOW_AP_PASSWORD or "")
         else:
             target_ap_password = str(target_ap_password_raw or "")
@@ -5924,6 +5935,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         sensor_type = form.get("sensor_type", "")
         location    = form.get("location", "Unknown")
         local_ssid  = form.get("local_ssid", "Unknown")
+        factory_target_ap = (saiAddDevice.PICOW_AP_SSID or "Nodus_Setup").strip() or "Nodus_Setup"
+        target_ap = str(form.get("target_ap", "") or "").strip() or factory_target_ap
+        target_ap_password_raw = form.get("target_ap_password")
+        if target_ap_password_raw is None and saiAddDevice.is_nodus_setup_ssid(target_ap):
+            target_ap_password = str(saiAddDevice.PICOW_AP_PASSWORD or "")
+        else:
+            target_ap_password = str(target_ap_password_raw or "")
         # You may already assemble a richer onboarding payload; pass it through:
         payload_json = form.get("payload_json")  # optional richer JSON blob
 
@@ -5932,7 +5950,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         async def run_flow():
             # Step 1: AP connect
-            target_ap = (saiAddDevice.PICOW_AP_SSID or "Nodus_Setup").strip() or "Nodus_Setup"
             label1 = f"{target_ap} connection established"
             ok1 = False
             try:
@@ -5940,7 +5957,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     None,
                     lambda: saiAddDevice.connect_to_sensor_ap(
                         target_ap,
-                        saiAddDevice.PICOW_AP_PASSWORD,
+                        target_ap_password,
                         attempts=3
                     )
                 )
@@ -8907,22 +8924,34 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         #settings.replace_setting("Network", "PASSWORD", form.get("password", ""))
         #settings.replace_setting("Network", "HOSTNAME", form.get("hostname", ""))
 
-        broker = str(form.get("broker", "") or "").strip()
-        tz = str(form.get("tz", "") or "").strip()
-        raw_httpport = str(form.get("httpport", "") or "").strip()
-        raw_mqttport = str(form.get("mqttport", "") or "").strip()
+        astral_form_present = any(key in form for key in ("astral_lat", "astral_lon", "astral_altitude"))
+        weather_form_present = any(
+            key in form
+            for key in ("weather_forecast_provider", "weather_forecast_theme", "weather_forecast_sensor_id")
+        )
+
+        broker = str(form.get("broker", settings.get_setting("SensorNetwork", "BROKER", "")) or "").strip()
+        tz = str(form.get("tz", settings.get_setting("Time", "TZ", "America/Denver")) or "").strip()
+        raw_httpport = str(form.get("httpport", settings.get_setting("Network", "HTTPPORT", 8000)) or "").strip()
+        raw_mqttport = str(form.get("mqttport", settings.get_setting("SensorNetwork", "MQTTPORT", 1883)) or "").strip()
         sensornetwork_use_tls = str(form.get("sensornetwork_use_tls", "") or "").strip().lower() in ("1", "true", "on", "yes")
         raw_lat = str(form.get("astral_lat", "") or "").strip()
         raw_lon = str(form.get("astral_lon", "") or "").strip()
         raw_altitude = str(form.get("astral_altitude", "") or "").strip()
         gauge_size = str(form.get("gauge_size", "") or "").strip()
         display_style = str(form.get("display_style", "") or "").strip()
-        raw_weather_forecast_provider = str(form.get("weather_forecast_provider", "met_no") or "").strip()
+        raw_weather_forecast_provider = str(
+            form.get(
+                "weather_forecast_provider",
+                settings.get_setting("WeatherForecast", "PROVIDER", "met_no"),
+            )
+            or ""
+        ).strip()
         weather_forecast_provider = normalize_weather_forecast_provider(raw_weather_forecast_provider)
         raw_weather_forecast_theme = str(
             form.get("weather_forecast_theme", settings.get_setting("WeatherForecast", "THEME", "garden")) or ""
         ).strip().lower()
-        if raw_weather_forecast_theme not in {"garden", "island", "river", "desert"}:
+        if weather_form_present and raw_weather_forecast_theme not in {"garden", "island", "river", "desert"}:
             return _modal_error_response(request, "Weather Forecast theme is not supported.", status_code=400)
         weather_forecast_theme = normalize_weather_theme(raw_weather_forecast_theme)
         weather_forecast_sensor_id = str(
@@ -8932,7 +8961,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             )
             or ""
         ).strip()
-        if weather_forecast_sensor_id and not re.match(r"^[A-Za-z0-9._-]+$", weather_forecast_sensor_id):
+        if weather_form_present and weather_forecast_sensor_id and not re.match(r"^[A-Za-z0-9._-]+$", weather_forecast_sensor_id):
             return _modal_error_response(
                 request,
                 "Weather Forecast sensor ID may contain only letters, numbers, dot, underscore, and dash.",
@@ -8949,7 +8978,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         email_from = str(form.get("email_from", "") or "").strip()
         email_to = str(form.get("email_to", "") or "").strip()
         raw_notification_rules = str(form.get("notification_rules_json", "[]") or "[]").strip()
-        astral_reset_requested = not raw_lat and not raw_lon
+        astral_reset_requested = astral_form_present and not raw_lat and not raw_lon
 
         email_fields = (email_smtp_host, email_username, email_from, email_to)
         if email_form_present and any("\r" in value or "\n" in value for value in email_fields):
@@ -8988,29 +9017,34 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     status_code=400,
                 )
 
-        if not tz:
+        if ("tz" in form or astral_form_present) and not tz:
             return _modal_error_response(request, "Time zone is required.", status_code=400)
-        try:
-            ZoneInfo(tz)
-        except Exception:
-            return _modal_error_response(
-                request,
-                f"Invalid timezone '{tz}'. Use a valid IANA timezone (example: America/Denver).",
-                status_code=400,
-            )
+        if "tz" in form or astral_form_present:
+            try:
+                ZoneInfo(tz)
+            except Exception:
+                return _modal_error_response(
+                    request,
+                    f"Invalid timezone '{tz}'. Use a valid IANA timezone (example: America/Denver).",
+                    status_code=400,
+                )
 
-        try:
-            httpport = int(raw_httpport or "8000")
-        except Exception:
-            return _modal_error_response(request, "HTTP Port must be a number.", status_code=400)
-        if httpport < 1 or httpport > 65535:
-            return _modal_error_response(request, "HTTP Port must be between 1 and 65535.", status_code=400)
-        try:
-            mqttport = int(raw_mqttport or "1883")
-        except Exception:
-            return _modal_error_response(request, "MQTT Port must be a number.", status_code=400)
-        if mqttport < 1 or mqttport > 65535:
-            return _modal_error_response(request, "MQTT Port must be between 1 and 65535.", status_code=400)
+        httpport = None
+        if "httpport" in form:
+            try:
+                httpport = int(raw_httpport or "8000")
+            except Exception:
+                return _modal_error_response(request, "HTTP Port must be a number.", status_code=400)
+            if httpport < 1 or httpport > 65535:
+                return _modal_error_response(request, "HTTP Port must be between 1 and 65535.", status_code=400)
+        mqttport = None
+        if "mqttport" in form:
+            try:
+                mqttport = int(raw_mqttport or "1883")
+            except Exception:
+                return _modal_error_response(request, "MQTT Port must be a number.", status_code=400)
+            if mqttport < 1 or mqttport > 65535:
+                return _modal_error_response(request, "MQTT Port must be between 1 and 65535.", status_code=400)
 
         lat_to_store = None
         lon_to_store = None
@@ -9029,13 +9063,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 altitude_to_store = f"{altitude_val:.2f}"
             else:
                 altitude_to_store = ""
-        if not raw_lat and not raw_lon:
+        if astral_form_present and not raw_lat and not raw_lon:
             lat_to_store = ""
             lon_to_store = ""
             astral_tz_to_store = ""
             astral_source_to_store = ""
             astral_provider_to_store = ""
-        elif raw_lat or raw_lon:
+        elif astral_form_present and (raw_lat or raw_lon):
             if not raw_lat or not raw_lon:
                 return _modal_error_response(
                     request,
@@ -9057,15 +9091,19 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             astral_source_to_store = "manual"
             astral_provider_to_store = ""
 
-        tz_offset, tz_name = settings.timezone_info(tz)
-
-        settings.replace_setting("Network", "HTTPPORT", httpport)
-        settings.replace_setting("SensorNetwork", "BROKER", broker)
-        settings.replace_setting("SensorNetwork", "MQTTPORT", mqttport)
-        settings.replace_setting("SensorNetwork", "USE_TLS", sensornetwork_use_tls)
-        settings.replace_setting("Time", "TZ", tz)
-        settings.replace_setting("Time", "TZ_OFFSET", tz_offset)
-        settings.replace_setting("Time", "TZ_NAME", tz_name)
+        if "httpport" in form and httpport is not None:
+            settings.replace_setting("Network", "HTTPPORT", httpport)
+        if "broker" in form:
+            settings.replace_setting("SensorNetwork", "BROKER", broker)
+        if "mqttport" in form and mqttport is not None:
+            settings.replace_setting("SensorNetwork", "MQTTPORT", mqttport)
+        if "sensornetwork_use_tls" in form:
+            settings.replace_setting("SensorNetwork", "USE_TLS", sensornetwork_use_tls)
+        if "tz" in form:
+            tz_offset, tz_name = settings.timezone_info(tz)
+            settings.replace_setting("Time", "TZ", tz)
+            settings.replace_setting("Time", "TZ_OFFSET", tz_offset)
+            settings.replace_setting("Time", "TZ_NAME", tz_name)
         if astral_tz_to_store is not None:
             settings.replace_setting("Astral", "TIMEZONE", astral_tz_to_store)
         if lat_to_store is not None:
@@ -9078,11 +9116,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             settings.replace_setting("Astral", "PROVIDER", astral_provider_to_store)
         if altitude_to_store is not None:
             settings.replace_setting("Astral", "ALTITUDE", altitude_to_store)
-        settings.replace_setting("Display", "gauge_size", gauge_size)
-        settings.replace_setting("Display", "display_style", display_style)
-        settings.replace_setting("WeatherForecast", "PROVIDER", weather_forecast_provider)
-        settings.replace_setting("WeatherForecast", "THEME", weather_forecast_theme)
-        settings.replace_setting("WeatherForecast", "CURRENT_SENSOR_ID", weather_forecast_sensor_id)
+        if "gauge_size" in form:
+            settings.replace_setting("Display", "gauge_size", gauge_size)
+        if "display_style" in form:
+            settings.replace_setting("Display", "display_style", display_style)
+        if "weather_forecast_provider" in form:
+            settings.replace_setting("WeatherForecast", "PROVIDER", weather_forecast_provider)
+        if "weather_forecast_theme" in form:
+            settings.replace_setting("WeatherForecast", "THEME", weather_forecast_theme)
+        if "weather_forecast_sensor_id" in form:
+            settings.replace_setting("WeatherForecast", "CURRENT_SENSOR_ID", weather_forecast_sensor_id)
         if notification_rules_form_present:
             settings.replace_setting(
                 "Notifications",
@@ -9504,18 +9547,28 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         except Exception:
             body = {}
 
+        updates: dict[str, str] = {}
+        autostart_present = "autostart_enabled" in body or "autostart_scope" in body
+        autostart_enabled = bool(body.get("autostart_enabled", False))
+        autostart_scope = str(body.get("autostart_scope", "user") or "user").strip().lower()
+        if autostart_present:
+            if "autostart_enabled" not in body or "autostart_scope" not in body:
+                return JSONResponse({"error": "incomplete_autostart_settings"}, status_code=400)
+            if autostart_scope not in {"user", "system"}:
+                return JSONResponse({"error": "invalid_autostart_scope"}, status_code=400)
+            updates["SENSORIUS_AUTOSTART_SCOPE"] = autostart_scope
+            updates["SENSORIUS_AUTOSTART_ENABLED"] = _bool_text(autostart_enabled)
+
+        debug_present = any(key in body for key in ("log_level", "file_log", "debug_modules"))
+        if debug_present and not all(key in body for key in ("log_level", "file_log", "debug_modules")):
+            return JSONResponse({"error": "incomplete_debug_settings"}, status_code=400)
         log_level = str(body.get("log_level", "DEBUG") or "DEBUG").strip().upper()
-        if log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+        if debug_present and log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             return JSONResponse({"error": "invalid_log_level"}, status_code=400)
 
         file_log = bool(body.get("file_log", False))
-        autostart_enabled = bool(body.get("autostart_enabled", False))
-        autostart_scope = str(body.get("autostart_scope", "user") or "user").strip().lower()
-        if autostart_scope not in {"user", "system"}:
-            return JSONResponse({"error": "invalid_autostart_scope"}, status_code=400)
-
         debug_modules_in = body.get("debug_modules", [])
-        if not isinstance(debug_modules_in, list):
+        if debug_present and not isinstance(debug_modules_in, list):
             return JSONResponse({"error": "invalid_debug_modules"}, status_code=400)
         clean_modules: list[str] = []
         seen: set[str] = set()
@@ -9530,28 +9583,31 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             seen.add(m)
             clean_modules.append(m)
 
-        try:
-            retention_days = int(body.get("db_retention_days", 90))
-        except Exception:
-            return JSONResponse({"error": "invalid_db_retention_days"}, status_code=400)
-        if retention_days < _DB_RETENTION_MIN_DAYS or retention_days > _DB_RETENTION_MAX_DAYS:
-            return JSONResponse({"error": "invalid_db_retention_days_range"}, status_code=400)
+        if debug_present:
+            updates["SENSORIUS_LOG_LEVEL"] = log_level
+            updates["SENSORIUS_FILE_LOG"] = _bool_text(file_log)
+            updates["SENSORIUS_DEBUG_MODULES"] = ",".join(clean_modules)
 
-        updates = {
-            "SENSORIUS_LOG_LEVEL": log_level,
-            "SENSORIUS_FILE_LOG": _bool_text(file_log),
-            "SENSORIUS_DEBUG_MODULES": ",".join(clean_modules),
-            "SENSORIUS_DB_RETENTION_DAYS": str(retention_days),
-            "SENSORIUS_AUTOSTART_SCOPE": autostart_scope,
-            "SENSORIUS_AUTOSTART_ENABLED": _bool_text(autostart_enabled),
-        }
+        if "db_retention_days" in body:
+            try:
+                retention_days = int(body.get("db_retention_days"))
+            except Exception:
+                return JSONResponse({"error": "invalid_db_retention_days"}, status_code=400)
+            if retention_days < _DB_RETENTION_MIN_DAYS or retention_days > _DB_RETENTION_MAX_DAYS:
+                return JSONResponse({"error": "invalid_db_retention_days_range"}, status_code=400)
+            updates["SENSORIUS_DB_RETENTION_DAYS"] = str(retention_days)
+
+        if not updates:
+            return JSONResponse({"error": "no_advanced_settings"}, status_code=400)
 
         try:
             _write_env_updates(updates)
         except Exception as ex:
             return JSONResponse({"error": f"env_write_failed: {ex}"}, status_code=500)
 
-        ok, msg = _autostart_apply(autostart_enabled, autostart_scope)
+        ok, msg = (True, "Not changed")
+        if autostart_present:
+            ok, msg = _autostart_apply(autostart_enabled, autostart_scope)
         return JSONResponse({
             "status": "ok" if ok else "partial",
             "autostart_applied": bool(ok),
@@ -9578,23 +9634,30 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     @router.get("/scan-nodus-setup")
     async def scan_nodus_setup(ssid: str = Query(None)):
         target_ssid = (ssid or "").strip()
+        factory_target_ssid = "Nodus_Setup"
         ap_password = ""
         current_ssid = ""
-        if not target_ssid:
-            try:
-                from . import saiAddDevice
-                target_ssid = (getattr(saiAddDevice, "PICOW_AP_SSID", "") or "").strip()
-                ap_password = str(getattr(saiAddDevice, "PICOW_AP_PASSWORD", "") or "")
-                current_ssid = await asyncio.to_thread(getattr(saiAddDevice, "_get_current_ssid", lambda: ""))
-            except Exception:
-                target_ssid = ""
-        if not target_ssid:
-            target_ssid = "Nodus_Setup"
-        found, msg = await asyncio.to_thread(_scan_for_ssid, target_ssid)
+        current_is_nodus_setup = False
+        try:
+            from . import saiAddDevice
+            factory_target_ssid = (getattr(saiAddDevice, "PICOW_AP_SSID", "") or "").strip() or "Nodus_Setup"
+            ap_password = str(getattr(saiAddDevice, "PICOW_AP_PASSWORD", "") or "")
+            current_ssid = await asyncio.to_thread(getattr(saiAddDevice, "_get_current_ssid", lambda: ""))
+            current_is_nodus_setup = saiAddDevice.is_nodus_setup_ssid(current_ssid)
+        except Exception:
+            pass
+        found, msg, matching_ssids = await asyncio.to_thread(_scan_for_ssid, target_ssid)
+        if not target_ssid and current_is_nodus_setup and current_ssid not in matching_ssids:
+            matching_ssids = sorted([*matching_ssids, current_ssid])
+            found = True
+        if not target_ssid and matching_ssids:
+            target_ssid = matching_ssids[0]
+        elif not target_ssid:
+            target_ssid = factory_target_ssid
         sys_name = platform.system()
         manual_join_required = False
         if sys_name.lower() == "darwin":
-            already_connected = (current_ssid or "").strip() == target_ssid
+            already_connected = bool(target_ssid) and (current_ssid or "").strip() == target_ssid
             found = bool(found) or already_connected
             if already_connected:
                 msg = f"macOS connected to {target_ssid}"
@@ -9603,13 +9666,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             else:
                 detail = str(msg or "").strip()
                 if not detail or detail == "ok":
-                    msg = f"{target_ssid} may be listed under Other Networks. Click Add to join automatically."
+                    msg = "A Nodus setup network may be listed under Other Networks. Select it there, then return to Add Device."
                 elif "airport tool not found" in detail.lower():
-                    msg = f"macOS Wi-Fi scan is unavailable. Click Add to join {target_ssid} automatically."
+                    msg = "macOS Wi-Fi scan is unavailable. Select a Nodus setup network from Other Networks first."
                 else:
-                    msg = f"{detail}. Click Add to join {target_ssid} automatically."
+                    msg = f"{detail}. Select a Nodus setup network from Other Networks first."
         return JSONResponse({
             "ssid": target_ssid,
+            "ssids": matching_ssids,
             "password": ap_password,
             "found": bool(found),
             "platform": sys_name,

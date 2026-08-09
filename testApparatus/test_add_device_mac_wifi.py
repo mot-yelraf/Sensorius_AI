@@ -14,6 +14,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import sensorius.saiAddDevice as saiAddDevice
 
+
+def test_nodus_setup_ssid_recognizes_serial_and_legacy_names():
+    assert saiAddDevice.is_nodus_setup_ssid("Nodus-123456") is True
+    assert saiAddDevice.is_nodus_setup_ssid("Nodus-AB12.cd_3") is True
+    assert saiAddDevice.is_nodus_setup_ssid("Nodus_Setup") is True
+    assert saiAddDevice.is_nodus_setup_ssid("Nodus-Setup") is True
+    assert saiAddDevice.is_nodus_setup_ssid("ExampleWiFi") is False
+    assert saiAddDevice.is_nodus_setup_ssid("Nodus-") is False
+
+
 def _cp(returncode: int = 0, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
 
