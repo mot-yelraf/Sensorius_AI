@@ -348,7 +348,13 @@ a { color: inherit; }
 .readings-footer { width: 100%; margin-top: auto; padding: 0.85rem 0 0.1rem; border-top: 1px solid var(--line); box-sizing: border-box; }
 .provider-label { color: var(--accent-2); font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; }
 .forecast-summary { display: grid; grid-template-columns: 7rem 1fr; align-items: center; gap: 1rem; min-height: 8.4rem; border-bottom: 1px solid var(--line); }
-.forecast-main-icon { font-size: 4.6rem; text-align: center; }
+.forecast-main-icon { font-size: 4.6rem; text-align: center; line-height: 0; }
+.forecast-icon { width: 1em; height: 1em; overflow: visible; }
+.forecast-icon-sun { fill: #ffd23f; stroke: #ffbd20; stroke-width: 3; stroke-linecap: round; }
+.forecast-icon-cloud { fill: #edf5f7; stroke: #bad2d8; stroke-width: 1.5; stroke-linejoin: round; }
+.forecast-icon-rain, .forecast-icon-fog { fill: none; stroke: #52c7ff; stroke-width: 4; stroke-linecap: round; }
+.forecast-icon-snow { fill: none; stroke: #dff7ff; stroke-width: 2.5; stroke-linecap: round; }
+.forecast-icon-bolt { fill: #ffd23f; stroke: #ffad1f; stroke-width: 1; stroke-linejoin: round; }
 .forecast-summary > div { display: flex; justify-content: space-around; gap: 0.5rem; }
 .forecast-summary span span, .forecast-summary > div > span { color: var(--muted); font-size: 0.62rem; text-align: center; }
 .forecast-summary strong { display: block; color: var(--ink); font: 500 1.45rem Georgia, serif; }

@@ -143,6 +143,24 @@ def _condition_icon(text: object) -> str:
     return "☀️"
 
 
+def _condition_icon_key(text: object) -> str:
+    """Return a font-independent icon name for the weather forecast UI."""
+    value = str(text or "").lower()
+    if "thunder" in value:
+        return "thunder"
+    if "snow" in value or "sleet" in value:
+        return "snow"
+    if "rain" in value or "shower" in value or "drizzle" in value:
+        return "rain"
+    if "fog" in value:
+        return "fog"
+    if "partly" in value or "mostly clear" in value:
+        return "partly-cloudy"
+    if "cloud" in value or "overcast" in value:
+        return "cloudy"
+    return "sunny"
+
+
 def _hour_temperature_f(hour: dict[str, Any]) -> float | None:
     value = _safe_float(hour.get("temp_c"))
     return None if value is None else value * 9.0 / 5.0 + 32.0
@@ -198,6 +216,7 @@ def build_weather_display_forecast(payload: dict[str, Any]) -> dict[str, Any]:
             {
                 "label": label,
                 "icon": _condition_icon(condition),
+                "icon_key": _condition_icon_key(condition),
                 "temperature_f": round(temp_f) if temp_f is not None else None,
                 "precipitation_mm": round(sum(_safe_float(row.get("precip_mm")) or 0.0 for row in window), 1),
             }
@@ -216,6 +235,7 @@ def build_weather_display_forecast(payload: dict[str, Any]) -> dict[str, Any]:
                 "label": str(raw.get("label") or raw.get("date") or "Day"),
                 "summary": summary,
                 "icon": _condition_icon(summary),
+                "icon_key": _condition_icon_key(summary),
                 "temp_range": str(raw.get("temp_range") or "--"),
                 "rh_range": str(raw.get("rh_range") or "--"),
                 "wind": str(raw.get("wind") or "--"),
@@ -235,6 +255,9 @@ def build_weather_display_forecast(payload: dict[str, Any]) -> dict[str, Any]:
         "reason": str(payload.get("reason") or ""),
         "condition": condition,
         "icon": _condition_icon(_hour_window_condition(normalized_hours[:3]) if normalized_hours else condition),
+        "icon_key": _condition_icon_key(
+            _hour_window_condition(normalized_hours[:3]) if normalized_hours else condition
+        ),
         "high_f": round(max(temp_values)) if temp_values else None,
         "low_f": round(min(temp_values)) if temp_values else None,
         "precipitation_mm": round(sum(_safe_float(row.get("precip_mm")) or 0.0 for row in raw_hours), 1),

@@ -219,8 +219,15 @@ def test_open_meteo_hour_windows_do_not_show_rain_until_precipitation_window():
     display = weather_app.build_weather_display_forecast(payload)
 
     assert display["icon"] == "☀️"
+    assert display["icon_key"] == "sunny"
     assert [window["precipitation_mm"] for window in display["hours"][:4]] == [0.0, 0.0, 0.0, 2.9]
     assert [window["icon"] for window in display["hours"][:4]] == ["☀️", "🌤️", "☁️", "🌧️"]
+    assert [window["icon_key"] for window in display["hours"][:4]] == [
+        "sunny",
+        "partly-cloudy",
+        "cloudy",
+        "rain",
+    ]
 
 
 @pytest.mark.asyncio
@@ -254,6 +261,8 @@ async def test_integrated_weather_routes_render_dashboard_and_namespaced_apis(mo
     assert "System Settings" not in page.text
     assert "/ui_static/weather_forecast/app.js" in page.text
     assert "theme-river" in page.text
+    assert 'class="forecast-icon forecast-icon--rain"' in page.text
+    assert 'class="forecast-icon forecast-icon--sunny"' in page.text
     assert current.json()["sensor_id"] == "nodus-weather"
     assert current.json()["temperature_f"] == 68.0
     assert current.json()["display_metrics"][0] == {

@@ -11,6 +11,25 @@
 </head>
 <body class="theme-{{ settings.theme }}" data-runtime-instance-id="{{ runtime_instance_id }}">
   {% macro reading(value, suffix='') -%}{{ value if value is not none else '—' }}{{ suffix if value is not none else '' }}{%- endmacro %}
+  {% macro weather_icon(kind, label) -%}
+    <svg class="forecast-icon forecast-icon--{{ kind }}" viewBox="0 0 64 64" role="img" aria-label="{{ label }}">
+      {% if kind in ('sunny', 'partly-cloudy') %}
+        <g class="forecast-icon-sun"><circle cx="25" cy="24" r="10"/><path d="M25 5v7M25 36v7M6 24h7M37 24h7M12 11l5 5M33 33l5 5M38 11l-5 5M17 33l-5 5"/></g>
+      {% endif %}
+      {% if kind != 'sunny' %}
+        <path class="forecast-icon-cloud" d="M17 45h30a10 10 0 0 0 1-20 15 15 0 0 0-28-4 12 12 0 0 0-3 24Z"/>
+      {% endif %}
+      {% if kind == 'rain' %}
+        <path class="forecast-icon-rain" d="M22 50l-3 7M34 50l-3 7M46 50l-3 7"/>
+      {% elif kind == 'snow' %}
+        <path class="forecast-icon-snow" d="M21 50v9M17 52l8 5M25 52l-8 5M42 50v9M38 52l8 5M46 52l-8 5"/>
+      {% elif kind == 'thunder' %}
+        <path class="forecast-icon-bolt" d="M35 43h-8l-3 12h7l-2 8 13-15h-8Z"/>
+      {% elif kind == 'fog' %}
+        <path class="forecast-icon-fog" d="M14 50h38M18 57h30"/>
+      {% endif %}
+    </svg>
+  {%- endmacro %}
   <div class="world-scene" aria-hidden="true"><span class="scene-sun"></span><span class="scene-ridge scene-ridge-far"></span><span class="scene-ridge scene-ridge-near"></span></div>
 
   <a class="dashboard-return" id="dashboardReturn" href="/" aria-label="Return to Sensorius dashboard">
@@ -46,10 +65,10 @@
       <article class="glass-card forecast-panel">
         <div class="card-heading"><div><p class="eyebrow">Today’s forecast</p><h2>{{ forecast.condition }}</h2></div><span class="provider-label">{{ forecast.provider_label }}</span></div>
         {% if forecast.ok %}
-          <div class="forecast-summary"><span class="forecast-main-icon" aria-hidden="true">{{ forecast.icon }}</span><div><span><strong>{{ reading(forecast.high_f, '°') }}</strong> high</span><span><strong>{{ reading(forecast.low_f, '°') }}</strong> low</span><span><strong>{{ forecast.precipitation_mm }} mm</strong> rain</span></div></div>
-          <div class="hourly-strip">{% for hour in forecast.hours %}<div class="forecast-hour"><time>{{ hour.label }}</time><span aria-hidden="true">{{ hour.icon }}</span><strong>{{ reading(hour.temperature_f, '°') }}</strong><small>{{ hour.precipitation_mm }} mm</small></div>{% endfor %}</div>
+          <div class="forecast-summary"><span class="forecast-main-icon">{{ weather_icon(forecast.icon_key, forecast.condition) }}</span><div><span><strong>{{ reading(forecast.high_f, '°') }}</strong> high</span><span><strong>{{ reading(forecast.low_f, '°') }}</strong> low</span><span><strong>{{ forecast.precipitation_mm }} mm</strong> rain</span></div></div>
+          <div class="hourly-strip">{% for hour in forecast.hours %}<div class="forecast-hour"><time>{{ hour.label }}</time><span>{{ weather_icon(hour.icon_key, 'Weather at ' ~ hour.label) }}</span><strong>{{ reading(hour.temperature_f, '°') }}</strong><small>{{ hour.precipitation_mm }} mm</small></div>{% endfor %}</div>
           <p class="forecast-meta">{{ 'Cached forecast · provider temporarily unavailable' if forecast.stale else 'Updated from ' ~ forecast.provider_label }}</p>
-          {% if forecast.days %}<div class="future-heading"><span>Looking ahead</span><button type="button" data-open-forecast>6-day details</button></div><div class="daily-strip">{% for day in forecast.days %}<article class="forecast-day"><time datetime="{{ day.date }}">{{ day.label }}</time><span aria-hidden="true">{{ day.icon }}</span><strong>{{ day.temp_range }}</strong><small>{{ day.precipitation_mm }} mm</small></article>{% endfor %}</div>{% endif %}
+          {% if forecast.days %}<div class="future-heading"><span>Looking ahead</span><button type="button" data-open-forecast>6-day details</button></div><div class="daily-strip">{% for day in forecast.days %}<article class="forecast-day"><time datetime="{{ day.date }}">{{ day.label }}</time><span>{{ weather_icon(day.icon_key, day.summary) }}</span><strong>{{ day.temp_range }}</strong><small>{{ day.precipitation_mm }} mm</small></article>{% endfor %}</div>{% endif %}
         {% else %}<div class="forecast-empty"><span>◌</span><p>{{ forecast.reason or 'Set an Astral location and forecast provider to load the forecast.' }}</p></div>{% endif %}
       </article>
 
