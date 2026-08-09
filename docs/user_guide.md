@@ -526,7 +526,9 @@ Fields and status rows:
 - **Sensorius rejoined your Wi-Fi**: confirms the hub returned to the normal network.
 - **Waiting for Nodus to reboot and connect**: waits for the Nodus device to reboot, join Wi-Fi, connect to MQTT, and send its hello/config result.
 - **Retry**: retries the current onboarding session.
-- **Add**: starts onboarding when the setup AP is available or manual joining is required.
+- **Add**: starts onboarding when a setup AP is selected. On Linux and Raspberry
+  Pi, a failed scan leaves Add disabled; use Retry after confirming the Nodus AP
+  is broadcasting.
 
 On macOS, Sensorius first attempts to join the selected `Nodus-<serial-number>`
 setup network automatically using native Wi-Fi tooling, including setup networks
@@ -539,6 +541,12 @@ Pi is usually the most reliable setup. If Add Device reports
 `network_control_not_authorized`, the Linux/Raspberry Pi service install did not
 grant NetworkManager control; use the Operations guide to repair the service
 authorization.
+
+Before switching Wi-Fi, the page creates a resumable onboarding session. A
+browser connected through the Pi's Wi-Fi may be temporarily unreachable while
+the Pi joins the Nodus AP; progress polling resumes after the Pi restores its
+previous network. Run Sensorius through `sensorius.service`, not a foreground
+SSH process, during this transition.
 
 ### Update Device Pane
 

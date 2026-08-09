@@ -5346,6 +5346,31 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if _sid:
             _ensure_v2_session_monitor(_sid)
 
+    @router.post("/onboard-device/v2/prepare")
+    async def onboard_prepare_v2(request: Request):
+        """Create a resumable onboarding session before Wi-Fi is switched."""
+        if not _onboarding_v2_enabled():
+            return JSONResponse({"ok": False, "error": "onboarding_v2_disabled"}, status_code=409)
+
+        form = await request.form()
+        requested_device_id = str(form.get("device_id", "") or "").strip()
+        session_id = uuid4().hex
+        issued = onboarding_tokens.issue_token(
+            session_id=session_id,
+            expected_device_id=requested_device_id,
+            ttl_sec=600,
+        )
+        onboarding_store.set_state(session_id, OnboardingStates.AP_DISCOVERED)
+        return JSONResponse(
+            {
+                "ok": True,
+                "session_id": session_id,
+                "state": OnboardingStates.AP_DISCOVERED,
+                "token_expires_at": issued.get("expires_at"),
+                "expected_device_id": requested_device_id,
+            }
+        )
+
     @router.post("/onboard-device/v2/start")
     async def onboard_start_v2(request: Request):
         """
@@ -5372,14 +5397,40 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         requested_device_id = str(form.get("device_id", "") or "").strip()
         hostname = requested_device_id or f"nodus-{uuid4().hex[:8]}"
 
-        session_id = uuid4().hex
-        issued = onboarding_tokens.issue_token(
-            session_id=session_id,
-            expected_device_id=requested_device_id,
-            ttl_sec=600,
-        )
-        token = issued["token"]
-        onboarding_store.set_state(session_id, OnboardingStates.AP_DISCOVERED)
+        prepared_session_id = str(form.get("session_id", "") or "").strip()
+        prepared_session = onboarding_store.get_session(prepared_session_id) if prepared_session_id else None
+        if prepared_session_id:
+            if not prepared_session:
+                return JSONResponse({"ok": False, "error": "session_not_found"}, status_code=404)
+            prepared_state = str(prepared_session.get("state", "") or "").strip()
+            if prepared_state != OnboardingStates.AP_DISCOVERED:
+                return JSONResponse(
+                    {"ok": False, "session_id": prepared_session_id, "error": "session_not_ready", "state": prepared_state},
+                    status_code=409,
+                )
+            session_id = prepared_session_id
+            token_secret = str(prepared_session.get("onboard_token_secret", "") or "")
+            token = saiSettings.deobfuscate_secret(token_secret).strip() if token_secret else ""
+            if not token:
+                onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="missing_onboard_token")
+                return JSONResponse(
+                    {"ok": False, "session_id": session_id, "error": "missing_onboard_token"},
+                    status_code=409,
+                )
+            if not requested_device_id:
+                requested_device_id = str(prepared_session.get("expected_device_id", "") or "").strip()
+                if requested_device_id:
+                    hostname = requested_device_id
+            issued = {"expires_at": prepared_session.get("token_expires_at")}
+        else:
+            session_id = uuid4().hex
+            issued = onboarding_tokens.issue_token(
+                session_id=session_id,
+                expected_device_id=requested_device_id,
+                ttl_sec=600,
+            )
+            token = issued["token"]
+            onboarding_store.set_state(session_id, OnboardingStates.AP_DISCOVERED)
 
         if not local_ssid:
             try:
@@ -5463,6 +5514,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     lambda: saiAddDevice.connect_to_sensor_ap(target_ap, target_ap_password, attempts=3),
                 )
             except Exception as e:
+                await _restore_local_wifi_on_failure()
                 onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason=f"ap_connect_error:{e}")
                 _emit_onboarding_event("onboarding_failed", session_id=session_id, detail=f"ap_connect_error:{e}")
                 return JSONResponse(
@@ -5471,6 +5523,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 )
 
         if not ok_ap:
+            await _restore_local_wifi_on_failure()
             onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="ap_connect_failed")
             _emit_onboarding_event("onboarding_failed", session_id=session_id, detail="ap_connect_failed")
             detail = ""

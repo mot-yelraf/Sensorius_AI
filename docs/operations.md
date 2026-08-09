@@ -96,7 +96,11 @@ On Raspberry Pi, Add Device temporarily moves the Sensorius host from its normal
 Wi-Fi network to the selected `Nodus-<serial-number>` setup network, posts
 bootstrap data to the Nodus AP, and then
 rejoins the normal network. Legacy `Nodus_Setup` and `Nodus-Setup` names remain
-supported. If logs show:
+supported. The onboarding session is created before the Wi-Fi switch so the UI
+can resume polling when the normal network returns. Failed AP connection paths
+also attempt to restore the previously active SSID. Run Sensorius through
+`sensorius.service`; a foreground process owned by an SSH session can exit when
+the Wi-Fi transition closes that session. If logs show:
 
 ```text
 org.freedesktop.NetworkManager.network-control request failed: not authorized

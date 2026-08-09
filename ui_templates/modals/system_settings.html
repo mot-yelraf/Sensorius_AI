@@ -3278,6 +3278,22 @@
         };
         return;
       }
+      const prepareRes = await fetch("/onboard-device/v2/prepare", { method: "POST", body: fd });
+      if (!prepareRes.ok) {
+        const prepareErr = await prepareRes.json().catch(() => ({}));
+        const reason = String(prepareErr?.detail || prepareErr?.error || ("HTTP " + prepareRes.status));
+        onboardSessionState = "FAILED";
+        markOnboardStep(1, false, "Failed to prepare onboarding", reason);
+        if (addBtn) addBtn.disabled = false;
+        return;
+      }
+      const prepared = await prepareRes.json();
+      onboardSessionId = String(prepared?.session_id || "");
+      if (!onboardSessionId) throw new Error("Missing prepared session_id");
+      fd.set("session_id", onboardSessionId);
+      renderV2SessionState(prepared || {});
+      if (onboardPollTimer) clearTimeout(onboardPollTimer);
+      onboardPollTimer = setTimeout(pollV2Session, 500);
       const res = await fetch("/onboard-device/v2/start", { method: "POST", body: fd });
 
       if (!res.ok) {
@@ -3301,6 +3317,11 @@
       onboardPollTimer = setTimeout(pollV2Session, 1000);
     } catch (e) {
       console.error(e);
+      if (onboardingV2Enabled && onboardSessionId) {
+        setOnboardBadge("Sensorius is switching Wi-Fi. Waiting for the hub to reconnect...", "ok");
+        if (!onboardPollTimer) onboardPollTimer = setTimeout(pollV2Session, 1000);
+        return;
+      }
       onboardSessionState = "FAILED";
       if (addBtn) addBtn.disabled = false;
       markOnboardStep(1, false, "Failed to start onboarding", String(e));
@@ -3442,9 +3463,8 @@
       addScanAttempt += 1;
       setAddScanStatus(`Scanning for ${targetSsid} (${addScanAttempt}/${addScanMax})...`);
       if (addScanAttempt >= addScanMax) {
-        // Do not hard-block onboarding: macOS scan visibility can fail even when connect works.
-        setAddScanStatus(`${targetSsid} not found by scanner (${detailMsg}). You can still click Add.`);
-        if (addBtn) addBtn.disabled = false;
+        setAddScanStatus(`${targetSsid} not found by scanner (${detailMsg}). Click Retry to scan again.`);
+        if (addBtn) addBtn.disabled = true;
         stopAddScan();
         return;
       }
@@ -3456,8 +3476,8 @@
       console.error(e);
       addScanAttempt += 1;
       if (addScanAttempt >= addScanMax) {
-        setAddScanStatus("Scan failed. You can still click Add.");
-        if (addBtn) addBtn.disabled = false;
+        setAddScanStatus("Scan failed. Click Retry to scan again.");
+        if (addBtn) addBtn.disabled = true;
         stopAddScan();
         return;
       }

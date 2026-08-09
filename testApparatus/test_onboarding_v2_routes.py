@@ -191,6 +191,9 @@ def test_add_device_ui_selects_discovered_ap_and_rescans_after_success():
     assert 'id="ecowitt-gateway-url" name="ecowitt_gateway_url"' in text
     assert 'id="ecowitt-polling-interval" name="ecowitt_polling_interval"' in text
     assert 'fd.set("target_ap", selectedSetupNetwork)' in text
+    assert 'fetch("/onboard-device/v2/prepare"' in text
+    assert 'fd.set("session_id", onboardSessionId)' in text
+    assert "Scan failed. Click Retry to scan again." in text
     assert "const fd = new FormData();" in text
     assert "new FormData(formEl)" not in text
     assert "Array.isArray(js?.ssids)" in text
@@ -288,6 +291,40 @@ async def test_v2_start_resolves_local_wifi_before_ap_connect(tmp_path, monkeypa
         assert res.status_code == 200
 
     assert calls[:3] == ["resolve", "connect", "reconnect:MyWiFi"]
+
+
+@pytest.mark.asyncio
+async def test_v2_prepare_session_is_reused_by_start(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    class _TmpStore(OnboardingSessionStore):
+        def __init__(self, base_dir: str = "system_settings"):
+            super().__init__(base_dir=str(tmp_path))
+
+    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
+    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
+    monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True}, "error": ""})
+    monkeypatch.setattr("sensorius.saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
+
+    app = FastAPI()
+    settings = _FakeSettings()
+    ingest = _FakeIngest()
+    await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        prepared = await client.post("/onboard-device/v2/prepare")
+        assert prepared.status_code == 200
+        sid = str(prepared.json().get("session_id") or "")
+        assert sid
+
+        started = await client.post("/onboard-device/v2/start", data={"session_id": sid, "target_ap": "Nodus-frank"})
+        assert started.status_code == 200
+        assert started.json().get("session_id") == sid
+
+        session = await client.get(f"/onboard-device/v2/session/{sid}")
+        assert session.status_code == 200
+        assert session.json().get("state") == "WAITING_MQTT_HELLO"
 
 
 @pytest.mark.asyncio
@@ -683,6 +720,13 @@ async def test_v2_start_ap_connect_failed_marks_failed_session(tmp_path, monkeyp
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: False)
     monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
+    reconnect_calls: list[tuple[str, str]] = []
+
+    def _reconnect(ssid: str, password: str = "", **_kwargs):
+        reconnect_calls.append((ssid, password))
+        return True, ssid
+
+    monkeypatch.setattr("sensorius.saiAddDevice.reconnect_to_network", _reconnect)
 
     app = FastAPI()
     settings = _FakeSettings()
@@ -700,6 +744,8 @@ async def test_v2_start_ap_connect_failed_marks_failed_session(tmp_path, monkeyp
         sess = await client.get(f"/onboard-device/v2/session/{sid}")
         assert sess.status_code == 200
         assert sess.json().get("state") == "FAILED"
+
+    assert reconnect_calls == [("MyWiFi", "my-password")]
 
 
 @pytest.mark.asyncio
