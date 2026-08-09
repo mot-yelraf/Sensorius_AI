@@ -82,6 +82,21 @@ The dashboard presents:
 - Sun, moon, biodynamic, and optional weather forecast cards when Astral location is available.
 - Buttons for System Settings, graph setup, sensor settings, switch settings, and calendar views.
 
+The **24 Hour Forecast** card keeps its day-wide forecast summary, while its
+background reflects the current three-hour forecast window. Clear conditions
+use a sunny daytime sky or a starry night; cloudy conditions use gray daytime
+or nighttime skies; and precipitation adds rain streaks to the corresponding
+gray sky. This card appearance is independent of the theme selected for the
+full-screen Caelus display. Day artwork begins 30 minutes before the configured
+Astral sunrise to represent daybreak; night artwork begins 30 minutes after
+sunset to include dusk. The station timezone is used, and the boundary is
+checked once per minute.
+
+Select the dashboard's **Moon Phase** card to open the Caelus observer-local
+phase timeline: four previous phases, the live Moon and its current details,
+and four upcoming phases with dates. Select **Sun/Moon Position** to open the
+separate 29-day position graph.
+
 Dashboard data comes from the latest values in the live runtime cache and from the local database. If a device is offline, the latest stored reading may still be visible, but the online/offline state comes from live device status, MQTT heartbeat or availability messages, and recent packets.
 
 ### Sensor Cards
@@ -865,8 +880,16 @@ theme-matched six-day details. It does not run a separate weather service or
 maintain a separate settings file or readings database.
 
 The Windy map is initially interaction-locked so the mouse wheel continues to
-scroll the Caelus page. Click the map to enable its zoom and pan controls; move
-the pointer outside the map (or press Escape) to lock it again.
+scroll the Caelus page. Select **Click to interact with map** on the map's top
+border to enable its zoom and pan controls; move the pointer outside the map
+(or press Escape) to lock it again.
+
+The lunar panel keeps the live Moon and its current illumination, lunar age,
+altitude, and local orientation in the center. The four most recent phase
+milestones appear chronologically on the left, and the next four appear on the
+right, with each phase's local date below its name. Every disk is oriented for
+the configured Astral location near the Moon's highest point on that date.
+Full-moon milestones use familiar traditional names such as **Harvest Moon**.
 
 Current Readings displays the selected sensor's configured **Display Metrics**
 in their saved order, including their standard Sensorius units. This allows a

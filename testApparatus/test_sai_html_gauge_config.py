@@ -591,7 +591,17 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "if (keepExistingAstro) return;" in html
     assert "if (!warming) { delete astroData.reason; delete astroData.cache_status; }" in html
     assert "if (typeof setAstroCardsLoading === 'function') setAstroCardsLoading(isDashboardWarmingPayload(data));" in html
-    assert "target.closest('#sunBox,#moonBox')" in html
+    assert "target.closest('#moonBox') && !target.closest('[data-moon-view]')" in html
+    assert "target.closest('#sunBox')" in html
+    assert "openCaelusMoonPhases();" in html
+    assert "openSunMoon29Day();" in html
+    assert "id='caelusMoonOverlay'" in html
+    assert "align-items:flex-start;justify-content:center;padding:clamp(.75rem,5vh,3rem) 1rem 1rem" in html
+    assert "id='caelusCurrentMoonDisk'" in html
+    assert "renderCaelusPhaseSide('caelusPreviousPhases', 'Previous phases', moon.previous_phases);" in html
+    assert "renderCaelusPhaseSide('caelusUpcomingPhases', 'Upcoming phases', moon.upcoming_phases);" in html
+    assert "fetch('/api/weather-forecast-app/astronomy', {cache:'no-store'})" in html
+    assert "/ui_static/weather_forecast/moon.js" in html
     assert "id='sunMoon29Canvas'" in html
     assert "29 Day Sun/Moon Position" in html
     assert "function drawSunMoon29Day(data)" in html
@@ -620,5 +630,7 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "const days = Array.isArray(data && data.position_29d)" in html
     assert "window.openSunMoon29Day = openSunMoon29Day;" in html
     assert "window.closeSunMoon29Day = closeSunMoon29Day;" in html
+    assert "window.openCaelusMoonPhases = openCaelusMoonPhases;" in html
+    assert "window.closeCaelusMoonPhases = closeCaelusMoonPhases;" in html
     assert '"label": "Jun10"' in html
     assert '"moon_visible_angle": 128.5' in html

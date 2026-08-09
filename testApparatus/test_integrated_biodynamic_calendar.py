@@ -129,6 +129,9 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
 
     assert 'id="dashboardReturn" href="/" aria-label="Return to Sensorius dashboard"' in template
     assert 'class="dashboard-return-spinner"' in template
+    assert '<footer class="bd-site-footer">' in template
+    assert "Created by Peace Hill Studios" in template
+    assert template.index('<footer class="bd-site-footer">') < template.index('id="bd-calendar-bootstrap"')
     assert "body {\n  margin: 0;\n  font-family:" in stylesheet
     assert "background: #dff5e8;" in stylesheet
     assert 'background-image: url("/ui_static/leaf-pattern.svg");' in stylesheet
@@ -142,6 +145,7 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     assert "window.localStorage" not in javascript
     assert "if (stageCurrentMonthReport()) window.print();" in javascript
     assert ".dashboard-return {\n    display: none !important;" in stylesheet
+    assert ".bd-site-footer {\n    display: none !important;" in stylesheet
     assert "Sun/Moon Position</h2>" not in template
     assert "Moon Phase</h2>" not in template
     assert '<h2 id="cosmicAttributesTitle">Moon Attributes</h2>' in template

@@ -265,8 +265,8 @@ a { color: inherit; }
 .map-tools button:disabled { cursor: wait; opacity: 0.55; }
 .windy-map-interaction { position: relative; flex: 1; display: flex; min-height: 20rem; }
 .map-card iframe { flex: 1; width: 100%; min-height: 20rem; border: 0; filter: saturate(0.78) contrast(1.05); }
-.windy-map-guard { position: absolute; inset: 0; display: grid; place-items: center; padding: 1rem; border: 0; background: transparent; color: var(--ink); cursor: pointer; }
-.windy-map-guard span { padding: 0.65rem 0.9rem; border: 1px solid var(--line); background: rgba(5, 27, 33, 0.88); box-shadow: 0 8px 24px rgba(1, 17, 21, 0.3); font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em; }
+.windy-map-guard { position: absolute; inset: 0; display: grid; place-items: start center; padding: 0 1rem 1rem; border: 0; background: transparent; color: var(--ink); cursor: pointer; }
+.windy-map-guard span { transform: translateY(-50%); padding: 0.65rem 0.9rem; border: 1px solid var(--line); background: rgba(5, 27, 33, 0.94); box-shadow: 0 8px 24px rgba(1, 17, 21, 0.3); font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em; }
 .windy-map-guard:hover span, .windy-map-guard:focus-visible span { border-color: var(--accent); }
 .windy-map-guard:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
 .windy-map-interaction.is-active .windy-map-guard { display: none; }
@@ -312,10 +312,12 @@ a { color: inherit; }
   border-radius: 50% 50% 0 0;
   pointer-events: none;
 }
-.lunar-side { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.6rem; position: relative; z-index: 1; }
+.lunar-side { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.6rem; position: relative; z-index: 1; }
+.lunar-side-title { grid-column: 1 / -1; margin: 0 0 0.1rem; color: rgba(235,247,240,.52); font-size: 0.5rem; font-weight: 750; letter-spacing: 0.14em; text-align: center; text-transform: uppercase; }
 .lunar-step { text-align: center; color: var(--muted); }
 .lunar-step-disk { display: block; width: clamp(2.2rem, 3.6vw, 3.6rem); height: clamp(2.2rem, 3.6vw, 3.6rem); margin: 0 auto; filter: drop-shadow(0 0 11px rgba(237,229,198,.18)); }
-.lunar-step small { display: block; margin-top: 0.3rem; font-size: 0.48rem; line-height: 1.25; letter-spacing: 0.08em; text-transform: uppercase; }
+.lunar-step small { display: block; min-height: 1.3rem; margin-top: 0.3rem; font-size: 0.48rem; line-height: 1.25; letter-spacing: 0.08em; text-transform: uppercase; }
+.lunar-step time { display: block; margin-top: 0.14rem; color: var(--warm); font-size: 0.52rem; font-weight: 700; letter-spacing: 0.04em; }
 .lunar-current { position: relative; z-index: 2; text-align: center; align-self: start; margin-top: -0.35rem; }
 .lunar-current-disk { display: block; width: 6rem; height: 6rem; margin: 0 auto; filter: drop-shadow(0 0 24px rgba(255,235,177,.34)); }
 .lunar-current h2 { margin: 0.2rem 0 0; font: 500 1.25rem Georgia, serif; }
@@ -327,6 +329,7 @@ a { color: inherit; }
 
 .conditions-row { display: grid; grid-template-columns: 0.82fr 1.48fr 0.82fr; gap: 0.85rem; align-items: stretch; }
 .readings-panel, .forecast-panel, .daylight-card { min-height: 32rem; padding: 1.25rem; }
+.readings-panel { display: flex; flex-direction: column; }
 .reading-hero { display: grid; grid-template-columns: 8.5rem 1fr; align-items: center; min-height: 12rem; border-bottom: 1px solid var(--line); }
 .reading-hero > div:last-child { text-align: left; }
 .reading-hero .temperature-number { font-size: clamp(4.5rem, 7vw, 6.5rem); }
@@ -342,6 +345,7 @@ a { color: inherit; }
 .current-reading-list span, .current-reading-list strong { display: block; }
 .current-reading-list span { color: var(--muted); font-size: 0.62rem; }
 .current-reading-list strong { margin-top: 0.25rem; font-size: 0.86rem; }
+.readings-footer { width: 100%; margin-top: auto; padding: 0.85rem 0 0.1rem; border-top: 1px solid var(--line); box-sizing: border-box; }
 .provider-label { color: var(--accent-2); font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; }
 .forecast-summary { display: grid; grid-template-columns: 7rem 1fr; align-items: center; gap: 1rem; min-height: 8.4rem; border-bottom: 1px solid var(--line); }
 .forecast-main-icon { font-size: 4.6rem; text-align: center; }
@@ -535,7 +539,7 @@ a { color: inherit; }
   .modal-footer p { display: none; }
   .modal-footer { justify-content: flex-end; }
   .lunar-header { grid-template-columns: 1fr; padding-top: 1rem; }
-  .lunar-side { display: none; }
+  .lunar-side { width: 100%; max-width: 34rem; margin: 0 auto; }
   .lunar-current { margin-top: 0; }
   .lunar-current-disk { width: 5.4rem; height: 5.4rem; }
   .lunar-arc { left: 16%; right: 16%; }

@@ -19,6 +19,22 @@ body {
   padding: 20px;
 }
 
+.bd-site-footer {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 0 20px 24px;
+  box-sizing: border-box;
+  color: #655f52;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+
+.bd-site-footer p {
+  margin: 0;
+}
+
 .dashboard-return {
   position: fixed;
   top: 1rem;
@@ -1481,6 +1497,10 @@ button:disabled:hover {
 
 @media print {
   .dashboard-return {
+    display: none !important;
+  }
+
+  .bd-site-footer {
     display: none !important;
   }
 

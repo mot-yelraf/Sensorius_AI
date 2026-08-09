@@ -4619,9 +4619,31 @@ def test_dashboard_weather_forecast_card_has_six_day_button():
     )
 
     assert "24 Hour Forecast</div>" in html
-    assert "class='astro-box weather-theme-desert' id='weatherForecastBox'" in html
-    assert "background:var(--forecast-bg)" in html
+    assert "class='astro-box forecast-scene-pending' id='weatherForecastBox'" in html
+    assert "class='astro-box weather-theme-desert' id='weatherForecastBox'" not in html
+    assert "background:var(--forecast-scene-bg)" in html
     assert "background:var(--forecast-button)" in html
+    assert "forecast-scene-clear-day" in html
+    assert "forecast-scene-clear-night" in html
+    assert "forecast-scene-cloudy-day" in html
+    assert "forecast-scene-cloudy-night" in html
+    assert "forecast-scene-rain-day" in html
+    assert "forecast-scene-rain-night" in html
+    assert "--forecast-scene-bg:radial-gradient(circle at 82% 17%" in html
+    assert "linear-gradient(165deg,#236b96 0%,#3a82a6 58%,#72aec2 100%)" in html
+    assert "--forecast-panel:rgba(9,48,69,.82)" in html
+    assert "--forecast-ink:#fff;--forecast-muted:#d9eff8" in html
+    assert "--forecast-ink:#14252d;--forecast-muted:#31444d" in html
+    assert "color:var(--forecast-button-ink)" in html
+    assert "Array.isArray(data && data.hourly) ? data.hourly.slice(0, 3)" in html
+    assert "precipitation > 0.05" in html
+    assert "averageCloud >= 45" in html
+    assert "function forecastStationMinutes(data){" in html
+    assert "const daybreak = (sunrise - 30 + 1440) % 1440;" in html
+    assert "const dusk = (sunset + 30) % 1440;" in html
+    assert "isNight = !forecastMinuteInWindow(minutes, daybreak, dusk);" in html
+    assert "applyForecastScene(window.__weatherForecastPayload); }, 60000);" in html
+    assert "applyForecastScene(data);" in html
     assert "Loading forecast..." not in html
     assert "class='forecast-open-btn' id='forecastFiveDayBtn'" in html
     assert "<span class='forecast-open-btn-label'>6 Day Forecast</span>" in html

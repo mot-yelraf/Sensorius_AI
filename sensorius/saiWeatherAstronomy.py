@@ -22,6 +22,20 @@ PHASES = (
     ("Waning crescent", "🌘"),
 )
 PHASE_AGES = (0.0, 3.5, 7.0, 10.5, 14.0, 17.5, 21.0, 24.5)
+FULL_MOON_NAMES = {
+    1: "Wolf Moon",
+    2: "Snow Moon",
+    3: "Worm Moon",
+    4: "Pink Moon",
+    5: "Flower Moon",
+    6: "Strawberry Moon",
+    7: "Buck Moon",
+    8: "Sturgeon Moon",
+    9: "Harvest Moon",
+    10: "Hunter's Moon",
+    11: "Beaver Moon",
+    12: "Cold Moon",
+}
 
 
 def _horizontal_vector(azimuth_degrees: float, elevation_degrees: float) -> tuple[float, float, float]:
@@ -147,6 +161,56 @@ def _nearest_phase_date(estimated_date: Any, target_age: float) -> Any:
     return min(candidates, key=phase_distance)
 
 
+def _phase_name(index: int, phase_date: Any) -> str:
+    """Return a familiar display name, including the traditional full-moon name."""
+    if index == 4:
+        return FULL_MOON_NAMES.get(getattr(phase_date, "month", None), "Full Moon")
+    return PHASES[index][0]
+
+
+def _phase_event(
+    observer: Any,
+    tzinfo: ZoneInfo,
+    phase_date: Any,
+    index: int,
+) -> dict[str, Any]:
+    """Build one phase milestone as it appears from the observer's location."""
+    target_age = PHASE_AGES[index]
+    view_at = _best_local_view(observer, phase_date, tzinfo)
+    return {
+        "name": _phase_name(index, phase_date),
+        "glyph": PHASES[index][1],
+        "index": index,
+        "illumination": round((1 - math.cos(2 * math.pi * target_age / 28.0)) * 50),
+        "bright_limb_angle": local_bright_limb_angle(observer, view_at),
+        "disk_rotation": local_lunar_north_angle(observer, view_at),
+        "altitude": round(_moon_elevation(observer, view_at), 1),
+        "representative_date": phase_date.isoformat(),
+        "date_label": f"{phase_date.strftime('%b')} {phase_date.day}",
+    }
+
+
+def local_phase_timeline(
+    observer: Any, tzinfo: ZoneInfo, observed_at: datetime, phase_day: float
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return the four previous and four upcoming local phase milestones."""
+    local_date = observed_at.astimezone(tzinfo).date()
+    candidates: set[tuple[Any, int]] = set()
+    for cycle_offset in range(-2, 3):
+        for index, target_age in enumerate(PHASE_AGES):
+            days_from_now = target_age + (28.0 * cycle_offset) - phase_day
+            estimated_date = (observed_at.astimezone(tzinfo) + timedelta(days=days_from_now)).date()
+            phase_date = _nearest_phase_date(estimated_date, target_age)
+            candidates.add((phase_date, index))
+
+    ordered = sorted(candidates)
+    previous_dates = [item for item in ordered if item[0] < local_date][-4:]
+    upcoming_dates = [item for item in ordered if item[0] > local_date][:4]
+    previous = [_phase_event(observer, tzinfo, phase_date, index) for phase_date, index in previous_dates]
+    upcoming = [_phase_event(observer, tzinfo, phase_date, index) for phase_date, index in upcoming_dates]
+    return previous, upcoming
+
+
 def local_phase_cycle(
     observer: Any, tzinfo: ZoneInfo, observed_at: datetime, phase_day: float
 ) -> list[dict[str, Any]]:
@@ -245,6 +309,15 @@ def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, An
             cycle=local_phase_cycle(location.observer, tzinfo, observed_at, result["age_days"]),
             timezone=timezone_name,
         )
+        previous_phases, upcoming_phases = local_phase_timeline(
+            location.observer, tzinfo, observed_at, result["age_days"]
+        )
+        result.update(
+            previous_phases=previous_phases,
+            upcoming_phases=upcoming_phases,
+        )
+        if result["phase_index"] == 4:
+            result["name"] = _phase_name(4, local.date())
     except Exception:
         result.update(
             sunrise="—",
@@ -257,6 +330,8 @@ def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, An
             moon_altitude=None,
             bright_limb_angle=0.0,
             disk_rotation=0.0,
+            previous_phases=[],
+            upcoming_phases=[],
             timezone=str(getattr(settings, "timezone", "UTC") or "UTC"),
         )
     return result

@@ -1,6 +1,7 @@
 """Focused coverage for the full-screen integrated Weather Forecast."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -10,6 +11,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.templating import Jinja2Templates
 
 import sensorius.saiWeatherForecastApp as weather_app
+from sensorius.saiWeatherAstronomy import astronomy_context
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -140,12 +142,61 @@ def test_windy_map_defaults_to_radar_overlay():
 def test_windy_map_requires_deliberate_interaction():
     template = (ROOT / "ui_templates" / "weather_forecast" / "index.html").read_text()
     script = (ROOT / "ui_static" / "weather_forecast" / "app.js").read_text()
+    moon_script = (ROOT / "ui_static" / "weather_forecast" / "moon.js").read_text()
 
+    assert "/ui_static/weather_forecast/moon.js" in template
     assert "data-windy-interaction" in template
     assert "data-windy-guard" in template
     assert 'tabindex="-1"' in template
     assert 'windyGuard.addEventListener("click"' in script
     assert 'windyInteraction.addEventListener("mouseleave"' in script
+    assert "window.CaelusMoon = Object.freeze({renderMoonDisk});" in moon_script
+    assert "const renderMoonDisk = window.CaelusMoon?.renderMoonDisk" in script
+
+
+def test_windy_interaction_prompt_sits_on_map_top_border():
+    css = (ROOT / "ui_static" / "weather_forecast" / "app.css").read_text()
+
+    assert "place-items: start center" in css
+    assert ".windy-map-guard span { transform: translateY(-50%)" in css
+
+
+def test_lunar_timeline_has_four_local_previous_and_upcoming_phases():
+    context = astronomy_context(
+        type(
+            "AstralSettings",
+            (),
+            {
+                "latitude": 32.77,
+                "longitude": -108.28,
+                "timezone": "America/Denver",
+                "location_name": "Test station",
+            },
+        )(),
+        datetime(2026, 8, 9, 18, tzinfo=timezone.utc),
+    )
+
+    assert len(context["previous_phases"]) == 4
+    assert len(context["upcoming_phases"]) == 4
+    assert [phase["representative_date"] for phase in context["previous_phases"]] == sorted(
+        phase["representative_date"] for phase in context["previous_phases"]
+    )
+    assert [phase["representative_date"] for phase in context["upcoming_phases"]] == sorted(
+        phase["representative_date"] for phase in context["upcoming_phases"]
+    )
+    assert context["previous_phases"][1]["name"] == "Buck Moon"
+    assert all("bright_limb_angle" in phase for phase in context["previous_phases"] + context["upcoming_phases"])
+
+
+def test_lunar_strip_uses_dates_and_does_not_symmetrize_local_orientation():
+    template = (ROOT / "ui_templates" / "weather_forecast" / "index.html").read_text()
+    script = (ROOT / "ui_static" / "weather_forecast" / "app.js").read_text()
+
+    assert 'data-lunar-period="previous"' in template
+    assert 'data-lunar-period="upcoming"' in template
+    assert "data-phase-date" in template
+    assert "pairedPhaseCycle" not in script
+    assert 'updatePhaseStrip("previous", moon.previous_phases || [])' in script
 
 
 def test_open_meteo_hour_windows_do_not_show_rain_until_precipitation_window():
@@ -210,6 +261,13 @@ async def test_integrated_weather_routes_render_dashboard_and_namespaced_apis(mo
         "unit": "hPa",
     }
     assert "Baro-Pressure" in page.text
+    readings_panel = page.text[
+        page.text.index('class="glass-card readings-panel"'):
+        page.text.index('class="glass-card forecast-panel"')
+    ]
+    assert 'class="station-state readings-footer is-live"' in readings_panel
+    assert "Station reporting" in readings_panel
+    assert "Station reporting" not in page.text[:page.text.index('id="conditions"')]
     assert "Environmental decisions" not in page.text
     assert 'class="glass-card map-card full-width-map"' in page.text
     assert page.text.index('id="conditions"') < page.text.index('id="map"') < page.text.index('id="moon"')
