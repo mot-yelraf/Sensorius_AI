@@ -301,6 +301,10 @@ Fields and selectors:
 - **Theme**: selects the Caelus full-screen scene. Options are **Mountain
   Garden**, **Ocean Island**, **Forest River**, and **Desert Bloom**.
 - **Current Readings Sensor**: selects any live sensor in the sensor directory.
+  Directly connected Raspberry Pi sensors remain selectable while their first
+  reading is being collected after startup. If the directory is briefly empty,
+  the selector retries automatically and refreshes whenever Integrations is
+  activated or reopened.
   Caelus displays that sensor's configured Display Metrics in their saved
   order. A WeeWX station can therefore supply outdoor temperature, humidity,
   rain, wind direction, and barometric pressure.

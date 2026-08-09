@@ -1,6 +1,7 @@
 """Focused coverage for the full-screen integrated Weather Forecast."""
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -275,6 +276,37 @@ async def test_integrated_weather_routes_render_dashboard_and_namespaced_apis(mo
     assert forecast.json()["days"][0]["label"] == "Sat Aug 8"
 
 
+@pytest.mark.asyncio
+async def test_weather_forecast_background_warm_is_reused_by_first_page_request(monkeypatch):
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls = []
+
+    async def _slow_forecast(*_args, **_kwargs):
+        calls.append(1)
+        started.set()
+        await release.wait()
+        return _forecast_payload()
+
+    monkeypatch.setattr(weather_app, "get_weather_forecast_payload", _slow_forecast)
+    service = weather_app.WeatherForecastAppService(
+        settings=_Settings(),
+        data_logger=_Logger(),
+        sensor_settings_manager=_SensorSettings(),
+    )
+
+    service.ensure_background_warm()
+    await started.wait()
+    forecast_task = asyncio.create_task(service.forecast())
+    await asyncio.sleep(0)
+    assert calls == [1]
+
+    release.set()
+    result = await forecast_task
+    assert result["ok"] is True
+    assert calls == [1]
+
+
 def test_dashboard_button_launches_full_screen_weather_app():
     html_source = (ROOT / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
     assert "window.location.assign('/weather-forecast')" in html_source
@@ -312,6 +344,15 @@ def test_weather_forecast_system_settings_are_present():
     assert "The forecast uses the Sensorius Astral location." not in template
     assert "Current Readings panel follows the selected sensor's configured **Display Metrics**" in " ".join(user_guide.split())
     assert 'fetch("/sensor-directory"' in template
+    assert 'select.dataset.hydrated = rows.length ? "1" : "0"' in template
+    assert "hydrateWeatherForecastSensors(attempt + 1)" in template
+    assert "if (activePaneId) setActivePane(activePaneId);" in template
+    assert 'select.dataset.hydrated === "1" && select.options.length > 1' not in template
+    system_pane_activation = template[
+        template.index('if (paneId === "pane-system")'):
+        template.index('if (paneId === "pane-integrations")')
+    ]
+    assert "hydrateWeatherForecastSensors();" in system_pane_activation
 
 
 def test_six_day_dialog_uses_selected_theme_palette():

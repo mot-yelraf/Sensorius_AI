@@ -5669,14 +5669,19 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     ):
         _route_started = time.monotonic()
         try:
-            forecast_settings = saiSettings(make_startup_backup=False, apply_live=False)
-            payload = await get_weather_forecast_payload(
-                forecast_settings,
-                db_path=str(getattr(data_logger, "db_path", "sensorius_data.db") or "sensorius_data.db"),
-                force_refresh=bool(force_refresh),
-                min_days=int(days),
-                timeout_sec=8.0,
-            )
+            forecast_app_service = getattr(app.state, "weather_forecast_app_service", None)
+            canonical_forecast = getattr(forecast_app_service, "canonical_forecast", None)
+            if callable(canonical_forecast):
+                payload = await canonical_forecast(force_refresh=bool(force_refresh))
+            else:
+                forecast_settings = saiSettings(make_startup_backup=False, apply_live=False)
+                payload = await get_weather_forecast_payload(
+                    forecast_settings,
+                    db_path=str(getattr(data_logger, "db_path", "sensorius_data.db") or "sensorius_data.db"),
+                    force_refresh=bool(force_refresh),
+                    min_days=int(days),
+                    timeout_sec=8.0,
+                )
             if isinstance(payload.get("days"), list):
                 payload["days"] = payload["days"][:days]
             _ui_profile_log(
@@ -9699,7 +9704,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if DEBUG:
             printDM(f"[{MODULE}] #4 - merged sensors {merged}", location=MODULE)
 
-        merged = sorted([sid for sid in merged if _is_dashboard_visible_sensor(sid)])
+        # A directly connected Pi sensor is authoritative while its controller
+        # remains in the live sensor map.  Do not hide it during the brief
+        # startup window before the first reading has reached SQLite; settings
+        # selectors use this endpoint and otherwise retain an empty list.
+        local_id_set = {str(sid or "").strip() for sid in local_ids if str(sid or "").strip()}
+        merged = sorted([
+            sid for sid in merged
+            if sid in local_id_set or _is_dashboard_visible_sensor(sid)
+        ])
         _sensor_ids_cache_payload = list(merged)
         _sensor_ids_cache_until = time.monotonic() + _SENSOR_IDS_CACHE_TTL_SEC
         return JSONResponse(merged)

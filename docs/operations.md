@@ -12,6 +12,12 @@ cd /home/<user>/Sensorius
 .venv/bin/python Sensorius.py
 ```
 
+Sensorius permits one process per configured HTTP port. Starting it manually
+while the system service or another manual instance is running exits
+immediately with an `already running` message, before opening SQLite, MQTT,
+sensor buses, or the HTTP listener. Stop the existing service before launching
+an interactive debug instance.
+
 On macOS, use `/Users/<user>/Sensorius`. On Windows, use the setup script's
 deployed runtime path, normally `C:\Users\<user>\Sensorius`.
 
@@ -353,7 +359,9 @@ Key tables:
 - `biodynamic_plantings`: planting plans used by the integrated calendar.
 - `biodynamic_calendar_cache`: versioned month and daily-guidance payloads.
 - `weather_forecast`: cached dashboard forecast payloads, created by the
-  weather forecast helper when forecasts are used.
+  weather forecast helper when forecasts are used. The forecast cache is warmed
+  in the background during web-app startup so the first Caelus view normally
+  avoids waiting for the remote provider.
 
 Biodynamic month and daily-guidance payloads used by the full-screen calendar,
 daily summaries, and transition automations are cached in the

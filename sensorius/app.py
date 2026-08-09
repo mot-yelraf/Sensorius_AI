@@ -31,6 +31,7 @@ from .saiSwitchFactory import detect_relay_board
 from .saiTimeSync import TimeSyncService
 from .saiNodusAutomationStatus import NodusAutomationStatusPublisher
 from .saiEmailNotifications import AutomationNotificationService, EmailNotificationService
+from .saiInstanceLock import SensoriusInstanceLock
 
 MODULE = "Sensorius"
 DEBUG = debug_enabled(MODULE)
@@ -723,8 +724,26 @@ def run_application():
     import os
     import sys
 
+    instance_lock = None
     try:
         configure_logging()
+
+        lock_settings = saiSettings(make_startup_backup=False, apply_live=False)
+        try:
+            http_port = int(
+                os.environ.get("SENSORIUS_HTTP_PORT")
+                or lock_settings.get_setting("Network", "HTTPPORT", 8000)
+            )
+        except Exception:
+            http_port = 8000
+        instance_lock = SensoriusInstanceLock(http_port)
+        if not instance_lock.acquire():
+            printDM(
+                f"Sensorius is already running for HTTP port {http_port}. "
+                "Stop the existing instance before starting another one.",
+                location=f"{MODULE}:__main__",
+            )
+            return
 
         # Start backend system in a daemon thread
         main_thread = Thread(target=run_main_thread, daemon=True)
@@ -773,6 +792,9 @@ def run_application():
         printDM("Keyboard interrupt received. Exiting.", location=f"{MODULE}:__main__")
     except Exception as e:
         printDM(f"Fatal error in __main__: {e}", location=f"{MODULE}:__main__")
+    finally:
+        if instance_lock is not None:
+            instance_lock.release()
 
 
 if __name__ == "__main__":

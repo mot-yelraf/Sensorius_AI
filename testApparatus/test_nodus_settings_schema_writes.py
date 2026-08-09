@@ -1705,6 +1705,23 @@ async def test_sensor_settings_modal_shows_local_pi_board_and_sensor_type(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_sensor_directory_keeps_local_pi_sensor_before_first_logged_reading(tmp_path, monkeypatch):
+    app, _ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_id = "co2-i2c-1-sensorius-hub-2"
+    app.state.sensor_map = [SimpleNamespace(sensor_id=sensor_id)]
+    saiWebRoutes._sensor_ids_cache_payload = None
+    saiWebRoutes._sensor_ids_cache_until = 0.0
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda _sid: "")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/sensor-directory")
+
+    assert res.status_code == 200
+    assert sensor_id in [row["id"] for row in res.json()]
+
+
+@pytest.mark.asyncio
 async def test_direct_i2c_sensor_shadow_seeded_as_nodus_is_repaired_for_calibration(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_id = "aqi-i2c-0-sensorius-0"

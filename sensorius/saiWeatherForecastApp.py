@@ -270,6 +270,31 @@ class WeatherForecastAppService:
         self.settings = settings
         self.data_logger = data_logger
         self.sensor_settings_manager = sensor_settings_manager or SensorSettingsManager("sensor_settings")
+        self._warm_task: asyncio.Task[dict[str, Any]] | None = None
+
+    def ensure_background_warm(self) -> None:
+        """Start a non-blocking forecast cache warm once per app process."""
+        if self._warm_task is not None and not self._warm_task.done():
+            return
+        self._warm_task = asyncio.create_task(self._load_forecast(), name="WeatherForecastWarm")
+
+        def _consume_warm_result(done_task: asyncio.Task[dict[str, Any]]) -> None:
+            try:
+                if not done_task.cancelled():
+                    done_task.exception()
+            except Exception:
+                pass
+
+        self._warm_task.add_done_callback(_consume_warm_result)
+
+    async def _load_forecast(self, *, force_refresh: bool = False) -> dict[str, Any]:
+        return await get_weather_forecast_payload(
+            self.settings,
+            db_path=str(getattr(self.data_logger, "db_path", "sensorius_data.db") or "sensorius_data.db"),
+            force_refresh=force_refresh,
+            min_days=6,
+            timeout_sec=8.0,
+        )
 
     def _reload_settings(self) -> None:
         try:
@@ -333,15 +358,16 @@ class WeatherForecastAppService:
         payload["display_metrics"] = build_display_metrics(values, configured_metrics)
         return payload
 
-    async def forecast(self, *, force_refresh: bool = False) -> dict[str, Any]:
+    async def canonical_forecast(self, *, force_refresh: bool = False) -> dict[str, Any]:
+        """Return the canonical payload, sharing an active startup warm task."""
         self._reload_settings()
-        payload = await get_weather_forecast_payload(
-            self.settings,
-            db_path=str(getattr(self.data_logger, "db_path", "sensorius_data.db") or "sensorius_data.db"),
-            force_refresh=force_refresh,
-            min_days=6,
-            timeout_sec=8.0,
-        )
+        warm_task = self._warm_task
+        if not force_refresh and warm_task is not None and not warm_task.done():
+            return await asyncio.shield(warm_task)
+        return await self._load_forecast(force_refresh=force_refresh)
+
+    async def forecast(self, *, force_refresh: bool = False) -> dict[str, Any]:
+        payload = await self.canonical_forecast(force_refresh=force_refresh)
         return build_weather_display_forecast(payload)
 
 
@@ -360,6 +386,7 @@ def register_weather_forecast_app_routes(
         sensor_settings_manager=sensor_settings_manager,
     )
     app.state.weather_forecast_app_service = service
+    app.add_event_handler("startup", service.ensure_background_warm)
 
     @router.get("/weather-forecast", response_class=HTMLResponse)
     async def weather_forecast_page(request: Request):

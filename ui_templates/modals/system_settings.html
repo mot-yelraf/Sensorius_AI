@@ -1637,6 +1637,10 @@
   let otaPollTimer = null;
   function openSetupModal() {
     root.style.display = "flex";
+    const activeButton = menu?.querySelector(".system-menu-btn.active");
+    const activePane = Array.from(panes).find((pane) => !pane.hidden);
+    const activePaneId = String(activeButton?.dataset.target || activePane?.id || "").trim();
+    if (activePaneId) setActivePane(activePaneId);
     if (document.getElementById("nodus-wifi-section")?.open) startNodusWifiAutoRefresh();
   }
 
@@ -1683,8 +1687,10 @@
       btn.classList.toggle("active", btn.dataset.target === paneId);
     });
 
-    if (paneId === "pane-integrations") {
+    if (paneId === "pane-system") {
       hydrateWeatherForecastSensors();
+    }
+    if (paneId === "pane-integrations") {
       hydrateHAFromData();
       hydrateWeeWXFromData();
       hydrateFarmFromData();
@@ -1714,9 +1720,10 @@
     if (paneId !== "pane-add") stopAddScan();
   }
 
-  async function hydrateWeatherForecastSensors() {
+  async function hydrateWeatherForecastSensors(attempt = 0) {
     const select = document.getElementById("weather_forecast_sensor_id");
-    if (!select || select.dataset.hydrated === "1") return;
+    if (!select || select.dataset.hydrating === "1") return;
+    select.dataset.hydrating = "1";
     const selected = String(select.value || select.dataset.selected || "");
     try {
       const response = await fetch("/sensor-directory", {cache: "no-store"});
@@ -1743,9 +1750,17 @@
         select.appendChild(retained);
       }
       select.value = selected;
-      select.dataset.hydrated = "1";
+      select.dataset.hydrated = rows.length ? "1" : "0";
+      if (!rows.length && attempt < 2) {
+        window.setTimeout(() => hydrateWeatherForecastSensors(attempt + 1), 1500);
+      }
     } catch (_error) {
       select.dataset.hydrated = "0";
+      if (attempt < 2) {
+        window.setTimeout(() => hydrateWeatherForecastSensors(attempt + 1), 1500);
+      }
+    } finally {
+      select.dataset.hydrating = "0";
     }
   }
 
