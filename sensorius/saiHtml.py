@@ -10,6 +10,7 @@ import re
 from .saiUtils import printDM, debug_enabled, html_escape, normalize_hostname_base, mdns_hostname
 from .saiBiodynamics import get_biodynamic_payload, get_skyfield_runtime_if_installed
 from .sensor_modules.station_weewx import DEFAULT_SENSOR_ID as WEEWX_DEFAULT_SENSOR_ID, WEEWX_GAUGE_CONFIG
+from .sensor_modules.station_ecowitt import ECOWITT_GAUGE_CONFIG, ecowitt_gauge_config_for_metric
 from collections import defaultdict
 from pathlib import Path
 from . import __version__ as APP_VERSION
@@ -133,6 +134,19 @@ def get_gauge_config():
         "Visible Light Intensity": {"unit": "mol·m⁻²·day⁻¹", "min": 0, "max": 70, "ticks": [0, 10, 20, 30, 40, 50, 60, 70], "zones": [{"strokeStyle": "#ffff00", "min": 0, "max": 70}]},
     }
     gauge_config.update(WEEWX_GAUGE_CONFIG)
+    gauge_config.update(ECOWITT_GAUGE_CONFIG)
+    return gauge_config
+
+
+def extend_gauge_config_for_metrics(gauge_config: dict, metric_names) -> dict:
+    """Add supported channel-specific Ecowitt gauges to one dashboard configuration."""
+    for metric_name in metric_names or []:
+        name = str(metric_name or "").strip()
+        if not name or name in gauge_config:
+            continue
+        config = ecowitt_gauge_config_for_metric(name, gauge_config)
+        if config:
+            gauge_config[name] = config
     return gauge_config
 
 
@@ -1599,10 +1613,15 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         except Exception:
             pass
 
-        # 3) WeeWX archive/MQTT station data does not always have a live sensor object
+        # 3) Locally ingested weather stations do not have a direct sensor object
         # or Nodus heartbeat, so a row with rendered values should not show unknown.
         try:
-            if sid_text.lower() == WEEWX_DEFAULT_SENSOR_ID.lower() or sid_text.lower().startswith("weewx"):
+            sid_lower = sid_text.lower()
+            if (
+                sid_lower == WEEWX_DEFAULT_SENSOR_ID.lower()
+                or sid_lower.startswith("weewx")
+                or sid_lower.startswith("ecowitt-")
+            ):
                 values = all_values.get(sid_text) or {}
                 if values:
                     return "online"
@@ -2019,6 +2038,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         yield "</div>"
         render_metrics = []
         seen_render_metrics = set()
+        extend_gauge_config_for_metrics(gauge_config, list(sensor_metrics or []) + list(values.keys()))
         for metric in (sensor_metrics or []):
             canonical_metric = canonicalize_metric_name(metric, gauge_config)
             if canonical_metric in gauge_config and canonical_metric not in seen_render_metrics:

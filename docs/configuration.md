@@ -267,6 +267,15 @@ MQTT_ENABLED = false
 MQTT_TOPIC = "weewx/#"
 UPDATE_PERIOD_SEC = 300
 
+[Ecowitt]
+ENABLED = false
+GATEWAY_URL = ""
+POLL_INTERVAL_SEC = 60
+SENSOR_ID = ""
+INVENTORY_JSON = "[]"
+RAIN_SOURCE = ""
+RAIN_RESET_HOUR = 0
+
 [Display]
 gauge_size = "Small"
 display_style = "Gauge"
@@ -295,6 +304,12 @@ Runtime notes:
 - WeeWX MQTT settings are applied live through the running MQTT ingest client
   when available. If MQTT ingest is not running, the settings apply when MQTT
   ingest starts.
+- Ecowitt settings control one read-only LAN gateway. `SENSOR_ID` is generated
+  from the gateway MAC during discovery; `INVENTORY_JSON` is an informational
+  snapshot of valid registered sensors. `RAIN_SOURCE` and `RAIN_RESET_HOUR` are
+  discovered gateway metadata used to preserve rain-counter correctness.
+  Enable/disable and interval changes are
+  read by the always-registered poller without a process restart.
 - Home Assistant and farmOS secrets are obfuscated at rest by `sensorius.saiSettings`.
   This is reversible obfuscation, not encryption.
 - `[WeatherForecast].PROVIDER` accepts `met_no`, `open_meteo`, `us`, or `none`.

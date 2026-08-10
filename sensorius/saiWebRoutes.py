@@ -71,6 +71,8 @@ from .saiUtils import (
     mdns_hostname,
 )
 from .saiSettings import saiSettings
+from .saiEcowitt import EcowittError, EcowittGatewayIngest
+from .sensor_modules.station_ecowitt import DEFAULT_POLL_INTERVAL_SEC as ECOWITT_DEFAULT_POLL_INTERVAL_SEC
 from .saiRuntimePaths import resolve_runtime_base_dir
 from .saiOnboardingStore import OnboardingSessionStore, OnboardingStates
 from .saiOnboardingToken import OnboardingTokenManager
@@ -80,7 +82,7 @@ try:
 except Exception:
     _build_switch_key = None
 from .saiStats import saiStats
-from .saiHtml import render_dashboard, get_gauge_config, canonicalize_metric_name
+from .saiHtml import render_dashboard, get_gauge_config, canonicalize_metric_name, extend_gauge_config_for_metrics
 from .sensor_modules.station_weewx import (
     DEFAULT_DB_PATH as WEEWX_DEFAULT_DB_PATH,
     DEFAULT_MQTT_TOPIC as WEEWX_DEFAULT_MQTT_TOPIC,
@@ -2931,6 +2933,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if vals:
                     known_metrics.extend(list(vals.keys()))
                 known_metrics.extend(list(mqtt_ingest.expected_gauge_map.get(sid) or []))
+                extend_gauge_config_for_metrics(gauge_config, known_metrics)
 
                 known_canonical = {
                     canonicalize_metric_name(metric, gauge_config)
@@ -4188,6 +4191,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         weewx_sensor_id = settings.get_setting("WeeWX", "SENSOR_ID", WEEWX_DEFAULT_SENSOR_ID) or WEEWX_DEFAULT_SENSOR_ID
         weewx_mqtt_topic = settings.get_setting("WeeWX", "MQTT_TOPIC", WEEWX_DEFAULT_MQTT_TOPIC) or WEEWX_DEFAULT_MQTT_TOPIC
         weewx_update_period_sec = settings.get_setting("WeeWX", "UPDATE_PERIOD_SEC", WEEWX_DEFAULT_UPDATE_PERIOD_SEC) or WEEWX_DEFAULT_UPDATE_PERIOD_SEC
+        ecowitt_gateway_url = settings.get_setting("Ecowitt", "GATEWAY_URL", "") or ""
+        ecowitt_poll_interval_sec = settings.get_setting(
+            "Ecowitt", "POLL_INTERVAL_SEC", ECOWITT_DEFAULT_POLL_INTERVAL_SEC
+        ) or ECOWITT_DEFAULT_POLL_INTERVAL_SEC
         email_env = _env_map_with_defaults()
 
         def _email_env_value(name: str, default: str = "") -> str:
@@ -4307,6 +4314,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             weewx_update_period_sec=weewx_update_period_sec,
             weewx_broker=broker or "localhost",
             weewx_port=mqttport,
+            ecowitt_gateway_url=ecowitt_gateway_url,
+            ecowitt_poll_interval_sec=ecowitt_poll_interval_sec,
             email_enabled=email_enabled,
             email_smtp_host=email_smtp_host,
             email_smtp_port=email_smtp_port,
@@ -9412,6 +9421,67 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         settings.replace_setting("HomeAssistant", "HA_PASSWORD", saiSettings.obfuscate_secret(password))
 
         return JSONResponse({"status": "ok"})
+
+    def _ecowitt_service(request: Request) -> EcowittGatewayIngest:
+        service = getattr(request.app.state, "ecowitt_service", None)
+        if service is None:
+            service = EcowittGatewayIngest(
+                settings=saiSettings(),
+                data_logger=getattr(request.app.state, "data_logger", None) or data_logger,
+                supervisor=getattr(request.app.state, "supervisor", None),
+            )
+            request.app.state.ecowitt_service = service
+        return service
+
+    @router.post("/ecowitt/discover")
+    async def ecowitt_discover(request: Request):
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        try:
+            result = await _ecowitt_service(request).discover(payload.get("gateway_url", ""))
+            return JSONResponse(result)
+        except EcowittError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+        except Exception as exc:
+            if DEBUG:
+                printDM(f"Ecowitt discovery failed: {exc}", location=MODULE)
+            return JSONResponse({"ok": False, "error": "Ecowitt discovery failed."}, status_code=502)
+
+    @router.post("/ecowitt/save")
+    async def ecowitt_save(request: Request):
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        service = _ecowitt_service(request)
+        try:
+            discovery = await service.discover(payload.get("gateway_url", ""))
+            await asyncio.to_thread(
+                service.save_configuration,
+                discovery,
+                payload.get("poll_interval_sec", ECOWITT_DEFAULT_POLL_INTERVAL_SEC),
+            )
+            return JSONResponse({"ok": True, **discovery, "poll_interval_sec": service.poll_interval_sec})
+        except EcowittError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+        except Exception as exc:
+            printDM(f"Ecowitt settings save failed: {exc}", location=MODULE, level="warning")
+            return JSONResponse({"ok": False, "error": "Failed to save Ecowitt settings."}, status_code=500)
+
+    @router.get("/ecowitt/status")
+    async def ecowitt_status(request: Request):
+        return JSONResponse(_ecowitt_service(request).status())
+
+    @router.post("/ecowitt/disable")
+    async def ecowitt_disable(request: Request):
+        try:
+            await asyncio.to_thread(_ecowitt_service(request).disable)
+            return JSONResponse({"ok": True})
+        except Exception as exc:
+            printDM(f"Ecowitt disable failed: {exc}", location=MODULE, level="warning")
+            return JSONResponse({"ok": False, "error": "Failed to disable Ecowitt integration."}, status_code=500)
 
     @router.post("/submit-weewx-settings")
     async def submit_weewx_settings(request: Request):

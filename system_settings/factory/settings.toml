@@ -40,6 +40,15 @@ MQTT_ENABLED = false
 MQTT_TOPIC = "weewx/#"
 UPDATE_PERIOD_SEC = 300
 
+[Ecowitt]
+ENABLED = false
+GATEWAY_URL = ""
+POLL_INTERVAL_SEC = 60
+SENSOR_ID = ""
+INVENTORY_JSON = "[]"
+RAIN_SOURCE = ""
+RAIN_RESET_HOUR = 0
+
 [HomeAssistant]
 ENABLED = false
 HA_USERNAME = ""

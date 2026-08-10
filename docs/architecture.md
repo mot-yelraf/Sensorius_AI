@@ -78,6 +78,10 @@ macOS, Windows, and non-Pi Linux hub:
 - `sensorius/saiFarmOSBridge.py`: farmOS JSON:API export queue and flush
   worker.
 - `sensorius/saiWeeWX.py`: optional WeeWX SQLite archive ingest.
+- `sensorius/saiEcowitt.py`: read-only Ecowitt LAN discovery, status, and
+  supervised live-data polling.
+- `sensorius/sensor_modules/station_ecowitt.py`: pure Ecowitt inventory,
+  channel, unit, and metric normalization.
 - `sensorius/saiTimeSync.py`: timezone/DST synchronization for hub settings
   and known Nodus devices.
 - `sensorius/saiWeatherForecast.py`: dashboard weather forecast provider
@@ -166,6 +170,21 @@ WeeWX:
 - Both paths use `sensorius/sensor_modules/station_weewx.py` helpers and normalize
   station data into the same sensor settings and database paths as other
   sensors.
+
+Ecowitt:
+
+- One always-registered supervised service polls the configured gateway only
+  while `[Ecowitt].ENABLED` is true.
+- Discovery reads both inventory pages, uses the gateway MAC for stable station
+  identity, and materializes a `TYPE = "station"`, `DEVICE = "ecowitt"` sensor.
+- The parser supports the main weather array, indoor gateway readings, both
+  rain families, and additional temperature/humidity, soil, leaf, PM2.5, leak,
+  lightning, LDS, CO2/air-quality, and EC channels.
+- The configured rain priority selects one authoritative rain family. Day-total
+  deltas become interval `Rain`; cumulative counters are never written as the
+  interval metric.
+- Normalized values enter `saiDataLogger.log_readings`, preserving dashboard,
+  graph, statistics, forecast, farmOS, automation, and Home Assistant paths.
 
 Weather forecast:
 

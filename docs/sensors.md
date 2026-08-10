@@ -1,7 +1,7 @@
 # Sensors And Metrics
 
 Sensorius supports local Raspberry Pi sensors, MQTT-discovered Nodus sensors,
-and optional WeeWX station ingest. All readings are normalized into the same
+optional WeeWX station ingest, and read-only Ecowitt LAN gateway polling. All readings are normalized into the same
 database and dashboard model.
 
 Each sensor defines a `measurements` list that determines the metric names
@@ -30,6 +30,24 @@ WeeWX station ingest:
 - Copies the WeeWX station model, station type, and driver into the station
   sensor config when a readable WeeWX config exists on the host.
 - Adds station metrics to the same dashboard and DB paths.
+
+Ecowitt gateway ingest:
+
+- Discovers a GW1100-compatible gateway and its registered sensors through the
+  local generic HTTP API.
+- Uses `ecowitt-<gateway_mac>` as one stable station identity and marks the
+  sensor settings as `TYPE = "station"`, `DEVICE = "ecowitt"`.
+- Normalizes temperature, humidity, pressure, wind, rain, solar/light, UV,
+  lightning, gateway indoor, air-quality, and supported additional channel
+  arrays.
+- Uses distinct channel metric names such as `WH31 CH1 Temperature_F`,
+  `Soil Moisture CH3`, `PM2.5 CH2`, and `Leaf Wetness CH1`.
+- Stores Ecowitt rain day/week/month/year values as cumulative metrics. Only a
+  restart-safe day-total delta is written as interval `Rain`, allowing the
+  logger to derive `Rain Last 24h` correctly.
+- Makes observed Ecowitt metrics available to the dashboard's **Pick 6** mode;
+  **All** mode renders both standard weather metrics and supported
+  channel-numbered metrics without requiring a Nodus metric schema.
 
 ## Common Metrics
 

@@ -512,11 +512,10 @@ Locations should describe places people recognize: Greenhouse 1, West Bed, Seedl
 
 ![Add Device pane](<../assets/screenshots/system-settings-add-device.png>)
 
-Use Add Device to onboard a factory-bootstrapped Nodus device. The page groups
-device types into expandable sections. **Nodus Device(s)** contains the active
-Nodus onboarding workflow. **Ecowitt Gateway** currently provides placeholder
-fields for the gateway URL and polling interval; Ecowitt discovery, validation,
-and persistence are not enabled yet.
+Use Add Device to onboard a factory-bootstrapped Nodus device or add a local
+Ecowitt gateway. The page groups device types into expandable sections.
+**Nodus Device(s)** contains the Nodus onboarding workflow. **Ecowitt Gateway**
+discovers and enables a read-only LAN weather-station connection.
 
 Fields and status rows:
 
@@ -529,6 +528,28 @@ Fields and status rows:
 - **Add**: starts onboarding when a setup AP is selected. On Linux and Raspberry
   Pi, a failed scan leaves Add disabled; use Retry after confirming the Nodus AP
   is broadcasting.
+
+Ecowitt Gateway fields and controls are arranged in two columns:
+
+- **GW URL**: the gateway base address, such as `http://192.168.1.100` or a
+  local hostname. Do not include a path, credentials, query, or fragment.
+- **Find Sensors**: queries the gateway's read-only version, network, sensor
+  inventory, live-data, and rain-priority endpoints. Both inventory pages are
+  checked.
+- **Available Valid GW Sensors**: lists registered gateway sensors and whether
+  their data family is present in the current live response. All valid listed
+  sensors and supported additional channels are ingested.
+- **Data Retrieval Interval**: polling period from 60 through 3600 seconds.
+- **Save Gateway**: revalidates the gateway, derives a stable Sensorius station
+  ID from its MAC address, creates station settings, and enables polling.
+- **Disable**: stops polling without deleting station settings or historical
+  readings.
+
+Configure the GW1100 on the same trusted LAN first. A DHCP reservation is
+recommended. Sensorius accepts metric or imperial gateway display units and
+normalizes stored metric semantics. It reads the gateway only; it does not
+change Wi-Fi, sensor registration, calibration, rain settings, MQTT, firmware,
+or weather-service configuration.
 
 On macOS, enter the exact 2.4 GHz home Wi-Fi SSID and the password for that
 SSID in Add Device before changing networks. The SSID matters even when a

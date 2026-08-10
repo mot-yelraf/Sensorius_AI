@@ -23,6 +23,7 @@ from .saiWatchdog import WatchdogMonitor
 from .saiMQTTIngest import saiMQTTIngest
 from .saiFarmOSBridge import saiFarmOSBridge
 from .saiWeeWX import WeeWXArchiveIngest
+from .saiEcowitt import EcowittGatewayIngest
 from .saiSettings import saiSettings
 from .saiSensorSettingsManager import SensorSettingsManager
 from .saiUtils import SettingsWrapper
@@ -605,6 +606,7 @@ async def main():
 
     # --- Always-on supervisors ---
     weewx_ingest = WeeWXArchiveIngest(settings=settings, data_logger=data_logger, supervisor=supervisor)
+    ecowitt_ingest = EcowittGatewayIngest(settings=settings, data_logger=data_logger, supervisor=supervisor)
     farmos_bridge = saiFarmOSBridge(settings=settings, data_logger=data_logger, supervisor=supervisor)
     email_notifications = EmailNotificationService(
         settings=settings,
@@ -623,6 +625,7 @@ async def main():
         supervisor=supervisor,
     )
     supervisor.add(weewx_ingest.run, name="WeeWX Archive Ingest", fatal_on_timeout=False, fatal_on_error=False)
+    supervisor.add(ecowitt_ingest.run, name="Ecowitt Gateway Ingest", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(farmos_bridge.run, name="FarmOS Bridge", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(
         email_notifications.run,
@@ -692,6 +695,7 @@ async def main():
     # make ingest available to request.app.state for /retry-discovery
     web_server.app.state.mqtt_ingest = mqtt_ingest_clients
     web_server.app.state.farmos_bridge = farmos_bridge
+    web_server.app.state.ecowitt_service = ecowitt_ingest
     web_server.app.state.supervisor = supervisor
     web_server.app.state.data_logger = data_logger
     web_server.app.state.sensor_map = sensor_map

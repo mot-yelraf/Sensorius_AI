@@ -55,3 +55,12 @@ Nodus devices are managed over Wi-Fi and MQTT after onboarding. Sensorius uses:
 
 Nodus Wi-Fi uses 2.4 GHz. For Raspberry Pi onboarding, prefer a 2.4 GHz Pi
 connection or ethernet when the router uses one combined SSID for both bands.
+
+## Ecowitt Gateway
+
+Sensorius supports read-only LAN polling of an Ecowitt GW1100-compatible
+gateway, including a paired WS69/WH65-family weather array and registered
+additional sensor channels. Configure the gateway and sensors with Ecowitt
+first, place the gateway and Sensorius host on the same trusted LAN, and prefer
+a DHCP reservation. The gateway requires 2.4 GHz Wi-Fi. Sensorius does not use
+direct GPIO for Ecowitt devices and does not change gateway configuration.

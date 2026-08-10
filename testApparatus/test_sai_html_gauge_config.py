@@ -259,6 +259,27 @@ def test_dashboard_micrograph_no_data_does_not_show_toast():
     assert "window.showToast('No data in selected graph window', 'warn');" not in html
 
 
+def test_dashboard_renders_ecowitt_channel_metrics_and_marks_station_online():
+    sensor_id = "ecowitt-e8db840f1543"
+    metric = "WH31 CH1 Temperature"
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            [sensor_id],
+            {sensor_id: {metric: 20.0, "Soil Moisture CH3": 42.0}},
+            {sensor_id: {}},
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=get_gauge_config(),
+            expected_gauge_map={sensor_id: [metric, "Soil Moisture CH3"]},
+        )
+    )
+
+    assert f"data-sensor='{sensor_id}' data-metric='{metric}'" in html
+    assert f"data-sensor='{sensor_id}' data-metric='Soil Moisture CH3'" in html
+    assert "title='Connection status: online'" in html
+
+
 def test_dashboard_live_refresh_has_recovery_hooks():
     gauge_config = get_gauge_config()
     html = "".join(

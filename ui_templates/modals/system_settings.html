@@ -833,6 +833,8 @@
        data-weewx-update-period="{{ weewx_update_period_sec | default(300) }}"
        data-weewx-broker="{{ weewx_broker | default('localhost') }}"
        data-weewx-port="{{ weewx_port | default(1883) }}"
+       data-ecowitt-gateway-url="{{ ecowitt_gateway_url | default('') }}"
+       data-ecowitt-poll-interval="{{ ecowitt_poll_interval_sec | default(60) }}"
        data-onboarding-v2-enabled="{{ onboarding_v2_mqtt_enabled | default(true) }}">
     <div class="system-settings-header">
       <h2 class="system-settings-title">{{ app_name_long }} {{ app_version }}</h2>
@@ -1407,15 +1409,29 @@
                 <div class="integration-block-content">
                   <div class="field-grid-stack">
                     <div class="field-stack">
-                      <label for="ecowitt-gateway-url">Ecowitt Gateway URL</label>
+                      <label for="ecowitt-gateway-url">GW URL</label>
                       <input type="url" id="ecowitt-gateway-url" name="ecowitt_gateway_url" placeholder="http://192.168.1.100" autocomplete="url">
                     </div>
                     <div class="field-stack">
-                      <label for="ecowitt-polling-interval">Polling Interval</label>
-                      <input type="number" id="ecowitt-polling-interval" name="ecowitt_polling_interval" placeholder="Seconds" min="1" step="1" inputmode="numeric">
+                      <label for="btn-ecowitt-find">Gateway Discovery</label>
+                      <button type="button" class="button yellow" id="btn-ecowitt-find">Find Sensors</button>
+                    </div>
+                    <div class="field-stack">
+                      <label>Available Valid GW Sensors</label>
+                      <div id="ecowitt-sensor-list" class="integration-state" role="list" aria-live="polite">
+                        <div class="integration-state-detail">Enter the gateway URL and choose Find Sensors.</div>
+                      </div>
+                    </div>
+                    <div class="field-stack">
+                      <label for="ecowitt-polling-interval">Data Retrieval Interval</label>
+                      <input type="number" id="ecowitt-polling-interval" name="ecowitt_polling_interval" value="{{ ecowitt_poll_interval_sec | default(60) }}" min="60" max="3600" step="1" inputmode="numeric">
                     </div>
                   </div>
-                  <div class="detail" style="margin-top:.55rem;">Gateway setup will be enabled when Ecowitt sensor support is added.</div>
+                  <div class="inline-actions" style="justify-content:flex-end;margin-top:.65rem;">
+                    <button type="button" class="button neutral" id="btn-ecowitt-disable">Disable</button>
+                    <button type="button" class="button green" id="btn-ecowitt-save" disabled>Save Gateway</button>
+                  </div>
+                  <div class="detail" id="ecowitt-status" aria-live="polite" style="margin-top:.55rem;"></div>
                 </div>
               </details>
             </div>
@@ -1758,6 +1774,8 @@
     if (paneId === "pane-add") {
       resetAddDevicePaneState();
       startAddScan();
+      hydrateEcowittFromData();
+      loadEcowittStatus();
     }
     if (paneId !== "pane-add") stopAddScan();
   }
@@ -2637,6 +2655,135 @@
       showSettingsToast(msg, "error");
     } finally {
       setButtonBusy("btn-weewx-save", false);
+    }
+  }
+
+  let ecowittDiscovery = null;
+
+  function hydrateEcowittFromData() {
+    if (!shell) return;
+    const url = document.getElementById("ecowitt-gateway-url");
+    const interval = document.getElementById("ecowitt-polling-interval");
+    if (url && !url.value) url.value = shell.dataset.ecowittGatewayUrl || "";
+    if (interval) interval.value = shell.dataset.ecowittPollInterval || "60";
+  }
+
+  function renderEcowittSensors(inventory) {
+    const list = document.getElementById("ecowitt-sensor-list");
+    if (!list) return;
+    list.innerHTML = "";
+    const sensors = Array.isArray(inventory) ? inventory : [];
+    if (!sensors.length) {
+      const empty = document.createElement("div");
+      empty.className = "integration-state-detail";
+      empty.textContent = "No valid registered gateway sensors found.";
+      list.appendChild(empty);
+      return;
+    }
+    sensors.forEach((sensor) => {
+      const row = document.createElement("div");
+      row.setAttribute("role", "listitem");
+      row.className = "integration-state-detail";
+      const family = sensor.family ? ` (${sensor.family})` : "";
+      const reporting = sensor.reporting ? "reporting" : "not present in live data";
+      row.textContent = `${sensor.name || "Ecowitt sensor"}${family} — ID ${sensor.id} — ${reporting}`;
+      list.appendChild(row);
+    });
+  }
+
+  async function loadEcowittStatus() {
+    try {
+      const resp = await fetch("/ecowitt/status", { cache: "no-store" });
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      const url = document.getElementById("ecowitt-gateway-url");
+      const interval = document.getElementById("ecowitt-polling-interval");
+      if (url && !url.value && data.gateway_url) url.value = data.gateway_url;
+      if (interval && data.poll_interval_sec) interval.value = String(data.poll_interval_sec);
+      if (Array.isArray(data.inventory) && data.inventory.length) renderEcowittSensors(data.inventory);
+      const parts = [data.label || "Ecowitt state unknown"];
+      if (data.last_accepted_reading) parts.push("Latest reading: " + data.last_accepted_reading);
+      if (data.last_error) parts.push(data.last_error);
+      setStatus("ecowitt-status", parts.join(" | "));
+    } catch (e) {
+      setStatus("ecowitt-status", "Failed to load Ecowitt status.");
+    }
+  }
+
+  async function findEcowittSensors() {
+    const gateway_url = (document.getElementById("ecowitt-gateway-url")?.value || "").trim();
+    ecowittDiscovery = null;
+    const save = document.getElementById("btn-ecowitt-save");
+    if (save) save.disabled = true;
+    setStatus("ecowitt-status", "Querying gateway...");
+    setButtonBusy("btn-ecowitt-find", true, "Finding...");
+    try {
+      const resp = await fetch("/ecowitt/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gateway_url })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.error || "Gateway discovery failed.");
+      ecowittDiscovery = data;
+      renderEcowittSensors(data.inventory);
+      if (save) save.disabled = false;
+      setStatus("ecowitt-status", `${data.gateway_model || "Ecowitt gateway"}: ${data.inventory.length} valid sensor(s), ${data.live_metric_count || 0} live metric(s).`);
+    } catch (e) {
+      renderEcowittSensors([]);
+      const msg = e && e.message ? e.message : "Gateway discovery failed.";
+      setStatus("ecowitt-status", msg);
+      showSettingsToast(msg, "error");
+    } finally {
+      setButtonBusy("btn-ecowitt-find", false);
+    }
+  }
+
+  async function saveEcowittGateway() {
+    if (!ecowittDiscovery) {
+      setStatus("ecowitt-status", "Choose Find Sensors before saving.");
+      return;
+    }
+    const gateway_url = (document.getElementById("ecowitt-gateway-url")?.value || "").trim();
+    const poll_interval_sec = parseInt(document.getElementById("ecowitt-polling-interval")?.value || "60", 10) || 60;
+    setButtonBusy("btn-ecowitt-save", true, "Saving...");
+    try {
+      const resp = await fetch("/ecowitt/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gateway_url, poll_interval_sec })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.error || "Failed to save Ecowitt gateway.");
+      shell.dataset.ecowittGatewayUrl = data.gateway_url || gateway_url;
+      shell.dataset.ecowittPollInterval = String(data.poll_interval_sec || poll_interval_sec);
+      ecowittDiscovery = data;
+      renderEcowittSensors(data.inventory);
+      setStatus("ecowitt-status", "Ecowitt gateway saved and polling enabled.");
+      showSettingsToast("Ecowitt gateway saved", "ok");
+    } catch (e) {
+      const msg = e && e.message ? e.message : "Failed to save Ecowitt gateway.";
+      setStatus("ecowitt-status", msg);
+      showSettingsToast(msg, "error");
+    } finally {
+      setButtonBusy("btn-ecowitt-save", false);
+    }
+  }
+
+  async function disableEcowittGateway() {
+    setButtonBusy("btn-ecowitt-disable", true, "Disabling...");
+    try {
+      const resp = await fetch("/ecowitt/disable", { method: "POST" });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.error || "Failed to disable Ecowitt gateway.");
+      setStatus("ecowitt-status", "Ecowitt polling disabled; historical readings were retained.");
+      showSettingsToast("Ecowitt polling disabled", "ok");
+    } catch (e) {
+      const msg = e && e.message ? e.message : "Failed to disable Ecowitt gateway.";
+      setStatus("ecowitt-status", msg);
+      showSettingsToast(msg, "error");
+    } finally {
+      setButtonBusy("btn-ecowitt-disable", false);
     }
   }
 
@@ -4162,6 +4309,15 @@
     }
     if (ev.target && ev.target.id === "btn-weewx-save") {
       saveWeeWXSettings();
+    }
+    if (ev.target && ev.target.id === "btn-ecowitt-find") {
+      findEcowittSensors();
+    }
+    if (ev.target && ev.target.id === "btn-ecowitt-save") {
+      saveEcowittGateway();
+    }
+    if (ev.target && ev.target.id === "btn-ecowitt-disable") {
+      disableEcowittGateway();
     }
     if (ev.target && ev.target.id === "farm-token-toggle") {
       const input = document.getElementById("farm-access-token");

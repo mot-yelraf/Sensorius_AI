@@ -27,6 +27,10 @@ Protocol and migration contract documents:
 - Nodus onboarding V2 handoff: `docs/onboarding_v2_nodus_handoff_no_settings_schema.md`
 - HTTP health-polling migration note: `docs/sensorius_migration_off_hayd_itaot.md`
 
+Implementation plans and handoffs:
+
+- Ecowitt GW1100 implementation handoff: `docs/ecowitt_gateway_implementation.md`
+
 Archived implementation notes are kept for traceability and are not the source
 of truth when they conflict with the canonical docs above.
 

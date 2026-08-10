@@ -430,6 +430,9 @@ class rPiHomeAssistantBridge:
         try:
             from .saiSensorSettingsManager import SensorSettingsManager
             sensor_mgr = SensorSettingsManager("sensor_settings")
+            sensor_device = str(sensor_mgr.get_setting(sensor_id, "Sensor.DEVICE", "") or "").strip().lower()
+            if sensor_device == "ecowitt":
+                return dict(values)
             display_metrics = sensor_mgr.get_display_metrics(sensor_id) or []
         except Exception:
             display_metrics = []
@@ -718,6 +721,26 @@ METRIC_META = {
     "Rain": _metric_meta("in", device_class="precipitation", precision=2),
     "Rain Last 24h": _metric_meta("in", device_class="precipitation", precision=2),
     "Rain Rate": _metric_meta("in/h", device_class="precipitation_intensity", precision=2),
+    "Rain Event": _metric_meta("in", device_class="precipitation", state_class="total_increasing", precision=3),
+    "Rain Day": _metric_meta("in", device_class="precipitation", state_class="total_increasing", precision=3),
+    "Rain Week": _metric_meta("in", device_class="precipitation", state_class="total_increasing", precision=3),
+    "Rain Month": _metric_meta("in", device_class="precipitation", state_class="total_increasing", precision=3),
+    "Rain Year": _metric_meta("in", device_class="precipitation", state_class="total_increasing", precision=3),
+    "Rain Total": _metric_meta("in", device_class="precipitation", state_class="total_increasing", precision=3),
+    "Wind Gust": _metric_meta("mph", device_class="wind_speed", precision=1),
+    "Daily Maximum Wind": _metric_meta("mph", device_class="wind_speed", precision=1),
+    "Wind Chill": _metric_meta("°C", device_class="temperature", precision=2),
+    "Wind Chill_F": _metric_meta("°F", device_class="temperature", precision=1),
+    "Heat Index": _metric_meta("°C", device_class="temperature", precision=2),
+    "Heat Index_F": _metric_meta("°F", device_class="temperature", precision=1),
+    "Solar Radiation": _metric_meta("W/m²", device_class="irradiance", precision=1),
+    "UV Index": _metric_meta("UV index", precision=1),
+    "UV Radiation": _metric_meta("µW/m²", device_class="irradiance", precision=1),
+    "Lightning Distance": _metric_meta("mi", device_class="distance", precision=1),
+    "Lightning Count": _metric_meta("strikes", state_class="total_increasing", precision=0),
+    "Absolute Baro-Pressure": _metric_meta("hPa", device_class="atmospheric_pressure", precision=1),
+    "Gateway Baro-Pressure": _metric_meta("hPa", device_class="atmospheric_pressure", precision=1),
+    "Gateway Absolute Baro-Pressure": _metric_meta("hPa", device_class="atmospheric_pressure", precision=1),
 }
 
 METRIC_ALIAS_NAMES = [
@@ -750,7 +773,25 @@ def canonical_metric_name_for_ha(metric_name: str) -> str:
     return name
 
 def metric_meta_for_metric(metric_name: str) -> dict:
-    return dict(METRIC_META.get(canonical_metric_name_for_ha(metric_name), {}))
+    direct = dict(METRIC_META.get(canonical_metric_name_for_ha(metric_name), {}))
+    if direct:
+        return direct
+    name = str(metric_name or "").strip()
+    if name.endswith(" Temperature_F"):
+        return _metric_meta("°F", device_class="temperature", precision=1)
+    if name.endswith(" Temperature"):
+        return _metric_meta("°C", device_class="temperature", precision=2)
+    if name.endswith(" Rel-Humidity") or name.startswith("Soil Moisture CH") or name.startswith("Leaf Wetness CH"):
+        return _metric_meta("%", device_class="humidity", precision=1)
+    if name.startswith("PM2.5 CH"):
+        return _metric_meta("µg/m³", device_class="pm25", precision=1)
+    if name.startswith("Leak CH"):
+        return _metric_meta("", precision=0)
+    if name.startswith("LDS CH"):
+        return _metric_meta("mm", device_class="distance", precision=1)
+    if name.startswith("Soil EC CH"):
+        return _metric_meta("mS/cm", device_class="conductivity", precision=2)
+    return {}
 
 def metric_value_lookup_names(metric_name: str) -> list[str]:
     """Return equivalent state-payload keys for old and canonical metric spellings."""

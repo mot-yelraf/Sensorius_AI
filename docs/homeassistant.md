@@ -105,6 +105,15 @@ Common HA units:
 - `Rain Rate`: `in/h`
 - `Wind Speed`: `mph`
 - `Wind Direction`: `°`
+- `Wind Gust` and `Daily Maximum Wind`: `mph`
+- `Rain Day`, `Rain Week`, `Rain Month`, `Rain Year`: `in`
+- `Solar Radiation`: `W/m²`; Ecowitt lux readings remain `Light Intensity`
+- `UV Index`: UV index
+
+Ecowitt stations publish discovery for all normalized stored metrics, including
+additional channels, independently of the dashboard Pick 6 selection. Dynamic
+channel suffixes retain their canonical temperature, humidity, particulate,
+leak, distance, or conductivity units.
 
 If HA shows an old or incorrect unit after a Sensorius update, reload the MQTT
 integration or delete the retained discovery config for that entity so HA reads
