@@ -530,11 +530,28 @@ Fields and status rows:
   Pi, a failed scan leaves Add disabled; use Retry after confirming the Nodus AP
   is broadcasting.
 
-On macOS, Sensorius first attempts to join the selected `Nodus-<serial-number>`
-setup network automatically using native Wi-Fi tooling, including setup networks
-shown under Other Networks. The legacy `Nodus_Setup` and `Nodus-Setup` names
-remain supported. If automatic joining fails, the pane may instruct you to join
-the setup network manually from Wi-Fi settings, then return and click Add. For
+On macOS, enter the exact 2.4 GHz home Wi-Fi SSID and the password for that
+SSID in Add Device before changing networks. The SSID matters even when a
+router uses the same password for separate 2.4 GHz and 5 GHz networks; select
+the 2.4 GHz network because Nodus cannot join a 5 GHz-only SSID. Join the
+`Nodus-<serial-number>` setup network in macOS Wi-Fi, then
+return to Sensorius and click Add. A previously used Nodus may appear under
+Known Networks; a new one may appear under Other. Sensorius verifies the manual
+join using the `192.168.4.x` Wi-Fi address and the Nodus `/itaot-meta` endpoint.
+It does not use `networksetup` to join, inspect, or restore Wi-Fi because current
+macOS versions can report error `-3900` or stale association state after a
+successful graphical join. After bootstrap, rejoin the home network in macOS
+Wi-Fi if it does not reconnect automatically. Ethernet is not required: when
+Wi-Fi is the Mac's only network connection, keep Sensorius open at
+`http://127.0.0.1:8000`; the Nodus AP disappears after bootstrap and macOS can
+then reconnect to the home network. Sensorius waits for the MQTT handshake and
+the Nodus retries its broker connection until the Mac is reachable. If the AP
+disappears before its HTTP response reaches Sensorius, Add Device reports that
+the response was lost and continues waiting for the correlated MQTT hello
+instead of immediately declaring failure. The legacy `Nodus_Setup` and
+`Nodus-Setup` names remain supported. When onboarding reaches Device Online,
+Sensorius automatically reloads the dashboard so the newly discovered sensor
+and switch cards appear without a manual browser refresh. For
 Raspberry Pi deployments that onboard over Wi-Fi, use a 2.4 GHz network path. If
 the router combines 2.4 GHz and 5 GHz under one SSID, ethernet on the Raspberry
 Pi is usually the most reliable setup. If Add Device reports

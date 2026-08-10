@@ -430,6 +430,28 @@ def test_valid_reonboarding_family_can_be_allowed_again(monkeypatch):
     assert ingest.settings.get_setting("SensorNetwork", "REMOVED_NODUS_IDS") == []
 
 
+def test_reonboarding_refresh_renews_retained_metadata_subscriptions(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.client.subs.clear()
+
+    result = ingest.refresh_nodus_retained_metadata("avpd-va41ka")
+
+    assert result["ok"] is True
+    assert result["errors"] == []
+    assert set(result["topics"]) == {
+        "nodus/+/meta",
+        "nodus/+/meta/switch",
+        "sensorius/nodus/+/meta",
+        "sensorius/nodus/+/meta/switch",
+    }
+    assert set(ingest.client.subs) == {
+        ("nodus/+/meta", 0),
+        ("nodus/+/meta/switch", 0),
+        ("sensorius/nodus/+/meta", 0),
+        ("sensorius/nodus/+/meta/switch", 0),
+    }
+
+
 def test_shared_ha_client_waits_for_mqtt_on_connect(monkeypatch):
     ingest = _build_ingest(monkeypatch)
 

@@ -740,6 +740,54 @@ class saiMQTTIngest:
             persisted = self._persist_removed_nodus_ids() if persist else False
         return {"removed": sorted(removed), "persisted": persisted}
 
+    def refresh_nodus_retained_metadata(self, device_id: str = "") -> dict:
+        """Renew metadata subscriptions so retained Nodus identity is replayed."""
+        client = getattr(self, "client", None)
+        if client is None or not callable(getattr(client, "subscribe", None)):
+            return {"ok": False, "topics": [], "error": "mqtt_client_unavailable"}
+        try:
+            connected = getattr(client, "is_connected", None)
+            if callable(connected) and not bool(connected()):
+                return {"ok": False, "topics": [], "error": "mqtt_not_connected"}
+        except Exception:
+            pass
+
+        candidates = ["nodus/+/meta", "nodus/+/meta/switch"]
+        if self.base_topic:
+            candidates.extend(
+                [
+                    f"{self.base_topic}/nodus/+/meta",
+                    f"{self.base_topic}/nodus/+/meta/switch",
+                ]
+            )
+        topics = [topic for topic in candidates if topic in self.registered_topics]
+        renewed: list[str] = []
+        errors: list[str] = []
+        for topic in topics:
+            try:
+                result = client.subscribe(topic, qos=0)
+                rc = result[0] if isinstance(result, tuple) and result else 0
+                if int(rc or 0) == 0:
+                    renewed.append(topic)
+                else:
+                    errors.append(f"{topic}:rc={rc}")
+            except Exception as exc:
+                errors.append(f"{topic}:{type(exc).__name__}")
+        if DEBUG:
+            printDM(
+                "[retained-refresh] device={} renewed={} errors={}".format(
+                    normalize_hostname_base(device_id) or str(device_id or "").strip() or "unknown",
+                    ",".join(renewed) or "none",
+                    ",".join(errors) or "none",
+                ),
+                location=MODULE,
+            )
+        return {
+            "ok": bool(renewed) and not errors,
+            "topics": renewed,
+            "errors": errors,
+        }
+
     def _removed_nodus_topic_id(self, topic: str | None) -> str:
         parts = str(topic or "").strip().split("/")
         if len(parts) >= 2 and parts[0] == "nodus":

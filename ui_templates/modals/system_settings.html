@@ -596,6 +596,9 @@
   padding: 0;
   margin: .25rem 0;
 }
+#setupPiModal #add-device-network-field[hidden],
+#setupPiModal #add-mac-home-network[hidden],
+#setupPiModal #add-mac-hint[hidden] { display: none !important; }
 #setupPiModal .step {
   display: flex;
   flex-direction: column;
@@ -1350,13 +1353,23 @@
               <details class="integration-block" id="add-nodus-section" open>
                 <summary>Nodus Device(s)</summary>
                 <div class="integration-block-content">
-                  <div class="status-text">Select one setup network, then click <strong>Add</strong>. After it joins your Wi-Fi, the remaining Nodus devices will be scanned again.</div>
+                  <div class="status-text">Onboard one Nodus setup network at a time. Follow the platform instructions below, then click <strong>Add</strong>.</div>
                   <div class="status-text" id="add-scan-status" aria-live="polite">Scanning for Nodus devices...</div>
                   <div class="field-stack" id="add-device-network-field" hidden>
                     <label for="add-device-network">Nodus setup network</label>
                     <select id="add-device-network" name="target_ap"></select>
                   </div>
                   <div id="add-mac-hint" class="detail" hidden style="margin:.35rem 0 .8rem 0; padding:.6rem .8rem; border:1px solid #c9d7cf; border-radius:10px; background:#f4faf6;"></div>
+                  <div id="add-mac-home-network" class="field-grid-stack" hidden>
+                    <div class="field-stack">
+                      <label for="add-mac-local-ssid">Home 2.4 GHz Wi-Fi SSID</label>
+                      <input type="text" id="add-mac-local-ssid" autocomplete="off" maxlength="32" placeholder="Exact 2.4 GHz network name">
+                    </div>
+                    <div class="field-stack">
+                      <label for="add-mac-local-password">Password for that SSID</label>
+                      <input type="password" id="add-mac-local-password" autocomplete="new-password" placeholder="Entered only for this onboarding attempt">
+                    </div>
+                  </div>
                   <ul class="onboard-steps">
                     <li id="step-1" class="step pending">
                       <span class="icon">•</span>
@@ -1649,6 +1662,7 @@
   let onboardPollTimer = null;
   let onboardCountdownTimer = null;
   let onboardCountdownDeadlineMs = 0;
+  let onboardDashboardReloadScheduled = false;
   let addScanTimer = null;
   let addScanActive = false;
   let addScanAttempt = 0;
@@ -3088,7 +3102,10 @@
     li.classList.add("pending");
     const ic = li.querySelector(".icon");
     if (ic) ic.textContent = "\u2022";
-    if (label && step !== 3 && step !== 4) {
+    if (label && step === 3) {
+      const target = document.getElementById("step-3-ssid");
+      if (target) target.textContent = label;
+    } else if (label && step !== 4) {
       const lab = li.querySelector(".label");
       if (lab) lab.textContent = label;
     }
@@ -3104,6 +3121,15 @@
   function setOnboardAddEnabled(enabled) {
     const addBtn = document.getElementById("btn-onboard-add");
     if (addBtn) addBtn.disabled = !enabled;
+  }
+
+  function scheduleDashboardReloadAfterOnboarding() {
+    if (onboardDashboardReloadScheduled) return;
+    onboardDashboardReloadScheduled = true;
+    stopAddScan();
+    setOnboardAddEnabled(false);
+    setAddScanStatus("Device onboarded successfully. Updating dashboard...");
+    window.setTimeout(() => window.location.reload(), 750);
   }
 
   function renderV2SessionState(session) {
@@ -3143,16 +3169,24 @@
     }
     if (state === "WAITING_REBOOT") {
       markOnboardStep(1, true, "Connected to Nodus setup AP", "Connected to Nodus setup network");
-      markOnboardStep(2, true, "Bootstrap sent to Nodus", "Bootstrap accepted");
-      markOnboardStep(3, true, localSsid, "Local Wi-Fi restored");
+      markOnboardStep(2, true, "Bootstrap sent to Nodus", session?.init_response_indeterminate ? "HTTP response lost; awaiting Nodus MQTT confirmation" : "Bootstrap accepted");
+      if (session?.local_wifi_restore_pending) {
+        markPendingStep(3, localSsid, `If needed, rejoin ${localSsid} in macOS Wi-Fi`);
+      } else {
+        markOnboardStep(3, true, localSsid, "Local Wi-Fi restored");
+      }
       markPendingStep(4, "Waiting for Nodus to reboot and connect", "Waiting for Nodus reboot");
       startOnboardCountdown(session?.hello_deadline_at || ((Date.now() / 1000) + 240));
       return;
     }
     if (state === "WAITING_MQTT_HELLO") {
       markOnboardStep(1, true, "Connected to Nodus setup AP", "Connected to Nodus setup network");
-      markOnboardStep(2, true, "Bootstrap sent to Nodus", "Bootstrap accepted");
-      markOnboardStep(3, true, localSsid, "Local Wi-Fi restored");
+      markOnboardStep(2, true, "Bootstrap sent to Nodus", session?.init_response_indeterminate ? "HTTP response lost; awaiting Nodus MQTT confirmation" : "Bootstrap accepted");
+      if (session?.local_wifi_restore_pending) {
+        markPendingStep(3, localSsid, `If needed, rejoin ${localSsid} in macOS Wi-Fi`);
+      } else {
+        markOnboardStep(3, true, localSsid, "Local Wi-Fi restored");
+      }
       markPendingStep(4, "Waiting for Nodus to reboot and connect", "Waiting for MQTT hello");
       startOnboardCountdown(session?.hello_deadline_at || ((Date.now() / 1000) + 240));
       return;
@@ -3181,8 +3215,7 @@
       stopOnboardCountdown();
       setOnboardBadge("Device onboarded successfully.", "ok");
       onboardSessionState = "ONLINE";
-      setAddScanStatus("Device onboarded successfully. Scanning for another Nodus...");
-      startAddScan();
+      scheduleDashboardReloadAfterOnboarding();
       return;
     }
     if (state === "FAILED") {
@@ -3234,6 +3267,18 @@
       const fd = new FormData();
       const selectedSetupNetwork = String(document.getElementById("add-device-network")?.value || "").trim();
       if (selectedSetupNetwork) fd.set("target_ap", selectedSetupNetwork);
+      if (addManualJoinRequired) {
+        const localSsid = String(document.getElementById("add-mac-local-ssid")?.value || "").trim();
+        const localPassword = String(document.getElementById("add-mac-local-password")?.value || "");
+        if (!localSsid) {
+          onboardSessionState = "FAILED";
+          markOnboardStep(1, false, "Home Wi-Fi SSID required", "Enter the network the Nodus should join.");
+          setOnboardAddEnabled(true);
+          return;
+        }
+        fd.set("local_ssid", localSsid);
+        fd.set("local_password", localPassword);
+      }
       if (!onboardingV2Enabled) {
         const resLegacy = await fetch("/onboard-device", { method: "POST", body: fd });
         if (!resLegacy.ok) {
@@ -3258,7 +3303,7 @@
             if (msg?.done) {
               markOnboardStep(4, true, "Applying configuration and finalizing", "Done");
               setOnboardBadge("Device onboarded successfully.", "ok");
-              if (addBtn && !addScanActive) addBtn.disabled = false;
+              scheduleDashboardReloadAfterOnboarding();
               return;
             }
             const step = Number(msg?.step || 0);
@@ -3307,6 +3352,8 @@
       }
 
       const js = await res.json();
+      const macPassword = document.getElementById("add-mac-local-password");
+      if (macPassword) macPassword.value = "";
       onboardSessionId = String(js?.session_id || "");
       if (!onboardSessionId) throw new Error("Missing session_id");
       renderV2SessionState(js || {});
@@ -3385,12 +3432,12 @@
 
   function setAddMacHint(js) {
     const el = document.getElementById("add-mac-hint");
+    const fields = document.getElementById("add-mac-home-network");
     if (!el) return;
-    const targetSsid = (js && js.ssid) ? String(js.ssid) : "Nodus_Setup";
-    const password = (js && js.password) ? String(js.password) : "";
     const currentSsid = (js && js.current_ssid) ? String(js.current_ssid) : "";
     const manual = !!(js && js.manual_join_required);
     addManualJoinRequired = manual;
+    if (fields) fields.hidden = !manual;
     if (!manual) {
       el.hidden = true;
       el.textContent = "";
@@ -3398,7 +3445,11 @@
     }
     el.hidden = false;
     const currentText = currentSsid ? `Current Wi-Fi: ${currentSsid}. ` : "";
-    el.textContent = `${currentText}On macOS, join ${targetSsid} manually from Other Networks, then return here and click Add. Password: ${password || "(none)"}`;
+    el.textContent = `${currentText}Enter the exact 2.4 GHz home Wi-Fi SSID and its password below first. The password must match that SSID; sharing a password with a 5 GHz SSID does not make the 5 GHz SSID usable by Nodus. Then join a Nodus setup network in macOS Wi-Fi and click Add. Sensorius verifies the Nodus directly and will not ask macOS to change networks.`;
+    const localSsid = document.getElementById("add-mac-local-ssid");
+    if (localSsid && !localSsid.value && currentSsid && !currentSsid.startsWith("Nodus-")) {
+      localSsid.value = currentSsid;
+    }
   }
 
   function setAddScanStatus(msg) {

@@ -92,6 +92,17 @@ Useful web routes:
 
 ## Add Device Wi-Fi Authorization
 
+On macOS, Add Device uses a manual Wi-Fi transition. Enter the destination
+2.4 GHz home Wi-Fi SSID and the password for that exact SSID in the Add Device
+pane, join `Nodus-<serial-number>` with the
+macOS Wi-Fi menu, and then click Add. Sensorius confirms the setup AP through
+its `192.168.4.x` interface address and `http://192.168.4.1:8000/itaot-meta`.
+It does not run authorization-sensitive `networksetup` join or preferred-network
+commands. Rejoin the home network in the macOS Wi-Fi menu if automatic
+reconnection does not occur after the Nodus reboots. Ethernet is optional; for
+a Wi-Fi-only Mac, use the loopback UI at `http://127.0.0.1:8000` and leave
+Sensorius running while the Mac and Nodus return to the home LAN.
+
 On Raspberry Pi, Add Device temporarily moves the Sensorius host from its normal
 Wi-Fi network to the selected `Nodus-<serial-number>` setup network, posts
 bootstrap data to the Nodus AP, and then

@@ -19,7 +19,7 @@ from httpx import ASGITransport, AsyncClient
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import sensorius.saiWebRoutes as saiWebRoutes
-from sensorius.saiOnboardingStore import OnboardingSessionStore
+from sensorius.saiOnboardingStore import OnboardingSessionStore, OnboardingStates
 from sensorius.saiOnboardingToken import OnboardingTokenManager
 
 
@@ -65,6 +65,8 @@ class _FakeIngest:
     def __init__(self):
         self.handler = None
         self.published: list[tuple[str, dict]] = []
+        self.allowed: list[str] = []
+        self.retained_refreshes: list[str] = []
 
     def set_onboarding_event_handler(self, handler):
         self.handler = handler
@@ -72,6 +74,14 @@ class _FakeIngest:
     def publish_json(self, topic: str, obj: dict, qos: int = 0, retain: bool = False, use_ha_client: bool = True):
         self.published.append((topic, dict(obj)))
         return True
+
+    def allow_nodus_devices(self, device_ids, *, persist: bool = True):
+        self.allowed.extend(str(item) for item in device_ids)
+        return {"removed": list(device_ids), "persisted": persist}
+
+    def refresh_nodus_retained_metadata(self, device_id: str = ""):
+        self.retained_refreshes.append(str(device_id))
+        return {"ok": True, "topics": ["nodus/+/meta", "nodus/+/meta/switch"]}
 
 
 class _FakeNetMgr:
@@ -129,9 +139,9 @@ async def test_scan_nodus_setup_marks_macos_miss_inconclusive(tmp_path, monkeypa
         assert body.get("found") is False
         assert body.get("platform") == "Darwin"
         assert body.get("password") == "password"
-        assert body.get("current_ssid") == "ExampleWiFi"
-        assert body.get("manual_join_required") is False
-        assert "Other Networks" in body.get("message", "")
+        assert body.get("current_ssid") == ""
+        assert body.get("manual_join_required") is True
+        assert "home Wi-Fi credentials" in body.get("message", "")
 
 
 @pytest.mark.asyncio
@@ -179,7 +189,7 @@ async def test_scan_nodus_setup_linux_rescans_wifi_interface(tmp_path, monkeypat
     assert any(cmd[:6] == ["nmcli", "-t", "-f", "SSID", "dev", "wifi"] and "wlan0" in cmd for cmd in seen_cmds)
 
 
-def test_add_device_ui_selects_discovered_ap_and_rescans_after_success():
+def test_add_device_ui_selects_discovered_ap_and_reloads_dashboard_after_success():
     source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
     text = source.read_text(encoding="utf-8")
 
@@ -191,6 +201,10 @@ def test_add_device_ui_selects_discovered_ap_and_rescans_after_success():
     assert 'id="ecowitt-gateway-url" name="ecowitt_gateway_url"' in text
     assert 'id="ecowitt-polling-interval" name="ecowitt_polling_interval"' in text
     assert 'fd.set("target_ap", selectedSetupNetwork)' in text
+    assert 'id="add-mac-local-ssid"' in text
+    assert 'id="add-mac-local-password"' in text
+    assert 'fd.set("local_ssid", localSsid)' in text
+    assert 'fd.set("local_password", localPassword)' in text
     assert 'fetch("/onboard-device/v2/prepare"' in text
     assert 'fd.set("session_id", onboardSessionId)' in text
     assert "Scan failed. Click Retry to scan again." in text
@@ -198,7 +212,11 @@ def test_add_device_ui_selects_discovered_ap_and_rescans_after_success():
     assert "new FormData(formEl)" not in text
     assert "Array.isArray(js?.ssids)" in text
     online_block = text[text.index('if (state === "ONLINE")'):text.index('if (state === "FAILED")')]
-    assert "startAddScan();" in online_block
+    assert "scheduleDashboardReloadAfterOnboarding();" in online_block
+    assert "startAddScan();" not in online_block
+    assert "if (onboardDashboardReloadScheduled) return;" in text
+    assert 'setAddScanStatus("Device onboarded successfully. Updating dashboard...");' in text
+    assert "window.setTimeout(() => window.location.reload(), 750);" in text
 
 
 @pytest.mark.asyncio
@@ -409,7 +427,7 @@ async def test_v2_start_rewrites_ip_broker_to_hub_mdns(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_v2_start_on_macos_attempts_ap_join_when_not_on_target_ap(tmp_path, monkeypatch):
+async def test_v2_start_on_macos_requires_manual_join_without_network_mutation(tmp_path, monkeypatch):
     monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
 
     class _TmpStore(OnboardingSessionStore):
@@ -418,8 +436,7 @@ async def test_v2_start_on_macos_attempts_ap_join_when_not_on_target_ap(tmp_path
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Darwin")
-    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
-    monkeypatch.setattr("sensorius.saiAddDevice._get_current_ssid", lambda: "ExampleWiFi")
+    monkeypatch.setattr("sensorius.saiAddDevice.mac_wifi_is_on_nodus_subnet", lambda: False)
     monkeypatch.setattr("sensorius.saiAddDevice.PICOW_AP_SSID", "Nodus_Setup")
     monkeypatch.setattr("sensorius.saiAddDevice.PICOW_AP_PASSWORD", "password")
     connect_calls: list[tuple[str, str, int]] = []
@@ -429,11 +446,6 @@ async def test_v2_start_on_macos_attempts_ap_join_when_not_on_target_ap(tmp_path
         return True
 
     monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", _fake_connect)
-    monkeypatch.setattr("sensorius.saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-auto-join"}, "error": ""})
-    monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
-    monkeypatch.setattr("sensorius.saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
-    monkeypatch.setattr(saiWebRoutes.subprocess, "run", lambda *a, **k: _cp(stdout="10.0.0.246"))
-
     app = FastAPI()
     settings = _FakeSettings()
     ingest = _FakeIngest()
@@ -442,12 +454,12 @@ async def test_v2_start_on_macos_attempts_ap_join_when_not_on_target_ap(tmp_path
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
             "/onboard-device/v2/start",
-            data={"device_id": "aqi-auto-join", "target_ap": "Nodus-1002"},
+            data={"device_id": "aqi-auto-join", "target_ap": "Nodus-1002", "local_ssid": "ExampleWiFi", "local_password": "pw"},
         )
-        assert res.status_code == 200
-        assert res.json().get("ok") is True
+        assert res.status_code == 409
+        assert res.json().get("error") == "manual_ap_join_required"
 
-    assert connect_calls == [("Nodus-1002", "password", 3)]
+    assert connect_calls == []
 
 
 @pytest.mark.asyncio
@@ -460,12 +472,11 @@ async def test_v2_start_on_macos_uses_existing_manual_join(tmp_path, monkeypatch
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Darwin")
-    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
-    monkeypatch.setattr("sensorius.saiAddDevice._get_current_ssid", lambda: "Nodus_Setup")
+    monkeypatch.setattr("sensorius.saiAddDevice.mac_wifi_is_on_nodus_subnet", lambda: True)
     monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not connect on macOS")))
     monkeypatch.setattr("sensorius.saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-manual-join-ok"}, "error": ""})
     monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True, "rebooting": True}, "error": ""})
-    monkeypatch.setattr("sensorius.saiAddDevice.reconnect_to_network", lambda ssid, password="", **_kwargs: (True, ssid))
+    monkeypatch.setattr("sensorius.saiAddDevice.wait_for_macos_local_network", lambda **_kwargs: (True, "10.0.0.220"))
     monkeypatch.setattr(saiWebRoutes.subprocess, "run", lambda *a, **k: _cp(stdout="10.0.0.246"))
 
     app = FastAPI()
@@ -474,9 +485,43 @@ async def test_v2_start_on_macos_uses_existing_manual_join(tmp_path, monkeypatch
     await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        res = await client.post("/onboard-device/v2/start", data={"hostname": "aqi-manual-join-ok"})
+        res = await client.post(
+            "/onboard-device/v2/start",
+            data={"hostname": "aqi-manual-join-ok", "local_ssid": "ExampleWiFi", "local_password": "pw"},
+        )
         assert res.status_code == 200
         assert res.json().get("ok") is True
+
+
+@pytest.mark.asyncio
+async def test_v2_start_on_macos_requires_explicit_home_wifi(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    class _TmpStore(OnboardingSessionStore):
+        def __init__(self, base_dir: str = "system_settings"):
+            super().__init__(base_dir=str(tmp_path))
+
+    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr("sensorius.saiAddDevice.mac_wifi_is_on_nodus_subnet", lambda: True)
+    monkeypatch.setattr(
+        "sensorius.saiAddDevice.resolve_pi_wifi_credentials",
+        lambda: (_ for _ in ()).throw(AssertionError("macOS must not read Wi-Fi credentials")),
+    )
+    monkeypatch.setattr(
+        "sensorius.saiAddDevice.get_itaot_meta",
+        lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-manual"}, "error": ""},
+    )
+
+    app = FastAPI()
+    settings = _FakeSettings()
+    ingest = _FakeIngest()
+    await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/onboard-device/v2/start")
+        assert res.status_code == 400
+        assert res.json().get("error") == "missing_local_ssid"
 
 
 @pytest.mark.asyncio
@@ -611,7 +656,7 @@ async def test_v2_start_init_failed_restores_previous_ssid(tmp_path, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_v2_start_on_macos_init_failed_restores_previous_ssid(tmp_path, monkeypatch):
+async def test_v2_start_on_macos_init_failure_does_not_mutate_wifi(tmp_path, monkeypatch):
     monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
 
     class _TmpStore(OnboardingSessionStore):
@@ -620,8 +665,7 @@ async def test_v2_start_on_macos_init_failed_restores_previous_ssid(tmp_path, mo
 
     monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Darwin")
-    monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
-    monkeypatch.setattr("sensorius.saiAddDevice._get_current_ssid", lambda: "Nodus_Setup")
+    monkeypatch.setattr("sensorius.saiAddDevice.mac_wifi_is_on_nodus_subnet", lambda: True)
     monkeypatch.setattr("sensorius.saiAddDevice.PICOW_AP_SSID", "Nodus_Setup")
     monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": False, "status_code": 500, "body": None, "error": "boom"})
 
@@ -639,10 +683,88 @@ async def test_v2_start_on_macos_init_failed_restores_previous_ssid(tmp_path, mo
     await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        res = await client.post("/onboard-device/v2/start", data={"hostname": "aqi-manual-join-fail"})
+        res = await client.post(
+            "/onboard-device/v2/start",
+            data={"hostname": "aqi-manual-join-fail", "local_ssid": "ExampleWiFi", "local_password": "pw"},
+        )
         assert res.status_code == 502
 
-    assert reconnect_calls == [("ExampleWiFi", "pw")]
+    assert reconnect_calls == []
+
+
+@pytest.mark.asyncio
+async def test_v2_start_on_macos_init_timeout_waits_for_mqtt_hello(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
+
+    class _TmpStore(OnboardingSessionStore):
+        def __init__(self, base_dir: str = "system_settings"):
+            super().__init__(base_dir=str(tmp_path))
+
+    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr("sensorius.saiAddDevice.mac_wifi_is_on_nodus_subnet", lambda: True)
+    monkeypatch.setattr(
+        "sensorius.saiAddDevice.get_itaot_meta",
+        lambda *a, **k: {
+            "ok": True,
+            "status_code": 200,
+            "body": {"device_id": "avpd-va41ka"},
+            "error": "",
+        },
+    )
+    monkeypatch.setattr(
+        "sensorius.saiAddDevice.post_itaot_init",
+        lambda *a, **k: {
+            "ok": False,
+            "indeterminate": True,
+            "status_code": 0,
+            "body": None,
+            "error": "read timeout",
+        },
+    )
+    monkeypatch.setattr(
+        "sensorius.saiAddDevice.wait_for_macos_local_network",
+        lambda *a, **k: (True, "10.0.0.220"),
+    )
+
+    app = FastAPI()
+    settings = _FakeSettings()
+    ingest = _FakeIngest()
+    await saiWebRoutes.register_routes(app, settings, _FakeNetMgr(), _FakeGcMgr(), ingest)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/onboard-device/v2/start",
+            data={"local_ssid": "PeaceHill", "local_password": "pw"},
+        )
+        assert res.status_code == 200
+        body = res.json()
+        assert body["state"] == OnboardingStates.WAITING_MQTT_HELLO
+        assert body["init_response_indeterminate"] is True
+
+        session = await client.get(f"/onboard-device/v2/session/{body['session_id']}")
+        assert session.status_code == 200
+        assert session.json()["state"] == OnboardingStates.WAITING_MQTT_HELLO
+        assert session.json()["init_response_indeterminate"] is True
+
+        stored = _TmpStore().get_session(body["session_id"])
+        token = saiWebRoutes.saiSettings.deobfuscate_secret(
+            stored["onboard_token_secret"]
+        )
+        ingest.handler(
+            {
+                "event_type": "onboarding_hello",
+                "device_id": "avpd-va41ka",
+                "payload": {"onboard_token": token},
+            }
+        )
+
+        confirmed = await client.get(
+            f"/onboard-device/v2/session/{body['session_id']}"
+        )
+        assert confirmed.json()["state"] == OnboardingStates.WAITING_CONFIG_ACK
+        assert ingest.allowed == ["avpd-va41ka"]
+        assert ingest.retained_refreshes == ["avpd-va41ka"]
 
 
 @pytest.mark.asyncio

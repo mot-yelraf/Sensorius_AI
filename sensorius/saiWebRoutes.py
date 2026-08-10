@@ -5282,8 +5282,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 allow_removed = getattr(mqtt_ingest, "allow_nodus_devices", None)
                 if callable(allow_removed):
                     allow_removed([device_id], persist=True)
+                refresh_retained = getattr(mqtt_ingest, "refresh_nodus_retained_metadata", None)
+                if callable(refresh_retained):
+                    refresh_result = refresh_retained(device_id)
+                    if not bool((refresh_result or {}).get("ok", False)):
+                        printDM(
+                            f"[onboarding] retained metadata refresh incomplete for {device_id}: {refresh_result}",
+                            location=MODULE,
+                        )
             except Exception as exc:
-                printDM(f"[onboarding] failed to clear removed-device suppression for {device_id}: {exc}", location=MODULE)
+                printDM(f"[onboarding] failed to allow and refresh re-onboarded device {device_id}: {exc}", location=MODULE)
             onboarding_store.set_device_id(sid, device_id)
             onboarding_store.update_session(sid, last_hello_at=time.time(), device_id=device_id)
             _emit_onboarding_event("onboarding_hello_received", session_id=sid, device_id=device_id)
@@ -5396,6 +5404,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         local_password = str(form.get("local_password", "") or "")
         requested_device_id = str(form.get("device_id", "") or "").strip()
         hostname = requested_device_id or f"nodus-{uuid4().hex[:8]}"
+        sys_name = platform.system().lower()
 
         prepared_session_id = str(form.get("session_id", "") or "").strip()
         prepared_session = onboarding_store.get_session(prepared_session_id) if prepared_session_id else None
@@ -5432,7 +5441,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             token = issued["token"]
             onboarding_store.set_state(session_id, OnboardingStates.AP_DISCOVERED)
 
-        if not local_ssid:
+        if not local_ssid and sys_name != "darwin":
             try:
                 resolved_ssid, resolved_password = await asyncio.get_event_loop().run_in_executor(
                     None,
@@ -5444,7 +5453,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             except Exception:
                 pass
 
+        if sys_name == "darwin" and saiAddDevice.is_nodus_setup_ssid(local_ssid):
+            # A manual macOS join happens before Add is clicked, so resolving
+            # credentials now can only discover the setup AP, not the network
+            # that the Nodus must ultimately join.
+            local_ssid = ""
+            local_password = ""
+
         async def _restore_local_wifi_on_failure() -> None:
+            if sys_name == "darwin":
+                return
             restore_ssid = (local_ssid or "").strip()
             if not restore_ssid:
                 return
@@ -5472,15 +5490,32 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         ok_ap = False
         current_ap_ssid = ""
-        try:
-            current_ap_ssid = await asyncio.get_event_loop().run_in_executor(
+        meta_result: dict[str, Any] | None = None
+        if sys_name == "darwin":
+            # networksetup returns -3900 and stale association state on current
+            # macOS even when the host has joined the Nodus AP. Treat the Wi-Fi
+            # address plus the Nodus HTTP endpoint as the source of truth.
+            on_nodus_subnet = await asyncio.get_event_loop().run_in_executor(
                 None,
-                getattr(saiAddDevice, "_get_current_ssid"),
+                saiAddDevice.mac_wifi_is_on_nodus_subnet,
             )
-        except Exception:
-            current_ap_ssid = ""
+            if on_nodus_subnet:
+                meta_result = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: saiAddDevice.get_itaot_meta(timeout_sec=3.0),
+                )
+                ok_ap = bool(meta_result.get("ok", False))
+                if ok_ap:
+                    current_ap_ssid = target_ap
+        else:
+            try:
+                current_ap_ssid = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    getattr(saiAddDevice, "_get_current_ssid"),
+                )
+            except Exception:
+                current_ap_ssid = ""
 
-        sys_name = platform.system().lower()
         if sys_name == "linux":
             can_control_network, permission_detail = await asyncio.get_event_loop().run_in_executor(
                 None,
@@ -5506,8 +5541,22 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     status_code=403,
                 )
 
-        ok_ap = (current_ap_ssid or "").strip() == target_ap
+        ok_ap = ok_ap or (current_ap_ssid or "").strip() == target_ap
         if not ok_ap:
+            if sys_name == "darwin":
+                reason = "manual_ap_join_required"
+                onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason=reason)
+                _emit_onboarding_event("onboarding_failed", session_id=session_id, detail=reason)
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "session_id": session_id,
+                        "state": OnboardingStates.FAILED,
+                        "error": reason,
+                        "detail": "Join a Nodus setup network in macOS Wi-Fi, then click Add again.",
+                    },
+                    status_code=409,
+                )
             try:
                 ok_ap = await asyncio.get_event_loop().run_in_executor(
                     None,
@@ -5549,10 +5598,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 status_code=400,
             )
 
-        meta_result = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: saiAddDevice.get_itaot_meta(timeout_sec=5.0),
-        )
+        if meta_result is None:
+            meta_result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: saiAddDevice.get_itaot_meta(timeout_sec=5.0),
+            )
         meta_body = meta_result.get("body") if isinstance(meta_result, dict) else None
         if not bool(meta_result.get("ok", False)):
             await _restore_local_wifi_on_failure()
@@ -5587,7 +5637,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             None,
             lambda: saiAddDevice.post_itaot_init(init_payload, timeout_sec=11.0),
         )
-        if not bool(init_result.get("ok", False)):
+        init_response_indeterminate = bool(init_result.get("indeterminate", False))
+        if not bool(init_result.get("ok", False)) and not init_response_indeterminate:
             await _restore_local_wifi_on_failure()
             onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="INIT_FAILED")
             _emit_onboarding_event("onboarding_failed", session_id=session_id, detail=f"INIT_FAILED:{init_result.get('error', '')}")
@@ -5602,11 +5653,31 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 status_code=502,
             )
 
-        onboarding_store.update_session(session_id, local_ssid=local_ssid)
+        onboarding_store.update_session(
+            session_id,
+            local_ssid=local_ssid,
+            init_response_indeterminate=init_response_indeterminate,
+            init_response_error=(
+                str(init_result.get("error", "")) if init_response_indeterminate else ""
+            ),
+        )
         onboarding_store.set_state(session_id, OnboardingStates.INIT_SENT)
-        _emit_onboarding_event("onboarding_init_ack", session_id=session_id, detail=hostname)
-        ok_restore, restored_ssid = await _restore_local_wifi_on_success()
-        if not ok_restore:
+        _emit_onboarding_event(
+            "onboarding_init_response_indeterminate" if init_response_indeterminate else "onboarding_init_ack",
+            session_id=session_id,
+            detail=hostname,
+        )
+        restore_pending = False
+        if sys_name == "darwin":
+            ok_restore, _restored_ip = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: saiAddDevice.wait_for_macos_local_network(timeout_sec=15.0),
+            )
+            restored_ssid = local_ssid
+            restore_pending = not ok_restore
+        else:
+            ok_restore, restored_ssid = await _restore_local_wifi_on_success()
+        if not ok_restore and sys_name != "darwin":
             onboarding_store.set_state(session_id, OnboardingStates.FAILED, failure_reason="local_wifi_restore_failed")
             _emit_onboarding_event("onboarding_failed", session_id=session_id, detail=f"local_wifi_restore_failed:{restored_ssid or local_ssid}")
             return JSONResponse(
@@ -5624,7 +5695,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             session_id,
             state=OnboardingStates.WAITING_REBOOT,
             local_ssid=str(restored_ssid or local_ssid or "").strip(),
-            local_wifi_restored_at=time.time(),
+            local_wifi_restored_at=time.time() if ok_restore else None,
+            local_wifi_restore_pending=restore_pending,
         )
         hello_deadline = time.time() + float(_onboarding_timeouts()["hello_timeout_sec"])
         onboarding_store.update_session(session_id, state=OnboardingStates.WAITING_MQTT_HELLO, hello_deadline_at=hello_deadline)
@@ -5637,6 +5709,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "token_expires_at": issued.get("expires_at"),
                 "expected_device_id": requested_device_id,
                 "local_ssid": str(restored_ssid or local_ssid or "").strip(),
+                "local_wifi_restore_pending": restore_pending,
+                "init_response_indeterminate": init_response_indeterminate,
             }
         )
 
@@ -9695,7 +9769,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             from . import saiAddDevice
             factory_target_ssid = (getattr(saiAddDevice, "PICOW_AP_SSID", "") or "").strip() or "Nodus_Setup"
             ap_password = str(getattr(saiAddDevice, "PICOW_AP_PASSWORD", "") or "")
-            current_ssid = await asyncio.to_thread(getattr(saiAddDevice, "_get_current_ssid", lambda: ""))
+            if platform.system().lower() != "darwin":
+                current_ssid = await asyncio.to_thread(getattr(saiAddDevice, "_get_current_ssid", lambda: ""))
             current_is_nodus_setup = saiAddDevice.is_nodus_setup_ssid(current_ssid)
         except Exception:
             pass
@@ -9710,20 +9785,21 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         sys_name = platform.system()
         manual_join_required = False
         if sys_name.lower() == "darwin":
+            manual_join_required = True
             already_connected = bool(target_ssid) and (current_ssid or "").strip() == target_ssid
             found = bool(found) or already_connected
             if already_connected:
                 msg = f"macOS connected to {target_ssid}"
             elif found:
-                msg = f"{target_ssid} found. Click Add to join automatically."
+                msg = f"{target_ssid} found. Join it in macOS Wi-Fi, then click Add."
             else:
                 detail = str(msg or "").strip()
                 if not detail or detail == "ok":
-                    msg = "A Nodus setup network may be listed under Other Networks. Select it there, then return to Add Device."
+                    msg = "Enter the home Wi-Fi credentials below, join a Nodus setup network in macOS Wi-Fi, then click Add."
                 elif "airport tool not found" in detail.lower():
-                    msg = "macOS Wi-Fi scan is unavailable. Select a Nodus setup network from Other Networks first."
+                    msg = "Enter the home Wi-Fi credentials below, join a Nodus setup network in macOS Wi-Fi, then click Add."
                 else:
-                    msg = f"{detail}. Select a Nodus setup network from Other Networks first."
+                    msg = f"{detail}. Enter the home Wi-Fi credentials below, join a Nodus setup network in macOS Wi-Fi, then click Add."
         return JSONResponse({
             "ssid": target_ssid,
             "ssids": matching_ssids,

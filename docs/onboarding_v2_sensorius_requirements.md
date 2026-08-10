@@ -100,7 +100,11 @@ Nodus may reject bootstrap early under protection rules:
 3. `400 Bad Request` for malformed JSON or missing required fields.
 
 ### Error Handling
-Sensorius must treat non-200 or malformed response as `INIT_FAILED` and stop progression to MQTT phase.
+Sensorius must treat an explicit non-200 or malformed response as `INIT_FAILED`
+and stop progression to MQTT phase. A timeout or connection loss without an
+HTTP response is indeterminate because Nodus may have accepted the bootstrap
+and rebooted; Sensorius keeps the session active and uses the correlated MQTT
+hello as confirmation.
 
 ## MQTT Contract
 ## Topic Conventions

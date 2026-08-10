@@ -264,7 +264,8 @@ Notes:
 
 - The scripts create a local Python environment.
 - Mosquitto is configured in user scope by default.
-- Nodus onboarding uses native macOS Wi-Fi tools.
+- Nodus onboarding uses a manual macOS Wi-Fi join and verifies the setup AP by
+  its local address and HTTP metadata endpoint.
 - GUI is optional. Set `SENSORIUS_GUI=0` to force headless mode.
 - If `pywebview` is unavailable, Sensorius continues headless.
 
@@ -327,7 +328,10 @@ Notes:
 
 ## Nodus Wi-Fi Guidance
 
-Nodus devices use 2.4 GHz Wi-Fi. For Raspberry Pi onboarding:
+Nodus devices use 2.4 GHz Wi-Fi. If a router exposes separate 2.4 GHz and 5 GHz
+SSIDs, provide the exact 2.4 GHz SSID and its matching password. The passwords
+may be the same or different; credentials are associated with the selected
+SSID. For Raspberry Pi onboarding:
 
 - Prefer connecting the Pi to a 2.4 GHz SSID before onboarding.
 - If the router combines 2.4 GHz and 5 GHz under one SSID, ethernet is the most

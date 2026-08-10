@@ -161,12 +161,15 @@ rule evaluation onto Nodus.
 
 1. Nodus joins Wi-Fi and MQTT.
 2. Nodus publishes `nodus/<device_id>/onboard/hello`.
-3. Sensorius validates the token and sends one full onboarding
+3. Sensorius validates the token, clears any prior removal suppression, and
+   renews its metadata subscriptions so retained `meta` and `meta/switch`
+   records suppressed before the hello are replayed.
+4. Sensorius sends one full onboarding
    `nodus/<device_id>/config/set` envelope.
-4. Nodus publishes `config/ack`.
-5. Nodus publishes `config/result`.
-6. Nodus publishes retained `nodus/<device_id>/meta`.
-7. If switch channels are present, Nodus publishes retained
+5. Nodus publishes `config/ack`.
+6. Nodus publishes `config/result`.
+7. Nodus publishes retained `nodus/<device_id>/meta`.
+8. If switch channels are present, Nodus publishes retained
    `nodus/<device_id>/meta/switch` in the startup identity publish batch.
 
 The AP bootstrap and full onboarding config both carry hub `[Time]` values.

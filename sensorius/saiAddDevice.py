@@ -32,6 +32,7 @@ import ipaddress
 import base64
 import logging
 import platform
+import plistlib
 import subprocess
 import tempfile
 import requests
@@ -148,18 +149,29 @@ def run_nmcli(cmd_list: list[str]) -> bool:
 def _current_platform() -> str:
     return platform.system().lower()
 
-def _mac_wifi_interface() -> str:
+def _mac_wifi_interface_from_preferences(
+    preferences_path: str | Path = "/Library/Preferences/SystemConfiguration/NetworkInterfaces.plist",
+) -> str:
+    """Return the physical macOS Wi-Fi BSD interface without authorization."""
     try:
-        out = subprocess.check_output(["networksetup", "-listallhardwareports"], text=True, timeout=2.0)
-        blocks = [blk.strip() for blk in out.split("\n\n") if blk.strip()]
-        for blk in blocks:
-            if "hardware port: wi-fi" not in blk.lower() and "hardware port: airport" not in blk.lower():
+        doc = plistlib.loads(Path(preferences_path).read_bytes())
+        for item in doc.get("Interfaces", []):
+            if not isinstance(item, dict):
                 continue
-            m = re.search(r"^\s*Device:\s*(\S+)\s*$", blk, flags=re.MULTILINE)
-            if m:
-                return m.group(1).strip()
+            if str(item.get("SCNetworkInterfaceType", "") or "").strip() != "IEEE80211":
+                continue
+            name = str(item.get("BSD Name", "") or "").strip()
+            if name:
+                return name
     except Exception:
         pass
+    return ""
+
+
+def _mac_wifi_interface() -> str:
+    interface = _mac_wifi_interface_from_preferences()
+    if interface:
+        return interface
     return "en0"
 
 def _windows_wifi_interface() -> str:
@@ -271,82 +283,14 @@ def _ssid_visible_linux(ssid: str, iface: str) -> bool:
             printDM(f"SSID scan failed: {e}", location=f"{MODULE}._ssid_visible_linux")
         return False
 
-def _mac_join_and_verify(ssid: str, password: str, iface: str) -> bool:
-    def _run(cmd: list[str], timeout: float = 12.0) -> subprocess.CompletedProcess:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-
-    def _connected_to_target() -> bool:
-        return _get_current_ssid().strip() == ssid.strip()
-
-    def _attempt_join() -> tuple[bool, str]:
-        cmd = ["networksetup", "-setairportnetwork", iface, ssid]
-        if password:
-            cmd.append(password)
-        proc = _run(cmd)
-        if proc.returncode != 0:
-            detail = (proc.stderr or proc.stdout or "").strip()
-            return False, detail or f"returncode={proc.returncode}"
-        for _ in range(5):
-            if _connected_to_target():
-                return True, "connected"
-            time.sleep(1)
-        return False, "join issued but SSID did not become active"
-
-    if _connected_to_target():
-        return True
-
-    ok, detail = _attempt_join()
-    if ok:
-        return True
-
-    if DEBUG:
-        printDM(f"Primary macOS Wi-Fi join failed for {ssid}: {detail}", location=f"{MODULE}._mac_join_and_verify")
-
-    # Tahoe can expose ad-hoc setup SSIDs under "Other Networks"; adding a
-    # temporary preferred entry gives macOS a stronger hint before retrying.
-    security_modes = [("OPEN", "")]
-    if password:
-        security_modes = [("WPA2", password), ("WPA", password)]
-
-    for security, secret in security_modes:
-        try:
-            _run(["networksetup", "-removepreferredwirelessnetwork", iface, ssid], timeout=5.0)
-        except Exception:
-            pass
-
-        add_cmd = ["networksetup", "-addpreferredwirelessnetworkatindex", iface, ssid, "0", security]
-        if secret:
-            add_cmd.append(secret)
-        proc_add = _run(add_cmd, timeout=8.0)
-        if proc_add.returncode != 0 and DEBUG:
-            detail_add = (proc_add.stderr or proc_add.stdout or "").strip()
-            printDM(
-                f"Preferred network add failed for {ssid} [{security}]: {detail_add or proc_add.returncode}",
-                location=f"{MODULE}._mac_join_and_verify",
-            )
-
-        ok, detail = _attempt_join()
-        if ok:
-            return True
-        if DEBUG:
-            printDM(
-                f"macOS Wi-Fi retry failed for {ssid} [{security}]: {detail}",
-                location=f"{MODULE}._mac_join_and_verify",
-            )
-
-    return False
-
 def _connect_wifi(ssid: str, password: str, iface: str) -> bool:
     sys_name = _current_platform()
     if sys_name == "windows":
         return _windows_add_profile_and_connect(ssid, password, iface)
     if sys_name == "darwin":
-        try:
-            return _mac_join_and_verify(ssid, password, iface)
-        except Exception as e:
-            if DEBUG:
-                printDM(f"macOS Wi-Fi connect failed: {e}", location=f"{MODULE}._connect_wifi")
-            return False
+        if DEBUG:
+            printDM("macOS Wi-Fi changes require a manual join.", location=f"{MODULE}._connect_wifi")
+        return False
     try:
         try:
             subprocess.run(["nmcli", "dev", "disconnect", iface], check=True, timeout=4)
@@ -440,6 +384,51 @@ def _get_current_ssid() -> str:
     except Exception:
         pass
     return ""
+
+
+def mac_wifi_ipv4(interface: str = "") -> str:
+    """Return the macOS Wi-Fi IPv4 address without invoking networksetup."""
+    if _current_platform() != "darwin":
+        return ""
+    iface = str(interface or _mac_wifi_interface() or "").strip()
+    if not iface:
+        return ""
+    try:
+        return subprocess.check_output(
+            ["ipconfig", "getifaddr", iface],
+            text=True,
+            timeout=2.0,
+        ).strip()
+    except Exception:
+        return ""
+
+
+def mac_wifi_is_on_nodus_subnet(interface: str = "") -> bool:
+    """Return whether macOS Wi-Fi has an address on the Nodus setup subnet."""
+    value = mac_wifi_ipv4(interface)
+    try:
+        return ipaddress.ip_address(value) in ipaddress.ip_network("192.168.4.0/24")
+    except ValueError:
+        return False
+
+
+def wait_for_macos_local_network(timeout_sec: float = 15.0) -> tuple[bool, str]:
+    """Wait for Wi-Fi to leave the Nodus subnet without changing macOS networks."""
+    iface = _mac_wifi_interface()
+    deadline = time.monotonic() + max(0.0, float(timeout_sec))
+    last_ip = ""
+    while True:
+        last_ip = mac_wifi_ipv4(iface)
+        if last_ip:
+            try:
+                address = ipaddress.ip_address(last_ip)
+                if not address.is_loopback and address not in ipaddress.ip_network("192.168.4.0/24"):
+                    return True, last_ip
+            except ValueError:
+                pass
+        if time.monotonic() >= deadline:
+            return False, last_ip
+        time.sleep(1.0)
 
 # ---------- Wi-Fi band detection (sync; use via asyncio.to_thread) ----------
 def _band_from_freq(freq_mhz: int | None) -> str:
@@ -1117,8 +1106,8 @@ def post_itaot_init(payload: Dict[str, Any], timeout_sec: float = 8.0) -> Dict[s
     V2 onboarding bootstrap call.
     Posts minimal bootstrap payload to /itaot-init while Nodus is in AP mode.
 
-    Returns normalized shape:
-      {"ok": bool, "status_code": int, "body": dict|None, "error": str}
+    Returns normalized shape. ``indeterminate`` is true when the request may
+    have been accepted but the Nodus rebooted before the response arrived.
     """
     try:
         if not isinstance(payload, dict):
@@ -1172,8 +1161,22 @@ def post_itaot_init(payload: Dict[str, Any], timeout_sec: float = 8.0) -> Dict[s
         if DEBUG:
             printDM(f"/itaot-init accepted={accepted} rebooting={rebooting}", location=f"{MODULE}.post_itaot_init")
         return {"ok": True, "status_code": status, "body": body, "error": ""}
+    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+        return {
+            "ok": False,
+            "indeterminate": True,
+            "status_code": 0,
+            "body": None,
+            "error": str(e),
+        }
     except Exception as e:
-        return {"ok": False, "status_code": 0, "body": None, "error": str(e)}
+        return {
+            "ok": False,
+            "indeterminate": False,
+            "status_code": 0,
+            "body": None,
+            "error": str(e),
+        }
 
 # ---------- TOML edit utilities for hub settings ----------
 def _toml_escape(s: str) -> str:
