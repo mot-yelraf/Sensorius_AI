@@ -53,7 +53,7 @@ class BiodynamicConfig:
 
 
 # Increment when persisted calendar or daily-summary calculation output changes.
-CALCULATION_IMPLEMENTATION_VERSION = 7
+CALCULATION_IMPLEMENTATION_VERSION = 8
 
 
 @dataclass(frozen=True)
@@ -896,6 +896,47 @@ def _build_segment_timeline(days: list[dict[str, object]], tzinfo: ZoneInfo) -> 
     return timeline
 
 
+def _daylight_for_day(
+    day_date: date,
+    tzinfo: ZoneInfo,
+    config: BiodynamicConfig,
+) -> dict[str, object]:
+    """Return sunrise, sunset, and daylight duration for one calendar day."""
+    out: dict[str, object] = {
+        "sunrise": "",
+        "sunset": "",
+        "daylight_minutes": None,
+        "daylight_label": "",
+    }
+    if LocationInfo is None or _astral_sun is None:
+        return out
+    try:
+        observer = LocationInfo(
+            name="Sensorius",
+            region="local",
+            timezone=config.timezone_name,
+            latitude=config.latitude,
+            longitude=config.longitude,
+        ).observer
+        sun_map = _astral_sun(observer, date=day_date, tzinfo=tzinfo)
+        sunrise = sun_map.get("sunrise")
+        sunset = sun_map.get("sunset")
+        if not isinstance(sunrise, datetime) or not isinstance(sunset, datetime) or sunset < sunrise:
+            return out
+        total_minutes = max(0, int((sunset - sunrise).total_seconds() // 60))
+        out.update(
+            {
+                "sunrise": _format_hm(sunrise),
+                "sunset": _format_hm(sunset),
+                "daylight_minutes": total_minutes,
+                "daylight_label": f"{total_minutes // 60} Hrs {total_minutes % 60} Mins",
+            }
+        )
+    except Exception:
+        pass
+    return out
+
+
 def _build_current_segment_timeline(
     now_local: datetime,
     tzinfo: ZoneInfo,
@@ -1018,6 +1059,12 @@ def _calendar_payload_from_days(
     current_timeline: list[dict[str, object]] | None = None,
     current_timeline_builder=None,
 ) -> dict[str, object]:
+    for day in month_days:
+        try:
+            day_date = date.fromisoformat(str(day.get("date") or ""))
+        except (TypeError, ValueError):
+            continue
+        day.update(_daylight_for_day(day_date, tzinfo, config))
     timeline = _build_segment_timeline(month_days, tzinfo)
     lookup_timeline = timeline
     current_segment = next((segment for segment in timeline if segment["start_local"] <= now_local < segment["end_local"]), None)

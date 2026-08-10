@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import sensorius.saiBiodynamics as saiBiodynamics
+from sensorius.biodynamic_calendar import core as biodynamic_core
 
 def test_iau_edge_constellation_sextans_maps_to_leo_for_future_months():
     idx = saiBiodynamics._biodynamic_sign_index_for_constellation("Sex")
@@ -84,6 +85,31 @@ def test_daylight_for_day_formats_hours_and_minutes(monkeypatch):
     monkeypatch.setattr(saiBiodynamics, "_astral_sun", _fake_sun)
 
     payload = saiBiodynamics._daylight_for_day(date(2026, 6, 23), tzinfo, 40.0, -105.0, 1600.0)
+
+    assert payload["sunrise"] == "05:32"
+    assert payload["sunset"] == "20:31"
+    assert payload["daylight_minutes"] == 899
+    assert payload["daylight_label"] == "14 Hrs 59 Mins"
+
+
+def test_active_calendar_daylight_formats_hours_and_minutes(monkeypatch):
+    tzinfo = ZoneInfo("America/Denver")
+    config = biodynamic_core.BiodynamicConfig(40.0, -105.0, tzinfo.key)
+
+    class _FakeLocationInfo:
+        def __init__(self, **_kwargs):
+            self.observer = SimpleNamespace()
+
+    def _fake_sun(_observer, *, date, tzinfo):
+        return {
+            "sunrise": datetime(date.year, date.month, date.day, 5, 32, tzinfo=tzinfo),
+            "sunset": datetime(date.year, date.month, date.day, 20, 31, tzinfo=tzinfo),
+        }
+
+    monkeypatch.setattr(biodynamic_core, "LocationInfo", _FakeLocationInfo)
+    monkeypatch.setattr(biodynamic_core, "_astral_sun", _fake_sun)
+
+    payload = biodynamic_core._daylight_for_day(date(2026, 6, 23), tzinfo, config)
 
     assert payload["sunrise"] == "05:32"
     assert payload["sunset"] == "20:31"

@@ -407,12 +407,19 @@ a { color: inherit; }
 .daylight-orbit { position: relative; height: 8.5rem; margin: 1.4rem 0 0.5rem; overflow: hidden; border-bottom: 1px solid rgba(255,214,107,.28); }
 .daylight-orbit::before { content: ""; position: absolute; left: 5%; right: 5%; bottom: -5rem; height: 10rem; border: 1px solid rgba(255,214,107,.52); border-radius: 50% 50% 0 0; }
 .daylight-sun { position: absolute; z-index: 1; left: var(--daylight-progress, 5%); bottom: calc(0.2rem + var(--sun-rise, 0) * 5.4rem); color: var(--warm); font-size: 1.7rem; line-height: 1; transform: translateX(-50%); filter: drop-shadow(0 0 12px rgba(255,214,107,.58)); }
-.daylight-times { margin: 0; }
-.daylight-times div { display: flex; align-items: baseline; justify-content: space-between; padding: 0.78rem 0; border-bottom: 1px solid var(--line); }
+.daylight-times { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0.65rem 0 0; }
+.daylight-times div { display: flex; flex-direction: column; gap: 0.22rem; min-width: 0; }
+.daylight-times div:nth-child(1) { align-items: flex-start; text-align: left; }
+.daylight-times div:nth-child(2) { align-items: center; text-align: center; }
+.daylight-times div:nth-child(3) { align-items: flex-end; text-align: right; }
 .daylight-times dt { color: var(--muted); font-size: 0.62rem; }
-.daylight-times dd { margin: 0; color: var(--ink); font: 500 1rem Georgia, serif; }
-.daylight-note { margin: 1rem 0 0; color: var(--muted); font-size: 0.6rem; line-height: 1.5; }
-.daylight-note strong { color: var(--warm); font-size: 0.78rem; }
+.daylight-times dd { order: -1; margin: 0; color: var(--ink); font: 500 1rem Georgia, serif; white-space: nowrap; }
+.next-season-note { display: grid; grid-template-columns: auto 1fr auto; gap: 0.4rem; align-items: baseline; margin: 1.25rem 0 0; color: var(--muted); font-size: 0.58rem; }
+.next-season-note strong { color: var(--accent); text-align: center; }
+.next-season-note time { color: var(--ink); white-space: nowrap; }
+.polar-daylight-note { display: flex; justify-content: space-between; gap: 1rem; margin: 0.9rem 0 0; color: var(--muted); font-size: 0.6rem; line-height: 1.5; }
+.polar-daylight-note span:last-child { text-align: right; }
+.polar-daylight-note strong { display: block; color: var(--warm); font-size: 0.78rem; }
 
 .provider-picker { display: grid; gap: 0.7rem; }
 .provider-option { position: relative; display: block; padding: 0.95rem 1rem 0.95rem 3rem; border: 1px solid #cfdcd3; background: white; cursor: pointer; }

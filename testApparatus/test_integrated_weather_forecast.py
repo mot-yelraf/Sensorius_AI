@@ -189,6 +189,47 @@ def test_lunar_timeline_has_four_local_previous_and_upcoming_phases():
     assert all("bright_limb_angle" in phase for phase in context["previous_phases"] + context["upcoming_phases"])
 
 
+def test_sunlight_card_uses_ampm_times_and_current_polar_daylight():
+    context = astronomy_context(
+        type(
+            "AstralSettings",
+            (),
+            {
+                "latitude": 32.77,
+                "longitude": -108.28,
+                "timezone": "America/Denver",
+                "location_name": "Test station",
+            },
+        )(),
+        datetime(2026, 8, 10, 18, tzinfo=timezone.utc),
+    )
+
+    assert context["sunrise_display"].endswith(" AM")
+    assert context["solar_noon_display"].endswith(" PM")
+    assert context["sunset_display"].endswith(" PM")
+    assert context["north_pole_daylight"] == "24h 00m"
+    assert context["south_pole_daylight"] == "0h 00m"
+    assert context["next_season_label"] == "September Equinox"
+    assert context["next_season_date"] == "Sep 22, 2026"
+
+
+def test_sunlight_card_places_times_horizontally_and_shows_poles():
+    template = (ROOT / "ui_templates" / "weather_forecast" / "index.html").read_text()
+    script = (ROOT / "ui_static" / "weather_forecast" / "app.js").read_text()
+    css = (ROOT / "ui_static" / "weather_forecast" / "app.css").read_text()
+
+    assert 'id="northPoleDaylight"' in template
+    assert 'id="southPoleDaylight"' in template
+    assert 'id="nextSeasonLabel"' in template
+    assert 'id="nextSeasonDate"' in template
+    assert 'id="daylightHours"' not in template
+    assert "grid-template-columns: repeat(3, minmax(0, 1fr))" in css
+    assert ".daylight-times dd { order: -1;" in css
+    assert "function formatSolarTime(value)" in script
+    assert 'moon.north_pole_daylight ?? "—"' in script
+    assert 'moon.next_season_label ?? "—"' in script
+
+
 def test_lunar_strip_uses_dates_and_does_not_symmetrize_local_orientation():
     template = (ROOT / "ui_templates" / "weather_forecast" / "index.html").read_text()
     script = (ROOT / "ui_static" / "weather_forecast" / "app.js").read_text()

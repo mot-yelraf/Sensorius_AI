@@ -613,10 +613,14 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "const mrToday = toMin(data && data.moon_rise_today);" in html
     assert "const msToday = toMin(data && data.moon_set_today);" in html
     assert "const riseMin = mrToday;" in html
-    assert "const setMin = msToday;" in html
-    assert "const riseSet = buildMoonRiseSetDisplayPoints();" in html
+    assert "const setMin = msToday > riseMin ? msToday : msToday + 1440;" in html
+    rise_set_idx = html.index("const riseSet = buildMoonRiseSetDisplayPoints();")
+    sampled_idx = html.index("const sampled = smoothSampledElevationPath(moonPoints, 2);", rise_set_idx)
+    assert rise_set_idx < sampled_idx
     assert "if (riseSet.length >= 2) return riseSet;" in html
-    assert "const sampled = softenMoonLowerExtrema(smoothSampledElevationPath(moonPoints, 2));" in html
+    assert "if (sampled.length >= 2) return sampled;" in html
+    assert "const wave = Math.sin(Math.PI * (minute - riseMin) / visibleMinutes);" in html
+    assert "amplitudeBias * Math.tanh(blendStrength * wave)" in html
     assert "built.push({m, y: sunYForMin(m)});" in html
     assert "built.push({m, y: yAt(m)});" in html
     assert "const moonDisplayPoints = buildMoonDisplayPoints();" in html

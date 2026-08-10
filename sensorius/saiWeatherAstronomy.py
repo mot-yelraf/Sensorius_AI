@@ -1,5 +1,6 @@
 import math
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -266,6 +267,54 @@ def moon_phase_context(at: datetime | None = None) -> dict[str, Any]:
     }
 
 
+def _clock_label(at: datetime) -> str:
+    """Format a solar event time consistently across supported platforms."""
+    hour = at.hour % 12 or 12
+    suffix = "AM" if at.hour < 12 else "PM"
+    return f"{hour}:{at.minute:02d} {suffix}"
+
+
+def _polar_daylight_duration(local_date: Any, latitude: float) -> str:
+    """Return the all-day or all-night sunlight duration at a geographic pole."""
+    observer = LocationInfo("Pole", "", "UTC", latitude, 0.0).observer
+    reference = datetime.combine(local_date, datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=12)
+    minutes = 1440 if sun_elevation(observer, reference) > -0.833 else 0
+    return f"{minutes // 60}h {minutes % 60:02d}m"
+
+
+@lru_cache(maxsize=48)
+def _next_season_event_for_hour(observed_hour_iso: str, timezone_name: str) -> dict[str, str]:
+    """Return the next equinox or solstice in the requested local timezone."""
+    from skyfield import almanac
+
+    from .saiBiodynamics import get_skyfield_runtime_if_installed
+
+    runtime = get_skyfield_runtime_if_installed()
+    if runtime is None:
+        return {"label": "Seasonal event unavailable", "date": "—", "at": ""}
+    _loader, ts, eph, _constellation_at = runtime
+    observed_hour = datetime.fromisoformat(observed_hour_iso)
+    start = ts.from_datetime(observed_hour.astimezone(timezone.utc))
+    end = ts.from_datetime((observed_hour + timedelta(days=370)).astimezone(timezone.utc))
+    event_times, event_types = almanac.find_discrete(start, end, almanac.seasons(eph))
+    if not len(event_times):
+        return {"label": "Seasonal event unavailable", "date": "—", "at": ""}
+    event_local = event_times[0].utc_datetime().astimezone(ZoneInfo(timezone_name))
+    return {
+        "label": str(almanac.SEASON_EVENTS_NEUTRAL[int(event_types[0])]),
+        "date": f"{event_local.strftime('%b')} {event_local.day}, {event_local.year}",
+        "at": event_local.isoformat(),
+    }
+
+
+def _next_season_event(observed_at: datetime, tzinfo: ZoneInfo) -> dict[str, str]:
+    observed_hour = observed_at.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    try:
+        return _next_season_event_for_hour(observed_hour.isoformat(), tzinfo.key)
+    except Exception:
+        return {"label": "Seasonal event unavailable", "date": "—", "at": ""}
+
+
 def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, Any]:
     """Combine Astral moon phase and local sunrise/sunset for settings location."""
     observed_at = at or datetime.now(timezone.utc)
@@ -289,6 +338,7 @@ def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, An
             effective_sunset += timedelta(days=1)
         daylight_seconds = (effective_sunset - solar["sunrise"]).total_seconds()
         daylight_minutes = round(daylight_seconds / 60)
+        next_season = _next_season_event(observed_at, tzinfo)
         if local <= solar["sunrise"]:
             daylight_progress = 0
         elif local >= effective_sunset:
@@ -299,8 +349,16 @@ def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, An
             sunrise=solar["sunrise"].strftime("%H:%M"),
             sunset=solar["sunset"].strftime("%H:%M"),
             solar_noon=solar["noon"].strftime("%H:%M"),
+            sunrise_display=_clock_label(solar["sunrise"]),
+            sunset_display=_clock_label(solar["sunset"]),
+            solar_noon_display=_clock_label(solar["noon"]),
             daylight_hours=round(daylight_seconds / 3600, 2),
             daylight_duration=f"{daylight_minutes // 60}h {daylight_minutes % 60:02d}m",
+            north_pole_daylight=_polar_daylight_duration(observed_at.date(), 90.0),
+            south_pole_daylight=_polar_daylight_duration(observed_at.date(), -90.0),
+            next_season_label=next_season["label"],
+            next_season_date=next_season["date"],
+            next_season_at=next_season["at"],
             daylight_progress=daylight_progress,
             sun_is_up=solar["sunrise"] <= local < effective_sunset,
             moon_altitude=round(_moon_elevation(location.observer, observed_at), 1),
@@ -323,8 +381,16 @@ def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, An
             sunrise="—",
             sunset="—",
             solar_noon="—",
+            sunrise_display="—",
+            sunset_display="—",
+            solar_noon_display="—",
             daylight_hours=None,
             daylight_duration="—",
+            north_pole_daylight="—",
+            south_pole_daylight="—",
+            next_season_label="Seasonal event unavailable",
+            next_season_date="—",
+            next_season_at="",
             daylight_progress=0,
             sun_is_up=False,
             moon_altitude=None,

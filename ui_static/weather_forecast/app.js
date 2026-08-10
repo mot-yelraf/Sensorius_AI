@@ -57,6 +57,15 @@
     sunMarker.style.setProperty("--sun-rise", String(Math.sin(Math.PI * progress / 100)));
   }
 
+  function formatSolarTime(value) {
+    const match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return "—";
+    const hour24 = Number(match[1]);
+    if (!Number.isFinite(hour24) || hour24 > 23) return "—";
+    const hour12 = (hour24 % 12) || 12;
+    return `${hour12}:${match[2]} ${hour24 < 12 ? "AM" : "PM"}`;
+  }
+
   const initialMoonDisk = document.getElementById("currentMoonDisk");
   if (initialMoonDisk) {
     renderMoonDisk(initialMoonDisk, {
@@ -123,11 +132,16 @@
         : `Observer-local orientation · ${moon.moon_altitude}° altitude${moon.moon_altitude < 0 ? " (below horizon)" : ""}`;
       document.getElementById("sunriseTime").textContent = moon.sunrise;
       document.getElementById("sunsetTime").textContent = moon.sunset;
-      document.getElementById("mapSunriseTime").textContent = moon.sunrise;
-      document.getElementById("mapSunsetTime").textContent = moon.sunset;
-      document.getElementById("solarNoonTime").textContent = moon.solar_noon;
+      document.getElementById("mapSunriseTime").textContent = moon.sunrise_display || formatSolarTime(moon.sunrise);
+      document.getElementById("mapSunsetTime").textContent = moon.sunset_display || formatSolarTime(moon.sunset);
+      document.getElementById("solarNoonTime").textContent = moon.solar_noon_display || formatSolarTime(moon.solar_noon);
       document.getElementById("daylightDuration").textContent = moon.daylight_duration;
-      document.getElementById("daylightHours").textContent = moon.daylight_hours ?? "—";
+      document.getElementById("nextSeasonLabel").textContent = moon.next_season_label ?? "—";
+      const nextSeasonDate = document.getElementById("nextSeasonDate");
+      nextSeasonDate.textContent = moon.next_season_date ?? "—";
+      nextSeasonDate.setAttribute("datetime", moon.next_season_at || "");
+      document.getElementById("northPoleDaylight").textContent = moon.north_pole_daylight ?? "—";
+      document.getElementById("southPoleDaylight").textContent = moon.south_pole_daylight ?? "—";
       document.getElementById("sunState").textContent = moon.sun_is_up ? "Sun above horizon" : "Sun below horizon";
       updateDaylightTrack(moon.daylight_progress);
       document.getElementById("lunarUpdated").textContent = `Updated ${moon.updated_at.slice(11, 16)} UTC`;
