@@ -99,6 +99,24 @@ successful HTTP response proves gateway reachability; a listed sensor may still
 be temporarily absent from live data. Disable stops polling but intentionally
 retains the `ecowitt-<gateway_mac>` settings and SQLite history.
 
+The official `get_livedata_info` request returns the complete live JSON object;
+it does not document query parameters for requesting individual sections. To
+profile response latency, size, and selected sections without starting the Web
+UI profiler browser, run:
+
+```bash
+python testApparatus/profile_webui.py \
+  --ecowitt-url http://<gateway-ip> \
+  --ecowitt-only \
+  --samples 5 \
+  --ecowitt-sections common_list,rain,wh25 \
+  --output-json /tmp/ecowitt-profile.json
+```
+
+`--ecowitt-sections` filters only the profiler's captured output. It does not
+reduce the data requested from or transmitted by the gateway. Omit it, or use
+`all`, to retain every returned section.
+
 ## Add Device Wi-Fi Authorization
 
 On macOS, Add Device uses a manual Wi-Fi transition. Enter the destination

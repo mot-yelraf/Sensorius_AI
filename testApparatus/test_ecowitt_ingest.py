@@ -178,7 +178,10 @@ async def test_discovery_reads_both_pages_and_uses_gateway_mac(monkeypatch):
 async def test_poll_once_logs_normalized_values_and_first_rain_checkpoint(monkeypatch):
     _Client.responses = {
         "get_livedata_info": {
-            "common_list": [{"id": "0x02", "val": "20", "unit": "C"}],
+            "common_list": [
+                {"id": "0x02", "val": "20", "unit": "C"},
+                {"id": "0x07", "val": "65%"},
+            ],
             "rain": [{"id": "0x10", "val": "1.5 in"}],
         },
         "get_rain_totals": {"rainFallPriority": "1"},
@@ -196,5 +199,7 @@ async def test_poll_once_logs_normalized_values_and_first_rain_checkpoint(monkey
     assert await ingest.poll_once() is True
     assert logger.rows[0][1] == "ecowitt-e8db840f1543"
     assert logger.rows[0][2]["Temperature_F"] == 68.0
+    assert logger.rows[0][2]["Humidity"] == pytest.approx(11.22, abs=0.02)
+    assert logger.rows[0][2]["Ambient VPD"] == pytest.approx(0.819, abs=0.002)
     assert logger.rows[0][2]["Rain Day"] == 1.5
     assert "Rain" not in logger.rows[0][2]

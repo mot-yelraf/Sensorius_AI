@@ -188,6 +188,25 @@ def _put_temperature(out: dict[str, float], base: str, value: float, unit: str) 
     out[f"{base}_F"] = round((celsius * 9.0 / 5.0) + 32.0, 1)
 
 
+def _derive_outdoor_air_metrics(out: dict[str, float]) -> None:
+    """Add Sensorius absolute-humidity and VPD metrics from outdoor T/RH."""
+    temperature = out.get("Temperature")
+    relative_humidity = out.get("Rel-Humidity")
+    if temperature is None or relative_humidity is None:
+        return
+    try:
+        temp_c = float(temperature)
+        rh = max(0.0, min(100.0, float(relative_humidity)))
+        saturation_pa = 610.78 * 10 ** ((7.5 * temp_c) / (237.3 + temp_c))
+        actual_pa = saturation_pa * (rh / 100.0)
+        absolute_humidity = (actual_pa * 18.016) / (8314.3 * (temp_c + 273.15)) * 1000.0
+        vpd = (1.0 - (rh / 100.0)) * saturation_pa / 1000.0
+    except (TypeError, ValueError, ZeroDivisionError, OverflowError):
+        return
+    out["Humidity"] = round(max(0.0, absolute_humidity), 2)
+    out["Ambient VPD"] = round(max(0.0, min(5.0, vpd)), 3)
+
+
 def _item_id(item: dict[str, Any]) -> str:
     return str(item.get("id", "") or "").strip().lower()
 
@@ -371,6 +390,7 @@ def normalize_ecowitt_livedata(payload: dict[str, Any], *, rain_source: str = "t
     _parse_rain(selected_rain, out)
     _parse_indoor_and_air(payload, out)
     _parse_channel_arrays(payload, out)
+    _derive_outdoor_air_metrics(out)
     return out
 
 

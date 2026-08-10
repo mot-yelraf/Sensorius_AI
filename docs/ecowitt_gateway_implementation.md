@@ -70,6 +70,12 @@ delete a previously discovered sensor merely because its current RF signal is
 zero; retain it and mark it unavailable. Confirm exact behavior against the
 real GW1100 response before finalizing the filter.
 
+The protocol documents no query option for selecting only particular live-data
+sections; each request returns the complete live-data object. Sensorius may
+select sections after receipt for profiling or parsing, but that does not
+reduce gateway response size. The profiler supports direct sampling with
+`--ecowitt-url`, `--ecowitt-only`, and client-side `--ecowitt-sections`.
+
 `get_livedata_info` reports current observations in sections such as
 `common_list`, `rain`, `piezoRain`, and `wh25`, with additional channel arrays
 for optional Ecowitt sensors. Common weather item IDs include:

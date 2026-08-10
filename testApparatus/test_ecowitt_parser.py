@@ -55,6 +55,10 @@ def test_metric_and_imperial_payloads_normalize_to_same_values():
     assert metric_values["Baro-Pressure"] == pytest.approx(imperial_values["Baro-Pressure"], abs=0.1)
     assert metric_values["Solar Radiation"] == 350.0
     assert "Light Intensity" not in metric_values
+    assert metric_values["Humidity"] == pytest.approx(imperial_values["Humidity"], abs=0.01)
+    assert metric_values["Ambient VPD"] == pytest.approx(imperial_values["Ambient VPD"], abs=0.001)
+    assert metric_values["Humidity"] == pytest.approx(11.22, abs=0.02)
+    assert metric_values["Ambient VPD"] == pytest.approx(0.819, abs=0.002)
 
 
 def test_lux_is_not_mislabeled_as_solar_radiation():
@@ -163,3 +167,16 @@ def test_missing_and_malformed_values_are_ignored_not_zeroed():
         ]
     })
     assert values == {}
+
+
+def test_derived_air_metrics_require_both_temperature_and_relative_humidity():
+    temperature_only = normalize_ecowitt_livedata({
+        "common_list": [{"id": "0x02", "val": "20", "unit": "C"}],
+    })
+    humidity_only = normalize_ecowitt_livedata({
+        "common_list": [{"id": "0x07", "val": "65%"}],
+    })
+    assert "Humidity" not in temperature_only
+    assert "Ambient VPD" not in temperature_only
+    assert "Humidity" not in humidity_only
+    assert "Ambient VPD" not in humidity_only

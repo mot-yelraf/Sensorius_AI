@@ -4,10 +4,23 @@ from __future__ import annotations
 
 import os
 import sys
+import asyncio
+from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(__file__))
 
 import profile_webui
+
+
+class _EcowittResponse:
+    status_code = 200
+    content = b'{"common_list":[],"rain":[],"debug":[]}'
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return {"common_list": [{"id": "0x02", "val": "20", "unit": "C"}], "rain": [], "debug": []}
 
 
 def test_select_scenarios_filters_and_deduplicates_by_name():
@@ -126,3 +139,70 @@ def test_scenario_error_skip_only_marks_optional_missing_targets():
     assert profile_webui.scenario_error_is_skip(forecast, "Weather forecast disabled on dashboard") is True
     assert profile_webui.scenario_error_is_skip(fullscreen_graph, "No graphable metric found on dashboard") is True
     assert profile_webui.scenario_error_is_skip(system, "No switch found on dashboard") is False
+
+
+def test_ecowitt_profiler_filters_sections_client_side(monkeypatch):
+    calls = []
+
+    def _get(url, **kwargs):
+        calls.append((url, kwargs))
+        return _EcowittResponse()
+
+    monkeypatch.setattr(profile_webui.requests, "get", _get)
+    sample = profile_webui.collect_ecowitt_livedata_sample(
+        "http://gw1100.local/",
+        5.0,
+        ("common_list", "rain", "missing"),
+    )
+
+    assert sample["ok"] is True
+    assert calls[0][0] == "http://gw1100.local/get_livedata_info"
+    assert "params" not in calls[0][1]
+    assert sample["selected_sections"] == ["common_list", "rain"]
+    assert sample["missing_sections"] == ["missing"]
+    assert set(sample["data"]) == {"common_list", "rain"}
+
+
+def test_ecowitt_profiler_url_and_section_validation():
+    assert profile_webui.parse_ecowitt_sections("common_list,rain,common_list") == ("common_list", "rain")
+    assert profile_webui.parse_ecowitt_sections("all") == ()
+    assert profile_webui.normalize_ecowitt_profile_url("http://[fd00::10]:8080") == (
+        "http://[fd00::10]:8080/get_livedata_info"
+    )
+
+
+def test_ecowitt_only_mode_does_not_require_dashboard_or_chromium(monkeypatch):
+    monkeypatch.setattr(
+        profile_webui,
+        "collect_ecowitt_livedata_sample",
+        lambda *_args: {
+            "ok": True,
+            "total_ms": 12.0,
+            "response_bytes": 300,
+            "response_section_count": 2,
+            "selected_sections": ["common_list"],
+        },
+    )
+    args = SimpleNamespace(
+        scenarios="all",
+        base_url="http://dashboard.invalid/",
+        samples=2,
+        timeout_sec=5.0,
+        cooldown_ms=0,
+        chrome_path="",
+        debug_port=9222,
+        output_json="",
+        skip_preflight=False,
+        fail_fast=False,
+        sensor_id="",
+        switch_id="",
+        ecowitt_url="http://gw1100.local",
+        ecowitt_sections="common_list",
+        ecowitt_only=True,
+    )
+
+    payload = asyncio.run(profile_webui.run(args))
+
+    assert payload["scenarios"] == []
+    assert len(payload["samples"]["ecowitt_livedata"]) == 2
+    assert payload["summary"]["ecowitt_livedata"]["ok_count"] == 2

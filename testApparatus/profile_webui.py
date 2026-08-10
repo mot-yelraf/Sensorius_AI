@@ -10,6 +10,7 @@ Profiles:
 - full-screen graph modal
 - integrated biodynamic calendar navigation and initial render
 - integrated biodynamic calendar month selectors
+- optional direct Ecowitt get_livedata_info latency, size, and sections
 
 The script launches headless Chromium with the DevTools protocol enabled,
 drives the dashboard UI, and prints summary timing stats plus raw samples.
@@ -37,6 +38,7 @@ import websockets
 
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000/"
+MAX_ECOWITT_RESPONSE_BYTES = 2 * 1024 * 1024
 DEFAULT_CHROME_PATHS = (
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
     "google-chrome",
@@ -78,7 +80,103 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--sensor-id", default="", help="Sensor id to use for the sensor_settings scenario.")
     parser.add_argument("--switch-id", default="", help="Switch id to use for the switch_settings scenario.")
+    parser.add_argument(
+        "--ecowitt-url",
+        default="",
+        help="Optional Ecowitt gateway base URL to profile through get_livedata_info.",
+    )
+    parser.add_argument(
+        "--ecowitt-sections",
+        default="all",
+        help="Comma-separated response sections to retain in profiler output; filtering is client-side.",
+    )
+    parser.add_argument(
+        "--ecowitt-only",
+        action="store_true",
+        help="Profile only the Ecowitt gateway without launching Chromium or requiring the dashboard.",
+    )
     return parser.parse_args()
+
+
+def normalize_ecowitt_profile_url(value: str) -> str:
+    """Return a safe plain-HTTP get_livedata_info URL for profiler use."""
+    raw = str(value or "").strip()
+    parsed = urllib.parse.urlsplit(raw)
+    if parsed.scheme.lower() != "http" or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Ecowitt URL must be a plain HTTP base URL without credentials.")
+    if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+        raise ValueError("Ecowitt URL must not include a path, query, or fragment.")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("Ecowitt URL contains an invalid port.") from exc
+    host = parsed.hostname
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    netloc = f"{host}:{port}" if port else host
+    base_url = urllib.parse.urlunsplit(("http", netloc, "", "", ""))
+    return f"{base_url}/get_livedata_info"
+
+
+def parse_ecowitt_sections(value: str) -> tuple[str, ...]:
+    requested = tuple(dict.fromkeys(
+        item.strip() for item in str(value or "all").split(",") if item.strip()
+    ))
+    if not requested or any(item.lower() == "all" for item in requested):
+        return ()
+    return requested
+
+
+def collect_ecowitt_livedata_sample(
+    gateway_url: str,
+    timeout_sec: float,
+    sections: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """Time one complete Ecowitt live-data response and summarize its sections."""
+    endpoint = normalize_ecowitt_profile_url(gateway_url)
+    started = time.perf_counter()
+    try:
+        response = requests.get(
+            endpoint,
+            timeout=max(float(timeout_sec), 1.0),
+            allow_redirects=False,
+        )
+        elapsed_ms = round((time.perf_counter() - started) * 1000.0, 2)
+        response.raise_for_status()
+        if len(response.content) > MAX_ECOWITT_RESPONSE_BYTES:
+            raise RuntimeError("Ecowitt live-data response exceeded 2 MiB.")
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Ecowitt live-data response was not a JSON object.")
+        missing = [name for name in sections if name not in payload]
+        selected = {
+            name: payload[name]
+            for name in (sections or tuple(payload.keys()))
+            if name in payload
+        }
+        section_counts = {
+            name: len(value) if isinstance(value, (list, dict)) else 1
+            for name, value in selected.items()
+        }
+        return {
+            "ok": True,
+            "total_ms": elapsed_ms,
+            "status": response.status_code,
+            "response_bytes": len(response.content),
+            "response_section_count": len(payload),
+            "selected_sections": list(selected),
+            "missing_sections": missing,
+            "section_item_counts": section_counts,
+            "data": selected,
+            "endpoint": endpoint,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "total_ms": round((time.perf_counter() - started) * 1000.0, 2),
+            "error": str(exc),
+            "endpoint": endpoint,
+        }
 
 
 def resolve_chrome_path(explicit: str) -> str:
@@ -993,16 +1091,16 @@ async def ensure_profiler_helper(
     raise TimeoutError(f"Timed out restoring profiler helper after dashboard refresh: {last_error}")
 
 
-def summarize_metric(values: list[float]) -> dict[str, float] | None:
+def summarize_metric(values: list[float], suffix: str = "ms") -> dict[str, float] | None:
     vals = [float(v) for v in values if isinstance(v, (int, float))]
     if not vals:
         return None
     ordered = sorted(vals)
     return {
-        "min_ms": round(ordered[0], 2),
-        "median_ms": round(statistics.median(ordered), 2),
-        "mean_ms": round(statistics.fmean(ordered), 2),
-        "max_ms": round(ordered[-1], 2),
+        f"min_{suffix}": round(ordered[0], 2),
+        f"median_{suffix}": round(statistics.median(ordered), 2),
+        f"mean_{suffix}": round(statistics.fmean(ordered), 2),
+        f"max_{suffix}": round(ordered[-1], 2),
     }
 
 
@@ -1025,6 +1123,22 @@ def build_summary(samples: dict[str, list[dict[str, Any]]], scenarios: tuple[Sce
         "refresh_error_count": sum(1 for item in dashboard_refreshes if item.get("ok") is False),
         "overview_image_refresh_requests": sum(1 for item in dashboard_refreshes if item.get("overview_image_requested")),
     }
+    ecowitt_rows = samples.get("ecowitt_livedata", [])
+    if ecowitt_rows:
+        out["ecowitt_livedata"] = {
+            "ok_count": sum(1 for row in ecowitt_rows if row.get("ok") is True),
+            "error_count": sum(1 for row in ecowitt_rows if row.get("ok") is False),
+            "errors": [str(row.get("error") or "") for row in ecowitt_rows if row.get("error")][:3],
+            "total_ms": summarize_metric([row.get("total_ms") for row in ecowitt_rows]),
+            "response_bytes": summarize_metric([row.get("response_bytes") for row in ecowitt_rows], "bytes"),
+            "response_section_count": summarize_metric([
+                row.get("response_section_count") for row in ecowitt_rows
+            ], "count"),
+            "selected_sections": next(
+                (row.get("selected_sections") for row in ecowitt_rows if row.get("selected_sections") is not None),
+                [],
+            ),
+        }
     for scenario in scenarios:
         rows = samples.get(scenario.name, [])
         errors = [str(row.get("error") or "") for row in rows if row.get("error")]
@@ -1081,6 +1195,17 @@ def print_summary(
     print(f"  refresh_errors: {dash.get('refresh_error_count', 0)}")
     print(f"  overview_image_refresh_requests: {dash.get('overview_image_refresh_requests', 0)}")
     print()
+    ecowitt = summary.get("ecowitt_livedata")
+    if ecowitt:
+        print("Ecowitt get_livedata_info")
+        print(f"  samples: ok={ecowitt.get('ok_count', 0)}, errors={ecowitt.get('error_count', 0)}")
+        print(f"  total_ms: {json.dumps(ecowitt.get('total_ms'))}")
+        print(f"  response_bytes: {json.dumps(ecowitt.get('response_bytes'))}")
+        print(f"  response_section_count: {json.dumps(ecowitt.get('response_section_count'))}")
+        print(f"  selected_sections: {json.dumps(ecowitt.get('selected_sections') or [])}")
+        for error in ecowitt.get("errors") or []:
+            print(f"  error: {error}")
+        print()
     for scenario in scenarios:
         block = summary.get(scenario.name, {})
         print(scenario.label)
@@ -1111,6 +1236,39 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
         (scenario for scenario in scenarios if scenario.name == "calendar_month_selectors"),
         None,
     )
+    results: dict[str, list[dict[str, Any]]] = {
+        "dashboard": [],
+        **{scenario.name: [] for scenario in scenarios},
+    }
+    ecowitt_url = str(getattr(args, "ecowitt_url", "") or "").strip()
+    ecowitt_sections = parse_ecowitt_sections(getattr(args, "ecowitt_sections", "all"))
+    if getattr(args, "ecowitt_only", False) and not ecowitt_url:
+        raise ValueError("--ecowitt-only requires --ecowitt-url.")
+    if ecowitt_url:
+        results["ecowitt_livedata"] = []
+        for index in range(args.samples):
+            sample = await asyncio.to_thread(
+                collect_ecowitt_livedata_sample,
+                ecowitt_url,
+                args.timeout_sec,
+                ecowitt_sections,
+            )
+            sample["sample_index"] = index + 1
+            results["ecowitt_livedata"].append(sample)
+            if args.fail_fast and sample.get("ok") is False:
+                raise RuntimeError(str(sample.get("error") or "Ecowitt live-data profiling failed"))
+    if getattr(args, "ecowitt_only", False):
+        summary = build_summary(results, ())
+        return {
+            "base_url": args.base_url,
+            "ecowitt_url": ecowitt_url,
+            "ecowitt_sections": list(ecowitt_sections) if ecowitt_sections else ["all"],
+            "sample_count": args.samples,
+            "scenarios": [],
+            "summary": summary,
+            "samples": results,
+        }
+
     if not args.skip_preflight:
         preflight_dashboard(args.base_url, args.timeout_sec)
     chrome = ChromeSession(resolve_chrome_path(args.chrome_path), args.debug_port)
@@ -1122,11 +1280,6 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             await client.setup()
             await client.evaluate(build_js_helper(timeout_ms))
             await configure_profiler_targets(client, args)
-            results: dict[str, list[dict[str, Any]]] = {
-                "dashboard": [],
-                **{scenario.name: [] for scenario in scenarios},
-            }
-
             for index in range(args.samples):
                 await client.navigate(args.base_url, args.timeout_sec)
                 await client.evaluate(build_js_helper(timeout_ms))
@@ -1182,6 +1335,8 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             summary = build_summary(results, scenarios)
             payload = {
                 "base_url": args.base_url,
+                "ecowitt_url": ecowitt_url,
+                "ecowitt_sections": list(ecowitt_sections) if ecowitt_sections else ["all"],
                 "sample_count": args.samples,
                 "scenarios": [scenario.name for scenario in scenarios],
                 "summary": summary,
@@ -1204,7 +1359,7 @@ def main() -> int:
         return 1
 
     scenario_names = set(payload.get("scenarios") or [])
-    scenarios = tuple(scenario for scenario in SCENARIOS if scenario.name in scenario_names) or scenarios
+    scenarios = tuple(scenario for scenario in SCENARIOS if scenario.name in scenario_names)
     print_summary(args.base_url, payload["samples"], payload["summary"], scenarios)
     if args.output_json:
         output_path = Path(args.output_json)

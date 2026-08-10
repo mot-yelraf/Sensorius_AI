@@ -40,6 +40,9 @@ Ecowitt gateway ingest:
 - Normalizes temperature, humidity, pressure, wind, rain, solar/light, UV,
   lightning, gateway indoor, air-quality, and supported additional channel
   arrays.
+- Derives `Humidity` (absolute humidity in g/m³) and `Ambient VPD` (kPa) from
+  the outdoor `Temperature` and `Rel-Humidity` observations before the complete
+  reading set is written to SQLite.
 - Uses distinct channel metric names such as `WH31 CH1 Temperature_F`,
   `Soil Moisture CH3`, `PM2.5 CH2`, and `Leaf Wetness CH1`.
 - Stores Ecowitt rain day/week/month/year values as cumulative metrics. Only a
