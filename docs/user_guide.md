@@ -510,14 +510,66 @@ Locations should describe places people recognize: Greenhouse 1, West Bed, Seedl
 
 ### Add Device Pane
 
-![Add Device pane](<../assets/screenshots/system-settings-add-device.png>)
-
 Use Add Device to onboard a factory-bootstrapped Nodus device or add a local
 Ecowitt gateway. The page groups device types into expandable sections.
 **Nodus Device(s)** contains the Nodus onboarding workflow. **Ecowitt Gateway**
 discovers and enables a read-only LAN weather-station connection.
 
-Fields and status rows:
+#### Nodus on Linux and Raspberry Pi
+
+![Add Device Nodus pane on Linux or Raspberry Pi](<../assets/screenshots/system-settings-add-device-linux-rpi.png>)
+
+On Linux and Raspberry Pi, Sensorius scans for the Nodus setup access point,
+joins it, sends the bootstrap configuration, and restores the previous network.
+A failed scan leaves Add disabled; confirm that the Nodus AP is broadcasting,
+then use Retry. For Raspberry Pi deployments that onboard over Wi-Fi, use a
+2.4 GHz network path. If the router combines 2.4 GHz and 5 GHz under one SSID,
+ethernet on the Raspberry Pi is usually the most reliable setup. If Add Device
+reports `network_control_not_authorized`, the Linux/Raspberry Pi service install
+did not grant NetworkManager control; use the Operations guide to repair the
+service authorization.
+
+Before switching Wi-Fi, the page creates a resumable onboarding session. A
+browser connected through the Pi's Wi-Fi may be temporarily unreachable while
+the Pi joins the Nodus AP; progress polling resumes after the Pi restores its
+previous network. Run Sensorius through `sensorius.service`, not a foreground
+SSH process, during this transition.
+
+#### Nodus on macOS
+
+![Add Device Nodus pane on macOS](<../assets/screenshots/system-settings-add-device-macos.png>)
+
+macOS requires administrator authorization when an application changes Wi-Fi
+networks programmatically and may request the administrator username and
+password multiple times during one onboarding attempt. Even after the user
+authorizes those changes, macOS can report stale or incomplete Wi-Fi state.
+That makes automatic switching less predictable and less user-friendly than a
+single manual network selection, so Sensorius deliberately leaves the Wi-Fi
+change to the user.
+
+Enter the exact 2.4 GHz home Wi-Fi SSID and the password for that SSID in Add
+Device before changing networks. The SSID matters even when a router uses the
+same password for separate 2.4 GHz and 5 GHz networks; select the 2.4 GHz
+network because Nodus cannot join a 5 GHz-only SSID. Join the
+`Nodus-<serial-number>` setup network in macOS Wi-Fi, then return to Sensorius
+and click Add. A previously used Nodus may appear under Known Networks; a new
+one may appear under Other.
+
+Sensorius verifies the manual join using the `192.168.4.x` Wi-Fi address and
+the Nodus `/itaot-meta` endpoint. It does not use `networksetup` to join,
+inspect, or restore Wi-Fi because current macOS versions can report error
+`-3900` or stale association state after a successful graphical join. After
+bootstrap, rejoin the home network in macOS Wi-Fi if it does not reconnect
+automatically. Ethernet is not required: when Wi-Fi is the Mac's only network
+connection, keep Sensorius open at `http://127.0.0.1:8000`; the Nodus AP
+disappears after bootstrap and macOS can then reconnect to the home network.
+Sensorius waits for the MQTT handshake and the Nodus retries its broker
+connection until the Mac is reachable. If the AP disappears before its HTTP
+response reaches Sensorius, Add Device reports that the response was lost and
+continues waiting for the correlated MQTT hello instead of immediately
+declaring failure.
+
+Shared Nodus fields and status rows:
 
 - **Scanning for Nodus_Setup**: Sensorius scans for the Nodus setup access point.
 - **Connected to Nodus setup AP**: confirms Sensorius or the host joined the Nodus setup network.
@@ -525,9 +577,16 @@ Fields and status rows:
 - **Sensorius rejoined your Wi-Fi**: confirms the hub returned to the normal network.
 - **Waiting for Nodus to reboot and connect**: waits for the Nodus device to reboot, join Wi-Fi, connect to MQTT, and send its hello/config result.
 - **Retry**: retries the current onboarding session.
-- **Add**: starts onboarding when a setup AP is selected. On Linux and Raspberry
-  Pi, a failed scan leaves Add disabled; use Retry after confirming the Nodus AP
-  is broadcasting.
+- **Add**: starts onboarding after the platform-specific setup steps are complete.
+
+The legacy `Nodus_Setup` and `Nodus-Setup` names remain supported. When
+onboarding reaches Device Online, Sensorius automatically reloads the dashboard
+so the newly discovered sensor and switch cards appear without a manual browser
+refresh.
+
+#### Ecowitt Gateway
+
+![Add Device Ecowitt Gateway pane](<../assets/screenshots/system-settings-add-device-ecowitt.png>)
 
 Ecowitt Gateway fields and controls are arranged in two columns:
 
@@ -550,41 +609,6 @@ recommended. Sensorius accepts metric or imperial gateway display units and
 normalizes stored metric semantics. It reads the gateway only; it does not
 change Wi-Fi, sensor registration, calibration, rain settings, MQTT, firmware,
 or weather-service configuration.
-
-On macOS, enter the exact 2.4 GHz home Wi-Fi SSID and the password for that
-SSID in Add Device before changing networks. The SSID matters even when a
-router uses the same password for separate 2.4 GHz and 5 GHz networks; select
-the 2.4 GHz network because Nodus cannot join a 5 GHz-only SSID. Join the
-`Nodus-<serial-number>` setup network in macOS Wi-Fi, then
-return to Sensorius and click Add. A previously used Nodus may appear under
-Known Networks; a new one may appear under Other. Sensorius verifies the manual
-join using the `192.168.4.x` Wi-Fi address and the Nodus `/itaot-meta` endpoint.
-It does not use `networksetup` to join, inspect, or restore Wi-Fi because current
-macOS versions can report error `-3900` or stale association state after a
-successful graphical join. After bootstrap, rejoin the home network in macOS
-Wi-Fi if it does not reconnect automatically. Ethernet is not required: when
-Wi-Fi is the Mac's only network connection, keep Sensorius open at
-`http://127.0.0.1:8000`; the Nodus AP disappears after bootstrap and macOS can
-then reconnect to the home network. Sensorius waits for the MQTT handshake and
-the Nodus retries its broker connection until the Mac is reachable. If the AP
-disappears before its HTTP response reaches Sensorius, Add Device reports that
-the response was lost and continues waiting for the correlated MQTT hello
-instead of immediately declaring failure. The legacy `Nodus_Setup` and
-`Nodus-Setup` names remain supported. When onboarding reaches Device Online,
-Sensorius automatically reloads the dashboard so the newly discovered sensor
-and switch cards appear without a manual browser refresh. For
-Raspberry Pi deployments that onboard over Wi-Fi, use a 2.4 GHz network path. If
-the router combines 2.4 GHz and 5 GHz under one SSID, ethernet on the Raspberry
-Pi is usually the most reliable setup. If Add Device reports
-`network_control_not_authorized`, the Linux/Raspberry Pi service install did not
-grant NetworkManager control; use the Operations guide to repair the service
-authorization.
-
-Before switching Wi-Fi, the page creates a resumable onboarding session. A
-browser connected through the Pi's Wi-Fi may be temporarily unreachable while
-the Pi joins the Nodus AP; progress polling resumes after the Pi restores its
-previous network. Run Sensorius through `sensorius.service`, not a foreground
-SSH process, during this transition.
 
 ### Update Device Pane
 
@@ -944,7 +968,10 @@ returns to the Sensorius dashboard.
 The weather display uses the existing Sensorius Astral latitude, longitude,
 and timezone. Its top row presents the selected sensor's latest current
 readings, the canonical Sensorius forecast, and the sunrise/sunset daylight
-track. A full-width Windy map opens in radar view below that row, followed by
+track. The sunlight card also shows current North and South Pole daylight, the
+next seasonal event, and up to three solar or lunar eclipses visible from the
+configured Astral location during the next twelve months. A full-width Windy
+map opens in radar view below that row, followed by
 the current Moon and phase cycle at the bottom. The display also provides
 theme-matched six-day details. It does not run a separate weather service or
 maintain a separate settings file or readings database.

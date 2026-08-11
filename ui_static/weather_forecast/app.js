@@ -140,6 +140,26 @@
       const nextSeasonDate = document.getElementById("nextSeasonDate");
       nextSeasonDate.textContent = moon.next_season_date ?? "—";
       nextSeasonDate.setAttribute("datetime", moon.next_season_at || "");
+      const eclipseList = document.getElementById("nextEclipseList");
+      eclipseList.replaceChildren();
+      const eclipses = Array.isArray(moon.next_eclipses) ? moon.next_eclipses.slice(0, 3) : [];
+      if (!eclipses.length) {
+        const emptyItem = document.createElement("li");
+        emptyItem.className = "eclipse-empty";
+        emptyItem.textContent = "No visible eclipses for the next 12 months";
+        eclipseList.append(emptyItem);
+      } else {
+        eclipses.forEach((eclipse) => {
+          const item = document.createElement("li");
+          const kind = document.createElement("strong");
+          const date = document.createElement("time");
+          kind.textContent = eclipse.kind || "Eclipse";
+          date.textContent = eclipse.date || "—";
+          date.setAttribute("datetime", eclipse.at || "");
+          item.append(kind, date);
+          eclipseList.append(item);
+        });
+      }
       document.getElementById("northPoleDaylight").textContent = moon.north_pole_daylight ?? "—";
       document.getElementById("southPoleDaylight").textContent = moon.south_pole_daylight ?? "—";
       document.getElementById("sunState").textContent = moon.sun_is_up ? "Sun above horizon" : "Sun below horizon";

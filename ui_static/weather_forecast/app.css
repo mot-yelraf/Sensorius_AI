@@ -291,7 +291,7 @@ a { color: inherit; }
 .data-actions a:first-child { background: var(--accent); color: #082f2e; border-color: var(--accent); }
 
 .site-footer { width: min(96%, 118rem); margin: 0 auto; padding: 1.25rem 1rem 2rem; text-align: center; }
-.site-footer p { margin: 0; color: var(--muted); font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; }
+.site-footer p { margin: 0; color: var(--muted); font-size: 0.68rem; letter-spacing: 0.08em; }
 
 .lunar-header {
   display: grid;
@@ -414,12 +414,19 @@ a { color: inherit; }
 .daylight-times div:nth-child(3) { align-items: flex-end; text-align: right; }
 .daylight-times dt { color: var(--muted); font-size: 0.62rem; }
 .daylight-times dd { order: -1; margin: 0; color: var(--ink); font: 500 1rem Georgia, serif; white-space: nowrap; }
-.next-season-note { display: grid; grid-template-columns: auto 1fr auto; gap: 0.4rem; align-items: baseline; margin: 1.25rem 0 0; color: var(--muted); font-size: 0.58rem; }
-.next-season-note strong { color: var(--accent); text-align: center; }
+.daylight-detail-section { margin-top: 0.85rem; padding-top: 0.7rem; border-top: 1px solid var(--line); }
+.daylight-detail-section h3 { margin: 0 0 0.45rem; color: var(--accent-2); font-size: 0.55rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.next-season-note { display: flex; justify-content: space-between; gap: 0.5rem; align-items: baseline; margin: 0; color: var(--muted); font-size: 0.58rem; }
+.next-season-note strong { color: var(--accent); }
 .next-season-note time { color: var(--ink); white-space: nowrap; }
 .polar-daylight-note { display: flex; justify-content: space-between; gap: 1rem; margin: 0.9rem 0 0; color: var(--muted); font-size: 0.6rem; line-height: 1.5; }
 .polar-daylight-note span:last-child { text-align: right; }
 .polar-daylight-note strong { display: block; color: var(--warm); font-size: 0.78rem; }
+.eclipse-list { display: grid; gap: 0.32rem; margin: 0; padding: 0; list-style: none; font-size: 0.56rem; }
+.eclipse-list li { display: flex; justify-content: space-between; gap: 0.5rem; color: var(--muted); }
+.eclipse-list strong { color: var(--ink); font-weight: 650; }
+.eclipse-list time { color: var(--warm); white-space: nowrap; }
+.eclipse-list .eclipse-empty { display: block; color: var(--muted); line-height: 1.4; }
 
 .provider-picker { display: grid; gap: 0.7rem; }
 .provider-option { position: relative; display: block; padding: 0.95rem 1rem 0.95rem 3rem; border: 1px solid #cfdcd3; background: white; cursor: pointer; }

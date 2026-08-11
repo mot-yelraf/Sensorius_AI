@@ -162,6 +162,15 @@ def test_windy_interaction_prompt_sits_on_map_top_border():
     assert ".windy-map-guard span { transform: translateY(-50%)" in css
 
 
+def test_caelus_footer_preserves_title_case_attribution():
+    template = (ROOT / "ui_templates" / "weather_forecast" / "index.html").read_text()
+    css = (ROOT / "ui_static" / "weather_forecast" / "app.css").read_text()
+
+    assert "<p>Created by Peace Hill Studios</p>" in template
+    footer_rule = css[css.index(".site-footer p {"):css.index("}", css.index(".site-footer p {"))]
+    assert "text-transform" not in footer_rule
+
+
 def test_lunar_timeline_has_four_local_previous_and_upcoming_phases():
     context = astronomy_context(
         type(
@@ -211,6 +220,9 @@ def test_sunlight_card_uses_ampm_times_and_current_polar_daylight():
     assert context["south_pole_daylight"] == "0h 00m"
     assert context["next_season_label"] == "September Equinox"
     assert context["next_season_date"] == "Sep 22, 2026"
+    assert 0 < len(context["next_eclipses"]) <= 3
+    assert context["next_eclipses"][0]["kind"] == "Partial lunar eclipse"
+    assert context["next_eclipses"][0]["date"] == "Aug 27, 2026"
 
 
 def test_sunlight_card_places_times_horizontally_and_shows_poles():
@@ -222,12 +234,17 @@ def test_sunlight_card_places_times_horizontally_and_shows_poles():
     assert 'id="southPoleDaylight"' in template
     assert 'id="nextSeasonLabel"' in template
     assert 'id="nextSeasonDate"' in template
+    assert template.index('id="northPoleDaylight"') < template.index('id="nextSeasonHeading"')
+    assert 'id="nextEclipseHeading"' in template
+    assert 'id="nextEclipseList"' in template
+    assert "No visible eclipses for the next 12 months" in template
     assert 'id="daylightHours"' not in template
     assert "grid-template-columns: repeat(3, minmax(0, 1fr))" in css
     assert ".daylight-times dd { order: -1;" in css
     assert "function formatSolarTime(value)" in script
     assert 'moon.north_pole_daylight ?? "—"' in script
     assert 'moon.next_season_label ?? "—"' in script
+    assert "moon.next_eclipses" in script
 
 
 def test_lunar_strip_uses_dates_and_does_not_symmetrize_local_orientation():

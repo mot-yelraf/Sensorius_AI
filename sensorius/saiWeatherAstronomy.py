@@ -37,6 +37,10 @@ FULL_MOON_NAMES = {
     11: "Beaver Moon",
     12: "Cold Moon",
 }
+SUN_RADIUS_KM = 696_340.0
+MOON_RADIUS_KM = 1_737.4
+ECLIPSE_WINDOW_DAYS = 365
+ECLIPSE_LIMIT = 3
 
 
 def _horizontal_vector(azimuth_degrees: float, elevation_degrees: float) -> tuple[float, float, float]:
@@ -315,6 +319,134 @@ def _next_season_event(observed_at: datetime, tzinfo: ZoneInfo) -> dict[str, str
         return {"label": "Seasonal event unavailable", "date": "—", "at": ""}
 
 
+def _apparent_radius_degrees(radius_km: float, distance_km: Any) -> Any:
+    """Return an astronomical body's apparent angular radius in degrees."""
+    import numpy
+
+    return numpy.degrees(numpy.arcsin(radius_km / distance_km))
+
+
+@lru_cache(maxsize=96)
+def _next_visible_eclipses_for_hour(
+    observed_hour_iso: str,
+    latitude: float,
+    longitude: float,
+    timezone_name: str,
+) -> tuple[dict[str, str], ...]:
+    """Return up to three eclipses visible from one observer in the next year."""
+    from skyfield import almanac, eclipselib
+    from skyfield.api import wgs84
+
+    from .saiBiodynamics import get_skyfield_runtime_if_installed
+
+    runtime = get_skyfield_runtime_if_installed()
+    if runtime is None:
+        return ()
+
+    _loader, ts, eph, _constellation_at = runtime
+    observed_at = datetime.fromisoformat(observed_hour_iso)
+    window_end = observed_at + timedelta(days=ECLIPSE_WINDOW_DAYS)
+    start = ts.from_datetime(observed_at)
+    end = ts.from_datetime(window_end)
+    observer = eph["earth"] + wgs84.latlon(latitude, longitude)
+    tzinfo = ZoneInfo(timezone_name)
+    visible: list[dict[str, str]] = []
+
+    phase_times, phase_types = almanac.find_discrete(start, end, almanac.moon_phases(eph))
+    for phase_time, phase_type in zip(phase_times, phase_types):
+        if int(phase_type) != 0:
+            continue
+        center = phase_time.utc_datetime().astimezone(timezone.utc)
+        sample_datetimes = [
+            center + timedelta(minutes=minute)
+            for minute in range(-12 * 60, (12 * 60) + 1, 2)
+        ]
+        sample_times = ts.from_datetimes(sample_datetimes)
+        observer_at = observer.at(sample_times)
+        sun_apparent = observer_at.observe(eph["sun"]).apparent()
+        moon_apparent = observer_at.observe(eph["moon"]).apparent()
+        separation = sun_apparent.separation_from(moon_apparent).degrees
+        overlap_limit = _apparent_radius_degrees(
+            SUN_RADIUS_KM, sun_apparent.distance().km
+        ) + _apparent_radius_degrees(MOON_RADIUS_KM, moon_apparent.distance().km)
+        sun_altitude = sun_apparent.altaz()[0].degrees
+        visible_indices = [
+            index
+            for index in range(len(sample_datetimes))
+            if separation[index] <= overlap_limit[index] and sun_altitude[index] >= -0.833
+        ]
+        if not visible_indices:
+            continue
+        closest_index = min(visible_indices, key=lambda index: separation[index])
+        event_at = sample_datetimes[closest_index]
+        event_local = event_at.astimezone(tzinfo)
+        visible.append(
+            {
+                "kind": "Solar eclipse",
+                "date": f"{event_local.strftime('%b')} {event_local.day}, {event_local.year}",
+                "at": event_local.isoformat(),
+            }
+        )
+
+    eclipse_times, eclipse_types, details = eclipselib.lunar_eclipses(start, end, eph)
+    for index, (eclipse_time, eclipse_type) in enumerate(zip(eclipse_times, eclipse_types)):
+        center = eclipse_time.utc_datetime().astimezone(timezone.utc)
+        contact_radius = (
+            float(details["moon_radius_radians"][index])
+            + float(details["penumbra_radius_radians"][index])
+        )
+        closest_approach = float(details["closest_approach_radians"][index])
+        # The Moon moves through Earth's shadow at about 0.0092 radians/hour.
+        half_duration_hours = math.sqrt(
+            max(0.0, (contact_radius * contact_radius) - (closest_approach * closest_approach))
+        ) / 0.0092
+        half_duration_minutes = math.ceil(half_duration_hours * 60)
+        sample_datetimes = [
+            center + timedelta(minutes=minute)
+            for minute in range(-half_duration_minutes, half_duration_minutes + 1, 10)
+        ]
+        sample_times = ts.from_datetimes(sample_datetimes)
+        moon_altitudes = (
+            observer.at(sample_times).observe(eph["moon"]).apparent().altaz()[0].degrees
+        )
+        if not any(altitude >= -0.833 for altitude in moon_altitudes):
+            continue
+        event_local = center.astimezone(tzinfo)
+        visible.append(
+            {
+                "kind": f"{eclipselib.LUNAR_ECLIPSES[int(eclipse_type)]} lunar eclipse",
+                "date": f"{event_local.strftime('%b')} {event_local.day}, {event_local.year}",
+                "at": event_local.isoformat(),
+            }
+        )
+
+    visible.sort(key=lambda event: event["at"])
+    return tuple(visible[:ECLIPSE_LIMIT])
+
+
+def _next_visible_eclipses(
+    observed_at: datetime,
+    latitude: float,
+    longitude: float,
+    tzinfo: ZoneInfo,
+) -> list[dict[str, str]]:
+    """Safely resolve observer-visible eclipses for the next twelve months."""
+    observed_hour = observed_at.astimezone(timezone.utc).replace(
+        minute=0, second=0, microsecond=0
+    )
+    try:
+        return list(
+            _next_visible_eclipses_for_hour(
+                observed_hour.isoformat(),
+                round(latitude, 4),
+                round(longitude, 4),
+                tzinfo.key,
+            )
+        )
+    except Exception:
+        return []
+
+
 def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, Any]:
     """Combine Astral moon phase and local sunrise/sunset for settings location."""
     observed_at = at or datetime.now(timezone.utc)
@@ -339,6 +471,12 @@ def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, An
         daylight_seconds = (effective_sunset - solar["sunrise"]).total_seconds()
         daylight_minutes = round(daylight_seconds / 60)
         next_season = _next_season_event(observed_at, tzinfo)
+        next_eclipses = _next_visible_eclipses(
+            observed_at,
+            float(settings.latitude),
+            float(settings.longitude),
+            tzinfo,
+        )
         if local <= solar["sunrise"]:
             daylight_progress = 0
         elif local >= effective_sunset:
@@ -359,6 +497,7 @@ def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, An
             next_season_label=next_season["label"],
             next_season_date=next_season["date"],
             next_season_at=next_season["at"],
+            next_eclipses=next_eclipses,
             daylight_progress=daylight_progress,
             sun_is_up=solar["sunrise"] <= local < effective_sunset,
             moon_altitude=round(_moon_elevation(location.observer, observed_at), 1),
@@ -391,6 +530,7 @@ def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, An
             next_season_label="Seasonal event unavailable",
             next_season_date="—",
             next_season_at="",
+            next_eclipses=[],
             daylight_progress=0,
             sun_is_up=False,
             moon_altitude=None,

@@ -76,8 +76,17 @@
         <div class="card-heading compact"><div><p class="eyebrow">Sunlight today</p><h2 id="daylightDuration">{{ moon.get('daylight_duration', '—') }}</h2></div><span class="sun-state" id="sunState">{{ 'Sun above horizon' if moon.get('sun_is_up', false) else 'Sun below horizon' }}</span></div>
         <div class="daylight-orbit" aria-hidden="true"><span class="daylight-sun" id="daylightSun" data-daylight-progress="{{ moon.get('daylight_progress', 0) }}">☀</span></div>
         <dl class="daylight-times"><div><dt>Sunrise</dt><dd id="mapSunriseTime">{{ moon.get('sunrise_display', moon.sunrise) }}</dd></div><div><dt>Solar noon</dt><dd id="solarNoonTime">{{ moon.get('solar_noon_display', moon.get('solar_noon', '—')) }}</dd></div><div><dt>Sunset</dt><dd id="mapSunsetTime">{{ moon.get('sunset_display', moon.sunset) }}</dd></div></dl>
-        <p class="next-season-note"><span>Next seasonal event</span><strong id="nextSeasonLabel">{{ moon.get('next_season_label', '—') }}</strong><time id="nextSeasonDate" datetime="{{ moon.get('next_season_at', '') }}">{{ moon.get('next_season_date', '—') }}</time></p>
         <p class="polar-daylight-note"><span><strong id="northPoleDaylight">{{ moon.get('north_pole_daylight', '—') }}</strong> North Pole</span><span><strong id="southPoleDaylight">{{ moon.get('south_pole_daylight', '—') }}</strong> South Pole</span></p>
+        <section class="daylight-detail-section" aria-labelledby="nextSeasonHeading">
+          <h3 id="nextSeasonHeading">Next seasonal event</h3>
+          <p class="next-season-note"><strong id="nextSeasonLabel">{{ moon.get('next_season_label', '—') }}</strong><time id="nextSeasonDate" datetime="{{ moon.get('next_season_at', '') }}">{{ moon.get('next_season_date', '—') }}</time></p>
+        </section>
+        <section class="daylight-detail-section eclipse-section" aria-labelledby="nextEclipseHeading">
+          <h3 id="nextEclipseHeading">Next eclipse for your location</h3>
+          <ul class="eclipse-list" id="nextEclipseList">
+            {% for eclipse in moon.get('next_eclipses', []) %}<li><strong>{{ eclipse.kind }}</strong><time datetime="{{ eclipse.at }}">{{ eclipse.date }}</time></li>{% else %}<li class="eclipse-empty">No visible eclipses for the next 12 months</li>{% endfor %}
+          </ul>
+        </section>
       </article>
     </section>
 
