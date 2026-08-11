@@ -166,6 +166,19 @@ def _hour_temperature_f(hour: dict[str, Any]) -> float | None:
     return None if value is None else value * 9.0 / 5.0 + 32.0
 
 
+def _format_hour_label(value: object) -> str:
+    """Format an ISO forecast timestamp as a portable 12-hour clock label."""
+    text = str(value or "")
+    try:
+        observed_at = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except Exception:
+        return "--"
+    hour = observed_at.strftime("%I").lstrip("0") or "12"
+    minute = observed_at.strftime("%M")
+    clock = hour if minute == "00" else f"{hour}:{minute}"
+    return f"{clock} {observed_at.strftime('%p')}"
+
+
 def _hour_window_condition(hours: list[dict[str, Any]]) -> str:
     """Describe one displayed hourly window without borrowing the daily summary."""
     symbols = [str(row.get("symbol") or "").strip() for row in hours]
@@ -206,10 +219,7 @@ def build_weather_display_forecast(payload: dict[str, Any]) -> dict[str, Any]:
             continue
         raw = window[0]
         local_time = str(raw.get("local_time") or raw.get("time") or "")
-        try:
-            label = datetime.fromisoformat(local_time.replace("Z", "+00:00")).strftime("%H:%M")
-        except Exception:
-            label = local_time[11:16] if len(local_time) >= 16 else "--"
+        label = _format_hour_label(local_time)
         condition = _hour_window_condition(window)
         temp_f = _hour_temperature_f(raw)
         hours.append(
@@ -344,12 +354,13 @@ class WeatherForecastAppService:
             timezone_name = str(resolved["tz"])
         except Exception:
             return {"ok": False, "reason": "location_unavailable", "latitude": 0.0, "longitude": 0.0, "timezone": "UTC"}
+        configured_name = str(self.settings.get_setting("Astral", "LOCATION_NAME", "") or "").strip()
         return {
             "ok": True,
             "latitude": latitude,
             "longitude": longitude,
             "timezone": timezone_name,
-            "name": str(resolved.get("name") or resolved.get("city") or "Sensorius station"),
+            "name": configured_name or str(resolved.get("name") or resolved.get("city") or "Sensorius station"),
             "source": str(resolved.get("source") or resolved.get("provider") or ""),
         }
 

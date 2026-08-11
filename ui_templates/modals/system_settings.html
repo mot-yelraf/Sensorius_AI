@@ -897,6 +897,10 @@
                     {% endfor %}
                   </datalist>
                 </div>
+                <div class="field-stack">
+                  <label for="astral_location_name">Community/Location Name</label>
+                  <input type="text" id="astral_location_name" name="astral_location_name" value="{{ astral_location_name | default('') }}" maxlength="120" placeholder="Silver City" title="Optional name shown as the Caelus location.">
+                </div>
               </div>
                     <div class="pane-footer section-action-footer">
                       <button type="button" class="button blue btn-system-save">Save</button>

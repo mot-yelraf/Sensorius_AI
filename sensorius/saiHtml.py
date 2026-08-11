@@ -1688,9 +1688,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ".astro-title{font-size:.78rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;opacity:.8;}"
     yield ".astro-meta{font-size:.74rem;line-height:1.25;text-align:center;color:#27313a;min-height:1.9em;white-space:normal;}"
     yield "#sunBox .astro-card{width:100%;min-width:0;box-sizing:border-box;}"
-    yield "#sunBox,#moonBox{cursor:pointer;}"
-    yield "#sunBox:focus-visible,#moonBox:focus-visible{outline:2px solid #2e4f89;outline-offset:3px;}"
-    yield "#moonBox .astro-card{width:100%;min-width:0;align-items:stretch;box-sizing:border-box;}"
+    yield "#sunBox{cursor:pointer;}"
+    yield "#sunBox:focus-visible{outline:2px solid #2e4f89;outline-offset:3px;}"
+    yield "#moonBox .astro-card{width:100%;min-width:0;align-items:stretch;box-sizing:border-box;height:100%;}"
     yield "#weatherForecastBox{--forecast-scene-bg:linear-gradient(160deg,#46616b,#273b43);--forecast-panel:rgba(18,35,43,.82);--forecast-button:rgba(28,52,61,.92);--forecast-button-ink:#fff;--forecast-border:rgba(220,238,242,.62);--forecast-ink:#fff;--forecast-muted:#dce9ed;width:230px;box-sizing:border-box;overflow:hidden;background:var(--forecast-scene-bg);border-color:var(--forecast-border);color:var(--forecast-ink);transition:background .35s ease,border-color .35s ease,color .35s ease;}"
     yield "#weatherForecastBox::before,#weatherForecastBox::after{content:'';position:absolute;inset:0;z-index:0;pointer-events:none;}"
     yield "#weatherForecastBox.forecast-scene-clear-day{--forecast-scene-bg:radial-gradient(circle at 82% 17%,#fffbd0 0 8px,#ffd761 9px 21px,rgba(255,216,91,.26) 22px 34px,transparent 35px),linear-gradient(165deg,#236b96 0%,#3a82a6 58%,#72aec2 100%);--forecast-panel:rgba(9,48,69,.82);--forecast-button:rgba(6,52,79,.94);--forecast-button-ink:#fff;--forecast-border:rgba(241,251,255,.82);--forecast-ink:#fff;--forecast-muted:#d9eff8;}"
@@ -1721,7 +1721,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "#bioBox{width:230px;box-sizing:border-box;overflow:hidden;align-items:stretch;}"
     yield "#bioBox .astro-card{width:100%;min-width:0;align-items:stretch;box-sizing:border-box;height:100%;}"
     yield "#bioBox .astro-title,#bioCurrentSign,#bioCurrentElement,.bio-window,.bio-daylight,#bioUpcoming{width:100%;box-sizing:border-box;}"
-    yield ".moon-layout{width:100%;max-width:100%;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 88px minmax(0,1fr);align-items:center;column-gap:.35rem;}"
+    yield ".moon-layout{width:100%;max-width:100%;margin:-.18rem auto -.08rem;display:grid;grid-template-columns:minmax(0,1fr) 88px minmax(0,1fr);align-items:center;column-gap:.35rem;}"
     yield ".moon-side{font-size:.64rem;line-height:1.14;white-space:nowrap;font-variant-numeric:tabular-nums;min-width:0;}"
     yield ".moon-side.left{text-align:left;}"
     yield ".moon-side.right{text-align:right;}"
@@ -1729,6 +1729,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "#moonNextPhaseLabel{line-height:1.06;}"
     yield ".moon-value{display:block;font-weight:600;margin-bottom:.2rem;}"
     yield "#moonMeta{white-space:nowrap;padding:0 4px;text-align:center;font-size:.69rem;}"
+    yield ".moon-card-actions{margin-top:auto;}"
+    yield ".moon-calendar-btn{min-width:118px;}"
     yield ".bio-main{display:flex;flex-direction:column;align-items:center;gap:.08rem;width:100%;align-self:center;min-width:0;overflow:hidden;text-align:center;}"
     yield "#bioCurrentSign{font-size:.74rem;font-weight:700;line-height:1.02;color:#27313a;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}"
     yield "#bioCurrentElement{font-size:.74rem;color:#49545d;line-height:1.02;}"
@@ -1824,6 +1826,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ".sun-moon-29-overlay{position:absolute;left:0;right:0;top:0;z-index:30;display:none;box-sizing:border-box;}"
     yield ".dash-top-row.sun-moon-expanded .sun-moon-29-overlay{display:block;}"
     yield ".sun-moon-29-card{width:100%;min-height:176px;cursor:pointer;box-shadow:0 4px 16px rgba(39,49,58,.24);}"
+    yield ".sun-moon-29-close{position:absolute;top:.42rem;right:.52rem;z-index:4;width:1.8rem;height:1.8rem;padding:0;border:1px solid #9d9278;border-radius:5px;background:rgba(255,255,224,.92);color:#27313a;font-size:1.2rem;line-height:1;cursor:pointer;}"
+    yield ".sun-moon-29-close:hover,.sun-moon-29-close:focus-visible{background:#fff;outline:2px solid #27313a;outline-offset:1px;}"
+    yield ".sun-moon-29-card .dashboard-card-spinner{right:2.85rem;}"
     yield ".sun-moon-29-inner{width:100%;min-width:0;align-items:stretch;box-sizing:border-box;}"
     yield "#sunMoon29Canvas{display:block;width:100%;height:150px;margin:0 auto;border:1px solid #d5c7a8;border-radius:8px;background:#dff1ff;box-sizing:border-box;}"
     yield ".sun-moon-29-meta{min-height:1.1em;font-size:.62rem;line-height:1.1;}"
@@ -1907,7 +1912,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    </div>"
     yield "  </div>"
     yield "</div>"
-    yield "<div class='astro-box' id='moonBox' aria-live='polite' role='button' tabindex='0' aria-label='Open Caelus Moon phases' title='Moon phases from your location'>"
+    yield "<div class='astro-box' id='moonBox' aria-live='polite'>"
     yield "  <div class='astro-card'>"
     yield "    <span class='spinner dashboard-card-spinner' aria-hidden='true'></span>"
     yield "    <div class='moon-head'>"
@@ -1933,6 +1938,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      </div>"
     yield "    </div>"
     yield "    <div class='astro-meta' id='moonMeta'>Loading moon data...</div>"
+    yield "    <div class='bio-card-actions moon-card-actions'>"
+    yield "      <button type='button' class='bio-open-btn moon-calendar-btn' id='moonCalendarBtn' aria-label='Open Lunar Calendar' title='View Lunar Calendar'>"
+    yield "        <span class='bio-open-btn-label'>Lunar Calendar</span>"
+    yield "      </button>"
+    yield "    </div>"
     yield "  </div>"
     yield "</div>"
     yield "<div class='astro-box' id='sunBox' aria-live='polite' role='button' tabindex='0' aria-label='Open 29 Day Sun/Moon Position' title='29 Day Sun/Moon Position'>"
@@ -1966,7 +1976,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "</form>"
     yield "</div>"
     yield "<div class='sun-moon-29-overlay' id='sunMoon29Overlay' aria-hidden='true'>"
-    yield "  <div class='astro-box sun-moon-29-card' id='sunMoon29Card' role='button' tabindex='0' aria-label='Close 29 Day Sun/Moon Position' title='29 Day Sun/Moon Position'>"
+    yield "  <div class='astro-box sun-moon-29-card' id='sunMoon29Card' title='29 Day Sun/Moon Position'>"
+    yield "    <button type='button' class='sun-moon-29-close' id='sunMoon29Close' aria-label='Close 29 Day Sun/Moon Position' title='Close'>×</button>"
     yield "    <div class='astro-card sun-moon-29-inner'>"
     yield "      <div class='astro-title'>29 Day Sun/Moon Position</div>"
     yield "      <span class='spinner dashboard-card-spinner' aria-hidden='true'></span>"
@@ -1977,7 +1988,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "</div>"
     yield "<div class='caelus-moon-overlay' id='caelusMoonOverlay' aria-hidden='true'>"
     yield "  <section class='caelus-moon-dialog' id='caelusMoonDialog' role='dialog' aria-modal='true' aria-labelledby='caelusMoonDialogTitle' tabindex='-1'>"
-    yield "    <header class='caelus-moon-dialog-head'><h2 id='caelusMoonDialogTitle'>Moon phases from your location</h2><button type='button' class='caelus-moon-close' id='caelusMoonClose' aria-label='Close Moon phases'>×</button></header>"
+    yield "    <header class='caelus-moon-dialog-head'><h2 id='caelusMoonDialogTitle'>Lunar Calendar</h2><button type='button' class='caelus-moon-close' id='caelusMoonClose' aria-label='Close Lunar Calendar'>×</button></header>"
     yield "    <p class='caelus-moon-popup-status' id='caelusMoonStatus'>Loading observer-local Moon phases…</p>"
     yield "    <div class='caelus-lunar-layout'>"
     yield "      <div class='caelus-lunar-arc' aria-hidden='true'></div>"
@@ -2080,18 +2091,15 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
 
             from datetime import datetime
 
-            def _strip_microseconds(ts: str) -> str:
+            def _format_stats_timestamp(ts: str) -> str:
                 try:
                     dt = datetime.fromisoformat(ts).replace(microsecond=0)
                     if dt.tzinfo:
                         dt = dt.replace(tzinfo=None)
-                    return dt.isoformat(sep=" ")
+                    hour = dt.strftime("%I").lstrip("0") or "12"
+                    return f"{dt:%Y-%m-%d}<br>{hour}:{dt:%M:%S} {dt:%p}"
                 except Exception:
-                    # Best-effort: remove fractional seconds and any trailing TZ offset
-                    try:
-                        return re.sub(r"(Z|[+-]\d{2}:\d{2})$", "", re.sub(r"\.\d{1,6}(?=Z|[+-]\d{2}:\d{2}|$)", "", ts))
-                    except Exception:
-                        return ts  # leave unchanged if it can’t be parsed
+                    return ts
         
             min_val = stat.get("min", "--")
             avg_val = stat.get("avg", "--")
@@ -2099,11 +2107,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             min_ts = stat.get("min_ts", "--")
             max_ts = stat.get("max_ts", "--")
             if isinstance(min_ts, str):
-                #min_ts = min_ts.replace("T", "<br>")
-                min_ts = _strip_microseconds(min_ts).replace(" ", "<br>")
+                min_ts = _format_stats_timestamp(min_ts)
             if isinstance(max_ts, str):
-                #max_ts = max_ts.replace("T", "<br>")
-                max_ts = _strip_microseconds(max_ts).replace(" ", "<br>")
+                max_ts = _format_stats_timestamp(max_ts)
             try:
                 avg_val = f"{float(avg_val):.1f}"
             except Exception:
@@ -2939,8 +2945,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "function closeCaelusMoonPhases(){"
     yield "  const overlay = document.getElementById('caelusMoonOverlay');"
     yield "  if (overlay) { overlay.classList.remove('is-open'); overlay.setAttribute('aria-hidden', 'true'); }"
-    yield "  const moonCard = document.getElementById('moonBox');"
-    yield "  try { if (moonCard) moonCard.focus({preventScroll:true}); } catch (_) { if (moonCard) moonCard.focus(); }"
+    yield "  const moonButton = document.getElementById('moonCalendarBtn');"
+    yield "  try { if (moonButton) moonButton.focus({preventScroll:true}); } catch (_) { if (moonButton) moonButton.focus(); }"
     yield "}"
     yield "window.openCaelusMoonPhases = openCaelusMoonPhases;"
     yield "window.closeCaelusMoonPhases = closeCaelusMoonPhases;"
@@ -2960,7 +2966,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    closeSunMoon29Day();"
     yield "    return;"
     yield "  }"
-    yield "  if (target.closest('#moonBox') && !target.closest('[data-moon-view]')) {"
+    yield "  if (target.closest('#moonCalendarBtn')) {"
     yield "    ev.preventDefault();"
     yield "    openCaelusMoonPhases();"
     yield "    return;"
@@ -2987,11 +2993,6 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  if (target.closest('#sunMoon29Card')) {"
     yield "    ev.preventDefault();"
     yield "    closeSunMoon29Day();"
-    yield "    return;"
-    yield "  }"
-    yield "  if (target.closest('#moonBox') && !target.closest('[data-moon-view]')) {"
-    yield "    ev.preventDefault();"
-    yield "    openCaelusMoonPhases();"
     yield "    return;"
     yield "  }"
     yield "  if (target.closest('#sunBox')) {"
@@ -4615,8 +4616,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  const noMicros = ts.replace(/\\.\\d{1,6}(?=Z|[+-]\\d{2}:\\d{2}|$)/, '');"
     # Strip trailing timezone info (Z or ±HH:MM)
     yield "  const noTz = noMicros.replace(/(Z|[+-]\\d{2}:\\d{2})$/, '');"
-    # Turn date/time separator into a line break for the stats block
-    yield "  return noTz.replace('T', '<br>').replace(' ', '<br>');"
+    yield "  const match = noTz.match(/^(\\d{4}-\\d{2}-\\d{2})[ T](\\d{2}):(\\d{2}):(\\d{2})$/);"
+    yield "  if (!match) return noTz.replace('T', '<br>').replace(' ', '<br>');"
+    yield "  const hour24 = Number.parseInt(match[2], 10);"
+    yield "  const hour12 = ((hour24 + 11) % 12) + 1;"
+    yield "  return `${match[1]}<br>${hour12}:${match[3]}:${match[4]} ${hour24 < 12 ? 'AM' : 'PM'}`;"
     yield "}"
     yield ""
     yield "function renderStatsHtml(minVal, avgVal, maxVal, minTs, maxTs) {"
@@ -5438,6 +5442,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    })).filter(z => Number.isFinite(z.min) && Number.isFinite(z.max) && z.color) : [];"
     yield "    const isLightMetric = ['Light Intensity', 'Auto Light', 'Visible Light Intensity', 'Estimated PPFD'].includes(metricName);"
     yield "    const graphLineColor = isLightMetric ? '#000000' : '#ffffff';"
+    yield "    const fixedThreeHourTicks = style === 'Graph24hr';"
     yield ""
     yield "    const formatYAxisTick = (val) => {"
     yield "      const num = Number(val);"
@@ -5453,7 +5458,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "        const month = date.toLocaleString('en-US', { month: 'short' });"
     yield "        return month + pad2(date.getDate());"
     yield "      }"
-    yield "      return pad2(date.getHours()) + ':' + pad2(date.getMinutes());"
+    yield "      const hour24 = date.getHours();"
+    yield "      const hour12 = ((hour24 + 11) % 12) + 1;"
+    yield "      const minute = date.getMinutes();"
+    yield "      const clock = minute === 0 ? String(hour12) : hour12 + ':' + pad2(minute);"
+    yield "      return clock + (hour24 < 12 ? ' AM' : ' PM');"
     yield "    };"
     yield ""
     yield "    const yScaleOptions = { title: { display: false }, ticks: { callback: formatYAxisTick } };"
@@ -5482,17 +5491,25 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      scales: {"
     yield "        x: {"
     yield "          type: 'time',"
+    yield "          afterBuildTicks: function(axis) {"
+    yield "            if (!fixedThreeHourTicks) return;"
+    yield "            axis.ticks = (axis.ticks || []).filter((tick) => {"
+    yield "              const tickDate = new Date(tick.value);"
+    yield "              return Number.isFinite(tickDate.getTime()) && tickDate.getMinutes() === 0 && tickDate.getHours() % 3 === 0;"
+    yield "            });"
+    yield "          },"
     yield "          time: {"
     yield "            unit: 'hour',"
-    yield "            tooltipFormat: 'yyyy/MM/dd HH:mm',"
-    yield "            displayFormats: { hour: 'HH:mm' }"
+    yield "            tooltipFormat: 'yyyy/MM/dd h:mm a',"
+    yield "            displayFormats: { hour: 'h a' }"
     yield "          },"
     yield "          title: { display: false },"
     yield "          ticks: {"
     yield "            display: true,"
-    yield "            autoSkip: true,"
-    yield "            maxTicksLimit: 6,"
+    yield "            autoSkip: !fixedThreeHourTicks,"
+    yield "            maxTicksLimit: fixedThreeHourTicks ? 9 : 6,"
     yield "            major: { enabled: true },"
+    yield "            font: { size: 10 },"
     yield "            callback: formatXAxisTick"
     yield "          },"
     yield "          grid: { display: true }"
@@ -7002,6 +7019,15 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "}"
 
     # --- JS: Update switch events listbox ---
+    yield "function formatSwitchEventDisplayLine(line){"
+    yield "  return String(line || '').replace(/(\\d{4}-\\d{2}-\\d{2})[ T](\\d{2}):(\\d{2}):(\\d{2})/, (_match, date, hour, minute, second) => {"
+    yield "    const hour24 = Number.parseInt(hour, 10);"
+    yield "    if (!Number.isFinite(hour24)) return _match;"
+    yield "    const hour12 = ((hour24 + 11) % 12) + 1;"
+    yield "    return `${date} ${hour12}:${minute}:${second} ${hour24 < 12 ? 'AM' : 'PM'}`;"
+    yield "  });"
+    yield "}"
+    yield ""
     yield "function updateSwitchEventsFromStatus(statusData){"
     yield "  if(!statusData || typeof statusData!=='object') return;"
     yield "  const _eventIdentityKey = (line) => {"
@@ -7102,7 +7128,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ""
     yield "    const newLines = events.map(normLine).filter(Boolean).filter(hasTimestamp);"
     yield "    const existingLines = Array.from(listElem.querySelectorAll('li'))"
-    yield "          .map(li => (li.textContent || '').trim())"
+    yield "          .map(li => (li.dataset.rawEvent || li.textContent || '').trim())"
     yield "          .filter(Boolean)"
     yield "          .filter(hasTimestamp);"
     yield ""
@@ -7118,7 +7144,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    listElem.textContent='';"
     yield "    for(const textLine of trimmedLines){"
     yield "      const li=document.createElement('li');"
-    yield "      li.textContent=textLine;"
+    yield "      li.dataset.rawEvent=textLine;"
+    yield "      li.textContent=formatSwitchEventDisplayLine(textLine);"
     yield "      if(/^on\\b/i.test(textLine)) li.classList.add('switch-event-on');"
     yield "      else                          li.classList.add('switch-event-off');"
     yield "      listElem.appendChild(li);"
@@ -7136,14 +7163,15 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  const hasTimestamp = /(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2})/.test(text);"
     yield "  if(!hasTimestamp) return;"
     yield "  const existingLines = Array.from(listElem.querySelectorAll('li'))"
-    yield "        .map(li => (li.textContent || '').trim())"
+    yield "        .map(li => (li.dataset.rawEvent || li.textContent || '').trim())"
     yield "        .filter(Boolean)"
     yield "        .filter(value => /(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2})/.test(String(value || '')));"
     yield "  const sortedLines = _mergeEventLines(existingLines, [text], 5);"
     yield "  listElem.textContent = '';"
     yield "  for(const textLine of sortedLines){"
     yield "    const li = document.createElement('li');"
-    yield "    li.textContent = textLine;"
+    yield "    li.dataset.rawEvent = textLine;"
+    yield "    li.textContent = formatSwitchEventDisplayLine(textLine);"
     yield "    if(/^on\\b/i.test(textLine)) li.classList.add('switch-event-on');"
     yield "    else                         li.classList.add('switch-event-off');"
     yield "    listElem.appendChild(li);"

@@ -92,16 +92,17 @@ Astral sunrise to represent daybreak; night artwork begins 30 minutes after
 sunset to include dusk. The station timezone is used, and the boundary is
 checked once per minute.
 
-Select the dashboard's **Moon Phase** card to open the Caelus observer-local
+Select **Lunar Calendar** on the dashboard's **Moon Phase** card to open the Caelus observer-local
 phase timeline: four previous phases, the live Moon and its current details,
 and four upcoming phases with dates. Select **Sun/Moon Position** to open the
-separate 29-day position graph.
+separate 29-day position graph. Close it with the **×** button in the card's
+top-right corner, by selecting the card, or by pressing Escape.
 
 Dashboard data comes from the latest values in the live runtime cache and from the local database. If a device is offline, the latest stored reading may still be visible, but the online/offline state comes from live device status, MQTT heartbeat or availability messages, and recent packets.
 
 ### Sensor Cards
 
-Each sensor card shows the sensor ID or name, its location, and the selected metrics for that sensor. The metric names come from the sensor's settings and the measurements that the device reports. Common metrics include temperature, relative humidity, absolute humidity, CO2, VPD, dew point, barometric pressure, soil moisture, soil temperature, soil pH, soil EC, soil nutrients, light, and PPFD.
+Each sensor card shows the sensor ID or name, its location, and the selected metrics for that sensor. The 24-hour metric-card micrographs use consistent three-hour local AM/PM ticks, with a month/day marker at midnight. The 24-hour Min and Max timestamps also use local AM/PM time. The metric names come from the sensor's settings and the measurements that the device reports. Common metrics include temperature, relative humidity, absolute humidity, CO2, VPD, dew point, barometric pressure, soil moisture, soil temperature, soil pH, soil EC, soil nutrients, light, and PPFD.
 
 Each metric tile can appear as:
 
@@ -172,7 +173,7 @@ Switch state history comes from `sensorius.saiDataLogger.log_switch_event`, not 
 
 Each switch channel also has an auto-off timer. Open the timer control with its gear, enter `0` to disable it or 30-9999 seconds, and click **Ok**. The dashboard accepts values in 30-second steps. The setting is runtime state, not persistent switch configuration, so it must be set again after Sensorius restarts. When a manually controlled channel turns on, the countdown starts; at expiry Sensorius sends one Off command and records a timer-originated switch event. Turning the channel off clears the active countdown. Automation-originated state changes do not start the manual auto-off countdown, and an enabled Advanced automation must be disabled before a manual dashboard toggle is allowed.
 
-The Events column shows up to five recent On/Off transitions, newest first, with timestamps and a **manual** or **auto** origin when one is known. The list combines persisted switch events with live state updates and refreshes as commands and device reports arrive. Those same persisted events can be selected as vertical overlays in the full-screen graph.
+The Events column shows up to five recent On/Off transitions, newest first, with local 12-hour AM/PM timestamps and a **manual** or **auto** origin when one is known. The list combines persisted switch events with live state updates and refreshes as commands and device reports arrive. Those same persisted events can be selected as vertical overlays in the full-screen graph.
 
 ## System Settings
 
@@ -188,7 +189,7 @@ inside that section; values in the other expandable sections are left unchanged.
 
 #### System Settings
 
-![System Settings section open](<../assets/screenshots/system-settings-overview.png>)
+![System Settings section showing the Community/Location Name field](<../assets/screenshots/system-settings-overview.png>)
 
 The **System Settings** section contains the hub and primary MQTT connection
 settings:
@@ -199,6 +200,7 @@ settings:
 - **MQTT Port**: MQTT broker port. Valid range is 1 to 65535. Common values are 1883 without TLS and 8883 with TLS.
 - **Sensorius Hub**: MQTT broker hostname or IP used by Sensorius and Nodus devices.
 - **Time Zone**: IANA timezone name, such as `America/Denver`. It controls dashboard time labels, graph time labels, Astral timing, and calendar day boundaries.
+- **Community/Location Name**: optional friendly community or locality shown as the large location heading in Caelus, such as `Silver City`. It does not change the Astral coordinates, timezone, or any sensor/switch location. Leaving it blank uses the default Caelus station label.
 - **Dashboard**: returns to the dashboard.
 - **Save**: writes the values in this section.
 
@@ -966,9 +968,9 @@ returns to the Sensorius dashboard.
 ![Current Weather Forecast overview with current readings, forecast, sunlight, and regional radar](<../assets/screenshots/weather-forecast-overview.png>)
 
 The weather display uses the existing Sensorius Astral latitude, longitude,
-and timezone. Its top row presents the selected sensor's latest current
+timezone, and optional Community/Location Name. Its top row presents the selected sensor's latest current
 readings, the canonical Sensorius forecast, and the sunrise/sunset daylight
-track. The sunlight card also shows current North and South Pole daylight, the
+track. Hourly forecast times use the local 12-hour AM/PM clock. The sunlight card also shows current North and South Pole daylight, the
 next seasonal event, and up to three solar or lunar eclipses visible from the
 configured Astral location during the next twelve months. A full-width Windy
 map opens in radar view below that row, followed by

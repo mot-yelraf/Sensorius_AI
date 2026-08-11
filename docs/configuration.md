@@ -247,6 +247,7 @@ TZ_NAME = "MST"
 
 [Astral]
 AUTO_IP = true
+LOCATION_NAME = ""
 LATITUDE = ""
 LONGITUDE = ""
 ALTITUDE = ""

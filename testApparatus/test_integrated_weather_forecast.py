@@ -23,6 +23,7 @@ class _Settings:
         ("WeatherForecast", "THEME"): "river",
         ("WeatherForecast", "CURRENT_SENSOR_ID"): "nodus-weather",
         ("WeatherForecast", "PROVIDER"): "met_no",
+        ("Astral", "LOCATION_NAME"): "Silver City",
     }
 
     def get_setting(self, section, key, default=None):
@@ -166,6 +167,7 @@ def test_caelus_footer_preserves_title_case_attribution():
     template = (ROOT / "ui_templates" / "weather_forecast" / "index.html").read_text()
     css = (ROOT / "ui_static" / "weather_forecast" / "app.css").read_text()
 
+    assert '<p class="eyebrow">Caelus Weather Forecast</p>' in template
     assert "<p>Created by Peace Hill Studios</p>" in template
     footer_rule = css[css.index(".site-footer p {"):css.index("}", css.index(".site-footer p {"))]
     assert "text-transform" not in footer_rule
@@ -288,6 +290,32 @@ def test_open_meteo_hour_windows_do_not_show_rain_until_precipitation_window():
     ]
 
 
+def test_caelus_hourly_forecast_uses_twelve_hour_clock_labels():
+    payload = _forecast_payload()
+    payload["hourly"] = [
+        {
+            "local_time": f"2026-08-08T{hour:02d}:00:00-06:00",
+            "temp_c": 20.0,
+            "precip_mm": 0.0,
+            "symbol": "clearsky_day",
+        }
+        for hour in range(24)
+    ]
+
+    display = weather_app.build_weather_display_forecast(payload)
+
+    assert [window["label"] for window in display["hours"]] == [
+        "12 AM",
+        "3 AM",
+        "6 AM",
+        "9 AM",
+        "12 PM",
+        "3 PM",
+        "6 PM",
+        "9 PM",
+    ]
+
+
 @pytest.mark.asyncio
 async def test_integrated_weather_routes_render_dashboard_and_namespaced_apis(monkeypatch):
     async def _fake_forecast(*_args, **_kwargs):
@@ -319,6 +347,7 @@ async def test_integrated_weather_routes_render_dashboard_and_namespaced_apis(mo
     assert "System Settings" not in page.text
     assert "/ui_static/weather_forecast/app.js" in page.text
     assert "theme-river" in page.text
+    assert '<h1 id="station-title">Silver City</h1>' in page.text
     assert 'class="forecast-icon forecast-icon--rain"' in page.text
     assert 'class="forecast-icon forecast-icon--sunny"' in page.text
     assert current.json()["sensor_id"] == "nodus-weather"

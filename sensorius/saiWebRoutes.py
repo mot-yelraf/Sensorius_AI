@@ -4144,6 +4144,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         astral_lat = str(settings.get_setting("Astral", "LATITUDE", "") or "").strip()
         astral_lon = str(settings.get_setting("Astral", "LONGITUDE", "") or "").strip()
         astral_altitude = str(settings.get_setting("Astral", "ALTITUDE", "") or "").strip()
+        astral_location_name = str(settings.get_setting("Astral", "LOCATION_NAME", "") or "").strip()
         astral_sunrise = "--"
         astral_sunset = "--"
         astral_daylight = "--"
@@ -4287,6 +4288,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             astral_lat=astral_lat,
             astral_lon=astral_lon,
             astral_altitude=astral_altitude,
+            astral_location_name=astral_location_name,
             astral_sunrise=astral_sunrise,
             astral_sunset=astral_sunset,
             astral_daylight=astral_daylight,
@@ -9074,6 +9076,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         raw_lat = str(form.get("astral_lat", "") or "").strip()
         raw_lon = str(form.get("astral_lon", "") or "").strip()
         raw_altitude = str(form.get("astral_altitude", "") or "").strip()
+        raw_astral_location_name = str(form.get("astral_location_name", "") or "").strip()
         gauge_size = str(form.get("gauge_size", "") or "").strip()
         display_style = str(form.get("display_style", "") or "").strip()
         raw_weather_forecast_provider = str(
@@ -9115,6 +9118,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         email_to = str(form.get("email_to", "") or "").strip()
         raw_notification_rules = str(form.get("notification_rules_json", "[]") or "[]").strip()
         astral_reset_requested = astral_form_present and not raw_lat and not raw_lon
+
+        if "astral_location_name" in form:
+            if "\r" in raw_astral_location_name or "\n" in raw_astral_location_name:
+                return _modal_error_response(request, "Community/Location Name cannot contain line breaks.", status_code=400)
+            if len(raw_astral_location_name) > 120:
+                return _modal_error_response(request, "Community/Location Name must be 120 characters or fewer.", status_code=400)
 
         email_fields = (email_smtp_host, email_username, email_from, email_to)
         if email_form_present and any("\r" in value or "\n" in value for value in email_fields):
@@ -9252,6 +9261,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             settings.replace_setting("Astral", "PROVIDER", astral_provider_to_store)
         if altitude_to_store is not None:
             settings.replace_setting("Astral", "ALTITUDE", altitude_to_store)
+        if "astral_location_name" in form:
+            settings.replace_setting("Astral", "LOCATION_NAME", raw_astral_location_name)
         if "gauge_size" in form:
             settings.replace_setting("Display", "gauge_size", gauge_size)
         if "display_style" in form:

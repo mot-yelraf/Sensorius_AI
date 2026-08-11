@@ -653,6 +653,19 @@ def test_system_settings_template_has_astral_altitude_field():
         assert f'id="{removed_id}"' not in text
 
 
+def test_system_settings_template_has_caelus_location_name_beside_timezone():
+    source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
+    text = source.read_text(encoding="utf-8")
+    general_section = text[
+        text.index('data-runtime-section="system-general"'):
+        text.index('data-runtime-section="system-wifi"')
+    ]
+
+    assert '<label for="astral_location_name">Community/Location Name</label>' in general_section
+    assert 'id="astral_location_name" name="astral_location_name"' in general_section
+    assert general_section.index('id="tz"') < general_section.index('id="astral_location_name"')
+
+
 def test_system_settings_template_has_weather_forecast_controls():
     source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
     text = source.read_text(encoding="utf-8")
@@ -963,6 +976,30 @@ async def test_submit_pi_setup_persists_astral_altitude(tmp_path, monkeypatch):
     assert stored["Astral"]["TIMEZONE"] == "America/Denver"
     assert stored["Astral"]["SOURCE"] == "manual"
     assert stored["Astral"]["PROVIDER"] == ""
+
+
+@pytest.mark.asyncio
+async def test_submit_pi_setup_persists_optional_caelus_location_name(tmp_path, monkeypatch):
+    app = await _build_route_app_with_settings(
+        tmp_path,
+        monkeypatch,
+        {
+            "Time": {"TZ": "America/Denver", "TZ_OFFSET": -21600, "TZ_NAME": "MDT"},
+            "Astral": {"LOCATION_NAME": "Old Location"},
+        },
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-pi-setup",
+            data={"tz": "America/Denver", "astral_location_name": "Silver City"},
+            headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
+        )
+
+    assert res.status_code == 200
+    stored = _RouteFakeSaiSettings.STORED_SETTINGS
+    assert stored["Astral"]["LOCATION_NAME"] == "Silver City"
+    assert stored["Time"]["TZ"] == "America/Denver"
 
 
 @pytest.mark.asyncio

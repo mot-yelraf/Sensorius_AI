@@ -40,7 +40,7 @@
   <main id="top" class="dashboard-shell">
     <section class="station-intro" aria-labelledby="station-title">
       <div>
-        <p class="eyebrow">Sensorius weather forecast</p>
+        <p class="eyebrow">Caelus Weather Forecast</p>
         <h1 id="station-title">{{ location.name or 'Your weather, alive.' }}</h1>
         <p class="station-subtitle">
           {% if latest.ok %}{{ latest.sensor_id }} · Last observation <time>{{ latest.timestamp | replace('T', ' · ') }}</time>

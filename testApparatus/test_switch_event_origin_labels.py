@@ -14,6 +14,17 @@ def test_dashboard_event_merge_keeps_detailed_origin_labels():
     assert "const origin = _originFromSource(evt.source);" in source
 
 
+def test_switch_card_events_display_twelve_hour_times_without_changing_raw_identity():
+    source = (Path(__file__).resolve().parents[1] / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+
+    assert "function formatSwitchEventDisplayLine(line)" in source
+    assert "const hour12 = ((hour24 + 11) % 12) + 1;" in source
+    assert "${hour24 < 12 ? 'AM' : 'PM'}" in source
+    assert "li.dataset.rawEvent=textLine;" in source
+    assert "li.textContent=formatSwitchEventDisplayLine(textLine);" in source
+    assert "li.dataset.rawEvent || li.textContent" in source
+
+
 def test_switch_websocket_prefers_ui_key_for_live_updates():
     source = (Path(__file__).resolve().parents[1] / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
 

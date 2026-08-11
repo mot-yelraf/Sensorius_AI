@@ -163,7 +163,44 @@ def test_dashboard_micrograph_moves_duration_to_card_title_and_shows_time_ticks(
     assert "major: { enabled: true }," in html
     assert "callback: formatXAxisTick" in html
     assert "return month + pad2(date.getDate());" in html
-    assert "return pad2(date.getHours()) + ':' + pad2(date.getMinutes());" in html
+    assert "const hour12 = ((hour24 + 11) % 12) + 1;" in html
+    assert "return clock + (hour24 < 12 ? ' AM' : ' PM');" in html
+    assert "font: { size: 10 }," in html
+    assert "displayFormats: { hour: 'h a' }" in html
+    assert "const fixedThreeHourTicks = style === 'Graph24hr';" in html
+    assert "if (!fixedThreeHourTicks) return;" in html
+    assert "tickDate.getMinutes() === 0 && tickDate.getHours() % 3 === 0" in html
+    assert "autoSkip: !fixedThreeHourTicks," in html
+    assert "maxTicksLimit: fixedThreeHourTicks ? 9 : 6," in html
+
+
+def test_metric_card_extrema_timestamps_use_twelve_hour_times():
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["temp-test123"],
+            {"temp-test123": {"Temperature_F": 40.8}},
+            {
+                "temp-test123": {
+                    "Temperature_F": {
+                        "min": 36.4,
+                        "avg": 40.8,
+                        "max": 48.2,
+                        "min_ts": "2026-08-11T00:56:35-06:00",
+                        "max_ts": "2026-08-10T17:22:46-06:00",
+                    }
+                }
+            },
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=get_gauge_config(),
+            expected_gauge_map={"temp-test123": ["Temperature_F"]},
+        )
+    )
+
+    assert "2026-08-11<br>12:56:35 AM" in html
+    assert "2026-08-10<br>5:22:46 PM" in html
+    assert "return `${match[1]}<br>${hour12}:${match[3]}:${match[4]} ${hour24 < 12 ? 'AM' : 'PM'}`;" in html
 
 
 def test_dashboard_gauge_title_has_no_graph_duration():
@@ -602,8 +639,9 @@ def test_sun_position_card_renders_29_day_overlay():
     )
 
     assert "id='sunBox' aria-live='polite' role='button'" in html
-    assert "id='moonBox' aria-live='polite' role='button'" in html
-    assert "#sunBox,#moonBox{cursor:pointer;}" in html
+    assert "id='moonBox' aria-live='polite'" in html
+    assert "id='moonBox' aria-live='polite' role='button'" not in html
+    assert "#sunBox{cursor:pointer;}" in html
     assert ".astro-box.card-loading .dashboard-card-spinner{display:inline-block;}" in html
     assert "function setAstroCardsLoading(isLoading){" in html
     assert "['moonBox','sunBox','sunMoon29Card'].forEach((id) => setDashboardCardLoading(id, isLoading));" in html
@@ -612,9 +650,16 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "if (keepExistingAstro) return;" in html
     assert "if (!warming) { delete astroData.reason; delete astroData.cache_status; }" in html
     assert "if (typeof setAstroCardsLoading === 'function') setAstroCardsLoading(isDashboardWarmingPayload(data));" in html
-    assert "target.closest('#moonBox') && !target.closest('[data-moon-view]')" in html
+    assert "target.closest('#moonCalendarBtn')" in html
+    assert "target.closest('#moonBox') && !target.closest('[data-moon-view]')" not in html
     assert "target.closest('#sunBox')" in html
     assert "openCaelusMoonPhases();" in html
+    assert "id='moonCalendarBtn' aria-label='Open Lunar Calendar'" in html
+    assert "<span class='bio-open-btn-label'>Lunar Calendar</span>" in html
+    assert "id='caelusMoonDialogTitle'>Lunar Calendar</h2>" in html
+    assert "id='caelusMoonClose' aria-label='Close Lunar Calendar'" in html
+    assert ".moon-layout{width:100%;max-width:100%;margin:-.18rem auto -.08rem;" in html
+    assert ".moon-card-actions{margin-top:auto;}" in html
     assert "openSunMoon29Day();" in html
     assert "id='caelusMoonOverlay'" in html
     assert "align-items:flex-start;justify-content:center;padding:clamp(.75rem,5vh,3rem) 1rem 1rem" in html
@@ -625,6 +670,9 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "/ui_static/weather_forecast/moon.js" in html
     assert "id='sunMoon29Canvas'" in html
     assert "29 Day Sun/Moon Position" in html
+    assert "id='sunMoon29Close' aria-label='Close 29 Day Sun/Moon Position'" in html
+    assert ".sun-moon-29-close{position:absolute;top:.42rem;right:.52rem;" in html
+    assert ".sun-moon-29-card .dashboard-card-spinner{right:2.85rem;}" in html
     assert "function drawSunMoon29Day(data)" in html
     assert "function makeSmoothSkyYMapper(yBase, topY, bottomY, maxElev, minElev)" in html
     assert "const buildSunCurveKeys = () => {" in html
