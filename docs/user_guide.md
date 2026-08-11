@@ -301,8 +301,8 @@ Fields and selectors:
 - **Forecast Provider**: selects the forecast source used by the dashboard and
   Caelus. Options are **MET Norway**, **US · National Weather Service**,
   **Open-Meteo**, and **Disabled**.
-- **Theme**: selects the Caelus full-screen scene. Options are **Mountain
-  Garden**, **Ocean Island**, **Forest River**, and **Desert Bloom**.
+- **Caelus Theme**: four image thumbnails select the full-screen scene:
+  **Mountain Garden**, **Ocean Island**, **Forest River**, or **Desert Bloom**.
 - **Current Readings Sensor**: selects any live sensor in the sensor directory.
   Directly connected Raspberry Pi sensors remain selectable while their first
   reading is being collected after startup. If the directory is briefly empty,
@@ -389,11 +389,15 @@ Google Account when the hub is retired or no longer uses that account.
 
 ![Display section open](<../assets/screenshots/system-settings-display.png>)
 
-The **Display** section supplies system-wide dashboard defaults:
+The **Display** section supplies system-wide dashboard defaults. **Display
+Style** appears first; **Gauge Size** is shown only while **Gauge** is selected.
 
-- **Gauge Size**: dashboard gauge size. Options are **Small** and **Large**.
 - **Display Style**: default metric display when a sensor has no saved
   per-metric style. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
+- **Gauge Size**: dashboard gauge size. Options are **Small** and **Large**.
+- **Background Theme**: five thumbnails select **Leaves**, **Garden Tools**,
+  **Herbarium**, **Pollinators**, or **White**. White removes the repeating SVG
+  background image.
 - **Save**: writes the display defaults. Reload the dashboard to see changes
   that are not applied immediately.
 

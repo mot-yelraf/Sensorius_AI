@@ -194,8 +194,10 @@ Weather forecast:
   MET Norway Location Forecast, Open-Meteo, US National Weather Service, or
   no forecast.
 - Forecast payloads are cached in SQLite in `weather_forecast` and reused for
-  up to six hours. If the selected provider fails, the dashboard can continue
-  to show the latest cached forecast for that provider marked as stale.
+  up to five minutes. Open dashboards poll that shared cache every five minutes,
+  so the forecast card and its current-condition background update without a
+  page reload. If the selected provider fails, the dashboard can continue to
+  show the latest cached forecast for that provider marked as stale.
 - `/weather-forecast` is a Sensorius-owned full-screen application. It reuses
   the same forecast cache and Astral location as the dashboard rather than
   starting a separate Caelus process.

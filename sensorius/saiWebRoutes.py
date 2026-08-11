@@ -82,7 +82,14 @@ try:
 except Exception:
     _build_switch_key = None
 from .saiStats import saiStats
-from .saiHtml import render_dashboard, get_gauge_config, canonicalize_metric_name, extend_gauge_config_for_metrics
+from .saiHtml import (
+    DASHBOARD_BACKGROUND_THEMES,
+    canonicalize_metric_name,
+    extend_gauge_config_for_metrics,
+    get_gauge_config,
+    normalize_dashboard_background_theme,
+    render_dashboard,
+)
 from .sensor_modules.station_weewx import (
     DEFAULT_DB_PATH as WEEWX_DEFAULT_DB_PATH,
     DEFAULT_MQTT_TOPIC as WEEWX_DEFAULT_MQTT_TOPIC,
@@ -681,6 +688,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         payload = {
             "gauge_size": fresh_settings.get_setting("Display", "gauge_size") or "Small",
             "display_style": fresh_settings.get_setting("Display", "display_style") or "Gauge",
+            "dashboard_background_theme": normalize_dashboard_background_theme(
+                fresh_settings.get_setting("Display", "background_theme", "leaf")
+            ),
             "weather_forecast_provider": normalize_weather_forecast_provider(
                 fresh_settings.get_setting("WeatherForecast", "PROVIDER", "met_no")
             ),
@@ -2881,6 +2891,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         gaugeSize = str(display_settings.get("gauge_size") or "Small")
         gauge_config = dict(display_settings.get("gauge_config") or {})
         displayStyle = str(display_settings.get("display_style") or "Gauge")
+        dashboardBackgroundTheme = normalize_dashboard_background_theme(
+            display_settings.get("dashboard_background_theme") or "leaf"
+        )
         weatherForecastProvider = normalize_weather_forecast_provider(display_settings.get("weather_forecast_provider") or "met_no")
         weatherForecastTheme = normalize_weather_theme(display_settings.get("weather_forecast_theme") or "garden")
         try:
@@ -3394,6 +3407,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 expected_gauge_map = expected_gauge_map,
                 expected_display_style_map = expected_display_style_map,
                 display_style = displayStyle,
+                dashboard_background_theme = dashboardBackgroundTheme,
                 weather_forecast_provider = weatherForecastProvider,
                 weather_forecast_theme = weatherForecastTheme,
                 astro_payload=astro_payload,
@@ -4151,6 +4165,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         astral_noon = "--"
         gauge_size = settings.get_setting("Display", "gauge_size", "") or "Small"
         display_style = settings.get_setting("Display", "display_style", "") or "Gauge"
+        dashboard_background_theme = normalize_dashboard_background_theme(
+            settings.get_setting("Display", "background_theme", "leaf")
+        )
         weather_forecast_provider = normalize_weather_forecast_provider(
             settings.get_setting("WeatherForecast", "PROVIDER", "met_no")
         )
@@ -4282,6 +4299,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             tz_options=tz_options,
             gauge_size=gauge_size,
             display_style=display_style,
+            dashboard_background_theme=dashboard_background_theme,
             weather_forecast_provider=weather_forecast_provider,
             weather_forecast_theme=weather_forecast_theme,
             weather_forecast_sensor_id=weather_forecast_sensor_id,
@@ -9079,6 +9097,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         raw_astral_location_name = str(form.get("astral_location_name", "") or "").strip()
         gauge_size = str(form.get("gauge_size", "") or "").strip()
         display_style = str(form.get("display_style", "") or "").strip()
+        raw_dashboard_background_theme = str(
+            form.get(
+                "dashboard_background_theme",
+                settings.get_setting("Display", "background_theme", "leaf"),
+            )
+            or ""
+        ).strip().lower().replace("-", "_")
+        if "dashboard_background_theme" in form and raw_dashboard_background_theme not in DASHBOARD_BACKGROUND_THEMES:
+            return _modal_error_response(request, "Dashboard background theme is not supported.", status_code=400)
+        dashboard_background_theme = normalize_dashboard_background_theme(raw_dashboard_background_theme)
         raw_weather_forecast_provider = str(
             form.get(
                 "weather_forecast_provider",
@@ -9267,6 +9295,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             settings.replace_setting("Display", "gauge_size", gauge_size)
         if "display_style" in form:
             settings.replace_setting("Display", "display_style", display_style)
+        if "dashboard_background_theme" in form:
+            settings.replace_setting("Display", "background_theme", dashboard_background_theme)
         if "weather_forecast_provider" in form:
             settings.replace_setting("WeatherForecast", "PROVIDER", weather_forecast_provider)
         if "weather_forecast_theme" in form:

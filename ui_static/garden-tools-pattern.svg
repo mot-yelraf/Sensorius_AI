@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="180" viewBox="0 0 240 180">
+  <title>Garden tools line-art pattern</title>
+  <desc>A trowel, hand fork, pruning shears, and watering can drawn as a pale green repeating background.</desc>
+  <g fill="none" stroke="#4f9b72" stroke-linecap="round" stroke-linejoin="round" opacity=".18">
+    <g transform="translate(42 32) rotate(-18)">
+      <path d="M0 0V75" stroke-width="2"/>
+      <path d="M-6 0C-6-9 6-9 6 0V10H-6Z" stroke-width="1.5"/>
+      <path d="M0 74C-14 81-16 99 0 113C16 99 14 81 0 74Z" fill="#74b88f" stroke-width="1.5"/>
+    </g>
+
+    <g transform="translate(112 41) rotate(12)">
+      <path d="M0 0V83M-17 10H17M-13 10V0M-4 10V0M5 10V0M14 10V0" stroke-width="1.8"/>
+      <path d="M-8 83C-13 97-8 106 0 106C8 106 13 97 8 83Z" fill="#74b88f" stroke-width="1.5"/>
+    </g>
+
+    <g transform="translate(190 42) rotate(-10)">
+      <path d="M-10 97L6 28M-1 98L13 29" stroke-width="2"/>
+      <path d="M6 28C-9 17-13 5-7-7C5 1 10 12 6 28Z" fill="#74b88f" stroke-width="1.5"/>
+      <path d="M13 29C29 20 34 9 29-4C16 2 10 13 13 29Z" fill="#74b88f" stroke-width="1.5"/>
+      <circle cx="10" cy="29" r="4" fill="#74b88f" stroke-width="1.5"/>
+      <path d="M-10 97C-17 107-15 115-7 119M13 29L17 99C24 109 22 117 14 121" stroke-width="1.5"/>
+    </g>
+
+    <g transform="translate(18 146)">
+      <path d="M0 12H42C48 12 52 7 52 1V-9H15V1C15 7 10 12 0 12Z" fill="#74b88f" stroke-width="1.5"/>
+      <path d="M15-9C18-27 43-27 52-9M23-9C25-19 40-19 44-9" stroke-width="1.5"/>
+      <path d="M52-4H68C75-4 77 6 69 8L52 12" stroke-width="1.5"/>
+    </g>
+  </g>
+</svg>

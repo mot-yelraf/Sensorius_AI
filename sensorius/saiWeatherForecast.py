@@ -28,7 +28,7 @@ MET_LOCATION_FORECAST_URL = "https://api.met.no/weatherapi/locationforecast/2.0/
 OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 NWS_POINTS_URL = "https://api.weather.gov/points/{latitude:.4f},{longitude:.4f}"
 FORECAST_CACHE_TABLE = "weather_forecast"
-FORECAST_REFRESH_SEC = 6 * 60 * 60
+FORECAST_REFRESH_SEC = 5 * 60
 # Keep cached forecasts tied to the configured station coordinates.  The old
 # 0.05-degree window could reuse data from a location several kilometres away
 # after an Astral correction.

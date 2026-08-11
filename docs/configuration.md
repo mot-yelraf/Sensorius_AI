@@ -321,6 +321,9 @@ Runtime notes:
   latest logged values populate Current Readings. The panel follows that
   sensor's ordered `[Display].METRIC_1` through `METRIC_6` settings. An empty
   value leaves the Current Readings panel unbound.
+- `[Display].background_theme` selects the Sensorius dashboard background:
+  `leaf`, `garden_tools`, `herbarium`, `pollinator`, or `white`. The default is
+  `leaf`; `white` disables the repeating SVG background image.
 
 ## Sensor Settings
 

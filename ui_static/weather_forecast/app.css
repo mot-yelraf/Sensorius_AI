@@ -400,10 +400,18 @@ a { color: inherit; }
 .map-row { display: grid; grid-template-columns: 0.82fr 1.48fr 0.82fr; gap: 0.85rem; padding: 0.85rem 0; }
 .full-width-map { grid-column: 1 / 4; width: 100%; min-height: 31rem; }
 .full-width-map iframe, .full-width-map .windy-map-interaction { min-height: 26rem; }
-.daylight-card { min-height: 31rem; padding: 1.2rem; }
+.daylight-card {
+  --daylight-title-color: var(--accent);
+  --daylight-data-color: var(--ink);
+  --daylight-status-color: var(--warm);
+  min-height: 31rem;
+  padding: 1.2rem;
+}
 .daylight-card .card-heading { display: block; }
-.daylight-card h2 { margin-top: 0.25rem; font: 500 2rem Georgia, serif; }
-.sun-state { display: block; margin-top: 0.35rem; color: var(--warm); font-size: 0.58rem; letter-spacing: 0.08em; text-transform: uppercase; }
+.daylight-card .eyebrow,
+.daylight-detail-section h3 { color: var(--daylight-title-color); }
+.daylight-card h2 { margin-top: 0.25rem; color: var(--daylight-data-color); font: 500 2rem Georgia, serif; }
+.sun-state { display: block; margin-top: 0.35rem; color: var(--daylight-status-color); font-size: 0.58rem; letter-spacing: 0.08em; text-transform: uppercase; }
 .daylight-orbit { position: relative; height: 8.5rem; margin: 1.4rem 0 0.5rem; overflow: hidden; border-bottom: 1px solid rgba(255,214,107,.28); }
 .daylight-orbit::before { content: ""; position: absolute; left: 5%; right: 5%; bottom: -5rem; height: 10rem; border: 1px solid rgba(255,214,107,.52); border-radius: 50% 50% 0 0; }
 .daylight-sun { position: absolute; z-index: 1; left: var(--daylight-progress, 5%); bottom: calc(0.2rem + var(--sun-rise, 0) * 5.4rem); color: var(--warm); font-size: 1.7rem; line-height: 1; transform: translateX(-50%); filter: drop-shadow(0 0 12px rgba(255,214,107,.58)); }
@@ -412,21 +420,21 @@ a { color: inherit; }
 .daylight-times div:nth-child(1) { align-items: flex-start; text-align: left; }
 .daylight-times div:nth-child(2) { align-items: center; text-align: center; }
 .daylight-times div:nth-child(3) { align-items: flex-end; text-align: right; }
-.daylight-times dt { color: var(--muted); font-size: 0.62rem; }
-.daylight-times dd { order: -1; margin: 0; color: var(--ink); font: 500 1rem Georgia, serif; white-space: nowrap; }
+.daylight-times dt { color: var(--daylight-status-color); font-size: 0.62rem; }
+.daylight-times dd { order: -1; margin: 0; color: var(--daylight-data-color); font: 500 1rem Georgia, serif; white-space: nowrap; }
 .daylight-detail-section { margin-top: 0.85rem; padding-top: 0.7rem; border-top: 1px solid var(--line); }
-.daylight-detail-section h3 { margin: 0 0 0.45rem; color: var(--accent-2); font-size: 0.55rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
-.next-season-note { display: flex; justify-content: space-between; gap: 0.5rem; align-items: baseline; margin: 0; color: var(--muted); font-size: 0.58rem; }
-.next-season-note strong { color: var(--accent); }
-.next-season-note time { color: var(--ink); white-space: nowrap; }
-.polar-daylight-note { display: flex; justify-content: space-between; gap: 1rem; margin: 0.9rem 0 0; color: var(--muted); font-size: 0.6rem; line-height: 1.5; }
+.daylight-detail-section h3 { margin: 0 0 0.45rem; font-size: 0.55rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.next-season-note { display: flex; justify-content: space-between; gap: 0.5rem; align-items: baseline; margin: 0; color: var(--daylight-status-color); font-size: 0.58rem; }
+.next-season-note strong { color: var(--daylight-status-color); }
+.next-season-note time { color: var(--daylight-data-color); white-space: nowrap; }
+.polar-daylight-note { display: flex; justify-content: space-between; gap: 1rem; margin: 0.9rem 0 0; color: var(--daylight-status-color); font-size: 0.6rem; line-height: 1.5; }
 .polar-daylight-note span:last-child { text-align: right; }
-.polar-daylight-note strong { display: block; color: var(--warm); font-size: 0.78rem; }
+.polar-daylight-note strong { display: block; color: var(--daylight-data-color); font-size: 0.78rem; }
 .eclipse-list { display: grid; gap: 0.32rem; margin: 0; padding: 0; list-style: none; font-size: 0.56rem; }
-.eclipse-list li { display: flex; justify-content: space-between; gap: 0.5rem; color: var(--muted); }
-.eclipse-list strong { color: var(--ink); font-weight: 650; }
-.eclipse-list time { color: var(--warm); white-space: nowrap; }
-.eclipse-list .eclipse-empty { display: block; color: var(--muted); line-height: 1.4; }
+.eclipse-list li { display: flex; justify-content: space-between; gap: 0.5rem; color: var(--daylight-status-color); }
+.eclipse-list strong { color: var(--daylight-status-color); font-weight: 650; }
+.eclipse-list time { color: var(--daylight-data-color); white-space: nowrap; }
+.eclipse-list .eclipse-empty { display: block; color: var(--daylight-status-color); line-height: 1.4; }
 
 .provider-picker { display: grid; gap: 0.7rem; }
 .provider-option { position: relative; display: block; padding: 0.95rem 1rem 0.95rem 3rem; border: 1px solid #cfdcd3; background: white; cursor: pointer; }

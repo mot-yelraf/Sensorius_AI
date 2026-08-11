@@ -680,7 +680,29 @@ def test_system_settings_template_has_weather_forecast_controls():
     assert '<option value="none"' in text
     assert 'name="weather_forecast_theme"' in text
     assert 'name="weather_forecast_sensor_id"' in text
+    assert 'class="weather-forecast-controls"' in text
+    assert 'style="--thumbnail-count:4"' in text
+    for theme in ("garden", "island", "river", "desert"):
+        assert f'name="weather_forecast_theme" value="{theme}"' in text
     assert "The forecast uses the Sensorius Astral location." not in text
+
+
+def test_system_settings_display_has_conditional_gauge_size_and_background_thumbnails():
+    source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
+    text = source.read_text(encoding="utf-8")
+    display_section = text[
+        text.index('data-runtime-section="system-display"'):
+        text.index('<div class="status-text sai-live-status" id="system-status"')
+    ]
+
+    assert display_section.index('id="display_style"') < display_section.index('id="gauge_size"')
+    assert 'id="gauge_size_field"' in display_section
+    assert 'id="dashboard_background_theme"' in display_section
+    assert 'style="--thumbnail-count:5"' in display_section
+    for theme in ("leaf", "garden_tools", "herbarium", "pollinator", "white"):
+        assert f'name="dashboard_background_theme" value="{theme}"' in display_section
+    assert 'if (ev?.target?.id === "display_style")' in text
+    assert "updateGaugeSizeVisibility();" in text
 
 
 def test_system_settings_sections_match_integration_accordions():
@@ -1114,6 +1136,33 @@ async def test_submit_pi_setup_display_section_does_not_write_other_sections(tmp
     assert stored["Display"] == {"gauge_size": "Large", "display_style": "Graph24hr"}
     for section in ("Network", "SensorNetwork", "Time", "Astral", "WeatherForecast"):
         assert stored[section] == initial[section]
+
+
+@pytest.mark.asyncio
+async def test_submit_pi_setup_persists_dashboard_background_theme(tmp_path, monkeypatch):
+    app = await _build_route_app_with_settings(
+        tmp_path,
+        monkeypatch,
+        {"Display": {"gauge_size": "Small", "display_style": "Gauge", "background_theme": "leaf"}},
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-pi-setup",
+            data={
+                "gauge_size": "Large",
+                "display_style": "Gauge",
+                "dashboard_background_theme": "pollinator",
+            },
+            headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
+        )
+
+    assert res.status_code == 200
+    assert _RouteFakeSaiSettings.STORED_SETTINGS["Display"] == {
+        "gauge_size": "Large",
+        "display_style": "Gauge",
+        "background_theme": "pollinator",
+    }
 
 
 @pytest.mark.asyncio
@@ -4808,9 +4857,11 @@ def test_dashboard_weather_forecast_card_has_six_day_button():
             expected_display_style_map={"co2-ykdvea": {"METRIC_1": "Gauge"}},
             display_style="Gauge",
             weather_forecast_theme="desert",
+            dashboard_background_theme="pollinator",
         )
     )
 
+    assert "<body class='dashboard-page dashboard-theme-pollinator'>" in html
     assert "24 Hour Forecast</div>" in html
     assert "class='astro-box forecast-scene-pending' id='weatherForecastBox'" in html
     assert "class='astro-box weather-theme-desert' id='weatherForecastBox'" not in html
@@ -4850,6 +4901,8 @@ def test_dashboard_weather_forecast_card_has_six_day_button():
     assert "setWeatherForecastCardLoading(true);" in html
     assert "setWeatherForecastCardLoading(false);" in html
     assert "window.loadWeatherForecast = loadWeatherForecast;" in html
+    assert "window.setInterval(function(){ loadWeatherForecast(false, true); }, 300000);" in html
+    assert "if (!isBackgroundRefresh) renderWeatherForecast({ ok:false, reason:'forecast_failed' });" in html
     assert "forecastFiveDayBtn.addEventListener('click'" in html
     assert "window.location.assign('/weather-forecast')" in html
 
@@ -4878,7 +4931,8 @@ def test_dashboard_weather_forecast_none_hides_forecast_card():
     assert "24 Hour Forecast</div>" not in html
     assert "id='weatherForecastBox'" not in html
     assert "const weatherForecastEnabled = false;" in html
-    assert "if (weatherForecastEnabled && typeof loadWeatherForecast === 'function') loadWeatherForecast();" in html
+    assert "if (weatherForecastEnabled && typeof loadWeatherForecast === 'function') {" in html
+    assert "window.setInterval(function(){ loadWeatherForecast(false, true); }, 300000);" in html
 
 
 def test_dashboard_refresh_pauses_during_modal_and_hidden_tab():

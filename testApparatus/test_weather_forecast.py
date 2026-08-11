@@ -15,6 +15,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sensorius.saiWeatherForecast import (
+    FORECAST_REFRESH_SEC,
     build_forecast_payload,
     get_weather_forecast_payload,
     load_weather_forecast_cache,
@@ -23,6 +24,10 @@ from sensorius.saiWeatherForecast import (
     normalize_weather_forecast_provider,
     save_weather_forecast_cache,
 )
+
+
+def test_weather_forecast_cache_refreshes_every_five_minutes():
+    assert FORECAST_REFRESH_SEC == 300
 
 
 def _sample_met_payload() -> dict:

@@ -167,7 +167,16 @@ def _trend_arrow_html(metric: str, trend: dict | None) -> str:
     )
 
 
-def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="garden"):
+DASHBOARD_BACKGROUND_THEMES = frozenset({"leaf", "garden_tools", "herbarium", "pollinator", "white"})
+
+
+def normalize_dashboard_background_theme(value: object) -> str:
+    """Return a supported dashboard background theme, defaulting to leaf."""
+    theme = str(value or "").strip().lower().replace("-", "_")
+    return theme if theme in DASHBOARD_BACKGROUND_THEMES else "leaf"
+
+
+def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="garden", dashboard_background_theme="leaf"):
 
     import json
     import os
@@ -1159,6 +1168,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     weather_forecast_theme = str(weather_forecast_theme or "").strip().lower()
     if weather_forecast_theme not in {"garden", "island", "river", "desert"}:
         weather_forecast_theme = "garden"
+    dashboard_background_theme = normalize_dashboard_background_theme(dashboard_background_theme)
+    dashboard_background_class = dashboard_background_theme.replace("_", "-")
 
     yield "<!DOCTYPE html>"
     yield f"<html><head><title>{APP_NAME_LONG}</title>"
@@ -1175,7 +1186,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield f"<script src='/ui_static/js/draggable_modals.js?v={APP_VERSION}'></script>"
     yield f"<script type='module' src='/ui_static/js/advanced_automation.js?v={APP_VERSION}'></script>"
     yield "<script src='/ui_static/js/sensor_settings_modal.js'></script>"
-    yield "</head><body class='dashboard-page'>"
+    yield f"</head><body class='dashboard-page dashboard-theme-{dashboard_background_class}'>"
     yield (
       f"<div class='dashboard' "
       f"style='--container-width:{layout['container_width']};"
@@ -3329,8 +3340,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "function setWeatherForecastCardLoading(isLoading){"
     yield "  if (typeof setDashboardCardLoading === 'function') setDashboardCardLoading('weatherForecastBox', isLoading);"
     yield "}"
-    yield "async function loadWeatherForecast(forceRefresh){"
-    yield "  setWeatherForecastCardLoading(true);"
+    yield "async function loadWeatherForecast(forceRefresh, backgroundRefresh){"
+    yield "  const isBackgroundRefresh = !!backgroundRefresh;"
+    yield "  if (!isBackgroundRefresh) setWeatherForecastCardLoading(true);"
     yield "  try {"
     yield "    const url = forceRefresh ? '/api/weather-forecast?days=1&force_refresh=true' : '/api/weather-forecast?days=1';"
     yield "    const resp = await fetch(url, { cache:'no-store' });"
@@ -3339,9 +3351,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    renderWeatherForecast(payload);"
     yield "  } catch (e) {"
     yield "    console.error('Failed to load weather forecast', e);"
-    yield "    renderWeatherForecast({ ok:false, reason:'forecast_failed' });"
+    yield "    if (!isBackgroundRefresh) renderWeatherForecast({ ok:false, reason:'forecast_failed' });"
     yield "  } finally {"
-    yield "    setWeatherForecastCardLoading(false);"
+    yield "    if (!isBackgroundRefresh) setWeatherForecastCardLoading(false);"
     yield "  }"
     yield "}"
     yield "window.loadWeatherForecast = loadWeatherForecast;"
@@ -4078,7 +4090,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  if (typeof drawSunPath === 'function') drawSunPath(astroData);"
     yield "  if (typeof drawMoonPhase === 'function') drawMoonPhase(astroData);"
     yield "  if (typeof drawBiodynamic === 'function') drawBiodynamic(biodynamicData);"
-    yield "  if (weatherForecastEnabled && typeof loadWeatherForecast === 'function') loadWeatherForecast();"
+    yield "  if (weatherForecastEnabled && typeof loadWeatherForecast === 'function') {"
+    yield "    loadWeatherForecast();"
+    yield "    window.setInterval(function(){ loadWeatherForecast(false, true); }, 300000);"
+    yield "  }"
     yield "  const form = document.querySelector('form');"
     yield "  const forecastFiveDayBtn = document.getElementById('forecastFiveDayBtn');"
     yield "  const bioOpenBtn = document.getElementById('bioOpenBtn');"

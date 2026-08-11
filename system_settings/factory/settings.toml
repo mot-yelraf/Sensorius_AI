@@ -85,3 +85,4 @@ RULES_JSON = "[]"
 [Display]
 gauge_size = "Small"
 display_style = "Gauge"
+background_theme = "leaf"

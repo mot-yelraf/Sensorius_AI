@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="180" viewBox="0 0 240 180">
+  <title>Herbarium sketch garden pattern</title>
+  <desc>Fine botanical sprigs drawn as a pale green repeating background.</desc>
+  <g fill="none" stroke="#4f9b72" stroke-linecap="round" stroke-linejoin="round" opacity=".18">
+    <path d="M22 177C33 129 51 87 84 26" stroke-width="1.5"/>
+    <path d="M39 132C26 130 18 123 16 111C29 111 37 118 39 132Z" fill="#74b88f" stroke-width="1.3"/>
+    <path d="M45 115C59 113 68 105 71 92C57 92 48 100 45 115Z" fill="#74b88f" stroke-width="1.3"/>
+    <path d="M51 97C39 94 32 86 32 74C44 75 51 83 51 97Z" fill="#74b88f" stroke-width="1.3"/>
+    <path d="M59 79C73 77 82 69 85 56C71 56 62 64 59 79Z" fill="#74b88f" stroke-width="1.3"/>
+    <path d="M67 62C57 58 52 50 53 40C64 42 69 49 67 62Z" fill="#74b88f" stroke-width="1.3"/>
+
+    <path d="M145 183C141 136 148 84 171 27" stroke-width="1.5"/>
+    <path d="M151 142C137 136 131 125 134 111C148 115 155 126 151 142Z" fill="#74b88f" stroke-width="1.3"/>
+    <path d="M153 121C168 117 177 108 178 94C163 96 154 105 153 121Z" fill="#74b88f" stroke-width="1.3"/>
+    <path d="M156 100C144 93 139 82 143 69C156 74 161 84 156 100Z" fill="#74b88f" stroke-width="1.3"/>
+    <path d="M161 79C175 75 183 66 184 53C170 55 162 66 161 79Z" fill="#74b88f" stroke-width="1.3"/>
+    <circle cx="174" cy="27" r="2.5" fill="#74b88f"/>
+    <circle cx="181" cy="34" r="2.5" fill="#74b88f"/>
+    <circle cx="169" cy="38" r="2.5" fill="#74b88f"/>
+
+    <path d="M210 168C199 134 198 101 206 67" stroke-width="1.5"/>
+    <path d="M207 90C194 84 189 75 192 63C205 67 210 76 207 90Z" fill="#74b88f" stroke-width="1.3"/>
+    <path d="M206 112C218 105 224 95 220 83C208 88 203 98 206 112Z" fill="#74b88f" stroke-width="1.3"/>
+    <path d="M209 133C196 128 190 119 192 106C205 109 212 118 209 133Z" fill="#74b88f" stroke-width="1.3"/>
+  </g>
+</svg>

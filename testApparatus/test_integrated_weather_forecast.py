@@ -249,6 +249,22 @@ def test_sunlight_card_places_times_horizontally_and_shows_poles():
     assert "moon.next_eclipses" in script
 
 
+def test_sunlight_card_uses_three_semantic_text_colors():
+    css = (ROOT / "ui_static" / "weather_forecast" / "app.css").read_text()
+
+    assert "--daylight-title-color: var(--accent);" in css
+    assert "--daylight-data-color: var(--ink);" in css
+    assert "--daylight-status-color: var(--warm);" in css
+    assert ".daylight-card .eyebrow," in css
+    assert ".daylight-detail-section h3 { color: var(--daylight-title-color); }" in css
+    assert ".daylight-times dd { order: -1; margin: 0; color: var(--daylight-data-color);" in css
+    assert ".polar-daylight-note strong { display: block; color: var(--daylight-data-color);" in css
+    assert ".eclipse-list time { color: var(--daylight-data-color);" in css
+    assert ".daylight-times dt { color: var(--daylight-status-color);" in css
+    assert ".next-season-note strong { color: var(--daylight-status-color);" in css
+    assert ".eclipse-list strong { color: var(--daylight-status-color);" in css
+
+
 def test_lunar_strip_uses_dates_and_does_not_symmetrize_local_orientation():
     template = (ROOT / "ui_templates" / "weather_forecast" / "index.html").read_text()
     script = (ROOT / "ui_static" / "weather_forecast" / "app.js").read_text()
@@ -408,7 +424,15 @@ def test_dashboard_button_launches_full_screen_weather_app():
     assert "window.location.assign('/weather-forecast')" in html_source
 
 
-def test_dashboard_reuses_detailed_forecast_moon_surface_and_leaf_background():
+def test_dashboard_background_theme_normalization():
+    from sensorius.saiHtml import normalize_dashboard_background_theme
+
+    assert normalize_dashboard_background_theme("garden-tools") == "garden_tools"
+    assert normalize_dashboard_background_theme("pollinator") == "pollinator"
+    assert normalize_dashboard_background_theme("unsupported") == "leaf"
+
+
+def test_dashboard_reuses_detailed_forecast_moon_surface_and_selectable_backgrounds():
     html_source = (ROOT / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
     dashboard_css = (ROOT / "ui_static" / "css" / "app.css").read_text(encoding="utf-8")
 
@@ -418,8 +442,25 @@ def test_dashboard_reuses_detailed_forecast_moon_surface_and_leaf_background():
     assert "edgeDistance / 1.35" in html_source
     assert "#moonPhaseCanvas{width:88px;height:88px;border:0;border-radius:50%;background:transparent;}" in html_source
     assert "ctx.strokeStyle = 'rgba(255, 240, 198, 0.28)'" not in html_source
-    assert "<body class='dashboard-page'>" in html_source
+    assert "dashboard-theme-{dashboard_background_class}" in html_source
     assert 'background-image:url("/ui_static/leaf-pattern.svg")' in dashboard_css
+    assert 'background-image:url("/ui_static/garden-tools-pattern.svg")' in dashboard_css
+    assert 'background-image:url("/ui_static/herbarium-pattern.svg")' in dashboard_css
+    assert 'background-image:url("/ui_static/pollinator-pattern.svg")' in dashboard_css
+    assert "dashboard-theme-leaf{background-color:#dff5e8" in dashboard_css
+    assert "dashboard-theme-garden-tools{background-color:#ead8c2" in dashboard_css
+    assert "dashboard-theme-herbarium{background-color:#f8dcc4" in dashboard_css
+    assert "dashboard-theme-pollinator{background-color:#dceffc" in dashboard_css
+    assert "dashboard-theme-pollinator .metric-container" in dashboard_css
+    assert "background-color:#c8e4f7" in dashboard_css
+    assert "dashboard-theme-white" in dashboard_css
+    for pattern in (
+        "leaf-pattern.svg",
+        "garden-tools-pattern.svg",
+        "herbarium-pattern.svg",
+        "pollinator-pattern.svg",
+    ):
+        assert (ROOT / "ui_static" / pattern).is_file()
 
 
 def test_weather_forecast_system_settings_are_present():
@@ -432,9 +473,11 @@ def test_weather_forecast_system_settings_are_present():
         template.index('data-runtime-section="system-weather-forecast"'):
         template.index('data-runtime-section="system-notifications"')
     ]
-    assert 'class="weather-forecast-grid"' in weather_section
+    assert 'class="weather-forecast-controls"' in weather_section
     assert weather_section.index('for="weather_forecast_sensor_id"') < weather_section.index('for="weather_forecast_provider"')
-    assert weather_section.index('for="weather_forecast_provider"') < weather_section.index('for="weather_forecast_theme"')
+    assert weather_section.index('for="weather_forecast_provider"') < weather_section.index('id="weather_forecast_theme"')
+    for theme in ("garden", "island", "river", "desert"):
+        assert f'name="weather_forecast_theme" value="{theme}"' in weather_section
     assert template.index('data-runtime-section="system-astral"') < template.index('data-runtime-section="system-weather-forecast"')
     assert template.index('data-runtime-section="system-weather-forecast"') < template.index('data-runtime-section="system-notifications"')
     assert "The forecast uses the Sensorius Astral location." not in template
