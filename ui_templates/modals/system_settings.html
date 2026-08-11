@@ -1171,6 +1171,13 @@
                   <div class="integration-block-content">
               <div class="field-grid-stack display-settings-top-row">
                 <div class="field-stack">
+                  <label for="metric_set">Metric Set</label>
+                  <select name="metric_set" id="metric_set">
+                    <option value="Pick 6" {% if metric_set | default('Pick 6', true) == "Pick 6" %}selected{% endif %}>Pick 6</option>
+                    <option value="All" {% if metric_set == "All" %}selected{% endif %}>All</option>
+                  </select>
+                </div>
+                <div class="field-stack">
                   <label for="display_style">Display Style</label>
                   <select name="display_style" id="display_style">
                     <option value="Gauge" {% if display_style == "Gauge" %}selected{% endif %}>Gauge</option>
@@ -1183,13 +1190,6 @@
                   <select name="gauge_size" id="gauge_size">
                     <option value="Small" {% if gauge_size == "Small" %}selected{% endif %}>Small</option>
                     <option value="Large" {% if gauge_size == "Large" %}selected{% endif %}>Large</option>
-                  </select>
-                </div>
-                <div class="field-stack">
-                  <label for="metric_set">Metric Set</label>
-                  <select name="metric_set" id="metric_set">
-                    <option value="Pick 6" {% if metric_set | default('Pick 6', true) == "Pick 6" %}selected{% endif %}>Pick 6</option>
-                    <option value="All" {% if metric_set == "All" %}selected{% endif %}>All</option>
                   </select>
                 </div>
               </div>

@@ -708,8 +708,8 @@ def test_system_settings_display_has_conditional_gauge_size_and_theme_thumbnails
         text.index('<div class="status-text sai-live-status" id="system-status"')
     ]
 
+    assert display_section.index('id="metric_set"') < display_section.index('id="display_style"')
     assert display_section.index('id="display_style"') < display_section.index('id="gauge_size"')
-    assert display_section.index('id="gauge_size"') < display_section.index('id="metric_set"')
     assert 'class="field-grid-stack display-settings-top-row"' in display_section
     assert 'id="gauge_size_field"' in display_section
     assert '<label for="metric_set">Metric Set</label>' in display_section
