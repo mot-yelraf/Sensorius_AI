@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/ui_static/biodynamic_calendar/favicon.svg?v={{ app_version }}">
   <link rel="stylesheet" href="/ui_static/biodynamic_calendar/app.css?v={{ app_version }}">
 </head>
-<body class="{% if sensorius_launch %}sensorius-launch{% endif %}" data-runtime-instance-id="{{ runtime_instance_id | default('') }}">
+<body class="{% if sensorius_launch %}sensorius-launch {% endif %}biodynamic-theme-{{ biodynamic_calendar_theme | default('leaf') | replace('_', '-') }}" data-runtime-instance-id="{{ runtime_instance_id | default('') }}">
   <a class="dashboard-return" id="dashboardReturn" href="/" aria-label="Return to Sensorius dashboard">
     <span class="dashboard-return-spinner" aria-hidden="true"></span>
     <span class="dashboard-return-label">Dashboard</span>

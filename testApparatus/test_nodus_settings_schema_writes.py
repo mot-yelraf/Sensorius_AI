@@ -374,6 +374,15 @@ class _FakeSaiSettings:
         return value
 
 
+class _AllMetricFakeSaiSettings(_FakeSaiSettings):
+    def get_setting(self, section, key, default=None):
+        if section == "Display" and key == "metric_set":
+            return "All"
+        if section == "Display" and key == "display_style":
+            return "Graph6hr"
+        return default
+
+
 class _PersistentFakeSaiSettings(_FakeSaiSettings):
     STORED_SETTINGS: dict = {}
 
@@ -532,6 +541,8 @@ async def _build_app(tmp_path, monkeypatch, hub_settings=None, ota_service=None)
     sensor_root.mkdir()
     switch_root.mkdir()
 
+    saiWebRoutes._DASHBOARD_DISPLAY_SETTINGS_CACHE = None
+
     _FakeSaiSettings.DEFAULT_BASE_DIR = str(system_root)
 
     monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
@@ -687,20 +698,34 @@ def test_system_settings_template_has_weather_forecast_controls():
     assert "The forecast uses the Sensorius Astral location." not in text
 
 
-def test_system_settings_display_has_conditional_gauge_size_and_background_thumbnails():
+def test_system_settings_display_has_conditional_gauge_size_and_theme_thumbnails():
     source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
+    factory_settings = Path(__file__).resolve().parents[1] / "system_settings" / "factory" / "settings.toml"
     text = source.read_text(encoding="utf-8")
+    factory_text = factory_settings.read_text(encoding="utf-8")
     display_section = text[
         text.index('data-runtime-section="system-display"'):
         text.index('<div class="status-text sai-live-status" id="system-status"')
     ]
 
     assert display_section.index('id="display_style"') < display_section.index('id="gauge_size"')
+    assert display_section.index('id="gauge_size"') < display_section.index('id="metric_set"')
+    assert 'class="field-grid-stack display-settings-top-row"' in display_section
     assert 'id="gauge_size_field"' in display_section
+    assert '<label for="metric_set">Metric Set</label>' in display_section
+    assert '<option value="Pick 6"' in display_section
+    assert '<option value="All"' in display_section
     assert 'id="dashboard_background_theme"' in display_section
-    assert 'style="--thumbnail-count:5"' in display_section
+    assert '<legend>Sensorius Dashboard Theme</legend>' in display_section
+    assert 'id="biodynamic_calendar_theme"' in display_section
+    assert '<legend>Biodynamic Calendar Theme</legend>' in display_section
+    assert display_section.count('style="--thumbnail-count:5"') == 2
     for theme in ("leaf", "garden_tools", "herbarium", "pollinator", "white"):
         assert f'name="dashboard_background_theme" value="{theme}"' in display_section
+        assert f'name="biodynamic_calendar_theme" value="{theme}"' in display_section
+    assert 'background_theme = "leaf"' in factory_text
+    assert 'metric_set = "Pick 6"' in factory_text
+    assert 'biodynamic_calendar_theme = "leaf"' in factory_text
     assert 'if (ev?.target?.id === "display_style")' in text
     assert "updateGaugeSizeVisibility();" in text
 
@@ -1139,7 +1164,7 @@ async def test_submit_pi_setup_display_section_does_not_write_other_sections(tmp
 
 
 @pytest.mark.asyncio
-async def test_submit_pi_setup_persists_dashboard_background_theme(tmp_path, monkeypatch):
+async def test_submit_pi_setup_persists_metric_set_and_independent_background_themes(tmp_path, monkeypatch):
     app = await _build_route_app_with_settings(
         tmp_path,
         monkeypatch,
@@ -1152,7 +1177,9 @@ async def test_submit_pi_setup_persists_dashboard_background_theme(tmp_path, mon
             data={
                 "gauge_size": "Large",
                 "display_style": "Gauge",
+                "metric_set": "All",
                 "dashboard_background_theme": "pollinator",
+                "biodynamic_calendar_theme": "garden_tools",
             },
             headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
         )
@@ -1161,8 +1188,26 @@ async def test_submit_pi_setup_persists_dashboard_background_theme(tmp_path, mon
     assert _RouteFakeSaiSettings.STORED_SETTINGS["Display"] == {
         "gauge_size": "Large",
         "display_style": "Gauge",
+        "metric_set": "All",
         "background_theme": "pollinator",
+        "biodynamic_calendar_theme": "garden_tools",
     }
+
+
+@pytest.mark.asyncio
+async def test_submit_pi_setup_rejects_unsupported_metric_set(tmp_path, monkeypatch):
+    initial = {"Display": {"metric_set": "Pick 6"}}
+    app = await _build_route_app_with_settings(tmp_path, monkeypatch, initial)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-pi-setup",
+            data={"metric_set": "Everything"},
+            headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
+        )
+
+    assert res.status_code == 400
+    assert _RouteFakeSaiSettings.STORED_SETTINGS == initial
 
 
 @pytest.mark.asyncio
@@ -1513,7 +1558,7 @@ async def test_submit_second_sensor_settings_targets_physical_host_and_second_fi
 
 
 @pytest.mark.asyncio
-async def test_submit_sensor_settings_metric_display_mode_stays_local_for_nodus(tmp_path, monkeypatch):
+async def test_submit_sensor_settings_ignores_legacy_metric_display_mode_for_nodus(tmp_path, monkeypatch):
     app, ingest, system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
@@ -1544,7 +1589,7 @@ async def test_submit_sensor_settings_metric_display_mode_stays_local_for_nodus(
     assert res.status_code == 303
     assert ingest.published_json == []
     saved = sensor_mgr.load("apvpd-test123")
-    assert saved["Display"]["METRIC_DISPLAY_MODE"] == "All"
+    assert saved["Display"] == {"METRIC_1": "Temperature"}
 
 
 @pytest.mark.asyncio
@@ -1722,7 +1767,6 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
         current_metrics=["Temperature", "Rel-Humidity", "Ambient VPD", "", "", ""],
         display_style_options=["Gauge", "Graph6hr", "Graph24hr"],
         current_metric_styles=["Gauge", "Graph6hr", "Graph24hr", "Gauge", "Gauge", "Gauge"],
-        current_metric_display_mode="All",
         location="Veg Tent",
         device_kind="aqi",
         device_label="aqi",
@@ -1776,8 +1820,7 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
     assert 'class="sensor-settings-form"' in html
     assert html.index("Dashboard") < html.index("Restart Device") < html.index("Save")
     assert "window.closeSensorSettingsModal && window.closeSensorSettingsModal();" in html
-    assert 'name="metric_display_mode"' in html
-    assert 'value="All" selected' in html
+    assert 'name="metric_display_mode"' not in html
     assert 'name="display_style_1"' in html
     assert 'name="display_style_3"' in html
 
@@ -3967,7 +4010,6 @@ async def test_dashboard_weewx_status_uses_recent_station_data_when_ingest_unkno
     app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
     saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
-    saiWebRoutes._DASHBOARD_DISPLAY_SETTINGS_CACHE = None
     ingest.get_measure_status = lambda _sid: "unknown"
 
     now_iso = datetime.now().isoformat()
@@ -3995,6 +4037,7 @@ async def test_dashboard_weewx_status_uses_recent_station_data_when_ingest_unkno
 @pytest.mark.asyncio
 async def test_dashboard_weewx_all_metric_mode_is_not_limited_to_station_defaults(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    monkeypatch.setattr(saiWebRoutes, "saiSettings", _AllMetricFakeSaiSettings)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
         "weewx-station",
@@ -4012,7 +4055,6 @@ async def test_dashboard_weewx_all_metric_mode_is_not_limited_to_station_default
                 "METRIC_4": "Rain",
                 "METRIC_5": "Wind Speed",
                 "METRIC_6": "Wind Direction",
-                "METRIC_DISPLAY_MODE": "All",
             },
         },
     )
@@ -4062,13 +4104,13 @@ async def test_dashboard_weewx_all_metric_mode_is_not_limited_to_station_default
         "Rain Rate",
     ]
     style_map = body["expected_display_style_map"]["weewx-station"]
-    assert style_map["METRIC_7"] == "Graph24hr"
-    assert style_map["METRIC_8"] == "Graph24hr"
-    assert style_map["METRIC_9"] == "Graph24hr"
+    assert style_map["METRIC_7"] == "Graph6hr"
+    assert style_map["METRIC_8"] == "Graph6hr"
+    assert style_map["METRIC_9"] == "Graph6hr"
 
 
 @pytest.mark.asyncio
-async def test_dashboard_weewx_pick6_keeps_configured_wind_direction_without_latest_value(tmp_path, monkeypatch):
+async def test_dashboard_global_pick6_overrides_legacy_sensor_all_mode(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
@@ -4087,7 +4129,7 @@ async def test_dashboard_weewx_pick6_keeps_configured_wind_direction_without_lat
                 "METRIC_4": WEEWX_RAIN_24H_METRIC,
                 "METRIC_5": "Wind Direction",
                 "METRIC_6": "Baro-Pressure",
-                "METRIC_DISPLAY_MODE": "Pick 6",
+                "METRIC_DISPLAY_MODE": "All",
                 "Style": {
                     "METRIC_1": "Graph24hr",
                     "METRIC_2": "Graph24hr",
@@ -4498,6 +4540,7 @@ async def test_dashboard_json_ignores_stale_switch_settings_without_channels(tmp
 
     saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
     saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    saiWebRoutes._DASHBOARD_DISPLAY_SETTINGS_CACHE = None
     now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["aqi-i2c-1-ff-sensorius"])
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso if sid == "aqi-i2c-1-ff-sensorius" else "")
@@ -5116,8 +5159,9 @@ def test_dashboard_metric_card_gauge_view_has_canvas_fallback():
 
 
 @pytest.mark.asyncio
-async def test_dashboard_all_metric_mode_renders_all_known_metrics_with_extra_graph_styles(tmp_path, monkeypatch):
+async def test_dashboard_global_all_mode_uses_system_style_for_extra_metrics(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    monkeypatch.setattr(saiWebRoutes, "saiSettings", _AllMetricFakeSaiSettings)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
         "co2-ykdvea",
@@ -5130,7 +5174,6 @@ async def test_dashboard_all_metric_mode_renders_all_known_metrics_with_extra_gr
                 "METRIC_4": "Ambient VPD",
                 "METRIC_5": "Dew Point Deficit",
                 "METRIC_6": "DewVPD Risk",
-                "METRIC_DISPLAY_MODE": "All",
                 "Style": {
                     "METRIC_1": "Graph6hr",
                     "METRIC_2": "Gauge",
@@ -5142,9 +5185,11 @@ async def test_dashboard_all_metric_mode_renders_all_known_metrics_with_extra_gr
             },
         },
     )
+    saved_sensor_settings = sensor_mgr.load("co2-ykdvea")
 
     saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
     saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    saiWebRoutes._DASHBOARD_DISPLAY_SETTINGS_CACHE = None
     now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
     all_values = {
         "CO2": 718.0,
@@ -5186,8 +5231,10 @@ async def test_dashboard_all_metric_mode_renders_all_known_metrics_with_extra_gr
     style_map = body["expected_display_style_map"]["co2-ykdvea"]
     assert style_map["METRIC_1"] == "Graph6hr"
     assert style_map["METRIC_6"] == "Gauge"
-    assert style_map["METRIC_7"] == "Graph24hr"
-    assert style_map["METRIC_8"] == "Graph24hr"
+    assert style_map["METRIC_7"] == "Graph6hr"
+    assert style_map["METRIC_8"] == "Graph6hr"
+    assert sensor_mgr.load("co2-ykdvea") == saved_sensor_settings
+    assert ingest.published_json == []
 
 
 @pytest.mark.asyncio

@@ -169,12 +169,19 @@ def _trend_arrow_html(metric: str, trend: dict | None) -> str:
 
 
 DASHBOARD_BACKGROUND_THEMES = frozenset({"leaf", "garden_tools", "herbarium", "pollinator", "white"})
+DASHBOARD_METRIC_SETS = frozenset({"Pick 6", "All"})
 
 
 def normalize_dashboard_background_theme(value: object) -> str:
     """Return a supported dashboard background theme, defaulting to leaf."""
     theme = str(value or "").strip().lower().replace("-", "_")
     return theme if theme in DASHBOARD_BACKGROUND_THEMES else "leaf"
+
+
+def normalize_dashboard_metric_set(value: object) -> str:
+    """Return a supported dashboard metric set, defaulting to Pick 6."""
+    compact = str(value or "").strip().lower().replace("_", "").replace("-", "").replace(" ", "")
+    return "All" if compact in {"all", "showall"} else "Pick 6"
 
 
 def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="garden", dashboard_background_theme="leaf"):

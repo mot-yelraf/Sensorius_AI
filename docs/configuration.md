@@ -324,6 +324,14 @@ Runtime notes:
 - `[Display].background_theme` selects the Sensorius dashboard background:
   `leaf`, `garden_tools`, `herbarium`, `pollinator`, or `white`. The default is
   `leaf`; `white` disables the repeating SVG background image.
+- `[Display].metric_set` controls dashboard metric breadth globally. `Pick 6`
+  renders each sensor's saved `METRIC_1` through `METRIC_6` slots; `All`
+  preserves those slots and appends every other known, renderable metric for
+  each sensor. The default is `Pick 6`.
+- `[Display].biodynamic_calendar_theme` independently selects the full-screen
+  Biodynamic Calendar background from the same five themes. The default is
+  `leaf`, so existing installations continue to use Leaves until another
+  calendar theme is saved.
 
 ## Sensor Settings
 

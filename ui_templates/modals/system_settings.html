@@ -207,6 +207,10 @@
   max-width: 760px;
   margin-inline: auto;
 }
+#setupPiModal .field-grid-stack.display-settings-top-row {
+  grid-template-columns: repeat(3, minmax(200px, 1fr));
+  max-width: 1040px;
+}
 #setupPiModal .field-grid-network {
   display: grid;
   grid-template-columns: repeat(3, minmax(180px, 1fr));
@@ -858,6 +862,9 @@
     grid-template-columns: 1fr;
     max-width: 100%;
   }
+  #setupPiModal .field-grid-stack.display-settings-top-row {
+    grid-template-columns: 1fr;
+  }
   #setupPiModal .field-grid-network {
     grid-template-columns: 1fr;
     max-width: 100%;
@@ -1162,7 +1169,7 @@
                 <details class="integration-block system-section-block" data-runtime-section="system-display">
                   <summary>Display</summary>
                   <div class="integration-block-content">
-              <div class="field-grid-stack">
+              <div class="field-grid-stack display-settings-top-row">
                 <div class="field-stack">
                   <label for="display_style">Display Style</label>
                   <select name="display_style" id="display_style">
@@ -1178,16 +1185,34 @@
                     <option value="Large" {% if gauge_size == "Large" %}selected{% endif %}>Large</option>
                   </select>
                 </div>
+                <div class="field-stack">
+                  <label for="metric_set">Metric Set</label>
+                  <select name="metric_set" id="metric_set">
+                    <option value="Pick 6" {% if metric_set | default('Pick 6', true) == "Pick 6" %}selected{% endif %}>Pick 6</option>
+                    <option value="All" {% if metric_set == "All" %}selected{% endif %}>All</option>
+                  </select>
+                </div>
               </div>
               {% set selected_dashboard_background_theme = dashboard_background_theme | default('leaf') %}
               <fieldset class="thumbnail-selector" id="dashboard_background_theme" style="--thumbnail-count:5">
-                <legend>Background Theme</legend>
+                <legend>Sensorius Dashboard Theme</legend>
                 <div class="thumbnail-options">
                   <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="leaf" {% if selected_dashboard_background_theme == "leaf" %}checked{% endif %}><span class="theme-thumbnail dashboard-leaf"></span><span class="thumbnail-label">Leaves</span></label>
                   <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="garden_tools" {% if selected_dashboard_background_theme == "garden_tools" %}checked{% endif %}><span class="theme-thumbnail dashboard-garden-tools"></span><span class="thumbnail-label">Garden Tools</span></label>
                   <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="herbarium" {% if selected_dashboard_background_theme == "herbarium" %}checked{% endif %}><span class="theme-thumbnail dashboard-herbarium"></span><span class="thumbnail-label">Herbarium</span></label>
                   <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="pollinator" {% if selected_dashboard_background_theme == "pollinator" %}checked{% endif %}><span class="theme-thumbnail dashboard-pollinator"></span><span class="thumbnail-label">Pollinators</span></label>
                   <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="white" {% if selected_dashboard_background_theme == "white" %}checked{% endif %}><span class="theme-thumbnail dashboard-white"></span><span class="thumbnail-label">White</span></label>
+                </div>
+              </fieldset>
+              {% set selected_biodynamic_calendar_theme = biodynamic_calendar_theme | default('leaf') %}
+              <fieldset class="thumbnail-selector" id="biodynamic_calendar_theme" style="--thumbnail-count:5">
+                <legend>Biodynamic Calendar Theme</legend>
+                <div class="thumbnail-options">
+                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="leaf" {% if selected_biodynamic_calendar_theme == "leaf" %}checked{% endif %}><span class="theme-thumbnail dashboard-leaf"></span><span class="thumbnail-label">Leaves</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="garden_tools" {% if selected_biodynamic_calendar_theme == "garden_tools" %}checked{% endif %}><span class="theme-thumbnail dashboard-garden-tools"></span><span class="thumbnail-label">Garden Tools</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="herbarium" {% if selected_biodynamic_calendar_theme == "herbarium" %}checked{% endif %}><span class="theme-thumbnail dashboard-herbarium"></span><span class="thumbnail-label">Herbarium</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="pollinator" {% if selected_biodynamic_calendar_theme == "pollinator" %}checked{% endif %}><span class="theme-thumbnail dashboard-pollinator"></span><span class="thumbnail-label">Pollinators</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="white" {% if selected_biodynamic_calendar_theme == "white" %}checked{% endif %}><span class="theme-thumbnail dashboard-white"></span><span class="thumbnail-label">White</span></label>
                 </div>
               </fieldset>
                     <div class="pane-footer section-action-footer">
@@ -2552,6 +2577,9 @@
       }
       if (body.has("dashboard_background_theme")) {
         applyDashboardBackgroundTheme(body.get("dashboard_background_theme"));
+      }
+      if (body.has("metric_set")) {
+        scheduleDashboardReloadAfterSettingsSave();
       }
     } catch (e) {
       console.error(e);

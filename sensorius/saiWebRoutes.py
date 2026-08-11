@@ -84,10 +84,12 @@ except Exception:
 from .saiStats import saiStats
 from .saiHtml import (
     DASHBOARD_BACKGROUND_THEMES,
+    DASHBOARD_METRIC_SETS,
     canonicalize_metric_name,
     extend_gauge_config_for_metrics,
     get_gauge_config,
     normalize_dashboard_background_theme,
+    normalize_dashboard_metric_set,
     render_dashboard,
 )
 from .sensor_modules.station_weewx import (
@@ -689,6 +691,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         payload = {
             "gauge_size": fresh_settings.get_setting("Display", "gauge_size") or "Small",
             "display_style": fresh_settings.get_setting("Display", "display_style") or "Gauge",
+            "metric_set": normalize_dashboard_metric_set(
+                fresh_settings.get_setting("Display", "metric_set", "Pick 6")
+            ),
             "dashboard_background_theme": normalize_dashboard_background_theme(
                 fresh_settings.get_setting("Display", "background_theme", "leaf")
             ),
@@ -2892,6 +2897,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         gaugeSize = str(display_settings.get("gauge_size") or "Small")
         gauge_config = dict(display_settings.get("gauge_config") or {})
         displayStyle = str(display_settings.get("display_style") or "Gauge")
+        dashboardMetricSet = normalize_dashboard_metric_set(display_settings.get("metric_set") or "Pick 6")
+        all_metrics_mode = dashboardMetricSet == "All"
         dashboardBackgroundTheme = normalize_dashboard_background_theme(
             display_settings.get("dashboard_background_theme") or "leaf"
         )
@@ -2925,12 +2932,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 configured_metrics = sensor_mgr.get_display_metrics(sid)
             except Exception:
                 configured_metrics = []
-            try:
-                metric_display_mode = sensor_mgr.get_display_metric_mode(sid)
-            except Exception:
-                metric_display_mode = "Pick 6"
-            all_metrics_mode = metric_display_mode == "All"
-
             metrics = list(configured_metrics or [])
             stored_metrics: list[str] = []
             if all_metrics_mode or not metrics:
@@ -2976,7 +2977,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             sid_text = str(sid or "").strip()
             if (not all_metrics_mode) and _is_weewx_dashboard_sensor(sid_text):
                 metrics = list(configured_metrics or WEEWX_DISPLAY_METRICS)
-            # Keep Pick 6 bounded while allowing the local All mode to render
+            # Keep Pick 6 bounded while allowing the global All mode to render
             # every known gauge-configured metric for the sensor.
             deduped: list[str] = []
             seen = set()
@@ -2999,7 +3000,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             }
             if all_metrics_mode:
                 for idx in range(6, len(deduped)):
-                    style_map[f"METRIC_{idx + 1}"] = "Graph24hr"
+                    style_map[f"METRIC_{idx + 1}"] = displayStyle
             expected_display_style_map[sid] = style_map
         phase_ms["expected_metrics"] = (
             (time.monotonic() - _phase_started) * 1000.0
@@ -4166,8 +4167,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         astral_noon = "--"
         gauge_size = settings.get_setting("Display", "gauge_size", "") or "Small"
         display_style = settings.get_setting("Display", "display_style", "") or "Gauge"
+        metric_set = normalize_dashboard_metric_set(
+            settings.get_setting("Display", "metric_set", "Pick 6")
+        )
         dashboard_background_theme = normalize_dashboard_background_theme(
             settings.get_setting("Display", "background_theme", "leaf")
+        )
+        biodynamic_calendar_theme = normalize_dashboard_background_theme(
+            settings.get_setting("Display", "biodynamic_calendar_theme", "leaf")
         )
         weather_forecast_provider = normalize_weather_forecast_provider(
             settings.get_setting("WeatherForecast", "PROVIDER", "met_no")
@@ -4300,7 +4307,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             tz_options=tz_options,
             gauge_size=gauge_size,
             display_style=display_style,
+            metric_set=metric_set,
             dashboard_background_theme=dashboard_background_theme,
+            biodynamic_calendar_theme=biodynamic_calendar_theme,
             weather_forecast_provider=weather_forecast_provider,
             weather_forecast_theme=weather_forecast_theme,
             weather_forecast_sensor_id=weather_forecast_sensor_id,
@@ -9098,6 +9107,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         raw_astral_location_name = str(form.get("astral_location_name", "") or "").strip()
         gauge_size = str(form.get("gauge_size", "") or "").strip()
         display_style = str(form.get("display_style", "") or "").strip()
+        raw_metric_set = str(
+            form.get("metric_set", settings.get_setting("Display", "metric_set", "Pick 6")) or ""
+        ).strip()
+        if "metric_set" in form and raw_metric_set not in DASHBOARD_METRIC_SETS:
+            return _modal_error_response(request, "Dashboard metric set is not supported.", status_code=400)
+        metric_set = normalize_dashboard_metric_set(raw_metric_set)
         raw_dashboard_background_theme = str(
             form.get(
                 "dashboard_background_theme",
@@ -9108,6 +9123,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if "dashboard_background_theme" in form and raw_dashboard_background_theme not in DASHBOARD_BACKGROUND_THEMES:
             return _modal_error_response(request, "Dashboard background theme is not supported.", status_code=400)
         dashboard_background_theme = normalize_dashboard_background_theme(raw_dashboard_background_theme)
+        raw_biodynamic_calendar_theme = str(
+            form.get(
+                "biodynamic_calendar_theme",
+                settings.get_setting("Display", "biodynamic_calendar_theme", "leaf"),
+            )
+            or ""
+        ).strip().lower().replace("-", "_")
+        if "biodynamic_calendar_theme" in form and raw_biodynamic_calendar_theme not in DASHBOARD_BACKGROUND_THEMES:
+            return _modal_error_response(request, "Biodynamic Calendar theme is not supported.", status_code=400)
+        biodynamic_calendar_theme = normalize_dashboard_background_theme(raw_biodynamic_calendar_theme)
         raw_weather_forecast_provider = str(
             form.get(
                 "weather_forecast_provider",
@@ -9296,8 +9321,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             settings.replace_setting("Display", "gauge_size", gauge_size)
         if "display_style" in form:
             settings.replace_setting("Display", "display_style", display_style)
+        if "metric_set" in form:
+            settings.replace_setting("Display", "metric_set", metric_set)
         if "dashboard_background_theme" in form:
             settings.replace_setting("Display", "background_theme", dashboard_background_theme)
+        if "biodynamic_calendar_theme" in form:
+            settings.replace_setting("Display", "biodynamic_calendar_theme", biodynamic_calendar_theme)
         if "weather_forecast_provider" in form:
             settings.replace_setting("WeatherForecast", "PROVIDER", weather_forecast_provider)
         if "weather_forecast_theme" in form:
@@ -10971,7 +11000,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             display_style_options = ["Gauge", "Graph6hr", "Graph24hr"]
             current_metric_styles = manager.get_display_styles(normalized_id, default_style="Gauge")
-            current_metric_display_mode = manager.get_display_metric_mode(normalized_id)
 
             # location
             sensor_section = settings_dict.get("Sensor", {}) or {}
@@ -11090,7 +11118,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 current_metrics=current_metrics,
                 display_style_options=display_style_options,
                 current_metric_styles=current_metric_styles,
-                current_metric_display_mode=current_metric_display_mode,
                 location=location,
                 device_kind=device_kind,
                 device_label=device_label,
@@ -11350,12 +11377,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             display_updates["Display"]["Style"] = {
                 f"METRIC_{i}": metric_style_list[i - 1] for i in range(1, 7)
             }
-        if "metric_display_mode" in form:
-            display_updates.setdefault("Display", {})
-            display_updates["Display"][manager.DISPLAY_METRIC_MODE_KEY] = manager.normalize_display_metric_mode(
-                form.get("metric_display_mode")
-            )
-
         # Deep-merge the changes into the existing doc
         merged_doc = deep_merge_ordered(OrderedDict(existing_doc), sensor_updates)
         if display_updates:

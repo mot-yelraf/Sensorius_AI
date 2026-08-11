@@ -9,6 +9,31 @@ body {
   background-attachment: fixed;
 }
 
+body.biodynamic-theme-leaf {
+  background-color: #dff5e8;
+  background-image: url("/ui_static/leaf-pattern.svg");
+}
+
+body.biodynamic-theme-garden-tools {
+  background-color: #ead8c2;
+  background-image: url("/ui_static/garden-tools-pattern.svg");
+}
+
+body.biodynamic-theme-herbarium {
+  background-color: #f8dcc4;
+  background-image: url("/ui_static/herbarium-pattern.svg");
+}
+
+body.biodynamic-theme-pollinator {
+  background-color: #dceffc;
+  background-image: url("/ui_static/pollinator-pattern.svg");
+}
+
+body.biodynamic-theme-white {
+  background-color: #fff;
+  background-image: none;
+}
+
 .page {
   --layout-gap: 16px;
   --top-left-col: minmax(320px, 1fr);

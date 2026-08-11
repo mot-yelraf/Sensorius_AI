@@ -85,4 +85,6 @@ RULES_JSON = "[]"
 [Display]
 gauge_size = "Small"
 display_style = "Gauge"
+metric_set = "Pick 6"
 background_theme = "leaf"
+biodynamic_calendar_theme = "leaf"

@@ -429,11 +429,14 @@ def test_dashboard_button_launches_full_screen_weather_app():
 
 
 def test_dashboard_background_theme_normalization():
-    from sensorius.saiHtml import normalize_dashboard_background_theme
+    from sensorius.saiHtml import normalize_dashboard_background_theme, normalize_dashboard_metric_set
 
     assert normalize_dashboard_background_theme("garden-tools") == "garden_tools"
     assert normalize_dashboard_background_theme("pollinator") == "pollinator"
     assert normalize_dashboard_background_theme("unsupported") == "leaf"
+    assert normalize_dashboard_metric_set("All") == "All"
+    assert normalize_dashboard_metric_set("show-all") == "All"
+    assert normalize_dashboard_metric_set("unsupported") == "Pick 6"
 
 
 def test_dashboard_reuses_detailed_forecast_moon_surface_and_selectable_backgrounds():

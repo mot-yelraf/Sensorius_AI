@@ -37,6 +37,7 @@ MODULE = "saiBiodynamicCalendarApp"
 DEBUG = debug_enabled(MODULE)
 _MAX_CACHE_ENTRIES = 120
 _REGISTERED_SERVICE: "BiodynamicCalendarService | None" = None
+_BIODYNAMIC_CALENDAR_THEMES = frozenset({"leaf", "garden_tools", "herbarium", "pollinator", "white"})
 
 
 def get_registered_biodynamic_calendar_service() -> "BiodynamicCalendarService | None":
@@ -69,6 +70,11 @@ def _shift_month(anchor: date, offset: int) -> date:
     month_index = (anchor.year * 12) + (anchor.month - 1) + int(offset)
     year, month_zero = divmod(month_index, 12)
     return date(year, month_zero + 1, 1)
+
+
+def _normalize_biodynamic_calendar_theme(value: object) -> str:
+    theme = str(value or "").strip().lower().replace("-", "_")
+    return theme if theme in _BIODYNAMIC_CALENDAR_THEMES else "leaf"
 
 
 def _cache_digest(value: object) -> str:
@@ -519,6 +525,9 @@ def register_biodynamic_calendar_routes(
     async def calendar_page(request: Request):
         await service.ensure_legacy_import()
         config, _location = await asyncio.to_thread(service.location)
+        biodynamic_calendar_theme = _normalize_biodynamic_calendar_theme(
+            settings.get_setting("Display", "biodynamic_calendar_theme", "leaf")
+        )
         return app.state.templates.TemplateResponse(
             request,
             "biodynamic_calendar/index.html",
@@ -527,6 +536,7 @@ def register_biodynamic_calendar_routes(
                 "plantings": await asyncio.to_thread(data_logger.get_biodynamic_plantings),
                 "app_version": SAI_APP_VERSION,
                 "sensorius_launch": True,
+                "biodynamic_calendar_theme": biodynamic_calendar_theme,
                 "runtime_instance_id": str(getattr(request.app.state, "ui_runtime_instance_id", "") or ""),
             },
         )

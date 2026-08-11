@@ -19,6 +19,14 @@ import sensorius.saiBiodynamicCalendarApp as calendar_app
 
 
 class _Settings:
+    def __init__(self, biodynamic_calendar_theme: str = "leaf"):
+        self.biodynamic_calendar_theme = biodynamic_calendar_theme
+
+    def get_setting(self, section, key, default=None):
+        if section == "Display" and key == "biodynamic_calendar_theme":
+            return self.biodynamic_calendar_theme
+        return default
+
     def resolve_astral_location(self, **_kwargs):
         return {
             "lat": 39.7392,
@@ -139,7 +147,19 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     assert "body {\n  margin: 0;\n  font-family:" in stylesheet
     assert "background: #dff5e8;" in stylesheet
     assert 'background-image: url("/ui_static/leaf-pattern.svg");' in stylesheet
-    assert (root / "ui_static" / "leaf-pattern.svg").is_file()
+    for theme, color, asset in (
+        ("leaf", "#dff5e8", "leaf-pattern.svg"),
+        ("garden-tools", "#ead8c2", "garden-tools-pattern.svg"),
+        ("herbarium", "#f8dcc4", "herbarium-pattern.svg"),
+        ("pollinator", "#dceffc", "pollinator-pattern.svg"),
+    ):
+        assert f"body.biodynamic-theme-{theme} {{" in stylesheet
+        assert f"background-color: {color};" in stylesheet
+        assert f'background-image: url("/ui_static/{asset}");' in stylesheet
+        assert (root / "ui_static" / asset).is_file()
+    assert "body.biodynamic-theme-white {" in stylesheet
+    assert "background-image: none;" in stylesheet
+    assert "biodynamic-theme-{{ biodynamic_calendar_theme" in template
     assert "radial-gradient(circle at top left" not in stylesheet
     assert "/ui_static/biodynamic_calendar/app.js" in template
     assert "/api/biodynamic-calendar-app/calendar" in javascript
@@ -302,7 +322,7 @@ async def test_integrated_calendar_page_and_month_api_render(monkeypatch):
     service = calendar_app.register_biodynamic_calendar_routes(
         router,
         app=app,
-        settings=_Settings(),
+        settings=_Settings("garden_tools"),
         data_logger=_Logger(),
     )
     service._legacy_import_done = True
@@ -314,6 +334,7 @@ async def test_integrated_calendar_page_and_month_api_render(monkeypatch):
 
     assert page.status_code == 200
     assert '<a class="dashboard-return" id="dashboardReturn" href="/"' in page.text
+    assert '<body class="sensorius-launch biodynamic-theme-garden-tools"' in page.text
     assert '<span class="dashboard-return-label">Dashboard</span>' in page.text
     assert '/ui_static/biodynamic_calendar/bd-calendar-icon-512.svg' in page.text
     assert "Back to Sensorius" not in page.text

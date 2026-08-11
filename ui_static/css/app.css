@@ -761,13 +761,6 @@ canvas{
   padding-top:.75rem;
   padding-bottom:.85rem;
 }
-#sensorSettingsForm .display-metrics-mode-row{
-  margin-bottom:.4rem;
-}
-#sensorSettingsForm .display-metrics-mode-row > div:nth-child(2){
-  justify-self:center;
-  width:min(18rem, 100%);
-}
 #sensorSettingsForm .display-metrics-row{
   column-gap:1rem;
 }
@@ -779,8 +772,7 @@ canvas{
   flex-direction:column;
   min-width:0;
 }
-#sensorSettingsForm .metric-slot label,
-#sensorSettingsForm .display-metrics-mode-row label{
+#sensorSettingsForm .metric-slot label{
   margin-bottom:.25rem;
   text-align:center;
 }
