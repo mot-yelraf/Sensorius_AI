@@ -1846,7 +1846,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ".sun-moon-29-overlay{position:absolute;left:0;right:0;top:0;z-index:30;display:none;box-sizing:border-box;}"
     yield ".dash-top-row.sun-moon-expanded .sun-moon-29-overlay{display:block;}"
     yield ".sun-moon-29-card{width:100%;min-height:176px;cursor:pointer;box-shadow:0 4px 16px rgba(39,49,58,.24);}"
-    yield ".sun-moon-29-close{position:absolute;top:.42rem;right:.52rem;z-index:4;width:1.8rem;height:1.8rem;padding:0;border:1px solid #9d9278;border-radius:5px;background:rgba(255,255,224,.92);color:#27313a;font-size:1.2rem;line-height:1;cursor:pointer;}"
+    yield ".sun-moon-29-close{position:absolute;top:.2rem;right:.35rem;z-index:4;width:1.2rem;height:1.2rem;padding:0;border:1px solid #9d9278;border-radius:4px;background:rgba(255,255,224,.92);color:#27313a;font-size:.85rem;line-height:1;cursor:pointer;}"
     yield ".sun-moon-29-close:hover,.sun-moon-29-close:focus-visible{background:#fff;outline:2px solid #27313a;outline-offset:1px;}"
     yield ".sun-moon-29-card .dashboard-card-spinner{right:2.85rem;}"
     yield ".sun-moon-29-inner{width:100%;min-width:0;align-items:stretch;box-sizing:border-box;}"

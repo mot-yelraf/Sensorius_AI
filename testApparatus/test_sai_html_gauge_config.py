@@ -675,7 +675,7 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "id='sunMoon29Canvas'" in html
     assert "29 Day Sun/Moon Position" in html
     assert "id='sunMoon29Close' aria-label='Close 29 Day Sun/Moon Position'" in html
-    assert ".sun-moon-29-close{position:absolute;top:.42rem;right:.52rem;" in html
+    assert ".sun-moon-29-close{position:absolute;top:.2rem;right:.35rem;z-index:4;width:1.2rem;height:1.2rem;" in html
     assert ".sun-moon-29-card .dashboard-card-spinner{right:2.85rem;}" in html
     assert "function drawSunMoon29Day(data)" in html
     assert "function makeSmoothSkyYMapper(yBase, topY, bottomY, maxElev, minElev)" in html
