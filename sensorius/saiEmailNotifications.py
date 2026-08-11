@@ -204,6 +204,7 @@ def normalize_notification_rules(raw: Any) -> list[dict[str, Any]]:
 
 
 def parse_notification_rules(raw: Any) -> list[NotificationRule]:
+    """Parse normalized settings into typed notification rules."""
     return [
         NotificationRule(
             rule_id=item["id"],

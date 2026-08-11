@@ -1,4 +1,9 @@
-"""Native full-screen weather forecast application for Sensorius."""
+"""Launch the native full-screen Caelus weather forecast application.
+
+The launcher manages window sizing, navigation, and lifecycle behavior around
+the locally served forecast page without owning forecast retrieval itself.
+"""
+
 from __future__ import annotations
 
 import asyncio

@@ -1,4 +1,8 @@
-"""Validation and normalization for persisted calendar application data."""
+"""Validate and normalize persisted calendar application data.
+
+These helpers constrain notes and settings to the schemas expected by storage
+and route code while providing safe defaults for older or partial records.
+"""
 
 from __future__ import annotations
 
@@ -160,4 +164,3 @@ def _valid_altitude(value: object) -> float | None:
     if altitude is None:
         return None
     return altitude if -500.0 <= altitude <= 10000.0 else None
-

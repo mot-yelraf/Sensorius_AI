@@ -1,4 +1,8 @@
-"""Unit coverage for the Web UI profiler helper code."""
+"""Cover the Web UI profiler helper code.
+
+The tests validate metric collection and report helpers independently from a
+long-running browser profiling session.
+"""
 
 from __future__ import annotations
 

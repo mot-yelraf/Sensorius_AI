@@ -1,4 +1,8 @@
-"""Tests for the long-running Web UI metric probe helpers."""
+"""Test the long-running Web UI metric probe helpers.
+
+The cases validate sampling and reporting logic separately from the optional
+interactive profiling workflow.
+"""
 
 from __future__ import annotations
 

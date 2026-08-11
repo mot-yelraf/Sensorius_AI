@@ -1,4 +1,8 @@
-"""Cross-platform single-instance lock for a Sensorius HTTP endpoint."""
+"""Enforce a cross-platform single-instance lock for a Sensorius endpoint.
+
+Lock metadata identifies the owning process and HTTP address so startup can
+distinguish an active peer from a stale lock file and recover safely.
+"""
 
 from __future__ import annotations
 

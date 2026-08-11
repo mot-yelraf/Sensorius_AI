@@ -12,6 +12,8 @@ MODULE = "VPDSensor"
 DEBUG = debug_enabled("saiSensorFactory")
 
 class VPDSensor(BaseSensor):
+    """Read BME280 conditions and calculate vapor-pressure deficit metrics."""
+
     def __init__(self, settings, supervisor, i2c_0=None):
         super().__init__(settings, supervisor)
         from adafruit_bme280.advanced import Adafruit_BME280_I2C, IIR_FILTER_X4

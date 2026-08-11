@@ -1,4 +1,8 @@
-"""Ecowitt LAN payload normalization and inventory compatibility tests."""
+"""Test Ecowitt LAN payload normalization and inventory compatibility.
+
+Representative gateway responses protect canonical units, metric names,
+channel identities, and filtering of unusable sensor records.
+"""
 
 from __future__ import annotations
 

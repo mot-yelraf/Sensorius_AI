@@ -1,4 +1,8 @@
-"""Focused coverage for biodynamic payload disk caching."""
+"""Cover biodynamic payload disk caching.
+
+The tests exercise cache reuse, invalidation, and persistence boundaries for
+calendar payloads without relying on a live application process.
+"""
 
 from __future__ import annotations
 

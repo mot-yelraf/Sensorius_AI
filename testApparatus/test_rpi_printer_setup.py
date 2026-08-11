@@ -1,4 +1,8 @@
-"""Focused checks for the Raspberry Pi driverless-printer deployment helper."""
+"""Check the Raspberry Pi driverless-printer deployment helper.
+
+Source and command assertions preserve safe setup behavior without modifying
+the host's printing services during the test suite.
+"""
 
 import os
 import stat

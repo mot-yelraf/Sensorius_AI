@@ -1,4 +1,8 @@
-"""Focused coverage for the full-screen integrated Weather Forecast."""
+"""Cover the full-screen integrated Caelus Weather Forecast.
+
+The tests verify forecast providers, astronomy context, templates, themes, and
+dashboard integration without depending on live weather services.
+"""
 from __future__ import annotations
 
 import asyncio

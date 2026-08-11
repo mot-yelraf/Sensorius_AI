@@ -1,4 +1,8 @@
-"""Normalize Ecowitt LAN HTTP payloads into Sensorius station metrics."""
+"""Normalize Ecowitt LAN HTTP payloads into Sensorius station metrics.
+
+The helpers preserve stable metric names, units, gauge definitions, sensor
+identities, and rain-source settings for dashboard and persistence consumers.
+"""
 
 from __future__ import annotations
 

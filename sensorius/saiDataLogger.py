@@ -137,6 +137,8 @@ def _channel_id_from_switch_key(switch_key: str, switch_id: str = "", label: str
     return suffix
 
 class saiDataLogger:
+    """Persist sensor readings, switch events, and calendar data in SQLite."""
+
     _init_lock = threading.RLock()
     _schema_ready = False
     _recovery_lock = threading.RLock()

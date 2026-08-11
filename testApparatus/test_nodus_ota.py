@@ -1,4 +1,8 @@
-"""Focused tests for Sensorius-side Nodus OTA package handling."""
+"""Test Sensorius-side Nodus OTA package handling.
+
+The cases protect package discovery, validation, and job behavior without
+performing firmware changes on a physical Nodus device.
+"""
 
 from __future__ import annotations
 

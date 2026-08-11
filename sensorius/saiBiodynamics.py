@@ -408,6 +408,7 @@ def _resolve_location() -> tuple[float | None, float | None, str, float | None]:
 
 
 def get_biodynamic_local_now() -> datetime:
+    """Return the current time in the resolved Astral timezone."""
     _lat, _lon, tz_name, _altitude = _resolve_location()
     try:
         tzinfo = ZoneInfo(str(tz_name or "").strip() or "America/Denver")
@@ -935,6 +936,7 @@ def _build_calendar(
 
 
 def get_biodynamic_payload(target_date: date | None = None) -> dict[str, object]:
+    """Build the legacy-compatible biodynamic payload for a target month."""
     month_anchor = target_date or get_biodynamic_local_now().date()
     payload = _empty_payload(month_anchor)
     payload["ephemeris"] = _ephemeris_status()

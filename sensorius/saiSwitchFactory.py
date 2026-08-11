@@ -80,6 +80,7 @@ def _template_name_for_en_bcm(en_bcm: int) -> str:
 
 
 class OneRelaySwitch:   
+    """Control and detect one directly connected relay channel."""
 
     def __init__(self, settings=None, controlPin=None, detectPin=None, reverse_logic=False, name=None, index=1):
         self.switch_index = index
@@ -223,6 +224,8 @@ def ensure_switch_settings_for_host(host_switch_id: str, switch_loc: str | None 
 # --- GPIO (Pi) implementation -------------------------------------------
 
 class LocalGPIOSwitch:
+    """Control a detected Raspberry Pi GPIO relay board."""
+
     def __init__(self, settings: dict, _persist_detection: bool = True):
         self.settings = settings or {}
         sw = self.settings.get("Switch", {}) or {}
@@ -549,6 +552,7 @@ class MQTTSwitch:
 # --- factory -------------------------------------------------------------
 
 def create_switch(settings=None, mqtt_client=None):
+    """Create a local GPIO or MQTT switch implementation from settings."""
     sw = (settings or {}).get("Switch", {}) or {}
     typ = str(sw.get("TYPE", "pi")).strip().lower()
     if typ in ("picow", "pico2w", "nodus", "remote", "mqtt"):
@@ -558,6 +562,7 @@ def create_switch(settings=None, mqtt_client=None):
 
 # Back-compat helper (pure probe; no persistence)
 def detect_relay_board():
+    """Probe for a supported local relay board without persisting settings."""
     try:
         # Build a probe-only instance that won't write to disk
         inst = LocalGPIOSwitch({"Switch": {"SWITCH_DEVICE_ID": "__probe__"}}, _persist_detection=False)

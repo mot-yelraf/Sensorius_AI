@@ -1,4 +1,8 @@
-"""Integrated Biodynamic Calendar routes, persistence, and background warming."""
+"""Serve integrated Biodynamic Calendar routes and persistence workflows.
+
+The module coordinates calendar rendering, note storage, payload caching, and
+background warming for the main Sensorius process.
+"""
 
 from __future__ import annotations
 
@@ -73,6 +77,7 @@ def _cache_digest(value: object) -> str:
 
 
 class NoteRequest(BaseModel):
+    """Validate a request to create or replace a dated calendar note."""
     model_config = ConfigDict(extra="forbid")
 
     day: date = Field(alias="date")
@@ -80,6 +85,7 @@ class NoteRequest(BaseModel):
 
 
 class PlantingRequest(BaseModel):
+    """Validate and normalize a calendar planting request payload."""
     model_config = ConfigDict(extra="forbid")
 
     id: Any = None

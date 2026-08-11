@@ -1,4 +1,8 @@
-"""Focused tests for dashboard gauge metadata."""
+"""Test dashboard gauge metadata and generated markup.
+
+The assertions protect configured metric presentation and related JavaScript
+contracts emitted by the server-side dashboard renderer.
+"""
 
 from __future__ import annotations
 

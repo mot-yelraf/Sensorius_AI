@@ -35,6 +35,8 @@ DEBUG = debug_enabled(MODULE)
 DEFAULT_MAX_SETTINGS_FILE_BYTES = 1024 * 1024
 
 class saiSettings:
+    """Load, migrate, cache, and atomically persist system settings."""
+
     # ---- class-level cache (path -> settings / mtime) ----
     _cache_by_path: dict[str, OrderedDict] = {}
     _mtime_by_path: dict[str, float | None] = {}

@@ -93,6 +93,7 @@ def canonicalize_metric_name(metric: str, gauge_config: dict | None = None) -> s
     return name
 
 def get_gauge_config():
+    """Return dashboard gauge definitions keyed by canonical metric name."""
     gauge_config = {
         "Air Quality": {"unit": "AQI", "min": 0, "max": 500, "ticks": [0, 50, 100, 150, 200, 300, 400, 500], "zones": [{"strokeStyle": "#66cc66", "min": 0, "max": 50}, {"strokeStyle": "#ffcc00", "min": 50, "max": 100}, {"strokeStyle": "#ffa500", "min": 100, "max": 150}, {"strokeStyle": "#ff0000", "min": 150, "max": 200}, {"strokeStyle": "#800080", "min": 200, "max": 300}, {"strokeStyle": "#800000", "min": 300, "max": 500}]},
         "Gas": {"unit": "Ω", "min": 500, "max": 2000500, "ticks": [500, 500500, 1000500, 1500500, 2000500], "zones": [{"strokeStyle": "#f3d2fc", "min": 500, "max": 2000500}]},
@@ -177,6 +178,7 @@ def normalize_dashboard_background_theme(value: object) -> str:
 
 
 def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="garden", dashboard_background_theme="leaf"):
+    """Yield the complete Sensorius dashboard HTML document."""
 
     import json
     import os
@@ -7620,6 +7622,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "</body></html>"
 
 def core_helpers_html() -> str:
+    """Return shared dashboard styles and client-side helper scripts."""
     # styles sit OUTSIDE <script> to avoid parser issues
     return (
         "<style>"
@@ -7698,6 +7701,7 @@ def core_helpers_html() -> str:
     )
 
 def render_graph_modal(switch_installed=None):
+    """Yield the graph and switch-event modal markup and scripts."""
     # Read tz offset/name from system settings for client display/normalization
     try:
         from .saiSettings import saiSettings

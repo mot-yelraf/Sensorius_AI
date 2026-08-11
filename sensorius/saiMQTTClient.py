@@ -29,6 +29,8 @@ HEARTBEAT_STATUS_OFFLINE = "offline"
 HEARTBEAT_STATUS_UNKNOWN = "unknown"
 
 class saiMQTTClient:
+    """Publish local sensor readings and heartbeat state over MQTT."""
+
     def __init__(self, sensor, settings, supervisor=None):
         self.sensor = sensor
         self.settings = settings
@@ -441,11 +443,13 @@ _global_mqtt_clients = {}
 _global_primary_mqtt_client = None
 
 def get_mqtt_client(sensor_id):
+    """Return the registered MQTT client for a sensor or the primary client."""
     global _global_mqtt_clients
     global _global_primary_mqtt_client
     return _global_mqtt_clients.get(sensor_id) or _global_primary_mqtt_client
 
 def set_mqtt_client(sensor_id, client):
+    """Register a sensor MQTT client and initialize the primary client."""
     global _global_mqtt_clients
     global _global_primary_mqtt_client
     _global_mqtt_clients[sensor_id] = client
@@ -453,6 +457,7 @@ def set_mqtt_client(sensor_id, client):
         _global_primary_mqtt_client = client
     
 def get_all_mqtt_clients():
+    """Return registered MQTT client instances without duplicates."""
     seen = set()
     unique = []
     for c in _global_mqtt_clients.values():

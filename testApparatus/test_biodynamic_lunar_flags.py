@@ -1,4 +1,8 @@
-"""Focused coverage for biodynamic lunar timing flags."""
+"""Cover biodynamic lunar timing flags.
+
+The cases protect the observer-local timing and classification behavior used
+when biodynamic payloads identify lunar events.
+"""
 
 from __future__ import annotations
 

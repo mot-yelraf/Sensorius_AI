@@ -1,4 +1,8 @@
-"""Pytest runtime-state isolation for Sensorius tests."""
+"""Isolate Sensorius runtime state during pytest sessions.
+
+Shared fixtures redirect writable settings and related process state so tests
+do not inspect or modify a developer's live Sensorius installation.
+"""
 
 from __future__ import annotations
 

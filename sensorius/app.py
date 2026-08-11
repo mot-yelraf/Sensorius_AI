@@ -185,6 +185,7 @@ async def ensure_local_sensor_configs(settings) -> list[str]:
     return updated_ids
     
 async def build_sensor_controllers(sensor_ids, supervisor, gc_mgr, data_logger):
+    """Build local sensor controllers for configured non-remote sensors."""
     sensor_mgr = SensorSettingsManager("sensor_settings")
     sensors = []
     for sid in sensor_ids:
@@ -210,6 +211,7 @@ async def build_sensor_controllers(sensor_ids, supervisor, gc_mgr, data_logger):
     return sensors
 
 async def build_switch_controllers(sensors, supervisor, data_logger):
+    """Build configured local and remote switch controllers."""
     switch_controllers = {}
 
     from .saiSwitchSettingsManager import SwitchSettingsManager
@@ -350,6 +352,7 @@ def seed_switch_state_history_once(data_logger, switch_controllers):
         printDM(f"[seed_switch_state_history_once] failed: {e}", location="Sensorius")
         
 async def configure_mqtt_clients(sensors, settings, supervisor):
+    """Create and register outbound MQTT clients for local sensors."""
     clients = []
     for sensor in sensors:
         client = saiMQTTClient(sensor, settings)
@@ -361,6 +364,7 @@ async def configure_mqtt_clients(sensors, settings, supervisor):
     return clients
 
 async def ensure_mqtt_ready(client, retries=3):
+    """Reconnect an MQTT client until it is ready or retries are exhausted."""
     for _ in range(retries):
         await client.mqtt_reconnect()
         if await client.ensure_connected():
@@ -409,6 +413,7 @@ async def bootstrap_astral_auto_location(settings, *, attempts: int = 1, initial
 
 # Sensorius main
 async def main():
+    """Initialize the Sensorius runtime and return its task supervisor."""
     printDM(f"Sensorius startup... version={__version__}", location=f"{MODULE}:main")
 
     supervisor = TaskSupervisor()
@@ -707,6 +712,7 @@ async def main():
     return supervisor
 
 def run_main_thread():
+    """Run the asynchronous Sensorius runtime from the process main thread."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:

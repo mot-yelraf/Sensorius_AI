@@ -1,4 +1,8 @@
-"""Focused coverage for the System Settings Advanced pane layout."""
+"""Cover the System Settings Advanced pane layout.
+
+Template assertions protect control grouping and navigation order without
+requiring an interactive browser session.
+"""
 
 from pathlib import Path
 

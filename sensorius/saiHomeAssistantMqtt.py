@@ -19,10 +19,13 @@ DEBUG = debug_enabled(MODULE)
 
 # module helpers
 def slugify(text: str) -> str:
+    """Normalize display text for use in Home Assistant object IDs."""
     return (text or "").strip().lower().replace(" ", "_")
 
 @dataclass(frozen=True)
 class HomeAssistantTopicMap:
+    """Build stable Home Assistant state, command, and discovery topics."""
+
     node_id: str
     base_topic: str = "sensorius"
     discovery_prefix: str = "homeassistant"
@@ -54,6 +57,8 @@ class HomeAssistantTopicMap:
         return f"{self.discovery_prefix}/switch/{self.node_id}/{object_id}/config"
 
 class rPiHomeAssistantBridge:
+    """Publish Home Assistant discovery and bridge sensor and switch state."""
+
     def __init__(
         self,
         *,
@@ -773,6 +778,7 @@ def canonical_metric_name_for_ha(metric_name: str) -> str:
     return name
 
 def metric_meta_for_metric(metric_name: str) -> dict:
+    """Return Home Assistant metadata for a canonical or dynamic metric."""
     direct = dict(METRIC_META.get(canonical_metric_name_for_ha(metric_name), {}))
     if direct:
         return direct
@@ -862,6 +868,7 @@ def ha_value_template_for_metric(
     return tmpl
 
 def build_ha_device_block(*, identifiers: list[str], name: str, model: str = "Sensorius", manufacturer: str = "Sensorius", sw_version: str | None = None) -> dict:
+    """Build a shared Home Assistant discovery device block."""
     device = {
         "identifiers": identifiers,
         "name": name,
@@ -981,6 +988,7 @@ def build_switch_channel_discovery_payload(
     return discovery_topic, payload
 
 def build_sensor_state_payload(*, ts_epoch: float, values_by_metric_name: dict) -> dict:
+    """Build a timestamped Home Assistant sensor state payload."""
     # Keep your current metric names as keys; HA templates depend on exact match.
     payload = {"ts": ts_epoch}
     payload.update(values_by_metric_name)

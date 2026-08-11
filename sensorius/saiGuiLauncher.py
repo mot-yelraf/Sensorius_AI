@@ -63,6 +63,7 @@ def _wait_for_health(base_url: str) -> bool:
 
 
 def main() -> int:
+    """Launch the platform webview for the configured Sensorius endpoint."""
     base_url = _base_url()
     os.environ.setdefault("WEBKIT_DISABLE_COMPOSITING_MODE", "1")
 

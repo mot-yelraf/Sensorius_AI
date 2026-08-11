@@ -17,6 +17,8 @@ RETURN_RESTART_DELAY_SEC = 1.0
 FEED_LOG_MIN_INTERVAL_SEC = 10.0
 
 class TaskSupervisor:
+    """Run, restart, stop, and monitor registered asynchronous tasks."""
+
     def __init__(self):
         self.paused = False
         self.tasks = []

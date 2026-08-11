@@ -1,4 +1,8 @@
-"""Focused coverage for database-backed dashboard metric trends."""
+"""Cover database-backed dashboard metric trends.
+
+The tests exercise historical aggregation and response shaping against
+controlled readings so dashboard trends remain stable.
+"""
 
 from __future__ import annotations
 

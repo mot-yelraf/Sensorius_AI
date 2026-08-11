@@ -27,6 +27,8 @@ DEBUG = debug_enabled(MODULE)
 
 
 class FastStats:
+    """Broadcast lightweight live statistics to connected WebSocket clients."""
+
     def __init__(self, datalogger, statter, hz=1.0, send_timeout_s=0.75):
         if hz <= 0:
             raise ValueError("FastStats hz must be > 0")

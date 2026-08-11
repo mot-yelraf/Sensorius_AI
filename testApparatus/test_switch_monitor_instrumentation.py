@@ -1,4 +1,8 @@
-"""Keep operator-visible switch-monitor startup instrumentation intact."""
+"""Keep switch-monitor startup instrumentation intact.
+
+Source-level assertions preserve the lightweight diagnostics operators rely on
+when switch monitoring starts or fails.
+"""
 
 from pathlib import Path
 

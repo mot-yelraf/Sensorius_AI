@@ -1,4 +1,8 @@
-"""Focused coverage for the Sensorius single-instance process lock."""
+"""Cover the Sensorius single-instance process lock.
+
+Temporary lock files and controlled process metadata exercise ownership,
+stale-lock recovery, and endpoint conflict handling safely.
+"""
 
 import sensorius.app as sensorius_app
 

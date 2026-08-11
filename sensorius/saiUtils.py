@@ -376,6 +376,7 @@ def configure_logging(
     return logging.getLogger("saiUtils")
 
 async def supervised_task(name, coro_func, supervisor):
+    """Run a coroutine and report cancellation or failure to its supervisor."""
     try:
         await coro_func()
     except asyncio.CancelledError:
@@ -389,10 +390,12 @@ async def supervised_task(name, coro_func, supervisor):
             supervisor.feedthedogs(name, error=True)
 
 def debug_enabled(module_name: str) -> bool:
+    """Return a dynamic flag reflecting whether module debugging is enabled."""
     return _DynamicDebugFlag(module_name)
 
 
 def printDM(msg, location="", level: str = "debug"):
+    """Write an operator message through the shared Sensorius logger."""
     if not location:
         try:
             # Auto-attach origin for callsites that omit location.
@@ -408,6 +411,7 @@ def printDM(msg, location="", level: str = "debug"):
     log_method(log_info)
 
 def html_escape(text):
+    """Escape an arbitrary value for safe insertion into HTML text."""
     # Be tolerant: accept int/float/None/etc.
     if text is None:
         text = ""
@@ -420,6 +424,7 @@ def html_escape(text):
                 .replace("'", "&#39;"))
     
 def normalize_sensor_id(sensor_id):
+    """Normalize a sensor identity to lowercase hyphenated form."""
     return sensor_id.lower().replace("_", "-")
 
 def normalize_hostname_base(name: str | None) -> str:
@@ -529,6 +534,7 @@ def get_time_settings():
 
 # tools/loop_lag_monitor.py
 async def loop_lag_monitor(name="loop_lag", period=0.5, warn_over=1.25, min_log_interval=10.0):
+    """Monitor event-loop scheduling drift and log sustained lag."""
     last = time.perf_counter()
     last_log = 0.0
     last_logged_drift = 0.0
@@ -770,6 +776,8 @@ def get_pi_network_info(interface: str = "wlan0", force_refresh: bool = False) -
         return cache["data"] or soft
 
 class SettingsWrapper:
+    """Provide section-oriented access to an in-memory settings mapping."""
+
     def __init__(self, data):
         self.settings = data  # this is an OrderedDict
         

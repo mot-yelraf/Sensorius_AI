@@ -22,10 +22,12 @@ _SERIAL_ALPHABET = string.ascii_lowercase + string.digits
 
 
 def generate_host_serial(length: int = 6) -> str:
+    """Generate a random lowercase alphanumeric local-host serial."""
     return "".join(secrets.choice(_SERIAL_ALPHABET) for _ in range(max(1, int(length))))
 
 
 def is_placeholder_channel_id(value: str | None, *, channel_index: int | None = None) -> bool:
+    """Return whether a channel ID is empty or still a generated placeholder."""
     text = str(value or "").strip()
     if not text:
         return True
@@ -35,10 +37,12 @@ def is_placeholder_channel_id(value: str | None, *, channel_index: int | None = 
 
 
 def make_channel_id(channel_index: int, suffix: str) -> str:
+    """Build the canonical physical switch channel ID."""
     return f"S{int(channel_index)}-{str(suffix or '').strip()}"
 
 
 def extract_local_host_id_from_sensor_id(sensor_id: str | None) -> str | None:
+    """Extract a local host identity from a bus-qualified sensor ID."""
     text = str(sensor_id or "").strip()
     if not text:
         return None

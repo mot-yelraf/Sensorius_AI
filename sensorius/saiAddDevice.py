@@ -87,6 +87,7 @@ def _switch_settings_base_dir() -> Path:
 
 
 def get_hub_settings_path() -> str:
+    """Return the active hub settings file path."""
     return str(_system_settings_base_dir() / PI_HOSTNAME / _SYS_STD_FILENAME)
 
 
@@ -138,6 +139,7 @@ def _canonical_sensor_filename(incoming_name: str) -> str:
     return _SENSOR_STD_FILENAME
 
 def run_nmcli(cmd_list: list[str]) -> bool:
+    """Run an nmcli command and report whether it succeeded."""
     try:
         subprocess.run(["nmcli"] + cmd_list, check=True)
         return True
@@ -642,6 +644,7 @@ def _require_24ghz_or_abort() -> tuple[bool, str]:
     
 # ---------- Wi-Fi helpers (sync; use via asyncio.to_thread) ----------
 def connect_to_ap(ssid: str, password: str, max_retries: int = 3) -> bool:
+    """Connect the host to a Wi-Fi access point with bounded retries."""
     sys_name = _current_platform()
     iface = _wifi_interface_name()
 
@@ -679,6 +682,7 @@ def _is_placeholder_psk(psk: str) -> bool:
     )
 
 def resolve_pi_wifi_credentials() -> Tuple[str, str]:
+    """Resolve the Raspberry Pi network credentials used after onboarding."""
     def _strip_label(line: str) -> str:
         if not isinstance(line, str):
             return ""
@@ -763,12 +767,14 @@ def resolve_pi_wifi_credentials() -> Tuple[str, str]:
     return ssid, psk
 
 def reconnect_to_pi(max_attempts: int = 3, delay_sec: float = 3.0) -> tuple[bool, str]:
+    """Reconnect to the previously resolved Raspberry Pi network."""
     current_info = get_pi_network_info()
     ssid_saved   = (current_info.get("ssid", "") or "").strip()
     psk_saved    = current_info.get("password", "") or ""
     return reconnect_to_network(ssid_saved, psk_saved, max_attempts=max_attempts, delay_sec=delay_sec)
 
 def reconnect_to_network(ssid: str, password: str = "", max_attempts: int = 3, delay_sec: float = 3.0) -> tuple[bool, str]:
+    """Reconnect to a named Wi-Fi network and return status details."""
     ssid_saved   = (ssid or "").strip()
     psk_saved    = password or ""
     iface        = _wifi_interface_name()
@@ -819,6 +825,7 @@ def reconnect_to_network(ssid: str, password: str = "", max_attempts: int = 3, d
 
 # Keep alias so existing code doesn’t break
 def connect_to_sensor_ap(ap_ssid: str, ap_password: str, *, attempts: int = 3) -> bool:
+    """Connect to a sensor onboarding access point."""
     return connect_to_ap(ap_ssid, ap_password, max_retries=attempts)
 
 # ---------- device-id selection ----------
@@ -855,6 +862,7 @@ def _choose_switch_id(payload: dict) -> str:
 
 # ---------- persistence: system / sensor / switch ----------
 def persist_system_settings_by_device_id(updates: list[Dict[str, Any]]) -> Optional[str]:
+    """Persist grouped system-setting updates for their target device."""
     try:
         hostname_item = next(
             (u for u in updates
@@ -934,6 +942,7 @@ def persist_system_settings_by_device_id(updates: list[Dict[str, Any]]) -> Optio
         return None
 
 def persist_sensor_toml(sensor_id: str, toml_name: str, encoding: str, data_b64: str) -> Optional[str]:
+    """Validate and persist an onboarded sensor TOML payload."""
     try:
         if not sensor_id:
             printDM("No SENSOR_ID; skipping sensor file persist.", location=f"{MODULE}.persist_sensor")
@@ -953,6 +962,7 @@ def persist_sensor_toml(sensor_id: str, toml_name: str, encoding: str, data_b64:
         return None
 
 def persist_switch_toml(switch_id: str, encoding: str, data_b64: str) -> Optional[str]:
+    """Validate and persist an onboarded switch TOML payload."""
     try:
         if not switch_id:
             printDM("No SWITCH_ID; skipping switch file persist.", location=f"{MODULE}.persist_switch")
@@ -1188,6 +1198,7 @@ def _atomic_write_text(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 def update_hub_clients(settings_path: str, new_sensor_id: str) -> bool:
+    """Add a sensor identity to the hub's configured client list."""
     # CLIENTS is deprecated; discovery is automatic.
     return True
 
@@ -1197,6 +1208,7 @@ def build_picow_settings_updates(
     time_settings: Dict[str, Any],
     host: str,
 ) -> list[Dict[str, Any]]:
+    """Build correlated Pico W settings updates for onboarding."""
     _hostname   = host
     ssid_resolved, psk_resolved = resolve_pi_wifi_credentials()
     broker_val = _hub_broker_hostname(pi_info.get("broker", ""), PI_HOSTNAME)

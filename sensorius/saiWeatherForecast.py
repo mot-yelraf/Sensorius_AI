@@ -548,6 +548,7 @@ def _ensure_forecast_cache(conn: sqlite3.Connection) -> None:
 
 
 def save_weather_forecast_cache(db_path: str, payload: dict[str, Any]) -> None:
+    """Persist a forecast payload in the bounded SQLite forecast cache."""
     location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
     lat = _safe_float(location.get("latitude"))
     lon = _safe_float(location.get("longitude"))
@@ -583,6 +584,7 @@ def load_weather_forecast_cache(
     longitude: float,
     provider: str | None = None,
 ) -> dict[str, Any] | None:
+    """Load the newest cached forecast matching a location and provider."""
     provider_key = normalize_weather_forecast_provider(provider) if provider is not None else ""
     try:
         with sqlite3.connect(db_path, timeout=30.0) as conn:

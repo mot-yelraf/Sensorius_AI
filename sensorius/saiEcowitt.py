@@ -1,4 +1,8 @@
-"""Read-only Ecowitt gateway discovery and supervised LAN polling."""
+"""Discover Ecowitt gateways and poll their LAN APIs read-only.
+
+The service materializes station settings, normalizes observations, and feeds
+the shared data logger while remaining restartable by the task supervisor.
+"""
 
 from __future__ import annotations
 

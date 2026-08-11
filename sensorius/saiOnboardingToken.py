@@ -20,6 +20,8 @@ DEBUG = debug_enabled(MODULE)
 
 
 class OnboardingTokenManager:
+    """Issue, hash, validate, and expire onboarding authorization tokens."""
+
     def __init__(self, store: OnboardingSessionStore, default_ttl_sec: int = 600):
         self.store = store
         self.default_ttl_sec = max(60, int(default_ttl_sec or 600))

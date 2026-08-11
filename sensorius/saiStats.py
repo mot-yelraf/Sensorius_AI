@@ -20,6 +20,8 @@ MODULE = "saiStats"
 DEBUG = debug_enabled(MODULE)
 
 class saiStats:
+    """Compute cached historical statistics and trends from sensor readings."""
+
     def __init__(self, db_path="sensorius_data.db"):
         self.db_path = db_path
         self._stats_cache_ttl_sec = 5.0
@@ -325,6 +327,7 @@ class saiStats:
         return results
 
 def create_stats_router(settings, gc_mgr):
+    """Create the FastAPI router for statistics and trend endpoints."""
     from .saiDataLogger import saiDataLogger
     router = APIRouter()
     statter = saiStats()

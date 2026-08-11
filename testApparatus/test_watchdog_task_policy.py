@@ -1,4 +1,8 @@
-"""Focused coverage for watchdog task criticality and sensor timeout handling."""
+"""Cover watchdog task criticality and sensor timeout handling.
+
+The tests verify which supervised tasks may trigger process recovery and how
+sensor heartbeat delays are classified.
+"""
 
 from __future__ import annotations
 

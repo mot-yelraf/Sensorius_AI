@@ -104,6 +104,8 @@ def _moon_phase_name(phase_val: float) -> str:
 
 
 class DailySummaryService:
+    """Generate and persist scheduled biodynamic daily summaries."""
+
     def __init__(
         self,
         *,

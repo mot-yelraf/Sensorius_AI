@@ -59,9 +59,12 @@ def _switch_type_from_settings(switch_settings) -> str:
 
 
 def is_remote_switch_settings(switch_settings) -> bool:
+    """Return whether switch settings describe an MQTT-backed controller."""
     return _switch_type_from_settings(switch_settings) in REMOTE_SWITCH_TYPES
 
 class SwitchController:
+    """Control local switch channels through the shared switch contract."""
+
     def __init__(self, switch_settings=None, supervisor=None, sensor=None, data_logger=None):
         self.supervisor = supervisor
         self.sensor = sensor
@@ -2690,6 +2693,7 @@ class RemoteSwitchController(SwitchController):
 
 
 def build_switch_controller(*, switch_settings=None, supervisor=None, sensor=None, mqtt_ingest=None, data_logger=None):
+    """Build the appropriate local or remote shared switch controller."""
     if is_remote_switch_settings(switch_settings):
         return RemoteSwitchController(
             switch_settings=switch_settings,

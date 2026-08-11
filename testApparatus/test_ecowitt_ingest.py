@@ -1,4 +1,8 @@
-"""Ecowitt service configuration, rainfall, and station materialization tests."""
+"""Test Ecowitt configuration, rainfall, and station materialization.
+
+The suite covers service settings and persistence behavior around LAN gateway
+discovery and ingestion without requiring physical Ecowitt hardware.
+"""
 
 from __future__ import annotations
 

@@ -18,6 +18,8 @@ BAROMETRIC_PRESSURE_PRECISION = 1
 
 
 class BaseSensor:
+    """Provide shared sampling, calibration, and filtering behavior for sensors."""
+
     def __init__(self, settings, supervisor):
         self.settings = settings
         self.supervisor = supervisor

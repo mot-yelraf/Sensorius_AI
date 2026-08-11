@@ -1,3 +1,9 @@
+"""Build observer-local solar and lunar context for Caelus weather views.
+
+The calculations format daylight, phases, seasonal events, and locally visible
+eclipses from configured coordinates, timezone, and observation time.
+"""
+
 import math
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache

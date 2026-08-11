@@ -13,6 +13,8 @@ MODULE = "SensorTemplate"
 DEBUG = debug_enabled("saiSensorFactory")
 
 class SensorTemplate(BaseSensor):
+    """Demonstrate the interface expected from a local sensor module."""
+
     def __init__(self, settings, supervisor):
         super().__init__(settings, supervisor)
         self.present = True

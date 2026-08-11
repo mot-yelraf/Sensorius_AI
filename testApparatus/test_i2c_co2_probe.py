@@ -1,4 +1,8 @@
-"""Coverage for CO2 I2C detection when Blinka scans miss SCD4x."""
+"""Cover CO2 I2C detection when Blinka scans miss SCD4x devices.
+
+The regression cases preserve the fallback probe path used on supported
+Raspberry Pi sensor buses when the general scan omits the device address.
+"""
 
 import os
 import sys

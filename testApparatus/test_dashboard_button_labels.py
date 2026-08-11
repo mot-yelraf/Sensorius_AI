@@ -1,4 +1,8 @@
-"""Prevent legacy navigation labels from returning to dashboard UI assets."""
+"""Prevent legacy navigation labels from returning to dashboard assets.
+
+These source-level checks keep current user-facing button terminology stable
+across generated markup and static interface files.
+"""
 
 import re
 from pathlib import Path

@@ -1,4 +1,8 @@
-"""Keep switch-monitor diagnostics available in advanced debug choices."""
+"""Keep switch-monitor diagnostics in the advanced debug choices.
+
+The regression checks verify that configuration and UI options continue to
+expose operator-requested switch monitoring diagnostics.
+"""
 
 from pathlib import Path
 

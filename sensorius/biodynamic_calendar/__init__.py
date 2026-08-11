@@ -1,4 +1,8 @@
-"""Public API for Sensorius' integrated biodynamic calendar library."""
+"""Expose the integrated biodynamic calendar library's public API.
+
+The package re-exports configuration, forecast, astronomy, summary, and
+storage-validation helpers used by the web application and background tasks.
+"""
 
 from .core import (
     BiodynamicConfig,

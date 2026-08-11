@@ -54,9 +54,11 @@ def unregister_sensor_controller(sensor_id: str, controller: "SensorController |
 
 
 def get_sensor_controller(sensor_id: str) -> "SensorController | None":
+    """Return the registered runtime controller for a sensor identity."""
     return _SENSOR_CONTROLLERS.get(sensor_id)
 
 class SensorController:
+    """Coordinate local sensor sampling, settings, persistence, and supervision."""
 
     def __init__(self, sensor_settings, supervisor, gc_mgr, data_logger=None):
         self.sensor = create_sensor(sensor_settings, supervisor)

@@ -14,6 +14,8 @@ DEBUG = debug_enabled("saiSensorFactory")
 
 
 class AQISensor(BaseSensor):
+    """Read BME680 environmental measurements and derived air quality."""
+
     def __init__(self, settings, supervisor, i2c_0=None):
         super().__init__(settings, supervisor)
         from adafruit_bme680 import Adafruit_BME680_I2C

@@ -13,6 +13,8 @@ MODULE = "VEML7700Sensor"
 DEBUG = debug_enabled("saiSensorFactory")
 
 class VEML7700Sensor(BaseSensor):
+    """Read VEML7700 illuminance with automatic gain and integration timing."""
+
     # ---------- constants & defaults ----------
     # Practical sensor span with proper gain/IT selection
     LUX_MIN_SPEC   = 0.003   # ~lowest practical resolution point

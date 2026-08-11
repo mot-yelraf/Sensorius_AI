@@ -568,6 +568,7 @@ def _is_unknown_location_value(value: object) -> bool:
     return text in {"", "unknown", "n/a", "na", "none", "-"}
 
 async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
+    """Register Sensorius UI, API, integration, and diagnostics routes."""
     # Several background services publish dashboard events through
     # saiWebRoutes.app.state.switch_broadcast. Keep that compatibility binding
     # pointed at the actual FastAPI instance created by saiWebServer.

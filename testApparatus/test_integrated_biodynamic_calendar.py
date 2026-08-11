@@ -1,4 +1,8 @@
-"""Focused coverage for the full-screen integrated Biodynamic Calendar."""
+"""Cover the full-screen integrated Biodynamic Calendar.
+
+The tests verify application context, routes, templates, and static integration
+for the calendar surface within the main Sensorius runtime.
+"""
 
 import asyncio
 import json

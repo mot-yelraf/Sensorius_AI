@@ -29,6 +29,8 @@ MODULE = "saiGarbageCollection"
 DEBUG = debug_enabled(MODULE)
 
 class GCManager:
+    """Run paced garbage collection with supervisor heartbeat reporting."""
+
     def __init__(
         self,
         interval_sec: float = 29,

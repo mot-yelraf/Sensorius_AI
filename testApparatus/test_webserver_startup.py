@@ -1,4 +1,8 @@
-"""Focused coverage for WebServerController startup behavior."""
+"""Cover WebServerController startup behavior.
+
+Controlled dependencies exercise HTTP binding and optional GUI launch choices
+without starting a persistent production server.
+"""
 
 from __future__ import annotations
 

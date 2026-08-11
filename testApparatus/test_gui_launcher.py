@@ -1,4 +1,8 @@
-"""Test desktop webview geometry defaults and environment overrides."""
+"""Test desktop webview geometry defaults and environment overrides.
+
+The cases ensure platform-independent sizing decisions remain predictable
+without opening an actual desktop window.
+"""
 
 import os
 import sys

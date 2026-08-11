@@ -23,6 +23,8 @@ from .saiUtils import printDM
 MODULE = "saiNet"
 
 class rPiNetManager:
+    """Inspect and manage host network state used by Sensorius setup flows."""
+
     def __init__(self, iface="wlan0"):
         self.iface = iface
         self.current_ssid = None

@@ -66,6 +66,8 @@ def create_sensor(settings, supervisor):
 # --- Autodetection on first boot ---
 @dataclass
 class DeviceDescriptor:
+    """Describe one detected local sensor and its consumed bus addresses."""
+
     kind: str                 # "apvpd" | "aqi" | "avpd" | "co2" | "veml" | "aht"
     bus:  str                 # "i2c-1" | "i2c-0"
     addrs: tuple[int, ...]    # addresses consumed by this device

@@ -1,4 +1,8 @@
-"""Regression coverage for keeping runtime settings out of the source checkout."""
+"""Keep runtime settings outside the source checkout.
+
+The regression cases verify path resolution boundaries for production and test
+environments so host-specific state is not written into the repository.
+"""
 
 from __future__ import annotations
 

@@ -17,11 +17,13 @@ RESULT_DIR.mkdir(exist_ok=True)
 
 
 def is_skipped_dir(path: Path) -> bool:
+    """Return whether a path belongs to an excluded audit directory."""
     parts = {p for p in path.parts}
     return bool(parts & SKIP_DIRS)
 
 
 def get_public_api(tree: ast.AST):
+    """Collect public module-level function and class names from an AST."""
     pub = {"functions": [], "classes": []}
     for node in tree.body:
         if isinstance(node, ast.FunctionDef):
@@ -34,6 +36,7 @@ def get_public_api(tree: ast.AST):
 
 
 def analyze_module(path: Path):
+    """Return heuristic docstring findings for one Python source module."""
     try:
         src = path.read_text(encoding="utf-8")
     except Exception as e:
@@ -116,6 +119,7 @@ def analyze_module(path: Path):
 
 
 def main():
+    """Audit project Python modules and write JSON and text reports."""
     results = []
     for dirpath, dirnames, filenames in os.walk(ROOT):
         # filter out skip dirs in-place to avoid walking them

@@ -1,4 +1,8 @@
-"""Biodynamic planting and day-hint generation."""
+"""Generate biodynamic planting and day-hint guidance.
+
+Hint selection combines daily calendar attributes into concise explanatory
+lines while keeping the result deterministic for identical inputs.
+"""
 
 from __future__ import annotations
 
@@ -322,6 +326,7 @@ def get_hint_lines_for_day(
     plant_state: dict | None = None,
     plantings: list[dict[str, object]] | None = None,
 ) -> list[str]:
+    """Return concise planting guidance for one biodynamic day record."""
     lines = ["Biodynamic Hints"]
     if not isinstance(day, dict):
         lines.append("Suggestion: no biodynamic hint available for this day.")

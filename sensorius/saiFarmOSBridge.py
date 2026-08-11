@@ -24,6 +24,8 @@ DEBUG = debug_enabled(MODULE)
 
 
 class saiFarmOSBridge:
+    """Queue and export newly logged readings to an optional farmOS server."""
+
     def __init__(self, *, settings, data_logger, supervisor=None):
         self.settings = settings
         self.data_logger = data_logger

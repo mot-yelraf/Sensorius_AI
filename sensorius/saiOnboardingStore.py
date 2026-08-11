@@ -25,6 +25,8 @@ DEBUG = debug_enabled(MODULE)
 
 
 class OnboardingStates:
+    """Define persisted lifecycle states for Nodus onboarding sessions."""
+
     AP_DISCOVERED = "AP_DISCOVERED"
     INIT_SENDING = "INIT_SENDING"
     INIT_SENT = "INIT_SENT"
@@ -38,6 +40,8 @@ class OnboardingStates:
 
 
 class OnboardingSessionStore:
+    """Persist and coordinate onboarding session records on disk."""
+
     def __init__(self, base_dir: str = "system_settings"):
         hub_host = socket.gethostname().strip() or "sensorius"
         self._root = resolve_runtime_base_dir(base_dir) / hub_host / "onboarding_sessions"

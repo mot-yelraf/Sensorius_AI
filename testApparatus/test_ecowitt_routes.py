@@ -1,4 +1,8 @@
-"""Ecowitt discovery and configuration route tests."""
+"""Test Ecowitt discovery and configuration routes.
+
+The route cases verify request validation and service integration while using
+controlled gateway responses instead of the local network.
+"""
 
 from __future__ import annotations
 

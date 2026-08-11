@@ -35,6 +35,8 @@ class SensoriusStaticFiles(StaticFiles):
 
 
 class WebServerController:
+    """Configure and run the FastAPI server and optional desktop webview."""
+
     def __init__(self, settings, net_mgr, supervisor, gc_mgr, mqtt_ingest):
         self.settings = settings
         self.net_mgr = net_mgr
@@ -140,6 +142,7 @@ class WebServerController:
         return bool(getattr(server, "started", False))
 
 async def launch_webview(url: str = "http://127.0.0.1:8000", retries: int = 10, delay: float = 1.0):
+    """Launch an optional native webview after the local server is reachable."""
     import os, sys, traceback, httpx, asyncio
     try:
         import webview

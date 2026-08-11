@@ -25,6 +25,7 @@ METRIC_PAIR_CANDIDATES: Tuple[Tuple[str, str], ...] = (
 
 @dataclass
 class SystemCalResult:
+    """Store offsets and fit statistics from a system calibration run."""
     temp_offset: float
     rh_offset: float
     temp_rms: float
@@ -166,6 +167,8 @@ def notify_sensor_runtime_of_calibration(supervisor, sensor_id: str) -> None:
         )
             
 class CalibrationManager:
+    """Calculate, persist, and expose sensor calibration results."""
+
     def __init__(self, data_logger: saiDataLogger, sensor_mgr: SensorSettingsManager):
         self.data_logger = data_logger
         self.sensor_mgr = sensor_mgr

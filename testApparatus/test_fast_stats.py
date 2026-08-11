@@ -1,4 +1,8 @@
-"""Focused coverage for the low-overhead live statistics broadcaster."""
+"""Cover the low-overhead live statistics broadcaster.
+
+The tests protect aggregation and publication behavior used by dashboard
+consumers while keeping timing and external dependencies controlled.
+"""
 
 import asyncio
 import threading

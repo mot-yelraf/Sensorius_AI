@@ -257,13 +257,17 @@ def _mqtt_topic_matches(filter_text: str | None, topic: str | None) -> bool:
 _current_ingest = None
 
 def set_current_ingest(inst):
+    """Register the process-wide MQTT ingest instance."""
     global _current_ingest
     _current_ingest = inst
 
 def get_current_ingest():
+    """Return the process-wide MQTT ingest instance, if configured."""
     return _current_ingest
     
 class saiMQTTIngest:
+    """Ingest MQTT discovery, readings, commands, and Nodus state shadows."""
+
     def __init__(self, broker="localhost", client_id="rpi_ingest", mqtt_clients=None, supervisor=None, settings=None, data_logger=None):
         self._started = False
         self.supervisor = supervisor

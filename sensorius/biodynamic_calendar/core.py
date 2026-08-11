@@ -1,4 +1,8 @@
-"""Reusable biodynamic calendar calculations."""
+"""Calculate reusable biodynamic calendar and astronomy data.
+
+This module combines observer-local ephemerides, planting classifications,
+forecast ranges, and daily summaries without depending on the web layer.
+"""
 
 from __future__ import annotations
 
@@ -31,6 +35,8 @@ except Exception:  # pragma: no cover - exercised via graceful fallback
 
 @dataclass(frozen=True)
 class BiodynamicConfig:
+    """Hold validated observer coordinates and timezone configuration."""
+
     latitude: float
     longitude: float
     timezone_name: str
@@ -122,6 +128,7 @@ _DAILY_FORECAST_DAYS = 29
 
 
 def load_config_from_env() -> BiodynamicConfig | None:
+    """Load biodynamic observer configuration from environment variables."""
     lat_raw = str(os.getenv("BIODYNAMIC_LAT", "")).strip()
     lon_raw = str(os.getenv("BIODYNAMIC_LON", "")).strip()
     tz_name = str(os.getenv("BIODYNAMIC_TZ", "")).strip()
@@ -145,6 +152,7 @@ def _require_config(config: BiodynamicConfig | None) -> BiodynamicConfig:
 
 
 def get_biodynamic_local_now(config: BiodynamicConfig | None = None) -> datetime:
+    """Return the current time in the configured observer timezone."""
     resolved = _require_config(config)
     return datetime.now(ZoneInfo(resolved.timezone_name))
 
@@ -283,6 +291,7 @@ def _ephemeris_location() -> dict[str, Path | str | bool]:
 
 
 def ephemeris_status() -> dict[str, object]:
+    """Describe the active ephemeris source and download readiness."""
     location = _ephemeris_location()
     ephemeris_path = location["path"]
     cache_path = _skyfield_cache_dir() / _EPHEMERIS_NAME
@@ -1150,6 +1159,7 @@ def get_biodynamic_forecast(
     config: BiodynamicConfig | None = None,
     days: int = _DAILY_FORECAST_DAYS,
 ) -> list[dict[str, object]]:
+    """Return consecutive biodynamic day rows from a starting date."""
     resolved = _require_config(config)
     if days <= 0:
         return []
@@ -1219,6 +1229,7 @@ def get_astro_payload(
     target_date: date | None = None,
     include_graphs: bool = True,
 ) -> dict[str, object]:
+    """Return observer-local solar, lunar, and optional graph data."""
     resolved = _require_config(config)
     tzinfo = ZoneInfo(resolved.timezone_name)
     now_local = datetime.now(tzinfo)
@@ -1693,6 +1704,7 @@ def get_daily_summary(
     plant_state: dict | None = None,
     plantings: list[dict[str, object]] | None = None,
 ) -> str:
+    """Compose a human-readable biodynamic and astronomy daily summary."""
     resolved = _require_config(config)
     payload = get_biodynamic_payload(summary_date, config=resolved)
     biodynamic_day = next(
@@ -1818,6 +1830,7 @@ def get_daily_summary(
 
 
 def get_biodynamic_payload(target_date: date | None = None, *, config: BiodynamicConfig | None = None) -> dict[str, object]:
+    """Build the integrated biodynamic payload for a target month."""
     resolved = _require_config(config)
     tzinfo = ZoneInfo(resolved.timezone_name)
     now_local = datetime.now(tzinfo)
@@ -1877,6 +1890,7 @@ def get_biodynamic_calendar_range(
     *,
     config: BiodynamicConfig | None = None,
 ) -> dict[str, object]:
+    """Build a bounded multi-month biodynamic calendar range."""
     resolved = _require_config(config)
     month_count = max(1, min(int(months or 13), 36))
     anchor = (start_month or get_biodynamic_local_now(resolved).date()).replace(day=1)

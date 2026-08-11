@@ -14,6 +14,8 @@ DEBUG = debug_enabled("saiSensorFactory")
 
 
 class CO2Sensor(BaseSensor):
+    """Read compatible SCD30 or SCD4x carbon-dioxide sensors."""
+
     def __init__(self, settings, supervisor, i2c_0=None):
         super().__init__(settings, supervisor)
         try:

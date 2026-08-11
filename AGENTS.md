@@ -334,6 +334,7 @@ entities. Do not rename metrics casually.
   `sensorius/saiDataLogger.py`, and `sensorius/saiMQTTIngest.py`.
 - Prefer explicit error handling and clear operator-visible failures over
   layered silent fallbacks.
+- Add concise docstrings to module level with explanatory paragraph after the concise description.
 - Add concise docstrings to public classes and functions when touching public
   interfaces.
 - Keep logging lightweight. Use `printDM(...)` and existing debug flags instead

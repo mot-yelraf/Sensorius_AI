@@ -13,6 +13,8 @@ MODULE = "DummySensor"
 DEBUG = debug_enabled("saiSensorFactory")
 
 class DummySensor(BaseSensor):
+    """Produce deterministic-style synthetic readings for development."""
+
     def __init__(self, settings, supervisor):
         super().__init__(settings, supervisor)
         self.present = True
