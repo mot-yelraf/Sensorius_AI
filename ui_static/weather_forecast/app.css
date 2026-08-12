@@ -358,7 +358,13 @@ a { color: inherit; }
 .forecast-summary > div { display: flex; justify-content: space-around; gap: 0.5rem; }
 .forecast-summary span span, .forecast-summary > div > span { color: var(--muted); font-size: 0.62rem; text-align: center; }
 .forecast-summary strong { display: block; color: var(--ink); font: 500 1.45rem Georgia, serif; }
-.hourly-strip { display: grid; grid-template-columns: repeat(8, 1fr); gap: 0.35rem; margin-top: 1rem; }
+.hourly-carousel { display: grid; grid-template-columns: 1.15rem minmax(0, 1fr) 1.15rem; align-items: stretch; gap: 0.25rem; margin-top: 1rem; }
+.hourly-page-previous { grid-column: 1; }
+.hourly-strip { grid-column: 2; display: grid; grid-template-columns: repeat(8, 1fr); gap: 0.35rem; }
+.hourly-page-next { grid-column: 3; }
+.hourly-page-button { min-width: 0; padding: 0; border: 0; border-radius: 0.5rem; background: rgba(255,255,255,.05); color: var(--muted); font-size: 0.72rem; line-height: 1; cursor: pointer; }
+.hourly-page-button:hover, .hourly-page-button:focus-visible { background: rgba(255,255,255,.12); color: var(--ink); outline: 1px solid var(--accent-2); }
+.hourly-page-status { margin: 0.35rem 1.4rem 0; color: var(--muted); font-size: 0.48rem; letter-spacing: 0.04em; text-align: center; }
 .forecast-hour { min-width: 0; text-align: center; padding: 0.55rem 0.2rem; border-left: 1px solid var(--line); }
 .forecast-hour:first-child { border-left: 0; }
 .forecast-hour time, .forecast-hour strong, .forecast-hour small, .forecast-hour > span { display: block; }

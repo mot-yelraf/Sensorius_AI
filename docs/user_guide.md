@@ -1005,11 +1005,13 @@ weather station, a Nodus environmental sensor, or a WeeWX station with fewer
 metrics to use the same full-screen view without requiring weather-only metric
 names.
 
-The hourly strip summarizes the next 24 hours in three-hour windows. Each
-window derives its icon from its own cloud and precipitation data and totals
-any predicted precipitation within that window. Select **6-day details** under
-**Looking Ahead** to open the detailed outlook with daily conditions,
-temperature, relative humidity, wind, and precipitation.
+The hourly strip presents the next 24 hours as one-hour forecasts, with eight
+hours visible at a time. Use the narrow left and right controls to move the
+window one hour; each control disappears when its edge is reached. Hourly and
+daily forecasts show rain or snow chance percentages, while condition icons
+identify rain or snow when the provider predicts a precipitation type. Select
+**6-day details** under **Looking Ahead** to open the detailed outlook with
+daily conditions, temperature, relative humidity, wind, and rain or snow chance.
 
 ![Detailed six-day weather outlook](<../assets/screenshots/weather-forecast-caelus-six-day.png>)
 

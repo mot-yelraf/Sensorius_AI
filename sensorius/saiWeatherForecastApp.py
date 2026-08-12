@@ -13,6 +13,7 @@ from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -166,6 +167,11 @@ def _condition_icon_key(text: object) -> str:
     return "sunny"
 
 
+def _precipitation_chance_label(condition: object) -> str:
+    """Name a precipitation probability as a rain or snow chance."""
+    return "Snow chance" if _condition_icon_key(condition) == "snow" else "Rain chance"
+
+
 def _hour_temperature_f(hour: dict[str, Any]) -> float | None:
     value = _safe_float(hour.get("temp_c"))
     return None if value is None else value * 9.0 / 5.0 + 32.0
@@ -182,6 +188,21 @@ def _format_hour_label(value: object) -> str:
     minute = observed_at.strftime("%M")
     clock = hour if minute == "00" else f"{hour}:{minute}"
     return f"{clock} {observed_at.strftime('%p')}"
+
+
+def format_observation_time(value: object, timezone_name: str) -> str:
+    """Format an observation in local 12-hour time at minute precision."""
+    try:
+        observed_at = datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+        local_tz = ZoneInfo(timezone_name or "UTC")
+        if observed_at.tzinfo is None:
+            observed_at = observed_at.replace(tzinfo=local_tz)
+        local = observed_at.astimezone(local_tz)
+    except Exception:
+        return "just now"
+    date_text = f"{local.strftime('%b')} {local.day}, {local.year}"
+    time_text = local.strftime("%I:%M %p").lstrip("0")
+    return f"{date_text} · {time_text}"
 
 
 def _hour_window_condition(hours: list[dict[str, Any]]) -> str:
@@ -218,26 +239,24 @@ def build_weather_display_forecast(payload: dict[str, Any]) -> dict[str, Any]:
     raw_hours = payload.get("hourly") if isinstance(payload.get("hourly"), list) else []
     hours = []
     normalized_hours = [row for row in raw_hours[:24] if isinstance(row, dict)]
-    for offset in range(0, len(normalized_hours), 3):
-        window = normalized_hours[offset:offset + 3]
-        if not window:
-            continue
-        raw = window[0]
+    for raw in normalized_hours:
         local_time = str(raw.get("local_time") or raw.get("time") or "")
         label = _format_hour_label(local_time)
-        condition = _hour_window_condition(window)
+        condition = _hour_window_condition([raw])
         temp_f = _hour_temperature_f(raw)
         hours.append(
             {
                 "label": label,
                 "icon": _condition_icon(condition),
                 "icon_key": _condition_icon_key(condition),
+                "precip_label": _precipitation_chance_label(condition),
                 "temperature_f": round(temp_f) if temp_f is not None else None,
-                "precipitation_mm": round(sum(_safe_float(row.get("precip_mm")) or 0.0 for row in window), 1),
+                "precipitation_mm": round(_safe_float(raw.get("precip_mm")) or 0.0, 1),
+                "precip_probability": (
+                    round(probability) if (probability := _safe_float(raw.get("precip_probability"))) is not None else None
+                ),
             }
         )
-        if len(hours) >= 8:
-            break
 
     days = []
     for raw in payload.get("days") or []:
@@ -251,14 +270,26 @@ def build_weather_display_forecast(payload: dict[str, Any]) -> dict[str, Any]:
                 "summary": summary,
                 "icon": _condition_icon(summary),
                 "icon_key": _condition_icon_key(summary),
+                "precip_label": _precipitation_chance_label(summary),
                 "temp_range": str(raw.get("temp_range") or "--"),
                 "rh_range": str(raw.get("rh_range") or "--"),
                 "wind": str(raw.get("wind") or "--"),
                 "precipitation_mm": _safe_float(raw.get("precip_mm")) or 0.0,
+                "precip_probability": (
+                    round(probability) if (probability := _safe_float(raw.get("precip_probability"))) is not None else None
+                ),
             }
         )
 
     temp_values = [value for value in (_hour_temperature_f(row) for row in raw_hours) if value is not None]
+    probabilities = [
+        value
+        for value in (_safe_float(row.get("precip_probability")) for row in normalized_hours)
+        if value is not None
+    ]
+    current_probability = _safe_float(current.get("precip_probability"))
+    if current_probability is None and probabilities:
+        current_probability = max(probabilities)
     condition = str(current.get("overall") or current.get("forecast") or "Forecast standing by")
     return {
         "ok": bool(payload.get("ok")),
@@ -273,9 +304,11 @@ def build_weather_display_forecast(payload: dict[str, Any]) -> dict[str, Any]:
         "icon_key": _condition_icon_key(
             _hour_window_condition(normalized_hours[:3]) if normalized_hours else condition
         ),
+        "precip_label": _precipitation_chance_label(condition),
         "high_f": round(max(temp_values)) if temp_values else None,
         "low_f": round(min(temp_values)) if temp_values else None,
         "precipitation_mm": round(sum(_safe_float(row.get("precip_mm")) or 0.0 for row in raw_hours), 1),
+        "precip_probability": round(current_probability) if current_probability is not None else None,
         "temp_range": str(current.get("temp_range") or "--"),
         "rh_range": str(current.get("rh_range") or "--"),
         "wind": str(current.get("wind") or "--"),
@@ -443,6 +476,9 @@ def register_weather_forecast_app_routes(
                 "settings": service.integration_settings(),
                 "location": location,
                 "latest": latest,
+                "latest_observation_time": format_observation_time(
+                    latest.get("timestamp"), str(location.get("timezone") or "UTC")
+                ),
                 "moon": moon,
                 "forecast": forecast,
                 "windy_iframe_url": _windy_url(float(location.get("latitude") or 0.0), float(location.get("longitude") or 0.0)),

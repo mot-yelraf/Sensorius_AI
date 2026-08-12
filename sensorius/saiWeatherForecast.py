@@ -24,7 +24,7 @@ from . import __version__ as SAI_APP_VERSION
 MODULE = "saiWeatherForecast"
 DEBUG = debug_enabled(MODULE)
 
-MET_LOCATION_FORECAST_URL = "https://api.met.no/weatherapi/locationforecast/2.0/compact"
+MET_LOCATION_FORECAST_URL = "https://api.met.no/weatherapi/locationforecast/2.0/complete"
 OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 NWS_POINTS_URL = "https://api.weather.gov/points/{latitude:.4f},{longitude:.4f}"
 FORECAST_CACHE_TABLE = "weather_forecast"
@@ -62,6 +62,14 @@ def _safe_float(value: object) -> float | None:
     if not math.isfinite(out):
         return None
     return out
+
+
+def _normalize_probability(value: object) -> float | None:
+    """Return a bounded percentage or ``None`` when unavailable."""
+    probability = _safe_float(value)
+    if probability is None:
+        return None
+    return max(0.0, min(100.0, probability))
 
 
 def _utc_now() -> datetime:
@@ -277,6 +285,11 @@ def _date_label(local_date: date) -> str:
 
 
 def _summarize_hours(hours: list[dict[str, Any]], *, label: str = "") -> dict[str, Any]:
+    probabilities = [
+        value
+        for value in (_normalize_probability(hour.get("precip_probability")) for hour in hours)
+        if value is not None
+    ]
     return {
         "label": label,
         "forecast": _overall_summary(hours),
@@ -285,6 +298,7 @@ def _summarize_hours(hours: list[dict[str, Any]], *, label: str = "") -> dict[st
         "wind": _format_wind(hours),
         "rh_range": _format_rh_range(hours),
         "precip_mm": round(sum(float(h.get("precip_mm") or 0.0) for h in hours), 2),
+        "precip_probability": round(max(probabilities)) if probabilities else None,
         "hour_count": len(hours),
     }
 
@@ -307,6 +321,7 @@ def _normalize_hour(record: dict[str, Any], *, tz_name: str) -> dict[str, Any] |
         "wind_mps": _safe_float(record.get("wind_mps")),
         "cloud": _safe_float(record.get("cloud")),
         "precip_mm": _safe_float(record.get("precip_mm")) or 0.0,
+        "precip_probability": _normalize_probability(record.get("precip_probability")),
         "symbol": str(record.get("symbol") or "").strip(),
     }
 
@@ -327,10 +342,14 @@ def normalize_met_forecast(payload: dict[str, Any], *, tz_name: str) -> list[dic
         next_1h = data.get("next_1_hours") if isinstance(data.get("next_1_hours"), dict) else {}
         next_6h = data.get("next_6_hours") if isinstance(data.get("next_6_hours"), dict) else {}
         precip = None
+        precip_probability = None
         symbol = ""
         for block, divisor in ((next_1h, 1.0), (next_6h, 6.0)):
             block_details = block.get("details") if isinstance(block.get("details"), dict) else {}
             precip = _safe_float(block_details.get("precipitation_amount"))
+            precip_probability = _normalize_probability(
+                block_details.get("probability_of_precipitation")
+            )
             summary = block.get("summary") if isinstance(block.get("summary"), dict) else {}
             symbol = str(summary.get("symbol_code") or symbol or "").strip()
             if precip is not None:
@@ -344,6 +363,7 @@ def normalize_met_forecast(payload: dict[str, Any], *, tz_name: str) -> list[dic
                 "wind_mps": details.get("wind_speed"),
                 "cloud": details.get("cloud_area_fraction"),
                 "precip_mm": precip or 0.0,
+                "precip_probability": precip_probability,
                 "symbol": symbol,
             },
             tz_name=tz_name,
@@ -362,6 +382,7 @@ def normalize_open_meteo_forecast(payload: dict[str, Any], *, tz_name: str) -> l
     temps = hourly.get("temperature_2m")
     rhs = hourly.get("relative_humidity_2m")
     precip = hourly.get("precipitation")
+    precip_probability = hourly.get("precipitation_probability")
     clouds = hourly.get("cloud_cover")
     winds = hourly.get("wind_speed_10m")
     if not isinstance(times, list):
@@ -379,6 +400,7 @@ def normalize_open_meteo_forecast(payload: dict[str, Any], *, tz_name: str) -> l
                 "wind_mps": _at(winds),
                 "cloud": _at(clouds),
                 "precip_mm": _at(precip) or 0.0,
+                "precip_probability": _at(precip_probability),
             },
             tz_name=tz_name,
         )
@@ -460,6 +482,9 @@ def normalize_nws_forecast(payload: dict[str, Any], *, tz_name: str) -> list[dic
                 "wind_mps": _nws_wind_speed_mps(period.get("windSpeed")),
                 "cloud": _nws_cloud_fraction(short_forecast),
                 "precip_mm": 0.0,
+                "precip_probability": _nws_quantitative_value(
+                    period.get("probabilityOfPrecipitation")
+                ),
                 "symbol": short_forecast,
             },
             tz_name=tz_name,
@@ -635,7 +660,10 @@ async def _fetch_met_forecast(latitude: float, longitude: float, *, tz_name: str
 
 
 async def _fetch_open_meteo_forecast(latitude: float, longitude: float, *, tz_name: str, timeout_sec: float) -> list[dict[str, Any]]:
-    hourly = "temperature_2m,relative_humidity_2m,precipitation,cloud_cover,wind_speed_10m"
+    hourly = (
+        "temperature_2m,relative_humidity_2m,precipitation,"
+        "precipitation_probability,cloud_cover,wind_speed_10m"
+    )
     async with httpx.AsyncClient(timeout=timeout_sec, headers={"User-Agent": USER_AGENT}, follow_redirects=True) as client:
         resp = await client.get(
             OPEN_METEO_FORECAST_URL,

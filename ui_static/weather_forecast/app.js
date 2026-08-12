@@ -10,6 +10,35 @@
     if (event.target === forecastDialog) forecastDialog.close();
   });
 
+  document.querySelectorAll("[data-hourly-carousel]").forEach((carousel) => {
+    const hours = Array.from(carousel.querySelectorAll("[data-hourly-index]"));
+    const previousButton = carousel.querySelector("[data-hourly-previous]");
+    const nextButton = carousel.querySelector("[data-hourly-next]");
+    const status = carousel.parentElement?.querySelector("[data-hourly-status]");
+    const pageSize = Number(carousel.dataset.pageSize) || 8;
+    let pageStart = 0;
+
+    function showPage() {
+      const pageEnd = Math.min(pageStart + pageSize, hours.length);
+      hours.forEach((hour, index) => {
+        hour.hidden = index < pageStart || index >= pageEnd;
+      });
+      if (previousButton) previousButton.hidden = pageStart === 0;
+      if (nextButton) nextButton.hidden = pageEnd >= hours.length;
+      if (status) status.textContent = `Hours ${pageStart + 1}–${pageEnd} of ${hours.length}`;
+    }
+
+    previousButton?.addEventListener("click", () => {
+      pageStart = Math.max(0, pageStart - 1);
+      showPage();
+    });
+    nextButton?.addEventListener("click", () => {
+      pageStart = Math.min(Math.max(0, hours.length - pageSize), pageStart + 1);
+      showPage();
+    });
+    showPage();
+  });
+
   const dashboardReturn = document.getElementById("dashboardReturn");
   dashboardReturn?.addEventListener("click", () => dashboardReturn.classList.add("is-loading"));
   window.addEventListener("pageshow", () => dashboardReturn?.classList.remove("is-loading"));

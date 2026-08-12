@@ -43,7 +43,7 @@
         <p class="eyebrow">Caelus Weather Forecast</p>
         <h1 id="station-title">{{ location.name or 'Your weather, alive.' }}</h1>
         <p class="station-subtitle">
-          {% if latest.ok %}{{ latest.sensor_id }} · Last observation <time>{{ latest.timestamp | replace('T', ' · ') }}</time>
+          {% if latest.ok %}{{ latest.sensor_id }} · Last observation <time datetime="{{ latest.timestamp }}">{{ latest_observation_time }}</time>
           {% elif settings.sensor_id %}Waiting for readings from {{ settings.sensor_id }}
           {% else %}Choose a Current Readings sensor in Integrations → Weather Forecast{% endif %}
         </p>
@@ -65,10 +65,16 @@
       <article class="glass-card forecast-panel">
         <div class="card-heading"><div><p class="eyebrow">Today’s forecast</p><h2>{{ forecast.condition }}</h2></div><span class="provider-label">{{ forecast.provider_label }}</span></div>
         {% if forecast.ok %}
-          <div class="forecast-summary"><span class="forecast-main-icon">{{ weather_icon(forecast.icon_key, forecast.condition) }}</span><div><span><strong>{{ reading(forecast.high_f, '°') }}</strong> high</span><span><strong>{{ reading(forecast.low_f, '°') }}</strong> low</span><span><strong>{{ forecast.precipitation_mm }} mm</strong> rain</span></div></div>
-          <div class="hourly-strip">{% for hour in forecast.hours %}<div class="forecast-hour"><time>{{ hour.label }}</time><span>{{ weather_icon(hour.icon_key, 'Weather at ' ~ hour.label) }}</span><strong>{{ reading(hour.temperature_f, '°') }}</strong><small>{{ hour.precipitation_mm }} mm</small></div>{% endfor %}</div>
+          <div class="forecast-summary"><span class="forecast-main-icon">{{ weather_icon(forecast.icon_key, forecast.condition) }}</span><div><span><strong>{{ reading(forecast.high_f, '°') }}</strong> high</span><span><strong>{{ reading(forecast.low_f, '°') }}</strong> low</span><span><strong>{{ reading(forecast.precip_probability, '%') }}</strong> {{ forecast.precip_label }}</span></div></div>
+          {% set hour_count = forecast.hours | length %}
+          <div class="hourly-carousel" data-hourly-carousel data-page-size="8">
+            <button class="hourly-page-button hourly-page-previous" type="button" data-hourly-previous aria-label="Show previous forecast hour" hidden>&lt;</button>
+            <div class="hourly-strip">{% for hour in forecast.hours %}<div class="forecast-hour" data-hourly-index="{{ loop.index0 }}"{% if loop.index0 >= 8 %} hidden{% endif %}><time>{{ hour.label }}</time><span>{{ weather_icon(hour.icon_key, 'Weather at ' ~ hour.label) }}</span><strong>{{ reading(hour.temperature_f, '°') }}</strong><small>{{ reading(hour.precip_probability, '%') }} {{ hour.precip_label | lower }}</small></div>{% endfor %}</div>
+            <button class="hourly-page-button hourly-page-next" type="button" data-hourly-next aria-label="Show next forecast hour"{% if hour_count <= 8 %} hidden{% endif %}>&gt;</button>
+          </div>
+          <p class="hourly-page-status" data-hourly-status aria-live="polite">Hours 1–{{ 8 if hour_count > 8 else hour_count }} of {{ hour_count }}</p>
           <p class="forecast-meta">{{ 'Cached forecast · provider temporarily unavailable' if forecast.stale else 'Updated from ' ~ forecast.provider_label }}</p>
-          {% if forecast.days %}<div class="future-heading"><span>Looking ahead</span><button type="button" data-open-forecast>6-day details</button></div><div class="daily-strip">{% for day in forecast.days %}<article class="forecast-day"><time datetime="{{ day.date }}">{{ day.label }}</time><span>{{ weather_icon(day.icon_key, day.summary) }}</span><strong>{{ day.temp_range }}</strong><small>{{ day.precipitation_mm }} mm</small></article>{% endfor %}</div>{% endif %}
+          {% if forecast.days %}<div class="future-heading"><span>Looking ahead</span><button type="button" data-open-forecast>6-day details</button></div><div class="daily-strip">{% for day in forecast.days %}<article class="forecast-day"><time datetime="{{ day.date }}">{{ day.label }}</time><span>{{ weather_icon(day.icon_key, day.summary) }}</span><strong>{{ day.temp_range }}</strong><small>{{ reading(day.precip_probability, '%') }} {{ day.precip_label | lower }}</small></article>{% endfor %}</div>{% endif %}
         {% else %}<div class="forecast-empty"><span>◌</span><p>{{ forecast.reason or 'Set an Astral location and forecast provider to load the forecast.' }}</p></div>{% endif %}
       </article>
 
@@ -129,7 +135,7 @@
   <dialog class="forecast-dialog" id="forecastDialog" aria-labelledby="forecastDialogTitle">
     <header><div><p class="eyebrow">Weather outlook</p><h2 id="forecastDialogTitle">6-day forecast</h2></div><button type="button" data-close-forecast aria-label="Close six-day forecast">×</button></header>
     <p class="forecast-dialog-meta">Forecast from {{ forecast.provider_label }} · {{ '%.4f' | format(location.latitude) }}, {{ '%.4f' | format(location.longitude) }}</p>
-    {% if forecast.days %}<div class="forecast-detail-grid">{% for day in forecast.days %}<article><h3>{{ day.label }}</h3><p>{{ day.summary }}</p><dl><dt>Temp</dt><dd>{{ day.temp_range }}</dd><dt>RH</dt><dd>{{ day.rh_range }}</dd><dt>Wind</dt><dd>{{ day.wind }}</dd><dt>Rain</dt><dd>{{ day.precipitation_mm }} mm</dd></dl></article>{% endfor %}</div>{% else %}<p class="forecast-dialog-empty">Future forecast data is not available yet.</p>{% endif %}
+    {% if forecast.days %}<div class="forecast-detail-grid">{% for day in forecast.days %}<article><h3>{{ day.label }}</h3><p>{{ day.summary }}</p><dl><dt>Temp</dt><dd>{{ day.temp_range }}</dd><dt>RH</dt><dd>{{ day.rh_range }}</dd><dt>Wind</dt><dd>{{ day.wind }}</dd><dt>{{ day.precip_label }}</dt><dd>{{ reading(day.precip_probability, '%') }}</dd></dl></article>{% endfor %}</div>{% else %}<p class="forecast-dialog-empty">Future forecast data is not available yet.</p>{% endif %}
   </dialog>
 </body>
 </html>

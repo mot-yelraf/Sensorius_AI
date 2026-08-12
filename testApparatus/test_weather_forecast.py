@@ -21,6 +21,7 @@ from sensorius.saiWeatherForecast import (
     load_weather_forecast_cache,
     normalize_met_forecast,
     normalize_nws_forecast,
+    normalize_open_meteo_forecast,
     normalize_weather_forecast_provider,
     save_weather_forecast_cache,
 )
@@ -60,7 +61,10 @@ def _sample_met_payload() -> dict:
                     },
                     "next_1_hours": {
                         "summary": {"symbol_code": "lightrainshowers" if precip_mm else "cloudy"},
-                        "details": {"precipitation_amount": precip_mm},
+                        "details": {
+                            "precipitation_amount": precip_mm,
+                            "probability_of_precipitation": 65.0 if precip_mm else 10.0,
+                        },
                     },
                 },
             }
@@ -83,6 +87,10 @@ def _sample_nws_payload() -> dict:
                 "windDirection": "NW",
                 "shortForecast": "Partly Cloudy",
                 "relativeHumidity": {"unitCode": "wmoUnit:percent", "value": 45 + (idx % 10)},
+                "probabilityOfPrecipitation": {
+                    "unitCode": "wmoUnit:percent",
+                    "value": 30 + (idx % 20),
+                },
             }
         )
     return {"properties": {"periods": periods}}
@@ -108,6 +116,8 @@ def test_met_forecast_is_summarized_for_dashboard_card():
     assert "Cloudy early" in current["overall"]
     assert "light rain/showers afternoon" in current["overall"]
     assert "clearing overnight" in current["overall"]
+    assert current["precip_probability"] == 65
+    assert payload["hourly"][0]["precip_probability"] == 10.0
 
     first_day = payload["days"][0]
     assert first_day["label"] == "Fri Jun 5"
@@ -139,6 +149,26 @@ def test_nws_forecast_is_normalized_for_dashboard_payload():
     assert current["temp_range"] == "15.6-21.7°C / 60-71°F"
     assert current["rh_range"] == "45-54%"
     assert current["wind"] == "Mostly light/moderate\n3-3 m/s / 8-8 mph"
+    assert current["precip_probability"] == 49
+
+
+def test_open_meteo_precipitation_probability_is_normalized_hourly():
+    hourly = normalize_open_meteo_forecast(
+        {
+            "hourly": {
+                "time": ["2026-06-04T00:00:00Z", "2026-06-04T01:00:00Z"],
+                "temperature_2m": [20.0, 21.0],
+                "relative_humidity_2m": [40.0, 41.0],
+                "wind_speed_10m": [2.0, 2.5],
+                "cloud_cover": [10.0, 20.0],
+                "precipitation": [0.0, 0.4],
+                "precipitation_probability": [15.0, 72.0],
+            }
+        },
+        tz_name="America/Denver",
+    )
+
+    assert [row["precip_probability"] for row in hourly] == [15.0, 72.0]
 
 
 @pytest.mark.asyncio

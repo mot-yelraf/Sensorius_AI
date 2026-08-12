@@ -72,6 +72,7 @@ def _forecast_payload():
         "rh": 45.0,
         "wind_mps": 2.0,
         "precip_mm": 0.2,
+        "precip_probability": 40.0,
         "symbol": "partlycloudy_day",
     }
     return {
@@ -83,6 +84,7 @@ def _forecast_payload():
             "temp_range": "20.0-25.0°C / 68-77°F",
             "rh_range": "35-55%",
             "wind": "Mostly light\n1-4 m/s / 2-9 mph",
+            "precip_probability": 40,
         },
         "hourly": [hour] * 24,
         "days": [
@@ -94,6 +96,7 @@ def _forecast_payload():
                 "rh_range": "30-60%",
                 "wind": "Mostly light",
                 "precip_mm": 0.0,
+                "precip_probability": 42,
             }
         ],
     }
@@ -134,8 +137,32 @@ def test_weather_display_forecast_uses_canonical_sensorius_contract():
     payload = weather_app.build_weather_display_forecast(_forecast_payload())
     assert payload["ok"] is True
     assert payload["provider_label"] == "MET Norway"
+    assert len(payload["hours"]) == 24
     assert payload["hours"][0]["temperature_f"] == 68
+    assert payload["hours"][0]["precip_probability"] == 40
+    assert payload["hours"][0]["precip_label"] == "Rain chance"
     assert payload["days"][0]["temp_range"].endswith("64-82°F")
+    assert payload["days"][0]["precip_probability"] == 42
+    assert payload["days"][0]["precip_label"] == "Rain chance"
+
+
+def test_snow_forecast_uses_snow_chance_label():
+    payload = _forecast_payload()
+    payload["current_24h"]["overall"] = "Snow showers"
+    payload["hourly"] = [{**payload["hourly"][0], "symbol": "snowshowers_day"}]
+    payload["days"][0]["forecast"] = "Snow showers"
+
+    display = weather_app.build_weather_display_forecast(payload)
+
+    assert display["precip_label"] == "Snow chance"
+    assert display["hours"][0]["precip_label"] == "Snow chance"
+    assert display["days"][0]["precip_label"] == "Snow chance"
+
+
+def test_observation_time_uses_station_local_ampm_without_seconds_or_offset():
+    assert weather_app.format_observation_time(
+        "2026-08-12T12:35:15.584178Z", "America/Denver"
+    ) == "Aug 12, 2026 · 6:35 AM"
 
 
 def test_windy_map_defaults_to_radar_overlay():
@@ -165,6 +192,14 @@ def test_windy_interaction_prompt_sits_on_map_top_border():
 
     assert "place-items: start center" in css
     assert ".windy-map-guard span { transform: translateY(-50%)" in css
+
+
+def test_hourly_carousel_keeps_hidden_edge_controls_in_fixed_grid_columns():
+    css = (ROOT / "ui_static" / "weather_forecast" / "app.css").read_text()
+
+    assert ".hourly-page-previous { grid-column: 1; }" in css
+    assert ".hourly-strip { grid-column: 2;" in css
+    assert ".hourly-page-next { grid-column: 3; }" in css
 
 
 def test_caelus_footer_preserves_title_case_attribution():
@@ -280,7 +315,7 @@ def test_lunar_strip_uses_dates_and_does_not_symmetrize_local_orientation():
     assert 'updatePhaseStrip("previous", moon.previous_phases || [])' in script
 
 
-def test_open_meteo_hour_windows_do_not_show_rain_until_precipitation_window():
+def test_open_meteo_hourly_rows_do_not_show_rain_until_precipitation_hour():
     payload = _forecast_payload()
     payload["provider"] = "open_meteo"
     payload["current_24h"]["overall"] = "Clear early, rain/showers evening"
@@ -292,6 +327,7 @@ def test_open_meteo_hour_windows_do_not_show_rain_until_precipitation_window():
                 "temp_c": 25.0,
                 "cloud": 5.0 if hour < 15 else 95.0,
                 "precip_mm": 2.9 if hour == 21 else 0.0,
+                "precip_probability": 75.0 if hour == 21 else 5.0,
                 "symbol": "",
             }
         )
@@ -300,14 +336,11 @@ def test_open_meteo_hour_windows_do_not_show_rain_until_precipitation_window():
 
     assert display["icon"] == "☀️"
     assert display["icon_key"] == "sunny"
-    assert [window["precipitation_mm"] for window in display["hours"][:4]] == [0.0, 0.0, 0.0, 2.9]
-    assert [window["icon"] for window in display["hours"][:4]] == ["☀️", "🌤️", "☁️", "🌧️"]
-    assert [window["icon_key"] for window in display["hours"][:4]] == [
-        "sunny",
-        "partly-cloudy",
-        "cloudy",
-        "rain",
-    ]
+    assert len(display["hours"]) == 13
+    assert [row["precipitation_mm"] for row in display["hours"][:10]] == [0.0] * 10
+    assert display["hours"][10]["precipitation_mm"] == 2.9
+    assert display["hours"][10]["icon_key"] == "rain"
+    assert display["hours"][10]["precip_probability"] == 75
 
 
 def test_caelus_hourly_forecast_uses_twelve_hour_clock_labels():
@@ -317,6 +350,7 @@ def test_caelus_hourly_forecast_uses_twelve_hour_clock_labels():
             "local_time": f"2026-08-08T{hour:02d}:00:00-06:00",
             "temp_c": 20.0,
             "precip_mm": 0.0,
+            "precip_probability": 10.0,
             "symbol": "clearsky_day",
         }
         for hour in range(24)
@@ -324,15 +358,10 @@ def test_caelus_hourly_forecast_uses_twelve_hour_clock_labels():
 
     display = weather_app.build_weather_display_forecast(payload)
 
-    assert [window["label"] for window in display["hours"]] == [
-        "12 AM",
-        "3 AM",
-        "6 AM",
-        "9 AM",
-        "12 PM",
-        "3 PM",
-        "6 PM",
-        "9 PM",
+    assert [row["label"] for row in display["hours"]] == [
+        "12 AM", "1 AM", "2 AM", "3 AM", "4 AM", "5 AM", "6 AM", "7 AM",
+        "8 AM", "9 AM", "10 AM", "11 AM", "12 PM", "1 PM", "2 PM", "3 PM",
+        "4 PM", "5 PM", "6 PM", "7 PM", "8 PM", "9 PM", "10 PM", "11 PM",
     ]
 
 
@@ -368,6 +397,16 @@ async def test_integrated_weather_routes_render_dashboard_and_namespaced_apis(mo
     assert "/ui_static/weather_forecast/app.js" in page.text
     assert "theme-river" in page.text
     assert '<h1 id="station-title">Silver City</h1>' in page.text
+    assert "Last observation <time datetime=\"2026-08-07T10:00:00-06:00\">Aug 7, 2026 · 10:00 AM</time>" in page.text
+    assert page.text.count("data-hourly-index=") == 24
+    assert 'data-hourly-index="7"' in page.text
+    assert 'data-hourly-index="8" hidden' in page.text
+    assert "data-hourly-previous" in page.text
+    assert "data-hourly-next" in page.text
+    assert ">40%</strong> Rain chance" in page.text
+    assert "40% rain chance" in page.text
+    assert "42% rain chance" in page.text
+    assert "PoP" not in page.text
     assert 'class="forecast-icon forecast-icon--rain"' in page.text
     assert 'class="forecast-icon forecast-icon--sunny"' in page.text
     assert current.json()["sensor_id"] == "nodus-weather"
