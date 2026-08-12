@@ -42,7 +42,7 @@
       <div>
         <p class="eyebrow">Caelus Weather Forecast</p>
         <h1 id="station-title">{{ location.name or 'Your weather, alive.' }}</h1>
-        <p class="station-subtitle">
+        <p class="station-subtitle" id="stationSubtitle">
           {% if latest.ok %}{{ latest.sensor_id }} · Last observation <time datetime="{{ latest.timestamp }}">{{ latest_observation_time }}</time>
           {% elif settings.sensor_id %}Waiting for readings from {{ settings.sensor_id }}
           {% else %}Choose a Current Readings sensor in Integrations → Weather Forecast{% endif %}
@@ -51,15 +51,15 @@
     </section>
 
     <section class="conditions-row" id="conditions" aria-label="Weather overview">
-      <article class="glass-card readings-panel">
-        <div class="card-heading"><div><p class="eyebrow">Current readings</p><h2>{{ latest.sensor_id or 'Sensor not selected' }}</h2></div><span class="weather-badge">{{ 'Live' if latest.ok else 'Waiting' }}</span></div>
+      <article class="glass-card readings-panel" data-current-readings data-refresh-interval-sec="{{ latest.refresh_interval_sec | default(60) }}">
+        <div class="card-heading"><div><p class="eyebrow">Current readings</p><h2 data-readings-sensor>{{ latest.location or latest.sensor_id or 'Sensor not selected' }}</h2></div><span class="weather-badge" data-readings-badge>{{ 'Live' if latest.ok else 'Waiting' }}</span></div>
         {% set display_metrics = latest.display_metrics | default([]) %}
         {% set primary_metric = display_metrics[0] if display_metrics else none %}
-        <div class="reading-hero"><div class="weather-symbol compact-symbol" aria-hidden="true"><span class="symbol-sun"></span><span class="symbol-cloud"></span></div><div><span class="temperature-number">{{ reading(primary_metric.value if primary_metric else none) }}</span><span class="temperature-unit">{{ primary_metric.unit if primary_metric else '' }}</span><p>{{ primary_metric.name if primary_metric else 'No Display Metrics configured' }}</p></div></div>
-        <div class="current-reading-list">
+        <div class="reading-hero"><div class="weather-symbol compact-symbol" aria-hidden="true"><span class="symbol-sun"></span><span class="symbol-cloud"></span></div><div><span class="temperature-number" data-readings-primary-value>{{ reading(primary_metric.value if primary_metric else none) }}</span><span class="temperature-unit" data-readings-primary-unit>{{ primary_metric.unit if primary_metric else '' }}</span><p data-readings-primary-name>{{ primary_metric.name if primary_metric else 'No Display Metrics configured' }}</p></div></div>
+        <div class="current-reading-list" data-readings-list>
           {% for metric in display_metrics[1:] %}<div><span>{{ metric.name }}</span><strong>{{ reading(metric.value, (' ' ~ metric.unit) if metric.unit else '') }}</strong></div>{% endfor %}
         </div>
-        <footer class="station-state readings-footer {{ 'is-live' if latest.ok else 'is-waiting' }}"><span class="status-dot"></span>{{ 'Station reporting' if latest.ok else 'Sensor standing by' }}</footer>
+        <footer class="station-state readings-footer {{ 'is-live' if latest.ok else 'is-waiting' }}" data-readings-footer><span class="status-dot"></span><span data-readings-status>{{ 'Station reporting' if latest.ok else 'Sensor standing by' }}</span></footer>
       </article>
 
       <article class="glass-card forecast-panel">

@@ -1,8 +1,5 @@
 (function () {
   const forecastDialog = document.getElementById("forecastDialog");
-  document.querySelectorAll("[data-open-forecast]").forEach((button) => {
-    button.addEventListener("click", () => forecastDialog?.showModal());
-  });
   forecastDialog?.querySelectorAll("[data-close-forecast]").forEach((button) => {
     button.addEventListener("click", () => forecastDialog.close());
   });
@@ -10,40 +7,151 @@
     if (event.target === forecastDialog) forecastDialog.close();
   });
 
-  document.querySelectorAll("[data-hourly-carousel]").forEach((carousel) => {
-    const hours = Array.from(carousel.querySelectorAll("[data-hourly-index]"));
-    const previousButton = carousel.querySelector("[data-hourly-previous]");
-    const nextButton = carousel.querySelector("[data-hourly-next]");
-    const status = carousel.parentElement?.querySelector("[data-hourly-status]");
-    const pageSize = Number(carousel.dataset.pageSize) || 8;
-    let pageStart = 0;
+  function initializeHourlyCarousels(root = document) {
+    root.querySelectorAll("[data-hourly-carousel]").forEach((carousel) => {
+      if (carousel.dataset.initialized === "true") return;
+      carousel.dataset.initialized = "true";
+      const hours = Array.from(carousel.querySelectorAll("[data-hourly-index]"));
+      const previousButton = carousel.querySelector("[data-hourly-previous]");
+      const nextButton = carousel.querySelector("[data-hourly-next]");
+      const status = carousel.parentElement?.querySelector("[data-hourly-status]");
+      const pageSize = Number(carousel.dataset.pageSize) || 8;
+      let pageStart = 0;
 
-    function showPage() {
-      const pageEnd = Math.min(pageStart + pageSize, hours.length);
-      hours.forEach((hour, index) => {
-        hour.hidden = index < pageStart || index >= pageEnd;
+      function showPage() {
+        const pageEnd = Math.min(pageStart + pageSize, hours.length);
+        hours.forEach((hour, index) => {
+          hour.hidden = index < pageStart || index >= pageEnd;
+        });
+        if (previousButton) previousButton.hidden = pageStart === 0;
+        if (nextButton) nextButton.hidden = pageEnd >= hours.length;
+        if (status) status.textContent = `Hours ${pageStart + 1}–${pageEnd} of ${hours.length}`;
+      }
+
+      previousButton?.addEventListener("click", () => {
+        pageStart = Math.max(0, pageStart - 1);
+        showPage();
       });
-      if (previousButton) previousButton.hidden = pageStart === 0;
-      if (nextButton) nextButton.hidden = pageEnd >= hours.length;
-      if (status) status.textContent = `Hours ${pageStart + 1}–${pageEnd} of ${hours.length}`;
-    }
+      nextButton?.addEventListener("click", () => {
+        pageStart = Math.min(Math.max(0, hours.length - pageSize), pageStart + 1);
+        showPage();
+      });
+      showPage();
+    });
+  }
 
-    previousButton?.addEventListener("click", () => {
-      pageStart = Math.max(0, pageStart - 1);
-      showPage();
+  function initializeForecastButtons(root = document) {
+    root.querySelectorAll("[data-open-forecast]").forEach((button) => {
+      if (button.dataset.initialized === "true") return;
+      button.dataset.initialized = "true";
+      button.addEventListener("click", () => forecastDialog?.showModal());
     });
-    nextButton?.addEventListener("click", () => {
-      pageStart = Math.min(Math.max(0, hours.length - pageSize), pageStart + 1);
-      showPage();
-    });
-    showPage();
-  });
+  }
+
+  initializeHourlyCarousels();
+  initializeForecastButtons();
 
   const dashboardReturn = document.getElementById("dashboardReturn");
   dashboardReturn?.addEventListener("click", () => dashboardReturn.classList.add("is-loading"));
   window.addEventListener("pageshow", () => dashboardReturn?.classList.remove("is-loading"));
 
   const renderMoonDisk = window.CaelusMoon?.renderMoonDisk || (() => {});
+
+  function displayReading(value) {
+    return value == null ? "—" : String(value);
+  }
+
+  function renderCurrentReadings(payload) {
+    const panel = document.querySelector("[data-current-readings]");
+    if (!panel) return;
+    const metrics = Array.isArray(payload.display_metrics) ? payload.display_metrics : [];
+    const primary = metrics[0];
+    const sensorName = payload.sensor_id || "Sensor not selected";
+    panel.querySelector("[data-readings-sensor]").textContent = payload.location || sensorName;
+    panel.querySelector("[data-readings-badge]").textContent = payload.ok ? "Live" : "Waiting";
+    panel.querySelector("[data-readings-primary-value]").textContent = displayReading(primary?.value);
+    panel.querySelector("[data-readings-primary-unit]").textContent = primary?.unit || "";
+    panel.querySelector("[data-readings-primary-name]").textContent = primary?.name || "No Display Metrics configured";
+    const list = panel.querySelector("[data-readings-list]");
+    list.replaceChildren();
+    metrics.slice(1).forEach((metric) => {
+      const row = document.createElement("div");
+      const name = document.createElement("span");
+      const value = document.createElement("strong");
+      name.textContent = metric.name || "Metric";
+      value.textContent = `${displayReading(metric.value)}${metric.value == null || !metric.unit ? "" : ` ${metric.unit}`}`;
+      row.append(name, value);
+      list.append(row);
+    });
+    const footer = panel.querySelector("[data-readings-footer]");
+    footer.classList.toggle("is-live", Boolean(payload.ok));
+    footer.classList.toggle("is-waiting", !payload.ok);
+    panel.querySelector("[data-readings-status]").textContent = payload.ok ? "Station reporting" : "Sensor standing by";
+    panel.dataset.refreshIntervalSec = String(payload.refresh_interval_sec || 60);
+    const subtitle = document.getElementById("stationSubtitle");
+    if (subtitle && payload.ok) {
+      subtitle.replaceChildren(document.createTextNode(`${sensorName} · Last observation `));
+      const time = document.createElement("time");
+      time.dateTime = payload.timestamp || "";
+      const observed = new Date(payload.timestamp || "");
+      time.textContent = Number.isNaN(observed.valueOf())
+        ? "just now"
+        : observed.toLocaleString([], {year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit"});
+      subtitle.append(time);
+    }
+  }
+
+  let readingsTimer = 0;
+  async function refreshCurrentReadings() {
+    if (!document.hidden) {
+      try {
+        const response = await fetch("/api/weather-forecast-app/current-readings", {cache: "no-store"});
+        if (response.ok) renderCurrentReadings(await response.json());
+      } catch (_error) {
+        // Keep the last good reading visible until the next sensor interval.
+      }
+    }
+    const panel = document.querySelector("[data-current-readings]");
+    const seconds = Math.max(15, Math.min(3600, Number(panel?.dataset.refreshIntervalSec) || 60));
+    window.clearTimeout(readingsTimer);
+    readingsTimer = window.setTimeout(refreshCurrentReadings, seconds * 1000);
+  }
+
+  let forecastHour = Math.floor(Date.now() / (60 * 60 * 1000));
+  let forecastTimer = 0;
+  async function refreshHourlyForecast() {
+    if (!document.hidden) {
+      try {
+        const response = await fetch("/weather-forecast?force_refresh=true", {cache: "no-store"});
+        if (response.ok) {
+          const nextDocument = new DOMParser().parseFromString(await response.text(), "text/html");
+          const nextPanel = nextDocument.querySelector(".forecast-panel");
+          const currentPanel = document.querySelector(".forecast-panel");
+          if (nextPanel && currentPanel) {
+            currentPanel.replaceWith(nextPanel);
+            initializeHourlyCarousels(nextPanel);
+            initializeForecastButtons(nextPanel);
+          }
+          forecastHour = Math.floor(Date.now() / (60 * 60 * 1000));
+        }
+      } catch (_error) {
+        // Keep the last good hourly forecast visible until the next attempt.
+      }
+    }
+    scheduleHourlyForecast();
+  }
+
+  function scheduleHourlyForecast() {
+    const hourMs = 60 * 60 * 1000;
+    const delay = hourMs - (Date.now() % hourMs);
+    window.clearTimeout(forecastTimer);
+    forecastTimer = window.setTimeout(refreshHourlyForecast, delay + 50);
+  }
+
+  const initialReadingsInterval = Math.max(15, Math.min(3600,
+    Number(document.querySelector("[data-current-readings]")?.dataset.refreshIntervalSec) || 60));
+  readingsTimer = window.setTimeout(refreshCurrentReadings, initialReadingsInterval * 1000);
+  scheduleHourlyForecast();
 
   function phaseFromCanvas(canvas) {
     return {
@@ -200,5 +308,13 @@
   }
 
   window.setInterval(refreshAstronomy, 5 * 60 * 1000);
-  document.addEventListener("visibilitychange", refreshAstronomy);
+  document.addEventListener("visibilitychange", () => {
+    refreshAstronomy();
+    if (document.hidden) return;
+    void refreshCurrentReadings();
+    if (forecastHour !== Math.floor(Date.now() / (60 * 60 * 1000))) {
+      window.clearTimeout(forecastTimer);
+      void refreshHourlyForecast();
+    }
+  });
 })();

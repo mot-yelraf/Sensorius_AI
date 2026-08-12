@@ -214,6 +214,7 @@ document.addEventListener("click", async (ev) => {
         inp.dataset.originalLocation = (inp.value || "").trim();
       });
       if (statusEl) statusEl.textContent = "Saved.";
+      window.setTimeout(() => window.location.reload(), 400);
     } catch (e) {
       console.error(e);
       const statusEl = document.getElementById("locations-save-status");

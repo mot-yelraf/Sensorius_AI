@@ -1375,6 +1375,7 @@ async def test_submit_sensor_settings_ajax_returns_json_success(tmp_path, monkey
             "Display": {"METRIC_1": "Temperature"},
         },
     )
+    saiWebRoutes._SENSOR_LOCATION_CACHE["apvpd-test123"] = (float("inf"), "Old Room")
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
@@ -1391,6 +1392,7 @@ async def test_submit_sensor_settings_ajax_returns_json_success(tmp_path, monkey
     saved = sensor_mgr.load("apvpd-test123")
     assert saved["Sensor"]["LOCATION"] == "Grow Tent"
     assert saved["Display"]["METRIC_1"] == "Temperature"
+    assert "apvpd-test123" not in saiWebRoutes._SENSOR_LOCATION_CACHE
 
 
 @pytest.mark.asyncio
@@ -1407,6 +1409,8 @@ async def test_submit_switch_settings_ajax_returns_json_success(tmp_path, monkey
             }
         },
     )
+    controller = SimpleNamespace(switch_id="switch-1", location="Old Room")
+    app.state.switch_controllers = {"switch-1": controller}
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
@@ -1423,6 +1427,21 @@ async def test_submit_switch_settings_ajax_returns_json_success(tmp_path, monkey
     saved = switch_mgr.load("switch-1")
     assert saved["Switch"]["SWITCH_LOCATION"] == "Grow Tent"
     assert saved["Switch"]["SWITCH_1_LABEL"] == "Fan"
+    assert controller.location == "Grow Tent"
+
+
+def test_location_save_surfaces_reload_existing_dashboard_layout():
+    root = Path(__file__).resolve().parents[1]
+    sensor_script = (root / "ui_static" / "js" / "sensor_settings_modal.js").read_text(encoding="utf-8")
+    switch_template = (root / "ui_templates" / "modals" / "switch_settings.html").read_text(encoding="utf-8")
+    system_template = (root / "ui_templates" / "modals" / "system_settings.html").read_text(encoding="utf-8")
+    legacy_locations = (root / "ui_templates" / "modals" / "system_device_locations.html").read_text(encoding="utf-8")
+
+    assert "savedLocation !== initialLocation" in sensor_script
+    assert "savedLocation !== initialLocation" in switch_template
+    assert 'input.dataset.originalLocation = (dev.location || "").trim();' in system_template
+    assert "window.setTimeout(() => window.location.reload(), 400);" in system_template
+    assert "window.setTimeout(() => window.location.reload(), 400);" in legacy_locations
 
 
 @pytest.mark.asyncio

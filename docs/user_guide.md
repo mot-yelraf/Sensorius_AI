@@ -519,6 +519,8 @@ Fields:
 - **Save**: writes all non-empty location changes.
 
 Locations should describe places people recognize: Greenhouse 1, West Bed, Seedling Bench, Main Pump, Hoop House, or Barn Weather Station.
+After a location change is saved, Sensorius reloads the dashboard so existing
+sensor row headings, switch-card grouping, and the location filter use the new value.
 
 ### Add Device Pane
 
@@ -1000,10 +1002,14 @@ the configured Astral location near the Moon's highest point on that date.
 Full-moon milestones use familiar traditional names such as **Harvest Moon**.
 
 Current Readings displays the selected sensor's configured **Display Metrics**
-in their saved order, including their standard Sensorius units. This allows a
+in their saved order, including their standard Sensorius units, and identifies
+the source by its configured sensor **Location**. This allows a
 weather station, a Nodus environmental sensor, or a WeeWX station with fewer
 metrics to use the same full-screen view without requiring weather-only metric
-names.
+names. While Caelus remains open, Current Readings follows the selected sensor's
+collection interval (normally 60 seconds for Nodus and the configured polling
+interval, 300 seconds by default, for Ecowitt). Today's Forecast refreshes at
+the top of each hour, while Sunlight Today continues to refresh every 300 seconds.
 
 The hourly strip presents the next 24 hours as one-hour forecasts, with eight
 hours visible at a time. Use the narrow left and right controls to move the

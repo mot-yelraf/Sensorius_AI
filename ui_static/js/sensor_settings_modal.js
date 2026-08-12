@@ -198,6 +198,8 @@ window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
   const spinner = modalEl.querySelector("#saveSpinner");
   const statusEl = modalEl.querySelector("#sensorSettingsStatus");
   const restartBtn = modalEl.querySelector("#sensorRestartBtn");
+  const locationInput = form ? form.querySelector('input[name="location"]') : null;
+  const initialLocation = locationInput ? String(locationInput.value || "").trim() : "";
   if (form && saveBtn && spinner && statusEl && form.dataset.ajaxBound !== "1") {
     form.dataset.ajaxBound = "1";
 
@@ -265,6 +267,10 @@ window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
         setStatus("Saved.");
         requestDashboardRefresh();
         if (typeof window.showToast === "function") window.showToast("Sensor settings saved", "ok");
+        const savedLocation = locationInput ? String(locationInput.value || "").trim() : "";
+        if (savedLocation !== initialLocation) {
+          window.setTimeout(() => window.location.reload(), 400);
+        }
       } catch (err) {
         const msg = err && err.message ? err.message : "Failed to save sensor settings.";
         setStatus(msg);

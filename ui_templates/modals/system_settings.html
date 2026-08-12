@@ -930,7 +930,7 @@
        data-weewx-broker="{{ weewx_broker | default('localhost') }}"
        data-weewx-port="{{ weewx_port | default(1883) }}"
        data-ecowitt-gateway-url="{{ ecowitt_gateway_url | default('') }}"
-       data-ecowitt-poll-interval="{{ ecowitt_poll_interval_sec | default(60) }}"
+       data-ecowitt-poll-interval="{{ ecowitt_poll_interval_sec | default(300) }}"
        data-onboarding-v2-enabled="{{ onboarding_v2_mqtt_enabled | default(true) }}">
     <div class="system-settings-header">
       <h2 class="system-settings-title">{{ app_name_long }} {{ app_version }}</h2>
@@ -1553,7 +1553,7 @@
                     </div>
                     <div class="field-stack">
                       <label for="ecowitt-polling-interval">Data Retrieval Interval</label>
-                      <input type="number" id="ecowitt-polling-interval" name="ecowitt_polling_interval" value="{{ ecowitt_poll_interval_sec | default(60) }}" min="60" max="3600" step="1" inputmode="numeric">
+                      <input type="number" id="ecowitt-polling-interval" name="ecowitt_polling_interval" value="{{ ecowitt_poll_interval_sec | default(300) }}" min="60" max="3600" step="1" inputmode="numeric">
                     </div>
                   </div>
                   <div class="inline-actions" style="justify-content:flex-end;margin-top:.65rem;">
@@ -2897,7 +2897,7 @@
       return;
     }
     const gateway_url = (document.getElementById("ecowitt-gateway-url")?.value || "").trim();
-    const poll_interval_sec = parseInt(document.getElementById("ecowitt-polling-interval")?.value || "60", 10) || 60;
+    const poll_interval_sec = parseInt(document.getElementById("ecowitt-polling-interval")?.value || "300", 10) || 300;
     setButtonBusy("btn-ecowitt-save", true, "Saving...");
     try {
       const resp = await fetch("/ecowitt/save", {
@@ -3109,6 +3109,7 @@
         input.className = "location-input";
         input.value = dev.location || "";
         input.placeholder = "Enter location";
+        input.dataset.originalLocation = (dev.location || "").trim();
         input.dataset.deviceId = dev.id || "";
         input.dataset.deviceType = (dev.type || "").toLowerCase();
 
@@ -3136,8 +3137,15 @@
         const id = (inp.dataset.deviceId || "").trim();
         const type = (inp.dataset.deviceType || "").trim().toLowerCase();
         const loc = (inp.value || "").trim();
-        if (id && type && loc) payload.push({ id, type, location: loc });
+        const originalLoc = (inp.dataset.originalLocation || "").trim();
+        if (id && type && loc && loc !== originalLoc) payload.push({ id, type, location: loc });
       });
+
+      if (!payload.length) {
+        setStatus("locations-status", "No location changes.");
+        showSettingsToast("No location changes", "ok");
+        return;
+      }
 
       setStatus("locations-status", "Saving...");
       setButtonBusy("btn-locations-save", true, "Saving...");
@@ -3154,6 +3162,7 @@
 
       setStatus("locations-status", "Saved.");
       showSettingsToast("Locations saved", "ok");
+      window.setTimeout(() => window.location.reload(), 400);
     } catch (e) {
       console.error(e);
       const msg = e && e.message ? e.message : "Failed to save locations.";

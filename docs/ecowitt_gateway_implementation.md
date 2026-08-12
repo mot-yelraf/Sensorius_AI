@@ -188,7 +188,7 @@ multiple gateways later. Expected fields include:
 [Ecowitt]
 ENABLED = false
 GATEWAY_URL = ""
-POLL_INTERVAL_SEC = 60
+POLL_INTERVAL_SEC = 300
 SENSOR_ID = ""
 INVENTORY_JSON = "[]"
 RAIN_SOURCE = ""

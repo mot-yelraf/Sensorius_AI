@@ -11396,6 +11396,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 for section_name, section_map in merged_doc.items():
                     manager.save(old_id, OrderedDict([(section_name, section_map)]))
         _invalidate_dashboard_caches()
+        _SENSOR_LOCATION_CACHE.pop(old_id, None)
 
         base_dir = Path(getattr(manager, "base_dir", "sensor_settings"))
         old_dir = base_dir / old_id
@@ -13296,6 +13297,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 # Last resort: re-save section-by-section in a deterministic order
                 for section_name, section_map in merged_doc.items():
                     manager.save(old_id, OrderedDict([(section_name, section_map)]))
+
+        _invalidate_dashboard_caches()
+        try:
+            active_controllers = getattr(app.state, "switch_controllers", None) or switch_controllers
+            controller_values = active_controllers.values() if isinstance(active_controllers, dict) else [active_controllers]
+            for controller in controller_values:
+                if str(getattr(controller, "switch_id", "") or "").strip().lower() == old_id:
+                    controller.location = str((merged_doc.get("Switch", {}) or {}).get("SWITCH_LOCATION", "") or "")
+        except Exception:
+            pass
 
         if _wants_modal_json(request):
             return JSONResponse({"ok": True, "message": "Switch settings saved.", "switch_id": new_id})

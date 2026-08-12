@@ -189,6 +189,8 @@
   const saveBtn = document.getElementById("switchSettingsSaveBtn");
   const statusEl = document.getElementById("switchSettingsStatus");
   const restartBtn = document.getElementById("switchRestartBtn");
+  const locationInput = form ? form.querySelector('input[name="location"]') : null;
+  const initialLocation = locationInput ? String(locationInput.value || "").trim() : "";
   if (!modal || !form || !saveBtn || !statusEl) return;
   if (form.dataset.ajaxBound === "1") return;
   form.dataset.ajaxBound = "1";
@@ -242,6 +244,10 @@
       }
       setStatus("Saved.");
       if (typeof window.showToast === "function") window.showToast("Switch settings saved", "ok");
+      const savedLocation = locationInput ? String(locationInput.value || "").trim() : "";
+      if (savedLocation !== initialLocation) {
+        window.setTimeout(() => window.location.reload(), 400);
+      }
     } catch (err) {
       const msg = err && err.message ? err.message : "Failed to save switch settings.";
       setStatus(msg);

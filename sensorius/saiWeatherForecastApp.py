@@ -23,6 +23,8 @@ from .saiHtml import canonicalize_metric_name, get_gauge_config
 from .saiSensorSettingsManager import SensorSettingsManager
 from .saiWeatherAstronomy import astronomy_context
 from .saiWeatherForecast import get_weather_forecast_payload
+from .sensor_modules.station_ecowitt import DEFAULT_POLL_INTERVAL_SEC as ECOWITT_DEFAULT_POLL_INTERVAL_SEC
+from .sensor_modules.station_weewx import DEFAULT_UPDATE_PERIOD_SEC as WEEWX_DEFAULT_UPDATE_PERIOD_SEC
 
 
 WEATHER_THEMES = {"garden", "island", "river", "desert"}
@@ -419,6 +421,8 @@ class WeatherForecastAppService:
         if not sensor_id:
             payload = normalize_current_weather_readings("", {}, "")
             payload["display_metrics"] = []
+            payload["location"] = ""
+            payload["refresh_interval_sec"] = 60
             return payload
         values = self.data_logger.get_latest_values(sensor_id) or {}
         timestamp = self.data_logger.get_latest_timestamp(sensor_id) or ""
@@ -427,8 +431,33 @@ class WeatherForecastAppService:
             configured_metrics = self.sensor_settings_manager.get_display_metrics(sensor_id)
         except Exception:
             configured_metrics = []
+        try:
+            sensor_location = str(
+                self.sensor_settings_manager.get_setting(sensor_id, "Sensor.LOCATION", "") or ""
+            ).strip()
+        except Exception:
+            sensor_location = ""
         payload["display_metrics"] = build_display_metrics(values, configured_metrics)
+        payload["location"] = sensor_location
+        payload["refresh_interval_sec"] = self.current_readings_refresh_interval(sensor_id)
         return payload
+
+    def current_readings_refresh_interval(self, sensor_id: str) -> int:
+        """Return the selected sensor's configured collection cadence."""
+        try:
+            device = str(self.sensor_settings_manager.get_setting(sensor_id, "Sensor.DEVICE", "") or "").lower()
+        except Exception:
+            device = ""
+        if device == "ecowitt":
+            configured = self.settings.get_setting("Ecowitt", "POLL_INTERVAL_SEC", ECOWITT_DEFAULT_POLL_INTERVAL_SEC)
+        elif device == "weewx":
+            configured = self.settings.get_setting("WeeWX", "UPDATE_PERIOD_SEC", WEEWX_DEFAULT_UPDATE_PERIOD_SEC)
+        else:
+            configured = 60
+        try:
+            return max(15, min(3600, int(float(configured))))
+        except Exception:
+            return 60
 
     async def canonical_forecast(self, *, force_refresh: bool = False) -> dict[str, Any]:
         """Return the canonical payload, sharing an active startup warm task."""
@@ -461,9 +490,9 @@ def register_weather_forecast_app_routes(
     app.add_event_handler("startup", service.ensure_background_warm)
 
     @router.get("/weather-forecast", response_class=HTMLResponse)
-    async def weather_forecast_page(request: Request):
+    async def weather_forecast_page(request: Request, force_refresh: bool = False):
         forecast, moon, latest = await asyncio.gather(
-            service.forecast(),
+            service.forecast(force_refresh=force_refresh),
             asyncio.to_thread(service.astronomy),
             asyncio.to_thread(service.current_readings),
         )

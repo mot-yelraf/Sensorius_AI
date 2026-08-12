@@ -62,6 +62,12 @@ class _SensorSettings:
         assert sensor_id == "nodus-weather"
         return ["Baro-Pressure", "Temperature", "Rel-Humidity", "Wind Speed"]
 
+    def get_setting(self, sensor_id, key, default=None):
+        assert sensor_id == "nodus-weather"
+        if key == "Sensor.LOCATION":
+            return "Kitchen Garden"
+        return default
+
 
 def _forecast_payload():
     hour = {
@@ -410,6 +416,8 @@ async def test_integrated_weather_routes_render_dashboard_and_namespaced_apis(mo
     assert 'class="forecast-icon forecast-icon--rain"' in page.text
     assert 'class="forecast-icon forecast-icon--sunny"' in page.text
     assert current.json()["sensor_id"] == "nodus-weather"
+    assert current.json()["location"] == "Kitchen Garden"
+    assert current.json()["refresh_interval_sec"] == 60
     assert current.json()["temperature_f"] == 68.0
     assert current.json()["display_metrics"][0] == {
         "name": "Baro-Pressure",
@@ -417,6 +425,7 @@ async def test_integrated_weather_routes_render_dashboard_and_namespaced_apis(mo
         "unit": "hPa",
     }
     assert "Baro-Pressure" in page.text
+    assert '<h2 data-readings-sensor>Kitchen Garden</h2>' in page.text
     readings_panel = page.text[
         page.text.index('class="glass-card readings-panel"'):
         page.text.index('class="glass-card forecast-panel"')
@@ -429,6 +438,37 @@ async def test_integrated_weather_routes_render_dashboard_and_namespaced_apis(mo
     assert page.text.index('id="conditions"') < page.text.index('id="map"') < page.text.index('id="moon"')
     assert "overlay=radar" in page.text
     assert forecast.json()["days"][0]["label"] == "Sat Aug 8"
+
+
+def test_caelus_card_refreshes_use_sensor_hourly_and_sunlight_cadences():
+    script = (ROOT / "ui_static" / "weather_forecast" / "app.js").read_text(encoding="utf-8")
+
+    assert 'fetch("/api/weather-forecast-app/current-readings", {cache: "no-store"})' in script
+    assert "seconds * 1000" in script
+    assert 'fetch("/weather-forecast?force_refresh=true", {cache: "no-store"})' in script
+    assert "hourMs - (Date.now() % hourMs)" in script
+    assert "window.setInterval(refreshAstronomy, 5 * 60 * 1000);" in script
+
+
+def test_ecowitt_current_readings_refresh_uses_configured_poll_interval():
+    class EcowittSettings(_Settings):
+        values = {
+            **_Settings.values,
+            ("Ecowitt", "POLL_INTERVAL_SEC"): 420,
+        }
+
+    class EcowittSensorSettings(_SensorSettings):
+        def get_setting(self, sensor_id, key, default=None):
+            assert sensor_id == "nodus-weather"
+            return "ecowitt" if key == "Sensor.DEVICE" else default
+
+    service = weather_app.WeatherForecastAppService(
+        settings=EcowittSettings(),
+        data_logger=_Logger(),
+        sensor_settings_manager=EcowittSensorSettings(),
+    )
+
+    assert service.current_readings()["refresh_interval_sec"] == 420
 
 
 @pytest.mark.asyncio
