@@ -6,6 +6,7 @@ forecast when remote forecast providers are unavailable.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import re
@@ -341,19 +342,22 @@ def normalize_met_forecast(payload: dict[str, Any], *, tz_name: str) -> list[dic
         details = instant.get("details") if isinstance(instant.get("details"), dict) else {}
         next_1h = data.get("next_1_hours") if isinstance(data.get("next_1_hours"), dict) else {}
         next_6h = data.get("next_6_hours") if isinstance(data.get("next_6_hours"), dict) else {}
+        next_12h = data.get("next_12_hours") if isinstance(data.get("next_12_hours"), dict) else {}
         precip = None
         precip_probability = None
         symbol = ""
-        for block, divisor in ((next_1h, 1.0), (next_6h, 6.0)):
+        for block, divisor in ((next_1h, 1.0), (next_6h, 6.0), (next_12h, 12.0)):
             block_details = block.get("details") if isinstance(block.get("details"), dict) else {}
-            precip = _safe_float(block_details.get("precipitation_amount"))
-            precip_probability = _normalize_probability(
-                block_details.get("probability_of_precipitation")
-            )
+            block_precip = _safe_float(block_details.get("precipitation_amount"))
+            block_probability = _normalize_probability(block_details.get("probability_of_precipitation"))
             summary = block.get("summary") if isinstance(block.get("summary"), dict) else {}
-            symbol = str(summary.get("symbol_code") or symbol or "").strip()
-            if precip is not None:
-                precip = precip / divisor
+            if not symbol:
+                symbol = str(summary.get("symbol_code") or "").strip()
+            if precip is None and block_precip is not None:
+                precip = block_precip / divisor
+            if precip_probability is None and block_probability is not None:
+                precip_probability = block_probability
+            if precip is not None and precip_probability is not None:
                 break
         row = _normalize_hour(
             {
@@ -492,6 +496,65 @@ def normalize_nws_forecast(payload: dict[str, Any], *, tz_name: str) -> list[dic
         if row is not None:
             rows.append(row)
     return sorted(rows, key=lambda row: row["time"])
+
+
+def _iso_duration_hours(value: object) -> int:
+    """Return a conservative whole-hour count for an ISO 8601 duration."""
+    match = re.fullmatch(r"P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?)?", str(value or "").strip())
+    if match is None:
+        return 1
+    days = int(match.group(1) or 0)
+    hours = int(match.group(2) or 0)
+    minutes = int(match.group(3) or 0)
+    return max(1, (days * 24) + hours + (1 if minutes else 0))
+
+
+def nws_grid_precipitation_probabilities(payload: dict[str, Any]) -> dict[str, float]:
+    """Expand NWS grid precipitation probabilities into UTC hourly values."""
+    props = payload.get("properties") if isinstance(payload, dict) else None
+    probability = props.get("probabilityOfPrecipitation") if isinstance(props, dict) else None
+    values = probability.get("values") if isinstance(probability, dict) else None
+    if not isinstance(values, list):
+        return {}
+
+    hourly: dict[str, float] = {}
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        valid_time = str(item.get("validTime") or "").strip()
+        start_text, separator, duration_text = valid_time.partition("/")
+        start = _parse_datetime(start_text, tz_name="UTC")
+        chance = _normalize_probability(item.get("value"))
+        if start is None or chance is None:
+            continue
+        duration_hours = _iso_duration_hours(duration_text) if separator else 1
+        for offset in range(duration_hours):
+            timestamp = (start.astimezone(timezone.utc) + timedelta(hours=offset)).replace(microsecond=0)
+            hourly[timestamp.isoformat().replace("+00:00", "Z")] = chance
+    return hourly
+
+
+def supplement_precipitation_probabilities(
+    rows: list[dict[str, Any]],
+    supplemental: list[dict[str, Any]] | dict[str, float],
+) -> list[dict[str, Any]]:
+    """Fill missing hourly probabilities from matching timestamps only."""
+    if isinstance(supplemental, dict):
+        probabilities = supplemental
+    else:
+        probabilities = {
+            str(row.get("time") or ""): probability
+            for row in supplemental
+            if isinstance(row, dict)
+            and (probability := _normalize_probability(row.get("precip_probability"))) is not None
+        }
+    for row in rows:
+        if _normalize_probability(row.get("precip_probability")) is not None:
+            continue
+        probability = _normalize_probability(probabilities.get(str(row.get("time") or "")))
+        if probability is not None:
+            row["precip_probability"] = probability
+    return rows
 
 
 def build_forecast_payload(
@@ -650,13 +713,38 @@ def _cache_age_sec(payload: dict[str, Any]) -> float | None:
 
 
 async def _fetch_met_forecast(latitude: float, longitude: float, *, tz_name: str, timeout_sec: float) -> list[dict[str, Any]]:
-    async with httpx.AsyncClient(timeout=timeout_sec, headers={"User-Agent": USER_AGENT}, follow_redirects=True) as client:
-        resp = await client.get(
-            MET_LOCATION_FORECAST_URL,
-            params={"lat": f"{latitude:.6f}", "lon": f"{longitude:.6f}"},
-        )
-        resp.raise_for_status()
-        return normalize_met_forecast(resp.json(), tz_name=tz_name)
+    async def _fetch_primary() -> list[dict[str, Any]]:
+        async with httpx.AsyncClient(
+            timeout=timeout_sec,
+            headers={"User-Agent": USER_AGENT},
+            follow_redirects=True,
+        ) as client:
+            resp = await client.get(
+                MET_LOCATION_FORECAST_URL,
+                params={"lat": f"{latitude:.6f}", "lon": f"{longitude:.6f}"},
+            )
+            resp.raise_for_status()
+            return normalize_met_forecast(resp.json(), tz_name=tz_name)
+
+    async def _fetch_probability_supplement() -> list[dict[str, Any]]:
+        try:
+            return await _fetch_open_meteo_forecast(
+                latitude,
+                longitude,
+                tz_name=tz_name,
+                timeout_sec=timeout_sec,
+            )
+        except Exception as exc:
+            if DEBUG:
+                printDM(f"MET probability supplement failed: {exc}", location=MODULE)
+            return []
+
+    # MET Norway does not publish precipitation probability for every global
+    # model location. Use timestamp-matched Open-Meteo probabilities only for
+    # missing values; all other forecast fields remain sourced from MET.
+    rows, supplemental = await asyncio.gather(_fetch_primary(), _fetch_probability_supplement())
+    supplement_precipitation_probabilities(rows, supplemental)
+    return rows
 
 
 async def _fetch_open_meteo_forecast(latitude: float, longitude: float, *, tz_name: str, timeout_sec: float) -> list[dict[str, Any]]:
@@ -688,11 +776,33 @@ async def _fetch_nws_forecast(latitude: float, longitude: float, *, tz_name: str
         points = points_resp.json()
         props = points.get("properties") if isinstance(points, dict) else None
         hourly_url = str((props or {}).get("forecastHourly") or "").strip() if isinstance(props, dict) else ""
+        grid_url = str((props or {}).get("forecastGridData") or "").strip() if isinstance(props, dict) else ""
         if not hourly_url:
             raise RuntimeError("NWS hourly forecast URL unavailable")
-        hourly_resp = await client.get(hourly_url)
+
+        async def _fetch_grid() -> httpx.Response | None:
+            if not grid_url:
+                return None
+            try:
+                return await client.get(grid_url)
+            except Exception as exc:
+                if DEBUG:
+                    printDM(f"NWS grid probability request failed: {exc}", location=MODULE)
+                return None
+
+        hourly_resp, grid_resp = await asyncio.gather(client.get(hourly_url), _fetch_grid())
         hourly_resp.raise_for_status()
-        return normalize_nws_forecast(hourly_resp.json(), tz_name=tz_name)
+        rows = normalize_nws_forecast(hourly_resp.json(), tz_name=tz_name)
+        if grid_resp is not None:
+            try:
+                grid_resp.raise_for_status()
+                supplemental = nws_grid_precipitation_probabilities(grid_resp.json())
+            except Exception as exc:
+                if DEBUG:
+                    printDM(f"NWS grid probability supplement failed: {exc}", location=MODULE)
+            else:
+                supplement_precipitation_probabilities(rows, supplemental)
+        return rows
 
 
 def _resolve_forecast_location(settings: Any, *, timeout_sec: float) -> dict[str, Any]:

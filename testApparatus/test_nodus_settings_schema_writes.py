@@ -4925,6 +4925,7 @@ def test_dashboard_weather_forecast_card_has_six_day_button():
 
     assert "<body class='dashboard-page dashboard-theme-pollinator'>" in html
     assert "24 Hour Forecast</div>" in html
+    assert "<dt id='forecastPrecipLabel'>Rain</dt><dd id='forecastPrecipChance'>--</dd>" in html
     assert "class='astro-box forecast-scene-pending' id='weatherForecastBox'" in html
     assert "class='astro-box weather-theme-desert' id='weatherForecastBox'" not in html
     assert "background:var(--forecast-scene-bg)" in html
@@ -4950,6 +4951,10 @@ def test_dashboard_weather_forecast_card_has_six_day_button():
     assert "isNight = !forecastMinuteInWindow(minutes, daybreak, dusk);" in html
     assert "applyForecastScene(window.__weatherForecastPayload); }, 60000);" in html
     assert "applyForecastScene(data);" in html
+    assert "function forecastPrecipitationKind(data, cur){" in html
+    assert "return /snow|sleet/.test(text) ? 'Snow' : 'Rain';" in html
+    assert "setForecastPrecipitation(data, cur);" in html
+    assert "`${Math.round(Math.max(0, Math.min(100, chance)))}% chance`" in html
     assert "Loading forecast..." not in html
     assert "class='forecast-open-btn' id='forecastFiveDayBtn'" in html
     assert "<span class='forecast-open-btn-label'>6 Day Forecast</span>" in html

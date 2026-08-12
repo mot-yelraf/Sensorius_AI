@@ -23,7 +23,9 @@ from sensorius.saiWeatherForecast import (
     normalize_nws_forecast,
     normalize_open_meteo_forecast,
     normalize_weather_forecast_provider,
+    nws_grid_precipitation_probabilities,
     save_weather_forecast_cache,
+    supplement_precipitation_probabilities,
 )
 
 
@@ -124,6 +126,26 @@ def test_met_forecast_is_summarized_for_dashboard_card():
     assert first_day["temp_range"] == "15.1-26.5°C / 59-80°F"
 
 
+def test_met_probability_can_come_from_longer_block_than_hourly_amount():
+    item = _sample_met_payload()["properties"]["timeseries"][0]
+    item["data"]["next_1_hours"]["details"].pop("probability_of_precipitation")
+    item["data"]["next_6_hours"] = {
+        "summary": {"symbol_code": "rainshowers_day"},
+        "details": {
+            "precipitation_amount": 2.4,
+            "probability_of_precipitation": 68.0,
+        },
+    }
+
+    hourly = normalize_met_forecast(
+        {"properties": {"timeseries": [item]}},
+        tz_name="America/Denver",
+    )
+
+    assert hourly[0]["precip_mm"] == 0.0
+    assert hourly[0]["precip_probability"] == 68.0
+
+
 def test_weather_forecast_provider_normalization():
     assert normalize_weather_forecast_provider("MET Norway") == "met_no"
     assert normalize_weather_forecast_provider("US") == "us"
@@ -150,6 +172,50 @@ def test_nws_forecast_is_normalized_for_dashboard_payload():
     assert current["rh_range"] == "45-54%"
     assert current["wind"] == "Mostly light/moderate\n3-3 m/s / 8-8 mph"
     assert current["precip_probability"] == 49
+
+
+def test_nws_grid_probabilities_expand_and_fill_only_missing_hours():
+    grid_probabilities = nws_grid_precipitation_probabilities(
+        {
+            "properties": {
+                "probabilityOfPrecipitation": {
+                    "uom": "wmoUnit:percent",
+                    "values": [
+                        {"validTime": "2026-06-04T06:00:00+00:00/PT2H", "value": 73},
+                        {"validTime": "2026-06-04T08:00:00+00:00/PT1H", "value": None},
+                    ],
+                }
+            }
+        }
+    )
+    rows = [
+        {"time": "2026-06-04T06:00:00Z", "precip_probability": None},
+        {"time": "2026-06-04T07:00:00Z", "precip_probability": None},
+        {"time": "2026-06-04T08:00:00Z", "precip_probability": 25.0},
+    ]
+
+    supplement_precipitation_probabilities(rows, grid_probabilities)
+
+    assert grid_probabilities == {
+        "2026-06-04T06:00:00Z": 73.0,
+        "2026-06-04T07:00:00Z": 73.0,
+    }
+    assert [row["precip_probability"] for row in rows] == [73.0, 73.0, 25.0]
+
+
+def test_timestamp_matched_probability_supplement_preserves_provider_value():
+    rows = [
+        {"time": "2026-06-04T06:00:00Z", "precip_probability": None},
+        {"time": "2026-06-04T07:00:00Z", "precip_probability": 40.0},
+    ]
+    supplement = [
+        {"time": "2026-06-04T06:00:00Z", "precip_probability": 65.0},
+        {"time": "2026-06-04T07:00:00Z", "precip_probability": 80.0},
+    ]
+
+    supplement_precipitation_probabilities(rows, supplement)
+
+    assert [row["precip_probability"] for row in rows] == [65.0, 40.0]
 
 
 def test_open_meteo_precipitation_probability_is_normalized_hourly():

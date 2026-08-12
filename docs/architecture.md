@@ -193,6 +193,10 @@ Weather forecast:
 - The selected `[WeatherForecast].PROVIDER` controls the forecast source:
   MET Norway Location Forecast, Open-Meteo, US National Weather Service, or
   no forecast.
+- Missing precipitation probabilities are filled by timestamp without changing
+  the selected forecast source. NWS hourly gaps use the NWS grid-data product;
+  MET Norway locations whose global model omits probability use Open-Meteo for
+  that field only.
 - Forecast payloads are cached in SQLite in `weather_forecast` and reused for
   up to five minutes. Open dashboards poll that shared cache every five minutes,
   so the forecast card and its current-condition background update without a

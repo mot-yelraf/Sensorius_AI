@@ -83,7 +83,9 @@ The dashboard presents:
 - Buttons for System Settings, graph setup, sensor settings, switch settings, and calendar views.
 
 The **24 Hour Forecast** card keeps its day-wide forecast summary, while its
-background reflects the current three-hour forecast window. Clear conditions
+details include the maximum forecast precipitation chance, labeled as rain or
+snow from the forecast conditions. Its background reflects the current
+three-hour forecast window. Clear conditions
 use a sunny daytime sky or a starry night; cloudy conditions use gray daytime
 or nighttime skies; and precipitation adds rain streaks to the corresponding
 gray sky. This card appearance is independent of the theme selected for the
