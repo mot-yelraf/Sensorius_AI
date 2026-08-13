@@ -1,6 +1,6 @@
 # System Automations
 
-Automations are configured from **System Settings > Automations** and evaluated
+Automations are configured from **General Settings > Automations** and evaluated
 by the switch controller monitors.
 Local GPIO relays and remote Nodus switches share the same controller contract,
 so automation rules use the same behavior for both.

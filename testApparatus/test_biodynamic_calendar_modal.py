@@ -115,9 +115,9 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert text.index("<div class='astro-title'>Biodynamic Calendar</div>") < text.index("<div class='bio-window' id='bioDateLine'>Loading biodynamic date...</div>") < text.index("<div class='bio-daylight' id='bioDaylightLine'>Hours of Daylight: --</div>") < text.index("<div class='bio-main' id='bioCurrentPanel'>")
     assert text.index("<div class='astro-box' id='moonBox' aria-live='polite' role='button'") < text.index("<div class='astro-box' id='sunBox' aria-live='polite' role='button'")
     assert "#bioCurrentBadge" not in text
-    assert "const actionColor = isFruit ? '#4c3a7f' : color;" in text
-    assert "openBtn.style.background = actionColor;" in text
-    assert "openBtn.style.color = isFruit ? '#fff' : textOnHex(actionColor);" in text
+    assert "const actionColors = biodynamicActionColors(cur);" in text
+    assert "openBtn.style.background = actionColors.background;" in text
+    assert "openBtn.style.color = actionColors.text;" in text
     assert "const bioNowParts = () => {" in text
     assert "return { iso: d.toISOString(), dayKey: `${parts.year}-${parts.month}-${parts.day}`, minuteOfDay: Math.max(0, Math.min(1439, (hour24 * 60) + minute)) };" in text
     assert "let __lastBiodynamicMinuteKey = '';" in text

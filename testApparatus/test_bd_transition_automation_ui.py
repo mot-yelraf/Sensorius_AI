@@ -53,8 +53,13 @@ def test_bd_transition_toast_is_persistent_and_shows_from_to():
 
     assert "msg.type === 'bd_transition'" in html_builder
     assert "From ${segmentText(msg.from)} → To ${segmentText(msg.to)}" in html_builder
-    assert "t.style.backgroundColor = bdColor" in html_builder
-    assert "luminance > 0.62 ? '#111' : '#fff'" in html_builder
+    assert "const actionColors = biodynamicActionColors(msg.to);" in html_builder
+    assert "t.style.backgroundColor = actionColors.background;" in html_builder
+    assert "t.style.color = actionColors.text;" in html_builder
+    assert "const background = isFruit ? '#4c3a7f'" in html_builder
+    assert "const actionColors = biodynamicActionColors(cur);" in html_builder
+    assert "openBtn.style.background = actionColors.background;" in html_builder
+    assert "openBtn.style.color = actionColors.text;" in html_builder
     assert "Click to dismiss" in html_builder
     assert "setTimeout" not in "\n".join(
         line

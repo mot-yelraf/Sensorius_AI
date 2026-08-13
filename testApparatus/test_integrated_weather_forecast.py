@@ -557,7 +557,7 @@ def test_weather_forecast_system_settings_are_present():
     assert 'name="weather_forecast_sensor_id"' in template
     weather_section = template[
         template.index('data-runtime-section="system-weather-forecast"'):
-        template.index('data-runtime-section="system-notifications"')
+        template.index('<div class="settings-pane" id="pane-automations"')
     ]
     assert 'class="weather-forecast-controls"' in weather_section
     assert weather_section.index('for="weather_forecast_sensor_id"') < weather_section.index('for="weather_forecast_provider"')
@@ -565,7 +565,7 @@ def test_weather_forecast_system_settings_are_present():
     for theme in ("garden", "island", "river", "desert"):
         assert f'name="weather_forecast_theme" value="{theme}"' in weather_section
     assert template.index('data-runtime-section="system-astral"') < template.index('data-runtime-section="system-weather-forecast"')
-    assert template.index('data-runtime-section="system-weather-forecast"') < template.index('data-runtime-section="system-notifications"')
+    assert template.index('data-runtime-section="system-notifications"') < template.index('data-runtime-section="system-weather-forecast"')
     assert "The forecast uses the Sensorius Astral location." not in template
     assert "Current Readings panel follows the selected sensor's configured **Display Metrics**" in " ".join(user_guide.split())
     assert 'fetch("/sensor-directory"' in template

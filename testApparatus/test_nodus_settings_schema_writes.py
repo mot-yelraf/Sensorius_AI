@@ -736,13 +736,22 @@ def test_system_settings_sections_match_integration_accordions():
 
     section_markup = 'class="integration-block system-section-block"'
     assert text.count(section_markup) == 6
+    assert 'data-target="pane-system">General Settings</button>' in text
+    assert '<h3 class="pane-title">General Settings</h3>' in text
     assert f'<details {section_markup} data-runtime-section="system-general">' in text
     assert f'<details {section_markup} id="nodus-wifi-section" data-runtime-section="system-wifi">' in text
-    assert text.index("<summary>System Settings</summary>") < text.index("<summary>Nodus Wifi Update</summary>")
-    assert text.index("<summary>Nodus Wifi Update</summary>") < text.index("<summary>Astral</summary>")
-    assert text.index("<summary>Astral</summary>") < text.index("<summary>Weather Forecast</summary>")
-    assert text.index("<summary>Weather Forecast</summary>") < text.index("<summary>Notifications</summary>")
-    assert text.index("<summary>Notifications</summary>") < text.index("<summary>Display</summary>")
+    assert '<summary>Network Settings</summary>' in text
+    expected_order = (
+        'data-runtime-section="system-astral"',
+        'data-runtime-section="system-display"',
+        'data-runtime-section="system-general"',
+        'data-runtime-section="system-wifi"',
+        'data-runtime-section="system-notifications"',
+        'data-runtime-section="system-weather-forecast"',
+    )
+    assert [text.index(item) for item in expected_order] == sorted(
+        text.index(item) for item in expected_order
+    )
     assert text.count('class="button blue btn-system-save"') == 5
     system_pane = text[text.index('<div class="settings-pane" id="pane-system">'):text.index('<div class="settings-pane" id="pane-automations"')]
     assert system_pane.count('class="button black btn-back-system">Dashboard</button>') == 1
@@ -764,7 +773,10 @@ def test_notifications_has_one_email_action_row():
     source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
     text = source.read_text(encoding="utf-8")
 
-    email_section = text[text.index("<summary>Notifications</summary>"):text.index("<summary>Display</summary>")]
+    email_section = text[
+        text.index("<summary>Notifications</summary>"):
+        text.index("<summary>Weather Forecast</summary>")
+    ]
     assert "<summary>Notification Rules</summary>" not in email_section
     assert 'class="pane-footer section-action-footer"' in email_section
     assert 'class="button black btn-back-system">Dashboard</button>' not in email_section
@@ -6345,8 +6357,16 @@ def test_nodus_wifi_update_ui_is_transient_and_revealable():
 
     assert 'data-target="pane-wifi">Wi-Fi Settings</button>' not in template
     assert '<summary>Nodus Wifi Update</summary>' in template
-    assert template.index('<summary>System Settings</summary>') < template.index('<summary>Nodus Wifi Update</summary>')
-    assert template.index('<summary>Nodus Wifi Update</summary>') < template.index('<summary>Astral</summary>')
+    assert '<summary>Network Settings</summary>' in template
+    expected_order = (
+        'data-runtime-section="system-astral"',
+        'data-runtime-section="system-display"',
+        'data-runtime-section="system-general"',
+        'data-runtime-section="system-wifi"',
+    )
+    assert [template.index(item) for item in expected_order] == sorted(
+        template.index(item) for item in expected_order
+    )
     assert 'id="nodus-wifi-ssid" value="" autocomplete="off"' in template
     assert 'type="password" id="nodus-wifi-password" value="" autocomplete="new-password"' in template
     assert 'id="nodus-wifi-password-toggle">Show</button>' in template

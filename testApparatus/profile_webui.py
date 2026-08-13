@@ -421,7 +421,7 @@ def build_js_helper(timeout_ms: int) -> str:
       }}
     }},
     findSystemSettingsTrigger() {{
-      return document.querySelector("a[title='Open System Settings']");
+      return document.querySelector("a[title='Open General Settings']");
     }},
     sensorIds() {{
       const ids = [];
@@ -662,7 +662,7 @@ def build_js_helper(timeout_ms: int) -> str:
 SCENARIOS = (
     Scenario(
         name="system_settings",
-        label="System Settings",
+        label="General Settings",
         js_factory="""
 (() => window.__sensProfiler.profileAction({
   label: 'system settings modal',

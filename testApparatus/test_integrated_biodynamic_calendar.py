@@ -237,8 +237,8 @@ def test_fruit_uses_grape_purple_without_changing_fire_background_accent():
     dashboard = (root / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
 
     assert ".bio-legend-fruit{background:#4c3a7f}" in dashboard
-    assert "const actionColor = isFruit ? '#4c3a7f' : color;" in dashboard
-    assert "openBtn.style.color = isFruit ? '#fff' : textOnHex(actionColor);" in dashboard
+    assert "const actionColors = biodynamicActionColors(cur);" in dashboard
+    assert "openBtn.style.color = actionColors.text;" in dashboard
     for signs in (saiBiodynamics._SIGNS, core._SIGNS):
         fruit_signs = [sign for sign in signs if sign["plant_part"] == "Fruit"]
         assert fruit_signs

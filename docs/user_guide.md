@@ -10,67 +10,13 @@ Sensorius can run as a Raspberry Pi hub with directly connected sensors and rela
 
 This guide is written for people who want to use the system without necessarily knowing all of its back-end functionality. You do not need to understand MQTT, SQLite, or Python to use the app, but the guide explains where information comes from so you can make good decisions when something looks wrong.
 
-## Opening Sensorius
-
-If you installed Sensorius as a service, it starts automatically when the host computer starts or restarts. Wait for the host computer or Raspberry Pi to finish starting; the dashboard will appear after a few seconds. Service installs continue running in the background. To restart a Linux or Raspberry Pi systemd service manually, open a terminal and enter:
-
-```bash
-sudo systemctl restart sensorius
-```
-
-If you start Sensorius manually, run this from the installed Sensorius folder (the default is `~/Sensorius`):
-
-```bash
-cd ~/Sensorius
-.venv/bin/python Sensorius.py
-```
-
-The application will start and display the Sensorius dashboard. The first run may take a little longer while it sets up the system's location, database, and calendar data.
-
-The dashboard can also be opened using one of these addresses:
-
-- Same computer: `http://127.0.0.1:8000`
-- Local network hostname: `http://<hostname>.local:8000`
-- Another device on the same network: `http://<sensorius-host-ip>:8000`
-
-Keep the terminal process running for manual starts.
-
-### Keep Sensorius On A Trusted Network
-
-Sensorius is built for a trusted private LAN. It does not provide a complete
-login/session boundary around every settings, onboarding, calibration, switch,
-or maintenance action. The optional web API key protects selected operations,
-not the whole UI.
-
-Do not expose the Sensorius HTTP or MQTT ports directly to the Internet or use
-router port forwarding. Keep the hub and devices behind a firewall, use an
-isolated IoT VLAN where appropriate, and use a VPN or a trusted remote-access
-application such as RustDesk for remote access. On a Raspberry Pi, you can use
-either RustDesk or Raspberry Pi Connect. If only the host computer needs the
-UI, set `SENSORIUS_HTTP_HOST=127.0.0.1` in `.env` and restart Sensorius. Treat
-`.env`, runtime settings, backups, and diagnostic exports as sensitive because
-stored secrets are not protected by strong encryption.
-
-## Where Sensorius Gets Its Information
-
-Live sensor readings come from local Raspberry Pi sensor controllers and from MQTT-discovered Nodus devices. Sensor readings are written to the local SQLite database, `sensorius_data.db`, in the Sensorius process working directory unless the service or caller passes a different database path. Many service installs use the runtime directory, such as `/Users/<user>/Sensorius/sensorius_data.db` on macOS or `/home/<user>/Sensorius/sensorius_data.db` on Linux.
-
-Sensor and switch names, locations, display choices, calibration offsets, and channel labels come from Sensorius settings files under the macOS runtime settings folder:
-
-- System settings: `/Users/<user>/Sensorius/system_settings/<device_id>/settings.toml`
-- Sensor settings: `/Users/<user>/Sensorius/sensor_settings/<sensor_id>/sensor.toml`
-- Switch settings: `/Users/<user>/Sensorius/switch_settings/<switch_id>/switch.toml`
-- Advanced automations: `/Users/<user>/Sensorius/switch_settings/automations/automations.toml`
-
-For Nodus devices, Sensorius also listens for MQTT metadata and state messages. That metadata tells Sensorius what a device is, which readings or channels it provides, whether it is online, and which remote settings can be updated.
-
 ## Dashboard Overview
 
 The dashboard is the main operating view. It is where you check current conditions, see switch state, open settings, and review quick trends.
 
-![Dashboard overview using a synthetic example host](<../assets/screenshots/dashboard-overview.png>)
+![Dashboard overview using an example host](<../assets/screenshots/dashboard-overview.png>)
 
-This synthesized example is based on a representative Sensorius dashboard and
+This example is based on a representative Sensorius dashboard and
 uses the neutral host identity `sensorius-demo`. Sensor names, locations,
 metrics, switch channels, forecast source, and live values will vary by
 installation.
@@ -80,7 +26,7 @@ The dashboard presents:
 - Sensor cards grouped by device and location.
 - Switch cards with live channel state and recent events.
 - Sun, moon, biodynamic, and optional weather forecast cards when Astral location is available.
-- Buttons for System Settings, graph setup, sensor settings, switch settings, and calendar views.
+- Buttons for General Settings, graph setup, sensor settings, switch settings, and calendar views.
 
 The **24 Hour Forecast** card keeps its day-wide forecast summary, while its
 details include the maximum forecast precipitation chance, labeled as rain or
@@ -112,9 +58,9 @@ Each metric tile can appear as:
 - **6Hr Graph**: shows the last six hours inside the dashboard tile.
 - **24Hr Graph**: shows the last 24 hours inside the dashboard tile.
 
-Newly materialized Nodus sensors use **24Hr Graph** for their per-metric display styles. A full day is long enough to show the daily diurnal patterns for heating, cooling, humidity, irrigation, and lighting cycle without opening the full-screen graph, so it is the most useful general-purpose trend view. **System Settings > Display Style** is the system-wide fallback where no per-metric style is supplied; its factory value is **Gauge**. Blank per-metric styles on directly connected local sensors also currently resolve to **Gauge**.
+Newly onboarded Nodus sensors use **24Hr Graph** for their per-metric display styles. A full day is long enough to show the daily diurnal patterns for heating, cooling, humidity, irrigation, and lighting cycle without opening the full-screen graph, so it is the most useful general-purpose trend view. **General Settings > Display Style** is the system-wide fallback where no per-metric style is supplied; its factory value is **Gauge**. Blank per-metric styles on directly connected local sensors also currently resolve to **Gauge**.
 
-Click a metric tile to cycle **24Hr Graph → 6Hr Graph → Gauge → 24Hr Graph**. This is a convenient temporary view change for the current page. To make the choice persistent, open **Sensor Settings > Sensor Settings**, choose **Gauge**, **6Hr Graph**, or **24Hr Graph** for that metric slot, and click **Save**. **System Settings > Display Style** supplies the fallback when a sensor has no saved style.
+Click a metric tile to cycle **24Hr Graph → 6Hr Graph → Gauge → 24Hr Graph**. This is a convenient temporary view change for the current page. To make the choice persistent, open **Sensor Settings > Sensor Settings**, choose **Gauge**, **6Hr Graph**, or **24Hr Graph** for that metric slot, and click **Save**. **General Settings > Display Style** supplies the fallback when a sensor has no saved style.
 
 The current value comes from the latest reading for that metric. A trend arrow
 beside it uses recent stored readings rather than comparing only the last two
@@ -155,7 +101,7 @@ The boundaries come from Sensorius's gauge-zone configuration for each metric. C
 
 #### Metric Ordering
 
-The system-wide **Metric Set** in **System Settings > Display** controls this behavior. In **Pick 6** mode, the dashboard follows **Metric 1** through **Metric 6** exactly from left to right. You can therefore establish any operational order in **Sensor Settings**. Factory defaults are selected by sensor type and generally put the device's primary measurement first: for example, CO2 is first for a CO2 sensor and Air Quality is first for an AQI sensor. The remaining positions favor closely related temperature, humidity, VPD, dew-risk, pressure, plant, light, or soil measurements for that device.
+The system-wide **Metric Set** in **General Settings > Display** controls this behavior. In **Pick 6** mode, the dashboard follows **Metric 1** through **Metric 6** exactly from left to right. You can therefore establish any operational order in **Sensor Settings**. Factory defaults are selected by sensor type and generally put the device's primary measurement first: for example, CO2 is first for a CO2 sensor and Air Quality is first for an AQI sensor. The remaining positions favor closely related temperature, humidity, VPD, dew-risk, pressure, plant, light, or soil measurements for that device.
 
 In **All** mode, Sensorius keeps any saved metric slots first, then appends other known metrics in the application's gauge-configuration order. It does not currently apply a universal rule that moves CO2, AQI, and every other specialized metric farther right. Nor does it guarantee that barometric pressure is always fifth or that dew point fills the fifth position when pressure is unavailable. Use **Pick 6** and assign **Metric 1-6** when that exact convention is important.
 
@@ -177,23 +123,60 @@ Each switch channel also has an auto-off timer. Open the timer control with its 
 
 The Events column shows up to five recent On/Off transitions, newest first, with local 12-hour AM/PM timestamps and a **manual** or **auto** origin when one is known. The list combines persisted switch events with live state updates and refreshes as commands and device reports arrive. Those same persisted events can be selected as vertical overlays in the full-screen graph.
 
-## System Settings
+## General Settings
 
-System Settings contains hub-level settings, notifications, system-wide
+General Settings contains hub-level settings, notifications, system-wide
 automations, device onboarding, integrations, locations, firmware updates, and
 maintenance tools.
 
-### System Settings Pane
+### General Settings Pane
 
 The main pane contains six expandable sections. Open one to review or change
 its settings. Each section-level **Save** submits and writes only the controls
 inside that section; values in the other expandable sections are left unchanged.
 
-#### System Settings
+#### Astral
 
-![System Settings section showing the Community/Location Name field](<../assets/screenshots/system-settings-overview.png>)
+![Astral section open](<../assets/screenshots/system-settings-astral.png>)
 
-The **System Settings** section contains the hub and primary MQTT connection
+The **Astral** section sets the physical location used for sunrise, sunset,
+moon, biodynamic, weather, and location-aware automation calculations:
+
+- **Latitude**: leave both Latitude and Longitude empty, then select **Save**,
+  to detect the location automatically.
+- **Longitude**: Latitude and Longitude must both be supplied when entering a
+  location manually.
+- **Altitude (m)**: altitude in meters. Valid values range from -500 to 10000.
+- **Save**: writes the Astral location. Changing it causes dependent calendar
+  and astronomy information to be recalculated.
+
+#### Display
+
+![Display section open](<../assets/screenshots/system-settings-display.png>)
+
+The **Display** section supplies system-wide dashboard defaults. **Display
+Style** appears first; **Gauge Size** is shown only while **Gauge** is selected.
+
+- **Display Style**: default metric display when a sensor has no saved
+  per-metric style. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
+- **Gauge Size**: dashboard gauge size. Options are **Small** and **Large**.
+- **Metric Set**: applies to every sensor on the Sensorius dashboard. **Pick 6**
+  renders each sensor's six saved metric slots. **All** keeps those selections
+  first and appends every other known metric without changing sensor settings.
+  Additional metrics use the system **Display Style**.
+- **Sensorius Dashboard Theme**: five thumbnails select **Leaves**, **Garden
+  Tools**, **Herbarium**, **Pollinators**, or **White** for the main dashboard.
+- **Biodynamic Calendar Theme**: independently selects the full-screen calendar
+  background from the same five choices. Both theme settings default to
+  **Leaves**; **White** removes the repeating SVG background image.
+- **Save**: writes the display defaults. Reload the dashboard to see changes
+  that are not applied immediately.
+
+#### Network Settings
+
+![Network Settings section showing the Community/Location Name field](<../assets/screenshots/system-settings-overview.png>)
+
+The **Network Settings** section contains the hub and primary MQTT connection
 settings:
 
 - **Hostname**: read-only host name for this Sensorius hub. It comes from the active system settings and host runtime.
@@ -210,10 +193,9 @@ settings:
 
 ![Nodus Wifi Update section open](<../assets/screenshots/system-settings-nodus-wifi-update.png>)
 
-Open the **Nodus Wifi Update** section in the main **System Settings** pane to
+Open the **Nodus Wifi Update** section in the main **General Settings** pane to
 send a replacement network name and password to connected Nodus devices before
-changing the router. The section appears between **System Settings** and
-**Astral**.
+changing the router.
 
 ##### Before You Begin
 
@@ -227,8 +209,7 @@ changing the router. The section appears between **System Settings** and
 
 ##### Update Procedure
 
-1. Open **System Settings**, then expand **Nodus Wifi Update** between the
-   **System Settings** and **Astral** sections.
+1. Open **General Settings**, then expand **Nodus Wifi Update**.
 2. Wait for the device scan to finish. Check that every Nodus you expect to
    update is listed as **online**. Resolve missing or offline devices before
    continuing.
@@ -276,49 +257,6 @@ storage, logs, or metadata shadows. The credential-read response and the
 non-retained MQTT command necessarily carry the values in transit; enable MQTT
 TLS and protect access to the Sensorius web UI.
 
-#### Astral
-
-![Astral section open](<../assets/screenshots/system-settings-astral.png>)
-
-The **Astral** section sets the physical location used for sunrise, sunset,
-moon, biodynamic, weather, and location-aware automation calculations:
-
-- **Latitude**: leave both Latitude and Longitude empty, then select **Save**,
-  to detect the location automatically.
-- **Longitude**: Latitude and Longitude must both be supplied when entering a
-  location manually.
-- **Altitude (m)**: altitude in meters. Valid values range from -500 to 10000.
-- **Save**: writes the Astral location. Changing it causes dependent calendar
-  and astronomy information to be recalculated.
-
-#### Weather Forecast
-
-![Weather Forecast section open](<../assets/screenshots/system-settings-weather-forecast.png>)
-
-The **Weather Forecast** block appears in the System Settings pane between
-**Astral** and **Notifications**.
-
-Fields and selectors:
-
-- **Forecast Provider**: selects the forecast source used by the dashboard and
-  Caelus. Options are **MET Norway**, **US · National Weather Service**,
-  **Open-Meteo**, and **Disabled**.
-- **Caelus Theme**: four image thumbnails select the full-screen scene:
-  **Mountain Garden**, **Ocean Island**, **Forest River**, or **Desert Bloom**.
-- **Current Readings Sensor**: selects any live sensor in the sensor directory.
-  Directly connected Raspberry Pi sensors remain selectable while their first
-  reading is being collected after startup. If the directory is briefly empty,
-  the selector retries automatically and refreshes whenever Integrations is
-  activated or reopened.
-  Caelus displays that sensor's configured Display Metrics in their saved
-  order. A WeeWX station can therefore supply outdoor temperature, humidity,
-  rain, wind direction, and barometric pressure.
-- **Save**: writes `[WeatherForecast]` provider, theme, and sensor selection.
-
-Forecast placement, astronomy, sunrise, and sunset use the latitude,
-longitude, and timezone under **System Settings > Astral**. The Current
-Readings panel follows the selected sensor's configured **Display Metrics**.
-
 #### Notifications
 
 ![Notifications section open](<../assets/screenshots/system-settings-notifications.png>)
@@ -331,7 +269,7 @@ prevents automated email delivery, but does not remove saved automations.
 The section configures the SMTP server, port, TLS mode, username, App Password,
 sender address, and enabled state. **To** accepts one or more comma-separated
 addresses used only by **Send Test Email**. Automation recipients are set on
-individual **Notify** actions under **System Settings > Automations**. Email
+individual **Notify** actions under **General Settings > Automations**. Email
 connection values are saved in the protected project-root `.env` file.
 
 ##### Configure Gmail for Sensorius
@@ -353,7 +291,7 @@ after 2-Step Verification is enabled.
 5. Copy the generated 16-character App Password immediately. Google displays
    it only once. Sensorius accepts it with or without the spaces shown by
    Google.
-6. In Sensorius, open **System Settings > System Settings > Notifications** and
+6. In Sensorius, open **General Settings > Notifications** and
    enter:
 
    - **SMTP Server**: `smtp.gmail.com`
@@ -387,34 +325,37 @@ main Google Account password changes; create and save a new App Password if
 email delivery stops afterward. Revoke the Sensorius App Password from the
 Google Account when the hub is retired or no longer uses that account.
 
-#### Display
+#### Weather Forecast
 
-![Display section open](<../assets/screenshots/system-settings-display.png>)
+![Weather Forecast section open](<../assets/screenshots/system-settings-weather-forecast.png>)
 
-The **Display** section supplies system-wide dashboard defaults. **Display
-Style** appears first; **Gauge Size** is shown only while **Gauge** is selected.
+Fields and selectors:
 
-- **Display Style**: default metric display when a sensor has no saved
-  per-metric style. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
-- **Gauge Size**: dashboard gauge size. Options are **Small** and **Large**.
-- **Metric Set**: applies to every sensor on the Sensorius dashboard. **Pick 6**
-  renders each sensor's six saved metric slots. **All** keeps those selections
-  first and appends every other known metric without changing sensor settings.
-  Additional metrics use the system **Display Style**.
-- **Sensorius Dashboard Theme**: five thumbnails select **Leaves**, **Garden
-  Tools**, **Herbarium**, **Pollinators**, or **White** for the main dashboard.
-- **Biodynamic Calendar Theme**: independently selects the full-screen calendar
-  background from the same five choices. Both theme settings default to
-  **Leaves**; **White** removes the repeating SVG background image.
-- **Save**: writes the display defaults. Reload the dashboard to see changes
-  that are not applied immediately.
+- **Forecast Provider**: selects the forecast source used by the dashboard and
+  Caelus. Options are **MET Norway**, **US · National Weather Service**,
+  **Open-Meteo**, and **Disabled**.
+- **Caelus Theme**: four image thumbnails select the full-screen scene:
+  **Mountain Garden**, **Ocean Island**, **Forest River**, or **Desert Bloom**.
+- **Current Readings Sensor**: selects any live sensor in the sensor directory.
+  Directly connected Raspberry Pi sensors remain selectable while their first
+  reading is being collected after startup. If the directory is briefly empty,
+  the selector retries automatically and refreshes whenever Integrations is
+  activated or reopened.
+  Caelus displays that sensor's configured Display Metrics in their saved
+  order. A WeeWX station can therefore supply outdoor temperature, humidity,
+  rain, wind direction, and barometric pressure.
+- **Save**: writes `[WeatherForecast]` provider, theme, and sensor selection.
+
+Forecast placement, astronomy, sunrise, and sunset use the latitude,
+longitude, and timezone under **General Settings > Astral**. The Current
+Readings panel follows the selected sensor's configured **Display Metrics**.
 
 ### Automations Pane
 
 ![System automations pane](<../assets/screenshots/system-automations-list.png>)
 
-Open **System Settings > Automations**. Automations are configured globally
-from System Settings and are no longer edited from an individual switch's
+Open **General Settings > Automations**. Automations are configured globally
+from General Settings and are no longer edited from an individual switch's
 settings. The saved list shows every automation and whether it is enabled.
 This also allows a notification-only automation to run when no switch is
 installed.
@@ -430,7 +371,7 @@ For compatibility, automation rules remain stored under the Sensorius runtime
 directory at
 `/Users/<user>/Sensorius/switch_settings/automations/automations.toml` on macOS
 or `/home/<user>/Sensorius/switch_settings/automations/automations.toml` on
-Linux. The System Settings editor loads all saved rules, sensor and metric
+Linux. The General Settings editor loads all saved rules, sensor and metric
 choices, and the available actor directory.
 
 #### Automation Definition
@@ -531,6 +472,32 @@ Ecowitt gateway. The page groups device types into expandable sections.
 **Nodus Device(s)** contains the Nodus onboarding workflow. **Ecowitt Gateway**
 discovers and enables a read-only LAN weather-station connection.
 
+#### Ecowitt Gateway
+
+![Add Device Ecowitt Gateway pane](<../assets/screenshots/system-settings-add-device-ecowitt.png>)
+
+Ecowitt Gateway fields and controls are arranged in two columns:
+
+- **GW URL**: the gateway base address, such as `http://192.168.1.100` or a
+  local hostname. Do not include a path, credentials, query, or fragment.
+- **Find Sensors**: queries the gateway's read-only version, network, sensor
+  inventory, live-data, and rain-priority endpoints. Both inventory pages are
+  checked.
+- **Available Valid GW Sensors**: lists registered gateway sensors and whether
+  their data family is present in the current live response. All valid listed
+  sensors and supported additional channels are ingested.
+- **Data Retrieval Interval**: polling period from 60 through 3600 seconds.
+- **Save Gateway**: revalidates the gateway, derives a stable Sensorius station
+  ID from its MAC address, creates station settings, and enables polling.
+- **Disable**: stops polling without deleting station settings or historical
+  readings.
+
+Configure the GW1100 on the same trusted LAN first. A DHCP reservation is
+recommended. Sensorius accepts metric or imperial gateway display units and
+normalizes stored metric semantics. It reads the gateway only; it does not
+change Wi-Fi, sensor registration, calibration, rain settings, MQTT, firmware,
+or weather-service configuration.
+
 #### Nodus on Linux and Raspberry Pi
 
 ![Add Device Nodus pane on Linux or Raspberry Pi](<../assets/screenshots/system-settings-add-device-linux-rpi.png>)
@@ -600,32 +567,6 @@ onboarding reaches Device Online, Sensorius automatically reloads the dashboard
 so the newly discovered sensor and switch cards appear without a manual browser
 refresh.
 
-#### Ecowitt Gateway
-
-![Add Device Ecowitt Gateway pane](<../assets/screenshots/system-settings-add-device-ecowitt.png>)
-
-Ecowitt Gateway fields and controls are arranged in two columns:
-
-- **GW URL**: the gateway base address, such as `http://192.168.1.100` or a
-  local hostname. Do not include a path, credentials, query, or fragment.
-- **Find Sensors**: queries the gateway's read-only version, network, sensor
-  inventory, live-data, and rain-priority endpoints. Both inventory pages are
-  checked.
-- **Available Valid GW Sensors**: lists registered gateway sensors and whether
-  their data family is present in the current live response. All valid listed
-  sensors and supported additional channels are ingested.
-- **Data Retrieval Interval**: polling period from 60 through 3600 seconds.
-- **Save Gateway**: revalidates the gateway, derives a stable Sensorius station
-  ID from its MAC address, creates station settings, and enables polling.
-- **Disable**: stops polling without deleting station settings or historical
-  readings.
-
-Configure the GW1100 on the same trusted LAN first. A DHCP reservation is
-recommended. Sensorius accepts metric or imperial gateway display units and
-normalizes stored metric semantics. It reads the gateway only; it does not
-change Wi-Fi, sensor registration, calibration, rain settings, MQTT, firmware,
-or weather-service configuration.
-
 ### Update Device Pane
 
 ![Update Device pane](<../assets/screenshots/system-settings-update-device.png>)
@@ -693,10 +634,31 @@ Before removing a device, update any automations, Home Assistant dashboards, far
 
 ### Integrations Pane
 
-System Settings presents Home Assistant, WeeWX, and FarmOS under the
+General Settings presents Home Assistant, WeeWX, and FarmOS under the
 **Integrations** menu item. Each integration is an independently expandable
 block. Scroll the right pane vertically when the expanded blocks exceed the
 available height.
+
+#### FarmOS
+
+![FarmOS integration pane](<../assets/screenshots/system-integrations-farmos.png>)
+
+Fields and selectors:
+
+- **Enabled**: turns farmOS export on or off. Options are **No** and **Yes**.
+- **Verify TLS**: verifies the farmOS HTTPS certificate. Options are **Yes** and **No**. Leave Yes unless you are testing a private certificate.
+- **Base URL**: farmOS site URL, such as `https://farmos.example.com`.
+- **Log Bundle**: farmOS log bundle name. Default is `observation`.
+- **Access Token (optional)**: static token, if you use token-based auth.
+- **Client ID**: OAuth client ID. Default is `farm`.
+- **Client Secret**: OAuth client secret.
+- **Username**: farmOS username for password-based auth.
+- **Password**: farmOS password for password-based auth.
+- **Show** buttons: temporarily reveal hidden secret fields in the browser.
+- **Test Connection**: calls the farmOS test endpoint and reports success or the last error.
+- **Save**: writes the `[FarmOS]` settings.
+
+farmOS export listens for new readings written by Sensorius. Check the FarmOS status if exports stop; it reports enabled state, queue depth, token state, and last error.
 
 #### Home Assistant
 
@@ -739,44 +701,31 @@ If the MQTT topic changes, Sensorius applies the subscription update live when
 MQTT ingest is running. If MQTT ingest is not running, the saved setting applies
 when MQTT ingest starts.
 
-#### FarmOS
-
-![FarmOS integration pane](<../assets/screenshots/system-integrations-farmos.png>)
-
-Fields and selectors:
-
-- **Enabled**: turns farmOS export on or off. Options are **No** and **Yes**.
-- **Verify TLS**: verifies the farmOS HTTPS certificate. Options are **Yes** and **No**. Leave Yes unless you are testing a private certificate.
-- **Base URL**: farmOS site URL, such as `https://farmos.example.com`.
-- **Log Bundle**: farmOS log bundle name. Default is `observation`.
-- **Access Token (optional)**: static token, if you use token-based auth.
-- **Client ID**: OAuth client ID. Default is `farm`.
-- **Client Secret**: OAuth client secret.
-- **Username**: farmOS username for password-based auth.
-- **Password**: farmOS password for password-based auth.
-- **Show** buttons: temporarily reveal hidden secret fields in the browser.
-- **Test Connection**: calls the farmOS test endpoint and reports success or the last error.
-- **Save**: writes the `[FarmOS]` settings.
-
-farmOS export listens for new readings written by Sensorius. Check the FarmOS status if exports stop; it reports enabled state, queue depth, token state, and last error.
-
 ### Advanced Pane
 
 ![Advanced settings pane](<../assets/screenshots/system-settings-advanced.png>)
 
 Advanced settings affect startup, logging, and stored data. Change them only when you understand the impact.
 
-Fields and controls:
+#### Database
 
-- **Auto-start Sensorius on login**: creates or removes an auto-start entry for Sensorius.
-- **Auto-start scope**: **User-level (default)** starts for the current user. **System-level** is for system service style installs and may require elevated permissions outside the web UI.
 - **Maximum Days of Data (30-365)**: database retention window. Valid range is 30 to 365 days. This affects how much history graphs can show.
+- **Archive Database**: creates a SQLite database snapshot under `database_archives/` next to the active database and downloads the snapshot.
+- **Renew Database**: archives the current SQLite database, deletes the active database files, and creates a new empty database. This is an intentionally drastic recovery action.
+- **Save**: writes only the Database section.
+
+#### Debug
+
 - **SENSORIUS_FILE_LOG**: enables file logging when checked.
 - **SENSORIUS_LOG_LEVEL**: logging detail. Options are **DEBUG**, **INFO**, **WARNING**, **ERROR**, and **CRITICAL**.
 - **SENSORIUS_DEBUG_MODULES**: module-specific debug checkboxes. Options are loaded from the app's advanced status endpoint.
-- **Archive Database**: creates a SQLite database snapshot under `database_archives/` next to the active database and downloads the snapshot.
-- **New Database**: archives the current SQLite database, deletes the active database files, and creates a new empty database. This is an intentionally drastic recovery action.
-- **Save**: writes only the settings in its Start-up, Database, or Debug section.
+- **Save**: writes only the Debug section.
+
+#### Start-up
+
+- **Auto-start Sensorius on login**: creates or removes an auto-start entry for Sensorius.
+- **Auto-start scope**: **User-level (default)** starts for the current user. **System-level** is for system service style installs and may require elevated permissions outside the web UI.
+- **Save**: writes only the Start-up section.
 
 ## Sensor Settings
 
@@ -879,7 +828,7 @@ Switch state changes are stored as switch events. These events are available for
 
 Open Switch Settings from a switch card when you need to label channels, set
 the switch location, or check switch health. Create and edit rules separately
-under **System Settings > Automations**.
+under **General Settings > Automations**.
 
 ### Switch Settings Pane
 
@@ -1069,7 +1018,7 @@ Daily summaries come from Sensorius' biodynamic summary storage and are
 generated on demand when a day is selected. Browsing future months does not
 generate summaries for their default day. For the current day, the summary may
 include a **24hr Forecast** section if weather forecast data is enabled in
-System Settings.
+General Settings.
 
 The dashboard BD card remains available for a quick current-status view. The Calendar button opens the full application for month planning, planting records, notes, daily guidance, and reports.
 
@@ -1090,7 +1039,7 @@ The integrated application provides:
 
 Companion app fields and controls:
 
-- **Location**: comes from the Astral and Time sections in Sensorius System Settings. Change it there to invalidate and rebuild calendar data.
+- **Location**: comes from the Astral and Time sections in Sensorius General Settings. Change it there to invalidate and rebuild calendar data.
 - **Previous / Next month arrows**: move the main month calendar.
 - **Calendar day cells**: select a day. The selected day drives the Daily Summary, selected facts, notes, and planting context.
 - **Twelve-Month Overview**: shows a longer planning range assembled from the shared background cache.
@@ -1124,6 +1073,60 @@ No separate BD Calendar service, port, database path environment variable, or st
 - Back up `sensor_settings/`, `switch_settings/`, `system_settings/`, and `sensorius_data.db` before major changes.
 - Restart Sensorius after changes that affect startup, host binding, service setup, or MQTT subscriptions when the UI or save message indicates a restart is needed.
 
+## Opening Sensorius
+
+If you installed Sensorius as a service, it starts automatically when the host computer starts or restarts. Wait for the host computer or Raspberry Pi to finish starting; the dashboard will appear after a few seconds. Service installs continue running in the background. To restart a Linux or Raspberry Pi systemd service manually, open a terminal and enter:
+
+```bash
+sudo systemctl restart sensorius
+```
+
+If you start Sensorius manually, run this from the installed Sensorius folder (the default is `~/Sensorius`):
+
+```bash
+cd ~/Sensorius
+.venv/bin/python Sensorius.py
+```
+
+The application will start and display the Sensorius dashboard. The first run may take a little longer while it sets up the system's location, database, and calendar data.
+
+The dashboard can also be opened using one of these addresses:
+
+- Same computer: `http://127.0.0.1:8000`
+- Local network hostname: `http://<hostname>.local:8000`
+- Another device on the same network: `http://<sensorius-host-ip>:8000`
+
+Keep the terminal process running for manual starts.
+
+### Keep Sensorius On A Trusted Network
+
+Sensorius is built for a trusted private LAN. It does not provide a complete
+login/session boundary around every settings, onboarding, calibration, switch,
+or maintenance action. The optional web API key protects selected operations,
+not the whole UI.
+
+Do not expose the Sensorius HTTP or MQTT ports directly to the Internet or use
+router port forwarding. Keep the hub and devices behind a firewall, use an
+isolated IoT VLAN where appropriate, and use a VPN or a trusted remote-access
+application such as RustDesk for remote access. On a Raspberry Pi, you can use
+either RustDesk or Raspberry Pi Connect. If only the host computer needs the
+UI, set `SENSORIUS_HTTP_HOST=127.0.0.1` in `.env` and restart Sensorius. Treat
+`.env`, runtime settings, backups, and diagnostic exports as sensitive because
+stored secrets are not protected by strong encryption.
+
+## Where Sensorius Gets Its Information
+
+Live sensor readings come from local Raspberry Pi sensor controllers and from MQTT-discovered Nodus devices. Sensor readings are written to the local SQLite database, `sensorius_data.db`, in the Sensorius process working directory unless the service or caller passes a different database path. Many service installs use the runtime directory, such as `/Users/<user>/Sensorius/sensorius_data.db` on macOS or `/home/<user>/Sensorius/sensorius_data.db` on Linux.
+
+Sensor and switch names, locations, display choices, calibration offsets, and channel labels come from Sensorius settings files under the macOS runtime settings folder:
+
+- System settings: `/Users/<user>/Sensorius/system_settings/<device_id>/settings.toml`
+- Sensor settings: `/Users/<user>/Sensorius/sensor_settings/<sensor_id>/sensor.toml`
+- Switch settings: `/Users/<user>/Sensorius/switch_settings/<switch_id>/switch.toml`
+- Advanced automations: `/Users/<user>/Sensorius/switch_settings/automations/automations.toml`
+
+For Nodus devices, Sensorius also listens for MQTT metadata and state messages. That metadata tells Sensorius what a device is, which readings or channels it provides, whether it is online, and which remote settings can be updated.
+
 ## Troubleshooting
 
 If a sensor does not appear:
@@ -1151,7 +1154,7 @@ If graphs have gaps:
 
 - Confirm the sensor was online during the missing period.
 - Check whether Sensorius or the host restarted.
-- Check database retention in **System Settings > Advanced**.
+- Check database retention in **General Settings > Advanced**.
 - Confirm the selected metric exists for the selected sensor.
 
 If Home Assistant does not show entities:
@@ -1163,7 +1166,8 @@ If Home Assistant does not show entities:
 
 If the Biodynamic Calendar is unavailable:
 
-- Confirm latitude, longitude, and timezone in **System Settings > System Settings**.
+- Confirm latitude and longitude in **General Settings > Astral**, and confirm
+  the timezone in **General Settings > Network Settings**.
 - Confirm the normal Sensorius `/healthz` endpoint responds and that Sensorius can write to its SQLite database.
 - If the calendar is still warming, leave Sensorius running for several minutes and verify the Astral location is complete.
 

@@ -4372,7 +4372,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         html_parts: list[str] = []
         html_parts.append("<!DOCTYPE html>")
-        html_parts.append("<html><head><title>System Settings</title>")
+        html_parts.append("<html><head><title>General Settings</title>")
         html_parts.append("</head><body>")
         html_parts.append(fragment_html)
         html_parts.append("</body></html>")
@@ -9362,7 +9362,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "lon": None,
             "tz": "",
         }
-        message = "System settings saved."
+        message = "General settings saved."
         if astral_reset_requested:
             try:
                 resolved = settings.resolve_astral_location(persist_if_auto=True, timeout_sec=3.5) or {}
@@ -9386,11 +9386,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             }
             if astral_ok:
                 source_label = resolved_provider or resolved_source or "auto"
-                message = f"System settings saved. Astral location re-detected ({source_label})."
+                message = f"General settings saved. Astral location re-detected ({source_label})."
             else:
                 detail = f" Last error: {resolved_error}" if resolved_error else ""
                 message = (
-                    "System settings saved. Astral location cleared; automatic IP geolocation did not "
+                    "General settings saved. Astral location cleared; automatic IP geolocation did not "
                     f"resolve coordinates.{detail} Enter Latitude and Longitude manually."
                 )
         elif lat_to_store and lon_to_store:
@@ -10308,7 +10308,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "value": altitude,
                 "readonly": True,
                 "force_send": True,
-                "title": "Altitude is edited in System Settings.",
+                "title": "Altitude is edited in General Settings.",
             }
         )
 

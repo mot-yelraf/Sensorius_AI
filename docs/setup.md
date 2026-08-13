@@ -449,7 +449,7 @@ directory so `sensorius_data.db` and logs land in the expected place.
 Home Assistant:
 
 - Requires an MQTT broker reachable by Sensorius and Home Assistant.
-- Enable and configure from System Settings.
+- Enable and configure from General Settings.
 - Discovery topics are retained by default.
 - Restart Sensorius after enabling Home Assistant or changing HA broker/topic
   settings because the bridge is wired during startup.
@@ -458,7 +458,7 @@ farmOS:
 
 - Uses the built-in `httpx` JSON:API backend.
 - Does not require `farmOS.py`.
-- Configure URL/auth in System Settings and run the built-in test before
+- Configure URL/auth in General Settings and run the built-in test before
   enabling continuous export.
 
 Astral automations and dashboard data:
@@ -472,7 +472,7 @@ Astral automations and dashboard data:
 - Automatic detection tries `ipapi.co` first, then `ip-api.com`, then
   `ipwho.is`; this keeps the IPv4-based result ahead of providers that may
   resolve an IPv6 address to a different city.
-- In System Settings, clearing both latitude and longitude then saving asks
+- In General Settings, clearing both latitude and longitude then saving asks
   Sensorius to re-detect via IP geolocation. If that lookup cannot resolve,
   the fields remain blank and manual coordinates are required.
 - On startup, Sensorius retries automatic Astral location resolution in the
@@ -480,7 +480,7 @@ Astral automations and dashboard data:
 
 WeeWX:
 
-- Configure archive DB path or MQTT topic in System Settings.
+- Configure archive DB path or MQTT topic in General Settings.
 - WeeWX readings are normalized into the same database and dashboard path as
   other sensors.
 

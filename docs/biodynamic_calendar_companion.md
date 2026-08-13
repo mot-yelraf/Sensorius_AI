@@ -20,7 +20,7 @@ The integrated application includes the current month, Sun and Moon graphics,
 Moon Phase Local and Reference views, a Next 12 Months planning view, planting
 records, daily guidance and notes, and printable reports.
 
-Location is controlled by the Sensorius **System Settings** Astral and Time
+Location is controlled by the Sensorius **General Settings** Astral and Time
 sections. The calendar does not maintain a second location configuration.
 
 ## Storage

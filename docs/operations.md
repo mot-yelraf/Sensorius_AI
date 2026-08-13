@@ -94,7 +94,7 @@ Useful web routes:
 
 For Ecowitt troubleshooting, confirm the Sensorius host can reach the saved GW
 URL over plain HTTP, the gateway remains on the same LAN address, and **Find
-Sensors** succeeds in **System Settings > Add Device > Ecowitt Gateway**. A
+Sensors** succeeds in **General Settings > Add Device > Ecowitt Gateway**. A
 successful HTTP response proves gateway reachability; a listed sensor may still
 be temporarily absent from live data. Disable stops polling but intentionally
 retains the `ecowitt-<gateway_mac>` settings and SQLite history.

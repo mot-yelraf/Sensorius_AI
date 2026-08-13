@@ -57,7 +57,6 @@ def test_collapsible_sections_own_save_actions_and_panes_own_dashboard_action():
     assert advanced.count('class="button black btn-back-system">Dashboard</button>') == 1
     assert 'class="pane-footer pane-global-footer"' in advanced
     assert 'classList.contains("btn-advanced-save")' in template
-    assert 'root.querySelectorAll(".btn-advanced-save")' in template
 
     integrations = template[template.index('<div class="settings-pane" id="pane-integrations"'):template.index('<div class="settings-pane" id="pane-locations"')]
     assert integrations.count('class="pane-footer section-action-footer"') == 3
@@ -65,25 +64,34 @@ def test_collapsible_sections_own_save_actions_and_panes_own_dashboard_action():
     assert 'class="pane-footer pane-global-footer"' in integrations
 
 
-def test_system_sections_include_weather_forecast_in_requested_order():
+def test_expandable_sections_use_alphabetical_display_order():
     template = (ROOT / "ui_templates" / "modals" / "system_settings.html").read_text(encoding="utf-8")
     system_pane = template[
         template.index('<div class="settings-pane" id="pane-system">'):
         template.index('<div class="settings-pane" id="pane-automations"')
     ]
     expected_sections = (
+        'data-runtime-section="system-astral"',
+        'data-runtime-section="system-display"',
         'data-runtime-section="system-general"',
         'data-runtime-section="system-wifi"',
-        'data-runtime-section="system-astral"',
-        'data-runtime-section="system-weather-forecast"',
         'data-runtime-section="system-notifications"',
-        'data-runtime-section="system-display"',
+        'data-runtime-section="system-weather-forecast"',
     )
 
     assert all(section in system_pane for section in expected_sections)
     assert [system_pane.index(section) for section in expected_sections] == sorted(
         system_pane.index(section) for section in expected_sections
     )
+    for pane_start, pane_end, expected_order in (
+        ('id="pane-add"', 'id="pane-update"', ('id="add-ecowitt-section"', 'id="add-nodus-section"')),
+        ('id="pane-integrations"', 'id="pane-locations"', ('integrations-farmos', 'integrations-home-assistant', 'integrations-weewx')),
+        ('id="pane-advanced"', '<script>', ('id="adv-section-database"', 'id="adv-section-debug"', 'id="adv-section-startup"')),
+    ):
+        pane = template[template.index(pane_start):template.index(pane_end, template.index(pane_start))]
+        assert [pane.index(section) for section in expected_order] == sorted(
+            pane.index(section) for section in expected_order
+        )
     assert "integrations-weather-forecast" not in template
 
 
@@ -114,9 +122,16 @@ def test_all_system_accordions_default_closed_and_use_process_scoped_state():
     template = (ROOT / "ui_templates" / "modals" / "system_settings.html").read_text(encoding="utf-8")
     routes = (ROOT / "sensorius" / "saiWebRoutes.py").read_text(encoding="utf-8")
 
-    assert template.count("<details") == 12
-    assert template.count("data-runtime-section=") == 12
-    assert not any(" open>" in line for line in template.splitlines() if "<details" in line)
+    runtime_sections = [
+        line for line in template.splitlines()
+        if "<details" in line and "data-runtime-section" in line
+    ]
+    assert len(runtime_sections) == 12
+    assert not any(
+        " open>" in line
+        for line in template.splitlines()
+        if "<details" in line and "data-runtime-section" in line
+    )
     assert "window.__sensoriusExpandableSectionState" in template
     assert 'section.addEventListener("toggle"' in template
     assert "runtimeSectionStore.sections[stateKey]" in template

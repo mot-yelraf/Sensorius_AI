@@ -61,7 +61,7 @@ Use the test endpoint before enabling continuous export.
 Recommended enablement flow:
 
 1. Configure `BASE_URL`, TLS verification, and auth.
-2. Run the FarmOS test action from System Settings.
+2. Run the FarmOS test action from General Settings.
 3. Confirm the target log bundle and permissions in farmOS.
 4. Enable export.
 5. Watch `/farmos/status` after new readings are written.
@@ -73,7 +73,7 @@ database rows unless a separate backfill tool is implemented.
 
 `FarmOS.BASE_URL is empty`:
 
-- Set the base URL in System Settings.
+- Set the base URL in General Settings.
 
 Unauthorized:
 

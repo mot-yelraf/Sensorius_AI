@@ -938,8 +938,8 @@
 
     <div class="system-settings-body">
       <div class="system-settings-split">
-        <aside class="system-settings-menu" id="systemSettingsMenu" aria-label="System settings sections">
-          <button type="button" class="system-menu-btn active" data-target="pane-system">System Settings</button>
+        <aside class="system-settings-menu" id="systemSettingsMenu" aria-label="General settings sections">
+          <button type="button" class="system-menu-btn active" data-target="pane-system">General Settings</button>
           <button type="button" class="system-menu-btn" data-target="pane-automations">Automations</button>
           <button type="button" class="system-menu-btn" data-target="pane-locations">Edit Locations</button>
           <button type="button" class="system-menu-btn" data-target="pane-add">Add Device</button>
@@ -951,11 +951,87 @@
 
         <section class="system-settings-content">
           <div class="settings-pane" id="pane-system">
-            <h3 class="pane-title">System Settings</h3>
+            <h3 class="pane-title">General Settings</h3>
             <form method="POST" action="/submit-pi-setup" id="systemSettingsForm" style="display:flex;flex-direction:column;gap:.42rem;flex:1;min-height:0;">
               <div class="integrations-list">
+                <details class="integration-block system-section-block" data-runtime-section="system-astral">
+                  <summary>Astral</summary>
+                  <div class="integration-block-content">
+              <div class="field-grid-astral">
+                <div class="field-stack">
+                  <label for="astral_lat">Latitude</label>
+                  <input type="text" id="astral_lat" name="astral_lat" value="{{ astral_lat | default('') }}" placeholder="Auto-detect" title="Enter manual coordinates. To reposition lat/long both fields must be empty, then save.">
+                </div>
+                <div class="field-stack">
+                  <label for="astral_lon">Longitude</label>
+                  <input type="text" id="astral_lon" name="astral_lon" value="{{ astral_lon | default('') }}" placeholder="Auto-detect" title="Enter manual coordinates. To reposition lat/long both fields must be empty, then save.">
+                </div>
+                <div class="field-stack">
+                  <label for="astral_altitude">Altitude (m)</label>
+                  <input type="text" id="astral_altitude" name="astral_altitude" value="{{ astral_altitude | default('') }}" placeholder="1600" inputmode="decimal" title="Enter altitude in meters.">
+                </div>
+              </div>
+                    <div class="pane-footer section-action-footer">
+                      <button type="button" class="button blue btn-system-save">Save</button>
+                    </div>
+                  </div>
+                </details>
+                <details class="integration-block system-section-block" data-runtime-section="system-display">
+                  <summary>Display</summary>
+                  <div class="integration-block-content">
+              <div class="field-grid-stack display-settings-top-row">
+                <div class="field-stack">
+                  <label for="metric_set">Metric Set</label>
+                  <select name="metric_set" id="metric_set">
+                    <option value="Pick 6" {% if metric_set | default('Pick 6', true) == "Pick 6" %}selected{% endif %}>Pick 6</option>
+                    <option value="All" {% if metric_set == "All" %}selected{% endif %}>All</option>
+                  </select>
+                </div>
+                <div class="field-stack">
+                  <label for="display_style">Display Style</label>
+                  <select name="display_style" id="display_style">
+                    <option value="Gauge" {% if display_style == "Gauge" %}selected{% endif %}>Gauge</option>
+                    <option value="Graph6hr" {% if display_style == "Graph6hr" %}selected{% endif %}>6Hr Graph</option>
+                    <option value="Graph24hr" {% if display_style == "Graph24hr" %}selected{% endif %}>24Hr Graph</option>
+                  </select>
+                </div>
+                <div class="field-stack conditional-field" id="gauge_size_field" {% if display_style != "Gauge" %}hidden{% endif %}>
+                  <label for="gauge_size">Gauge Size</label>
+                  <select name="gauge_size" id="gauge_size">
+                    <option value="Small" {% if gauge_size == "Small" %}selected{% endif %}>Small</option>
+                    <option value="Large" {% if gauge_size == "Large" %}selected{% endif %}>Large</option>
+                  </select>
+                </div>
+              </div>
+              {% set selected_dashboard_background_theme = dashboard_background_theme | default('leaf') %}
+              <fieldset class="thumbnail-selector" id="dashboard_background_theme" style="--thumbnail-count:5">
+                <legend>Sensorius Dashboard Theme</legend>
+                <div class="thumbnail-options">
+                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="leaf" {% if selected_dashboard_background_theme == "leaf" %}checked{% endif %}><span class="theme-thumbnail dashboard-leaf"></span><span class="thumbnail-label">Leaves</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="garden_tools" {% if selected_dashboard_background_theme == "garden_tools" %}checked{% endif %}><span class="theme-thumbnail dashboard-garden-tools"></span><span class="thumbnail-label">Garden Tools</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="herbarium" {% if selected_dashboard_background_theme == "herbarium" %}checked{% endif %}><span class="theme-thumbnail dashboard-herbarium"></span><span class="thumbnail-label">Herbarium</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="pollinator" {% if selected_dashboard_background_theme == "pollinator" %}checked{% endif %}><span class="theme-thumbnail dashboard-pollinator"></span><span class="thumbnail-label">Pollinators</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="white" {% if selected_dashboard_background_theme == "white" %}checked{% endif %}><span class="theme-thumbnail dashboard-white"></span><span class="thumbnail-label">White</span></label>
+                </div>
+              </fieldset>
+              {% set selected_biodynamic_calendar_theme = biodynamic_calendar_theme | default('leaf') %}
+              <fieldset class="thumbnail-selector" id="biodynamic_calendar_theme" style="--thumbnail-count:5">
+                <legend>Biodynamic Calendar Theme</legend>
+                <div class="thumbnail-options">
+                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="leaf" {% if selected_biodynamic_calendar_theme == "leaf" %}checked{% endif %}><span class="theme-thumbnail dashboard-leaf"></span><span class="thumbnail-label">Leaves</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="garden_tools" {% if selected_biodynamic_calendar_theme == "garden_tools" %}checked{% endif %}><span class="theme-thumbnail dashboard-garden-tools"></span><span class="thumbnail-label">Garden Tools</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="herbarium" {% if selected_biodynamic_calendar_theme == "herbarium" %}checked{% endif %}><span class="theme-thumbnail dashboard-herbarium"></span><span class="thumbnail-label">Herbarium</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="pollinator" {% if selected_biodynamic_calendar_theme == "pollinator" %}checked{% endif %}><span class="theme-thumbnail dashboard-pollinator"></span><span class="thumbnail-label">Pollinators</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="white" {% if selected_biodynamic_calendar_theme == "white" %}checked{% endif %}><span class="theme-thumbnail dashboard-white"></span><span class="thumbnail-label">White</span></label>
+                </div>
+              </fieldset>
+                    <div class="pane-footer section-action-footer">
+                      <button type="button" class="button blue btn-system-save">Save</button>
+                    </div>
+                  </div>
+                </details>
                 <details class="integration-block system-section-block" data-runtime-section="system-general">
-                  <summary>System Settings</summary>
+                  <summary>Network Settings</summary>
                   <div class="integration-block-content">
               <div class="field-grid-top">
                 <div class="field-stack">
@@ -1003,7 +1079,6 @@
                     </div>
                   </div>
                 </details>
-
                 <details class="integration-block system-section-block" id="nodus-wifi-section" data-runtime-section="system-wifi">
                   <summary>Nodus Wifi Update</summary>
                   <div class="integration-block-content">
@@ -1043,68 +1118,6 @@
                     </div>
                   </div>
                 </details>
-
-                <details class="integration-block system-section-block" data-runtime-section="system-astral">
-                  <summary>Astral</summary>
-                  <div class="integration-block-content">
-              <div class="field-grid-astral">
-                <div class="field-stack">
-                  <label for="astral_lat">Latitude</label>
-                  <input type="text" id="astral_lat" name="astral_lat" value="{{ astral_lat | default('') }}" placeholder="Auto-detect" title="Enter manual coordinates. To reposition lat/long both fields must be empty, then save.">
-                </div>
-                <div class="field-stack">
-                  <label for="astral_lon">Longitude</label>
-                  <input type="text" id="astral_lon" name="astral_lon" value="{{ astral_lon | default('') }}" placeholder="Auto-detect" title="Enter manual coordinates. To reposition lat/long both fields must be empty, then save.">
-                </div>
-                <div class="field-stack">
-                  <label for="astral_altitude">Altitude (m)</label>
-                  <input type="text" id="astral_altitude" name="astral_altitude" value="{{ astral_altitude | default('') }}" placeholder="1600" inputmode="decimal" title="Enter altitude in meters.">
-                </div>
-              </div>
-                    <div class="pane-footer section-action-footer">
-                      <button type="button" class="button blue btn-system-save">Save</button>
-                    </div>
-                  </div>
-                </details>
-
-                <details class="integration-block system-section-block" data-runtime-section="system-weather-forecast">
-                  <summary>Weather Forecast</summary>
-                  <div class="integration-block-content">
-                    {% set selected_weather_forecast_provider = weather_forecast_provider | default('met_no') %}
-                    {% set selected_weather_forecast_theme = weather_forecast_theme | default('garden') %}
-                    <div class="weather-forecast-controls">
-                      <div class="field-stack">
-                        <label for="weather_forecast_sensor_id">Current Readings Sensor</label>
-                        <select id="weather_forecast_sensor_id" name="weather_forecast_sensor_id" data-selected="{{ weather_forecast_sensor_id | default('') }}">
-                          <option value="">None selected</option>
-                          {% if weather_forecast_sensor_id %}<option value="{{ weather_forecast_sensor_id }}" selected>{{ weather_forecast_sensor_id }}</option>{% endif %}
-                        </select>
-                      </div>
-                      <div class="field-stack">
-                        <label for="weather_forecast_provider">Forecast Provider</label>
-                        <select id="weather_forecast_provider" name="weather_forecast_provider">
-                          <option value="met_no" {% if selected_weather_forecast_provider == "met_no" %}selected{% endif %}>MET Norway</option>
-                          <option value="us" {% if selected_weather_forecast_provider == "us" %}selected{% endif %}>US · National Weather Service</option>
-                          <option value="open_meteo" {% if selected_weather_forecast_provider == "open_meteo" %}selected{% endif %}>Open-Meteo</option>
-                          <option value="none" {% if selected_weather_forecast_provider == "none" %}selected{% endif %}>Disabled</option>
-                        </select>
-                      </div>
-                    </div>
-                    <fieldset class="thumbnail-selector" id="weather_forecast_theme" style="--thumbnail-count:4">
-                      <legend>Caelus Theme</legend>
-                      <div class="thumbnail-options">
-                        <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="garden" {% if selected_weather_forecast_theme == "garden" %}checked{% endif %}><span class="theme-thumbnail caelus-garden"></span><span class="thumbnail-label">Mountain Garden</span></label>
-                        <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="island" {% if selected_weather_forecast_theme == "island" %}checked{% endif %}><span class="theme-thumbnail caelus-island"></span><span class="thumbnail-label">Ocean Island</span></label>
-                        <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="river" {% if selected_weather_forecast_theme == "river" %}checked{% endif %}><span class="theme-thumbnail caelus-river"></span><span class="thumbnail-label">Forest River</span></label>
-                        <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="desert" {% if selected_weather_forecast_theme == "desert" %}checked{% endif %}><span class="theme-thumbnail caelus-desert"></span><span class="thumbnail-label">Desert Bloom</span></label>
-                      </div>
-                    </fieldset>
-                    <div class="pane-footer section-action-footer">
-                      <button type="button" class="button blue btn-system-save">Save</button>
-                    </div>
-                  </div>
-                </details>
-
                 <details class="integration-block system-section-block" data-runtime-section="system-notifications">
                   <summary>Notifications</summary>
                   <div class="integration-block-content">
@@ -1165,56 +1178,38 @@
                         </div>
                   </div>
                 </details>
-
-                <details class="integration-block system-section-block" data-runtime-section="system-display">
-                  <summary>Display</summary>
+                <details class="integration-block system-section-block" data-runtime-section="system-weather-forecast">
+                  <summary>Weather Forecast</summary>
                   <div class="integration-block-content">
-              <div class="field-grid-stack display-settings-top-row">
-                <div class="field-stack">
-                  <label for="metric_set">Metric Set</label>
-                  <select name="metric_set" id="metric_set">
-                    <option value="Pick 6" {% if metric_set | default('Pick 6', true) == "Pick 6" %}selected{% endif %}>Pick 6</option>
-                    <option value="All" {% if metric_set == "All" %}selected{% endif %}>All</option>
-                  </select>
-                </div>
-                <div class="field-stack">
-                  <label for="display_style">Display Style</label>
-                  <select name="display_style" id="display_style">
-                    <option value="Gauge" {% if display_style == "Gauge" %}selected{% endif %}>Gauge</option>
-                    <option value="Graph6hr" {% if display_style == "Graph6hr" %}selected{% endif %}>6Hr Graph</option>
-                    <option value="Graph24hr" {% if display_style == "Graph24hr" %}selected{% endif %}>24Hr Graph</option>
-                  </select>
-                </div>
-                <div class="field-stack conditional-field" id="gauge_size_field" {% if display_style != "Gauge" %}hidden{% endif %}>
-                  <label for="gauge_size">Gauge Size</label>
-                  <select name="gauge_size" id="gauge_size">
-                    <option value="Small" {% if gauge_size == "Small" %}selected{% endif %}>Small</option>
-                    <option value="Large" {% if gauge_size == "Large" %}selected{% endif %}>Large</option>
-                  </select>
-                </div>
-              </div>
-              {% set selected_dashboard_background_theme = dashboard_background_theme | default('leaf') %}
-              <fieldset class="thumbnail-selector" id="dashboard_background_theme" style="--thumbnail-count:5">
-                <legend>Sensorius Dashboard Theme</legend>
-                <div class="thumbnail-options">
-                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="leaf" {% if selected_dashboard_background_theme == "leaf" %}checked{% endif %}><span class="theme-thumbnail dashboard-leaf"></span><span class="thumbnail-label">Leaves</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="garden_tools" {% if selected_dashboard_background_theme == "garden_tools" %}checked{% endif %}><span class="theme-thumbnail dashboard-garden-tools"></span><span class="thumbnail-label">Garden Tools</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="herbarium" {% if selected_dashboard_background_theme == "herbarium" %}checked{% endif %}><span class="theme-thumbnail dashboard-herbarium"></span><span class="thumbnail-label">Herbarium</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="pollinator" {% if selected_dashboard_background_theme == "pollinator" %}checked{% endif %}><span class="theme-thumbnail dashboard-pollinator"></span><span class="thumbnail-label">Pollinators</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="white" {% if selected_dashboard_background_theme == "white" %}checked{% endif %}><span class="theme-thumbnail dashboard-white"></span><span class="thumbnail-label">White</span></label>
-                </div>
-              </fieldset>
-              {% set selected_biodynamic_calendar_theme = biodynamic_calendar_theme | default('leaf') %}
-              <fieldset class="thumbnail-selector" id="biodynamic_calendar_theme" style="--thumbnail-count:5">
-                <legend>Biodynamic Calendar Theme</legend>
-                <div class="thumbnail-options">
-                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="leaf" {% if selected_biodynamic_calendar_theme == "leaf" %}checked{% endif %}><span class="theme-thumbnail dashboard-leaf"></span><span class="thumbnail-label">Leaves</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="garden_tools" {% if selected_biodynamic_calendar_theme == "garden_tools" %}checked{% endif %}><span class="theme-thumbnail dashboard-garden-tools"></span><span class="thumbnail-label">Garden Tools</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="herbarium" {% if selected_biodynamic_calendar_theme == "herbarium" %}checked{% endif %}><span class="theme-thumbnail dashboard-herbarium"></span><span class="thumbnail-label">Herbarium</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="pollinator" {% if selected_biodynamic_calendar_theme == "pollinator" %}checked{% endif %}><span class="theme-thumbnail dashboard-pollinator"></span><span class="thumbnail-label">Pollinators</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="white" {% if selected_biodynamic_calendar_theme == "white" %}checked{% endif %}><span class="theme-thumbnail dashboard-white"></span><span class="thumbnail-label">White</span></label>
-                </div>
-              </fieldset>
+                    {% set selected_weather_forecast_provider = weather_forecast_provider | default('met_no') %}
+                    {% set selected_weather_forecast_theme = weather_forecast_theme | default('garden') %}
+                    <div class="weather-forecast-controls">
+                      <div class="field-stack">
+                        <label for="weather_forecast_sensor_id">Current Readings Sensor</label>
+                        <select id="weather_forecast_sensor_id" name="weather_forecast_sensor_id" data-selected="{{ weather_forecast_sensor_id | default('') }}">
+                          <option value="">None selected</option>
+                          {% if weather_forecast_sensor_id %}<option value="{{ weather_forecast_sensor_id }}" selected>{{ weather_forecast_sensor_id }}</option>{% endif %}
+                        </select>
+                      </div>
+                      <div class="field-stack">
+                        <label for="weather_forecast_provider">Forecast Provider</label>
+                        <select id="weather_forecast_provider" name="weather_forecast_provider">
+                          <option value="met_no" {% if selected_weather_forecast_provider == "met_no" %}selected{% endif %}>MET Norway</option>
+                          <option value="us" {% if selected_weather_forecast_provider == "us" %}selected{% endif %}>US · National Weather Service</option>
+                          <option value="open_meteo" {% if selected_weather_forecast_provider == "open_meteo" %}selected{% endif %}>Open-Meteo</option>
+                          <option value="none" {% if selected_weather_forecast_provider == "none" %}selected{% endif %}>Disabled</option>
+                        </select>
+                      </div>
+                    </div>
+                    <fieldset class="thumbnail-selector" id="weather_forecast_theme" style="--thumbnail-count:4">
+                      <legend>Caelus Theme</legend>
+                      <div class="thumbnail-options">
+                        <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="garden" {% if selected_weather_forecast_theme == "garden" %}checked{% endif %}><span class="theme-thumbnail caelus-garden"></span><span class="thumbnail-label">Mountain Garden</span></label>
+                        <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="island" {% if selected_weather_forecast_theme == "island" %}checked{% endif %}><span class="theme-thumbnail caelus-island"></span><span class="thumbnail-label">Ocean Island</span></label>
+                        <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="river" {% if selected_weather_forecast_theme == "river" %}checked{% endif %}><span class="theme-thumbnail caelus-river"></span><span class="thumbnail-label">Forest River</span></label>
+                        <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="desert" {% if selected_weather_forecast_theme == "desert" %}checked{% endif %}><span class="theme-thumbnail caelus-desert"></span><span class="thumbnail-label">Desert Bloom</span></label>
+                      </div>
+                    </fieldset>
                     <div class="pane-footer section-action-footer">
                       <button type="button" class="button blue btn-system-save">Save</button>
                     </div>
@@ -1288,110 +1283,6 @@
           <div class="settings-pane" id="pane-integrations" hidden>
             <h3 class="pane-title">Integrations</h3>
             <div class="integrations-list">
-              <details class="integration-block" data-runtime-section="integrations-home-assistant">
-                <summary>Home Assistant</summary>
-                <div class="integration-block-content">
-            <div class="ha-enabled-wrap">
-              <div class="field-stack">
-                <label for="ha-enabled">Enabled</label>
-                <select id="ha-enabled">
-                  <option value="false">No</option>
-                  <option value="true">Yes</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="ha-grid">
-              <div class="field-stack">
-                <label for="ha-broker">Broker</label>
-                <input type="text" id="ha-broker" placeholder="homeassistant.local">
-              </div>
-              <div class="ha-subgrid">
-                <div class="field-stack">
-                  <label for="ha-use-tls">TLS Enable</label>
-                  <select id="ha-use-tls">
-                    <option value="false">No</option>
-                    <option value="true">Yes</option>
-                  </select>
-                </div>
-                <div class="field-stack">
-                  <label for="ha-port">Port</label>
-                  <input type="number" id="ha-port" min="1" max="65535" step="1">
-                </div>
-              </div>
-              <div class="field-stack">
-                <label for="ha-username">Username</label>
-                <input type="text" id="ha-username" autocomplete="username">
-              </div>
-              <div class="field-stack">
-                <label for="ha-password">Password</label>
-                <div class="inline-actions">
-                  <input type="password" id="ha-password" autocomplete="current-password" style="flex:1;">
-                  <button type="button" class="button black" id="ha-pass-toggle">Show</button>
-                </div>
-              </div>
-            </div>
-
-            <div class="status-text sai-live-status" id="ha-status" aria-live="polite"></div>
-
-            <div class="pane-footer section-action-footer">
-              <button type="button" class="button blue" id="btn-ha-save">Save</button>
-            </div>
-                </div>
-              </details>
-
-              <details class="integration-block" data-runtime-section="integrations-weewx">
-                <summary>WeeWX</summary>
-                <div class="integration-block-content">
-            <div class="ha-enabled-wrap">
-              <div class="field-stack">
-                <label for="weewx-mqtt-enabled">MQTT Interface</label>
-                <select id="weewx-mqtt-enabled">
-                  <option value="false">Disabled</option>
-                  <option value="true">Enabled</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="integration-state" id="weewx-runtime-state">
-              <div class="integration-state-title">
-                <span class="integration-dot" id="weewx-runtime-dot"></span>
-                <span id="weewx-runtime-title">Checking WeeWX state...</span>
-              </div>
-              <div class="integration-state-detail" id="weewx-runtime-detail"></div>
-            </div>
-
-            <div class="ha-grid">
-              <div class="field-stack">
-                <label for="weewx-db-path">WeeWX Database</label>
-                <input type="text" id="weewx-db-path" readonly>
-              </div>
-              <div class="field-stack">
-                <label for="weewx-sensor-id">Sensorius Sensor ID</label>
-                <input type="text" id="weewx-sensor-id">
-              </div>
-              <div class="field-stack">
-                <label for="weewx-mqtt-topic">MQTT Topic Filter</label>
-                <input type="text" id="weewx-mqtt-topic" placeholder="weewx/#">
-              </div>
-              <div class="field-stack">
-                <label for="weewx-update-period">Update Period Seconds</label>
-                <input type="number" id="weewx-update-period" min="15" max="3600" step="1">
-              </div>
-              <div class="field-stack">
-                <label for="weewx-broker-display">Sensorius Broker</label>
-                <input type="text" id="weewx-broker-display" readonly>
-              </div>
-            </div>
-
-            <div class="status-text sai-live-status" id="weewx-status" aria-live="polite"></div>
-
-            <div class="pane-footer section-action-footer">
-              <button type="button" class="button blue" id="btn-weewx-save">Save</button>
-            </div>
-                </div>
-              </details>
-
               <details class="integration-block" data-runtime-section="integrations-farmos">
                 <summary>FarmOS</summary>
                 <div class="integration-block-content">
@@ -1460,6 +1351,108 @@
             </div>
                 </div>
               </details>
+              <details class="integration-block" data-runtime-section="integrations-home-assistant">
+                <summary>Home Assistant</summary>
+                <div class="integration-block-content">
+            <div class="ha-enabled-wrap">
+              <div class="field-stack">
+                <label for="ha-enabled">Enabled</label>
+                <select id="ha-enabled">
+                  <option value="false">No</option>
+                  <option value="true">Yes</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="ha-grid">
+              <div class="field-stack">
+                <label for="ha-broker">Broker</label>
+                <input type="text" id="ha-broker" placeholder="homeassistant.local">
+              </div>
+              <div class="ha-subgrid">
+                <div class="field-stack">
+                  <label for="ha-use-tls">TLS Enable</label>
+                  <select id="ha-use-tls">
+                    <option value="false">No</option>
+                    <option value="true">Yes</option>
+                  </select>
+                </div>
+                <div class="field-stack">
+                  <label for="ha-port">Port</label>
+                  <input type="number" id="ha-port" min="1" max="65535" step="1">
+                </div>
+              </div>
+              <div class="field-stack">
+                <label for="ha-username">Username</label>
+                <input type="text" id="ha-username" autocomplete="username">
+              </div>
+              <div class="field-stack">
+                <label for="ha-password">Password</label>
+                <div class="inline-actions">
+                  <input type="password" id="ha-password" autocomplete="current-password" style="flex:1;">
+                  <button type="button" class="button black" id="ha-pass-toggle">Show</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="status-text sai-live-status" id="ha-status" aria-live="polite"></div>
+
+            <div class="pane-footer section-action-footer">
+              <button type="button" class="button blue" id="btn-ha-save">Save</button>
+            </div>
+                </div>
+              </details>
+              <details class="integration-block" data-runtime-section="integrations-weewx">
+                <summary>WeeWX</summary>
+                <div class="integration-block-content">
+            <div class="ha-enabled-wrap">
+              <div class="field-stack">
+                <label for="weewx-mqtt-enabled">MQTT Interface</label>
+                <select id="weewx-mqtt-enabled">
+                  <option value="false">Disabled</option>
+                  <option value="true">Enabled</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="integration-state" id="weewx-runtime-state">
+              <div class="integration-state-title">
+                <span class="integration-dot" id="weewx-runtime-dot"></span>
+                <span id="weewx-runtime-title">Checking WeeWX state...</span>
+              </div>
+              <div class="integration-state-detail" id="weewx-runtime-detail"></div>
+            </div>
+
+            <div class="ha-grid">
+              <div class="field-stack">
+                <label for="weewx-db-path">WeeWX Database</label>
+                <input type="text" id="weewx-db-path" readonly>
+              </div>
+              <div class="field-stack">
+                <label for="weewx-sensor-id">Sensorius Sensor ID</label>
+                <input type="text" id="weewx-sensor-id">
+              </div>
+              <div class="field-stack">
+                <label for="weewx-mqtt-topic">MQTT Topic Filter</label>
+                <input type="text" id="weewx-mqtt-topic" placeholder="weewx/#">
+              </div>
+              <div class="field-stack">
+                <label for="weewx-update-period">Update Period Seconds</label>
+                <input type="number" id="weewx-update-period" min="15" max="3600" step="1">
+              </div>
+              <div class="field-stack">
+                <label for="weewx-broker-display">Sensorius Broker</label>
+                <input type="text" id="weewx-broker-display" readonly>
+              </div>
+            </div>
+
+            <div class="status-text sai-live-status" id="weewx-status" aria-live="polite"></div>
+
+            <div class="pane-footer section-action-footer">
+              <button type="button" class="button blue" id="btn-weewx-save">Save</button>
+            </div>
+                </div>
+              </details>
             </div>
             <div class="pane-footer pane-global-footer">
               <button type="button" class="button black btn-back-system">Dashboard</button>
@@ -1481,6 +1474,36 @@
           <div class="settings-pane" id="pane-add" hidden>
             <h3 class="pane-title">Add Device</h3>
             <div class="integrations-list">
+              <details class="integration-block" id="add-ecowitt-section">
+                <summary>Ecowitt Gateway</summary>
+                <div class="integration-block-content">
+                  <div class="field-grid-stack">
+                    <div class="field-stack">
+                      <label for="ecowitt-gateway-url">GW URL</label>
+                      <input type="url" id="ecowitt-gateway-url" name="ecowitt_gateway_url" placeholder="http://192.168.1.100" autocomplete="url">
+                    </div>
+                    <div class="field-stack">
+                      <label for="btn-ecowitt-find">Gateway Discovery</label>
+                      <button type="button" class="button yellow" id="btn-ecowitt-find">Find Sensors</button>
+                    </div>
+                    <div class="field-stack">
+                      <label>Available Valid GW Sensors</label>
+                      <div id="ecowitt-sensor-list" class="integration-state" role="list" aria-live="polite">
+                        <div class="integration-state-detail">Enter the gateway URL and choose Find Sensors.</div>
+                      </div>
+                    </div>
+                    <div class="field-stack">
+                      <label for="ecowitt-polling-interval">Data Retrieval Interval</label>
+                      <input type="number" id="ecowitt-polling-interval" name="ecowitt_polling_interval" value="{{ ecowitt_poll_interval_sec | default(300) }}" min="60" max="3600" step="1" inputmode="numeric">
+                    </div>
+                  </div>
+                  <div class="inline-actions" style="justify-content:flex-end;margin-top:.65rem;">
+                    <button type="button" class="button neutral" id="btn-ecowitt-disable">Disable</button>
+                    <button type="button" class="button green" id="btn-ecowitt-save" disabled>Save Gateway</button>
+                  </div>
+                  <div class="detail" id="ecowitt-status" aria-live="polite" style="margin-top:.55rem;"></div>
+                </div>
+              </details>
               <details class="integration-block" id="add-nodus-section" open>
                 <summary>Nodus Device(s)</summary>
                 <div class="integration-block-content">
@@ -1530,37 +1553,6 @@
                       <button type="button" class="button green" id="btn-onboard-add" disabled>Add</button>
                     </div>
                   </div>
-                </div>
-              </details>
-
-              <details class="integration-block" id="add-ecowitt-section">
-                <summary>Ecowitt Gateway</summary>
-                <div class="integration-block-content">
-                  <div class="field-grid-stack">
-                    <div class="field-stack">
-                      <label for="ecowitt-gateway-url">GW URL</label>
-                      <input type="url" id="ecowitt-gateway-url" name="ecowitt_gateway_url" placeholder="http://192.168.1.100" autocomplete="url">
-                    </div>
-                    <div class="field-stack">
-                      <label for="btn-ecowitt-find">Gateway Discovery</label>
-                      <button type="button" class="button yellow" id="btn-ecowitt-find">Find Sensors</button>
-                    </div>
-                    <div class="field-stack">
-                      <label>Available Valid GW Sensors</label>
-                      <div id="ecowitt-sensor-list" class="integration-state" role="list" aria-live="polite">
-                        <div class="integration-state-detail">Enter the gateway URL and choose Find Sensors.</div>
-                      </div>
-                    </div>
-                    <div class="field-stack">
-                      <label for="ecowitt-polling-interval">Data Retrieval Interval</label>
-                      <input type="number" id="ecowitt-polling-interval" name="ecowitt_polling_interval" value="{{ ecowitt_poll_interval_sec | default(300) }}" min="60" max="3600" step="1" inputmode="numeric">
-                    </div>
-                  </div>
-                  <div class="inline-actions" style="justify-content:flex-end;margin-top:.65rem;">
-                    <button type="button" class="button neutral" id="btn-ecowitt-disable">Disable</button>
-                    <button type="button" class="button green" id="btn-ecowitt-save" disabled>Save Gateway</button>
-                  </div>
-                  <div class="detail" id="ecowitt-status" aria-live="polite" style="margin-top:.55rem;"></div>
                 </div>
               </details>
             </div>
@@ -1654,27 +1646,6 @@
           <div class="settings-pane" id="pane-advanced" hidden>
             <h3 class="pane-title">Advanced</h3>
             <div class="advanced-sections">
-              <details class="advanced-section" id="adv-section-startup" data-runtime-section="advanced-startup">
-                <summary>Start-up</summary>
-                <div class="advanced-section-content advanced-section-grid">
-                  <div class="field-stack adv-center">
-                    <label for="adv-autostart-enabled">Auto Start on login</label>
-                    <input type="checkbox" id="adv-autostart-enabled">
-                  </div>
-
-                  <div class="field-stack">
-                    <label for="adv-autostart-scope">Auto-start scope</label>
-                    <select id="adv-autostart-scope">
-                      <option value="user">User-level (default)</option>
-                      <option value="system">System-level</option>
-                    </select>
-                  </div>
-                  <div class="pane-footer section-action-footer">
-                    <button type="button" class="button blue btn-advanced-save">Save</button>
-                  </div>
-                </div>
-              </details>
-
               <details class="advanced-section" id="adv-section-database" data-runtime-section="advanced-database">
                 <summary>Database</summary>
                 <div class="advanced-section-content advanced-section-grid">
@@ -1695,7 +1666,6 @@
                   </div>
                 </div>
               </details>
-
               <details class="advanced-section" id="adv-section-debug" data-runtime-section="advanced-debug">
                 <summary>Debug</summary>
                 <div class="advanced-section-content advanced-section-grid">
@@ -1722,6 +1692,26 @@
                   <div class="field-stack">
                     <label>Modules to Debug</label>
                     <div id="adv-debug-modules" class="adv-debug-scroll"></div>
+                  </div>
+                  <div class="pane-footer section-action-footer">
+                    <button type="button" class="button blue btn-advanced-save">Save</button>
+                  </div>
+                </div>
+              </details>
+              <details class="advanced-section" id="adv-section-startup" data-runtime-section="advanced-startup">
+                <summary>Start-up</summary>
+                <div class="advanced-section-content advanced-section-grid">
+                  <div class="field-stack adv-center">
+                    <label for="adv-autostart-enabled">Auto Start on login</label>
+                    <input type="checkbox" id="adv-autostart-enabled">
+                  </div>
+
+                  <div class="field-stack">
+                    <label for="adv-autostart-scope">Auto-start scope</label>
+                    <select id="adv-autostart-scope">
+                      <option value="user">User-level (default)</option>
+                      <option value="system">System-level</option>
+                    </select>
                   </div>
                   <div class="pane-footer section-action-footer">
                     <button type="button" class="button blue btn-advanced-save">Save</button>
@@ -2571,7 +2561,7 @@
       }
       const savedMessage = String(js.message || "Saved.");
       setStatus("system-status", savedMessage);
-      showSettingsToast("System settings saved", "ok");
+      showSettingsToast("General settings saved", "ok");
       if (body.has("weather_forecast_provider")) {
         applyDashboardWeatherForecastChange(body.get("weather_forecast_provider"));
       }
@@ -2583,7 +2573,7 @@
       }
     } catch (e) {
       console.error(e);
-      const msg = e && e.message ? e.message : "Failed to save System settings.";
+      const msg = e && e.message ? e.message : "Failed to save General settings.";
       setStatus("system-status", msg);
       showSettingsToast(msg, "error");
     } finally {

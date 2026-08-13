@@ -142,7 +142,7 @@ and TLS when it crosses a trusted boundary. Settings-manager secret
 obfuscation is reversible and is not encryption; protect `.env`, runtime TOML
 files, backups, and diagnostic exports as sensitive data.
 
-The System Settings **System Settings > Notifications** form writes the email
+The **General Settings > Notifications** form writes the email
 keys to the project-root `.env`, which is restricted to the owning user. The
 password field is never populated in HTML; leaving it blank preserves the
 current app password. `ssl` uses implicit TLS (normally port 465), while
@@ -181,7 +181,7 @@ System settings are stored in:
 system_settings/<device_id>/settings.toml
 ```
 
-The **System Settings > Wi-Fi Settings** pane is a fleet operation rather than
+The **General Settings > Nodus Wifi Update** section is a fleet operation rather than
 stored hub configuration. It reads the host's active SSID and saved password
 from the operating system when available, displays them transiently, and never
 writes them to this file. Sensorius sends edited values in non-retained Nodus
