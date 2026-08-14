@@ -6092,7 +6092,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             sid = (switch_id or "").strip()
             lbl = (label or "").strip()
             switch_key = f"{sid}::{lbl}" if sid and lbl else ""
-            mgr = AutomationManager("switch_settings")
+            mgr = AutomationManager("automation_settings")
             path = mgr._path_for_hostname(sid) if sid else None
             data = mgr.load(sid) if sid else {}
             adv = (data.get("Advanced") or {}) if isinstance(data, dict) else {}
@@ -11221,12 +11221,15 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             page.append("<script src='/ui_static/js/system_calibration.js'></script>")
             page.append("</head><body>")
             page.append("<div id='modalHost'></div>")
-            page.append(f"<script>var __MODAL_HTML__ = {json.dumps(modal_html)};</script>")
+            modal_json = json.dumps(modal_html).replace("</", "<\\/")
+            page.append(f"<script>var __MODAL_HTML__ = {modal_json};</script>")
             page.append("<script>")
             page.append("  (function(){")
             page.append("    var host = document.getElementById('modalHost') || document.body;")
             page.append("    host.innerHTML = __MODAL_HTML__;")
             page.append("    var modal = document.getElementById('sensorSettingsModal');")
+            page.append("    var backdrop = modal && modal.closest('.modal-backdrop');")
+            page.append("    if (backdrop) backdrop.style.display = 'flex';")
             page.append("    if (modal && window.initSensorSettingsModal) window.initSensorSettingsModal(modal);")
             page.append("    if (modal && window.initSystemCalibrationModal) window.initSystemCalibrationModal(modal);")
             page.append("  })();")
@@ -13177,7 +13180,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         page.append(f"<link rel='stylesheet' href='/ui_static/css/app.css?v={SAI_APP_VERSION}'>")
         page.append("</head><body>")
         page.append("<div id='modalHost'></div>")
-        page.append(f"<script>var __MODAL_HTML__ = {json.dumps(modal_html)};</script>")
+        modal_json = json.dumps(modal_html).replace("</", "<\\/")
+        page.append(f"<script>var __MODAL_HTML__ = {modal_json};</script>")
         page.append("<script>")
         page.append("  (function(){")
         page.append("    if (window.showSwitchSettingsModal) {")
@@ -13186,7 +13190,33 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         page.append("      var host = document.getElementById('modalHost');")
         page.append("      if (host) {")
         page.append("        host.innerHTML = __MODAL_HTML__;")
-        page.append("        if (window.activateInlineScripts) window.activateInlineScripts(host);")
+        page.append("        var modal = document.getElementById('switchSettingsModal');")
+        page.append("        var backdrop = modal && modal.closest('.modal-backdrop');")
+        page.append("        if (backdrop) backdrop.style.display = 'flex';")
+        page.append("        if (window.activateInlineScripts) {")
+        page.append("          window.activateInlineScripts(host);")
+        page.append("        } else {")
+        page.append("          host.querySelectorAll('script').forEach(function(oldScript) {")
+        page.append("            var script = document.createElement('script');")
+        page.append("            script.textContent = oldScript.textContent || '';")
+        page.append("            oldScript.replaceWith(script);")
+        page.append("          });")
+        page.append("        }")
+        page.append("        var settingsButton = host.querySelector('#switchMenuSettings');")
+        page.append("        var infoButton = host.querySelector('#switchMenuStatistics');")
+        page.append("        var settingsPane = host.querySelector('#switchSettingsPane');")
+        page.append("        var infoPane = host.querySelector('#switchStatisticsPane');")
+        page.append("        function selectSwitchPane(showInfo) {")
+        page.append("          if (settingsPane) settingsPane.hidden = showInfo;")
+        page.append("          if (infoPane) infoPane.hidden = !showInfo;")
+        page.append("          if (settingsPane) settingsPane.style.display = showInfo ? 'none' : '';")
+        page.append("          if (infoPane) infoPane.style.display = showInfo ? '' : 'none';")
+        page.append("          if (settingsButton) settingsButton.classList.toggle('active', !showInfo);")
+        page.append("          if (infoButton) infoButton.classList.toggle('active', showInfo);")
+        page.append("        }")
+        page.append("        if (settingsButton) settingsButton.addEventListener('click', function(){ selectSwitchPane(false); });")
+        page.append("        if (infoButton) infoButton.addEventListener('click', function(){ selectSwitchPane(true); });")
+        page.append("        selectSwitchPane(false);")
         page.append("        if (window.openSwitchSettingsModal) window.openSwitchSettingsModal();")
         page.append("        if (window.switchModalWire) window.switchModalWire();")
         page.append("      }")
@@ -13634,8 +13664,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 return True
             return False
         try:
-            mgr = AutomationManager("switch_settings")
+            mgr = AutomationManager("automation_settings")
             data = mgr.load(switch_id) or {}
+            legacy_getter = getattr(mgr, "get_legacy_rule_ids", None)
+            legacy_rule_ids = (
+                set(legacy_getter(switch_id) or set())
+                if callable(legacy_getter)
+                else set()
+            )
 
             adv = (
                 data.get("Advanced")
@@ -13660,7 +13696,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     )
                 else:
                     continue
-                items.append({"rule_id": rule_id, "enabled": enabled, "script_json": script_json})
+                items.append({
+                    "rule_id": rule_id,
+                    "enabled": enabled,
+                    "script_json": script_json,
+                    "legacy": str(rule_id) in legacy_rule_ids,
+                })
 
             return {"switch_id": switch_id, "items": items}
         except Exception as exc:
@@ -13754,7 +13795,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         from .saiAutomationManager import AutomationManager
         try:
             truthy = str(enabled).strip().lower() in {"1", "true", "on", "yes"}
-            mgr = AutomationManager("switch_settings")
+            mgr = AutomationManager("automation_settings")
             ok = mgr.set_rule_enabled(switch_id, section="Advanced", rule_id=rule_id, enabled=truthy)
             if ok:
                 data = mgr.load(switch_id) or {}
@@ -13813,7 +13854,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     ):
         from .saiAutomationManager import AutomationManager
         try:
-            mgr = AutomationManager("switch_settings")
+            mgr = AutomationManager("automation_settings")
             data = mgr.load(switch_id) or {}
             adv = (data.get("Advanced") or {})
             payload = adv.get(rule_id) if isinstance(adv, dict) else None
@@ -13842,7 +13883,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     @router.post("/submit-advanced-trigger")
     async def submit_advanced_trigger(request: Request):
         """
-        Persists an Advanced trigger script to switch_settings/automations/automations.toml
+        Persists an Advanced trigger script to automation_settings/automations.toml
         Accepts form or JSON payloads.
 
         Expected fields:
@@ -14142,7 +14183,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 i += 1
 
         try:
-            trig_mgr = AutomationManager("switch_settings")
+            trig_mgr = AutomationManager("automation_settings")
             existing = trig_mgr.load(switch_id) or {}
             existing_advanced = (existing or {}).get("Advanced", {}) or {}
             existing_ids = set(existing_advanced.keys())
@@ -14359,7 +14400,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             try:
                 app = request.app
                 from .saiAutomationManager import AutomationManager
-                mgr = AutomationManager("switch_settings")
+                mgr = AutomationManager("automation_settings")
                 try:
                     data = mgr.load(switch_id) or {}
                     adv = (data.get("Advanced") or {}) if isinstance(data, dict) else {}
@@ -15106,7 +15147,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # Manual toggles are blocked while any Advanced automation for this switch is enabled.
             try:
                 from .saiAutomationManager import AutomationManager
-                am = AutomationManager("switch_settings")
+                am = AutomationManager("automation_settings")
                 automation_switch_id = _ctrl_switch_id(ctrl) or sid or ""
                 try:
                     channel_id = str((getattr(ctrl, "channel_id_for_label", {}) or {}).get(matched_label, "") or "").strip()

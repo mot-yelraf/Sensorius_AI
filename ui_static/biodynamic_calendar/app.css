@@ -70,9 +70,11 @@ body.biodynamic-theme-white {
   justify-content: center;
   width: 44px;
   height: 44px;
+  box-sizing: border-box;
+  border: 2px solid #655f52;
   border-radius: 50%;
-  background: #000;
-  color: #fff;
+  background: transparent;
+  color: #655f52;
   font-size: 30px;
   font-weight: 700;
   line-height: 1;
@@ -80,7 +82,28 @@ body.biodynamic-theme-white {
 }
 
 .dashboard-close-icon {
-  transform: translateY(-1px);
+  position: relative;
+  display: block;
+  width: 18px;
+  height: 18px;
+  font-size: 0;
+}
+
+.dashboard-close-icon::before,
+.dashboard-close-icon::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.dashboard-close-icon::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
 }
 
 .dashboard-return-spinner {
@@ -108,7 +131,11 @@ body.biodynamic-theme-white {
 
 .dashboard-return:hover,
 .dashboard-return:focus-visible {
-  background: #333;
+  border-color: #27313a;
+  background: transparent;
+  color: #27313a;
+  outline: 2px solid rgba(101, 95, 82, 0.35);
+  outline-offset: 2px;
 }
 
 .panel {

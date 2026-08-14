@@ -5,8 +5,13 @@
        data-sensor-id="{{ start_sensor_id | default('') }}"
        data-device-kind="{{ device_kind | default('') }}"
        data-is-apvpd="{{ 'true' if is_apvpd else 'false' }}">
-    <div class="modal-header">
+    <div class="modal-header settings-modal-header">
       <h3 class="modal-title">Device &amp; System Calibration</h3>
+      <button type="button"
+              class="settings-title-close"
+              id="sysCalCloseBtn"
+              title="Close"
+              aria-label="Close Device and System Calibration">&times;</button>
     </div>
 
     <div class="modal-body">
@@ -310,14 +315,6 @@
             <div id="sysCalStatus"
                  class="sai-live-status"
                  aria-live="polite"></div>
-          </div>
-
-          <div class="modal-footer">
-            <div class="footer-buttons">
-              <button type="button" class="button black" id="sysCalHomeBtn">
-                Dashboard
-              </button>
-            </div>
           </div>
         </section>
       </div>

@@ -5,6 +5,7 @@ launching a browser.
 """
 
 import os
+import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -42,6 +43,76 @@ def test_draggable_modal_asset_targets_settings_modal_shells():
     assert ".modal-header, .system-settings-header, .onboard-title" in js
     assert ".system-settings-header" in css
     assert ".onboard-title" in css
+
+
+def test_settings_dialogs_use_titlebar_close_controls_without_dashboard_buttons():
+    repo_root = Path(__file__).resolve().parents[1]
+    modal_dir = repo_root / "ui_templates" / "modals"
+    dashboard_button = re.compile(r">\s*Dashboard\s*</button>", re.IGNORECASE)
+    settings_templates = {
+        "sensor_settings.html",
+        "switch_settings.html",
+        "system_calibration.html",
+        "system_device_locations.html",
+        "system_ha_integration.html",
+        "system_remove_device.html",
+        "system_settings.html",
+    }
+
+    matching_templates = {
+        template.name
+        for template in modal_dir.glob("*.html")
+        if dashboard_button.search(template.read_text(encoding="utf-8"))
+    }
+    assert not matching_templates
+
+    for template_name in settings_templates:
+        template = (modal_dir / template_name).read_text(encoding="utf-8")
+        assert template.count('class="settings-title-close') == 1, template_name
+        assert 'class="modal-header settings-modal-header"' in template or (
+            'class="onboard-title settings-modal-header"' in template
+        ) or 'class="system-settings-header settings-modal-header"' in template
+        assert 'title="Close"' in template
+        assert 'aria-label="Close ' in template
+
+    calibration_js = (repo_root / "ui_static/js/system_calibration.js").read_text(encoding="utf-8")
+    assert 'modalEl.querySelector("#sysCalCloseBtn")' in calibration_js
+    assert 'if (closeBtn) closeBtn.addEventListener("click", close);' in calibration_js
+
+
+def test_settings_titlebar_close_control_is_circular_and_keyboard_visible():
+    repo_root = Path(__file__).resolve().parents[1]
+    for css_name in ("app.css", "combined.css"):
+        css = (repo_root / "ui_static/css" / css_name).read_text(encoding="utf-8")
+        assert ".settings-modal-header{" in css
+        assert ".settings-title-close{" in css
+        assert "border-radius:50%;" in css
+        assert "background:transparent;" in css
+        assert ".settings-title-close::before," in css
+        assert "transform:translate(-50%, -50%) rotate(45deg);" in css
+        assert ".settings-title-close:focus-visible{" in css
+
+
+def test_dashboard_window_close_controls_use_transparent_card_color_circles():
+    repo_root = Path(__file__).resolve().parents[1]
+    dashboard_html = (repo_root / "sensorius/saiHtml.py").read_text(encoding="utf-8")
+    caelus_css = (repo_root / "ui_static/weather_forecast/app.css").read_text(encoding="utf-8")
+    biodynamic_css = (repo_root / "ui_static/biodynamic_calendar/app.css").read_text(encoding="utf-8")
+
+    assert ".caelus-moon-close{position:relative;width:2rem;height:2rem;padding:0;border:2px solid #7ec4c1;border-radius:50%;background:transparent;" in dashboard_html
+    assert ".caelus-moon-close::before,.caelus-moon-close::after" in dashboard_html
+    assert "#fullscreen_graph_dashboard{" in dashboard_html
+    assert "border:2px solid #d7e9df; background:transparent;" in dashboard_html
+    assert "#fullscreen_graph_dashboard::before," in dashboard_html
+
+    for stylesheet in (caelus_css, biodynamic_css):
+        close_rule = stylesheet[stylesheet.index(".dashboard-return {"):]
+        close_rule = close_rule[:close_rule.index("}")]
+        assert "border-radius: 50%;" in close_rule
+        assert "background: transparent;" in close_rule
+        assert "border: 2px solid" in close_rule
+        assert ".dashboard-close-icon::before," in stylesheet
+        assert "transform: translate(-50%, -50%) rotate(45deg);" in stylesheet
 
 
 def test_sensor_settings_location_input_is_centered_and_constrained():
@@ -116,7 +187,7 @@ def test_settings_status_feedback_uses_hidden_live_regions_and_common_footers():
     assert "sensor-pane-footer-status" not in sensor_template
 
     assert 'id="switchSettingsStatus" class="sai-live-status" aria-live="polite"' in switch_template
-    assert 'id="automationSaveStatus" class="sai-live-status" aria-live="polite"' in switch_template
+    assert 'id="automationSaveStatus" class="sai-live-status" aria-live="polite"' in system_template
     assert 'class="modal-footer switch-form-footer sensor-pane-footer"' in switch_template
 
     assert 'id="ha-save-status" class="sai-live-status" aria-live="polite"' in ha_template
@@ -141,3 +212,14 @@ def test_obsolete_standalone_advanced_automation_modal_is_removed():
     assert "automationManagerModal" not in automation_js
     assert "jsonPreview" not in automation_js
     assert ".json-preview" not in css
+
+
+def test_settings_full_page_fallbacks_escape_embedded_scripts_and_open_backdrops():
+    repo_root = Path(__file__).resolve().parents[1]
+    routes = (repo_root / "sensorius" / "saiWebRoutes.py").read_text(encoding="utf-8")
+
+    assert routes.count('json.dumps(modal_html).replace("</", "<\\\\/")') >= 2
+    assert routes.count("if (backdrop) backdrop.style.display = 'flex';") >= 2
+    assert "host.querySelectorAll('script').forEach(function(oldScript)" in routes
+    assert "function selectSwitchPane(showInfo)" in routes
+    assert "if (infoPane) infoPane.hidden = !showInfo;" in routes

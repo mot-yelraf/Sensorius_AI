@@ -89,6 +89,7 @@ class SwitchController:
         self._astral_location_cache = {"value": None, "expires_at": 0.0}
         self._advanced_bd_transition_keys = {}
         self._advanced_bd_transition_segments = {}
+        self._advanced_webui_states = {}
 
         # Settings accessor that works with either wrapper or dict
         try:
@@ -1076,15 +1077,30 @@ class SwitchController:
     def _get_triggers_path(self) -> Path | None:
         """
         Compute shared automation path:
-        .../switch_settings/automations/automations.toml
+        .../automation_settings/automations.toml
         Returns None if path cannot be resolved.
         """
         try:
             from .saiAutomationManager import AutomationManager
-            mgr = AutomationManager("switch_settings")
+            mgr = AutomationManager("automation_settings")
             return Path(mgr.get_storage_path())
         except Exception:
             return None
+
+    def _get_triggers_paths(self) -> tuple[Path, ...]:
+        """Return canonical and readable legacy automation paths."""
+        try:
+            from .saiAutomationManager import AutomationManager
+
+            mgr = AutomationManager("automation_settings")
+            paths = [Path(mgr.get_storage_path())]
+            legacy_path = mgr.get_legacy_storage_path()
+            if legacy_path is not None:
+                paths.append(Path(legacy_path))
+            return tuple(paths)
+        except Exception:
+            primary = self._get_triggers_path()
+            return (primary,) if primary is not None else ()
 
     def _load_triggers_dict(self) -> dict:
         """
@@ -1095,7 +1111,7 @@ class SwitchController:
         # Try manager first
         try:
             from .saiAutomationManager import AutomationManager
-            mgr = AutomationManager("switch_settings")
+            mgr = AutomationManager("automation_settings")
             return {"Advanced": mgr.load_runtime_advanced(self.switch_id) or {}}
         except Exception:
             pass
@@ -1281,14 +1297,19 @@ class SwitchController:
             if not hasattr(self, "_rules_cache"):
                 self._rules_cache = {"mtime": None, "enabled": False}
 
-            triggers_path = self._get_triggers_path()
-            if not triggers_path or not triggers_path.exists():
+            trigger_paths = tuple(
+                path for path in self._get_triggers_paths() if path.exists()
+            )
+            if not trigger_paths:
                 # remember absence so we don’t stat on every tick
                 self._rules_cache["mtime"] = None
                 self._rules_cache["enabled"] = False
                 return False
 
-            mtime = triggers_path.stat().st_mtime
+            mtime = tuple(
+                (str(path), path.stat().st_mtime_ns, path.stat().st_size)
+                for path in trigger_paths
+            )
             # cache miss or changed → re-evaluate
             if self._rules_cache["mtime"] != mtime:
                 triggers = self._load_triggers_dict()
@@ -1297,7 +1318,7 @@ class SwitchController:
                 _sync_overrides_from_triggers(triggers)
                 if DEBUG:
                     printDM(f"[rules] automations.toml mtime changed; enabled={enabled}", location=MODULE)
-                    printDM(f"{self.switch_id}: [rules] path={triggers_path} mtime changed; enabled={enabled}", location=MODULE)
+                    printDM(f"{self.switch_id}: [rules] paths={trigger_paths} changed; enabled={enabled}", location=MODULE)
 
             return bool(self._rules_cache["enabled"])
         except Exception as e:
@@ -1493,11 +1514,70 @@ class SwitchController:
                 level="warning",
             )
 
+    def _broadcast_automation_notification(
+        self,
+        *,
+        rule_id: str,
+        rule_name: str,
+        evaluated_groups: list[dict],
+        current_values_map: dict,
+    ) -> None:
+        """Publish a no-switch automation activation to dashboard clients."""
+        try:
+            from . import saiWebRoutes as routes
+
+            broadcaster = getattr(
+                getattr(getattr(routes, "app", None), "state", object()),
+                "switch_broadcast",
+                None,
+            )
+            if not callable(broadcaster):
+                printDM(
+                    "[advanced] Web UI notification unavailable: dashboard broadcaster is not registered",
+                    location=MODULE,
+                    level="warning",
+                )
+                return
+
+            details: list[str] = []
+            for group in evaluated_groups:
+                if not bool(group.get("result", False)):
+                    continue
+                for cond, result in group.get("conditions", []):
+                    if not bool(result):
+                        continue
+                    detail = self._automation_condition_report(
+                        cond,
+                        True,
+                        current_values_map,
+                    )
+                    if detail.startswith("[TRUE] "):
+                        detail = detail[7:]
+                    if detail and detail not in details:
+                        details.append(detail)
+
+            display_name = str(rule_name or rule_id).strip() or str(rule_id)
+            payload = {
+                "type": "automation_notification",
+                "rule_id": str(rule_id),
+                "name": display_name,
+                "details": details,
+            }
+            result = broadcaster(payload)
+            if asyncio.iscoroutine(result):
+                asyncio.create_task(result)
+        except Exception as exc:
+            printDM(
+                f"[advanced] Web UI notification broadcast failed: {exc}",
+                location=MODULE,
+                level="warning",
+            )
+
     def _automation_action_report(self, action: dict) -> str:
         """Format one configured automation action for an email report."""
         action_type = str(action.get("type", "switch") or "switch").strip().lower()
         if action_type == "none":
-            return "None: biodynamic transition toast only"
+            return "Alert: Web UI only"
         if action_type == "notify":
             return f"Notify: email {str(action.get('to', '') or '').strip()}"
 
@@ -1961,6 +2041,10 @@ class SwitchController:
         if not isinstance(notify_states, dict):
             notify_states = {}
             self._advanced_notify_states = notify_states
+        webui_states = getattr(self, "_advanced_webui_states", None)
+        if not isinstance(webui_states, dict):
+            webui_states = {}
+            self._advanced_webui_states = webui_states
         persist_active_actions = False
 
         action_evals: dict[tuple[str, str, str, bool], dict] = {}
@@ -2042,13 +2126,40 @@ class SwitchController:
                             != str(socket.gethostname() or "").strip().lower()
                         ):
                             continue
+                        notification_key = (str(_rule_id), executor_sid or own_sid)
+                        was_active = bool(webui_states.get(notification_key, False))
+                        evaluated_groups = []
                         for group in groups:
+                            evaluated_conditions = []
+                            group_ok = True
                             for cond in group:
-                                _eval_single_condition(
-                                    cond,
-                                    "",
-                                    rule_id=str(_rule_id),
+                                condition_ok = bool(
+                                    _eval_single_condition(
+                                        cond,
+                                        "",
+                                        current_action_state=was_active,
+                                        rule_id=str(_rule_id),
+                                    )
                                 )
+                                evaluated_conditions.append((cond, condition_ok))
+                                if not condition_ok:
+                                    group_ok = False
+                            evaluated_groups.append({
+                                "result": group_ok,
+                                "conditions": evaluated_conditions,
+                            })
+                        rule_ok = any(
+                            bool(group.get("result", False))
+                            for group in evaluated_groups
+                        )
+                        if rule_ok and not was_active and not has_bd_transition:
+                            self._broadcast_automation_notification(
+                                rule_id=str(_rule_id),
+                                rule_name=str(script.get("name", "") or _rule_id),
+                                evaluated_groups=evaluated_groups,
+                                current_values_map=current_values_map,
+                            )
+                        webui_states[notification_key] = rule_ok
                         continue
                     if action_type == "notify":
                         executor_sid = str(act.get("executor_switch_id", "") or "").strip()

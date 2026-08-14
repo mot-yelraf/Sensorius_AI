@@ -1,7 +1,8 @@
 """Runtime path helpers for Sensorius writable state.
 
-Bare settings roots such as ``switch_settings`` should resolve under the
-installed runtime directory (``~/Sensorius``), not under the source checkout.
+Bare settings roots such as ``automation_settings`` and ``switch_settings``
+should resolve under the installed runtime directory (``~/Sensorius``), not
+under the source checkout.
 During pytest, a test runtime root can be supplied to keep unqualified settings
 managers from writing ignored runtime state into the checkout.
 """
@@ -13,7 +14,12 @@ from pathlib import Path
 
 RUNTIME_ROOT_NAME = "Sensorius"
 TEST_RUNTIME_ROOT_ENV = "SENSORIUS_TEST_RUNTIME_ROOT"
-_RUNTIME_DIR_NAMES = {"sensor_settings", "switch_settings", "system_settings"}
+_RUNTIME_DIR_NAMES = {
+    "automation_settings",
+    "sensor_settings",
+    "switch_settings",
+    "system_settings",
+}
 
 
 def resolve_runtime_base_dir(base_dir: str | Path) -> Path:

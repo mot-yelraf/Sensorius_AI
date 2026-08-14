@@ -149,23 +149,15 @@ function fillActionSwitchOptions(selectEl, modal, preferredValue = "") {
   const entries = getActionOptionEntries(modal);
   selectEl.innerHTML = "";
 
-  if (hasBdTransitionCondition(modal)) {
+  const appendNoneOption = () => {
     const opt = create("option");
     opt.value = "none";
-    opt.textContent = "None";
+    opt.textContent = "Alert";
     selectEl.appendChild(opt);
-  }
+  };
 
-  if (!entries.length && !selectEl.options.length) {
-    if (!emailActorEnabled) {
-      const opt = create("option");
-      opt.value = "";
-      opt.textContent = "No labeled channels";
-      opt.disabled = true;
-      opt.selected = true;
-      selectEl.appendChild(opt);
-      return;
-    }
+  if (hasBdTransitionCondition(modal)) {
+    appendNoneOption();
   }
 
   for (const { lab, value, channelId } of entries) {
@@ -179,6 +171,9 @@ function fillActionSwitchOptions(selectEl, modal, preferredValue = "") {
     opt.value = "notify";
     opt.textContent = "Notify";
     selectEl.appendChild(opt);
+  }
+  if (!hasBdTransitionCondition(modal)) {
+    appendNoneOption();
   }
 
   if (!preferredValue) return;
@@ -265,6 +260,12 @@ function renderList(rootLike) {
     const badge = create("div", `item-badge ${a.enabled ? "enabled" : "disabled"}`);
     badge.textContent = a.enabled ? "Enabled" : "Disabled";
     item.append(name, badge);
+    if (a.legacy) {
+      const legacyBadge = create("div", "item-badge legacy");
+      legacyBadge.textContent = "Legacy — open and Save";
+      legacyBadge.title = "Saving this rule moves it to the system automation path.";
+      item.appendChild(legacyBadge);
+    }
     list.appendChild(item);
   });
 }
@@ -1052,6 +1053,7 @@ async function loadAutomationsListInto(rootLike, opts = {}) {
       id: it.rule_id,
       name: parsed.name || it.rule_id,
       enabled: !!it.enabled,
+      legacy: !!it.legacy,
       conditions: parsed.conditions || [],
       actions: parsedActions.map(action => ({
         ...action,
@@ -1150,6 +1152,9 @@ async function saveCurrent(modal){
 
 async function deleteSelected(modal){
   if (!selectedId) return;
+  const selected = automations.find(item => item.id === selectedId);
+  const displayName = String(selected?.name || selectedId).trim();
+  if (!window.confirm(`Delete automation “${displayName}”?`)) return;
   await deleteAutomation(selectedId);
   selectedId = null;
   await loadAutomationsListInto(modal);

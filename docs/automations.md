@@ -7,16 +7,29 @@ so automation rules use the same behavior for both.
 
 ## Storage
 
-Advanced automations are stored in:
+System automations are stored in:
 
 ```text
-switch_settings/automations/automations.toml
+automation_settings/automations.toml
 ```
 
 At runtime this resolves under the Sensorius runtime directory, for example
-`/Users/<user>/Sensorius/switch_settings/automations/automations.toml` on
-macOS or `/home/<user>/Sensorius/switch_settings/automations/automations.toml`
+`/Users/<user>/Sensorius/automation_settings/automations.toml` on
+macOS or `/home/<user>/Sensorius/automation_settings/automations.toml`
 on Linux.
+
+During the path transition, rules that exist only in the former
+`switch_settings/automations/automations.toml` file remain active and appear
+with a **Legacy — open and Save** marker. Saving one rule writes only that rule
+to the new path; rules already present at the new path take precedence by rule
+ID. Deleting a legacy rule records its suppression in the new file so it does
+not reappear, while leaving the former file untouched as a backup.
+Before replacing an existing canonical file, the manager also preserves its
+previous contents as `automations.toml.bak`. A parse failure blocks mutation
+instead of being treated as an empty rule set.
+Deployment and repair synchronization treats `automation_settings/` as
+installed runtime state and preserves it across application updates and
+restarts.
 
 `sensorius/saiAutomationManager.py` owns this file. The current schema is:
 
@@ -54,6 +67,9 @@ Advanced rules can express:
 - Timer windows through `duration_min`, `period_min`, and legacy `freq_hours`.
 - Multi-action rules.
 - Email Notify actors with a per-action recipient when email is enabled.
+- `Alert` actors for Web UI-only notifications without relay or email actions.
+  These retain the internal `none` action type for compatibility with existing
+  rules.
 - Revert behavior through `revert_action`.
 - Optional delayed action application through `delay_s`.
 
@@ -81,8 +97,8 @@ BD Transitions behavior:
   part.
 - The toast background uses the incoming element's established biodynamic
   color, with automatically contrasting text.
-- When a rule contains `BD Transitions`, its actor list includes `None`.
-  Selecting `None` evaluates the transition and publishes the automatic toast
+- The actor list always includes `Alert`.
+  Selecting it evaluates the transition and publishes the automatic toast
   without sending email or changing a relay.
 - Rules saved with the initial `None` implementation are accepted through a
   compatibility path that treats an empty switch action as `None` for BD
@@ -166,6 +182,12 @@ Supported Astral events include:
 - `sunset`
 - `sunrise_to_sunset`
 - `sunset_to_sunrise`
+
+Selecting the `Alert` actor publishes a persistent, click-to-dismiss Web UI
+notification when an Astral rule changes from false to true. This supports sunrise,
+sunset, and Astral window notifications without changing a relay or sending
+email. The same actor is available for other condition types and emits one
+toast per false-to-true transition.
 
 Window modes can let one automation turn a channel on at the beginning of a
 window and revert it at the end.

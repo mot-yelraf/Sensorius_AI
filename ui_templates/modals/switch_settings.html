@@ -8,8 +8,13 @@
     data-channel-indices="{{ channel_indices | join(',') }}"
     data-channel-count="{{ channel_indices | length }}"
   >
-    <div class="modal-header">
+    <div class="modal-header settings-modal-header">
       <h3 class="modal-title">Edit Switch Settings</h3>
+      <button type="button"
+              class="settings-title-close"
+              title="Close"
+              aria-label="Close Switch Settings"
+              onclick="window.closeSwitchSettingsModal && window.closeSwitchSettingsModal();">&times;</button>
     </div>
 
     <div class="modal-body">
@@ -70,13 +75,6 @@
 
               <div class="modal-footer switch-form-footer sensor-pane-footer">
                 <div class="footer-buttons footer-buttons-restart-layout">
-                  <button
-                    class="button black footer-home"
-                    type="button"
-                    onclick="window.closeSwitchSettingsModal && window.closeSwitchSettingsModal();"
-                  >
-                    Dashboard
-                  </button>
                   {% if can_restart_device %}
                   <button
                     class="button red footer-restart"
@@ -166,10 +164,7 @@
               </div>
             </div>
             <div class="modal-footer sensor-pane-footer" style="margin-top:.25rem;">
-              <div class="footer-buttons footer-buttons-split">
-                <button class="button black" type="button" onclick="window.closeSwitchSettingsModal && window.closeSwitchSettingsModal();">
-                  Dashboard
-                </button>
+              <div class="footer-buttons footer-buttons-right">
                 <button class="button red" type="button" data-stat-reset>
                   Clear
                 </button>

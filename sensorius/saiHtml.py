@@ -1858,7 +1858,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ".caelus-moon-dialog{position:relative;width:min(1180px,96vw);max-height:92vh;overflow:auto;border:1px solid rgba(126,196,193,.46);background:linear-gradient(105deg,rgba(4,16,40,.98),rgba(7,35,51,.96));box-shadow:0 24px 70px rgba(0,0,0,.48);color:#f1f7f4;}"
     yield ".caelus-moon-dialog-head{display:flex;align-items:center;justify-content:space-between;padding:.8rem 1rem;border-bottom:1px solid rgba(126,196,193,.25);}"
     yield ".caelus-moon-dialog-head h2{margin:0;font:500 1.25rem Georgia,serif;}"
-    yield ".caelus-moon-close{width:2rem;height:2rem;border:1px solid rgba(126,196,193,.42);background:rgba(255,255,255,.05);color:#f1f7f4;cursor:pointer;font-size:1.2rem;}"
+    yield ".caelus-moon-close{position:relative;width:2rem;height:2rem;padding:0;border:2px solid #7ec4c1;border-radius:50%;background:transparent;color:#f1f7f4;display:grid;place-items:center;box-sizing:border-box;cursor:pointer;font-size:0;line-height:1;}"
+    yield ".caelus-moon-close::before,.caelus-moon-close::after{content:'';position:absolute;top:50%;left:50%;width:13px;height:2px;border-radius:999px;background:currentColor;transform:translate(-50%,-50%) rotate(45deg);}.caelus-moon-close::after{transform:translate(-50%,-50%) rotate(-45deg);}"
+    yield ".caelus-moon-close:hover,.caelus-moon-close:focus-visible{border-color:#efbd65;color:#efbd65;background:transparent;outline:2px solid rgba(239,189,101,.4);outline-offset:2px;}"
     yield ".caelus-moon-popup-status{margin:.55rem 0 0;color:#83d4cf;font-size:.62rem;letter-spacing:.12em;text-align:center;text-transform:uppercase;}"
     yield ".caelus-lunar-layout{position:relative;display:grid;grid-template-columns:1fr minmax(14rem,.72fr) 1fr;align-items:center;min-height:15rem;padding:1rem 1.35rem 2.5rem;box-sizing:border-box;}"
     yield ".caelus-lunar-arc{position:absolute;left:5%;right:5%;top:2.1rem;height:8rem;border-top:1px solid rgba(239,194,101,.7);border-radius:50% 50% 0 0;pointer-events:none;}"
@@ -7111,6 +7113,20 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "            t.addEventListener('click', () => { t.remove(); if (!c.children.length) c.remove(); });"
     yield "            c.appendChild(t);"
     yield "          }"
+    yield "        } else if (msg.type === 'automation_notification'){"
+    yield "          const name = String(msg.name || msg.rule_id || 'Automation').trim();"
+    yield "          const details = Array.isArray(msg.details) ? msg.details.map(v => String(v || '').trim()).filter(Boolean) : [];"
+    yield "          const text = `Alert — ${name}${details.length ? ` — ${details.join('; ')}` : ''}`;"
+    yield "          const c = window.getToastContainer ? window.getToastContainer(document.body) : null;"
+    yield "          if (c) {"
+    yield "            const t = document.createElement('div');"
+    yield "            t.className = 'toast automation-notification-toast';"
+    yield "            t.textContent = text;"
+    yield "            t.title = 'Click to dismiss';"
+    yield "            t.setAttribute('role', 'status');"
+    yield "            t.addEventListener('click', () => { t.remove(); if (!c.children.length) c.remove(); });"
+    yield "            c.appendChild(t);"
+    yield "          }"
     yield "        } else if (msg.type === 'bd_transition'){"
     yield "          const rawAt = String(msg.transition_at || '');"
     yield "          const parsedAt = rawAt ? new Date(rawAt) : null;"
@@ -7937,8 +7953,21 @@ def render_graph_modal(switch_installed=None, gauge_config=None):
     .fullscreen-graph-title{ margin:0; color:#fff; font-size:1.65rem; line-height:1.05; }
     #fullscreen_graph_dashboard{
       width:44px; height:44px; margin:0; padding:0; border-radius:50%;
-      border:1px solid rgba(255,255,255,.38); background:rgba(255,255,255,.08);
-      color:#fff; font-size:1.75rem; line-height:1; display:grid; place-items:center;
+      border:2px solid #d7e9df; background:transparent;
+      color:#d7e9df; font-size:0; line-height:1; display:grid; place-items:center;
+      box-sizing:border-box; cursor:pointer; position:relative;
+    }
+    #fullscreen_graph_dashboard::before,
+    #fullscreen_graph_dashboard::after{
+      content:""; position:absolute; top:50%; left:50%; width:18px; height:3px;
+      border-radius:999px; background:currentColor;
+      transform:translate(-50%,-50%) rotate(45deg);
+    }
+    #fullscreen_graph_dashboard::after{ transform:translate(-50%,-50%) rotate(-45deg); }
+    #fullscreen_graph_dashboard:hover,
+    #fullscreen_graph_dashboard:focus-visible{
+      border-color:#fff; background:transparent; color:#fff;
+      outline:2px solid #9ad8be; outline-offset:2px;
     }
     .fullscreen-graph-body{ flex:1; min-height:0; display:flex; }
     .fullscreen-graph-controls{

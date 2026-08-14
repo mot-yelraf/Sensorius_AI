@@ -156,19 +156,46 @@ a { color: inherit; }
   justify-content: center;
   width: 2.75rem;
   height: 2.75rem;
-  border: 1px solid var(--line);
+  border: 2px solid var(--accent-2);
   border-radius: 50%;
-  background: var(--glass-strong);
-  box-shadow: 0 10px 30px rgba(1, 17, 21, 0.3);
+  background: transparent;
+  box-shadow: none;
   color: var(--ink);
   font-size: 1.8rem;
   font-weight: 800;
   line-height: 1;
   text-decoration: none;
-  backdrop-filter: blur(14px);
 }
-.dashboard-return:hover { border-color: var(--accent); }
-.dashboard-close-icon { transform: translateY(-1px); }
+.dashboard-return:hover,
+.dashboard-return:focus-visible {
+  border-color: var(--accent);
+  background: transparent;
+  color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.dashboard-close-icon {
+  position: relative;
+  display: block;
+  width: 18px;
+  height: 18px;
+  font-size: 0;
+}
+.dashboard-close-icon::before,
+.dashboard-close-icon::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+.dashboard-close-icon::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
 .dashboard-return-spinner {
   display: none;
   width: 0.8rem;
@@ -431,7 +458,12 @@ a { color: inherit; }
 .forecast-dialog::backdrop { background: rgba(2,18,23,.72); backdrop-filter: blur(8px); }
 .forecast-dialog > header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.3rem; background: var(--glass); border-bottom: 1px solid var(--line); }
 .forecast-dialog > header h2 { margin: 0; font: 700 1.45rem Georgia, serif; text-transform: uppercase; }
-.forecast-dialog > header button { width: 2.4rem; height: 2.4rem; border: 1px solid var(--line); background: color-mix(in srgb, var(--glass-soft) 72%, white 28%); color: var(--ink); font-size: 1.7rem; cursor: pointer; }
+.forecast-dialog > header button { position: relative; flex: 0 0 2.4rem; width: 2.4rem; height: 2.4rem; padding: 0; border: 2px solid var(--line); border-radius: 50%; background: transparent; color: var(--ink); font-size: 0; cursor: pointer; }
+.forecast-dialog > header button::before,
+.forecast-dialog > header button::after { content: ""; position: absolute; top: 50%; left: 50%; width: 1.1rem; height: 0.18rem; border-radius: 999px; background: currentColor; transform: translate(-50%, -50%) rotate(45deg); }
+.forecast-dialog > header button::after { transform: translate(-50%, -50%) rotate(-45deg); }
+.forecast-dialog > header button:hover,
+.forecast-dialog > header button:focus-visible { border-color: var(--accent-2); color: var(--accent-2); outline: none; }
 .forecast-dialog-meta { margin: 1.2rem 1.3rem; color: var(--muted); text-align: center; font-size: 0.78rem; }
 .forecast-detail-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.8rem; padding: 0 1.3rem 1.3rem; }
 .forecast-detail-grid article { min-height: 14rem; padding: 1rem; border: 1px solid var(--line); border-radius: 0.75rem; background: var(--glass); text-align: center; }

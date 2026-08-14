@@ -60,8 +60,9 @@ Use `deploy_scripts/deploy_sai.sh` for routine updates to systems that already
 have Sensorius installed. The deploy script syncs application source into each
 configured runtime directory while preserving installed runtime state,
 including `sensorius_data.db*`, `system_settings/`, `sensor_settings/`, and
-`switch_settings/`. It still updates factory templates under those settings
-trees so new defaults can ship without replacing device-specific files.
+`switch_settings/`, plus system rules in `automation_settings/`. It still
+updates factory templates under the device settings trees so new defaults can
+ship without replacing device-specific files.
 
 The Python application package is deployed as `sensorius/` directly below the
 runtime directory; there is no `src/` directory in the installed layout.

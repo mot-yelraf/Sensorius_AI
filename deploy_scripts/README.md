@@ -82,9 +82,10 @@ static-asset URLs both use the canonical package value.
 The deploy script is intended for existing runtime directories such as
 `/home/<user>/Sensorius` or `/Users/<user>/Sensorius`. It excludes installed
 runtime state, including `sensorius_data.db*`, `system_settings/`,
-`sensor_settings/`, `switch_settings/`, and generated runtime data under
-`cache/`. Runtime-generated `.lgd-*` named pipes are also preserved. It
-explicitly allows factory templates under those settings trees to update.
+`sensor_settings/`, `switch_settings/`, `automation_settings/`, and generated
+runtime data under `cache/`. Runtime-generated `.lgd-*` named pipes are also
+preserved. It explicitly allows factory templates under those settings trees
+to update.
 
 Inventory format:
 

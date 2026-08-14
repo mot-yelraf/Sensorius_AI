@@ -8,8 +8,13 @@
     data-device-kind="{{ device_kind | default('') }}"
     data-is-apvpd="{{ 'true' if is_apvpd else 'false' }}"
   >
-    <div class="modal-header">
+    <div class="modal-header settings-modal-header">
       <h3 class="modal-title">Sensor Settings &amp; Calibration</h3>
+      <button type="button"
+              class="settings-title-close"
+              title="Close"
+              aria-label="Close Sensor Settings"
+              onclick="window.closeSensorSettingsModal && window.closeSensorSettingsModal();">&times;</button>
     </div>
 
     <div class="modal-body">
@@ -124,13 +129,6 @@
 
               <div class="modal-footer sensor-pane-footer">
                 <div class="footer-buttons footer-buttons-restart-layout">
-                  <button
-                    type="button"
-                    class="button black footer-home"
-                    onclick="window.closeSensorSettingsModal && window.closeSensorSettingsModal();"
-                  >
-                    Dashboard
-                  </button>
                   {% if can_restart_device %}
                   <button
                     type="button"
@@ -332,14 +330,7 @@
               </div>
             </div>
             <div class="modal-footer sensor-pane-footer">
-              <div class="sensor-pane-footer-row">
-                <button
-                  type="button"
-                  class="button black"
-                  onclick="window.closeSensorSettingsModal && window.closeSensorSettingsModal();"
-                >
-                  Dashboard
-                </button>
+              <div class="sensor-pane-footer-row sensor-pane-footer-row-end">
                 {% if is_apvpd or is_soil or device_offsets %}
                 <button type="button" class="button blue" id="devCalApplyBtn">
                   Apply Device Calibration
@@ -417,14 +408,7 @@
               </div>
             </div>
             <div class="modal-footer sensor-pane-footer">
-              <div class="sensor-pane-footer-row">
-                <button
-                  type="button"
-                  class="button black"
-                  onclick="window.closeSensorSettingsModal && window.closeSensorSettingsModal();"
-                >
-                  Dashboard
-                </button>
+              <div class="sensor-pane-footer-row sensor-pane-footer-row-end">
                 <div class="sensor-pane-footer-actions">
                   <button type="button" class="button blue" id="sysCalPreviewBtn">
                     Preview Calibration
@@ -500,10 +484,7 @@
               </div>
             </div>
             <div class="modal-footer sensor-pane-footer">
-              <div class="sensor-pane-footer-row">
-                <button type="button" class="button black" onclick="window.closeSensorSettingsModal && window.closeSensorSettingsModal();">
-                  Dashboard
-                </button>
+              <div class="sensor-pane-footer-row sensor-pane-footer-row-end">
                 <button type="button" class="button red" data-stat-reset>
                   Clear
                 </button>

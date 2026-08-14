@@ -189,6 +189,12 @@
   border-top: 1px solid #e6ece8;
 }
 #setupPiModal .section-action-footer { justify-content: flex-end; }
+#setupPiModal .pane-footer-actions-right { justify-content: flex-end; }
+#setupPiModal #automationEditorWrap > .pane-footer {
+  margin-left: 0;
+  margin-right: 0;
+  margin-bottom: 0;
+}
 #setupPiModal .pane-global-footer {
   flex: 0 0 auto;
   justify-content: flex-start;
@@ -932,8 +938,12 @@
        data-ecowitt-gateway-url="{{ ecowitt_gateway_url | default('') }}"
        data-ecowitt-poll-interval="{{ ecowitt_poll_interval_sec | default(300) }}"
        data-onboarding-v2-enabled="{{ onboarding_v2_mqtt_enabled | default(true) }}">
-    <div class="system-settings-header">
+    <div class="system-settings-header settings-modal-header">
       <h2 class="system-settings-title">{{ app_name_long }} {{ app_version }}</h2>
+      <button type="button"
+              class="settings-title-close btn-back-system"
+              title="Close"
+              aria-label="Close General Settings">&times;</button>
     </div>
 
     <div class="system-settings-body">
@@ -1225,9 +1235,6 @@
               </div>
 
               <div class="status-text sai-live-status" id="system-status" aria-live="polite"></div>
-              <div class="pane-footer pane-global-footer">
-                <button type="button" class="button black btn-back-system">Dashboard</button>
-              </div>
             </form>
           </div>
 
@@ -1238,9 +1245,6 @@
                 <button class="button green" type="button" id="btnNewFromList">New</button>
               </div>
               <div class="list" id="automationList"></div>
-              <div class="pane-footer">
-                <button class="button black btn-back-system" type="button">Dashboard</button>
-              </div>
             </div>
 
             <div id="automationEditorWrap" hidden>
@@ -1277,13 +1281,12 @@
                   <button class="button green" type="button" id="btnSetAutomation">Save</button>
                 </div>
                 <div id="automationSaveStatus" class="sai-live-status" aria-live="polite"></div>
-                <div class="pane-footer">
-                  <button class="button black btn-back-system" type="button">Dashboard</button>
-                  <button class="button black" type="button" id="btnSavedAutomations">Saved Automations</button>
-                  <button class="button green" type="button" id="btnNewAutomation">New</button>
-                  <button class="button red" type="button" id="btnRemove">Remove</button>
-                </div>
               </form>
+              <div class="pane-footer pane-footer-actions-right">
+                <button class="button black" type="button" id="btnSavedAutomations">Saved Automations</button>
+                <button class="button green" type="button" id="btnNewAutomation">New</button>
+                <button class="button red" type="button" id="btnRemove">Remove</button>
+              </div>
             </div>
           </div>
 
@@ -1461,9 +1464,6 @@
                 </div>
               </details>
             </div>
-            <div class="pane-footer pane-global-footer">
-              <button type="button" class="button black btn-back-system">Dashboard</button>
-            </div>
           </div>
 
           <div class="settings-pane" id="pane-locations" hidden>
@@ -1472,8 +1472,7 @@
               <div style="opacity:.7; padding:8px;">Select this pane to load locations.</div>
             </div>
             <div class="status-text sai-live-status" id="locations-status" aria-live="polite"></div>
-            <div class="pane-footer">
-              <button type="button" class="button black btn-back-system">Dashboard</button>
+            <div class="pane-footer pane-footer-actions-right">
               <button type="button" class="button blue" id="btn-locations-save">Save</button>
             </div>
           </div>
@@ -1563,9 +1562,6 @@
                 </div>
               </details>
             </div>
-            <div class="pane-footer">
-              <button type="button" class="button black btn-back-system">Dashboard</button>
-            </div>
           </div>
 
           <div class="settings-pane" id="pane-update" hidden>
@@ -1625,8 +1621,7 @@
             </div>
             <div id="ota-job-history" class="detail" style="margin-top:.45rem;"></div>
             <div class="status-text" id="ota-status"></div>
-            <div class="pane-footer">
-              <button type="button" class="button black btn-back-system">Dashboard</button>
+            <div class="pane-footer pane-footer-actions-right">
               <div class="inline-actions">
                 <button type="button" class="button yellow" id="btn-ota-cancel" disabled>Cancel Job</button>
                 <button type="button" class="button blue" id="btn-ota-start" disabled>Update Device(s)</button>
@@ -1644,8 +1639,7 @@
               <input type="checkbox" id="remove-device-confirm">
               I understand this deletes settings and data
             </label>
-            <div class="pane-footer">
-              <button type="button" class="button black btn-back-system">Dashboard</button>
+            <div class="pane-footer pane-footer-actions-right">
               <button id="remove-device-run" disabled class="button red">Remove Selected</button>
             </div>
           </div>
@@ -1727,9 +1721,6 @@
               </details>
             </div>
             <div class="status-text sai-live-status" id="adv-status" aria-live="polite"></div>
-            <div class="pane-footer pane-global-footer">
-              <button type="button" class="button black btn-back-system">Dashboard</button>
-            </div>
           </div>
         </section>
       </div>

@@ -60,7 +60,14 @@
      class="onboard-overlay"
      style="display:none;">
   <div class="onboard-modal" style="min-width:520px;">
-    <div class="onboard-title">Remove Device(s)</div>
+    <div class="onboard-title settings-modal-header">
+      Remove Device(s)
+      <button type="button"
+              class="settings-title-close"
+              title="Close"
+              aria-label="Close Remove Devices"
+              onclick="closeRemoveDeviceModal()">&times;</button>
+    </div>
 
     <div id="remove-device-status"
          class="sai-live-status"
@@ -83,12 +90,6 @@
                 title="Remove selected devices"
                 onclick="submitRemoveDevices()">
           Remove Selected
-        </button>
-        <button style="margin-left:8px"
-                class="button black"
-                title="Dashboard"
-                onclick="closeRemoveDeviceModal()">
-          Dashboard
         </button>
       </div>
     </div>

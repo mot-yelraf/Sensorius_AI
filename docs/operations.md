@@ -525,10 +525,11 @@ a damaged live DB in place when `.recover` cannot produce a valid replacement.
 2. Back up settings directories and database.
 3. For existing installs, prefer `deploy_scripts/deploy_sai.sh --apply` from
    the source checkout. It preserves `sensorius_data.db*`, `system_settings/`,
-   `sensor_settings/`, and `switch_settings/` while updating application code
-   and factory templates. Once the replacement `sensorius/` package and root
-   launcher are present, deployment also removes legacy root `sai*.py`,
-   `sensor_modules/`, and transitional `src/sensorius/` source. Protected
+   `sensor_settings/`, `switch_settings/`, and `automation_settings/` while
+   updating application code and factory templates. Once the replacement
+   `sensorius/` package and root launcher are present, deployment also removes
+   legacy root `sai*.py`, `sensor_modules/`, and transitional `src/sensorius/`
+   source. Protected
    legacy bytecode may be left with a non-fatal notice; it is not imported
    after its root source modules are removed.
 4. Use `install.sh` or platform setup scripts only when doing a first install,

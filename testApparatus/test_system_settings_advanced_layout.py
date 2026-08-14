@@ -49,19 +49,33 @@ def test_advanced_sections_contain_requested_controls_and_conditional_log_path()
     assert "Path(log_file).expanduser().resolve()" in routes
 
 
-def test_collapsible_sections_own_save_actions_and_panes_own_dashboard_action():
+def test_collapsible_sections_own_save_actions_without_redundant_dashboard_footers():
     template = (ROOT / "ui_templates" / "modals" / "system_settings.html").read_text(encoding="utf-8")
 
     advanced = template[template.index('<div class="settings-pane" id="pane-advanced"'):]
     assert advanced.count('class="button blue btn-advanced-save">Save</button>') == 3
-    assert advanced.count('class="button black btn-back-system">Dashboard</button>') == 1
-    assert 'class="pane-footer pane-global-footer"' in advanced
+    assert 'class="button black btn-back-system">Dashboard</button>' not in advanced
+    assert 'class="pane-footer pane-global-footer"' not in advanced
     assert 'classList.contains("btn-advanced-save")' in template
 
     integrations = template[template.index('<div class="settings-pane" id="pane-integrations"'):template.index('<div class="settings-pane" id="pane-locations"')]
     assert integrations.count('class="pane-footer section-action-footer"') == 3
-    assert integrations.count('class="button black btn-back-system">Dashboard</button>') == 1
-    assert 'class="pane-footer pane-global-footer"' in integrations
+    assert 'class="button black btn-back-system">Dashboard</button>' not in integrations
+    assert 'class="pane-footer pane-global-footer"' not in integrations
+
+
+def test_automation_editor_actions_are_outside_the_scrollable_form():
+    template = (ROOT / "ui_templates" / "modals" / "system_settings.html").read_text(encoding="utf-8")
+    editor = template[
+        template.index('<div id="automationEditorWrap" hidden>'):
+        template.index('<div class="settings-pane" id="pane-integrations"')
+    ]
+
+    form_end = editor.index("</form>")
+    footer_start = editor.index('<div class="pane-footer pane-footer-actions-right">')
+    assert form_end < footer_start
+    for button_id in ("btnSavedAutomations", "btnNewAutomation", "btnRemove"):
+        assert editor.index(f'id="{button_id}"') > form_end
 
 
 def test_expandable_sections_use_alphabetical_display_order():

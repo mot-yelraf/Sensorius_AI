@@ -7,6 +7,7 @@ views so automation edits remain backward compatible.
 import os
 import sys
 import json
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -128,6 +129,138 @@ def test_upsert_same_rule_id_updates_in_place(tmp_path: Path, adapter):
     assert sorted(data["Advanced"].keys()) == ["pump_on"]
     assert data["Advanced"]["pump_on"]["enabled"] is False
     assert "Pump On Updated" in data["Advanced"]["pump_on"]["script_json"]
+
+
+def _write_legacy_automation_file(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join([
+            "[Meta]",
+            "version = 1",
+            'notes = "Legacy automation rules"',
+            "",
+            "[Advanced]",
+            'legacy_a = { enabled=true, script_json="{\\"name\\":\\"Legacy A\\",\\"actions\\":[{\\"type\\":\\"none\\"}]}" }',
+            'legacy_b = { enabled=false, script_json="{\\"name\\":\\"Legacy B\\",\\"actions\\":[{\\"type\\":\\"none\\"}]}" }',
+            "",
+        ]),
+        encoding="utf-8",
+    )
+
+
+def test_legacy_rules_are_visible_until_saved_individually(tmp_path: Path):
+    canonical_root = tmp_path / "automation_settings"
+    legacy_root = tmp_path / "switch_settings"
+    legacy_path = legacy_root / "automations" / "automations.toml"
+    _write_legacy_automation_file(legacy_path)
+    mgr = AutomationManager(
+        base_dir=str(canonical_root),
+        legacy_base_dir=str(legacy_root),
+    )
+
+    assert sorted(mgr.load("__system__")["Advanced"]) == ["legacy_a", "legacy_b"]
+    assert mgr.get_legacy_rule_ids("__system__") == {"legacy_a", "legacy_b"}
+
+    mgr.upsert_advanced_rule(
+        "__system__",
+        "legacy_a",
+        enabled=True,
+        script={"name": "Legacy A saved", "actions": [{"type": "none"}]},
+    )
+
+    canonical = tomllib.loads(mgr.get_storage_path().read_text(encoding="utf-8"))
+    assert sorted(canonical["Advanced"]) == ["legacy_a"]
+    assert sorted(mgr.load("__system__")["Advanced"]) == ["legacy_a", "legacy_b"]
+    assert mgr.get_legacy_rule_ids("__system__") == {"legacy_b"}
+    assert "Legacy A saved" in mgr.load("__system__")["Advanced"]["legacy_a"]["script_json"]
+
+    AutomationManager._shared_cache.clear()
+    restarted_mgr = AutomationManager(
+        base_dir=str(canonical_root),
+        legacy_base_dir=str(legacy_root),
+    )
+    assert sorted(restarted_mgr.load("__system__")["Advanced"]) == ["legacy_a", "legacy_b"]
+    assert restarted_mgr.get_legacy_rule_ids("__system__") == {"legacy_b"}
+    assert "Legacy A saved" in restarted_mgr.load("__system__")["Advanced"]["legacy_a"]["script_json"]
+
+
+def test_delete_legacy_rule_suppresses_it_without_changing_legacy_file(tmp_path: Path):
+    canonical_root = tmp_path / "automation_settings"
+    legacy_root = tmp_path / "switch_settings"
+    legacy_path = legacy_root / "automations" / "automations.toml"
+    _write_legacy_automation_file(legacy_path)
+    original_legacy = legacy_path.read_text(encoding="utf-8")
+    mgr = AutomationManager(
+        base_dir=str(canonical_root),
+        legacy_base_dir=str(legacy_root),
+    )
+
+    assert mgr.delete_rule("__system__", "Advanced", "legacy_b") is True
+
+    assert "legacy_b" not in mgr.load("__system__")["Advanced"]
+    assert legacy_path.read_text(encoding="utf-8") == original_legacy
+    canonical = tomllib.loads(mgr.get_storage_path().read_text(encoding="utf-8"))
+    assert canonical["Meta"]["ignored_legacy_rule_ids"] == ["legacy_b"]
+
+
+def test_unreadable_canonical_file_blocks_upsert_without_overwrite(tmp_path: Path):
+    canonical_root = tmp_path / "automation_settings"
+    canonical_root.mkdir(parents=True)
+    canonical_path = canonical_root / "automations.toml"
+    invalid_text = "[Advanced\nbroken = true\n"
+    canonical_path.write_text(invalid_text, encoding="utf-8")
+    mgr = AutomationManager(base_dir=str(canonical_root))
+
+    with pytest.raises(RuntimeError, match="could not be read"):
+        mgr.upsert_advanced_rule(
+            "__system__",
+            "new_rule",
+            enabled=True,
+            script={"actions": [{"type": "none"}]},
+        )
+
+    assert canonical_path.read_text(encoding="utf-8") == invalid_text
+
+
+def test_unreadable_legacy_file_does_not_block_canonical_rules(tmp_path: Path):
+    canonical_root = tmp_path / "automation_settings"
+    legacy_root = tmp_path / "switch_settings"
+    legacy_path = legacy_root / "automations" / "automations.toml"
+    legacy_path.parent.mkdir(parents=True)
+    legacy_path.write_text("[Advanced\nbroken = true\n", encoding="utf-8")
+    mgr = AutomationManager(
+        base_dir=str(canonical_root),
+        legacy_base_dir=str(legacy_root),
+    )
+    mgr.upsert_advanced_rule(
+        "__system__",
+        "canonical_rule",
+        enabled=True,
+        script={"actions": [{"type": "none"}]},
+    )
+
+    assert sorted(mgr.load("__system__")["Advanced"]) == ["canonical_rule"]
+
+
+def test_second_canonical_save_creates_previous_file_backup(tmp_path: Path):
+    mgr = AutomationManager(base_dir=str(tmp_path / "automation_settings"))
+    mgr.upsert_advanced_rule(
+        "__system__",
+        "rule_a",
+        enabled=True,
+        script={"name": "First", "actions": [{"type": "none"}]},
+    )
+    first_text = mgr.get_storage_path().read_text(encoding="utf-8")
+
+    mgr.upsert_advanced_rule(
+        "__system__",
+        "rule_a",
+        enabled=True,
+        script={"name": "Second", "actions": [{"type": "none"}]},
+    )
+
+    backup_path = mgr.get_storage_path().with_suffix(".toml.bak")
+    assert backup_path.read_text(encoding="utf-8") == first_text
 
 
 @pytest.mark.parametrize("adapter", adapters(), ids=lambda a: a.name)

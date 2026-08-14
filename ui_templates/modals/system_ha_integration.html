@@ -9,7 +9,14 @@
      data-broker="{{ ha_broker | default('') }}"
      data-port="{{ ha_port | default(1883) }}">
   <div class="onboard-modal" style="max-width:520px;">
-    <div class="onboard-title">Home Assistant</div>
+    <div class="onboard-title settings-modal-header">
+      Home Assistant
+      <button type="button"
+              class="settings-title-close"
+              title="Close"
+              aria-label="Close Home Assistant Settings"
+              onclick="window.closeHomeAssistantModal && window.closeHomeAssistantModal();">&times;</button>
+    </div>
 
     <div style="display:flex; flex-direction:column; gap:12px; margin-top:12px;">
       <label style="display:flex; align-items:center; gap:10px;">
@@ -44,8 +51,7 @@
     </div>
 
     <div class="modal-footer"
-         style="display:flex; justify-content:space-between; gap:12px; margin-top:18px;">
-      <button id="btn-ha-cancel" class="button black" title="Dashboard">Dashboard</button>
+         style="display:flex; justify-content:flex-end; gap:12px; margin-top:18px;">
       <button id="btn-ha-save" class="button blue" title="Save Home Assistant settings">Save</button>
     </div>
     <div id="ha-save-status" class="sai-live-status" aria-live="polite"></div>
@@ -92,10 +98,6 @@ window.closeHomeAssistantModal = function() {
 document.addEventListener("click", async (ev) => {
   if (ev.target && ev.target.id === "btn-homeassistant") {
     window.openHomeAssistantModal();
-  }
-
-  if (ev.target && ev.target.id === "btn-ha-cancel") {
-    window.closeHomeAssistantModal();
   }
 
   if (ev.target && ev.target.id === "ha-pass-toggle") {

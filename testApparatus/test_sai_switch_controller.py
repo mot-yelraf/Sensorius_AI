@@ -614,7 +614,7 @@ def test_rules_enabled_parses_string_false_and_maps_channel_id(monkeypatch: pyte
             return True
 
         def stat(self):
-            return types.SimpleNamespace(st_mtime=123.0)
+            return types.SimpleNamespace(st_mtime_ns=123, st_size=456)
 
     import sensorius.saiSwitchSettingsManager as saiSwitchSettingsManager
     monkeypatch.setattr(saiSwitchSettingsManager, "SwitchSettingsManager", FakeMgr)
@@ -624,6 +624,7 @@ def test_rules_enabled_parses_string_false_and_maps_channel_id(monkeypatch: pyte
     ctrl.switch = types.SimpleNamespace(get_switch_names=lambda: ["Fan"])
     ctrl.override_script = {"Fan": False}
     ctrl._get_triggers_path = lambda: FakePath()
+    ctrl._get_triggers_paths = lambda: (FakePath(),)
     ctrl._load_triggers_dict = lambda: {
         "Advanced": {
             "rule1": {
@@ -1527,6 +1528,56 @@ def test_advanced_rule_supports_astral_condition(monkeypatch: pytest.MonkeyPatch
 
     SwitchController._evaluate_and_apply_advanced(ctrl, {})
     assert calls == [("Fan", True)]
+
+
+def test_astral_none_action_broadcasts_once_per_false_to_true_transition(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    ctrl = _make_controller()
+    ctrl.switch_id = "__system__"
+    active = {"value": True}
+    ctrl._load_triggers_dict = lambda: {
+        "Advanced": {
+            "astral-toast": {
+                "enabled": True,
+                "script_json": {
+                    "name": "Sunset notice",
+                    "enabled": True,
+                    "conditions": [{
+                        "type": "astral",
+                        "astral_event": "sunset",
+                        "offset_min": 0,
+                    }],
+                    "actions": [{
+                        "type": "none",
+                        "executor_switch_id": "__system__",
+                    }],
+                },
+            }
+        }
+    }
+    monkeypatch.setattr(ctrl, "_eval_astral_condition", lambda _cond: active["value"])
+    broadcasts = []
+    monkeypatch.setattr(
+        ctrl,
+        "_broadcast_automation_notification",
+        lambda **payload: broadcasts.append(payload),
+    )
+    ctrl.set_state = lambda *_args, **_kwargs: pytest.fail(
+        "None actor must not change a relay"
+    )
+
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    active["value"] = False
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+    active["value"] = True
+    SwitchController._evaluate_and_apply_advanced(ctrl, {})
+
+    assert [item["rule_name"] for item in broadcasts] == [
+        "Sunset notice",
+        "Sunset notice",
+    ]
 
 
 def test_advanced_rule_detects_biodynamic_from_to_transition(

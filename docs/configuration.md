@@ -14,8 +14,8 @@ still supported, but keep the path rules below in mind.
 
 Bare settings roots are resolved by `sensorius.saiRuntimePaths.resolve_runtime_base_dir`.
 
-- Outside pytest, `system_settings`, `sensor_settings`, and `switch_settings`
-  resolve under the installed runtime directory, for example
+- Outside pytest, `system_settings`, `sensor_settings`, `switch_settings`, and
+  `automation_settings` resolve under the installed runtime directory, for example
   `/home/<user>/Sensorius/` on Linux or `/Users/<user>/Sensorius/` on macOS.
 - Inside pytest, relative roots stay relative so tests can use temporary
   directories.
@@ -27,7 +27,7 @@ For a normal macOS or Linux install, expect runtime state here:
 /Users/<user>/Sensorius/system_settings/<device_id>/settings.toml
 /Users/<user>/Sensorius/sensor_settings/<sensor_id>/sensor.toml
 /Users/<user>/Sensorius/switch_settings/<switch_id>/switch.toml
-/Users/<user>/Sensorius/switch_settings/automations/automations.toml
+/Users/<user>/Sensorius/automation_settings/automations.toml
 ```
 
 On Linux service installs the same layout is normally:
@@ -36,6 +36,7 @@ On Linux service installs the same layout is normally:
 /home/<user>/Sensorius/system_settings/<device_id>/settings.toml
 /home/<user>/Sensorius/sensor_settings/<sensor_id>/sensor.toml
 /home/<user>/Sensorius/switch_settings/<switch_id>/switch.toml
+/home/<user>/Sensorius/automation_settings/automations.toml
 ```
 
 On Windows installs, the equivalent runtime root is normally:
@@ -150,7 +151,7 @@ current app password. `ssl` uses implicit TLS (normally port 465), while
 
 The form's **To** value accepts one or more comma-separated addresses and is
 only for test delivery. Runtime recipients are stored on Notify actions in
-`switch_settings/automations/automations.toml`.
+`automation_settings/automations.toml`.
 Notify actions send on the false-to-true edge of their automation conditions.
 
 GUI behavior:
@@ -430,16 +431,20 @@ switch-sernum::S1-sernum
 
 ## Automations
 
-Advanced switch automations are stored in:
+System automations are stored in:
 
 ```text
-switch_settings/automations/automations.toml
+automation_settings/automations.toml
 ```
 
 At runtime this is under the Sensorius runtime directory, such as
-`/Users/<user>/Sensorius/switch_settings/automations/automations.toml` on
-macOS or `/home/<user>/Sensorius/switch_settings/automations/automations.toml`
+`/Users/<user>/Sensorius/automation_settings/automations.toml` on
+macOS or `/home/<user>/Sensorius/automation_settings/automations.toml`
 on Linux.
+
+Rules found only at the former `switch_settings/automations/automations.toml`
+path remain visible and active with a **Legacy** marker. Opening one and
+selecting **Save** writes that rule to the canonical system-level path.
 
 `sensorius/saiAutomationManager.py` owns this file. The current schema uses:
 

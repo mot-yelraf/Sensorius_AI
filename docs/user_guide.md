@@ -199,7 +199,7 @@ settings:
 - **Sensorius Hub**: MQTT broker hostname or IP used by Sensorius and Nodus devices.
 - **Time Zone**: IANA timezone name, such as `America/Denver`. It controls dashboard time labels, graph time labels, Astral timing, and calendar day boundaries.
 - **Community/Location Name**: optional friendly community or locality shown as the large location heading in Caelus, such as `Silver City`. It does not change the Astral coordinates, timezone, or any sensor/switch location. Leaving it blank uses the default Caelus station label.
-- **Dashboard**: returns to the dashboard.
+- **Circled ×**: closes General Settings and returns to the dashboard.
 - **Save**: writes the values in this section.
 
 #### Nodus Wifi Update
@@ -377,15 +377,16 @@ Controls:
 
 - **New**: opens a new automation definition.
 - **Saved Automations**: returns from the editor to the saved list.
-- **Remove**: deletes the selected automation.
+- **Remove**: asks for confirmation, then deletes the selected automation.
 - **Enable** in the editor: sets whether the rule is active. Options are **Yes** and **No**.
 
-For compatibility, automation rules remain stored under the Sensorius runtime
-directory at
-`/Users/<user>/Sensorius/switch_settings/automations/automations.toml` on macOS
-or `/home/<user>/Sensorius/switch_settings/automations/automations.toml` on
-Linux. The General Settings editor loads all saved rules, sensor and metric
-choices, and the available actor directory.
+Automation rules are stored at
+`/Users/<user>/Sensorius/automation_settings/automations.toml` on macOS or
+`/home/<user>/Sensorius/automation_settings/automations.toml` on Linux. The
+General Settings editor loads all saved rules, sensor and metric choices, and
+the available actor directory. Rules found only at the former path show a
+**Legacy — open and Save** marker; opening and saving one moves that individual
+rule to the new path.
 
 #### Automation Definition
 
@@ -757,7 +758,7 @@ Fields and selectors:
 - **Location**: the practical place where the sensor is installed, such as Greenhouse, Seed Rack, Bed 2, Propagation Tent, or North Field. This is saved in that sensor's `sensor.toml` and is also used by the dashboard, location editor, and automation selector labels.
 - **Metric 1-6**: dashboard metric slots. Options come from the sensor's available metric list. That list is built from device metadata, known database metrics, and Sensorius gauge configuration.
 - **Display Style 1-6**: display style for each selected metric. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
-- **Dashboard**: closes the modal and returns to the dashboard.
+- **Circled ×**: closes Sensor Settings and returns to the dashboard.
 - **Restart Device**: appears for devices that support remote restart, such as supported Nodus devices. It sends a restart request to the device.
 - **Save**: writes only the Sensor Settings pane values to
   `sensor_settings/<sensor_id>/sensor.toml`. Calibration and Sensor Info pane
@@ -856,7 +857,7 @@ Fields and controls:
 - **Location**: where the switch device or relay box is installed. This is saved in `switch_settings/<switch_id>/switch.toml` and is shown on the dashboard and location editor.
 - **Channel label for switch_N**: friendly label for each channel, such as Exhaust Fan, Irrigation Pump, Heat Mat, North Vent, or Lights. Labels are saved in switch settings.
 - **Dashboard timer gear**: opens the channel's manual auto-off timer. Use `0` to disable it or 30-9999 seconds; the dashboard rounds entries to a 30-second step. The value lasts only until Sensorius restarts.
-- **Dashboard**: closes the modal.
+- **Circled ×**: closes Switch Settings and returns to the dashboard.
 - **Restart Device**: appears for supported remote switches and sends a restart request.
 - **Save**: writes only the Switch Settings pane values. Switch Info is not
   submitted. For remote Nodus switches, Sensorius also sends a settings update
@@ -1062,7 +1063,7 @@ The dashboard Biodynamic Calendar card remains available for a quick current-sta
 
 The integrated application provides:
 
-- A full-screen calendar UI.
+- A full-screen Maria Thun based Biodynamic Calendar UI.
 - Moon Attributes panel with lunar direction, distance, declination, and eclipse information.
 - Planetary Aspects panel with current major aspects and planet zodiac placements from Skyfield.
 - Sensorius-managed Astral location and timezone.
@@ -1157,7 +1158,7 @@ Sensor and switch names, locations, display choices, calibration offsets, and ch
 - System settings: `/Users/<user>/Sensorius/system_settings/<device_id>/settings.toml`
 - Sensor settings: `/Users/<user>/Sensorius/sensor_settings/<sensor_id>/sensor.toml`
 - Switch settings: `/Users/<user>/Sensorius/switch_settings/<switch_id>/switch.toml`
-- Advanced automations: `/Users/<user>/Sensorius/switch_settings/automations/automations.toml`
+- Advanced automations: `/Users/<user>/Sensorius/automation_settings/automations.toml`
 
 For Nodus devices, Sensorius also listens for MQTT metadata and state messages. That metadata tells Sensorius what a device is, which readings or channels it provides, whether it is online, and which remote settings can be updated.
 

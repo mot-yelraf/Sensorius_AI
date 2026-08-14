@@ -665,3 +665,9 @@ def test_six_day_dialog_uses_selected_theme_palette():
     assert ".forecast-detail-grid article" in css
     assert "background: var(--glass)" in css
     assert "color: var(--accent)" in css
+    assert ".forecast-dialog > header button { position: relative" in css
+    assert "border-radius: 50%" in css
+    assert "background: transparent" in css
+    assert ".forecast-dialog > header button::before" in css
+    assert "transform: translate(-50%, -50%) rotate(45deg)" in css
+    assert "transform: translate(-50%, -50%) rotate(-45deg)" in css

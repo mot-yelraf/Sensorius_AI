@@ -182,6 +182,7 @@ EXCLUDES=(
   "system_settings/***"
   "sensor_settings/***"
   "switch_settings/***"
+  "automation_settings/***"
   "*.log"
 )
 
@@ -204,6 +205,7 @@ INCLUDES=(
   "switch_settings/factory/***"
   "switch_settings/factory_nodus/"
   "switch_settings/factory_nodus/***"
+  "automation_settings/"
 )
 
 RSYNC_OPTS=(-az --delete --itemize-changes --human-readable)

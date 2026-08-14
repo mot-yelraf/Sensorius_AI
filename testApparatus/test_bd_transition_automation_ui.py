@@ -40,9 +40,33 @@ def test_bd_transition_condition_is_optionless_and_serialized():
     assert 'row.append(typeWrap, rem);' in js_text
     assert 'return { type:"bd_transitions", executor_switch_id: currentSwitchId };' in js_text
     assert 'opt.value = "none";' in js_text
-    assert 'opt.textContent = "None";' in js_text
+    assert 'opt.textContent = "Alert";' in js_text
     assert 'type: "none"' in js_text
-    assert "hasBdTransitionCondition(modal)" in js_text
+    assert "appendNoneOption();" in js_text
+
+
+def test_automation_condition_and_action_rows_align_fields_left_and_remove_right():
+    repo_root = Path(__file__).resolve().parents[1]
+
+    for css_name in ("app.css", "combined.css"):
+        css_text = (repo_root / "ui_static" / "css" / css_name).read_text(encoding="utf-8")
+
+        assert "#pane-automations .section-title," in css_text
+        assert "#conditionsContainer,\n#actionsContainer{\n  text-align:left;" in css_text
+        assert ".cond.bd-transitions{" in css_text
+        assert ".action-row.none-action{" in css_text
+        assert ".cond > .remove,\n.action-row > .remove{\n  grid-column:-2 / -1;" in css_text
+
+
+def test_none_actor_is_available_for_astral_and_other_conditions():
+    repo_root = Path(__file__).resolve().parents[1]
+    js_text = (
+        repo_root / "ui_static" / "js" / "advanced_automation.js"
+    ).read_text(encoding="utf-8")
+
+    option_block = js_text[js_text.index("const appendNoneOption"):js_text.index("function refreshActionActorOptions")]
+    assert 'opt.value = "none";' in option_block
+    assert "if (!hasBdTransitionCondition(modal))" in option_block
 
 
 def test_bd_transition_toast_is_persistent_and_shows_from_to():
@@ -66,6 +90,23 @@ def test_bd_transition_toast_is_persistent_and_shows_from_to():
         for line in html_builder.splitlines()
         if "bd-transition-toast" in line
     )
+
+
+def test_generic_automation_toast_is_persistent_and_click_dismissible():
+    repo_root = Path(__file__).resolve().parents[1]
+    html_builder = (
+        repo_root / "sensorius" / "saiHtml.py"
+    ).read_text(encoding="utf-8")
+    branch = html_builder[
+        html_builder.index("msg.type === 'automation_notification'"):
+        html_builder.index("msg.type === 'bd_transition'")
+    ]
+
+    assert "automation-notification-toast" in branch
+    assert "details.join('; ')" in branch
+    assert "Click to dismiss" in branch
+    assert "addEventListener('click'" in branch
+    assert "setTimeout" not in branch
 
 
 def test_email_failure_toast_is_persistent_error_and_click_dismissible():

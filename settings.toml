@@ -1,0 +1,92 @@
+[Network]
+HOSTNAME = "sensorius-demo"
+HTTPPORT = 8000
+
+[SensorNetwork]
+BROKER = ""
+MQTTPORT = 1883
+USE_TLS = false
+NODUS_DEBUG_DATA_ONLY = false
+REMOVED_NODUS_IDS = []
+LEGACY_FIRMWARE_HOSTS = []
+LEGACY_POLLER_SUNSET_DATE = "2026-06-30"
+
+[Time]
+TZ = "America/Denver"
+TZ_OFFSET = -21600
+TZ_NAME = "MDT"
+
+[Astral]
+AUTO_IP = true
+LOCATION_NAME = ""
+LATITUDE = 39.7392
+LONGITUDE = -104.9903
+ALTITUDE = 1609.0
+TIMEZONE = ""
+SOURCE = ""
+PROVIDER = ""
+
+[WeatherForecast]
+PROVIDER = "met_no"
+THEME = "garden"
+CURRENT_SENSOR_ID = ""
+
+[WeeWX]
+ENABLED = false
+AUTO_DISCOVER = false
+DB_PATH = "/var/lib/weewx/weewx.sdb"
+SENSOR_ID = "weewx-station"
+POLL_INTERVAL_SEC = 60
+MQTT_ENABLED = false
+MQTT_TOPIC = "weewx/#"
+UPDATE_PERIOD_SEC = 300
+
+[Ecowitt]
+ENABLED = false
+GATEWAY_URL = ""
+POLL_INTERVAL_SEC = 300
+SENSOR_ID = ""
+INVENTORY_JSON = "[]"
+RAIN_SOURCE = ""
+RAIN_RESET_HOUR = 0
+
+[HomeAssistant]
+ENABLED = false
+HA_USERNAME = ""
+HA_PASSWORD = ""
+HA_BROKER = ""
+HA_MQTTPORT = 1883
+USE_TLS = false
+DISCOVERY_PREFIX = "homeassistant"
+BASE_TOPIC = "sensorius"
+PUBLISH_DISCOVERY_RETAIN = true
+PUBLISH_STATE_RETAIN = true
+PUBLISH_LEGACY_SENSOR_TOPIC = true
+NODUS_PASSTHROUGH = false
+MIRROR_NODUS = true
+
+[FarmOS]
+ENABLED = false
+BASE_URL = ""
+VERIFY_TLS = true
+ACCESS_TOKEN = ""
+CLIENT_ID = "farm"
+CLIENT_SECRET = ""
+USERNAME = "demo-user"
+PASSWORD = "ExampleOnly-NotASecret"
+LOG_BUNDLE = "observation"
+QUEUE_MAX = 1000
+FLUSH_INTERVAL_SEC = 3.0
+REQUEST_TIMEOUT_SEC = 10.0
+
+[Notifications]
+RULES_JSON = "[]"
+
+[Display]
+gauge_size = "Small"
+display_style = "Gauge"
+unit_system = "Imperial"
+metric_set = "Pick 6"
+background_theme = "leaf"
+biodynamic_calendar_theme = "leaf"
+

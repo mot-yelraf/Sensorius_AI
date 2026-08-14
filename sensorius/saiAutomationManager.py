@@ -1,7 +1,8 @@
 """Switch automation rule manager and TOML schema helper.
 
-Loads, validates, and persists switch automation rules in a shared file at
-`switch_settings/automations/automations.toml`.
+Loads, validates, and persists system automation rules in
+`automation_settings/automations.toml`, with a read-only overlay of the former
+`switch_settings/automations/automations.toml` path during user-driven moves.
 
 Current runtime contract is Advanced-only automation rules plus optional global
 Script toggles:
@@ -15,10 +16,12 @@ the automation engine.
 from __future__ import annotations
 
 # ---------- user-defined constants (top) ----------
-TRIGGERS_BASE_DIR: str = r"switch_settings"
-TRIGGERS_SUBDIR: str = "automations"
+TRIGGERS_BASE_DIR: str = r"automation_settings"
+LEGACY_TRIGGERS_BASE_DIR: str = r"switch_settings"
+LEGACY_TRIGGERS_SUBDIR: str = "automations"
 TRIGGERS_FILENAME: str = "automations.toml"
 TMP_SUFFIX: str = ".tmp"
+META_IGNORED_LEGACY_IDS: str = "ignored_legacy_rule_ids"
 
 # Preferred top-level sections (kept stable for readability)
 SECTION_META: str = "Meta"
@@ -36,6 +39,7 @@ import os
 import io
 import json
 import re
+import shutil
 import threading
 from pathlib import Path
 from typing import Any, Dict, Callable, TypeVar
@@ -61,7 +65,7 @@ def _as_enabled(value: Any) -> bool:
 class AutomationManager:
     """
     File layout:
-      switch_settings/automations/automations.toml
+      automation_settings/automations.toml
 
     TOML schema (kept human-friendly):
       [Meta]
@@ -82,8 +86,23 @@ class AutomationManager:
     _shared_lock = threading.RLock()
     _shared_cache: dict[str, dict[str, Any]] = {}
 
-    def __init__(self, base_dir: str = TRIGGERS_BASE_DIR) -> None:
+    def __init__(
+        self,
+        base_dir: str = TRIGGERS_BASE_DIR,
+        *,
+        legacy_base_dir: str | Path | None = None,
+    ) -> None:
         self.base_dir = resolve_runtime_base_dir(base_dir)
+        if legacy_base_dir is not None:
+            self.legacy_base_dir = resolve_runtime_base_dir(legacy_base_dir)
+        elif str(base_dir) in {TRIGGERS_BASE_DIR, LEGACY_TRIGGERS_BASE_DIR}:
+            # Treat the former explicit constructor argument as a compatibility
+            # alias while all writes move to the system-level location.
+            self.base_dir = resolve_runtime_base_dir(TRIGGERS_BASE_DIR)
+            self.legacy_base_dir = resolve_runtime_base_dir(LEGACY_TRIGGERS_BASE_DIR)
+        else:
+            # Explicit test/custom roots are isolated unless a legacy root is supplied.
+            self.legacy_base_dir = None
         self._lock = threading.RLock()
 
     # ---------- path helpers ----------
@@ -95,9 +114,8 @@ class AutomationManager:
         return host
 
     def _storage_dir(self) -> Path:
-        parent = self.base_dir / TRIGGERS_SUBDIR
-        parent.mkdir(parents=True, exist_ok=True)
-        return parent
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        return self.base_dir
 
     def _storage_path(self) -> Path:
         return self._storage_dir() / TRIGGERS_FILENAME
@@ -108,8 +126,18 @@ class AutomationManager:
         return self._storage_path()
 
     def get_storage_path(self) -> Path:
-        """Public helper for shared automation file path."""
+        """Return the canonical system-level automation file path."""
         return self._storage_path()
+
+    def get_legacy_storage_path(self) -> Path | None:
+        """Return the former shared switch-settings path when configured."""
+        if self.legacy_base_dir is None:
+            return None
+        return (
+            self.legacy_base_dir
+            / LEGACY_TRIGGERS_SUBDIR
+            / TRIGGERS_FILENAME
+        )
 
     def _normalize_loaded_data(self, data: Dict[str, Any] | None) -> Dict[str, Any]:
         normalized = dict(data or {})
@@ -179,11 +207,73 @@ class AutomationManager:
             with triggers_path.open("rb") as f:
                 data = tomllib.load(f) or {}
         except Exception as e:
-            if DEBUG:
-                printDM(f"[Failed to read {triggers_path}: {e}", location=f"{MODULE}.load")
-            return self._normalize_loaded_data(None)
+            raise RuntimeError(
+                f"Automation settings could not be read from {triggers_path}: {e}"
+            ) from e
 
         return self._normalize_loaded_data(data)
+
+    @staticmethod
+    def _ignored_legacy_rule_ids(data: Dict[str, Any]) -> set[str]:
+        meta = data.get(SECTION_META) or {}
+        raw = meta.get(META_IGNORED_LEGACY_IDS, []) if isinstance(meta, dict) else []
+        if not isinstance(raw, list):
+            return set()
+        return {str(item).strip() for item in raw if str(item).strip()}
+
+    def _load_primary_data(self, hostname: str) -> Dict[str, Any]:
+        return self._read_storage_file(self._storage_path(), hostname)
+
+    def _load_legacy_data(self, hostname: str) -> Dict[str, Any]:
+        legacy_path = self.get_legacy_storage_path()
+        if legacy_path is None:
+            return self._normalize_loaded_data(None)
+        try:
+            return self._read_storage_file(legacy_path, hostname)
+        except RuntimeError as exc:
+            # The legacy file is read-only during this transition. A damaged
+            # former file must not prevent canonical rules from loading.
+            printDM(str(exc), location=f"{MODULE}.legacy", level="warning")
+            return self._normalize_loaded_data(None)
+
+    def _merged_storage_data(
+        self,
+        hostname: str,
+    ) -> tuple[Dict[str, Any], set[str]]:
+        primary = self._load_primary_data(hostname)
+        legacy = self._load_legacy_data(hostname)
+        ignored = self._ignored_legacy_rule_ids(primary)
+
+        primary_adv = dict(primary.get(SECTION_ADV, {}) or {})
+        legacy_adv = dict(legacy.get(SECTION_ADV, {}) or {})
+        visible_legacy_ids = {
+            str(rule_id)
+            for rule_id in legacy_adv
+            if str(rule_id) not in primary_adv and str(rule_id) not in ignored
+        }
+        merged_adv = {
+            rule_id: rule
+            for rule_id, rule in legacy_adv.items()
+            if str(rule_id) in visible_legacy_ids
+        }
+        merged_adv.update(primary_adv)
+
+        merged_scripts = dict(legacy.get(SECTION_SCRIPTS, {}) or {})
+        merged_scripts.update(dict(primary.get(SECTION_SCRIPTS, {}) or {}))
+        merged = self._normalize_loaded_data(primary)
+        merged[SECTION_ADV] = merged_adv
+        merged[SECTION_SCRIPTS] = merged_scripts
+        return merged, visible_legacy_ids
+
+    @staticmethod
+    def _path_stamp(path: Path | None) -> tuple[int, int] | None:
+        if path is None:
+            return None
+        try:
+            stat = path.stat()
+            return (stat.st_mtime_ns, stat.st_size)
+        except FileNotFoundError:
+            return None
 
     def _cache_key(self, hostname: str) -> tuple[str, Path]:
         path = self._path_for_hostname(hostname)
@@ -191,49 +281,36 @@ class AutomationManager:
 
     def _cached_payload(self, hostname: str) -> dict[str, Any]:
         cache_key, triggers_path = self._cache_key(hostname)
-        try:
-            stat = triggers_path.stat()
-            stamp = (stat.st_mtime_ns, stat.st_size)
-        except FileNotFoundError:
-            stat = None
-            stamp = None
+        stamp = (
+            self._path_stamp(triggers_path),
+            self._path_stamp(self.get_legacy_storage_path()),
+        )
 
         with self._shared_lock:
             cached = self._shared_cache.get(cache_key)
             if cached and cached.get("stamp") == stamp:
                 return cached
 
-            data = self._read_storage_file(triggers_path, hostname)
+            data, legacy_rule_ids = self._merged_storage_data(hostname)
             runtime = self._build_runtime_cache(data)
             payload = {
                 "stamp": stamp,
                 "path": triggers_path,
+                "legacy_rule_ids": legacy_rule_ids,
                 **runtime,
             }
             self._shared_cache[cache_key] = payload
             return payload
 
-    def _replace_cached_payload(self, hostname: str, data: Dict[str, Any]) -> dict[str, Any]:
-        cache_key, triggers_path = self._cache_key(hostname)
-        try:
-            stat = triggers_path.stat()
-            stamp = (stat.st_mtime_ns, stat.st_size)
-        except FileNotFoundError:
-            stamp = None
-
-        payload = {
-            "stamp": stamp,
-            "path": triggers_path,
-            **self._build_runtime_cache(self._normalize_loaded_data(data)),
-        }
+    def _invalidate_cached_payload(self, hostname: str) -> None:
+        cache_key, _triggers_path = self._cache_key(hostname)
         with self._shared_lock:
-            self._shared_cache[cache_key] = payload
-        return payload
+            self._shared_cache.pop(cache_key, None)
 
     def _atomic_update(self, hostname: str, mutator: Callable[[Dict[str, Any]], T]) -> T:
         """Serialize load->mutate->save for one manager instance."""
         with self._shared_lock:
-            data = self.load(hostname)
+            data = self._load_primary_data(hostname)
             result = mutator(data)
             self.save(hostname, data)
             return result
@@ -451,6 +528,10 @@ class AutomationManager:
         """
         return self._cached_payload(hostname).get("data") or self._normalize_loaded_data(None)
 
+    def get_legacy_rule_ids(self, hostname: str) -> set[str]:
+        """Return rule IDs currently supplied only by the former file path."""
+        return set(self._cached_payload(hostname).get("legacy_rule_ids") or set())
+
     def load_runtime_advanced(self, hostname: str) -> Dict[str, Any]:
         """
         Return Advanced rules with parsed script_json where possible.
@@ -482,6 +563,10 @@ class AutomationManager:
                 buf.write(f"version = {int(meta.get('version', 1))}\n")
                 notes = str(meta.get("notes", "Switch trigger configuration. Edit carefully."))
                 buf.write(f"{_toml_key('notes')} = {_toml_string(notes)}\n\n")
+                ignored_ids = sorted(self._ignored_legacy_rule_ids({SECTION_META: meta}))
+                if ignored_ids:
+                    encoded = ", ".join(_toml_string(item) for item in ignored_ids)
+                    buf.write(f"{_toml_key(META_IGNORED_LEGACY_IDS)} = [{encoded}]\n\n")
 
             def _emit_advanced(buf: io.StringIO) -> None:
                 if not adv:
@@ -521,14 +606,18 @@ class AutomationManager:
 
             text = buf.getvalue()
             try:
+                # Refuse to replace the live file with output that our own
+                # reader cannot parse, and retain the previous good copy.
+                tomllib.loads(text)
                 with tmp_path.open("w", encoding="utf-8", newline="\n") as f:
                     f.write(text)
+                if triggers_path.exists():
+                    shutil.copy2(
+                        triggers_path,
+                        triggers_path.with_suffix(triggers_path.suffix + ".bak"),
+                    )
                 os.replace(tmp_path, triggers_path)
-                self._replace_cached_payload(hostname, {
-                    SECTION_META: meta,
-                    SECTION_ADV: adv,
-                    SECTION_SCRIPTS: scripts,
-                })
+                self._invalidate_cached_payload(hostname)
                 if DEBUG:
                     printDM(f"[Saved {triggers_path}", location=f"{MODULE}.save")
 
@@ -568,6 +657,11 @@ class AutomationManager:
 
             adv[rule_id] = {"enabled": bool(enabled), "script_json": script_json}
             data[SECTION_ADV] = adv
+            meta = data.get(SECTION_META, {}) or {}
+            ignored = self._ignored_legacy_rule_ids(data)
+            ignored.discard(str(rule_id))
+            meta[META_IGNORED_LEGACY_IDS] = sorted(ignored)
+            data[SECTION_META] = meta
 
         self._atomic_update(hostname, _mutate)
 
@@ -583,11 +677,20 @@ class AutomationManager:
             return False
         def _mutate(data: Dict[str, Any]) -> bool:
             rules = data.get(section, {}) or {}
+            legacy_rules = self._load_legacy_data(hostname).get(section, {}) or {}
+            removed = False
             if rule_id in rules:
                 del rules[rule_id]
                 data[section] = rules
-                return True
-            return False
+                removed = True
+            if rule_id in legacy_rules:
+                meta = data.get(SECTION_META, {}) or {}
+                ignored = self._ignored_legacy_rule_ids(data)
+                ignored.add(str(rule_id))
+                meta[META_IGNORED_LEGACY_IDS] = sorted(ignored)
+                data[SECTION_META] = meta
+                removed = True
+            return removed
 
         return self._atomic_update(hostname, _mutate)
 
@@ -602,7 +705,11 @@ class AutomationManager:
             rules = data.get(section, {}) or {}
             rule = rules.get(rule_id)
             if not rule:
-                return False
+                legacy_rules = self._load_legacy_data(hostname).get(section, {}) or {}
+                legacy_rule = legacy_rules.get(rule_id)
+                if not isinstance(legacy_rule, dict):
+                    return False
+                rule = dict(legacy_rule)
             rule["enabled"] = bool(enabled)
             # Keep inner payload in sync when possible.
             try:
@@ -614,6 +721,11 @@ class AutomationManager:
                 pass
             rules[rule_id] = rule
             data[section] = rules
+            meta = data.get(SECTION_META, {}) or {}
+            ignored = self._ignored_legacy_rule_ids(data)
+            ignored.discard(str(rule_id))
+            meta[META_IGNORED_LEGACY_IDS] = sorted(ignored)
+            data[SECTION_META] = meta
             return True
 
         return self._atomic_update(hostname, _mutate)
@@ -657,6 +769,13 @@ def enable_trigger(manager, switch_id: str, section: str, key: str, enable: bool
     section = section.strip().title()
     if section not in (SECTION_ADV, SECTION_SCRIPTS):
         return False
+    if section == SECTION_ADV:
+        return manager.set_rule_enabled(
+            switch_id,
+            section=SECTION_ADV,
+            rule_id=key,
+            enabled=enable,
+        )
 
     triggers = load_automations(manager, switch_id)
     section_dict = triggers.get(section, {}) or {}
@@ -684,6 +803,8 @@ def remove_trigger(manager, switch_id: str, section: str, key: str) -> bool:
     section = section.strip().title()
     if section not in (SECTION_ADV, SECTION_SCRIPTS):
         return False
+    if section == SECTION_ADV:
+        return manager.delete_rule(switch_id, section=SECTION_ADV, rule_id=key)
 
     triggers = load_automations(manager, switch_id)
     section_dict = triggers.get(section, {}) or {}

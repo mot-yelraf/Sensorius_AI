@@ -10,6 +10,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SETUP_COMMON = REPO_ROOT / "deploy_scripts" / "setup_common.sh"
+DEPLOY_SAI = REPO_ROOT / "deploy_scripts" / "deploy_sai.sh"
 
 
 def _run_cleanup(target: Path) -> subprocess.CompletedProcess[str]:
@@ -74,3 +75,13 @@ def test_cleanup_tolerates_owner_protected_legacy_bytecode(tmp_path):
         assert "owner-protected legacy bytecode remains" in result.stderr
     finally:
         cache_dir.chmod(0o755)
+
+
+def test_deploy_syncs_preserve_system_automation_state():
+    setup_text = SETUP_COMMON.read_text(encoding="utf-8")
+    deploy_text = DEPLOY_SAI.read_text(encoding="utf-8")
+
+    assert "--include 'automation_settings/'" in setup_text
+    assert "--exclude 'automation_settings/***'" in setup_text
+    assert '"automation_settings/"' in deploy_text
+    assert '"automation_settings/***"' in deploy_text

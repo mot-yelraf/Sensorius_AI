@@ -61,7 +61,14 @@
      class="onboard-overlay"
      style="display:none;">
   <div class="onboard-modal" style="max-width:720px;">
-    <div class="onboard-title">Device Locations</div>
+    <div class="onboard-title settings-modal-header">
+      Device Locations
+      <button type="button"
+              class="settings-title-close"
+              title="Close"
+              aria-label="Close Device Locations"
+              onclick="window.closeLocationsModal && window.closeLocationsModal();">&times;</button>
+    </div>
 
     <!-- scrollable body -->
     <div class="locations-scroll"
@@ -73,8 +80,7 @@
 
     <!-- footer buttons -->
     <div class="modal-footer"
-         style="display:flex; justify-content:space-between; gap:12px; margin-top:12px;">
-      <button id="btn-locations-cancel" class="button black" title="Dashboard">Dashboard</button>
+         style="display:flex; justify-content:flex-end; gap:12px; margin-top:12px;">
       <button id="btn-locations-save" class="button blue" title="Save locations">Save</button>
     </div>
     <div id="locations-save-status" class="sai-live-status" aria-live="polite"></div>
@@ -162,12 +168,8 @@ window.startLocationsFromSetup = async function(formEl) {
   return false;
 };
 
-// Delegated buttons (Back / Save)
+// Delegated Save button
 document.addEventListener("click", async (ev) => {
-  if (ev.target && ev.target.id === "btn-locations-cancel") {
-    window.closeLocationsModal();
-  }
-
   if (ev.target && ev.target.id === "btn-locations-save") {
     try {
       const saveBtn = document.getElementById("btn-locations-save");

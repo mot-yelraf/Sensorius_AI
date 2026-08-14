@@ -270,6 +270,7 @@ deploy_project_files() {
       --include 'switch_settings/factory/***' \
       --include 'switch_settings/factory_nodus/' \
       --include 'switch_settings/factory_nodus/***' \
+      --include 'automation_settings/' \
       --exclude '.git/' \
       --exclude '.env' \
       --exclude '.venv/' \
@@ -292,6 +293,7 @@ deploy_project_files() {
       --exclude 'system_settings/***' \
       --exclude 'sensor_settings/***' \
       --exclude 'switch_settings/***' \
+      --exclude 'automation_settings/***' \
       --exclude '*.log' \
       --exclude 'assets/screenshots/' \
       --exclude '*.md' \

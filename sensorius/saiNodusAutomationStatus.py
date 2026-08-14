@@ -107,7 +107,7 @@ class NodusAutomationStatusPublisher:
         supervisor=None,
     ) -> None:
         self.mqtt_ingest = mqtt_ingest
-        self.manager = manager or AutomationManager("switch_settings")
+        self.manager = manager or AutomationManager("automation_settings")
         self.supervisor = supervisor
         self.controller_id = str(
             controller_id or socket.gethostname() or "sensorius"

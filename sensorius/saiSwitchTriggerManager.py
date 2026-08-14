@@ -4,13 +4,13 @@ This module now mirrors the active automation storage/runtime contract used by
 `saiAutomationManager` while preserving the historical class/function names.
 
 Storage location:
-  switch_settings/automations/automations.toml
+  automation_settings/automations.toml
 """
 from __future__ import annotations
 
 # ---------- user-defined constants (top) ----------
-TRIGGERS_BASE_DIR: str = r"switch_settings"
-TRIGGERS_SUBDIR: str = "automations"
+TRIGGERS_BASE_DIR: str = r"automation_settings"
+LEGACY_TRIGGERS_BASE_DIR: str = r"switch_settings"
 TRIGGERS_FILENAME: str = "automations.toml"
 TMP_SUFFIX: str = ".tmp"
 
@@ -59,6 +59,8 @@ class SwitchTriggerManager:
     """Compatibility manager for Advanced automation rules."""
 
     def __init__(self, base_dir: str = TRIGGERS_BASE_DIR) -> None:
+        if str(base_dir) == LEGACY_TRIGGERS_BASE_DIR:
+            base_dir = TRIGGERS_BASE_DIR
         self.base_dir = resolve_runtime_base_dir(base_dir)
         self._lock = threading.RLock()
 
@@ -70,9 +72,8 @@ class SwitchTriggerManager:
         return host
 
     def _storage_dir(self) -> Path:
-        parent = self.base_dir / TRIGGERS_SUBDIR
-        parent.mkdir(parents=True, exist_ok=True)
-        return parent
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        return self.base_dir
 
     def _storage_path(self) -> Path:
         return self._storage_dir() / TRIGGERS_FILENAME

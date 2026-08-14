@@ -112,7 +112,7 @@ Canonical runtime state:
 - `/home/<user>/Sensorius/system_settings/<device_id>/settings.toml`
 - `/home/<user>/Sensorius/sensor_settings/<sensor_id>/sensor.toml`
 - `/home/<user>/Sensorius/switch_settings/<switch_id>/switch.toml`
-- `/home/<user>/Sensorius/switch_settings/automations/automations.toml`
+- `/home/<user>/Sensorius/automation_settings/automations.toml`
 - `sensorius_data.db` in the process working directory unless a caller passes
   another DB path.
 
@@ -239,7 +239,7 @@ Rules:
 ## Automation Requirements
 
 - Advanced automation state lives in
-  `switch_settings/automations/automations.toml`.
+  `automation_settings/automations.toml`.
 - Use `sensorius/saiAutomationManager.py` for reads/writes.
 - Preserve `[Meta]`, `[Advanced]`, and `[Scripts]` schema compatibility.
 - Keep `script_json` compact and valid JSON when writing rules.

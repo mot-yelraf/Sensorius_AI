@@ -703,6 +703,7 @@ class AutomationNotificationService:
         controller._advanced_debug_next_idle_log_at = 0.0
         controller._advanced_debug_cycle_verbose = False
         controller._advanced_notify_states = {}
+        controller._advanced_webui_states = {}
         controller.email_delivery_service = self.email_delivery_service
         controller._astral_location_cache = {"value": None, "expires_at": 0.0}
         self._controller = controller

@@ -585,12 +585,10 @@ def test_automations_move_to_system_settings_with_actor_and_notify_controls():
     assert "switchMenuAutomations" not in switch_text
     assert 'actorLab.textContent = "Actors"' in js_text
     assert 'opt.textContent = "Notify"' in js_text
+    assert 'opt.textContent = "Alert"' in js_text
     assert 'toLab.textContent = "To"' in js_text
-    no_actor_branch = js_text[
-        js_text.index("if (!entries.length) {"):
-        js_text.index('opt.textContent = "Notify"')
-    ]
-    assert "if (!emailActorEnabled)" in no_actor_branch
+    assert 'legacyBadge.textContent = "Legacy — open and Save"' in js_text
+    assert 'window.confirm(`Delete automation “${displayName}”?`)' in js_text
 
 
 def test_automation_remove_buttons_have_dedicated_grid_columns():

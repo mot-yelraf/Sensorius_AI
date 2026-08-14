@@ -759,9 +759,9 @@ def test_system_settings_sections_match_integration_accordions():
     )
     assert text.count('class="button blue btn-system-save"') == 5
     system_pane = text[text.index('<div class="settings-pane" id="pane-system">'):text.index('<div class="settings-pane" id="pane-automations"')]
-    assert system_pane.count('class="button black btn-back-system">Dashboard</button>') == 1
+    assert 'class="button black btn-back-system">Dashboard</button>' not in system_pane
     assert system_pane.count('class="pane-footer section-action-footer"') == 6
-    assert 'class="pane-footer pane-global-footer"' in system_pane
+    assert 'class="pane-footer pane-global-footer"' not in system_pane
     assert 'id="btn-system-save"' not in text
 
 
@@ -815,11 +815,12 @@ def test_system_settings_weewx_pane_omits_inline_mqtt_instructions():
     assert "[StdRESTful]" not in text
 
 
-def test_system_settings_dashboard_buttons_close_modal():
+def test_system_settings_titlebar_close_button_closes_modal():
     source = Path(__file__).resolve().parents[1] / "ui_templates" / "modals" / "system_settings.html"
     text = source.read_text(encoding="utf-8")
 
-    assert '<button type="button" class="button black btn-back-system">Dashboard</button>' in text
+    assert '>Dashboard</button>' not in text
+    assert 'class="settings-title-close btn-back-system"' in text
     assert 'classList.contains("btn-back-system")) {\n      if (document.getElementById("pane-add")' in text
     assert "      goHomeFromSettings();\n    }" in text
 
@@ -1872,8 +1873,8 @@ async def test_sensor_settings_modal_shows_nodus_firmware_version_in_settings_pa
     assert 'data-stat-value="packets">42</strong>' in html
     assert 'class="sensor-location-input"' in html
     assert 'class="sensor-settings-form"' in html
-    assert html.index("Dashboard") < html.index("Restart Device") < html.index("Save")
-    assert "window.closeSensorSettingsModal && window.closeSensorSettingsModal();" in html
+    assert html.index("Restart Device") < html.index("Save")
+    assert 'aria-label="Close Sensor Settings"' in html
     assert 'name="metric_display_mode"' not in html
     assert 'name="display_style_1"' in html
     assert 'name="display_style_3"' in html
@@ -2319,8 +2320,8 @@ def test_switch_settings_modal_shows_nodus_firmware_version_in_settings_pane_tit
     assert "Switch Settings v1.2.3" in html
     assert "switch-test123 (pico2w)" not in html
     assert "Switch Info: Board Type: pico2w" in html
-    assert html.index("Dashboard") < html.index("Restart Device") < html.index("Save")
-    assert "window.closeSwitchSettingsModal && window.closeSwitchSettingsModal();" in html
+    assert html.index("Restart Device") < html.index("Save")
+    assert 'aria-label="Close Switch Settings"' in html
     assert "Device Restarting..." in html
 
 
@@ -6078,6 +6079,9 @@ async def test_advanced_automations_list_filters_to_requested_switch_id(tmp_path
                 }
             }
 
+        def get_legacy_rule_ids(self, _switch_id):
+            return {"legacy-local-rule"}
+
     monkeypatch.setattr("sensorius.saiAutomationManager.AutomationManager", _FakeAutomationManager)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -6087,6 +6091,7 @@ async def test_advanced_automations_list_filters_to_requested_switch_id(tmp_path
     body = res.json()
     assert body["switch_id"] == "desk-hub"
     assert [item["rule_id"] for item in body["items"]] == ["desk-fan-rule", "legacy-local-rule"]
+    assert [item["legacy"] for item in body["items"]] == [False, True]
 
 
 @pytest.mark.asyncio

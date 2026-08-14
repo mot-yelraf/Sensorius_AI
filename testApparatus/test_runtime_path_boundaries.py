@@ -32,9 +32,11 @@ def test_bare_settings_roots_resolve_to_runtime_home_outside_pytest(tmp_path, mo
     assert resolve_runtime_base_dir("system_settings") == home / "Sensorius" / "system_settings"
     assert resolve_runtime_base_dir("sensor_settings") == home / "Sensorius" / "sensor_settings"
     assert resolve_runtime_base_dir("switch_settings") == home / "Sensorius" / "switch_settings"
+    assert resolve_runtime_base_dir("automation_settings") == home / "Sensorius" / "automation_settings"
     assert not (checkout / "system_settings").exists()
     assert not (checkout / "sensor_settings").exists()
     assert not (checkout / "switch_settings").exists()
+    assert not (checkout / "automation_settings").exists()
 
 
 def test_bare_settings_roots_use_test_runtime_root_inside_pytest(tmp_path, monkeypatch):
@@ -48,6 +50,7 @@ def test_bare_settings_roots_use_test_runtime_root_inside_pytest(tmp_path, monke
     assert resolve_runtime_base_dir("system_settings") == runtime / "system_settings"
     assert resolve_runtime_base_dir("sensor_settings") == runtime / "sensor_settings"
     assert resolve_runtime_base_dir("switch_settings") == runtime / "switch_settings"
+    assert resolve_runtime_base_dir("automation_settings") == runtime / "automation_settings"
     assert resolve_runtime_base_dir("relative_data") == checkout / "relative_data"
 
 
@@ -79,16 +82,21 @@ def test_onboarding_and_automation_writers_use_runtime_roots(tmp_path, monkeypat
         base64.b64encode(b"[Switch]\nSWITCH_DEVICE_ID = \"switch-test123\"\n").decode("ascii"),
     )
     onboarding_store = OnboardingSessionStore(base_dir="system_settings")
-    automation_path = AutomationManager("switch_settings").get_storage_path()
-    trigger_path = SwitchTriggerManager("switch_settings").get_storage_path()
+    automation_path = AutomationManager("automation_settings").get_storage_path()
+    trigger_path = SwitchTriggerManager("automation_settings").get_storage_path()
+    automation_legacy_arg_path = AutomationManager("switch_settings").get_storage_path()
+    trigger_legacy_arg_path = SwitchTriggerManager("switch_settings").get_storage_path()
 
     assert str(system_path).startswith(str(runtime / "system_settings"))
     assert str(sensor_path).startswith(str(runtime / "sensor_settings"))
     assert str(switch_path).startswith(str(runtime / "switch_settings"))
     assert str(onboarding_store._root).startswith(str(runtime / "system_settings"))
-    assert str(automation_path).startswith(str(runtime / "switch_settings"))
-    assert str(trigger_path).startswith(str(runtime / "switch_settings"))
+    assert str(automation_path).startswith(str(runtime / "automation_settings"))
+    assert str(trigger_path).startswith(str(runtime / "automation_settings"))
+    assert automation_legacy_arg_path == automation_path
+    assert trigger_legacy_arg_path == trigger_path
 
     assert not (checkout / "system_settings").exists()
     assert not (checkout / "sensor_settings").exists()
     assert not (checkout / "switch_settings").exists()
+    assert not (checkout / "automation_settings").exists()

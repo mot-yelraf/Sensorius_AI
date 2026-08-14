@@ -36,8 +36,7 @@ window.initSystemCalibrationModal = async function(modalEl) {
   const plantCalBtn     = modalEl.querySelector("#plantCalBtn");
   const plantCalStatus  = modalEl.querySelector("#plantCalStatus");
 
-  const homeBtn  = modalEl.querySelector("#sysCalHomeBtn");
-  const closeBtn = modalEl.querySelector("#sysCalCloseBtn"); // currently not present, but allowed
+  const closeBtn = modalEl.querySelector("#sysCalCloseBtn");
 
   // Keep the last preview payload so Apply can reuse it
   let scLastPreview = null;
@@ -88,7 +87,6 @@ window.initSystemCalibrationModal = async function(modalEl) {
   }
 
   if (closeBtn) closeBtn.addEventListener("click", close);
-  if (homeBtn)  homeBtn.addEventListener("click", close);
 
   // -----------------------
   // Device calibration helpers

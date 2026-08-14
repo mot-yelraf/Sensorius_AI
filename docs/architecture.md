@@ -223,7 +223,7 @@ Switches:
 Automations:
 
 - Advanced automation rules are stored in
-  `switch_settings/automations/automations.toml`.
+  `automation_settings/automations.toml`.
 - Each switch controller monitor evaluates enabled rules every few seconds.
 - Evaluation prefers live sensor data, then cached values, then DB-backed
   fallback behavior where implemented.
@@ -270,7 +270,7 @@ Canonical runtime files:
 - `/Users/<user>/Sensorius/system_settings/<device_id>/settings.toml`
 - `/Users/<user>/Sensorius/sensor_settings/<sensor_id>/sensor.toml`
 - `/Users/<user>/Sensorius/switch_settings/<switch_id>/switch.toml`
-- `/Users/<user>/Sensorius/switch_settings/automations/automations.toml`
+- `/Users/<user>/Sensorius/automation_settings/automations.toml`
 - `sensorius_data.db` in the process working directory unless an explicit DB
   path is passed to `sensorius.saiDataLogger`.
 
