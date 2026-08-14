@@ -19,7 +19,13 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from . import __version__ as SAI_APP_VERSION
-from .saiHtml import canonicalize_metric_name, get_gauge_config
+from .saiHtml import canonicalize_metric_name, extend_gauge_config_for_metrics, get_gauge_config
+from .saiDisplayUnits import (
+    apply_display_units_to_gauge_config,
+    convert_display_value,
+    display_conversion,
+    normalize_display_unit_system,
+)
 from .saiSensorSettingsManager import SensorSettingsManager
 from .saiWeatherAstronomy import astronomy_context
 from .saiWeatherForecast import get_weather_forecast_payload
@@ -105,10 +111,16 @@ def normalize_current_weather_readings(
     }
 
 
-def build_display_metrics(values: dict[str, Any], configured_metrics: list[str]) -> list[dict[str, Any]]:
+def build_display_metrics(
+    values: dict[str, Any],
+    configured_metrics: list[str],
+    unit_system: object = "Imperial",
+) -> list[dict[str, Any]]:
     """Return the selected sensor's Display Metrics in their configured order."""
     indexed = {_metric_key(name): (str(name), value) for name, value in (values or {}).items()}
     gauge_config = get_gauge_config()
+    extend_gauge_config_for_metrics(gauge_config, configured_metrics)
+    gauge_config = apply_display_units_to_gauge_config(gauge_config, unit_system)
     display_metrics: list[dict[str, Any]] = []
     for configured_name in configured_metrics[:6]:
         name = str(configured_name or "").strip()
@@ -124,10 +136,11 @@ def build_display_metrics(values: dict[str, Any], configured_metrics: list[str])
             precision = max(0, min(6, int(precision)))
         except Exception:
             precision = 2
+        display_value = convert_display_value(numeric, metric_config) if numeric is not None else None
         display_metrics.append(
             {
                 "name": name,
-                "value": round(numeric, precision) if numeric is not None else None,
+                "value": round(display_value, precision) if display_value is not None else None,
                 "unit": str(metric_config.get("unit") or ""),
             }
         )
@@ -177,6 +190,65 @@ def _precipitation_chance_label(condition: object) -> str:
 def _hour_temperature_f(hour: dict[str, Any]) -> float | None:
     value = _safe_float(hour.get("temp_c"))
     return None if value is None else value * 9.0 / 5.0 + 32.0
+
+
+def _forecast_display_value(
+    value: object,
+    metric_name: str,
+    source_unit: str,
+    unit_system: object,
+) -> tuple[float | None, str]:
+    """Convert one canonical forecast value into the selected display system."""
+    numeric = _safe_float(value)
+    conversion = display_conversion(metric_name, source_unit, unit_system)
+    if numeric is None:
+        return None, str(conversion["unit"])
+    converted = numeric * float(conversion["factor"]) + float(conversion["offset"])
+    return converted, str(conversion["unit"])
+
+
+def _forecast_temperature_range(value: object, unit_system: object) -> str:
+    """Select the requested side of a canonical dual-unit temperature range."""
+    text = str(value or "").strip()
+    if not text or text == "--":
+        return "--"
+    wanted = "°C" if normalize_display_unit_system(unit_system) == "Metric" else "°F"
+    for part in (item.strip() for item in text.split("/")):
+        if wanted.lower() in part.lower():
+            return part
+    return text
+
+
+def _forecast_wind(value: object, unit_system: object) -> str:
+    """Format a canonical dual-unit wind summary in the selected display unit."""
+    text = str(value or "").strip()
+    if not text or text == "--":
+        return "--"
+    lines = text.splitlines()
+    descriptor = lines[0].strip() if lines else ""
+    measurement = " ".join(lines[1:]).strip() if len(lines) > 1 else text
+    target = normalize_display_unit_system(unit_system)
+    if target == "Imperial":
+        match = re.search(
+            r"(-?\d+(?:\.\d+)?)\s*[-–]\s*(-?\d+(?:\.\d+)?)\s*mph",
+            measurement,
+            re.IGNORECASE,
+        )
+        selected = f"{match.group(1)}-{match.group(2)} mph" if match else ""
+    else:
+        selected = ""
+        match = re.search(
+            r"(-?\d+(?:\.\d+)?)\s*[-–]\s*(-?\d+(?:\.\d+)?)\s*m/s",
+            measurement,
+            re.IGNORECASE,
+        )
+        if match:
+            low = round(float(match.group(1)) * 3.6)
+            high = round(float(match.group(2)) * 3.6)
+            selected = f"{low}-{high} km/h"
+    if not selected:
+        return text
+    return f"{descriptor}\n{selected}" if descriptor and descriptor != measurement else selected
 
 
 def _format_hour_label(value: object) -> str:
@@ -235,8 +307,12 @@ def _hour_window_condition(hours: list[dict[str, Any]]) -> str:
     return "Clear"
 
 
-def build_weather_display_forecast(payload: dict[str, Any]) -> dict[str, Any]:
+def build_weather_display_forecast(
+    payload: dict[str, Any],
+    unit_system: object = "Imperial",
+) -> dict[str, Any]:
     """Adapt the canonical Sensorius forecast payload for the full-screen UI."""
+    display_unit_system = normalize_display_unit_system(unit_system)
     current = payload.get("current_24h") if isinstance(payload.get("current_24h"), dict) else {}
     raw_hours = payload.get("hourly") if isinstance(payload.get("hourly"), list) else []
     hours = []
@@ -246,6 +322,12 @@ def build_weather_display_forecast(payload: dict[str, Any]) -> dict[str, Any]:
         label = _format_hour_label(local_time)
         condition = _hour_window_condition([raw])
         temp_f = _hour_temperature_f(raw)
+        temperature, temperature_unit = _forecast_display_value(
+            raw.get("temp_c"), "Temperature", "°C", display_unit_system
+        )
+        precipitation, precipitation_unit = _forecast_display_value(
+            raw.get("precip_mm"), "Rain", "mm", display_unit_system
+        )
         hours.append(
             {
                 "label": label,
@@ -253,7 +335,11 @@ def build_weather_display_forecast(payload: dict[str, Any]) -> dict[str, Any]:
                 "icon_key": _condition_icon_key(condition),
                 "precip_label": _precipitation_chance_label(condition),
                 "temperature_f": round(temp_f) if temp_f is not None else None,
+                "temperature": round(temperature) if temperature is not None else None,
+                "temperature_unit": temperature_unit,
                 "precipitation_mm": round(_safe_float(raw.get("precip_mm")) or 0.0, 1),
+                "precipitation": round(precipitation or 0.0, 2),
+                "precipitation_unit": precipitation_unit,
                 "precip_probability": (
                     round(probability) if (probability := _safe_float(raw.get("precip_probability"))) is not None else None
                 ),
@@ -273,9 +359,9 @@ def build_weather_display_forecast(payload: dict[str, Any]) -> dict[str, Any]:
                 "icon": _condition_icon(summary),
                 "icon_key": _condition_icon_key(summary),
                 "precip_label": _precipitation_chance_label(summary),
-                "temp_range": str(raw.get("temp_range") or "--"),
+                "temp_range": _forecast_temperature_range(raw.get("temp_range"), display_unit_system),
                 "rh_range": str(raw.get("rh_range") or "--"),
-                "wind": str(raw.get("wind") or "--"),
+                "wind": _forecast_wind(raw.get("wind"), display_unit_system),
                 "precipitation_mm": _safe_float(raw.get("precip_mm")) or 0.0,
                 "precip_probability": (
                     round(probability) if (probability := _safe_float(raw.get("precip_probability"))) is not None else None
@@ -284,6 +370,20 @@ def build_weather_display_forecast(payload: dict[str, Any]) -> dict[str, Any]:
         )
 
     temp_values = [value for value in (_hour_temperature_f(row) for row in raw_hours) if value is not None]
+    display_temp_values = [
+        converted
+        for row in raw_hours
+        if (converted := _forecast_display_value(
+            row.get("temp_c"), "Temperature", "°C", display_unit_system
+        )[0]) is not None
+    ]
+    temperature_unit = _forecast_display_value(None, "Temperature", "°C", display_unit_system)[1]
+    precipitation, precipitation_unit = _forecast_display_value(
+        sum(_safe_float(row.get("precip_mm")) or 0.0 for row in raw_hours),
+        "Rain",
+        "mm",
+        display_unit_system,
+    )
     probabilities = [
         value
         for value in (_safe_float(row.get("precip_probability")) for row in normalized_hours)
@@ -309,18 +409,30 @@ def build_weather_display_forecast(payload: dict[str, Any]) -> dict[str, Any]:
         "precip_label": _precipitation_chance_label(condition),
         "high_f": round(max(temp_values)) if temp_values else None,
         "low_f": round(min(temp_values)) if temp_values else None,
+        "high": round(max(display_temp_values)) if display_temp_values else None,
+        "low": round(min(display_temp_values)) if display_temp_values else None,
+        "temperature_unit": temperature_unit,
         "precipitation_mm": round(sum(_safe_float(row.get("precip_mm")) or 0.0 for row in raw_hours), 1),
+        "precipitation": round(precipitation or 0.0, 2),
+        "precipitation_unit": precipitation_unit,
         "precip_probability": round(current_probability) if current_probability is not None else None,
-        "temp_range": str(current.get("temp_range") or "--"),
+        "temp_range": _forecast_temperature_range(current.get("temp_range"), display_unit_system),
         "rh_range": str(current.get("rh_range") or "--"),
-        "wind": str(current.get("wind") or "--"),
+        "wind": _forecast_wind(current.get("wind"), display_unit_system),
+        "unit_system": display_unit_system,
         "hours": hours,
         "days": days,
         "location": payload.get("location") if isinstance(payload.get("location"), dict) else {},
     }
 
 
-def _windy_url(latitude: float, longitude: float) -> str:
+def _windy_url(latitude: float, longitude: float, unit_system: object = "Imperial") -> str:
+    display_unit_system = normalize_display_unit_system(unit_system)
+    windy_units = (
+        {"metricRain": "mm", "metricTemp": "°C", "metricWind": "km/h"}
+        if display_unit_system == "Metric"
+        else {"metricRain": "in", "metricTemp": "°F", "metricWind": "mph"}
+    )
     query = urlencode(
         {
             "lat": f"{latitude:.4f}",
@@ -331,6 +443,7 @@ def _windy_url(latitude: float, longitude: float) -> str:
             "location": "coordinates",
             "type": "map",
             "overlay": "radar",
+            **windy_units,
         }
     )
     return f"https://embed.windy.com/embed2.html?{query}"
@@ -437,7 +550,11 @@ class WeatherForecastAppService:
             ).strip()
         except Exception:
             sensor_location = ""
-        payload["display_metrics"] = build_display_metrics(values, configured_metrics)
+        payload["display_metrics"] = build_display_metrics(
+            values,
+            configured_metrics,
+            self.settings.get_setting("Display", "unit_system", "Imperial"),
+        )
         payload["location"] = sensor_location
         payload["refresh_interval_sec"] = self.current_readings_refresh_interval(sensor_id)
         return payload
@@ -469,7 +586,10 @@ class WeatherForecastAppService:
 
     async def forecast(self, *, force_refresh: bool = False) -> dict[str, Any]:
         payload = await self.canonical_forecast(force_refresh=force_refresh)
-        return build_weather_display_forecast(payload)
+        return build_weather_display_forecast(
+            payload,
+            self.settings.get_setting("Display", "unit_system", "Imperial"),
+        )
 
 
 def register_weather_forecast_app_routes(
@@ -510,9 +630,14 @@ def register_weather_forecast_app_routes(
                 ),
                 "moon": moon,
                 "forecast": forecast,
-                "windy_iframe_url": _windy_url(float(location.get("latitude") or 0.0), float(location.get("longitude") or 0.0)),
+                "windy_iframe_url": _windy_url(
+                    float(location.get("latitude") or 0.0),
+                    float(location.get("longitude") or 0.0),
+                    forecast.get("unit_system"),
+                ),
                 "runtime_instance_id": str(getattr(request.app.state, "ui_runtime_instance_id", "") or ""),
             },
+            headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
         )
 
     @router.get("/api/weather-forecast-app/forecast", response_class=JSONResponse)

@@ -208,8 +208,8 @@
   margin-inline: auto;
 }
 #setupPiModal .field-grid-stack.display-settings-top-row {
-  grid-template-columns: repeat(3, minmax(200px, 1fr));
-  max-width: 1040px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  max-width: 1120px;
 }
 #setupPiModal .field-grid-network {
   display: grid;
@@ -314,9 +314,9 @@
   white-space: nowrap;
 }
 #setupPiModal .caelus-garden { background-image:linear-gradient(rgba(4,25,30,.12),rgba(4,25,30,.38)),url("/ui_static/weather_forecast/backgrounds/garden.webp"); }
-#setupPiModal .caelus-island { background-image:linear-gradient(rgba(4,25,45,.12),rgba(4,25,45,.38)),url("/ui_static/weather_forecast/backgrounds/island.webp"); }
+#setupPiModal .caelus-island { background-image:linear-gradient(rgba(0,37,64,.02),rgba(0,30,42,.14)),url("/ui_static/weather_forecast/backgrounds/sunny-beach.webp"); }
 #setupPiModal .caelus-river { background-image:linear-gradient(rgba(4,25,30,.12),rgba(4,25,30,.38)),url("/ui_static/weather_forecast/backgrounds/river.webp"); }
-#setupPiModal .caelus-desert { background-image:linear-gradient(rgba(40,18,20,.1),rgba(40,18,20,.35)),url("/ui_static/weather_forecast/backgrounds/desert.webp"); }
+#setupPiModal .caelus-desert { background-image:linear-gradient(rgba(40,18,20,.02),rgba(40,18,20,.16)),url("/ui_static/weather_forecast/backgrounds/desert-clear.webp"); }
 #setupPiModal .dashboard-leaf,
 #setupPiModal .dashboard-garden-tools,
 #setupPiModal .dashboard-herbarium,
@@ -981,6 +981,13 @@
                   <div class="integration-block-content">
               <div class="field-grid-stack display-settings-top-row">
                 <div class="field-stack">
+                  <label for="unit_system">Units</label>
+                  <select name="unit_system" id="unit_system">
+                    <option value="Imperial" {% if unit_system | default('Imperial', true) == "Imperial" %}selected{% endif %}>Imperial</option>
+                    <option value="Metric" {% if unit_system == "Metric" %}selected{% endif %}>Metric</option>
+                  </select>
+                </div>
+                <div class="field-stack">
                   <label for="metric_set">Metric Set</label>
                   <select name="metric_set" id="metric_set">
                     <option value="Pick 6" {% if metric_set | default('Pick 6', true) == "Pick 6" %}selected{% endif %}>Pick 6</option>
@@ -1205,7 +1212,7 @@
                       <legend>Caelus Theme</legend>
                       <div class="thumbnail-options">
                         <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="garden" {% if selected_weather_forecast_theme == "garden" %}checked{% endif %}><span class="theme-thumbnail caelus-garden"></span><span class="thumbnail-label">Mountain Garden</span></label>
-                        <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="island" {% if selected_weather_forecast_theme == "island" %}checked{% endif %}><span class="theme-thumbnail caelus-island"></span><span class="thumbnail-label">Ocean Island</span></label>
+                        <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="island" {% if selected_weather_forecast_theme == "island" %}checked{% endif %}><span class="theme-thumbnail caelus-island"></span><span class="thumbnail-label">Sunny Beach</span></label>
                         <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="river" {% if selected_weather_forecast_theme == "river" %}checked{% endif %}><span class="theme-thumbnail caelus-river"></span><span class="thumbnail-label">Forest River</span></label>
                         <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="desert" {% if selected_weather_forecast_theme == "desert" %}checked{% endif %}><span class="theme-thumbnail caelus-desert"></span><span class="thumbnail-label">Desert Bloom</span></label>
                       </div>
@@ -2568,7 +2575,7 @@
       if (body.has("dashboard_background_theme")) {
         applyDashboardBackgroundTheme(body.get("dashboard_background_theme"));
       }
-      if (body.has("metric_set")) {
+      if (body.has("metric_set") || body.has("unit_system")) {
         scheduleDashboardReloadAfterSettingsSave();
       }
     } catch (e) {

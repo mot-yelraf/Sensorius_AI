@@ -36,7 +36,7 @@ def test_fullscreen_graph_uses_soil_fertility_gauge_zone_backgrounds():
     assert "const GRAPH_GAUGE_CONFIG = " in html
     assert '"Soil Fertility Index"' in html
     assert "const gaugeZonesBackgroundGraph" in html
-    assert "soilFertilityGaugeZones(graphMetricNameFromKey(k))" in html
+    assert "soilFertilityGaugeZones(metricName)" in html
     assert "gaugeZonesBackgroundGraph: { zonesByAxis: gaugeZonesByAxis }" in html
     assert "y1Opts.min = gaugeAxisBounds.y1.min" in html
 
@@ -68,7 +68,7 @@ def test_fullscreen_graph_defines_pressure_helper_in_modal_script_scope():
     html = "".join(render_graph_modal(switch_installed=False))
 
     helper = "function graphPressureMetric(metric){"
-    call = "pressureMetric: graphPressureMetric(graphMetricNameFromKey(k))"
+    call = "pressureMetric: graphPressureMetric(metricName)"
     assert helper in html
     assert call in html
     assert html.index(helper) < html.index(call)

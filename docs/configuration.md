@@ -280,6 +280,7 @@ RAIN_RESET_HOUR = 0
 [Display]
 gauge_size = "Small"
 display_style = "Gauge"
+unit_system = "Imperial"
 ```
 
 `SensorNetwork.REMOVED_NODUS_IDS` is maintained by the Remove Device workflow.
@@ -328,6 +329,11 @@ Runtime notes:
   renders each sensor's saved `METRIC_1` through `METRIC_6` slots; `All`
   preserves those slots and appends every other known, renderable metric for
   each sensor. The default is `Pick 6`.
+- `[Display].unit_system` accepts `Imperial` or `Metric` and defaults to
+  `Imperial`. It overrides sensor-reported units for dashboard presentation
+  and also controls Caelus forecast values and the initial Windy map units,
+  while preserving canonical readings, MQTT payloads, database history,
+  automation thresholds, and integration data.
 - `[Display].biodynamic_calendar_theme` independently selects the full-screen
   Biodynamic Calendar background from the same five themes. The default is
   `leaf`, so existing installations continue to use Leaves until another

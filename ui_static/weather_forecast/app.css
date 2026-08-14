@@ -44,13 +44,13 @@ a { color: inherit; }
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(2, 20, 28, 0.24), rgba(2, 19, 24, 0.42) 58%, rgba(1, 14, 18, 0.64));
+  background: var(--scene-shade, linear-gradient(180deg, rgba(2, 20, 28, 0.24), rgba(2, 19, 24, 0.42) 58%, rgba(1, 14, 18, 0.64)));
 }
 .world-scene::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(ellipse at center, transparent 36%, rgba(0, 12, 18, 0.34) 100%);
+  background: var(--scene-vignette, radial-gradient(ellipse at center, transparent 36%, rgba(0, 12, 18, 0.34) 100%));
 }
 .scene-sun, .scene-ridge { display: none; }
 
@@ -61,14 +61,16 @@ a { color: inherit; }
 }
 
 .theme-island {
-  --accent: #70f4df;
-  --accent-2: #61c8ff;
-  --glass: rgba(4, 35, 62, 0.64);
-  --glass-strong: rgba(3, 23, 47, 0.84);
-  --line: rgba(143, 224, 255, 0.3);
-  --scene-image: url("/ui_static/weather_forecast/backgrounds/island.webp");
-  --scene-fallback: #12627a;
+  --accent: #84f3df;
+  --accent-2: #76d6ff;
+  --glass: rgba(3, 38, 61, 0.5);
+  --glass-strong: rgba(2, 27, 48, 0.74);
+  --line: rgba(184, 239, 255, 0.38);
+  --scene-image: url("/ui_static/weather_forecast/backgrounds/sunny-beach.webp");
+  --scene-fallback: #35bcd1;
   --scene-position: center center;
+  --scene-shade: linear-gradient(180deg, rgba(0, 37, 64, 0.02), rgba(0, 41, 60, 0.08) 62%, rgba(0, 30, 42, 0.18));
+  --scene-vignette: radial-gradient(ellipse at center, transparent 58%, rgba(0, 42, 55, 0.12) 100%);
 }
 
 .theme-river {
@@ -85,13 +87,53 @@ a { color: inherit; }
 .theme-desert {
   --accent: #ffdd72;
   --accent-2: #ff9578;
-  --glass: rgba(62, 28, 30, 0.61);
-  --glass-strong: rgba(45, 18, 27, 0.82);
-  --line: rgba(255, 213, 152, 0.3);
+  --glass: rgba(62, 28, 30, 0.5);
+  --glass-strong: rgba(45, 18, 27, 0.74);
+  --line: rgba(255, 225, 178, 0.38);
   --warm: #ffbf63;
-  --scene-image: url("/ui_static/weather_forecast/backgrounds/desert.webp");
-  --scene-fallback: #6f3c35;
+  --scene-image: url("/ui_static/weather_forecast/backgrounds/desert-clear.webp");
+  --scene-fallback: #55afe0;
   --scene-position: center center;
+  --scene-shade: linear-gradient(180deg, rgba(32, 87, 117, 0.01), rgba(56, 46, 31, 0.06) 62%, rgba(43, 27, 21, 0.2));
+  --scene-vignette: radial-gradient(ellipse at center, transparent 58%, rgba(44, 25, 19, 0.13) 100%);
+}
+
+.theme-desert .glass-card:not(.lunar-header),
+.theme-desert .forecast-dialog {
+  --ink: #18382b;
+  --muted: rgba(24, 56, 43, 0.78);
+  --glass: rgba(229, 241, 221, 0.88);
+  --glass-strong: rgba(235, 245, 228, 0.96);
+  --glass-soft: rgba(207, 226, 195, 0.84);
+  --accent: #216844;
+  --accent-2: #804126;
+  --warm: #765000;
+  --line: rgba(35, 79, 56, 0.3);
+  color: var(--ink);
+}
+.theme-desert .glass-card:not(.lunar-header) .metric-row i {
+  background: rgba(35, 79, 56, 0.14);
+}
+.theme-desert .glass-card:not(.lunar-header) .compass {
+  background: repeating-conic-gradient(from -1deg, rgba(35,79,56,.3) 0 1deg, transparent 1deg 15deg), radial-gradient(circle, transparent 0 56%, rgba(35,79,56,.1) 57% 60%, transparent 61%);
+}
+.theme-desert .glass-card:not(.lunar-header) .rain-glass {
+  background: linear-gradient(90deg, rgba(35,79,56,.04), rgba(35,79,56,.13));
+}
+.theme-desert .map-tools button,
+.theme-desert .future-heading button,
+.theme-desert .hourly-page-button {
+  background: rgba(35, 79, 56, 0.08);
+}
+.theme-desert .forecast-day {
+  background: rgba(74, 112, 72, 0.1);
+}
+.theme-desert .forecast-hour small,
+.theme-desert .forecast-day strong em {
+  color: #235f83;
+}
+.theme-desert .windy-map-guard span {
+  color: #f6fbf7;
 }
 
 .site-header {
@@ -519,9 +561,9 @@ a { color: inherit; }
 .theme-preview { display: grid; place-items: center; height: 4.7rem; color: white; font-size: 2rem; overflow: hidden; }
 .theme-preview { background-position: center; background-size: cover; text-shadow: 0 2px 10px rgba(0,0,0,.75); }
 .theme-swatch-garden .theme-preview { background-image: linear-gradient(rgba(4,25,30,.12), rgba(4,25,30,.38)), url("/ui_static/weather_forecast/backgrounds/garden.webp"); }
-.theme-swatch-island .theme-preview { background-image: linear-gradient(rgba(4,25,45,.12), rgba(4,25,45,.38)), url("/ui_static/weather_forecast/backgrounds/island.webp"); }
+.theme-swatch-island .theme-preview { background-image: linear-gradient(rgba(0,37,64,.02), rgba(0,30,42,.14)), url("/ui_static/weather_forecast/backgrounds/sunny-beach.webp"); }
 .theme-swatch-river .theme-preview { background-image: linear-gradient(rgba(4,25,30,.12), rgba(4,25,30,.38)), url("/ui_static/weather_forecast/backgrounds/river.webp"); }
-.theme-swatch-desert .theme-preview { background-image: linear-gradient(rgba(40,18,20,.1), rgba(40,18,20,.35)), url("/ui_static/weather_forecast/backgrounds/desert.webp"); }
+.theme-swatch-desert .theme-preview { background-image: linear-gradient(rgba(40,18,20,.02), rgba(40,18,20,.16)), url("/ui_static/weather_forecast/backgrounds/desert-clear.webp"); }
 .theme-option strong, .theme-option small { display: block; }
 .theme-option strong { color: #21453a; font: 600 0.9rem Georgia, serif; }
 .theme-option small { margin-top: 0.3rem; color: #70847b; font-size: 0.66rem; line-height: 1.35; }

@@ -708,10 +708,14 @@ def test_system_settings_display_has_conditional_gauge_size_and_theme_thumbnails
         text.index('<div class="status-text sai-live-status" id="system-status"')
     ]
 
+    assert display_section.index('id="unit_system"') < display_section.index('id="metric_set"')
     assert display_section.index('id="metric_set"') < display_section.index('id="display_style"')
     assert display_section.index('id="display_style"') < display_section.index('id="gauge_size"')
     assert 'class="field-grid-stack display-settings-top-row"' in display_section
     assert 'id="gauge_size_field"' in display_section
+    assert '<label for="unit_system">Units</label>' in display_section
+    assert '<option value="Imperial"' in display_section
+    assert '<option value="Metric"' in display_section
     assert '<label for="metric_set">Metric Set</label>' in display_section
     assert '<option value="Pick 6"' in display_section
     assert '<option value="All"' in display_section
@@ -725,6 +729,7 @@ def test_system_settings_display_has_conditional_gauge_size_and_theme_thumbnails
         assert f'name="biodynamic_calendar_theme" value="{theme}"' in display_section
     assert 'background_theme = "leaf"' in factory_text
     assert 'metric_set = "Pick 6"' in factory_text
+    assert 'unit_system = "Imperial"' in factory_text
     assert 'biodynamic_calendar_theme = "leaf"' in factory_text
     assert 'if (ev?.target?.id === "display_style")' in text
     assert "updateGaugeSizeVisibility();" in text
@@ -1190,6 +1195,7 @@ async def test_submit_pi_setup_persists_metric_set_and_independent_background_th
                 "gauge_size": "Large",
                 "display_style": "Gauge",
                 "metric_set": "All",
+                "unit_system": "Metric",
                 "dashboard_background_theme": "pollinator",
                 "biodynamic_calendar_theme": "garden_tools",
             },
@@ -1201,6 +1207,7 @@ async def test_submit_pi_setup_persists_metric_set_and_independent_background_th
         "gauge_size": "Large",
         "display_style": "Gauge",
         "metric_set": "All",
+        "unit_system": "Metric",
         "background_theme": "pollinator",
         "biodynamic_calendar_theme": "garden_tools",
     }
@@ -1215,6 +1222,22 @@ async def test_submit_pi_setup_rejects_unsupported_metric_set(tmp_path, monkeypa
         res = await client.post(
             "/submit-pi-setup",
             data={"metric_set": "Everything"},
+            headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
+        )
+
+    assert res.status_code == 400
+    assert _RouteFakeSaiSettings.STORED_SETTINGS == initial
+
+
+@pytest.mark.asyncio
+async def test_submit_pi_setup_rejects_unsupported_unit_system(tmp_path, monkeypatch):
+    initial = {"Display": {"unit_system": "Imperial"}}
+    app = await _build_route_app_with_settings(tmp_path, monkeypatch, initial)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/submit-pi-setup",
+            data={"unit_system": "Native"},
             headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
         )
 
@@ -4565,6 +4588,8 @@ async def test_dashboard_merges_switch_cards_for_same_location(tmp_path, monkeyp
         res = await client.get("/")
 
     assert res.status_code == 200
+    assert res.headers["cache-control"] == "no-store, max-age=0"
+    assert res.headers["pragma"] == "no-cache"
     assert res.text.count("class='switch-metric-container'") == 1
     assert "data-switch-ids='switch-ykdvea,switch-zbcalz'" in res.text
     assert "<td>Fan " in res.text or "<td>Fan</td>" in res.text
@@ -5216,7 +5241,7 @@ def test_dashboard_metric_card_gauge_view_has_canvas_fallback():
 
     assert "function drawFallbackGauge(canvas, rawValue, config)" in html
     assert "if (typeof Gauge === 'function')" in html
-    assert "drawFallbackGauge(canvas, value, config);" in html
+    assert "drawFallbackGauge(canvas, gaugeValue ?? 0, config);" in html
     assert "const metricCanvasWidth = 260;" in html
     assert "canvas.width = Math.round(canvasSize.cssWidth);" in html
     assert "canvas.style.width = '160px';" not in html

@@ -71,6 +71,11 @@ from .saiUtils import (
     mdns_hostname,
 )
 from .saiSettings import saiSettings
+from .saiDisplayUnits import (
+    DISPLAY_UNIT_SYSTEMS,
+    apply_display_units_to_gauge_config,
+    normalize_display_unit_system,
+)
 from .saiEcowitt import EcowittError, EcowittGatewayIngest
 from .sensor_modules.station_ecowitt import DEFAULT_POLL_INTERVAL_SEC as ECOWITT_DEFAULT_POLL_INTERVAL_SEC
 from .saiRuntimePaths import resolve_runtime_base_dir
@@ -691,6 +696,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         payload = {
             "gauge_size": fresh_settings.get_setting("Display", "gauge_size") or "Small",
             "display_style": fresh_settings.get_setting("Display", "display_style") or "Gauge",
+            "unit_system": normalize_display_unit_system(
+                fresh_settings.get_setting("Display", "unit_system", "Imperial")
+            ),
             "metric_set": normalize_dashboard_metric_set(
                 fresh_settings.get_setting("Display", "metric_set", "Pick 6")
             ),
@@ -703,7 +711,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "weather_forecast_theme": normalize_weather_theme(
                 fresh_settings.get_setting("WeatherForecast", "THEME", "garden")
             ),
-            "gauge_config": get_gauge_config(),
+            "gauge_config": apply_display_units_to_gauge_config(
+                get_gauge_config(),
+                fresh_settings.get_setting("Display", "unit_system", "Imperial"),
+            ),
         }
         _DASHBOARD_DISPLAY_SETTINGS_CACHE = (
             now_mono + _DASHBOARD_DISPLAY_SETTINGS_CACHE_TTL_SEC,
@@ -3449,7 +3460,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             metrics_ms=f"{phase_ms.get('expected_metrics', 0.0):.1f}",
             render_ms=f"{phase_ms.get('render', 0.0):.1f}",
         )
-        return HTMLResponse(content=rendered_dashboard)
+        return HTMLResponse(
+            content=rendered_dashboard,
+            headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
+        )
 
     @router.post("/dashboard/metric-position")
     async def dashboard_metric_position(request: Request):
@@ -4186,6 +4200,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         astral_noon = "--"
         gauge_size = settings.get_setting("Display", "gauge_size", "") or "Small"
         display_style = settings.get_setting("Display", "display_style", "") or "Gauge"
+        unit_system = normalize_display_unit_system(
+            settings.get_setting("Display", "unit_system", "Imperial")
+        )
         metric_set = normalize_dashboard_metric_set(
             settings.get_setting("Display", "metric_set", "Pick 6")
         )
@@ -4326,6 +4343,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             tz_options=tz_options,
             gauge_size=gauge_size,
             display_style=display_style,
+            unit_system=unit_system,
             metric_set=metric_set,
             dashboard_background_theme=dashboard_background_theme,
             biodynamic_calendar_theme=biodynamic_calendar_theme,
@@ -4387,7 +4405,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         embed = str(request.query_params.get("embed", "")).strip().lower() in {"1", "true", "yes"}
         if embed:
             _ui_profile_log("edit-system", _route_started, embed=1, clients=len(clients))
-            return HTMLResponse(content=fragment_html)
+            return HTMLResponse(
+                content=fragment_html,
+                headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
+            )
 
         html_parts: list[str] = []
         html_parts.append("<!DOCTYPE html>")
@@ -4396,7 +4417,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         html_parts.append(fragment_html)
         html_parts.append("</body></html>")
         _ui_profile_log("edit-system", _route_started, embed=0, clients=len(clients))
-        return HTMLResponse(content="\n".join(html_parts))
+        return HTMLResponse(
+            content="\n".join(html_parts),
+            headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
+        )
 
     # /itaot helpers
     CONTENT_ENCODING = "base64+zlib"
@@ -9126,6 +9150,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         raw_astral_location_name = str(form.get("astral_location_name", "") or "").strip()
         gauge_size = str(form.get("gauge_size", "") or "").strip()
         display_style = str(form.get("display_style", "") or "").strip()
+        raw_unit_system = str(
+            form.get("unit_system", settings.get_setting("Display", "unit_system", "Imperial")) or ""
+        ).strip()
+        if "unit_system" in form and raw_unit_system not in DISPLAY_UNIT_SYSTEMS:
+            return _modal_error_response(request, "Display unit system is not supported.", status_code=400)
+        unit_system = normalize_display_unit_system(raw_unit_system)
         raw_metric_set = str(
             form.get("metric_set", settings.get_setting("Display", "metric_set", "Pick 6")) or ""
         ).strip()
@@ -9340,6 +9370,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             settings.replace_setting("Display", "gauge_size", gauge_size)
         if "display_style" in form:
             settings.replace_setting("Display", "display_style", display_style)
+        if "unit_system" in form:
+            settings.replace_setting("Display", "unit_system", unit_system)
         if "metric_set" in form:
             settings.replace_setting("Display", "metric_set", metric_set)
         if "dashboard_background_theme" in form:

@@ -134,22 +134,69 @@ def test_current_readings_follow_configured_display_metrics_order_and_units():
         "Missing Metric",
     ]
     assert metrics[0] == {"name": "CO2", "value": 734.2, "unit": "ppm"}
-    assert metrics[1] == {"name": "Temperature", "value": 0.0, "unit": "°C"}
+    assert metrics[1] == {"name": "Temperature", "value": 32.0, "unit": "°F"}
     assert metrics[2]["value"] == 45.12
     assert metrics[3]["value"] is None
+
+
+def test_current_readings_can_override_reported_imperial_units_with_metric():
+    metrics = weather_app.build_display_metrics(
+        {"Temperature_F": 68.0, "Wind Speed": 10.0, "Rain": 1.0, "WH31 CH1 Temperature_F": 77.0},
+        ["Temperature_F", "Wind Speed", "Rain", "WH31 CH1 Temperature_F"],
+        "Metric",
+    )
+
+    assert metrics[0] == {"name": "Temperature_F", "value": 20.0, "unit": "°C"}
+    assert metrics[1] == {"name": "Wind Speed", "value": 16.09, "unit": "km/h"}
+    assert metrics[2] == {"name": "Rain", "value": 25.4, "unit": "mm"}
+    assert metrics[3] == {"name": "WH31 CH1 Temperature_F", "value": 25.0, "unit": "°C"}
 
 
 def test_weather_display_forecast_uses_canonical_sensorius_contract():
     payload = weather_app.build_weather_display_forecast(_forecast_payload())
     assert payload["ok"] is True
     assert payload["provider_label"] == "MET Norway"
+    assert payload["unit_system"] == "Imperial"
+    assert payload["high"] == 68
+    assert payload["low"] == 68
+    assert payload["temperature_unit"] == "°F"
+    assert payload["precipitation"] == pytest.approx(0.19)
+    assert payload["precipitation_unit"] == "in"
+    assert payload["temp_range"] == "68-77°F"
+    assert payload["wind"] == "Mostly light\n2-9 mph"
     assert len(payload["hours"]) == 24
     assert payload["hours"][0]["temperature_f"] == 68
+    assert payload["hours"][0]["temperature"] == 68
+    assert payload["hours"][0]["temperature_unit"] == "°F"
+    assert payload["hours"][0]["precipitation"] == pytest.approx(0.01)
+    assert payload["hours"][0]["precipitation_unit"] == "in"
     assert payload["hours"][0]["precip_probability"] == 40
     assert payload["hours"][0]["precip_label"] == "Rain chance"
-    assert payload["days"][0]["temp_range"].endswith("64-82°F")
+    assert payload["days"][0]["temp_range"] == "64-82°F"
     assert payload["days"][0]["precip_probability"] == 42
     assert payload["days"][0]["precip_label"] == "Rain chance"
+
+
+def test_weather_display_forecast_uses_metric_units_when_selected():
+    source = _forecast_payload()
+    source["days"][0]["wind"] = "Mostly light\n1-4 m/s / 2-9 mph"
+
+    payload = weather_app.build_weather_display_forecast(source, "Metric")
+
+    assert payload["unit_system"] == "Metric"
+    assert payload["high"] == 20
+    assert payload["low"] == 20
+    assert payload["temperature_unit"] == "°C"
+    assert payload["precipitation"] == pytest.approx(4.8)
+    assert payload["precipitation_unit"] == "mm"
+    assert payload["temp_range"] == "20.0-25.0°C"
+    assert payload["wind"] == "Mostly light\n4-14 km/h"
+    assert payload["hours"][0]["temperature"] == 20
+    assert payload["hours"][0]["temperature_unit"] == "°C"
+    assert payload["hours"][0]["precipitation"] == pytest.approx(0.2)
+    assert payload["hours"][0]["precipitation_unit"] == "mm"
+    assert payload["days"][0]["temp_range"] == "18.0-28.0°C"
+    assert payload["days"][0]["wind"] == "Mostly light\n4-14 km/h"
 
 
 def test_snow_forecast_uses_snow_chance_label():
@@ -176,6 +223,17 @@ def test_windy_map_defaults_to_radar_overlay():
 
     assert query["overlay"] == ["radar"]
     assert query["type"] == ["map"]
+    assert query["metricRain"] == ["in"]
+    assert query["metricTemp"] == ["°F"]
+    assert query["metricWind"] == ["mph"]
+
+
+def test_windy_map_uses_selected_metric_units():
+    query = parse_qs(urlparse(weather_app._windy_url(32.77, -108.28, "Metric")).query)
+
+    assert query["metricRain"] == ["mm"]
+    assert query["metricTemp"] == ["°C"]
+    assert query["metricWind"] == ["km/h"]
 
 
 def test_windy_map_requires_deliberate_interaction():
@@ -397,6 +455,8 @@ async def test_integrated_weather_routes_render_dashboard_and_namespaced_apis(mo
         forecast = await client.get("/api/weather-forecast-app/forecast")
 
     assert page.status_code == 200
+    assert page.headers["cache-control"] == "no-store, max-age=0"
+    assert page.headers["pragma"] == "no-cache"
     assert 'class="dashboard-return"' in page.text
     assert ">Dashboard<" in page.text
     assert "System Settings" not in page.text
@@ -421,8 +481,8 @@ async def test_integrated_weather_routes_render_dashboard_and_namespaced_apis(mo
     assert current.json()["temperature_f"] == 68.0
     assert current.json()["display_metrics"][0] == {
         "name": "Baro-Pressure",
-        "value": 1012.3,
-        "unit": "hPa",
+        "value": 29.89,
+        "unit": "inHg",
     }
     assert "Baro-Pressure" in page.text
     assert '<h2 data-readings-sensor>Kitchen Garden</h2>' in page.text
@@ -551,6 +611,8 @@ def test_dashboard_reuses_detailed_forecast_moon_surface_and_selectable_backgrou
 
 def test_weather_forecast_system_settings_are_present():
     template = (ROOT / "ui_templates" / "modals" / "system_settings.html").read_text(encoding="utf-8")
+    stylesheet = (ROOT / "ui_static" / "weather_forecast" / "app.css").read_text(encoding="utf-8")
+    dashboard_source = (ROOT / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
     user_guide = (ROOT / "docs" / "user_guide.md").read_text(encoding="utf-8")
     assert "system-weather-forecast" in template
     assert 'name="weather_forecast_theme"' in template
@@ -564,6 +626,20 @@ def test_weather_forecast_system_settings_are_present():
     assert weather_section.index('for="weather_forecast_provider"') < weather_section.index('id="weather_forecast_theme"')
     for theme in ("garden", "island", "river", "desert"):
         assert f'name="weather_forecast_theme" value="{theme}"' in weather_section
+    assert "Sunny Beach" in weather_section
+    assert "Ocean Island" not in weather_section
+    assert "sunny-beach.webp" in template
+    assert "desert-clear.webp" in template
+    assert "sunny-beach.webp" in stylesheet
+    assert "desert-clear.webp" in stylesheet
+    assert ".theme-desert .glass-card:not(.lunar-header)" in stylesheet
+    assert "--glass: rgba(229, 241, 221, 0.88)" in stylesheet
+    assert "--ink: #18382b" in stylesheet
+    assert "--muted: rgba(24, 56, 43, 0.78)" in stylesheet
+    assert not (ROOT / "ui_static" / "weather_forecast" / "backgrounds" / "island.webp").exists()
+    assert not (ROOT / "ui_static" / "weather_forecast" / "backgrounds" / "desert.webp").exists()
+    assert "Failed to refresh General Settings state" in dashboard_source
+    assert "input[name=\\\"weather_forecast_theme\\\"]:checked" in dashboard_source
     assert template.index('data-runtime-section="system-astral"') < template.index('data-runtime-section="system-weather-forecast"')
     assert template.index('data-runtime-section="system-notifications"') < template.index('data-runtime-section="system-weather-forecast"')
     assert "The forecast uses the Sensorius Astral location." not in template

@@ -11,6 +11,7 @@ from .saiUtils import printDM, debug_enabled, html_escape, normalize_hostname_ba
 from .saiBiodynamics import get_biodynamic_payload, get_skyfield_runtime_if_installed
 from .sensor_modules.station_weewx import DEFAULT_SENSOR_ID as WEEWX_DEFAULT_SENSOR_ID, WEEWX_GAUGE_CONFIG
 from .sensor_modules.station_ecowitt import ECOWITT_GAUGE_CONFIG, ecowitt_gauge_config_for_metric
+from .saiDisplayUnits import convert_display_value
 from collections import defaultdict
 from pathlib import Path
 from . import __version__ as APP_VERSION
@@ -1188,7 +1189,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "<script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'></script>"
     yield "<script src='https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns'></script>"
     yield "<script src='https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.4.0'></script>"
-    yield from render_graph_modal(switch_installed=switch_installed)
+    yield from render_graph_modal(switch_installed=switch_installed, gauge_config=gauge_config)
     # global assets for templates
     yield f"<link rel='stylesheet' href='/ui_static/css/app.css?v={APP_VERSION}'>"
     yield f"<script src='/ui_static/weather_forecast/moon.js?v={APP_VERSION}' defer></script>"
@@ -2089,7 +2090,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                         break
 
             display_metric = str(config.get("value_metric") or metric)
-            display_unit = str((gauge_config.get(display_metric) or {}).get("unit") or config.get("unit") or "")
+            display_config = gauge_config.get(display_metric) or config
+            display_unit = str(display_config.get("unit") or config.get("unit") or "")
             display_val_raw = values.get(display_metric)
             if display_val_raw is None and display_metric != metric:
                 for k in values.keys():
@@ -2098,8 +2100,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                         break
             stat_metric = str(config.get("stats_metric") or metric)
             stat = stats.get(stat_metric, {})
-            display_val = display_val_raw if display_val_raw is not None else "--"
-            display_precision = (gauge_config.get(display_metric) or config).get("display_precision")
+            display_val = convert_display_value(display_val_raw, display_config) if display_val_raw is not None else "--"
+            display_precision = display_config.get("display_precision")
             if display_val == "--":
                 display_text = "--"
             elif isinstance(display_precision, int):
@@ -2125,17 +2127,32 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             min_val = stat.get("min", "--")
             avg_val = stat.get("avg", "--")
             max_val = stat.get("max", "--")
+            stat_config = gauge_config.get(stat_metric) or config
+            if min_val != "--":
+                min_val = convert_display_value(min_val, stat_config)
+            if avg_val != "--":
+                avg_val = convert_display_value(avg_val, stat_config)
+            if max_val != "--":
+                max_val = convert_display_value(max_val, stat_config)
+            stat_precision = stat_config.get("display_precision")
+            if not isinstance(stat_precision, int):
+                stat_precision = 1
+
+            def _format_stat_value(stat_value):
+                try:
+                    return f"{float(stat_value):.{stat_precision}f}"
+                except Exception:
+                    return stat_value
+
+            min_val = _format_stat_value(min_val)
+            avg_val = _format_stat_value(avg_val)
+            max_val = _format_stat_value(max_val)
             min_ts = stat.get("min_ts", "--")
             max_ts = stat.get("max_ts", "--")
             if isinstance(min_ts, str):
                 min_ts = _format_stats_timestamp(min_ts)
             if isinstance(max_ts, str):
                 max_ts = _format_stats_timestamp(max_ts)
-            try:
-                avg_val = f"{float(avg_val):.1f}"
-            except Exception:
-                pass
-
             safe_metric = _safe(metric)
             safe_id = f"{sid}_{safe_metric}"
             metric_display_style = (
@@ -4574,6 +4591,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      return;"
     yield "    }"
     yield "    if (isNull) value = 0;"
+    yield "    const gaugeValue = convertForDisplay(value, config);"
     yield "    const opts = {"
     yield "      angle: -0.2, lineWidth: 0.25, radiusScale: 0.9,"
     yield "      pointer: { length: 0.5, strokeWidth: 0.035, color: '#000000' },"
@@ -4596,19 +4614,19 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "        gauge.maxValue = config.max;"
     yield "        gauge.setMinValue(config.min);"
     yield "        gauge.animationSpeed = 32;"
-    yield "        gauge.set(value);"
+    yield "        gauge.set(gaugeValue ?? 0);"
     yield "        gauge.render();"
     yield "        window[`${safe}_gauge`] = gauge;"
     yield "      } catch (e) {"
     yield "        console.warn('Gauge render failed, using fallback', safe, e);"
-    yield "        drawFallbackGauge(canvas, value, config);"
+    yield "        drawFallbackGauge(canvas, gaugeValue ?? 0, config);"
     yield "        window[`${safe}_gauge`] = null;"
     yield "      }"
     yield "    } else {"
-    yield "      drawFallbackGauge(canvas, value, config);"
+    yield "      drawFallbackGauge(canvas, gaugeValue ?? 0, config);"
     yield "      window[`${safe}_gauge`] = null;"
     yield "    }"
-    yield "    label.innerText = isNull ? '--' : value + ' ' + config.unit;"
+    yield "    label.innerText = isNull ? '--' : formatCurrentValue(value, config);"
     yield "    if (window.registerContainerStyle) {"
     yield "      const initialStyle = window.normalizeDisplayStyle(container.dataset.displayStyle || window.displayStyle || 'Gauge');"
     yield "      window.registerContainerStyle(container, initialStyle);"
@@ -4677,12 +4695,27 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  const n = Number.parseFloat(v);"
     yield "  return Number.isFinite(n) ? n.toFixed(1) : '--';"
     yield "}"
+    yield "function formatStatValue(value, config) {"
+    yield "  const converted = convertForDisplay(value, config);"
+    yield "  if (converted === null) return '--';"
+    yield "  const precision = Number.isInteger(config?.display_precision) ? config.display_precision : 1;"
+    yield "  return converted.toFixed(precision);"
+    yield "}"
     yield ""
+    yield "function convertForDisplay(value, config, rate = false) {"
+    yield "  if (value === null || value === undefined || value === '') return null;"
+    yield "  const numeric = Number(value);"
+    yield "  if (!Number.isFinite(numeric)) return null;"
+    yield "  const factor = Number(config?.display_factor ?? 1);"
+    yield "  const offset = rate ? 0 : Number(config?.display_offset ?? 0);"
+    yield "  return numeric * (Number.isFinite(factor) ? factor : 1) + (Number.isFinite(offset) ? offset : 0);"
+    yield "}"
     yield "function formatCurrentValue(value, config) {"
     yield "  const unit = (config && config.unit) || '';"
-    yield "  if (typeof value !== 'number') return '--';"
+    yield "  const converted = convertForDisplay(value, config);"
+    yield "  if (converted === null) return '--';"
     yield "  const precision = config && config.display_precision;"
-    yield "  const text = Number.isInteger(precision) ? value.toFixed(precision) : String(value);"
+    yield "  const text = Number.isInteger(precision) ? converted.toFixed(precision) : String(Number(converted.toFixed(2)));"
     yield "  return `${text} ${unit}`.trim();"
     yield "}"
     yield ""
@@ -4692,8 +4725,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  return text === 'Pressure' || text === 'Baro-Pressure' || text.endsWith(' Baro-Pressure');"
     yield "}"
     yield "function trendThresholds(metric) {"
-    yield "  if (pressureTrendMetric(metric)) return [.1, 1];"
     yield "  const config = gaugeConfig?.[metric] || {};"
+    yield "  if (pressureTrendMetric(metric)) return [.1, 1].map(v => Math.abs(convertForDisplay(v, config, true) ?? v));"
     yield "  const span = Math.max(.000001, Number(config.max ?? 100) - Number(config.min ?? 0));"
     yield "  return [span * .0025, span * .025];"
     yield "}"
@@ -4732,15 +4765,17 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "function applyTrendArrow(arrow, metric, trend) {"
     yield "  if (!arrow) return;"
     yield "  trend = trend || {};"
-    yield "  const hasTrend = Number.isFinite(Number(trend.rate_per_hour)) && Number(trend.samples || 0) >= 6;"
-    yield "  const score = hasTrend ? trendScore(metric, trend.rate_per_hour) : 0;"
+    yield "  const convertedRate = convertForDisplay(trend.rate_per_hour, gaugeConfig?.[metric] || {}, true);"
+    yield "  const displayTrend = { ...trend, rate_per_hour: convertedRate };"
+    yield "  const hasTrend = convertedRate !== null && Number(trend.samples || 0) >= 6;"
+    yield "  const score = hasTrend ? trendScore(metric, convertedRate) : 0;"
     yield "  const nextAngle = trendAngle(score);"
     yield "  const key = `${arrow.closest('.metric-container')?.dataset.sensor || ''}::${metric}`;"
     yield "  const previous = metricTrendAngles[key];"
     yield "  arrow.dataset.metric = metric;"
     yield "  arrow.style.opacity = hasTrend ? '1' : '.35';"
     yield "  arrow.style.transform = `rotate(${previous === undefined ? nextAngle : previous}deg)`;"
-    yield "  arrow.title = trendTitle(metric, trend, score);"
+    yield "  arrow.title = trendTitle(metric, displayTrend, score);"
     yield "  arrow.setAttribute('aria-label', arrow.title);"
     yield "  requestAnimationFrame(() => { arrow.style.transform = `rotate(${nextAngle}deg)`; });"
     yield "  metricTrendAngles[key] = nextAngle;"
@@ -5076,18 +5111,18 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "        drawCompassGauge(compassCanvas, val);"
     yield "      } else if (typeof val === 'number') {"
     yield "        if (g && typeof g.set === 'function') {"
-    yield "          try { g.set(val); } catch (e) { console.warn('Gauge set() failed', safe, e); }"
+    yield "          try { g.set(convertForDisplay(val, metricConfig) ?? 0); } catch (e) { console.warn('Gauge set() failed', safe, e); }"
     yield "        } else {"
-    yield "          drawFallbackGauge(document.getElementById(`${safe}Gauge`), val, metricConfig);"
+    yield "          drawFallbackGauge(document.getElementById(`${safe}Gauge`), convertForDisplay(val, metricConfig) ?? 0, metricConfig);"
     yield "        }"
     yield "      }"
     yield ""
     yield "      const stat = sset[statsMetric] || {};"
     yield "      const trendArrowEl = labelEl?.parentElement?.querySelector('.trend-arrow');"
     yield "      applyTrendArrow(trendArrowEl, statsMetric, stat.trend);"
-    yield "      const min = toFixedOrDash(stat.min);"
-    yield "      const avg = toFixedOrDash(stat.avg);"
-    yield "      const max = toFixedOrDash(stat.max);"
+    yield "      const min = formatStatValue(stat.min, valueConfig);"
+    yield "      const avg = formatStatValue(stat.avg, valueConfig);"
+    yield "      const max = formatStatValue(stat.max, valueConfig);"
     yield ""
     yield "      let min_ts = (stat.min_ts !== undefined && stat.min_ts !== null) ? String(stat.min_ts) : '--';"
     yield "      let max_ts = (stat.max_ts !== undefined && stat.max_ts !== null) ? String(stat.max_ts) : '--';"
@@ -5478,6 +5513,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const isSoilFertilityIndex = metricNorm === 'soil fertility index' || metricNorm.endsWith(' soil fertility index');"
     yield "    const isBarometricPressure = pressureTrendMetric(metricName);"
     yield "    const metricConfig = gaugeConfig?.[metricName] || gaugeConfig?.[metric] || (isSoilFertilityIndex ? gaugeConfig?.['Soil Fertility Index'] : null);"
+    yield "    const displayValues = values.map(value => convertForDisplay(value, metricConfig));"
+    yield "    const displayAvgVals = avgVals.map(value => convertForDisplay(value, metricConfig));"
     yield "    const metricUnit = String(metricConfig?.unit || '').trim();"
     yield "    const metricZones = Array.isArray(metricConfig?.zones) ? metricConfig.zones.map(z => ({"
     yield "      min: Number(z?.min),"
@@ -5572,12 +5609,12 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      return labels.map(ts => map.has(ts) ? map.get(ts) : null);"
     yield "    }"
     yield ""
-    yield "    const alignedAvg = _alignAvg(labels, avgTs, avgVals);"
+    yield "    const alignedAvg = _alignAvg(labels, avgTs, displayAvgVals);"
     yield "    const hasAvg = alignedAvg.length === labels.length && alignedAvg.some(v => v !== null && v !== undefined);"
     yield ""
     yield "    const sparseRadius = (labels.length <= 1) ? 2 : 0;"
     yield "    const datasets = [{"
-    yield "      data: values,"
+    yield "      data: displayValues,"
     yield "      borderColor: graphLineColor,"
     yield "      backgroundColor: 'rgba(255,255,255,1)',"
     yield "      order: 1,"
@@ -5963,6 +6000,18 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const host = document.querySelector('#modal-host') || document.body;"
     yield "    const old = document.getElementById('system-settings-root');"
     yield "    if (old) {"
+    yield "      try {"
+    yield "        const stateUrl = `/edit-system?embed=1&t=${Date.now()}`;"
+    yield "        const stateRes = await fetch(stateUrl, { cache: 'no-store' });"
+    yield "        if (stateRes.ok) {"
+    yield "          const stateDoc = new DOMParser().parseFromString(await stateRes.text(), 'text/html');"
+    yield "          const savedTheme = stateDoc.querySelector('input[name=\"weather_forecast_theme\"]:checked')?.value || '';"
+    yield "          const currentTheme = Array.from(old.querySelectorAll('input[name=\"weather_forecast_theme\"]')).find(input => input.value === savedTheme);"
+    yield "          if (currentTheme) currentTheme.checked = true;"
+    yield "        }"
+    yield "      } catch (stateErr) {"
+    yield "        console.warn('Failed to refresh General Settings state', stateErr);"
+    yield "      }"
     yield "      if (typeof window.openSetupModal === 'function') {"
     yield "        window.openSetupModal();"
     yield "      } else {"
@@ -7731,7 +7780,7 @@ def core_helpers_html() -> str:
         "</script>"
     )
 
-def render_graph_modal(switch_installed=None):
+def render_graph_modal(switch_installed=None, gauge_config=None):
     """Yield the graph and switch-event modal markup and scripts."""
     # Read tz offset/name from system settings for client display/normalization
     try:
@@ -8123,7 +8172,7 @@ def render_graph_modal(switch_installed=None):
     # Timezone injection
     yield f"const TZ_OFFSET_S = {tz_offset};"
     yield f"const TZ_NAME = {_json.dumps(tz_name)};"
-    yield f"const GRAPH_GAUGE_CONFIG = {_json.dumps(get_gauge_config())};"
+    yield f"const GRAPH_GAUGE_CONFIG = {_json.dumps(gauge_config or get_gauge_config())};"
 
     # Switch map injection
     if switch_map:
@@ -8179,6 +8228,17 @@ def render_graph_modal(switch_installed=None):
         }
       }
       return null;
+    }
+
+    function graphDisplayValue(value, metricName, rate){
+      if (value === null || value === undefined || value === '') return null;
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return null;
+      const entry = graphGaugeMetricEntry(metricName);
+      const cfg = (entry && entry.config) || {};
+      const factor = Number(cfg.display_factor === undefined ? 1 : cfg.display_factor);
+      const offset = rate ? 0 : Number(cfg.display_offset === undefined ? 0 : cfg.display_offset);
+      return numeric * (Number.isFinite(factor) ? factor : 1) + (Number.isFinite(offset) ? offset : 0);
     }
 
     function soilFertilityGaugeZones(metricName){
@@ -9065,10 +9125,13 @@ def render_graph_modal(switch_installed=None):
         const entry = series[k] || {};
         const ts   = entry.ts   || [];
         const vals = entry.vals || [];
+        const metricName = graphMetricNameFromKey(k);
+        const gaugeEntry = graphGaugeMetricEntry(metricName);
+        const metricUnit = String((gaugeEntry && gaugeEntry.config && gaugeEntry.config.unit) || '').trim();
         const points = [];
         for (let i = 0; i < ts.length; i++){
           const x = toLocalMs(ts[i]);
-          const y = Number(vals[i]);
+          const y = graphDisplayValue(vals[i], metricName, false);
           if (Number.isFinite(x) && Number.isFinite(y)){
             points.push({ x: x, y: y });
           }
@@ -9076,7 +9139,7 @@ def render_graph_modal(switch_installed=None):
         const yAxisID = leftAssigned ? 'y2' : 'y1';
         if (!leftAssigned) leftAssigned = true;
 
-        const metricZones = soilFertilityGaugeZones(graphMetricNameFromKey(k));
+        const metricZones = soilFertilityGaugeZones(metricName);
         if (metricZones && !gaugeZonesByAxis[yAxisID]) {
           gaugeZonesByAxis[yAxisID] = metricZones.zones;
           if (Number.isFinite(metricZones.min) && Number.isFinite(metricZones.max)) {
@@ -9086,11 +9149,11 @@ def render_graph_modal(switch_installed=None):
 
         const baseColor = baseColors[idx % baseColors.length];
         datasets.push({
-          label: (data.display_names && data.display_names[k]) || k,
+          label: ((data.display_names && data.display_names[k]) || k) + (metricUnit ? ' (' + metricUnit + ')' : ''),
           data: points,
           borderColor: baseColor,
           yAxisID: yAxisID,
-          pressureMetric: graphPressureMetric(graphMetricNameFromKey(k)),
+          pressureMetric: graphPressureMetric(metricName),
           order: 1,
           tension: 0.2,
           pointRadius: (points.length <= 1 ? 3 : 0),
@@ -9104,7 +9167,7 @@ def render_graph_modal(switch_installed=None):
           const rollPoints = [];
           for (let i = 0; i < rollTs.length; i++){
             const x = toLocalMs(rollTs[i]);
-            const y = Number(rollVals[i]);
+            const y = graphDisplayValue(rollVals[i], metricName, false);
             if (Number.isFinite(x) && Number.isFinite(y)){
               rollPoints.push({ x: x, y: y });
             }
@@ -9116,7 +9179,7 @@ def render_graph_modal(switch_installed=None):
               borderColor: 'purple',
               borderDash: [6, 3],
               yAxisID: yAxisID,
-              pressureMetric: graphPressureMetric(graphMetricNameFromKey(k)),
+              pressureMetric: graphPressureMetric(metricName),
               order: 2,
               tension: 0.2,
               pointRadius: (rollPoints.length <= 1 ? 3 : 0),
