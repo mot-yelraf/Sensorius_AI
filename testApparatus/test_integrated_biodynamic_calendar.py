@@ -141,6 +141,10 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
 
     assert 'id="dashboardReturn" href="/" aria-label="Return to Sensorius dashboard"' in template
     assert 'class="dashboard-return-spinner"' in template
+    assert '<span class="dashboard-close-icon" aria-hidden="true">&times;</span>' in template
+    assert '<span class="dashboard-return-label">Dashboard</span>' not in template
+    assert "right: 1rem;" in stylesheet
+    assert "border-radius: 50%;" in stylesheet
     assert '<footer class="bd-site-footer">' in template
     assert "Created by Peace Hill Studios" in template
     assert template.index('<footer class="bd-site-footer">') < template.index('id="bd-calendar-bootstrap"')
@@ -335,7 +339,7 @@ async def test_integrated_calendar_page_and_month_api_render(monkeypatch):
     assert page.status_code == 200
     assert '<a class="dashboard-return" id="dashboardReturn" href="/"' in page.text
     assert '<body class="sensorius-launch biodynamic-theme-garden-tools"' in page.text
-    assert '<span class="dashboard-return-label">Dashboard</span>' in page.text
+    assert '<span class="dashboard-close-icon" aria-hidden="true">&times;</span>' in page.text
     assert '/ui_static/biodynamic_calendar/bd-calendar-icon-512.svg' in page.text
     assert "Back to Sensorius" not in page.text
     assert "/ui_static/biodynamic_calendar/app.js" in page.text

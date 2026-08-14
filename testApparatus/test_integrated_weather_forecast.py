@@ -458,7 +458,8 @@ async def test_integrated_weather_routes_render_dashboard_and_namespaced_apis(mo
     assert page.headers["cache-control"] == "no-store, max-age=0"
     assert page.headers["pragma"] == "no-cache"
     assert 'class="dashboard-return"' in page.text
-    assert ">Dashboard<" in page.text
+    assert '<span class="dashboard-close-icon" aria-hidden="true">&times;</span>' in page.text
+    assert ">Dashboard<" not in page.text
     assert "System Settings" not in page.text
     assert "/ui_static/weather_forecast/app.js" in page.text
     assert "theme-river" in page.text

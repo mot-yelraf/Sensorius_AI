@@ -4,7 +4,7 @@
 
 # Sensorius User Guide
 
-Sensorius Automatio Instrumentorum, also called Sensorius AI or Sensorius, is an environmental sensing and automation hub for gardens, greenhouses, grow rooms, small farms, and other places where environmental conditions matter. It gives you live readings, historical graphs, switch control, calibration tools, optional integrations with Home Assistant, WeeWX, and farmOS, and a fully integrated biodynamic calendar.
+Sensorius Automatio Instrumentorum, also called Sensorius AI or Sensorius, is an environmental sensing and automation hub for gardens, greenhouses, grow rooms, small farms, and other places where environmental conditions matter. It gives you live readings, historical graphs, switch control, calibration tools, optional integrations with Home Assistant, WeeWX, and farmOS, and a fully integrated Biodynamic Calendar.
 
 Sensorius can run as a Raspberry Pi hub with directly connected sensors and relays, as well as Wi-Fi Nodus sensors and switches that communicate through MQTT. It can also run on macOS, Windows, or Linux as a hub for Wi-Fi Nodus sensors and switches. In normal use, both kinds of devices appear together on the same dashboard.
 
@@ -888,7 +888,7 @@ Use this pane when commands do not seem to reach a switch or when a remote relay
 Open **Sensorius Graphum** when you want to compare readings over time,
 investigate spikes, or see whether a switch action changed the environment.
 
-![Full-screen historical graph with the selector pane open](<../assets/screenshots/graph-fullscreen-selectors.png>)
+![Sensorius Graphum with the selector pane open and a selected Ambient VPD history](<../assets/screenshots/graph-fullscreen-selectors.png>)
 
 The full-screen graph displays up to four selected observations. The first selected metric uses the left axis, and additional metrics use the right axis. A switch channel counts as an observation and appears as ON/OFF transition markers. When average data is available, a purple dashed line labeled **Average** includes the arithmetic-average value for the selected visible window. The same value appears as a bold purple **Avg** tick at the line's height on its value axis. VPD graphs show VPD range coloring, and some metrics show gauge-zone background bands. These colored bands come from metric display zones, not automation thresholds.
 
@@ -958,8 +958,8 @@ Use switch overlays to answer practical questions: whether a fan cooled the gree
 
 Select **6 Day Forecast** on the dashboard forecast card to open the integrated
 Caelus full-screen weather display at
-`http://<sensorius-host>:8000/weather-forecast`. **Dashboard** in the top-left
-returns to the Sensorius dashboard.
+`http://<sensorius-host>:8000/weather-forecast`. Select the circled **×** in the
+upper-right to close the forecast and return to the Sensorius dashboard.
 
 ![Current Weather Forecast overview with current readings, forecast, sunlight, and regional radar](<../assets/screenshots/weather-forecast-overview.png>)
 
@@ -1006,9 +1006,9 @@ daily conditions, temperature, relative humidity, wind, and rain or snow chance.
 
 ![Detailed six-day weather outlook](<../assets/screenshots/weather-forecast-caelus-six-day.png>)
 
-## BD Calendar
+## Biodynamic Calendar
 
-Sensorius includes the full BD Calendar application. It runs in the Sensorius web process and opens as a full-screen page when the dashboard **Calendar** button is selected.
+Sensorius includes the full Biodynamic Calendar application. It runs in the Sensorius web process and opens as a full-screen page when the dashboard **Calendar** button is selected.
 
 The built-in month view includes a color legend for Root, Leaf, Flower, Fruit,
 Rest, and Transition periods above the calendar grid.
@@ -1016,8 +1016,8 @@ Rest, and Transition periods above the calendar grid.
 The calendar uses Sensorius Astral settings for latitude, longitude, altitude,
 and timezone. Notes, summaries, planting records, and computed cache entries
 are stored in the Sensorius SQLite database. It is available at
-`http://<sensorius-host>:8000/calendar`; **Dashboard** in the top-left returns
-to the dashboard.
+`http://<sensorius-host>:8000/calendar`; select the circled **×** in the
+upper-right to close the calendar and return to the dashboard.
 
 ### Full-Screen Calendar
 
@@ -1030,7 +1030,7 @@ The full-screen calendar shows:
 - Daily Summary for the selected day.
 - Daily Notes for the selected day.
 - Save Note.
-- Print Report for the selected month calendar with dated BD hints, cached daily summaries, and notes.
+- Print Report for the selected month calendar with dated biodynamic hints, cached daily summaries, and notes.
 
 ### Printing Calendar Reports
 
@@ -1054,9 +1054,9 @@ generate summaries for their default day. For the current day, the summary may
 include a **24hr Forecast** section if weather forecast data is enabled in
 General Settings.
 
-The dashboard BD card remains available for a quick current-status view. The Calendar button opens the full application for month planning, planting records, notes, daily guidance, and reports.
+The dashboard Biodynamic Calendar card remains available for a quick current-status view. The Calendar button opens the full application for month planning, planting records, notes, daily guidance, and reports.
 
-### Integrated BD Calendar Features
+### Integrated Biodynamic Calendar Features
 
 ![Current Biodynamic Calendar overview](<../assets/screenshots/biodynamic-calendar-overview.png>)
 
@@ -1095,7 +1095,7 @@ Companion app fields and controls:
 - **Save Note**: stores the note for that date.
 - **Print**: prints the selected calendar/report view.
 
-No separate BD Calendar service, port, database path environment variable, or startup entry is required.
+No separate Biodynamic Calendar service, port, database path environment variable, or startup entry is required.
 
 ## Good Operating Habits
 

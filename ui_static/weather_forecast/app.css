@@ -149,37 +149,37 @@ a { color: inherit; }
 .dashboard-return {
   position: fixed;
   top: 1rem;
-  left: 1rem;
+  right: 1rem;
   z-index: 20;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 7.4rem;
-  min-height: 2.65rem;
-  padding: 0.55rem 0.85rem;
+  width: 2.75rem;
+  height: 2.75rem;
   border: 1px solid var(--line);
+  border-radius: 50%;
   background: var(--glass-strong);
   box-shadow: 0 10px 30px rgba(1, 17, 21, 0.3);
   color: var(--ink);
-  font-size: 0.72rem;
+  font-size: 1.8rem;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  line-height: 1;
   text-decoration: none;
-  text-transform: uppercase;
   backdrop-filter: blur(14px);
 }
 .dashboard-return:hover { border-color: var(--accent); }
+.dashboard-close-icon { transform: translateY(-1px); }
 .dashboard-return-spinner {
   display: none;
   width: 0.8rem;
   height: 0.8rem;
-  margin-right: 0.45rem;
   border: 2px solid rgba(255,255,255,.35);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: weather-return-spin .7s linear infinite;
 }
 .dashboard-return.is-loading .dashboard-return-spinner { display: inline-block; }
+.dashboard-return.is-loading .dashboard-close-icon { display: none; }
 @keyframes weather-return-spin { to { transform: rotate(360deg); } }
 .brand {
   display: inline-flex;

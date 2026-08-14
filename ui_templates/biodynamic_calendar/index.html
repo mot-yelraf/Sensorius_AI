@@ -10,7 +10,7 @@
 <body class="{% if sensorius_launch %}sensorius-launch {% endif %}biodynamic-theme-{{ biodynamic_calendar_theme | default('leaf') | replace('_', '-') }}" data-runtime-instance-id="{{ runtime_instance_id | default('') }}">
   <a class="dashboard-return" id="dashboardReturn" href="/" aria-label="Return to Sensorius dashboard">
     <span class="dashboard-return-spinner" aria-hidden="true"></span>
-    <span class="dashboard-return-label">Dashboard</span>
+    <span class="dashboard-close-icon" aria-hidden="true">&times;</span>
   </a>
   <main class="page">
     <header class="standalone-app-header">

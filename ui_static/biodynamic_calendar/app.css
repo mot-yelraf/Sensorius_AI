@@ -63,20 +63,24 @@ body.biodynamic-theme-white {
 .dashboard-return {
   position: fixed;
   top: 1rem;
-  left: 1rem;
+  right: 1rem;
   z-index: 1002;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  border-radius: 6px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
   background: #000;
   color: #fff;
-  padding: 10px 20px;
-  font-size: 16px;
+  font-size: 30px;
   font-weight: 700;
-  line-height: normal;
+  line-height: 1;
   text-decoration: none;
+}
+
+.dashboard-close-icon {
+  transform: translateY(-1px);
 }
 
 .dashboard-return-spinner {
@@ -96,6 +100,10 @@ body.biodynamic-theme-white {
 
 .dashboard-return.is-loading .dashboard-return-spinner {
   display: inline-block;
+}
+
+.dashboard-return.is-loading .dashboard-close-icon {
+  display: none;
 }
 
 .dashboard-return:hover,
