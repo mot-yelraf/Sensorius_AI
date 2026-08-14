@@ -5154,6 +5154,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  if (dataChanged && typeof window.refreshAllMicrographs === 'function') {"
     yield "    window.refreshAllMicrographs(true, { ignoreModal });"
     yield "  }"
+    yield "  if (dataChanged && typeof window.notifyFullscreenGraphDataChanged === 'function') {"
+    yield "    window.notifyFullscreenGraphDataChanged('sensor');"
+    yield "  }"
     yield "  finishUpdateGaugesRun(finishOptions, { ok: true });"
     yield ""
     yield "}"
@@ -6963,6 +6966,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "          const label = uiKey.includes('::') ? uiKey.split('::')[1] : (key.includes('::') ? key.split('::')[1] : key);"
     yield "          const data  = { state: !!msg.state, time: [], timer_seconds: msg.timer_seconds, timer_deadline_epoch: msg.timer_deadline_epoch, timer_remaining_s: msg.timer_remaining_s, ui_key: uiKey };"
     yield "          updateSwitchVisuals(label, data, uiKey);"
+    yield "          if (typeof window.notifyFullscreenGraphDataChanged === 'function') window.notifyFullscreenGraphDataChanged('switch');"
     yield "          if (typeof appendSwitchEventLine === 'function'){"
     yield "            const srcRaw = String(msg.source || '').trim();"
     yield "            const src = srcRaw.toLowerCase();"
@@ -7817,16 +7821,77 @@ def render_graph_modal(switch_installed=None, gauge_config=None):
     .blue{background:#2259f2;color:#fff}.blue:hover{background:blue}
 
     #fullscreen_graph_container {
-      display: none; position: fixed; top:0; left:0; width:100%; height:100vh;
-      background:white; z-index:1001; flex-direction:column; justify-content:flex-start;
-      padding:4.25rem 1rem 3.5rem 1rem; overflow:hidden; box-sizing:border-box;
+      display:none; position:fixed; inset:0; width:100%; height:100dvh;
+      background:#f7faf8; z-index:1001; flex-direction:column; overflow:hidden;
+      box-sizing:border-box; color:#173f35;
     }
+    .fullscreen-graph-header{
+      flex:0 0 auto; min-height:74px; padding:.8rem 1.25rem;
+      background:#174f43; color:#fff; display:flex; align-items:center;
+      justify-content:space-between; gap:1rem; box-sizing:border-box;
+      border-bottom:3px solid #d7e9df;
+    }
+    .fullscreen-graph-title{ margin:0; color:#fff; font-size:1.65rem; line-height:1.05; }
     #fullscreen_graph_dashboard{
-      position:absolute;
-      top:1rem;
-      left:1rem;
-      z-index:1002;
-      margin:0;
+      width:44px; height:44px; margin:0; padding:0; border-radius:50%;
+      border:1px solid rgba(255,255,255,.38); background:rgba(255,255,255,.08);
+      color:#fff; font-size:1.75rem; line-height:1; display:grid; place-items:center;
+    }
+    .fullscreen-graph-body{ flex:1; min-height:0; display:flex; }
+    .fullscreen-graph-controls{
+      flex:0 0 330px; width:330px; min-width:260px; background:#eef5f0;
+      border-right:1px solid #cbdcd2; overflow:auto; box-sizing:border-box;
+    }
+    .graph-control-section{ padding:1rem; border-bottom:1px solid #cbdcd2; }
+    .graph-control-heading{
+      display:flex; align-items:center; justify-content:space-between; gap:.5rem;
+      margin:0 0 .7rem; font-size:1rem; color:#214b40;
+    }
+    #graphSelectionCount{ font-size:.78rem; font-weight:700; color:#61796f; }
+    .fullscreen-time-grid{ display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:.4rem; }
+    .fullscreen-time-grid label{ min-width:0; }
+    .fullscreen-time-grid input{ position:absolute; opacity:0; pointer-events:none; }
+    .fullscreen-time-grid span{
+      min-height:34px; padding:.3rem .15rem; border:1px solid #b9cec2; background:#fff;
+      display:grid; place-items:center; box-sizing:border-box; cursor:pointer;
+      font-size:.78rem; font-weight:700; color:#36574e;
+    }
+    .fullscreen-time-grid input:checked + span{ background:#287d63; border-color:#287d63; color:#fff; }
+    #custom_time_inputs{ margin-top:.55rem; }
+    #custom_time_inputs input{ width:100%; min-width:0; box-sizing:border-box; }
+    .fullscreen-astral-field{ margin-top:.65rem; display:grid; grid-template-columns:auto 1fr; gap:.5rem; align-items:center; }
+    .fullscreen-astral-field select{ min-width:0; width:100%; }
+    .graph-option-list{ display:flex; flex-direction:column; gap:.42rem; }
+    .graph-option-group{ border:1px solid #c7d9cf; background:#fff; border-radius:6px; overflow:hidden; }
+    .graph-option-group summary{
+      cursor:pointer; padding:.6rem .7rem; font-weight:700; list-style:none;
+      display:flex; align-items:center; justify-content:space-between;
+    }
+    .graph-option-heading{ display:flex; align-items:baseline; gap:.5rem; min-width:0; }
+    .graph-option-device-id{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .graph-option-location{ color:#61796f; font-size:.76rem; font-weight:600; white-space:nowrap; }
+    .graph-option-group summary::-webkit-details-marker{ display:none; }
+    .graph-option-group summary::after{ content:'+'; font-size:1.15rem; color:#287d63; }
+    .graph-option-group[open] summary::after{ content:'−'; }
+    .graph-option-items{ border-top:1px solid #dbe7e0; }
+    .graph-option-item{
+      display:flex; gap:.55rem; align-items:flex-start; padding:.55rem .7rem;
+      border-bottom:1px solid #e3ece7; cursor:pointer; font-size:.86rem;
+    }
+    .graph-option-item:last-child{ border-bottom:0; }
+    .graph-option-item:hover{ background:#f5faf7; }
+    .graph-option-item input{ margin-top:.12rem; accent-color:#35ad86; }
+    .graph-control-note{ margin:.65rem 0 0; color:#61796f; font-size:.77rem; line-height:1.35; }
+    .fullscreen-graph-main{ flex:1; min-width:0; min-height:0; padding:1rem; display:flex; flex-direction:column; }
+    .fullscreen-graph-summary{
+      flex:0 0 auto; min-height:42px; display:flex; align-items:center;
+      justify-content:space-between; gap:1rem; margin-bottom:.5rem;
+    }
+    #fullscreenGraphRangeTitle{ margin:0; font-size:1.3rem; color:#214b40; }
+    #fullscreenSelectedChips{ display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.35rem; }
+    .fullscreen-selection-chip{
+      border:1px solid #c3d8cc; border-radius:999px; background:#fff; padding:.28rem .55rem;
+      font-size:.72rem; color:#36574e; max-width:230px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
     }
     #fullscreen_graph_stack{
       flex:1;
@@ -7842,7 +7907,7 @@ def render_graph_modal(switch_installed=None, gauge_config=None):
       min-height:0;
       width:100%;
     }
-    #fullscreen_data_panel{ flex:1 1 auto; }
+    #fullscreen_data_panel{ flex:1 1 auto; background:#fff; border:1px solid #cbdcd2; border-radius:8px; padding:.35rem; }
     #fullscreen_astral_panel{
       display:none;
       flex:0 0 clamp(120px, 18vh, 190px);
@@ -7856,7 +7921,6 @@ def render_graph_modal(switch_installed=None, gauge_config=None):
       flex:1 1 auto;
       min-height:0;
     }
-    #fullscreen_graph_container.has-astral{ padding-bottom:3.5rem; }
     #fullscreen_graph_container.has-astral #fullscreen_astral_panel{ display:block; }
     #fullscreen_graph,
     #fullscreen_astral_graph{
@@ -7864,114 +7928,6 @@ def render_graph_modal(switch_installed=None, gauge_config=None):
       height:100% !important;
       display:block;
     }
-    #graphModal {
-      display:none; position:fixed; top:0; left:0; width:100%; height:100%;
-      background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;
-    }
-    #graphModal .modal-content {
-      background:#F5FFFA; padding:1rem; border-radius:14px;
-      box-shadow:0 10px 30px rgba(0,0,0,.18);
-      width:fit-content; max-width:96vw; max-height:90%; overflow:hidden;
-      display:grid; grid-template-columns: minmax(200px, 240px) minmax(400px, 520px); gap:1rem;
-      box-sizing:border-box;
-    }
-    #graphModal .graph-left-pane,
-    #graphModal .graph-right-pane{
-      border:1px solid #d6dfd8;
-      border-radius:10px;
-      background:#ffffff;
-      min-height:560px;
-      display:flex;
-      flex-direction:column;
-      overflow:hidden;
-    }
-    #graphModal .graph-left-pane{ background:#ecf5ee; }
-    #graphModal .graph-pane-title{
-      margin:0; padding:0.85rem 1rem; font-size:1rem; font-weight:700;
-      border-bottom:1px solid #e6ece8;
-    }
-    #graphSetupList{
-      flex:1;
-      overflow:auto;
-      padding:0.65rem;
-      display:flex;
-      flex-direction:column;
-      gap:0.45rem;
-    }
-    #graphSetupList .setup-item{
-      border:1px solid #d8e5df;
-      border-radius:8px;
-      padding:0.55rem 0.65rem;
-      background:#fff;
-      text-align:left;
-      cursor:pointer;
-      font-size:0.92rem;
-      line-height:1.25;
-    }
-    #graphSetupList .setup-item:hover{ background:#fff; border-color:#d6dfd8; }
-    #graphSetupList .setup-item.active{ background:#dce9ff; border-color:#afc8f7; font-weight:700; }
-    #graphSetupList .setup-empty{
-      font-size:0.9rem;
-      color:#5f7469;
-      padding:0.4rem;
-    }
-    #graphModal .graph-left-footer{
-      border-top:1px solid #e6ece8;
-      padding:0.65rem;
-      display:flex;
-      justify-content:center;
-    }
-    #graphModal .graph-left-footer .button{
-      margin:0;
-      width:100%;
-      max-width:180px;
-    }
-    #graphModal .graph-right-body{
-      flex:1;
-      overflow:auto;
-      padding:0.7rem 1rem 0.45rem 1rem;
-    }
-    #graphModal .graph-actions{
-      border-top:1px solid #e6ece8;
-      padding:0.75rem 1rem;
-      display:flex;
-      justify-content:space-between;
-      gap:0.6rem;
-      align-items:center;
-    }
-    #graphModal .graph-actions .button{ margin:0; }
-    .spinner{
-      width:16px;height:16px;border:2px solid #ccc;border-top:2px solid #333;border-radius:50%;
-      animation:spin 1s linear infinite; display:inline-block;vertical-align:middle
-    }
-    #graphButton:disabled{ opacity:.55; cursor:not-allowed; }
-    @keyframes spin { to{ transform:rotate(360deg) } }
-
-    .axis-grid{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:.35rem .8rem;
-      margin-bottom:.5rem
-    }
-    .axis-grid h3{grid-column:1/3;margin:.05rem 0 .1rem 0;font-size:1rem}
-    .axis-grid label{font-size:.88rem}
-    #graphModal select,
-    #graphModal input[type='datetime-local']{
-      font-size:.92rem;
-      padding:.32rem .45rem;
-      min-height:2.1rem;
-      box-sizing:border-box;
-    }
-    #graphModal label{font-size:.88rem;line-height:1.2}
-    .graph-section{margin:.5rem 0 .4rem 0}
-    .graph-section-label{
-      margin:0 0 .25rem 0;
-      font-size:.9rem;
-      font-weight:700;
-      color:#657080;
-    }
-    .time-range-grid{display:flex;flex-direction:column;gap:.28rem;margin-bottom:.25rem}
-    .time-range-row{display:flex;flex-wrap:wrap;gap:.38rem .7rem;align-items:center}
     .custom-time-inputs{
       display:grid;
       grid-template-columns:auto minmax(0, 1fr);
@@ -7979,76 +7935,65 @@ def render_graph_modal(switch_installed=None, gauge_config=None):
       align-items:center;
       margin-top:.35rem;
     }
-    .astral-field{
-      display:grid;
-      grid-template-columns:auto minmax(150px, 220px);
-      gap:.5rem;
-      align-items:center;
-      margin:.45rem 0 .35rem 0;
-    }
-    .astral-field .graph-section-label{margin:0}
-    @media (max-width: 980px){
-      #graphModal .modal-content{
-        grid-template-columns: 1fr;
-        max-width: 96%;
-      }
-      #graphModal .graph-left-pane,
-      #graphModal .graph-right-pane{
-        min-height: auto;
-      }
-      #graphSetupList{ max-height:220px; }
+    #graphLoadingState{ display:none; color:#61796f; font-size:.8rem; }
+    @media (max-width: 760px){
+      .fullscreen-graph-body{ flex-direction:column; overflow:auto; }
+      .fullscreen-graph-controls{ flex:0 0 auto; width:100%; max-height:43dvh; border-right:0; border-bottom:1px solid #cbdcd2; }
+      .fullscreen-graph-main{ min-height:54dvh; }
+      .fullscreen-graph-summary{ align-items:flex-start; flex-direction:column; gap:.35rem; }
+      #fullscreenSelectedChips{ justify-content:flex-start; }
     }
     </style>
     """
 
-    # ---------- Modal shell ----------
-    yield "<div id='graphModal' class='modal'>"
-    yield "  <div class='modal-content'>"
-    yield "    <div class='graph-left-pane'>"
-    yield "      <h3 class='graph-pane-title'>Saved Graph Setups</h3>"
-    yield "      <div id='graphSetupList'></div>"
-    yield "      <div class='graph-left-footer'>"
-    yield "        <button id='graphSetupRemoveBtn' class='button red' title='Remove graph setup' onclick='removeGraphSetup()' disabled>Remove</button>"
-    yield "      </div>"
-    yield "    </div>"
-    yield "    <div class='graph-right-pane'>"
-    yield "      <h2 class='graph-pane-title' style='text-align:center;'>Graph Sensor Metrics</h2>"
-    yield "      <div class='graph-right-body'>"
+    # Switch selections are materialized with the page so remote and local
+    # channel labels share the same canonical settings-manager path.
+    switch_map: dict[str, list[str]] = {}
+    if switch_installed:
+        try:
+            from .saiSwitchSettingsManager import SwitchSettingsManager
 
-    # Axis pickers
-    yield "    <div class='axis-grid'>"
-    yield "      <h3>Left Y-Axis</h3>"
-    yield "      <select id='sensor1_select' style='width:100%'></select>"
-    yield "      <select id='metric1_select' style='width:100%'></select>"
-    yield "      <h3>Right Y-Axis A</h3>"
-    yield "      <select id='sensor2_select' style='width:100%'></select>"
-    yield "      <select id='metric2_select' style='width:100%'></select>"
-    yield "      <h3>Right Y-Axis B</h3>"
-    yield "      <select id='sensor3_select' style='width:100%'></select>"
-    yield "      <select id='metric3_select' style='width:100%'></select>"
-    yield "    </div>"
+            sw_mgr = SwitchSettingsManager("switch_settings")
+            for sid in sw_mgr.list_switches() or []:
+                try:
+                    doc = sw_mgr.load(sid) or {}
+                    if hasattr(sw_mgr, "get_switch_channel_names"):
+                        labels = list(sw_mgr.get_switch_channel_names(doc) or [])
+                    else:
+                        swblk = (doc or {}).get("Switch", {}) if isinstance(doc, dict) else {}
+                        labels = []
+                        for i in range(1, 7):
+                            label = str(swblk.get(f"SWITCH_{i}_LABEL", "") or "").strip()
+                            enabled = str(
+                                swblk.get(f"SWITCH_{i}_ENABLE_PIN", swblk.get(f"SWITCH_{i}_EN", ""))
+                                or ""
+                            ).strip()
+                            pin = str(swblk.get(f"SWITCH_{i}_PIN", "") or "").strip()
+                            if label and (enabled or pin):
+                                labels.append(label)
+                    if labels:
+                        switch_map[sid] = labels
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
-    # Time ranges
-    yield "    <div class='graph-section time-range-block'>"
-    yield "      <div class='graph-section-label'>Time Range:</div>"
-    yield "      <div class='time-range-grid'>"
+    # The former graph-setup dialog is intentionally replaced by the full-screen
+    # workspace. Selections in this pane are live and are not persisted as sets.
+    yield "<div id='fullscreen_graph_container' aria-label='Sensorius Graphum workspace'>"
+    yield "  <header class='fullscreen-graph-header'>"
+    yield "    <h1 class='fullscreen-graph-title'>Sensorius Graphum</h1>"
+    yield "    <button id='fullscreen_graph_dashboard' title='Return to dashboard' onclick='closeFullscreenGraph()' type='button' aria-label='Return to dashboard'>&times;</button>"
+    yield "  </header>"
+    yield "  <div class='fullscreen-graph-body'>"
+    yield "    <aside class='fullscreen-graph-controls' aria-label='Graph selections'>"
+    yield "      <section class='graph-control-section'>"
+    yield "        <h2 class='graph-control-heading'>Time range</h2>"
+    yield "        <div class='fullscreen-time-grid'>"
     range_rows = [
-        [
-            ("1Hr", "1h"),
-            ("3Hr", "3h"),
-            ("6Hr", "6h"),
-            ("12Hr", "12h"),
-            ("24Hr", "24h"),
-            ("3Day", "3d"),
-            ("7Day", "7d"),
-            ("14Day", "14d"),
-        ],
-        [
-            ("30Day", "30d"),
-            ("60Day", "60d"),
-            ("90Day", "90d"),
-            ("Custom", "custom"),
-        ],
+        [("1Hr", "1h"), ("3Hr", "3h"), ("6Hr", "6h"), ("12Hr", "12h")],
+        [("24Hr", "24h"), ("3Day", "3d"), ("7Day", "7d"), ("14Day", "14d")],
+        [("30Day", "30d"), ("60Day", "60d"), ("90Day", "90d"), ("Custom", "custom")],
     ]
 
     def _range_visible(value: str) -> bool:
@@ -8059,115 +8004,56 @@ def render_graph_modal(switch_installed=None, gauge_config=None):
         visible_options = [(label, val) for label, val in range_options if val == "custom" or _range_visible(val)]
         if not visible_options:
             continue
-        yield "        <div class='time-range-row'>"
         for label, val in visible_options:
             checked_attr = " checked" if val == "24h" else ""
             custom_flag = "true" if val == "custom" else "false"
             yield (
-                f"          <label><input type='radio' name='range' value='{val}'"
-                f"{checked_attr} onchange='toggleCustomTime({custom_flag})'>{label}</label>"
+                f"          <label><input type='radio' name='range' value='{val}'{checked_attr} "
+                f"onchange='toggleCustomTime({custom_flag}); scheduleFullscreenGraphRefresh()'>"
+                f"<span>{label}</span></label>"
             )
-        yield "        </div>"
-    yield "      </div>"
-    yield "      <div id='custom_time_inputs' class='custom-time-inputs' style='display:none;'>"
+    yield "        </div>"
+    yield "        <div id='custom_time_inputs' class='custom-time-inputs' style='display:none;'>"
     yield "        <label for='start_time'>Start:</label><input type='datetime-local' id='start_time'>"
     yield "        <label for='end_time'>End:</label><input type='datetime-local' id='end_time'>"
-    yield "      </div>"
-    yield "    </div>"
-
-    yield "    <div class='graph-section astral-field'>"
-    yield "      <label for='astral_select' class='graph-section-label'>Astral:</label>"
-    yield "      <select id='astral_select' title='Astral graph selection'>"
+    yield "        </div>"
+    yield "        <div class='fullscreen-astral-field'>"
+    yield "          <label for='astral_select'>Astral</label>"
+    yield "          <select id='astral_select' title='Astral graph selection' onchange='scheduleFullscreenGraphRefresh()'>"
     yield "        <option value='none'>None</option>"
     yield "        <option value='sun'>Sun</option>"
     yield "        <option value='moon'>Moon</option>"
     yield "        <option value='sun_moon'>Sun &amp; Moon</option>"
-    yield "      </select>"
-    yield "    </div>"
-
-    # ---------- Switch section ----------
-    switch_map: dict[str, list[str]] = {}
-    if switch_installed:
-        try:
-            from .saiSwitchSettingsManager import SwitchSettingsManager
-
-            sw_mgr = SwitchSettingsManager("switch_settings")
-            sw_ids = sw_mgr.list_switches() or []
-            for sid in sw_ids:
-                try:
-                    doc = sw_mgr.load(sid) or {}
-                    if hasattr(sw_mgr, "get_switch_channel_names"):
-                        labels = list(sw_mgr.get_switch_channel_names(doc) or [])
-                    else:
-                        swblk = (doc or {}).get("Switch", {}) if isinstance(doc, dict) else {}
-                        labels: list[str] = []
-                        for i in range(1, 7):
-                            lab = str(swblk.get(f"SWITCH_{i}_LABEL", "") or "").strip()
-                            en = str(
-                                swblk.get(f"SWITCH_{i}_ENABLE_PIN", swblk.get(f"SWITCH_{i}_EN", ""))
-                                or ""
-                            ).strip()
-                            pin = str(swblk.get(f"SWITCH_{i}_PIN", "") or "").strip()
-                            if lab and (en or pin):
-                                labels.append(lab)
-                    if labels:
-                        switch_map[sid] = labels
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        yield "    <div id='switch_lines_section' style='margin:1rem 0;'>"
-        yield "      <div style='margin-bottom:0.4rem;'>Switch Transitions:</div>"
-        if switch_map:
-            yield "      <label for='switch_select'>Switch:</label>"
-            yield "      <select id='switch_select' style='width:100%; margin-bottom:0.5rem;'></select>"
-            yield "      <div id='channel_checkboxes' style='display:flex; flex-wrap:wrap; gap:0.75rem;'></div>"
-        else:
-            yield "      <div style='opacity:0.8;'>No switches found.</div>"
-        yield "    </div>"
-
-    # Footer bar
+    yield "          </select>"
+    yield "        </div>"
+    yield "      </section>"
+    yield "      <section class='graph-control-section'>"
+    yield "        <h2 class='graph-control-heading'><span>Sensors &amp; metrics</span><span id='graphSelectionCount'>0 of 4</span></h2>"
+    yield "        <div id='fullscreenSensorOptions' class='graph-option-list'><div class='graph-control-note'>Loading sensors…</div></div>"
+    yield "      </section>"
+    yield "      <section class='graph-control-section'>"
+    yield "        <h2 class='graph-control-heading'>Switches</h2>"
+    yield "        <div id='fullscreenSwitchOptions' class='graph-option-list'></div>"
+    yield "        <p class='graph-control-note'>Select up to four observations total. Switches appear as ON/OFF transition markers.</p>"
+    yield "      </section>"
+    yield "    </aside>"
+    yield "    <main class='fullscreen-graph-main'>"
+    yield "      <div class='fullscreen-graph-summary'>"
+    yield "        <div><h2 id='fullscreenGraphRangeTitle'>Last 24 hours</h2><span id='graphLoadingState'>Updating graph…</span></div>"
+    yield "        <div id='fullscreenSelectedChips' aria-live='polite'></div>"
     yield "      </div>"
-    yield "    <div class='graph-actions'>"
-    yield (
-        "      <button class='button black' title='Close graph setup' "
-        "onclick=\"document.getElementById('graphModal').style.display='none'\">Dashboard</button>"
-    )
-    yield "      <button id='graphSaveButton' class='button green' title='Save graph setup' onclick='saveGraphSetup(event)'>Save</button>"
-    yield "      <button id='graphButton' class='button blue' title='Select at least one sensor and metric' onclick='loadGraph(event)' disabled>"
-    yield "        <span class='spinner' style='display:none;margin-right:6px;'></span>"
-    yield "        <span class='button-text'>Graph It</span>"
-    yield "      </button>"
-    yield "    </div>"
-    yield "    </div>"
+    yield "      <div id='fullscreen_graph_stack'>"
+    yield "        <div id='fullscreen_data_panel' class='fullscreen-chart-panel'><canvas id='fullscreen_graph'></canvas></div>"
+    yield "        <div id='fullscreen_astral_panel' class='fullscreen-chart-panel'><canvas id='fullscreen_astral_graph' aria-label='Astral sun and moon position graph'></canvas></div>"
+    yield "      </div>"
+    yield "      <div id='switch_legend' style='display:flex; flex-wrap:wrap; justify-content:center; gap:1rem; margin-top:.45rem;'></div>"
+    yield "    </main>"
     yield "  </div>"
     yield "</div>"
 
-    # ---------- Fullscreen canvas ----------
-    yield """
-    <div id="fullscreen_graph_container">
-        <button id="fullscreen_graph_dashboard" class="button black"
-                title="Return to dashboard"
-                onclick="closeFullscreenGraph()"
-                type="button">
-            Dashboard
-        </button>
-        <div id="fullscreen_graph_stack">
-            <div id="fullscreen_data_panel" class="fullscreen-chart-panel">
-                <canvas id="fullscreen_graph"></canvas>
-            </div>
-            <div id="fullscreen_astral_panel" class="fullscreen-chart-panel">
-                <canvas id="fullscreen_astral_graph" aria-label="Astral sun and moon position graph"></canvas>
-            </div>
-        </div>
-        <div id="switch_legend" style="display:flex; justify-content:center; gap:1rem; margin-bottom:0.5rem;"></div>
-    </div>
-    """
-
     # ---------- Scripts ----------
     yield "<script>"
-    yield "function toggleCustomTime(enabled){ document.getElementById('custom_time_inputs').style.display = enabled ? 'grid' : 'none'; }"
+    yield "function toggleCustomTime(enabled){ const el = document.getElementById('custom_time_inputs'); if(el) el.style.display = enabled ? 'grid' : 'none'; }"
 
     # Timezone injection
     yield f"const TZ_OFFSET_S = {tz_offset};"
@@ -8732,6 +8618,321 @@ def render_graph_modal(switch_installed=None, gauge_config=None):
         });
     }
 
+    const FULLSCREEN_GRAPH_SELECTION_LIMIT = 4;
+    let fullscreenGraphRefreshTimer = null;
+    let fullscreenGraphRequestToken = 0;
+    let fullscreenGraphOptionsReady = false;
+    let fullscreenGraphAbortController = null;
+    let fullscreenGraphRealtimeTimer = null;
+
+    function selectedFullscreenMetrics(){
+      return Array.from(document.querySelectorAll('.fullscreen-metric-checkbox:checked')).map(function(cb){
+        return {
+          sensor: String(cb.getAttribute('data-sensor') || ''),
+          metric: String(cb.getAttribute('data-metric') || ''),
+          label: String(cb.getAttribute('data-display-label') || cb.getAttribute('data-metric') || '')
+        };
+      });
+    }
+
+    function selectedFullscreenSwitches(){
+      return Array.from(document.querySelectorAll('.fullscreen-switch-checkbox:checked')).map(function(cb){
+        return {
+          switchId: String(cb.getAttribute('data-switch-id') || ''),
+          channel: String(cb.getAttribute('data-channel') || ''),
+          label: String(cb.getAttribute('data-display-label') || cb.getAttribute('data-channel') || '')
+        };
+      });
+    }
+
+    function fullscreenSelectionTotal(){
+      return selectedFullscreenMetrics().length + selectedFullscreenSwitches().length;
+    }
+
+    function updateFullscreenSelectionUi(){
+      const metrics = selectedFullscreenMetrics();
+      const switches = selectedFullscreenSwitches();
+      const total = metrics.length + switches.length;
+      const count = document.getElementById('graphSelectionCount');
+      if(count) count.textContent = String(total) + ' of ' + String(FULLSCREEN_GRAPH_SELECTION_LIMIT);
+      document.querySelectorAll('.fullscreen-metric-checkbox, .fullscreen-switch-checkbox').forEach(function(cb){
+        cb.disabled = total >= FULLSCREEN_GRAPH_SELECTION_LIMIT && !cb.checked;
+      });
+      const chips = document.getElementById('fullscreenSelectedChips');
+      if(chips){
+        chips.innerHTML = '';
+        metrics.concat(switches).forEach(function(item){
+          const chip = document.createElement('span');
+          chip.className = 'fullscreen-selection-chip';
+          chip.textContent = item.label;
+          chip.title = item.label;
+          chips.appendChild(chip);
+        });
+      }
+    }
+
+    function handleFullscreenSelectionChange(checkbox){
+      if(checkbox && checkbox.checked && fullscreenSelectionTotal() > FULLSCREEN_GRAPH_SELECTION_LIMIT){
+        checkbox.checked = false;
+        if(typeof window.showToast === 'function') window.showToast('Select up to four graph observations.', 'warn');
+      }
+      updateFullscreenSelectionUi();
+      scheduleFullscreenGraphRefresh();
+    }
+
+    function graphMetricPayloadNames(payload){
+      if(Array.isArray(payload)) return payload.map(String);
+      if(payload && typeof payload === 'object'){
+        if(Array.isArray(payload.metrics)) return payload.metrics.map(String);
+        return Object.keys(payload);
+      }
+      return [];
+    }
+
+    function graphOptionGroup(title, location){
+      const details = document.createElement('details');
+      details.className = 'graph-option-group';
+      const summary = document.createElement('summary');
+      const heading = document.createElement('span');
+      heading.className = 'graph-option-heading';
+      const deviceId = document.createElement('span');
+      deviceId.className = 'graph-option-device-id';
+      deviceId.textContent = title;
+      heading.appendChild(deviceId);
+      const locationText = String(location || '').trim();
+      if(locationText){
+        const locationEl = document.createElement('span');
+        locationEl.className = 'graph-option-location';
+        locationEl.textContent = locationText;
+        heading.appendChild(locationEl);
+      }
+      summary.appendChild(heading);
+      details.appendChild(summary);
+      const items = document.createElement('div');
+      items.className = 'graph-option-items';
+      details.appendChild(items);
+      return { details: details, items: items };
+    }
+
+    async function fullscreenGraphDeviceLocations(){
+      const payload = await fetchJSON('/device-locations');
+      const locations = { sensor: {}, switch: {} };
+      (Array.isArray(payload) ? payload : []).forEach(function(item){
+        const id = String((item && item.id) || '').trim();
+        const type = String((item && item.type) || '').trim().toLowerCase();
+        const location = String((item && item.location) || '').trim();
+        if(id && location && locations[type]) locations[type][id] = location;
+      });
+      return locations;
+    }
+
+    function graphCheckboxRow(cssClass, labelText, attrs){
+      const label = document.createElement('label');
+      label.className = 'graph-option-item';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.className = cssClass;
+      Object.entries(attrs || {}).forEach(function(pair){ input.setAttribute(pair[0], pair[1]); });
+      input.addEventListener('change', function(){ handleFullscreenSelectionChange(input); });
+      const text = document.createElement('span');
+      text.textContent = labelText;
+      label.appendChild(input);
+      label.appendChild(text);
+      return label;
+    }
+
+    async function populateFullscreenSensorOptions(sensorLocations){
+      const host = document.getElementById('fullscreenSensorOptions');
+      if(!host) return;
+      host.innerHTML = '';
+      const sensors = await fetchJSON('/sensor-ids') || [];
+      const results = await Promise.all((Array.isArray(sensors) ? sensors : []).map(async function(sensor){
+        const payload = await fetchJSON('/sensor-metrics?sensor_id=' + encodeURIComponent(sensor));
+        return { sensor: String(sensor), metrics: graphMetricPayloadNames(payload) };
+      }));
+      results.forEach(function(entry, index){
+        if(!entry.metrics.length) return;
+        const group = graphOptionGroup(entry.sensor, (sensorLocations || {})[entry.sensor]);
+        if(index === 0) group.details.open = true;
+        entry.metrics.forEach(function(metric){
+          const display = entry.sensor + ' · ' + metric;
+          group.items.appendChild(graphCheckboxRow('fullscreen-metric-checkbox', metric, {
+            'data-sensor': entry.sensor,
+            'data-metric': metric,
+            'data-display-label': display
+          }));
+        });
+        host.appendChild(group.details);
+      });
+      if(!host.children.length){
+        const empty = document.createElement('div');
+        empty.className = 'graph-control-note';
+        empty.textContent = 'No sensor metrics found.';
+        host.appendChild(empty);
+      }
+    }
+
+    function populateFullscreenSwitchOptions(switchLocations){
+      const host = document.getElementById('fullscreenSwitchOptions');
+      if(!host) return;
+      host.innerHTML = '';
+      Object.keys(SWITCH_MAP || {}).forEach(function(switchId){
+        const channels = Array.isArray(SWITCH_MAP[switchId]) ? SWITCH_MAP[switchId] : [];
+        if(!channels.length) return;
+        const group = graphOptionGroup(switchId, (switchLocations || {})[switchId]);
+        channels.forEach(function(channel){
+          const display = switchId + ' · ' + channel;
+          group.items.appendChild(graphCheckboxRow('fullscreen-switch-checkbox', channel, {
+            'data-switch-id': switchId,
+            'data-channel': channel,
+            'data-display-label': display
+          }));
+        });
+        host.appendChild(group.details);
+      });
+      if(!host.children.length){
+        const empty = document.createElement('div');
+        empty.className = 'graph-control-note';
+        empty.textContent = 'No switches found.';
+        host.appendChild(empty);
+      }
+    }
+
+    function fullscreenRangeTitle(value){
+      const labels = {
+        '1h':'Last hour', '3h':'Last 3 hours', '6h':'Last 6 hours', '12h':'Last 12 hours',
+        '24h':'Last 24 hours', '3d':'Last 3 days', '7d':'Last 7 days', '14d':'Last 14 days',
+        '30d':'Last 30 days', '60d':'Last 60 days', '90d':'Last 90 days', 'custom':'Custom time range'
+      };
+      return labels[String(value || '').toLowerCase()] || 'Selected time range';
+    }
+
+    function renderFullscreenGraphEmpty(message){
+      if(window.graphChart){
+        window.graphChart.destroy();
+        window.graphChart = null;
+      }
+      const canvas = document.getElementById('fullscreen_graph');
+      if(!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.max(1, Math.round(rect.width || 800));
+      canvas.height = Math.max(1, Math.round(rect.height || 400));
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#61796f';
+      ctx.font = '16px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(message || 'Select a sensor metric to begin.', canvas.width / 2, canvas.height / 2);
+    }
+
+    function scheduleFullscreenGraphRefresh(){
+      const rangeEl = document.querySelector("input[name='range']:checked");
+      const title = document.getElementById('fullscreenGraphRangeTitle');
+      if(title) title.textContent = fullscreenRangeTitle(rangeEl ? rangeEl.value : '24h');
+      if(fullscreenGraphRefreshTimer) window.clearTimeout(fullscreenGraphRefreshTimer);
+      fullscreenGraphRefreshTimer = window.setTimeout(loadFullscreenGraph, 160);
+    }
+
+    function fullscreenGraphIsOpen(){
+      const workspace = document.getElementById('fullscreen_graph_container');
+      return !!workspace && window.getComputedStyle(workspace).display !== 'none';
+    }
+
+    function notifyFullscreenGraphDataChanged(){
+      if(document.hidden || !fullscreenGraphIsOpen() || !selectedFullscreenMetrics().length) return;
+      scheduleFullscreenGraphRefresh();
+    }
+
+    async function loadFullscreenGraph(){
+      const token = ++fullscreenGraphRequestToken;
+      const metrics = selectedFullscreenMetrics().slice(0, FULLSCREEN_GRAPH_SELECTION_LIMIT);
+      const switches = selectedFullscreenSwitches();
+      if(!metrics.length){
+        const loading = document.getElementById('graphLoadingState');
+        if(loading) loading.style.display = 'none';
+        renderFullscreenGraphEmpty(switches.length ? 'Select a sensor metric to display switch transitions.' : 'Select a sensor metric to begin.');
+        return;
+      }
+      const rangeEl = document.querySelector("input[name='range']:checked");
+      const rangeVal = rangeEl ? rangeEl.value : '24h';
+      const start = document.getElementById('start_time')?.value || '';
+      const end = document.getElementById('end_time')?.value || '';
+      if(rangeVal === 'custom' && (!start || !end)){
+        const loading = document.getElementById('graphLoadingState');
+        if(loading) loading.style.display = 'none';
+        renderFullscreenGraphEmpty('Choose both custom start and end times.');
+        return;
+      }
+      const params = new URLSearchParams({ range: rangeVal });
+      metrics.forEach(function(item, index){
+        const slot = index + 1;
+        params.set('sensor_id' + String(slot), item.sensor);
+        params.set('metric' + String(slot), item.metric);
+      });
+      params.set('sensor_id', metrics[0].sensor);
+      const astral = document.getElementById('astral_select');
+      params.set('astral', normalizeAstralMode(astral ? astral.value : 'none'));
+      if(rangeVal === 'custom'){
+        params.set('start', start);
+        params.set('end', end);
+      }
+      switches.forEach(function(item){ params.append('switch_channels', item.switchId + '::' + item.channel); });
+      const loading = document.getElementById('graphLoadingState');
+      if(loading) loading.style.display = 'inline';
+      if(fullscreenGraphAbortController) fullscreenGraphAbortController.abort();
+      const requestController = new AbortController();
+      fullscreenGraphAbortController = requestController;
+      try{
+        const response = await fetch('/graph-data?' + params.toString(), {
+          cache:'no-store',
+          signal:requestController.signal
+        });
+        const data = await response.json();
+        if(token !== fullscreenGraphRequestToken) return;
+        if(!response.ok) throw new Error(String((data && (data.detail || data.error)) || ('HTTP ' + response.status)));
+        if(data && data.no_data){
+          renderFullscreenGraphEmpty(data.detail || 'No data in this time range.');
+          return;
+        }
+        renderGraphFullscreen_V2(data);
+      }catch(error){
+        if(error && error.name === 'AbortError') return;
+        if(token !== fullscreenGraphRequestToken) return;
+        console.error('Full-screen graph load failed', error);
+        renderFullscreenGraphEmpty('Graph data could not be loaded.');
+      }finally{
+        if(fullscreenGraphAbortController === requestController) fullscreenGraphAbortController = null;
+        if(token === fullscreenGraphRequestToken && loading) loading.style.display = 'none';
+      }
+    }
+
+    async function initFullscreenGraphWorkspace(){
+      if(!fullscreenGraphOptionsReady){
+        const deviceLocations = await fullscreenGraphDeviceLocations();
+        populateFullscreenSwitchOptions(deviceLocations.switch);
+        await populateFullscreenSensorOptions(deviceLocations.sensor);
+        const start = document.getElementById('start_time');
+        const end = document.getElementById('end_time');
+        if(start) start.addEventListener('change', scheduleFullscreenGraphRefresh);
+        if(end) end.addEventListener('change', scheduleFullscreenGraphRefresh);
+        fullscreenGraphOptionsReady = true;
+      }
+      updateFullscreenSelectionUi();
+      const rangeEl = document.querySelector("input[name='range']:checked");
+      const title = document.getElementById('fullscreenGraphRangeTitle');
+      if(title) title.textContent = fullscreenRangeTitle(rangeEl ? rangeEl.value : '24h');
+      if(selectedFullscreenMetrics().length) await loadFullscreenGraph();
+      else renderFullscreenGraphEmpty('Select a sensor metric to begin.');
+      if(!fullscreenGraphRealtimeTimer){
+        fullscreenGraphRealtimeTimer = window.setInterval(notifyFullscreenGraphDataChanged, 15000);
+      }
+    }
+
+    window.scheduleFullscreenGraphRefresh = scheduleFullscreenGraphRefresh;
+    window.initFullscreenGraphWorkspace = initFullscreenGraphWorkspace;
+    window.notifyFullscreenGraphDataChanged = notifyFullscreenGraphDataChanged;
+
     const vpdBackgroundPlugin = {
       id: 'vpdBackground',
       beforeDraw(chart) {
@@ -9117,9 +9318,10 @@ def render_graph_modal(switch_installed=None, gauge_config=None):
       const avgAll = (data && (data.simple_avg || data.rolling_ema)) || {};
       const keys = Object.keys(series || {});
       let leftAssigned = false;
-      const baseColors = ['#1f77b4', '#2ca02c', '#7f3fbf'];
+      const baseColors = ['#1f77b4', '#2ca02c', '#7f3fbf', '#d97816'];
       const gaugeZonesByAxis = {};
       const gaugeAxisBounds = {};
+      const averageAxisLabels = { y1: [], y2: [] };
 
       keys.forEach(function(k, idx){
         const entry = series[k] || {};
@@ -9173,8 +9375,17 @@ def render_graph_modal(switch_installed=None, gauge_config=None):
             }
           }
           if (rollPoints.length){
+            const averageValue = rollPoints[0].y;
+            const averageText = graphPressureMetric(metricName)
+              ? Number(averageValue).toFixed(1)
+              : Number(Number(averageValue).toFixed(2)).toString();
+            averageAxisLabels[yAxisID].push({
+              value: Number(averageValue),
+              label: 'Avg ' + averageText + (metricUnit ? ' ' + metricUnit : '')
+            });
             datasets.push({
-              label: ((data.display_names && data.display_names[k]) || k) + " (Average)",
+              label: ((data.display_names && data.display_names[k]) || k) +
+                " (Average: " + averageText + (metricUnit ? ' ' + metricUnit : '') + ")",
               data: rollPoints,
               borderColor: 'purple',
               borderDash: [6, 3],
@@ -9289,11 +9500,57 @@ def render_graph_modal(switch_installed=None, gauge_config=None):
         return Number(num.toFixed(2)).toString();
       };
 
+      const averageLabelsForTick = function(axisID, val){
+        const num = Number(val);
+        if (!Number.isFinite(num)) return [];
+        return (averageAxisLabels[axisID] || []).filter(function(item){
+          const tolerance = Math.max(1e-9, Math.abs(item.value) * 1e-9);
+          return Math.abs(item.value - num) <= tolerance;
+        }).map(function(item){ return item.label; });
+      };
+
+      const addAverageAxisTicks = function(axis, axisID){
+        const ticks = Array.isArray(axis.ticks) ? axis.ticks : [];
+        (averageAxisLabels[axisID] || []).forEach(function(item){
+          if (!Number.isFinite(item.value) || item.value < axis.min || item.value > axis.max) return;
+          if (!averageLabelsForTick(axisID, item.value).length) return;
+          const exists = ticks.some(function(tick){
+            const value = Number(tick && tick.value);
+            const tolerance = Math.max(1e-9, Math.abs(item.value) * 1e-9);
+            return Number.isFinite(value) && Math.abs(value - item.value) <= tolerance;
+          });
+          if (!exists) ticks.push({ value: item.value, major: true });
+        });
+        ticks.sort(function(a, b){ return Number(a.value) - Number(b.value); });
+        axis.ticks = ticks;
+      };
+
+      const yAxisTickOptions = function(axisID, pressureAxis){
+        return {
+          autoSkip: false,
+          callback: function(val){
+            const averageLabels = averageLabelsForTick(axisID, val);
+            return averageLabels.length ? averageLabels.join(' / ') : formatYAxisTick(val, pressureAxis);
+          },
+          color: function(context){
+            return averageLabelsForTick(axisID, context && context.tick ? context.tick.value : undefined).length
+              ? 'purple'
+              : Chart.defaults.color;
+          },
+          font: function(context){
+            return averageLabelsForTick(axisID, context && context.tick ? context.tick.value : undefined).length
+              ? { weight: 'bold' }
+              : {};
+          }
+        };
+      };
+
       const y1Opts = {
         position: 'left',
         beginAtZero: false,
         title: { display: true, text: axisTitles.y1 },
-        ticks: { callback: function(val){ return formatYAxisTick(val, leftIsBarometricPressure); } }
+        afterBuildTicks: function(axis){ addAverageAxisTicks(axis, 'y1'); },
+        ticks: yAxisTickOptions('y1', leftIsBarometricPressure)
       };
       const y2Opts = {
         position: 'right',
@@ -9301,7 +9558,8 @@ def render_graph_modal(switch_installed=None, gauge_config=None):
         title: { display: (keys.length > 1), text: axisTitles.y2 },
         grid: { drawOnChartArea: false },
         display: (keys.length > 1),
-        ticks: { callback: function(val){ return formatYAxisTick(val, rightIsBarometricPressure); } }
+        afterBuildTicks: function(axis){ addAverageAxisTicks(axis, 'y2'); },
+        ticks: yAxisTickOptions('y2', rightIsBarometricPressure)
       };
 
       if (leftIsVPD){
@@ -9334,6 +9592,7 @@ def render_graph_modal(switch_installed=None, gauge_config=None):
           parsing: false,
           responsive: true,
           maintainAspectRatio: false,
+          animation: false,
           scales: {
             x: {
               type: 'time',
@@ -9422,6 +9681,12 @@ def render_graph_modal(switch_installed=None, gauge_config=None):
       const cont = document.getElementById('fullscreen_graph_container');
       if (cont) cont.style.display = 'none';
       if (cont) cont.classList.remove('has-astral');
+      fullscreenGraphRequestToken += 1;
+      if(fullscreenGraphRefreshTimer) window.clearTimeout(fullscreenGraphRefreshTimer);
+      if(fullscreenGraphAbortController){
+        fullscreenGraphAbortController.abort();
+        fullscreenGraphAbortController = null;
+      }
       if (window.graphChart){
         window.graphChart.destroy();
         window.graphChart = null;
@@ -9442,12 +9707,12 @@ def render_graph_modal(switch_installed=None, gauge_config=None):
     window.openGraphModal = async function(){
       window.ModalBusyCursor.begin();
       try {
-        const gm = document.getElementById('graphModal');
-        if (gm){
-          gm.style.display = 'flex';
-          if (window.ensureButtonTooltips) window.ensureButtonTooltips(gm);
+        const workspace = document.getElementById('fullscreen_graph_container');
+        if (workspace){
+          workspace.style.display = 'flex';
+          if (window.ensureButtonTooltips) window.ensureButtonTooltips(workspace);
           await window.ModalBusyCursor.untilPaint();
-          await initGraphBuilder();
+          await initFullscreenGraphWorkspace();
         }
       } finally {
         window.ModalBusyCursor.end();

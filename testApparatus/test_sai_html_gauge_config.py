@@ -78,23 +78,23 @@ def test_fullscreen_graph_defines_pressure_helper_in_modal_script_scope():
 def test_fullscreen_graph_modal_has_astral_selector_and_sky_panel():
     html = "".join(render_graph_modal(switch_installed=False))
 
-    assert 'id="fullscreen_graph_dashboard" class="button black"' in html
-    assert 'title="Return to dashboard"' in html
-    assert "top:1rem;" in html
-    assert "left:1rem;" in html
-    assert "bottom:1rem;left:50%" not in html
-    assert "Close full screen graph" not in html
-    assert "<select id='astral_select' title='Astral graph selection'>" in html
+    assert "id='fullscreen_graph_dashboard' title='Return to dashboard'" in html
+    assert "class='fullscreen-graph-header'" in html
+    assert "<h1 class='fullscreen-graph-title'>Sensorius Graphum</h1>" in html
+    assert "Sensorius history" not in html
+    assert "fullscreen-graph-eyebrow" not in html
+    assert "class='fullscreen-graph-controls'" in html
+    assert "<select id='astral_select' title='Astral graph selection' onchange='scheduleFullscreenGraphRefresh()'>" in html
     assert "<option value='sun_moon'>Sun &amp; Moon</option>" in html
     assert "value='14d'" in html
     assert "value='30d'" in html
     assert "value='60d'" in html
     assert "value='90d'" in html
     assert "Max range:" not in html
-    assert 'id="fullscreen_astral_graph"' in html
+    assert "id='fullscreen_astral_graph'" in html
     assert "function drawFullscreenAstralGraph(payload, xMin, xMax)" in html
     assert "flex:0 0 clamp(120px, 18vh, 190px);" in html
-    assert "#fullscreen_graph_container.has-astral{ padding-bottom:3.5rem; }" in html
+    assert "#fullscreen_graph_container.has-astral #fullscreen_astral_panel{ display:block; }" in html
     assert "const padB = 34;" in html
     assert "const buildSmoothAstralKeys = (points) => {" in html
     assert "key.s = sign * Math.min(leftMag, rightMag);" in html
@@ -105,19 +105,54 @@ def test_fullscreen_graph_modal_has_astral_selector_and_sky_panel():
     assert "astral: astralSel ? normalizeAstralMode(astralSel.value || 'none') : 'none'" in html
 
 
-def test_fullscreen_graph_it_requires_sensor_metric_selection():
+def test_fullscreen_graph_uses_live_checkbox_selections_with_four_item_cap():
     html = "".join(render_graph_modal(switch_installed=False))
 
-    assert (
-        "id='graphButton' class='button blue' title='Select at least one sensor and metric' "
-        "onclick='loadGraph(event)' disabled"
-    ) in html
-    assert "const GRAPH_SENSOR_METRIC_PAIRS = [" in html
-    assert "function hasGraphSensorMetricSelection(){" in html
-    assert "function updateGraphButtonState(){" in html
-    assert "btn.disabled = isLoading || !hasSelection;" in html
-    assert "if(m1) m1.onchange = updateGraphButtonState;" in html
-    assert "if(!hasGraphSensorMetricSelection()){" in html
+    assert "id='fullscreenSensorOptions'" in html
+    assert "id='fullscreenSwitchOptions'" in html
+    assert "const payload = await fetchJSON('/device-locations');" in html
+    assert "deviceId.className = 'graph-option-device-id';" in html
+    assert "locationEl.className = 'graph-option-location';" in html
+    assert "graphOptionGroup(entry.sensor, (sensorLocations || {})[entry.sensor])" in html
+    assert "graphOptionGroup(switchId, (switchLocations || {})[switchId])" in html
+    assert "id='graphSelectionCount'>0 of 4" in html
+    assert "const FULLSCREEN_GRAPH_SELECTION_LIMIT = 4;" in html
+    assert "function handleFullscreenSelectionChange(checkbox){" in html
+    assert "scheduleFullscreenGraphRefresh();" in html
+    assert "params.set('metric' + String(slot), item.metric);" in html
+    assert "params.append('switch_channels', item.switchId + '::' + item.channel);" in html
+    assert '" (Average: " + averageText' in html
+    assert "label: 'Avg ' + averageText + (metricUnit ? ' ' + metricUnit : '')" in html
+    assert "afterBuildTicks: function(axis){ addAverageAxisTicks(axis, 'y1'); }" in html
+    assert "afterBuildTicks: function(axis){ addAverageAxisTicks(axis, 'y2'); }" in html
+    assert "averageLabels.length ? averageLabels.join(' / ')" in html
+    assert "'#1f77b4', '#2ca02c', '#7f3fbf', '#d97816'" in html
+    assert "function notifyFullscreenGraphDataChanged(){" in html
+    assert "fullscreenGraphRealtimeTimer = window.setInterval(notifyFullscreenGraphDataChanged, 15000);" in html
+    assert "if(fullscreenGraphAbortController) fullscreenGraphAbortController.abort();" in html
+    assert "signal:requestController.signal" in html
+    assert "maintainAspectRatio: false,\n          animation: false," in html
+    assert "id='graphSaveButton'" not in html
+    assert "Saved Graph Setups" not in html
+
+
+def test_dashboard_live_updates_notify_open_fullscreen_graph():
+    html = "".join(render_graph_modal(switch_installed=False))
+    dashboard_html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            [],
+            {},
+            {},
+            SimpleNamespace(expected_gauge_map={}),
+            expected_gauge_map={},
+        )
+    )
+
+    assert "window.notifyFullscreenGraphDataChanged = notifyFullscreenGraphDataChanged;" in html
+    assert "window.notifyFullscreenGraphDataChanged('sensor');" in dashboard_html
+    assert "window.notifyFullscreenGraphDataChanged('switch');" in dashboard_html
 
 
 def test_dashboard_micrograph_uses_soil_fertility_gauge_scale():

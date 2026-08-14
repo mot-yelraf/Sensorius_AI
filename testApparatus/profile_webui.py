@@ -767,7 +767,7 @@ SCENARIOS = (
     ),
     Scenario(
         name="fullscreen_graph",
-        label="Full-Screen Graph",
+        label="Sensorius Graphum",
         js_factory="""
 (() => window.__sensProfiler.profileAction({
   label: 'full-screen graph modal',
@@ -788,23 +788,19 @@ SCENARIOS = (
     }
 
     await window.__sensProfiler.waitFor(
-      () => document.getElementById('graphModal') && window.getComputedStyle(document.getElementById('graphModal')).display !== 'none',
+      () => document.getElementById('fullscreen_graph_container') && window.getComputedStyle(document.getElementById('fullscreen_graph_container')).display !== 'none',
       window.__sensProfiler.timeoutMs,
-      'graph builder modal'
+      'full-screen graph workspace'
     );
 
-    const sensorSel = document.getElementById('sensor1_select');
-    const metricSel = document.getElementById('metric1_select');
-    if (!sensorSel || !metricSel) throw new Error('Graph controls not found');
-
-    sensorSel.value = target.sensor_id;
-    if (typeof window.populateMetricsFor === 'function') {
-      await window.populateMetricsFor('sensor1_select', 'metric1_select');
-    }
-
-    const metricValues = Array.from(metricSel.options || []).map((option) => option.value).filter(Boolean);
-    metricSel.value = metricValues.includes(target.metric) ? target.metric : (metricValues[0] || '');
-    if (!metricSel.value) throw new Error('No metric options found for graph target');
+    const metricCheckbox = await window.__sensProfiler.waitFor(
+      () => Array.from(document.querySelectorAll('.fullscreen-metric-checkbox')).find((checkbox) =>
+        checkbox.getAttribute('data-sensor') === target.sensor_id &&
+        checkbox.getAttribute('data-metric') === target.metric
+      ) || document.querySelector('.fullscreen-metric-checkbox'),
+      window.__sensProfiler.timeoutMs,
+      'graph metric checkbox'
+    );
 
     const range = document.querySelector("input[name='range'][value='24h']")
       || document.querySelector("input[name='range'][value='6h']")
@@ -814,10 +810,8 @@ SCENARIOS = (
       if (typeof window.toggleCustomTime === 'function') window.toggleCustomTime(false);
     }
 
-    const button = document.getElementById('graphButton');
-    if (!button) throw new Error('Graph button not found');
-    window.__sensProfiler.click(button);
-    return target.sensor_id + '::' + metricSel.value;
+    window.__sensProfiler.click(metricCheckbox);
+    return metricCheckbox.getAttribute('data-sensor') + '::' + metricCheckbox.getAttribute('data-metric');
   },
   waitFor: () => {
     const el = document.getElementById('fullscreen_graph_container');

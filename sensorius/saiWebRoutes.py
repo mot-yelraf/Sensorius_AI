@@ -3497,7 +3497,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         _persist_visible_metric_order(ordered)
         return JSONResponse({"status": "ok", "sensor_id": sensor_id, "moved": True, "order": ordered})
 
-    # graph data full screen with upto three y-axis or the small single y-axis graph overly on top of the gauge
+    # graph data for the full-screen selector or the small single-axis gauge overlay
     @router.get("/graph-data", response_class=JSONResponse)
     async def graph_data_api(
         request: Request,
@@ -3506,10 +3506,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         metric1: str = Query(""),
         metric2: str = Query(""),
         metric3: str = Query(""),
-        # new triplet (one sensor per axis slot)
+        metric4: str = Query(""),
+        # one sensor per selected metric slot
         sensor_id1: str = Query(""),
         sensor_id2: str = Query(""),
         sensor_id3: str = Query(""),
+        sensor_id4: str = Query(""),
         range: str = Query(...),
         start: str | None = Query(None),
         end: str | None = Query(None),
@@ -3517,6 +3519,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # new, preferred way:
         switch_id: str = Query("", description="Switch ID to draw on/off transitions from"),
         channels: list[str] = Query([], alias="channels"),
+        switch_channels: list[str] = Query(
+            [],
+            alias="switch_channels",
+            description="Canonical <switch_id>::<channel label> transition selections",
+        ),
         # legacy fallback (kept temporarily for compatibility):
         switches: list[str] = Query([], alias="switches"),
     ):
@@ -3761,19 +3768,23 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         sid1 = (sensor_id1 or "").strip() or (sensor_id or "").strip()
         sid2 = (sensor_id2 or "").strip()
         sid3 = (sensor_id3 or "").strip()
+        sid4 = (sensor_id4 or "").strip()
 
         m1 = (metric1 or "").strip()
         m2 = (metric2 or "").strip()
         m3 = (metric3 or "").strip()
+        m4 = (metric4 or "").strip()
 
         pairs: list[tuple[str, str]] = []
         if sid1 and m1: pairs.append((sid1, m1))
         if sid2 and m2: pairs.append((sid2, m2))
         if sid3 and m3: pairs.append((sid3, m3))
+        if sid4 and m4: pairs.append((sid4, m4))
         if not pairs and sensor_id and metric1:
             pairs.append((sensor_id, metric1))
             if metric2: pairs.append((sensor_id, metric2))
             if metric3: pairs.append((sensor_id, metric3))
+            if metric4: pairs.append((sensor_id, metric4))
 
         if not pairs:
             raise HTTPException(status_code=400, detail="No sensor/metric selections provided")
@@ -3875,7 +3886,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             response["astral"] = _build_astral_graph_payload(astral_mode, since_dt, until_dt, span_seconds)
 
         # ----- switch vertical lines (use the SAME LOCAL window in SQL) -----
-        want_switch_lines = bool((switch_id and channels) or switches)
+        want_switch_lines = bool(switch_channels or (switch_id and channels) or switches)
         if want_switch_lines:
             switch_lines: dict[str, list[tuple[str, int]]] = {}
 
@@ -3965,7 +3976,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 return out
 
             try:
-                if switch_id and channels:
+                if switch_channels:
+                    for switch_key in switch_channels:
+                        selected_switch_id, separator, label = str(switch_key or "").partition("::")
+                        selected_switch_id = selected_switch_id.strip()
+                        label = label.strip()
+                        if not separator or not selected_switch_id or not label:
+                            continue
+                        trans = _fetch_transitions_from_sw_events(selected_switch_id, label) \
+                                or _fetch_transitions_from_readings(selected_switch_id, label)
+                        if trans:
+                            switch_lines[f"{selected_switch_id} · {label}"] = trans
+                elif switch_id and channels:
                     # New, preferred path: explicit switch_id + list of channel labels
                     for label in channels:
                         trans = _fetch_transitions_from_sw_events(switch_id, label) \

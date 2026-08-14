@@ -26,7 +26,7 @@ The dashboard presents:
 - Sensor cards grouped by device and location.
 - Switch cards with live channel state and recent events.
 - Sun, moon, biodynamic, and optional weather forecast cards when Astral location is available.
-- Buttons for General Settings, graph setup, sensor settings, switch settings, and calendar views.
+- Buttons for General Settings, the full-screen graph, sensor settings, switch settings, and calendar views.
 
 The **24 Hour Forecast** card keeps its day-wide forecast summary, while its
 details include the maximum forecast precipitation chance, labeled as rain or
@@ -154,16 +154,28 @@ moon, biodynamic, weather, and location-aware automation calculations:
 
 ![Display section open](<../assets/screenshots/system-settings-display.png>)
 
-The **Display** section supplies system-wide dashboard defaults. **Display
-Style** appears first; **Gauge Size** is shown only while **Gauge** is selected.
+The **Display** section supplies system-wide presentation defaults. The controls
+appear in the order **Units**, **Metric Set**, and **Display Style**. **Gauge
+Size** is shown only while **Gauge** is selected.
 
-- **Display Style**: default metric display when a sensor has no saved
-  per-metric style. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
-- **Gauge Size**: dashboard gauge size. Options are **Small** and **Large**.
+- **Units**: chooses **Imperial** or **Metric** presentation throughout the
+  dashboard, historical graphs, and Caelus weather forecast. Sensorius converts
+  temperatures, pressure, speed, rainfall, rain rate, and distance when the
+  source unit has a supported equivalent. For example, Imperial displays use
+  °F, inHg, mph, inches, and miles; Metric displays use °C, hPa, km/h,
+  millimeters, and kilometers. Unitless values and measurements without an
+  applicable conversion, such as relative humidity, VPD, CO2, and light, keep
+  their native units. This setting changes labels, values, graph scales, and
+  display zones only. It does not rewrite sensor readings, database history,
+  MQTT payloads, sensor configuration, metric identities, or automation
+  thresholds.
 - **Metric Set**: applies to every sensor on the Sensorius dashboard. **Pick 6**
   renders each sensor's six saved metric slots. **All** keeps those selections
   first and appends every other known metric without changing sensor settings.
   Additional metrics use the system **Display Style**.
+- **Display Style**: default metric display when a sensor has no saved
+  per-metric style. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
+- **Gauge Size**: dashboard gauge size. Options are **Small** and **Large**.
 - **Sensorius Dashboard Theme**: five thumbnails select **Leaves**, **Garden
   Tools**, **Herbarium**, **Pollinators**, or **White** for the main dashboard.
 - **Biodynamic Calendar Theme**: independently selects the full-screen calendar
@@ -870,13 +882,14 @@ The Switch Info pane shows:
 
 Use this pane when commands do not seem to reach a switch or when a remote relay appears to drop offline.
 
-## Graph & History
+## Sensorius Graphum
 
-Open the graph tool when you want to compare readings over time, investigate spikes, or see whether a switch action changed the environment.
+Open **Sensorius Graphum** when you want to compare readings over time,
+investigate spikes, or see whether a switch action changed the environment.
 
-![Full-screen historical graph](<../assets/screenshots/graph-vpd-24-hour.png>)
+![Full-screen historical graph with the selector pane open](<../assets/screenshots/graph-fullscreen-selectors.png>)
 
-The full-screen graph displays one to three metric series. The first selected metric uses the left axis. The second and third selected metrics use the right axis. When average data is available, a purple dashed line labeled **Average** shows that series' arithmetic average over the selected visible window. VPD graphs show VPD range coloring, and some metrics show gauge-zone background bands. These colored bands come from metric display zones, not automation thresholds.
+The full-screen graph displays up to four selected observations. The first selected metric uses the left axis, and additional metrics use the right axis. A switch channel counts as an observation and appears as ON/OFF transition markers. When average data is available, a purple dashed line labeled **Average** includes the arithmetic-average value for the selected visible window. The same value appears as a bold purple **Avg** tick at the line's height on its value axis. VPD graphs show VPD range coloring, and some metrics show gauge-zone background bands. These colored bands come from metric display zones, not automation thresholds.
 
 On the dashboard, a WeeWX **Wind Direction** card configured as a **6Hr Graph**
 or **24Hr Graph** displays a wind rose instead of a direction line. Sixteen
@@ -901,26 +914,42 @@ not change to a 6-hour summary when the 6-hour rose is selected.
 
 Switch event overlays appear as vertical lines. The legend shows which colors mean ON and OFF for each selected switch channel.
 
-### Graph Definition Modal
+### Sensorius Graphum Controls
 
-![Current full-screen graph definition modal](<../assets/screenshots/graph-setup-overview.png>)
+The graph button opens the full-screen workspace directly. Its scrollable left
+pane contains:
 
-The graph definition modal has these panes and fields:
+- **Time range**: select **1Hr**, **3Hr**, **6Hr**, **12Hr**, **24Hr**,
+  **3Day**, **7Day**, **14Day**, **30Day**, **60Day**, or **90Day**. Available
+  longer ranges depend on the configured database-retention period. Select
+  **Custom** to enter an exact start and end date and time.
+- **Astral**: select **None**, **Sun**, **Moon**, or **Sun & Moon** to control
+  the optional Astral position panel shown with the graph.
+- **Sensors & metrics**: select the **+** beside a sensor to expand it, then
+  check one or more metrics. Each device location appears to the right of its
+  stable device ID. Select **−** to collapse the sensor without changing its
+  checked metrics.
+- **Switches**: expand a switch and check a channel to overlay its ON/OFF
+  transitions on the selected metric history. The switch location appears to
+  the right of its stable device ID. A switch overlay accompanies at least one
+  sensor metric; it does not form a graph by itself.
+- **Selection count**: sensor metrics and switch channels share a maximum of
+  four selections. At **4 / 4**, unchecked boxes are disabled. Clear any checked
+  item to free a slot.
 
-- **Saved Graph Setups**: saved graph configurations. These are stored in system settings under the `GraphModal` section. Click a saved setup to load its sensors, metrics, time range, and switch overlay choices.
-- **Remove**: deletes the selected saved graph setup.
-- **Left Y-Axis sensor selector**: chooses the sensor for the left-axis metric. Options come from `/sensor-ids`, which combines dashboard-visible local and MQTT-discovered sensors.
-- **Left Y-Axis metric selector**: chooses the metric for the left axis. Options come from `/sensor-metrics`, first from the database's known metric names and then from live sensor metadata if needed.
-- **Right Y-Axis A sensor and metric selectors**: optional second metric. It is useful for comparing related readings such as temperature and humidity.
-- **Right Y-Axis B sensor and metric selectors**: optional third metric.
-- **Time Range**: preset history windows. The available day ranges depend on the configured database retention period. Common options are 1Hr, 3Hr, 6Hr, 12Hr, 24Hr, 3Day, 7Day, and the configured maximum day range.
-- **Custom**: lets you enter exact start and end date/time values. Both must be filled before graphing.
-- **Switch Transitions switch selector**: optional switch whose events should be shown on the graph. Options come from switch settings.
-- **Channel checkboxes**: optional switch channels to overlay. Options come from the selected switch's channel labels.
-- **Home**: closes the graph setup modal.
-- **Save**: saves the current graph setup after asking for a setup name.
-- **Graph It**: loads data from `/graph-data` and opens the full-screen graph.
-- **Dashboard** in the top-left of the full-screen graph: closes the graph and returns to the dashboard.
+Checked items also appear as labeled chips above the chart, so the active graph
+can be confirmed without reopening a collapsed group. Every selection or time
+change redraws the graph automatically; there is no separate **Graph It** step.
+The first selected metric uses the left value axis and subsequent metrics use
+separate right-side axes. Switch channels appear as colored transition markers.
+
+While the workspace is open, new sensor readings trigger a refresh through the
+dashboard's live-update path, switch events trigger an immediate refresh, and a
+15-second fallback refresh keeps the graph current if a live notification is
+missed. Hidden or closed graphs do not poll, and a newer refresh cancels any
+older graph request still in progress. Graph selections are temporary and are
+not saved as named graph sets. Select **×** in the upper-right to close the
+workspace and return to the dashboard.
 
 Use switch overlays to answer practical questions: whether a fan cooled the greenhouse, whether irrigation raised soil moisture, or whether lights changed VPD.
 

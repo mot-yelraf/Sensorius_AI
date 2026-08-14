@@ -65,7 +65,7 @@ def test_modal_scenarios_accept_explicit_targets():
     assert 'id="dashboardReturn"' in forecast.js_factory
     assert 'id="forecastDialog"' in forecast.js_factory
     assert "visibleMetricTargets()" in fullscreen_graph.js_factory
-    assert "graphButton" in fullscreen_graph.js_factory
+    assert "fullscreen-metric-checkbox" in fullscreen_graph.js_factory
     assert "fullscreen_graph_container" in fullscreen_graph.js_factory
     assert "prevBtn" in month_selectors.js_factory
     assert "nextBtn" in month_selectors.js_factory
