@@ -2944,30 +2944,25 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             except Exception:
                 configured_metrics = []
             metrics = list(configured_metrics or [])
-            stored_metrics: list[str] = []
-            if all_metrics_mode or not metrics:
-                try:
-                    stored_metrics = await asyncio.to_thread(data_logger.get_available_metrics, sid)
-                    stored_metrics = stored_metrics or []
-                except Exception:
-                    stored_metrics = []
+            try:
+                stored_metrics = await asyncio.to_thread(data_logger.get_available_metrics, sid)
+                stored_metrics = stored_metrics or []
+            except Exception:
+                stored_metrics = []
 
-            if all_metrics_mode:
-                known_metrics: list[str] = []
-                known_metrics.extend(stored_metrics)
-                vals = all_values.get(sid) or {}
-                if vals:
-                    known_metrics.extend(list(vals.keys()))
-                known_metrics.extend(list(mqtt_ingest.expected_gauge_map.get(sid) or []))
-                extend_gauge_config_for_metrics(gauge_config, known_metrics)
+            known_metrics: list[str] = []
+            known_metrics.extend(stored_metrics)
+            vals = all_values.get(sid) or {}
+            if vals:
+                known_metrics.extend(list(vals.keys()))
+            known_metrics.extend(list(mqtt_ingest.expected_gauge_map.get(sid) or []))
+            extend_gauge_config_for_metrics(gauge_config, known_metrics)
 
-                known_canonical = {
-                    canonicalize_metric_name(metric, gauge_config)
-                    for metric in known_metrics
-                }
-                ordered_all = [k for k in gauge_config.keys() if k in known_canonical]
-                metrics = list(configured_metrics or [])
-                metrics.extend([metric for metric in ordered_all if metric not in metrics])
+            known_canonical = {
+                canonicalize_metric_name(metric, gauge_config)
+                for metric in known_metrics
+            }
+            ordered_all = [k for k in gauge_config.keys() if k in known_canonical]
 
             if not all_metrics_mode and not metrics:
                 metrics = mqtt_ingest.expected_gauge_map.get(sid)
@@ -2988,8 +2983,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             sid_text = str(sid or "").strip()
             if (not all_metrics_mode) and _is_weewx_dashboard_sensor(sid_text):
                 metrics = list(configured_metrics or WEEWX_DISPLAY_METRICS)
-            # Keep Pick 6 bounded while allowing the global All mode to render
-            # every known gauge-configured metric for the sensor.
+            metrics.extend([metric for metric in ordered_all if metric not in metrics])
+            # Preserve the configured six-card summary order, followed by every
+            # additional known metric that the row can reveal on demand.
             deduped: list[str] = []
             seen = set()
             for metric in (metrics or []):
@@ -2998,8 +2994,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     continue
                 seen.add(m)
                 deduped.append(m)
-                if not all_metrics_mode and len(deduped) >= 6:
-                    break
             expected_gauge_map[sid] = deduped
             try:
                 raw_styles = sensor_mgr.get_display_styles(sid, default_style="Gauge")
@@ -3009,9 +3003,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 f"METRIC_{idx + 1}": str(raw_styles[idx] or "Gauge")
                 for idx in range(6)
             }
-            if all_metrics_mode:
-                for idx in range(6, len(deduped)):
-                    style_map[f"METRIC_{idx + 1}"] = displayStyle
+            for idx in range(6, len(deduped)):
+                style_map[f"METRIC_{idx + 1}"] = displayStyle
             expected_display_style_map[sid] = style_map
         phase_ms["expected_metrics"] = (
             (time.monotonic() - _phase_started) * 1000.0
@@ -3440,6 +3433,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 expected_display_style_map = expected_display_style_map,
                 display_style = displayStyle,
                 dashboard_background_theme = dashboardBackgroundTheme,
+                dashboard_metric_set = dashboardMetricSet,
                 weather_forecast_provider = weatherForecastProvider,
                 weather_forecast_theme = weatherForecastTheme,
                 astro_payload=astro_payload,

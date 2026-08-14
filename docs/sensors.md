@@ -53,8 +53,9 @@ Ecowitt gateway ingest:
 - Stores Ecowitt rain day/week/month/year values as cumulative metrics. Only a
   restart-safe day-total delta is written as interval `Rain`, allowing the
   logger to derive `Rain Last 24h` correctly.
-- Makes observed Ecowitt metrics available to the dashboard's **Pick 6** mode;
-  **All** mode renders both standard weather metrics and supported
+- Makes observed Ecowitt metrics available behind the dashboard sensor-row
+  expander. **Pick 6** initially shows the configured six-card summary, while
+  **All** initially expands both standard weather metrics and supported
   channel-numbered metrics without requiring a Nodus metric schema.
 - Reports dashboard connection state from the supervised Ecowitt poller, with
   recent stored readings as a fallback when service state is unavailable.

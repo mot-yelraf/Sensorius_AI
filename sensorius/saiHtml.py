@@ -185,7 +185,7 @@ def normalize_dashboard_metric_set(value: object) -> str:
     return "All" if compact in {"all", "showall"} else "Pick 6"
 
 
-def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="garden", dashboard_background_theme="leaf"):
+def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="garden", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6"):
     """Yield the complete Sensorius dashboard HTML document."""
 
     import json
@@ -2040,13 +2040,15 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         _meas_status = _resolve_meas_status(sid)
         _dot_color   = _status_color_hex(_meas_status)
 
-        yield f"<div class='sensor-group' id='group_{sid}' data-sensor-id='{sid}' style='width:100%; flex:0 0 100%; display:block;'>"
+        default_expanded = normalize_dashboard_metric_set(dashboard_metric_set) == "All"
+        expanded_text = "true" if default_expanded else "false"
+        yield f"<div class='sensor-group' id='group_{sid}' data-sensor-id='{sid}' data-sensor-expanded='{expanded_text}' style='width:100%; flex:0 0 100%; display:block;'>"
         yield "<div class='sensor-group-header'>"
         yield f"<h3 id='{sid}_header' class='sensor-group-title'>"      
         yield (
             f" <button type='button' class='sensor-collapse-toggle' data-sensor-id='{sid}'"
-            f"         aria-controls='row_{sid}' aria-expanded='false'"
-            f"         aria-label='Expand {sidUpper} metrics' title='Expand {sidUpper} metrics' hidden>"
+            f"         aria-controls='row_{sid}' aria-expanded='{expanded_text}'"
+            f"         aria-label='{'Collapse' if default_expanded else 'Expand'} {sidUpper} metrics' title='{'Collapse' if default_expanded else 'Expand'} {sidUpper} metrics' hidden>"
             f"   <span class='sensor-collapse-icon' aria-hidden='true'>"
             f"     <svg viewBox='0 0 24 24' focusable='false'><path fill='currentColor' d='M7.2 3.9A1.5 1.5 0 0 0 5 5.25v13.5a1.5 1.5 0 0 0 2.2 1.34l11.65-6.75a1.55 1.55 0 0 0 0-2.68z'></path></svg>"
             f"   </span>"
@@ -2255,6 +2257,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield f"const sensorStats = {json.dumps(all_stats)};"
     yield f"const expectedGaugeMap = {json.dumps(expected_gauge_map)};"
     yield f"const expectedDisplayStyleMap = {json.dumps(expected_display_style_map or {})};"
+    yield f"const dashboardMetricSet = {json.dumps(normalize_dashboard_metric_set(dashboard_metric_set))};"
     yield f"const metricCanvasWidth = {int(layout['canvas_width'])};"
     yield f"const metricCanvasHeight = {int(layout['canvas_height'])};"
     yield f"const astroData = {json.dumps(astro_payload)};"
@@ -4208,6 +4211,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    group.id = groupId;"
     yield "    group.className = 'sensor-group';"
     yield "    group.dataset.sensorId = sid;"
+    yield "    group.dataset.sensorExpanded = dashboardMetricSet === 'All' ? 'true' : 'false';"
     yield "    group.style.width = '100%';"
     yield "    group.style.flex = '0 0 100%';"
     yield "    group.style.display = 'block';"
@@ -4354,7 +4358,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  const row = group.querySelector('.sensor-row');"
     yield "  const button = window.ensureSensorCollapseToggle(group);"
     yield "  if (!sid || !row || !button) return;"
-    yield "  const cards = Array.from(row.querySelectorAll(':scope > .metric-container'));"
+    yield "  const cards = Array.from(row.children).filter((child) => child.classList && child.classList.contains('metric-container'));"
     yield "  row.classList.remove('is-collapsed');"
     yield "  cards.forEach((card) => card.classList.remove('sensor-metric-overflow'));"
     yield "  if (cards.length < 2) {"
@@ -4362,11 +4366,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    button.setAttribute('aria-expanded', 'true');"
     yield "    return;"
     yield "  }"
-    yield "  const firstTop = cards[0].offsetTop;"
-    yield "  const overflowCards = cards.filter((card) => Math.abs(card.offsetTop - firstTop) > 2);"
-    yield "  const hasMultipleRows = overflowCards.length > 0;"
-    yield "  button.hidden = !hasMultipleRows;"
-    yield "  if (!hasMultipleRows) {"
+    yield "  const overflowCards = cards.slice(6);"
+    yield "  const hasAdditionalMetrics = overflowCards.length > 0;"
+    yield "  button.hidden = !hasAdditionalMetrics;"
+    yield "  if (!hasAdditionalMetrics) {"
     yield "    button.setAttribute('aria-expanded', 'true');"
     yield "    return;"
     yield "  }"
@@ -4403,6 +4406,13 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    window.clearTimeout(collapseResizeTimer);"
     yield "    collapseResizeTimer = window.setTimeout(window.initializeSensorRowCollapse, 120);"
     yield "  });"
+    yield "  const initializeCollapseRows = function(){ window.initializeSensorRowCollapse(); };"
+    yield "  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initializeCollapseRows);"
+    yield "  else initializeCollapseRows();"
+    yield "  window.addEventListener('load', initializeCollapseRows);"
+    yield "  window.addEventListener('pageshow', initializeCollapseRows);"
+    yield "  window.setTimeout(initializeCollapseRows, 500);"
+    yield "  window.setTimeout(initializeCollapseRows, 2000);"
     yield "}"
 
     # helpers for what type of metric container is being displayed

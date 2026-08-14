@@ -4195,7 +4195,7 @@ async def test_dashboard_weewx_all_metric_mode_is_not_limited_to_station_default
 
 
 @pytest.mark.asyncio
-async def test_dashboard_global_pick6_overrides_legacy_sensor_all_mode(tmp_path, monkeypatch):
+async def test_dashboard_global_pick6_keeps_summary_then_appends_known_metrics(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
@@ -4264,6 +4264,7 @@ async def test_dashboard_global_pick6_overrides_legacy_sensor_all_mode(tmp_path,
         WEEWX_RAIN_24H_METRIC,
         "Wind Direction",
         "Baro-Pressure",
+        "Wind Speed",
     ]
     assert body["expected_display_style_map"]["weewx-station"]["METRIC_5"] == "Gauge"
 
@@ -5417,6 +5418,8 @@ async def test_dashboard_display_metrics_prefer_sensor_settings_over_ingest_expe
         "Plant VPD",
         "Plant Temperature",
         "Plant Rel-Humidity",
+        "Temperature_F",
+        "Plant Temperature_F",
     ]
 
 @pytest.mark.asyncio

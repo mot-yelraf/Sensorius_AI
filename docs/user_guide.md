@@ -101,9 +101,9 @@ The boundaries come from Sensorius's gauge-zone configuration for each metric. C
 
 #### Metric Ordering
 
-The system-wide **Metric Set** in **General Settings > Display** controls this behavior. In **Pick 6** mode, the dashboard follows **Metric 1** through **Metric 6** exactly from left to right. You can therefore establish any operational order in **Sensor Settings**. Factory defaults are selected by sensor type and generally put the device's primary measurement first: for example, CO2 is first for a CO2 sensor and Air Quality is first for an AQI sensor. The remaining positions favor closely related temperature, humidity, VPD, dew-risk, pressure, plant, light, or soil measurements for that device.
+The system-wide **Metric Set** in **General Settings > Display** controls the initial row state. In **Pick 6** mode, the dashboard follows **Metric 1** through **Metric 6** exactly from left to right and initially collapses each sensor after those six cards. Use the triangle beside the connection indicator to reveal or hide the sensor's remaining known metrics. Sensors with six or fewer metrics do not show the triangle. You can therefore establish the operational summary order in **Sensor Settings**. Factory defaults are selected by sensor type and generally put the device's primary measurement first: for example, CO2 is first for a CO2 sensor and Air Quality is first for an AQI sensor. The remaining positions favor closely related temperature, humidity, VPD, dew-risk, pressure, plant, light, or soil measurements for that device.
 
-In **All** mode, Sensorius keeps any saved metric slots first, then appends other known metrics in the application's gauge-configuration order. It does not currently apply a universal rule that moves CO2, AQI, and every other specialized metric farther right. Nor does it guarantee that barometric pressure is always fifth or that dew point fills the fifth position when pressure is unavailable. Use **Pick 6** and assign **Metric 1-6** when that exact convention is important.
+In **All** mode, Sensorius uses the same ordering but initially expands every sensor. The row triangle can still collapse the display back to its six-card summary. Sensorius does not apply a universal rule that moves CO2, AQI, and every other specialized metric farther right. Nor does it guarantee that barometric pressure is always fifth or that dew point fills the fifth position when pressure is unavailable. Assign **Metric 1-6** when an exact summary convention is important.
 
 #### Sensor Names, Raspberry Pi Buses, And Locations
 
@@ -170,9 +170,10 @@ Size** is shown only while **Gauge** is selected.
   MQTT payloads, sensor configuration, metric identities, or automation
   thresholds.
 - **Metric Set**: applies to every sensor on the Sensorius dashboard. **Pick 6**
-  renders each sensor's six saved metric slots. **All** keeps those selections
-  first and appends every other known metric without changing sensor settings.
-  Additional metrics use the system **Display Style**.
+  initially shows each sensor's six saved metric slots; its row triangle reveals
+  every additional known metric. **All** starts with those additional metrics
+  expanded. Neither option changes sensor settings. Additional metrics use the
+  system **Display Style**.
 - **Display Style**: default metric display when a sensor has no saved
   per-metric style. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
 - **Gauge Size**: dashboard gauge size. Options are **Small** and **Large**.
