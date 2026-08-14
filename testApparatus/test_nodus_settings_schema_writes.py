@@ -4066,6 +4066,37 @@ async def test_dashboard_weewx_status_uses_recent_station_data_when_ingest_unkno
 
 
 @pytest.mark.asyncio
+async def test_dashboard_ecowitt_status_uses_ingest_service_state(tmp_path, monkeypatch):
+    app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    ingest.get_measure_status = lambda _sid: "unknown"
+
+    sensor_id = "ecowitt-e8db840f1543"
+    now_iso = datetime.now().isoformat()
+    app.state.ecowitt_service = SimpleNamespace(status=lambda: {
+        "sensor_id": sensor_id,
+        "state": "online",
+    })
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: [sensor_id])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso if sid == sensor_id else "")
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_values", lambda sid: {"Temperature_F": 72.1} if sid == sensor_id else {})
+    monkeypatch.setattr(
+        saiWebRoutes.data_logger,
+        "get_latest_values_and_timestamps",
+        lambda ids: ({sensor_id: {"Temperature_F": 72.1}}, {sensor_id: now_iso}),
+    )
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {sensor_id: {}})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.get("/", params={"json_only": "true"})
+
+    assert res.status_code == 200
+    assert res.json()["statuses"][sensor_id] == "online"
+
+
+@pytest.mark.asyncio
 async def test_dashboard_weewx_all_metric_mode_is_not_limited_to_station_defaults(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     monkeypatch.setattr(saiWebRoutes, "saiSettings", _AllMetricFakeSaiSettings)

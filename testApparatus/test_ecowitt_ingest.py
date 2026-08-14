@@ -14,6 +14,7 @@ from sensorius.saiEcowitt import (
     EcowittError,
     EcowittGatewayIngest,
     ensure_ecowitt_sensor_settings,
+    migrate_ecowitt_display_defaults,
     normalize_gateway_url,
 )
 from sensorius.saiSensorSettingsManager import SensorSettingsManager
@@ -148,6 +149,21 @@ def test_sensor_settings_materialization_is_idempotent(tmp_path):
     assert second["Sensor"]["TYPE"] == "station"
     assert second["Sensor"]["DEVICE"] == "ecowitt"
     assert second["Display"]["METRIC_1"] == "Temperature_F"
+    assert second["Display"]["METRIC_6"] == "Gateway Baro-Pressure"
+
+
+def test_sensor_settings_migrate_legacy_blank_pressure_default(tmp_path):
+    manager = SensorSettingsManager(str(tmp_path / "sensor_settings"))
+    sensor_id = "ecowitt-e8db840f1543"
+    manager.save(sensor_id, {
+        "Sensor": {"TYPE": "station", "DEVICE": "ecowitt", "SENSOR_ID": sensor_id},
+        "Display": {"METRIC_6": "Baro-Pressure"},
+    })
+
+    assert migrate_ecowitt_display_defaults(sensor_id, manager=manager) is True
+
+    assert manager.load(sensor_id)["Display"]["METRIC_6"] == "Gateway Baro-Pressure"
+    assert migrate_ecowitt_display_defaults(sensor_id, manager=manager) is False
 
 
 def test_poll_interval_is_clamped_for_existing_bad_settings():

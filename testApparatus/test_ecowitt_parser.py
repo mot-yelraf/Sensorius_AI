@@ -65,6 +65,22 @@ def test_metric_and_imperial_payloads_normalize_to_same_values():
     assert metric_values["Ambient VPD"] == pytest.approx(0.819, abs=0.002)
 
 
+def test_real_gateway_wind_ids_keep_direction_separate_from_speed():
+    values = normalize_ecowitt_livedata({
+        "common_list": [
+            {"id": "0x0A", "val": "139"},
+            {"id": "0x0B", "val": "3.58 mph"},
+            {"id": "0x0C", "val": "3.36 mph"},
+            {"id": "0x19", "val": "8.05 mph"},
+        ],
+    })
+
+    assert values["Wind Direction"] == 139
+    assert values["Wind Speed"] == 3.6
+    assert values["Wind Gust"] == 3.4
+    assert values["Daily Maximum Wind"] == 8.1
+
+
 def test_lux_is_not_mislabeled_as_solar_radiation():
     values = normalize_ecowitt_livedata({"common_list": [{"id": "0x15", "val": "12000 lux"}]})
     assert values == {"Light Intensity": 12000.0}

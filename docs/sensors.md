@@ -40,6 +40,11 @@ Ecowitt gateway ingest:
 - Normalizes temperature, humidity, pressure, wind, rain, solar/light, UV,
   lightning, gateway indoor, air-quality, and supported additional channel
   arrays.
+- Uses the units declared by each gateway response. Gateway-local units can
+  differ from Ecowitt app display preferences; wind observations are normalized
+  into Sensorius's canonical mph metrics. `Wind Direction` remains a separate
+  degree metric used by the compass and wind-rose views; the combined card's
+  current reading and statistics show wind speed, matching WeeWX behavior.
 - Derives `Humidity` (absolute humidity in g/m³) and `Ambient VPD` (kPa) from
   the outdoor `Temperature` and `Rel-Humidity` observations before the complete
   reading set is written to SQLite.
@@ -51,6 +56,8 @@ Ecowitt gateway ingest:
 - Makes observed Ecowitt metrics available to the dashboard's **Pick 6** mode;
   **All** mode renders both standard weather metrics and supported
   channel-numbered metrics without requiring a Nodus metric schema.
+- Reports dashboard connection state from the supervised Ecowitt poller, with
+  recent stored readings as a fallback when service state is unavailable.
 
 ## Common Metrics
 

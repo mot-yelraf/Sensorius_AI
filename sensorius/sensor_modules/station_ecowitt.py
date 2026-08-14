@@ -20,7 +20,7 @@ ECOWITT_DISPLAY_METRICS = [
     "Rain",
     "Rain Last 24h",
     "Wind Direction",
-    "Baro-Pressure",
+    "Gateway Baro-Pressure",
 ]
 ECOWITT_DISPLAY_STYLES = ["Graph24hr", "Graph24hr", "Gauge", "Gauge", "Gauge", "Gauge"]
 

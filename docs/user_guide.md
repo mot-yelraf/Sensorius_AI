@@ -494,9 +494,13 @@ Ecowitt Gateway fields and controls are arranged in two columns:
 
 Configure the GW1100 on the same trusted LAN first. A DHCP reservation is
 recommended. Sensorius accepts metric or imperial gateway display units and
-normalizes stored metric semantics. It reads the gateway only; it does not
-change Wi-Fi, sensor registration, calibration, rain settings, MQTT, firmware,
-or weather-service configuration.
+normalizes stored metric semantics. The local API's unit tags are authoritative;
+gateway-local unit settings can differ from Ecowitt app display preferences.
+Sensorius normalizes wind speed into its canonical mph metric, while wind
+direction drives the compass and 6/24-hour wind roses. As with WeeWX, that
+combined card's current reading and statistics show wind speed. Sensorius reads
+the gateway only; it does not change Wi-Fi, sensor registration, calibration,
+rain settings, MQTT, firmware, weather-service configuration, or gateway units.
 
 #### Nodus on Linux and Raspberry Pi
 

@@ -280,6 +280,29 @@ def test_weewx_direction_only_compass_matches_wind_rose_canvas_height():
     assert "class='micrograph-canvas' width='260' height='205'" in html
 
 
+def test_wind_direction_card_uses_speed_for_current_value_and_stats():
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["ecowitt-e8db840f1543"],
+            {"ecowitt-e8db840f1543": {"Wind Direction": 139.0, "Wind Speed": 3.6}},
+            {"ecowitt-e8db840f1543": {
+                "Wind Direction": {"min": 120.0, "avg": 139.0, "max": 160.0},
+                "Wind Speed": {"min": 1.0, "avg": 2.5, "max": 4.0},
+            }},
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=get_gauge_config(),
+            expected_gauge_map={"ecowitt-e8db840f1543": ["Wind Direction"]},
+            expected_display_style_map={"ecowitt-e8db840f1543": {"METRIC_1": "Gauge"}},
+            display_style="Gauge",
+        )
+    )
+
+    assert "id='ecowitt-e8db840f1543_Wind_Direction_val'>3.6 mph" in html
+    assert "<div>Avg<br>2.5</div>" in html
+
+
 def test_dashboard_micrograph_no_data_does_not_show_toast():
     gauge_config = get_gauge_config()
     html = "".join(
@@ -360,7 +383,7 @@ def test_dashboard_renders_centered_overview_graphic_at_bottom():
     )
     css = (Path(__file__).resolve().parents[1] / "ui_static" / "css" / "app.css").read_text(encoding="utf-8")
 
-    graphic = "<div class='dashboard-overview-graphic'>"
+    graphic = "<div class='dashboard-overview-graphic' id='dashboard-overview-footer'>"
     assert graphic in html
     assert f"src='/ui_static/01-sensorius-overview-v5.png?v={APP_VERSION}'" in html
     assert html.index(graphic) < html.index("<div id='modal-host'></div>")
@@ -369,6 +392,34 @@ def test_dashboard_renders_centered_overview_graphic_at_bottom():
     assert "justify-content:center;" in css
     assert "width:min(100%, 522px);" in css
     assert "border-radius:12px;" in css
+
+
+def test_sensor_reordering_keeps_overview_graphic_as_footer():
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["sensor-a", "sensor-b"],
+            {"sensor-a": {"Temperature": 20.0}, "sensor-b": {"Temperature": 21.0}},
+            {"sensor-a": {}, "sensor-b": {}},
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=get_gauge_config(),
+            expected_gauge_map={"sensor-a": ["Temperature"], "sensor-b": ["Temperature"]},
+        )
+    )
+
+    start = html.index("window.applySensorGroupOrder = function(order)")
+    end = html.index("window.reorderSensorGroup = async function", start)
+    reorder_block = html[start:end]
+    assert "document.getElementById('dashboard-overview-footer')" in reorder_block
+    assert "dashboard.insertBefore(el, overviewFooter)" in reorder_block
+    assert "if (switchGroup) insertBeforeFooter(switchGroup);" in reorder_block
+    assert "if (el) dashboard.appendChild(el);" not in reorder_block
+
+    ensure_start = html.index("function ensureSensorUI(sid, metricList, locationText)")
+    ensure_end = html.index("window.DISPLAY_STYLES", ensure_start)
+    ensure_block = html[ensure_start:ensure_end]
+    assert "parent.insertBefore(group, overviewFooter)" in ensure_block
 
 
 def test_dashboard_metric_cards_render_and_refresh_trend_arrows():

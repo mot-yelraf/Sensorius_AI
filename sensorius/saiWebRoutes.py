@@ -3243,6 +3243,25 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             try:
                 current_settings = saiSettings(apply_live=False)
+                if sid_text.lower().startswith("ecowitt-"):
+                    service = getattr(app.state, "ecowitt_service", None)
+                    snapshot = service.status() if service is not None and hasattr(service, "status") else {}
+                    snapshot_sensor_id = str(snapshot.get("sensor_id", "") or "").strip()
+                    snapshot_state = str(snapshot.get("state", "") or "").strip().lower()
+                    if snapshot_sensor_id.lower() == sid_text.lower() and snapshot_state in {"online", "offline"}:
+                        return snapshot_state
+                    latest_timestamp = bulk_timestamps.get(sid_text) or data_logger.get_latest_timestamp(sid_text)
+                    if latest_timestamp:
+                        latest_dt = datetime.fromisoformat(str(latest_timestamp))
+                        now_dt = datetime.now(latest_dt.tzinfo) if latest_dt.tzinfo else datetime.now()
+                        poll_interval = float(
+                            current_settings.get_setting(
+                                "Ecowitt", "POLL_INTERVAL_SEC", ECOWITT_DEFAULT_POLL_INTERVAL_SEC
+                            ) or ECOWITT_DEFAULT_POLL_INTERVAL_SEC
+                        )
+                        if (now_dt - latest_dt).total_seconds() <= max(180.0, poll_interval * 3.0):
+                            return "online"
+                        return "offline"
                 weewx_id = str(
                     current_settings.get_setting("WeeWX", "SENSOR_ID", WEEWX_DEFAULT_SENSOR_ID)
                     or WEEWX_DEFAULT_SENSOR_ID

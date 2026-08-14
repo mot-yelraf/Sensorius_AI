@@ -73,6 +73,28 @@ def _inventory_json(inventory: list[dict[str, Any]]) -> str:
     return json.dumps(inventory, separators=(",", ":"), sort_keys=True)
 
 
+def migrate_ecowitt_display_defaults(
+    sensor_id: str,
+    *,
+    manager: SensorSettingsManager | None = None,
+) -> bool:
+    """Replace only obsolete Ecowitt-owned display defaults for an existing station."""
+    sid = str(sensor_id or "").strip()
+    if not sid:
+        return False
+    mgr = manager or SensorSettingsManager("sensor_settings")
+    try:
+        doc = mgr.load(sid) or OrderedDict()
+    except FileNotFoundError:
+        return False
+    display = doc.get("Display") if isinstance(doc, dict) else None
+    if not isinstance(display, dict) or display.get("METRIC_6") != "Baro-Pressure":
+        return False
+    display["METRIC_6"] = "Gateway Baro-Pressure"
+    mgr.save(sid, doc)
+    return True
+
+
 def ensure_ecowitt_sensor_settings(
     sensor_id: str,
     *,
@@ -112,6 +134,10 @@ def ensure_ecowitt_sensor_settings(
         for idx, metric in enumerate(ECOWITT_DISPLAY_METRICS, start=1):
             display[f"METRIC_{idx}"] = metric
         display[SensorSettingsManager.DISPLAY_METRIC_MODE_KEY] = SensorSettingsManager.DISPLAY_METRIC_MODE_PICK6
+    elif display.get("METRIC_6") == "Baro-Pressure":
+        # Early Ecowitt settings reused the WeeWX default even though GW1100
+        # pressure is reported by the gateway's WH25 block.
+        display["METRIC_6"] = "Gateway Baro-Pressure"
     styles = display.get("Style")
     if not isinstance(styles, dict):
         styles = OrderedDict()
@@ -146,6 +172,7 @@ class EcowittGatewayIngest:
             "sensor_id": "",
         }
         self._last_error_log_mono = 0.0
+        self._migrated_sensor_id = ""
 
     def _feed_watchdog(self, *, error: bool = False) -> None:
         if self.supervisor and hasattr(self.supervisor, "feedthedogs"):
@@ -427,6 +454,10 @@ class EcowittGatewayIngest:
                 await self._sleep_with_heartbeat(self.poll_interval_sec)
                 continue
             try:
+                sensor_id = self.sensor_id
+                if sensor_id and self._migrated_sensor_id != sensor_id:
+                    await asyncio.to_thread(migrate_ecowitt_display_defaults, sensor_id)
+                    self._migrated_sensor_id = sensor_id
                 configured_source = str(self._status.get("rain_source", "") or "")
                 if configured_source not in {"none", "traditional", "piezo"}:
                     configured_source = str(
