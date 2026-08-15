@@ -1,7 +1,9 @@
-"""Test Ecowitt configuration, rainfall, and station materialization.
+"""Test Ecowitt gateway configuration, weather arrays, and persistence.
 
 The suite covers service settings and persistence behavior around LAN gateway
-discovery and ingestion without requiring physical Ecowitt hardware.
+discovery and ingestion without requiring physical Ecowitt hardware. GW1200
+coverage uses the generic API shape expected from a WH65/WS69-class array; a
+real Ambient Weather WH65B array still requires field verification.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from sensorius.saiEcowitt import (
     normalize_gateway_url,
 )
 from sensorius.saiSensorSettingsManager import SensorSettingsManager
+from sensorius.sensor_modules.station_ecowitt import normalize_ecowitt_livedata
 
 
 class _Settings:
@@ -192,6 +195,75 @@ async def test_discovery_reads_both_pages_and_uses_gateway_mac(monkeypatch):
     assert [sensor["id"] for sensor in result["inventory"]] == ["E8", "C4BC"]
     assert result["live_metric_count"] == 3
     assert "ssid" not in result
+
+
+@pytest.mark.asyncio
+async def test_gw1200_discovers_wh65_array_and_normalizes_ws2000_metrics(monkeypatch):
+    """Keep the GW1200 and Ambient WS-2000 array path protocol-compatible."""
+    live_data = {
+        "common_list": [
+            {"id": "0x02", "val": "72.5", "unit": "F"},
+            {"id": "0x07", "val": "48%"},
+            {"id": "0x0A", "val": "225°"},
+            {"id": "0x0B", "val": "6.2 mph"},
+            {"id": "0x0C", "val": "10.5 mph"},
+            {"id": "0x15", "val": "412.3 W/m²"},
+            {"id": "0x17", "val": "3"},
+        ],
+        "rain": [
+            {"id": "0x0E", "val": "0.20 in/h"},
+            {"id": "0x10", "val": "0.34 in"},
+        ],
+        "wh25": [{"intemp": "70.0 F", "inhumi": "41%", "abs": "24.80 inHg", "rel": "30.02 inHg"}],
+    }
+    _Client.responses = {
+        "get_version": {"version": "Version: GW1200A_V1.0.0", "platform": "ecowitt"},
+        "get_network_info": {"mac": "A4:CF:12:34:56:78"},
+        ("get_sensors_info", 1): [{
+            "img": "wh69",
+            "type": "0",
+            "name": "WH65/69 weather array",
+            "id": "12AB34CD",
+            "signal": "4",
+            "idst": "1",
+        }],
+        ("get_sensors_info", 2): [],
+        "get_livedata_info": live_data,
+        "get_rain_totals": {"rainFallPriority": "1", "rstRainDay": "0"},
+    }
+    monkeypatch.setattr("sensorius.saiEcowitt.httpx.AsyncClient", _Client)
+    ingest = EcowittGatewayIngest(settings=_Settings(), data_logger=_Logger())
+
+    result = await ingest.discover("http://gw1200.local")
+
+    assert result["gateway_model"] == "Version: GW1200A_V1.0.0"
+    assert result["sensor_id"] == "ecowitt-a4cf12345678"
+    assert result["inventory"] == [{
+        "id": "12AB34CD",
+        "type": "0",
+        "family": "wh69",
+        "name": "WH65/69 weather array",
+        "battery": "",
+        "signal": 4,
+        "registered": True,
+        "firmware": "",
+        "reporting": True,
+    }]
+    assert result["live_metric_count"] == 17
+    assert {"Temperature_F", "Wind Speed", "Rain Day", "Solar Radiation", "UV Index"} <= set(
+        result["live_metrics"]
+    )
+    values = normalize_ecowitt_livedata(live_data)
+    assert values["Temperature_F"] == 72.5
+    assert values["Rel-Humidity"] == 48.0
+    assert values["Wind Direction"] == 225
+    assert values["Wind Speed"] == 6.2
+    assert values["Wind Gust"] == 10.5
+    assert values["Rain Rate"] == 0.2
+    assert values["Rain Day"] == 0.34
+    assert values["Solar Radiation"] == 412.3
+    assert values["UV Index"] == 3.0
+    assert values["Gateway Baro-Pressure"] == pytest.approx(1016.6, abs=0.1)
 
 
 @pytest.mark.asyncio

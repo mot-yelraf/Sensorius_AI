@@ -58,9 +58,10 @@ connection or ethernet when the router uses one combined SSID for both bands.
 
 ## Ecowitt Gateway
 
-Sensorius supports read-only LAN polling of an Ecowitt GW1100-compatible
-gateway, including a paired WS69/WH65-family weather array and registered
-additional sensor channels. Configure the gateway and sensors with Ecowitt
-first, place the gateway and Sensorius host on the same trusted LAN, and prefer
-a DHCP reservation. The gateway requires 2.4 GHz Wi-Fi. Sensorius does not use
-direct GPIO for Ecowitt devices and does not change gateway configuration.
+Sensorius supports read-only LAN polling of Ecowitt GW1100, GW1200, and
+compatible gateways, including a paired WS69/WH65-family weather array and
+registered additional sensor channels. Configure the gateway and sensors with
+Ecowitt first, place the gateway and Sensorius host on the same trusted LAN,
+and prefer a DHCP reservation. The gateway requires 2.4 GHz Wi-Fi. Sensorius
+does not use direct GPIO for Ecowitt devices and does not change gateway
+configuration.

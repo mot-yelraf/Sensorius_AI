@@ -307,7 +307,8 @@ Runtime notes:
 - WeeWX MQTT settings are applied live through the running MQTT ingest client
   when available. If MQTT ingest is not running, the settings apply when MQTT
   ingest starts.
-- Ecowitt settings control one read-only LAN gateway. `SENSOR_ID` is generated
+- Ecowitt settings control one read-only GW1100, GW1200, or compatible generic
+  Ecowitt LAN gateway. `SENSOR_ID` is generated
   from the gateway MAC during discovery; `INVENTORY_JSON` is an informational
   snapshot of valid registered sensors. `RAIN_SOURCE` and `RAIN_RESET_HOUR` are
   discovered gateway metadata used to preserve rain-counter correctness.

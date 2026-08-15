@@ -268,6 +268,7 @@ class EcowittGatewayIngest:
             "rain_source": source,
             "rain_reset_hour": reset_hour,
             "live_metric_count": len(values),
+            "live_metrics": sorted(values),
         }
         self._status.update({
             "state": "online",
@@ -279,6 +280,7 @@ class EcowittGatewayIngest:
             "sensor_id": sensor_id,
             "rain_source": source,
             "rain_reset_hour": reset_hour,
+            "live_metrics": result["live_metrics"],
         })
         return result
 
@@ -441,6 +443,7 @@ class EcowittGatewayIngest:
             "last_error": "",
             "sensor_id": sensor_id,
             "live_metric_count": len(values),
+            "live_metrics": sorted(values),
             "rain_source": self._rain_source,
         })
         return True

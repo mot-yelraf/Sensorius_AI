@@ -33,8 +33,11 @@ WeeWX station ingest:
 
 Ecowitt gateway ingest:
 
-- Discovers a GW1100-compatible gateway and its registered sensors through the
-  local generic HTTP API.
+- Discovers GW1100 and GW1200 gateways, plus other compatible Ecowitt gateways,
+  and their registered sensors through the local generic HTTP API. GW1200
+  support includes WH65/WS69-class traditional-rain arrays; the Ambient Weather
+  WS-2000 outdoor array is sold as a WH65B and must use the same regional RF
+  frequency as the gateway (915 MHz in North America).
 - Uses `ecowitt-<gateway_mac>` as one stable station identity and marks the
   sensor settings as `TYPE = "station"`, `DEVICE = "ecowitt"`.
 - Normalizes temperature, humidity, pressure, wind, rain, solar/light, UV,
@@ -59,6 +62,11 @@ Ecowitt gateway ingest:
   channel-numbered metrics without requiring a Nodus metric schema.
 - Reports dashboard connection state from the supervised Ecowitt poller, with
   recent stored readings as a fallback when service state is unavailable.
+- Treats the GW1200/WH65B metric mapping as provisional until verified against
+  physical Ambient Weather hardware. Expected fields are outdoor temperature
+  and relative humidity, wind speed/direction/gust, traditional rain, solar
+  radiation or light, and UV index. Unrecognized fields are ignored safely and
+  can be added after a real gateway response is inspected.
 
 ## Common Metrics
 

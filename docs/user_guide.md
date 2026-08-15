@@ -492,8 +492,9 @@ discovers and enables a read-only LAN weather-station connection.
 
 Ecowitt Gateway fields and controls are arranged in two columns:
 
-- **GW URL**: the gateway base address, such as `http://192.168.1.100` or a
-  local hostname. Do not include a path, credentials, query, or fragment.
+- **GW1100 / GW1200 URL**: the gateway base address, such as
+  `http://192.168.1.100` or a local hostname. Do not include a path,
+  credentials, query, or fragment.
 - **Find Sensors**: queries the gateway's read-only version, network, sensor
   inventory, live-data, and rain-priority endpoints. Both inventory pages are
   checked.
@@ -506,15 +507,28 @@ Ecowitt Gateway fields and controls are arranged in two columns:
 - **Disable**: stops polling without deleting station settings or historical
   readings.
 
-Configure the GW1100 on the same trusted LAN first. A DHCP reservation is
-recommended. Sensorius accepts metric or imperial gateway display units and
-normalizes stored metric semantics. The local API's unit tags are authoritative;
+Configure the GW1100 or GW1200 on the same trusted LAN first. A DHCP reservation
+is recommended. For an Ambient Weather WS-2000 outdoor array, use a North
+American 915 MHz GW1200 and confirm that the gateway has registered the
+WH65/WS69-class array in the Ecowitt app before adding it to Sensorius. The
+WS-2000 console and GW1200 receive the outdoor array independently; Sensorius
+connects to the GW1200, not to the Ambient console. Sensorius accepts metric or
+imperial gateway display units and normalizes stored metric semantics. The
+local API's unit tags are authoritative;
 gateway-local unit settings can differ from Ecowitt app display preferences.
 Sensorius normalizes wind speed into its canonical mph metric, while wind
 direction drives the compass and 6/24-hour wind roses. As with WeeWX, that
 combined card's current reading and statistics show wind speed. Sensorius reads
 the gateway only; it does not change Wi-Fi, sensor registration, calibration,
 rain settings, MQTT, firmware, weather-service configuration, or gateway units.
+
+GW1200 support is tested against Ecowitt's generic LAN API schema. Because the
+Ambient-branded WH65B hardware response has not yet been captured, verify the
+outdoor temperature, humidity, wind, traditional rain, solar/light, and UV
+readings after installation. Report any missing or mislabeled value together
+with the gateway firmware version; do not include Wi-Fi credentials or weather
+service keys. The read-only `/ecowitt/status` response includes `live_metrics`,
+the normalized metric names accepted during the most recent discovery or poll.
 
 #### Nodus on Linux and Raspberry Pi
 
