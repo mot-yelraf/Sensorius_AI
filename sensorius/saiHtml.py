@@ -2244,6 +2244,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield ".toast{max-width:100%; padding:10px 14px; border-radius:8px; background:#222; color:#fff; box-shadow:0 2px 10px rgba(0,0,0,.25); text-align:center; pointer-events:auto}"
     yield ".toast.ok{background:#1f693a}"
     yield ".toast.error{background:#8b0000}"
+    yield ".toast.automation-notification-toast{background:#a34700;color:#fff;cursor:pointer}"
     yield ".toast.email-failure-toast{cursor:pointer}"
     yield ".onboard-overlay{z-index: 99990}"      # ensure overlay is high
     yield ".onboard-modal{position:relative; z-index: 99991}"
@@ -7835,6 +7836,7 @@ def core_helpers_html() -> str:
         ".toast{max-width:100%; padding:10px 14px; border-radius:8px; background:#222; color:#fff; box-shadow:0 2px 10px rgba(0,0,0,.25); text-align:center; pointer-events:auto}"
         ".toast.ok{background:#1f693a}"
         ".toast.error{background:#8b0000}"
+        ".toast.automation-notification-toast{background:#a34700;color:#fff;cursor:pointer}"
         ".toast.email-failure-toast{cursor:pointer}"
         ".onboard-overlay{z-index:99990}"
         ".onboard-modal{position:relative; z-index:99991}"

@@ -589,6 +589,7 @@ canvas{
 }
 .toast.ok{ background:#1f693a; }
 .toast.error{ background:#8b0000; }
+.toast.automation-notification-toast{ background:#a34700; color:#fff; cursor:pointer; }
 .toast.email-failure-toast{ cursor:pointer; }
 .toast.bd-transition-toast{ cursor:pointer; }
 

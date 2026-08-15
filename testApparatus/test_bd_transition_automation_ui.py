@@ -107,6 +107,10 @@ def test_generic_automation_toast_is_persistent_and_click_dismissible():
     assert "Click to dismiss" in branch
     assert "addEventListener('click'" in branch
     assert "setTimeout" not in branch
+    assert (
+        ".toast.automation-notification-toast{background:#a34700;color:#fff;cursor:pointer}"
+        in html_builder
+    )
 
 
 def test_email_failure_toast_is_persistent_error_and_click_dismissible():
