@@ -213,7 +213,7 @@ function setAutomationView(modal, mode) {
   chooser.hidden = !showChooser;
   editor.hidden = showChooser;
   chooser.style.display = showChooser ? "flex" : "none";
-  editor.style.display = showChooser ? "none" : "block";
+  editor.style.display = showChooser ? "none" : "flex";
 }
 
 function updateAstralDependencyWarning(modal) {

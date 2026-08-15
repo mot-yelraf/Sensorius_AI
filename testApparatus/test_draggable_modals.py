@@ -141,6 +141,37 @@ def test_info_panes_use_compact_stats_layout():
     assert 'id="jsonPreview"' not in switch_template
 
 
+def test_automation_definition_scrolls_above_a_fixed_action_footer():
+    repo_root = Path(__file__).resolve().parents[1]
+    system_template = (repo_root / "ui_templates" / "modals" / "system_settings.html").read_text(encoding="utf-8")
+    automation_js = (repo_root / "ui_static" / "js" / "advanced_automation.js").read_text(encoding="utf-8")
+
+    editor_start = system_template.index('<div id="automationEditorWrap" hidden>')
+    editor_end = system_template.index('</div>\n          </div>', editor_start)
+    editor = system_template[editor_start:editor_end]
+    form_end = editor.index("</form>")
+    footer_start = editor.index('<div class="pane-footer pane-footer-actions-right">')
+
+    assert form_end < footer_start
+    assert 'editor.style.display = showChooser ? "none" : "flex";' in automation_js
+    assert 'editor.style.display = showChooser ? "none" : "block";' not in automation_js
+    assert "#setupPiModal #pane-automations { overflow: hidden; }" in system_template
+    assert "background: #fff;" in system_template[
+        system_template.index("#setupPiModal #automationEditorWrap > .pane-footer {"):
+        system_template.index("#setupPiModal .pane-global-footer")
+    ]
+
+    for css_name in ("app.css", "combined.css"):
+        css = (repo_root / "ui_static" / "css" / css_name).read_text(encoding="utf-8")
+        editor_rule = css[css.index("#automationEditorWrap{"):css.index(".automation-chooser .modal-footer,")]
+        assert "flex:1 1 0;" in editor_rule
+        assert "height:100%;" in editor_rule
+        assert "#automationEditorWrap > form{" in editor_rule
+        assert "overflow-y:auto;" in editor_rule
+        assert "scrollbar-gutter:stable;" in editor_rule
+        assert "#automationEditorWrap > .pane-footer{ flex:0 0 auto; }" in editor_rule
+
+
 def test_settings_status_feedback_uses_hidden_live_regions_and_common_footers():
     repo_root = Path(__file__).resolve().parents[1]
     css = (repo_root / "ui_static/css/app.css").read_text(encoding="utf-8")
