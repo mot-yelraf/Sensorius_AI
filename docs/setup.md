@@ -80,9 +80,22 @@ Direct Linux/macOS deployment also rewrites a previously installed standalone
 GUI autostart command from `saiGuiLauncher.py` to
 `python -m sensorius.saiGuiLauncher`.
 
-When requirements files change, deploy the source update first, then install
-the changed Python dependencies in the target runtime environment before
-restarting Sensorius.
+For existing installations, `deploy_sai.sh` checks the actual Sensorius Python
+environment against the platform-appropriate requirements after syncing
+source. An optional absolute `runtime_python` path in the fourth deployment
+inventory field takes precedence. Otherwise, Linux prefers the virtual
+environment of an active Sensorius process, then the Python configured by
+`sensorius.service`, then the target directory's `.venv`. This permits manual
+and service-managed installations to use virtual environments outside the
+deployment directory. macOS uses the target directory's `.venv` unless an
+inventory override is supplied.
+
+Dry-run reports the selected Python and needed changes. Apply mode installs
+missing or incompatible Python packages, verifies critical runtime imports,
+and only then runs the post-deploy command configured for that inventory entry.
+It does not automatically restart manually started instances and does not
+change system packages, I2C enablement, kernel modules, or user groups; use
+`install.sh` or a platform setup script to repair those.
 
 ## Deployment Modes
 

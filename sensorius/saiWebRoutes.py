@@ -368,6 +368,8 @@ def _infer_nodus_sensor_device(sensor_id: str, metrics: list[str] | None = None)
         return "co2"
     if "air quality" in metric_names or "gas" in metric_names:
         return "aqi"
+    if metric_names & {"equivalent co2", "tvoc", "voc index", "nox index"}:
+        return "voc"
     if "plant vpd" in metric_names or "plant temperature" in metric_names:
         return "apvpd"
     if "light intensity" in metric_names or "estimated ppfd" in metric_names:
@@ -377,8 +379,11 @@ def _infer_nodus_sensor_device(sensor_id: str, metrics: list[str] | None = None)
     return ""
 
 
-def _nodus_display_defaults_for_device(device: str) -> list[str]:
+def _nodus_display_defaults_for_device(device: str, hardware: str = "") -> list[str]:
     base_device = str(device or "").split("_", 1)[0].strip().lower()
+    hardware_key = str(hardware or "").strip().lower()
+    if hardware_key in {"sgp30", "sgp40", "sgp41"}:
+        base_device = hardware_key
     mapping: dict[str, list[str]] = {
         "apvpd": ["Ambient VPD", "Temperature", "Rel-Humidity", "Plant VPD", "Plant Temperature", "Plant Rel-Humidity"],
         "aqi": ["Air Quality", "Temperature", "Rel-Humidity", "Ambient VPD", "Dew Point Deficit", "DewVPD Risk"],
@@ -389,6 +394,10 @@ def _nodus_display_defaults_for_device(device: str) -> list[str]:
         "co2": ["CO2", "Temperature", "Rel-Humidity", "Ambient VPD", "Dew Point Deficit", "DewVPD Risk"],
         "lux": ["Light Intensity", "Auto Light", "Estimated PPFD", "Visible Light Intensity", "", ""],
         "veml": ["Light Intensity", "Auto Light", "Estimated PPFD", "Visible Light Intensity", "", ""],
+        "voc": ["VOC Index", "NOx Index", "", "", "", ""],
+        "sgp30": ["Equivalent CO2", "TVOC", "", "", "", ""],
+        "sgp40": ["VOC Index", "", "", "", "", ""],
+        "sgp41": ["VOC Index", "NOx Index", "", "", "", ""],
         "soil": ["Soil Moisture", "Soil Moisture Deficit", "Soil Stress Index", "Soil Temp_C", "Soil pH", "Soil EC"],
     }
     return list(mapping.get(base_device, ["", "", "", "", "", ""]))
@@ -520,7 +529,7 @@ def ensure_live_nodus_sensor_settings(
         doc["Display"] = display_block
     preferred_metrics = _normalize_six_display_metrics(expected_metrics)
     if not any(preferred_metrics):
-        preferred_metrics = _nodus_display_defaults_for_device(device)
+        preferred_metrics = _nodus_display_defaults_for_device(device, hardware)
     if not any(preferred_metrics):
         preferred_metrics = _normalize_six_display_metrics(observed_metrics)
     for idx, metric in enumerate(_normalize_six_display_metrics(preferred_metrics), start=1):

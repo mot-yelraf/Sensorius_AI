@@ -83,3 +83,42 @@ async def test_sensor_data_collection_timeout_marks_sensor_not_present_and_repor
     assert controller.sensor.present is False
     assert controller.sensor.meas_status == "pending"
     assert controller.supervisor.task_issues["co2-test123 Data Collection"]["issue_type"] == "sensor_timeout"
+
+
+@pytest.mark.asyncio
+async def test_fixed_period_sensor_sleep_accounts_for_read_duration(monkeypatch):
+    controller = object.__new__(saiSensor.SensorController)
+
+    def _read_sensor_data():
+        time.sleep(0.05)
+        return None, None, None
+
+    controller.sensor = SimpleNamespace(
+        present=True,
+        sensor_id="voc-test123",
+        meas_status="",
+        meas_interval=1.0,
+        publish_interval=60.0,
+        fixed_period_sampling=True,
+        read_sensor_data=_read_sensor_data,
+    )
+    controller.sensor_id = "voc-test123"
+    controller.supervisor = SimpleNamespace(feedthedogs=lambda *_args: None)
+    controller.data_logger = SimpleNamespace(log_readings=lambda *_args, **_kwargs: None)
+    controller.meas_interval = 1.0
+    controller._last_read_error_log = 0.0
+    controller._read_error_log_interval_s = 30.0
+    controller._sensor_read_timeout_s = 1.0
+    controller._db_write_timeout_s = 1.0
+    sleep_calls = []
+
+    async def _capture_sleep(delay):
+        sleep_calls.append(delay)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(saiSensor.asyncio, "sleep", _capture_sleep)
+
+    with pytest.raises(asyncio.CancelledError):
+        await saiSensor.SensorController.data_collection(controller)
+
+    assert 0.80 < sleep_calls[0] < 0.99

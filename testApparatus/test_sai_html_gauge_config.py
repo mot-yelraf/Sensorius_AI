@@ -16,6 +16,31 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from sensorius.saiHtml import APP_VERSION, get_gauge_config, render_dashboard, render_graph_modal
 
 
+def test_sgp_gauges_use_nodus_scales_and_palette():
+    config = get_gauge_config()
+
+    assert config["Equivalent CO2"]["ticks"] == [0, 400, 800, 1200, 1600, 2000, 3000]
+    assert config["VOC Index"]["zones"] == [
+        {"strokeStyle": "#66cc66", "min": 0, "max": 100},
+        {"strokeStyle": "#ffcc00", "min": 100, "max": 150},
+        {"strokeStyle": "#ffa500", "min": 150, "max": 200},
+        {"strokeStyle": "#f00", "min": 200, "max": 300},
+        {"strokeStyle": "#800080", "min": 300, "max": 400},
+        {"strokeStyle": "#800000", "min": 400, "max": 500},
+    ]
+    assert config["NOx Index"]["zones"] == [
+        {"strokeStyle": "#66cc66", "min": 0, "max": 50},
+        {"strokeStyle": "#ffcc00", "min": 50, "max": 100},
+        {"strokeStyle": "#ffa500", "min": 100, "max": 150},
+        {"strokeStyle": "#f00", "min": 150, "max": 200},
+        {"strokeStyle": "#800080", "min": 200, "max": 300},
+        {"strokeStyle": "#800000", "min": 300, "max": 500},
+    ]
+    assert config["TVOC"]["zones"] == [
+        {"strokeStyle": "#6aa9df", "min": 0, "max": 100}
+    ]
+
+
 def test_soil_fertility_index_gauge_config_uses_contract_scale_and_zones():
     cfg = get_gauge_config()["Soil Fertility Index"]
 

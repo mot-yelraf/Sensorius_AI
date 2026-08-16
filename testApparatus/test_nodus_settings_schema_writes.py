@@ -38,6 +38,25 @@ _REAL_SENSOR_SETTINGS_MANAGER = saiSensorSettingsManager.SensorSettingsManager
 _REAL_SWITCH_SETTINGS_MANAGER = saiSwitchSettingsManager.SwitchSettingsManager
 
 
+def test_nodus_sgp_display_defaults_use_concrete_hardware():
+    assert saiWebRoutes._nodus_display_defaults_for_device("voc", "SGP30")[:2] == [
+        "Equivalent CO2",
+        "TVOC",
+    ]
+    assert saiWebRoutes._nodus_display_defaults_for_device("voc", "SGP40")[:2] == [
+        "VOC Index",
+        "",
+    ]
+    assert saiWebRoutes._nodus_display_defaults_for_device("voc", "SGP41")[:2] == [
+        "VOC Index",
+        "NOx Index",
+    ]
+    assert saiWebRoutes._infer_nodus_sensor_device(
+        "sensor-test123",
+        ["Equivalent CO2", "TVOC"],
+    ) == "voc"
+
+
 class _DummyFastStats:
     def __init__(self, *_args, **_kwargs):
         pass

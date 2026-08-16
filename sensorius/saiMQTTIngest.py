@@ -2844,6 +2844,13 @@ class saiMQTTIngest:
                 device_name = "co2"
             elif "air quality" in metric_names or "gas" in metric_names:
                 device_name = "aqi"
+            elif metric_names & {
+                "equivalent co2",
+                "tvoc",
+                "voc index",
+                "nox index",
+            }:
+                device_name = "voc"
             elif "plant vpd" in metric_names or "plant temperature" in metric_names:
                 device_name = "apvpd"
             elif "light intensity" in metric_names or "estimated ppfd" in metric_names:
@@ -5736,8 +5743,11 @@ class saiMQTTIngest:
             tmp_path.write_text(text, encoding="utf-8")
             tmp_path.replace(path)
 
-        def _display_defaults_for_device(device: str) -> list[str]:
+        def _display_defaults_for_device(device: str, hardware: str = "") -> list[str]:
             base_device = (device or "").split("_", 1)[0].lower()
+            hardware_key = str(hardware or "").strip().lower()
+            if hardware_key in {"sgp30", "sgp40", "sgp41"}:
+                base_device = hardware_key
             mapping: dict[str, list[str]] = {
                 "apvpd": ["Ambient VPD", "Temperature", "Rel-Humidity", "Plant VPD", "Plant Temperature", "Plant Rel-Humidity"],
                 "aqi":   ["Air Quality", "Temperature", "Rel-Humidity", "Ambient VPD", "Dewpoint Deficit", "dewVPD Risk"],
@@ -5748,6 +5758,11 @@ class saiMQTTIngest:
                 "co2":   ["CO2", "Temperature", "Rel-Humidity", "Ambient VPD", "Dewpoint Deficit", "dewVPD Risk"],
                 "lux":   ["Light Intensity", "Auto Light", "Estimated PPFD", "Visible Light Intensity", "", ""],
                 "veml":  ["Light Intensity", "Auto Light", "Estimated PPFD", "Visible Light Intensity", "", ""],
+                "voc":   ["VOC Index", "NOx Index", "", "", "", ""],
+                "sgp30": ["Equivalent CO2", "TVOC", "", "", "", ""],
+                "sgp40": ["VOC Index", "", "", "", "", ""],
+                "sgp41": ["VOC Index", "NOx Index", "", "", "", ""],
+                "sgp4x": ["VOC Index", "NOx Index", "", "", "", ""],
                 "soil":  ["Soil Moisture", "Soil Moisture Deficit", "Soil Stress Index", "Soil Temp_C", "Soil pH", "Soil EC"],
             }
             return mapping.get(base_device, ["", "", "", "", "", ""])
@@ -5924,7 +5939,10 @@ class saiMQTTIngest:
                     if "Display" not in data or not isinstance(data["Display"], dict):
                         data["Display"] = OrderedDict()
                     display = data["Display"]
-                    chosen_metrics = remote_display_metrics or _display_defaults_for_device(device_name or device_type)
+                    chosen_metrics = remote_display_metrics or _display_defaults_for_device(
+                        device_name or device_type,
+                        sensor_hardware,
+                    )
                     for idx in range(6):
                         metric_key = f"METRIC_{idx + 1}"
                         metric_val = chosen_metrics[idx] if idx < len(chosen_metrics) else ""
@@ -5981,7 +5999,10 @@ class saiMQTTIngest:
                     if "Display" not in data or not isinstance(data["Display"], dict):
                         data["Display"] = OrderedDict()
                     display = data["Display"]
-                    chosen_metrics = remote_display_metrics or _display_defaults_for_device(device_name or device_type)
+                    chosen_metrics = remote_display_metrics or _display_defaults_for_device(
+                        device_name or device_type,
+                        sensor_hardware,
+                    )
                     for idx in range(6):
                         display[f"METRIC_{idx + 1}"] = chosen_metrics[idx] if idx < len(chosen_metrics) else ""
                     if remote_display_styles:
@@ -6015,7 +6036,10 @@ class saiMQTTIngest:
                     data["Nodus"]["CONFIG_FILE"] = config_file
 
                     data["Display"] = OrderedDict()
-                    chosen_metrics = remote_display_metrics or _display_defaults_for_device(device_name or device_type)
+                    chosen_metrics = remote_display_metrics or _display_defaults_for_device(
+                        device_name or device_type,
+                        sensor_hardware,
+                    )
                     for idx in range(6):
                         data["Display"][f"METRIC_{idx + 1}"] = chosen_metrics[idx] if idx < len(chosen_metrics) else ""
                     if remote_display_styles:

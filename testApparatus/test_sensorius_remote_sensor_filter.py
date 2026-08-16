@@ -7,6 +7,7 @@ that describe MQTT-remote devices.
 import os
 import sys
 import types
+from types import SimpleNamespace
 
 import pytest
 
@@ -63,6 +64,14 @@ class _FakeSensorController:
         self.data_logger = data_logger
 
 
+class _CompensatedSensor:
+    def __init__(self):
+        self.provider = None
+
+    def set_compensation_provider(self, provider):
+        self.provider = provider
+
+
 @pytest.mark.asyncio
 async def test_build_sensor_controllers_skips_remote_sensor_settings(monkeypatch):
     monkeypatch.setattr(Sensorius, "SensorSettingsManager", _FakeSensorMgr)
@@ -76,3 +85,19 @@ async def test_build_sensor_controllers_skips_remote_sensor_settings(monkeypatch
     )
 
     assert [sensor.sensor_id for sensor in sensors] == ["co2-local"]
+
+
+def test_local_sgp_compensation_prefers_same_location_controller():
+    sgp = SimpleNamespace(sensor=_CompensatedSensor(), location="Grow Room")
+    other_room = SimpleNamespace(
+        sensor=SimpleNamespace(current_values={"Temperature": 19.0, "Rel-Humidity": 40.0}),
+        location="Office",
+    )
+    same_room = SimpleNamespace(
+        sensor=SimpleNamespace(current_values={"Temperature": 25.5, "Rel-Humidity": 61.0}),
+        location="Grow Room",
+    )
+
+    Sensorius._wire_local_sgp_compensation([sgp, other_room, same_room])
+
+    assert sgp.sensor.provider() == (25.5, 61.0)

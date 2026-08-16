@@ -534,9 +534,14 @@ a damaged live DB in place when `.recover` cannot produce a valid replacement.
    after its root source modules are removed.
 4. Use `install.sh` or platform setup scripts only when doing a first install,
    repair install, or intentional package/broker/service reconfiguration.
-5. Install changed dependencies in the target runtime environment if
-   requirements changed.
-6. Start Sensorius.
+5. Review the deploy dependency report. Apply mode reconciles changed Python
+   requirements in the environment used by the active process or configured
+   service, including virtual environments outside the deployment directory.
+   If it reports missing system-level I2C access or tooling, use `install.sh`
+   or the appropriate platform setup script for repair.
+6. Start or restart manually managed instances. Service-managed instances are
+   restarted only when the deployment inventory entry has a post-deploy
+   restart command.
 7. Verify `/healthz`, dashboard load, MQTT ingest, switch controls, and any
    enabled integrations.
 8. Run targeted tests from the source checkout before deploying when practical.

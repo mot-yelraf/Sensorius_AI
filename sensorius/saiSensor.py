@@ -306,7 +306,13 @@ class SensorController:
             self.meas_interval = self._safe_interval(
                 getattr(self.sensor, "meas_interval", self.meas_interval), self.meas_interval, "meas_interval"
             )
-            await asyncio.sleep(self.meas_interval)
+            sleep_interval = self.meas_interval
+            if bool(getattr(self.sensor, "fixed_period_sampling", False)):
+                sleep_interval = max(
+                    0.0,
+                    self.meas_interval - (time.monotonic() - loop_start),
+                )
+            await asyncio.sleep(sleep_interval)
             loop_end = time.monotonic()
 
             if DEBUG:

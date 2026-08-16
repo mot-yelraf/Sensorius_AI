@@ -388,6 +388,7 @@ class SensorSettingsManager:
           aht   -> ["Ambient VPD","Temperature","Rel-Humidity","Humidity","Dew Point Deficit","DewVPD Risk"]
           co2   -> ["CO2","Temperature","Rel-Humidity","Ambient VPD","Dewpoint Deficit","dewVPD Risk"]
           lux   -> ["Light Intensity","Auto Light","Estimated PPFD","Visible Light Intensity","",""]
+          voc   -> ["VOC Index","NOx Index","","","",""]
           soil  -> ["Soil Moisture","Soil Moisture Deficit","Soil Stress Index","Soil Temp_C","Soil pH","Soil EC"]
           weewx -> ["Temperature_F","Rel-Humidity","Rain","Rain Last 24h","Wind Direction","Baro-Pressure"]
         """
@@ -437,6 +438,11 @@ class SensorSettingsManager:
             "co2":   ["CO2", "Temperature", "Rel-Humidity", "Ambient VPD", "Dew Point Deficit", "dewVPD Risk"],
             "lux":   ["Light Intensity", "Auto Light", "Estimated PPFD", "Visible Light Intensity", "", ""],
             "veml":  ["Light Intensity", "Auto Light", "Estimated PPFD", "Visible Light Intensity", "", ""],
+            "voc":   ["VOC Index", "NOx Index", "", "", "", ""],
+            "sgp30": ["Equivalent CO2", "TVOC", "", "", "", ""],
+            "sgp40": ["VOC Index", "", "", "", "", ""],
+            "sgp41": ["VOC Index", "NOx Index", "", "", "", ""],
+            "sgp4x": ["VOC Index", "NOx Index", "", "", "", ""],
             "soil":  ["Soil Moisture", "Soil Moisture Deficit", "Soil Stress Index", "Soil Temp_C", "Soil pH", "Soil EC"],
             "weewx": list(WEEWX_DISPLAY_METRICS),
         }

@@ -17,6 +17,11 @@ Local sensor discovery only runs when the Python `board` runtime is available.
 If it is missing, Sensorius skips local sensor discovery and continues as an
 MQTT hub.
 
+Supported Sensirion gas sensors are SGP30 at I2C address `0x58` and SGP40 or
+SGP41 at `0x59`. SGP40 and SGP41 share an address, so the concrete model is
+identified when its driver starts. SGP41 requires ten one-second conditioning
+cycles before regular VOC and NOx sampling.
+
 ## Relay Configurations
 
 Factory relay templates live under `switch_settings/factory/`.

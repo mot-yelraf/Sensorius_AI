@@ -5,6 +5,9 @@ adafruit-circuitpython-bme280==2.6.28
 adafruit-circuitpython-bme680==3.7.13
 adafruit-circuitpython-scd30==2.2.15
 adafruit-circuitpython-scd4x==1.4.11
+adafruit-circuitpython-sgp30>=2.3.5
+adafruit-circuitpython-sgp40>=1.3.20
+adafruit-circuitpython-sgp41>=1.0.0
 adafruit-circuitpython-veml7700==2.2.2
 adafruit-circuitpython-seesaw==1.16.6
 adafruit-circuitpython-busdevice==5.2.12

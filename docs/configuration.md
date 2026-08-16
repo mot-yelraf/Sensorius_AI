@@ -355,6 +355,16 @@ Local Raspberry Pi sensors are detected and seeded from
 Remote Nodus sensors are seeded or updated from retained MQTT metadata and
 patches. WeeWX can also materialize a station-style sensor config.
 
+Direct SGP sensor device keys are `sgp30`, `sgp40`, and `sgp41`; automatic
+discovery initially uses the family key `voc`. Once the driver identifies the
+hardware, Sensorius persists only compatible gas display metrics: SGP30 uses
+`Equivalent CO2` and `TVOC`, SGP40 uses `VOC Index`, and SGP41 uses `VOC Index`
+plus `NOx Index`.
+
+For Nodus metadata that omits `display_metrics`, the concrete `sensor.hardware`
+value selects the same model-specific defaults. This keeps partial or legacy
+SGP metadata from materializing gauges that the attached chip cannot provide.
+
 Nodus shadows also contain Sensorius routing metadata:
 
 ```toml

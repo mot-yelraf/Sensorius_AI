@@ -227,6 +227,10 @@ Canonical `/data` payload:
 `values` is a dynamic metric map. Soil 7-in-1 devices may include raw N/P/K
 nutrient readings and derived metrics such as `Soil Fertility Index` when the
 relevant sensor registers and `[NPK]` targets are available.
+SGP gas sensors use `Equivalent CO2` and `TVOC` for SGP30, `VOC Index` for
+SGP40, and `VOC Index` plus `NOx Index` for SGP41. Sensorius ingests these keys
+unchanged from Nodus `/data` payloads and honors their advertised
+`display_metrics`.
 `Baro-Pressure` and `Plant Baro-Pressure` values are normalized to one decimal
 place in hPa before publication and storage.
 
@@ -302,7 +306,8 @@ Sensorius treats a missing `mcu` as `pico2w` for legacy Nodus firmware
 compatibility.
 
 `sensor.hardware` is the concrete sensor hardware family when known. Current
-values include `BME280`, `BME680`, `VEML7700`, `AHTx0`, `SCD30`, and `SCD4x`.
+values include `BME280`, `BME680`, `VEML7700`, `AHTx0`, `SCD30`, `SCD4x`,
+`SGP30`, `SGP40`, and `SGP41`.
 Logical sensor device IDs remain unchanged.
 
 `network.ipv4addr` is the current runtime station IPv4 address from the active

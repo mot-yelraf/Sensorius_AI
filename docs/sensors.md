@@ -89,6 +89,11 @@ Common environmental metrics:
 - `Baro-Pressure`, `Plant Baro-Pressure`, or legacy `Bar-Pressure` - hPa,
   normalized and displayed at `0.1 hPa` resolution.
 - `Air Quality` - derived AQI.
+- `Equivalent CO2` - SGP30 equivalent-CO2 estimate in ppm.
+- `TVOC` - SGP30 total volatile organic compounds in ppb.
+- `VOC Index` - SGP40 or SGP41 VOC gas index, 0 through 500.
+- `NOx Index` - SGP41 NOx gas index, 0 through 500. SGP40 does not measure
+  or derive this metric.
 
 Soil metrics:
 
@@ -122,6 +127,19 @@ fields do not multiply interval rainfall totals.
 - Hardware: SCD30 or SCD4x.
 - Bus: I2C_1.
 - Typical metrics: CO2, temperature, humidity, VPD, dew point, and dew-risk.
+
+`SGPSensor`:
+
+- Hardware: SGP30 at `0x58`, or SGP40/SGP41 at `0x59`.
+- Bus: I2C_1 or I2C_0.
+- Metrics: SGP30 publishes `Equivalent CO2` and `TVOC`; SGP40 publishes only
+  `VOC Index`; SGP41 publishes `VOC Index` and `NOx Index`.
+- The gas algorithms are serviced on a fixed one-second period, including the
+  time spent inside the hardware driver. Sensorius emits the latest values to
+  normal persistence at the one-minute sensor cadence.
+- When another directly connected sensor provides valid `Temperature` and
+  `Rel-Humidity` readings, Sensorius uses a same-location sensor first and
+  supplies those values to the SGP humidity-compensation interface.
 
 `VPDSensor`:
 
@@ -169,6 +187,10 @@ The `[Display]` section stores the selected dashboard metrics. The UI supports:
 - Pick-six display mode.
 - All-metric display mode.
 - Per-metric display style overrides under `[Display.Style]`.
+
+Gas gauges use the same scale bands and color palette as the Nodus web UI.
+After direct hardware identification, Sensorius removes display metrics that
+the installed SGP model cannot provide.
 
 Do not rename stored metric keys casually. Existing database history,
 automation rules, Home Assistant entities, and display settings can depend on

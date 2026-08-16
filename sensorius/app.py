@@ -205,10 +205,85 @@ async def build_sensor_controllers(sensor_ids, supervisor, gc_mgr, data_logger):
         except Exception as e:
             printDM(f"Sensor init skipped for '{sid}': {e}", location=f"{MODULE}:bsc")
             continue
+        _reconcile_local_sgp_display_metrics(sensor_mgr, sid, sensor)
         sensors.append(sensor)
+    _wire_local_sgp_compensation(sensors)
     if DEBUG:
         printDM(f"sensor_id: {sensors}", location=f"{MODULE}:bsc")
     return sensors
+
+
+def _reconcile_local_sgp_display_metrics(sensor_mgr, sensor_id, controller):
+    """Persist only gas metrics supported by the identified local SGP chip."""
+    sensor = getattr(controller, "sensor", None)
+    hardware = str(getattr(sensor, "hardware", "") or "").strip().upper()
+    allowed_by_hardware = {
+        "SGP30": ("Equivalent CO2", "TVOC"),
+        "SGP40": ("VOC Index",),
+        "SGP41": ("VOC Index", "NOx Index"),
+    }
+    allowed = allowed_by_hardware.get(hardware)
+    if not allowed:
+        return
+
+    gas_metrics = {"Equivalent CO2", "TVOC", "VOC Index", "NOx Index"}
+    current = list(sensor_mgr.get_display_metrics(sensor_id) or [])[:6]
+    current.extend([""] * (6 - len(current)))
+    normalized = [
+        "" if metric in gas_metrics and metric not in allowed else metric
+        for metric in current
+    ]
+    if not any(metric in allowed for metric in normalized):
+        for metric in allowed:
+            try:
+                index = normalized.index("")
+            except ValueError:
+                break
+            normalized[index] = metric
+    if normalized != current:
+        sensor_mgr.set_display_metrics(sensor_id, normalized)
+    sensor.display_metrics = list(normalized)
+
+
+def _wire_local_sgp_compensation(controllers):
+    """Let local SGP sensors use nearby temperature and humidity readings."""
+    controller_list = list(controllers or [])
+
+    def _provider_for(target):
+        def _read_compensation():
+            target_location = str(getattr(target, "location", "") or "").strip().lower()
+            candidates = [controller for controller in controller_list if controller is not target]
+            candidates.sort(
+                key=lambda controller: (
+                    0
+                    if target_location
+                    and str(getattr(controller, "location", "") or "").strip().lower()
+                    == target_location
+                    else 1
+                )
+            )
+            for controller in candidates:
+                values = getattr(getattr(controller, "sensor", None), "current_values", {})
+                if not isinstance(values, dict):
+                    continue
+                temperature = values.get("Temperature")
+                humidity = values.get("Rel-Humidity")
+                try:
+                    temperature = float(temperature)
+                    humidity = float(humidity)
+                except (TypeError, ValueError):
+                    continue
+                if -45.0 <= temperature <= 130.0 and 0.0 <= humidity <= 100.0:
+                    return temperature, humidity
+            return None
+
+        return _read_compensation
+
+    for controller in controller_list:
+        sensor = getattr(controller, "sensor", None)
+        setter = getattr(sensor, "set_compensation_provider", None)
+        if callable(setter):
+            setter(_provider_for(controller))
 
 async def build_switch_controllers(sensors, supervisor, data_logger):
     """Build configured local and remote switch controllers."""

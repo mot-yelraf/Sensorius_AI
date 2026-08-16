@@ -12,6 +12,8 @@ import types
 import time
 from datetime import datetime, timezone
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import sensorius
@@ -340,6 +342,31 @@ def _mark_nodus_online(ingest, host="apvpd-test123", *, peers=None):
     ingest.last_nodus_report_seen[f"{host}.local"] = now_ts
     ingest.device_status[host] = "online"
     ingest.device_status[f"{host}.local"] = "online"
+
+
+def test_nodus_sgp41_values_and_display_metrics_are_ingested(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+
+    ingest._on_message(
+        ingest.client,
+        None,
+        _Msg(
+            "nodus/voc-test123/data",
+            json.dumps(
+                {
+                    "values": {"VOC Index": 109, "NOx Index": 18},
+                    "display_metrics": ["VOC Index", "NOx Index"],
+                }
+            ),
+        ),
+    )
+
+    args, _kwargs = ingest.data_logger.readings[-1]
+    assert args[1] == "voc-test123"
+    assert args[2] == {"VOC Index": 109, "NOx Index": 18}
+    assert ingest.expected_gauge_map["voc-test123"] == [
+        "VOC Index", "NOx Index"
+    ]
 
 
 def test_background_http_meta_discovery_defaults_off(monkeypatch):
@@ -2513,6 +2540,62 @@ def test_nodus_shadow_seed_uses_nodus_aligned_defaults_when_display_metrics_miss
     assert 'METRIC_4 = "Ambient VPD"' in saved
     assert 'METRIC_5 = "Dewpoint Deficit"' in saved
     assert 'METRIC_6 = "dewVPD Risk"' in saved
+
+
+@pytest.mark.parametrize(
+    ("hardware", "expected_metrics"),
+    [
+        ("SGP30", ["Equivalent CO2", "TVOC"]),
+        ("SGP40", ["VOC Index"]),
+        ("SGP41", ["VOC Index", "NOx Index"]),
+    ],
+)
+def test_nodus_sgp_shadow_uses_hardware_defaults_without_advertised_metrics(
+    tmp_path,
+    monkeypatch,
+    hardware,
+    expected_metrics,
+):
+    ingest = _build_ingest(monkeypatch)
+    sensor_root = tmp_path / "sensor_settings"
+    switch_root = tmp_path / "switch_settings"
+    system_root = tmp_path / "system_settings"
+    sensor_root.mkdir()
+    switch_root.mkdir()
+    system_root.mkdir()
+
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    real_settings_cls = saiSettings.saiSettings
+    monkeypatch.setattr(
+        saiSensorSettingsManager,
+        "SensorSettingsManager",
+        lambda *_a, **_k: real_sensor_mgr(str(sensor_root)),
+    )
+    monkeypatch.setattr(
+        saiSwitchSettingsManager,
+        "SwitchSettingsManager",
+        lambda *_a, **_k: real_switch_mgr(str(switch_root)),
+    )
+    monkeypatch.setattr(real_settings_cls, "DEFAULT_BASE_DIR", str(system_root))
+
+    ingest._ensure_settings_from_itaot(
+        {"HOSTNAME": "voc-test123"},
+        "voc-test123",
+        [
+            {
+                "sensor_id": "voc-test123",
+                "device_type": "nodus",
+                "device": "voc",
+                "sensor_type": "nodus",
+                "hardware": hardware,
+            }
+        ],
+        [],
+    )
+
+    saved = real_sensor_mgr(str(sensor_root)).get_display_metrics("voc-test123")
+    assert saved == expected_metrics
 
 
 def test_dual_sensor_shadow_seeds_physical_host_and_config_file(tmp_path, monkeypatch):

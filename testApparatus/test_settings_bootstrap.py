@@ -140,6 +140,9 @@ def test_sensor_factory_seed_uses_nodus_aligned_display_defaults(tmp_path):
     mgr.seed_from_factory("apvpd-test123", "apvpd")
     mgr.seed_from_factory("lux-123", "lux")
     mgr.seed_from_factory("soil-123", "soil")
+    mgr.seed_from_factory("sgp30-123", "sgp30")
+    mgr.seed_from_factory("sgp40-123", "sgp40")
+    mgr.seed_from_factory("sgp41-123", "sgp41")
 
     assert mgr.get_display_metrics("apvpd-test123") == [
         "Ambient VPD",
@@ -163,5 +166,8 @@ def test_sensor_factory_seed_uses_nodus_aligned_display_defaults(tmp_path):
         "Soil pH",
         "Soil EC",
     ]
+    assert mgr.get_display_metrics("sgp30-123") == ["Equivalent CO2", "TVOC"]
+    assert mgr.get_display_metrics("sgp40-123") == ["VOC Index"]
+    assert mgr.get_display_metrics("sgp41-123") == ["VOC Index", "NOx Index"]
     assert mgr.load("apvpd-test123")["Display"]["Style"]["METRIC_1"] == ""
     assert mgr.load("apvpd-test123")["Display"]["Style"]["METRIC_6"] == ""

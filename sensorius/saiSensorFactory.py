@@ -34,6 +34,11 @@ SENSOR_MODULES = {
     "co2":   ("sensorius.sensor_modules.sensor_co2",    "CO2Sensor"),
     "scd30": ("sensorius.sensor_modules.sensor_co2",    "CO2Sensor"),
     "scd4x": ("sensorius.sensor_modules.sensor_co2",    "CO2Sensor"),
+    "voc":   ("sensorius.sensor_modules.sensor_sgp",    "SGPSensor"),
+    "sgp30": ("sensorius.sensor_modules.sensor_sgp",    "SGPSensor"),
+    "sgp40": ("sensorius.sensor_modules.sensor_sgp",    "SGPSensor"),
+    "sgp41": ("sensorius.sensor_modules.sensor_sgp",    "SGPSensor"),
+    "sgp4x": ("sensorius.sensor_modules.sensor_sgp",    "SGPSensor"),
     "vpd":   ("sensorius.sensor_modules.sensor_vpd",    "VPDSensor"),
     "avpd":  ("sensorius.sensor_modules.sensor_vpd",    "VPDSensor"),
     "bme280": ("sensorius.sensor_modules.sensor_vpd",    "VPDSensor"),
@@ -95,6 +100,7 @@ def find_sensors(known_used: Optional[dict[str, set[int]]] = None) -> list[Devic
     BME280_ADDRS = (0x76, 0x77)
     VEML7700_ADDR = 0x10
     AHTX0_ADDRS = (0x38, 0x39)
+    SGP_ADDRS = (0x58, 0x59)
 
     # free address helpers
     def free(bus, addr): return (addr in bus_map[bus]) and (addr not in used[bus])
@@ -161,14 +167,21 @@ def find_sensors(known_used: Optional[dict[str, set[int]]] = None) -> list[Devic
             found.append(DeviceDescriptor("co2", bus, (chosen,)))
             # support multiple if you want; otherwise break
         
-    # 5) veml: VEML7700 at 0x10 
+    # 5) voc: SGP30 at 0x58 or SGP40/SGP41 at 0x59
+    for bus in ("i2c-1", "i2c-0"):
+        chosen = next((a for a in SGP_ADDRS if free(bus, a)), None)
+        if chosen is not None:
+            used[bus].add(chosen)
+            found.append(DeviceDescriptor("voc", bus, (chosen,)))
+
+    # 6) veml: VEML7700 at 0x10
     for bus in ("i2c-1", "i2c-0"):
         if free(bus, VEML7700_ADDR):
             used[bus].add(VEML7700_ADDR)
             found.append(DeviceDescriptor("veml", bus, (VEML7700_ADDR,)))
             # support multiple if you want; otherwise break
 
-    # 6) aht: AHT10/AHTx0 at 0x38 or 0x39
+    # 7) aht: AHT10/AHTx0 at 0x38 or 0x39
     for bus in ("i2c-1", "i2c-0"):
         for a in AHTX0_ADDRS:
             if free(bus, a):
