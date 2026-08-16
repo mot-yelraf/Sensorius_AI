@@ -76,8 +76,11 @@ def test_bd_transition_toast_is_persistent_and_shows_from_to():
     ).read_text(encoding="utf-8")
 
     assert "msg.type === 'bd_transition'" in html_builder
+    assert "msg.test ? 'BD Transition Test' : 'BD Transition'" in html_builder
     assert "From ${segmentText(msg.from)} → To ${segmentText(msg.to)}" in html_builder
-    assert "const actionColors = biodynamicActionColors(msg.to);" in html_builder
+    assert "window.biodynamicActionColors = biodynamicActionColors;" in html_builder
+    assert "const colorHelper = window.biodynamicActionColors;" in html_builder
+    assert "typeof colorHelper === 'function'" in html_builder
     assert "t.style.backgroundColor = actionColors.background;" in html_builder
     assert "t.style.color = actionColors.text;" in html_builder
     assert "const background = isFruit ? '#4c3a7f'" in html_builder
@@ -90,6 +93,17 @@ def test_bd_transition_toast_is_persistent_and_shows_from_to():
         for line in html_builder.splitlines()
         if "bd-transition-toast" in line
     )
+
+
+def test_bd_transition_test_endpoint_uses_live_dashboard_broadcaster():
+    repo_root = Path(__file__).resolve().parents[1]
+    routes_text = (
+        repo_root / "sensorius" / "saiWebRoutes.py"
+    ).read_text(encoding="utf-8")
+
+    assert '@router.post("/advanced/automations/test-bd-transition"' in routes_text
+    assert '"test": True' in routes_text
+    assert "await broadcaster(payload)" in routes_text
 
 
 def test_generic_automation_toast_is_persistent_and_click_dismissible():

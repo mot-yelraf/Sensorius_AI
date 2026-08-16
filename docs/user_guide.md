@@ -362,6 +362,9 @@ Fields and selectors:
 Forecast placement, astronomy, sunrise, and sunset use the latitude,
 longitude, and timezone under **General Settings > Astral**. The Current
 Readings panel follows the selected sensor's configured **Display Metrics**.
+When that sensor reports temperature or relative humidity, the dashboard's
+24-hour forecast card shows the live reading before the forecast range. The
+temperature reading and range use the selected system display units.
 
 ### Automations Pane
 

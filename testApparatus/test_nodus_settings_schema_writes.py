@@ -583,6 +583,48 @@ async def _build_app_base_dir_only(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_bd_transition_test_endpoint_broadcasts_to_live_dashboards(
+    tmp_path,
+    monkeypatch,
+):
+    app, _ingest, _system_root, _sensor_root, _switch_root = await _build_app(
+        tmp_path,
+        monkeypatch,
+    )
+
+    class _CalendarService:
+        @staticmethod
+        def current_transition_sync():
+            return {
+                "transition_at": "2026-08-16T00:00:00-06:00",
+                "sign": "Virgo",
+                "element": "Earth",
+                "plant_part": "Root",
+                "color": "#e5b172",
+                "accent": "#644817",
+            }
+
+    broadcasts = []
+
+    async def _broadcast(payload):
+        broadcasts.append(payload)
+
+    app.state.biodynamic_calendar_service = _CalendarService()
+    app.state.switch_broadcast = _broadcast
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/advanced/automations/test-bd-transition")
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert len(broadcasts) == 1
+    assert broadcasts[0]["type"] == "bd_transition"
+    assert broadcasts[0]["test"] is True
+    assert broadcasts[0]["from"]["sign"] == "Virgo"
+    assert broadcasts[0]["to"]["plant_part"] == "Root"
+
+
+@pytest.mark.asyncio
 async def test_ota_package_browse_defaults_to_service_package_root(tmp_path, monkeypatch):
     package_root = tmp_path / "ota_packages"
     (package_root / "pkg-one").mkdir(parents=True)

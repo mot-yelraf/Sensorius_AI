@@ -610,6 +610,27 @@ def test_dashboard_reuses_detailed_forecast_moon_surface_and_selectable_backgrou
         assert (ROOT / "ui_static" / pattern).is_file()
 
 
+def test_dashboard_forecast_combines_selected_sensor_readings_with_system_unit_ranges():
+    dashboard_source = (ROOT / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    routes_source = (ROOT / "sensorius" / "saiWebRoutes.py").read_text(encoding="utf-8")
+
+    assert "forecastCurrentTemperature(data)" in dashboard_source
+    assert "forecastCurrentHumidity(data)" in dashboard_source
+    assert "`${currentValue} : ${range}`" in dashboard_source
+    assert 'payload["unit_system"] = display_unit_system' in routes_source
+    assert 'payload["current_readings"] = await asyncio.to_thread' in routes_source
+
+
+def test_current_readings_primary_value_scales_inside_its_card():
+    template = (ROOT / "ui_templates" / "weather_forecast" / "index.html").read_text(encoding="utf-8")
+    stylesheet = (ROOT / "ui_static" / "weather_forecast" / "app.css").read_text(encoding="utf-8")
+
+    assert 'class="reading-primary"' in template
+    assert ".readings-panel { container-type: inline-size;" in stylesheet
+    assert "grid-template-columns: minmax(5.5rem, 34%) minmax(0, 1fr)" in stylesheet
+    assert "font-size: clamp(3.25rem, 15cqw, 6.5rem)" in stylesheet
+
+
 def test_weather_forecast_system_settings_are_present():
     template = (ROOT / "ui_templates" / "modals" / "system_settings.html").read_text(encoding="utf-8")
     stylesheet = (ROOT / "ui_static" / "weather_forecast" / "app.css").read_text(encoding="utf-8")

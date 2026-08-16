@@ -114,6 +114,7 @@ from .saiDailySummary import DailySummaryService, DEFAULT_PREWARM_DAYS, get_summ
 from .saiNodusOTA import NodusOTAError, NodusOTAService
 from .saiEmailNotifications import EmailConfig, SMTPEmailSender, normalize_notification_rules
 from .saiWeatherForecast import get_weather_forecast_payload, normalize_weather_forecast_provider
+from .saiWeatherForecastApp import build_weather_display_forecast
 from .saiWeatherForecastApp import normalize_weather_theme
 from .saiAddDevice import _SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR, get_hub_settings_path
 from . import __version__ as SAI_APP_VERSION
@@ -5918,6 +5919,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     min_days=int(days),
                     timeout_sec=8.0,
                 )
+            display_unit_system = normalize_display_unit_system(
+                settings.get_setting("Display", "unit_system", "Imperial")
+            )
+            display_forecast = build_weather_display_forecast(payload, display_unit_system)
+            payload = copy.deepcopy(payload)
+            current_24h = payload.get("current_24h")
+            if isinstance(current_24h, dict):
+                current_24h["temp_range"] = display_forecast.get("temp_range") or current_24h.get("temp_range")
+            payload["unit_system"] = display_unit_system
+            if forecast_app_service is not None:
+                payload["current_readings"] = await asyncio.to_thread(forecast_app_service.current_readings)
             if isinstance(payload.get("days"), list):
                 payload["days"] = payload["days"][:days]
             _ui_profile_log(
@@ -9874,6 +9886,46 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "autostart_note": "If you manually run 'python Sensorius.py', stop that instance before enabling auto-start to avoid duplicate instances.",
             "autostart_scope_note": "macOS user-level launchctl is default. System-level may require admin privileges.",
         })
+
+    @router.post("/advanced/automations/test-bd-transition", response_class=JSONResponse)
+    async def test_biodynamic_transition_alert(request: Request):
+        """Broadcast a simulated BD transition without changing calendar or rule state."""
+        service = getattr(request.app.state, "biodynamic_calendar_service", None)
+        broadcaster = getattr(request.app.state, "switch_broadcast", None)
+        if service is None or not callable(getattr(service, "current_transition_sync", None)):
+            return JSONResponse(
+                {"ok": False, "error": "Biodynamic calendar service is unavailable."},
+                status_code=503,
+            )
+        if not callable(broadcaster):
+            return JSONResponse(
+                {"ok": False, "error": "Dashboard broadcaster is unavailable."},
+                status_code=503,
+            )
+
+        current = await asyncio.to_thread(service.current_transition_sync)
+        if not isinstance(current, dict) or not current.get("transition_at"):
+            return JSONResponse(
+                {"ok": False, "error": "Current biodynamic segment is unavailable."},
+                status_code=503,
+            )
+
+        segment = {
+            "sign": str(current.get("sign") or ""),
+            "element": str(current.get("element") or ""),
+            "plant_part": str(current.get("plant_part") or ""),
+            "color": str(current.get("color") or ""),
+            "accent": str(current.get("accent") or ""),
+        }
+        payload = {
+            "type": "bd_transition",
+            "test": True,
+            "transition_at": datetime.now().astimezone().isoformat(),
+            "from": dict(segment),
+            "to": dict(segment),
+        }
+        await broadcaster(payload)
+        return JSONResponse({"ok": True, "message": "Test BD transition broadcast.", "event": payload})
 
     @router.post("/advanced/save")
     async def advanced_save(request: Request):

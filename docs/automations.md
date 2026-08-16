@@ -111,6 +111,10 @@ BD Transitions behavior:
 - A Notify actor sends one transition email rather than a subsequent
   transition-cleared email. Its subject summarizes the transition time and
   From/To segments; its body includes the full condition details.
+- Operators can exercise the live dashboard delivery path without changing
+  calendar or automation state by sending a POST request to
+  `/advanced/automations/test-bd-transition`. The resulting persistent toast
+  is labeled `BD Transition Test` and is broadcast to every connected dashboard.
 
 Notify behavior:
 

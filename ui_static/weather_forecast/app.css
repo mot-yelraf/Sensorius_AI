@@ -398,11 +398,12 @@ a { color: inherit; }
 
 .conditions-row { display: grid; grid-template-columns: 0.82fr 1.48fr 0.82fr; gap: 0.85rem; align-items: stretch; }
 .readings-panel, .forecast-panel, .daylight-card { min-height: 32rem; padding: 1.25rem; }
-.readings-panel { display: flex; flex-direction: column; }
-.reading-hero { display: grid; grid-template-columns: 8.5rem 1fr; align-items: center; min-height: 12rem; border-bottom: 1px solid var(--line); }
-.reading-hero > div:last-child { text-align: left; }
-.reading-hero .temperature-number { font-size: clamp(4.5rem, 7vw, 6.5rem); }
+.readings-panel { container-type: inline-size; display: flex; flex-direction: column; }
+.reading-hero { display: grid; grid-template-columns: minmax(5.5rem, 34%) minmax(0, 1fr); align-items: center; min-height: 12rem; border-bottom: 1px solid var(--line); }
+.reading-primary { min-width: 0; text-align: left; white-space: nowrap; }
+.reading-hero .temperature-number { font-size: clamp(3.25rem, 15cqw, 6.5rem); }
 .reading-hero p { margin: 0.65rem 0 0; color: var(--muted); font-size: 0.72rem; }
+.reading-primary p { white-space: normal; }
 .weather-symbol.compact-symbol { position: relative; top: auto; left: auto; width: 8rem; height: 7rem; transform: none; }
 .compact-symbol .symbol-sun { width: 5rem; height: 5rem; }
 .compact-symbol .symbol-cloud { width: 6.5rem; height: 2.4rem; bottom: 0.6rem; }
