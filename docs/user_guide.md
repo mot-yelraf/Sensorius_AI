@@ -1064,6 +1064,18 @@ scroll the Caelus page. Select **Click to interact with map** on the map's top
 border to enable its zoom and pan controls; move the pointer outside the map
 (or press Escape) to lock it again.
 
+To view Windy's short-term radar nowcast, first select **Click to interact with
+map**, then use the radar timeline at the bottom of the map. Select a time in
+the red future portion of the timeline, or select **Play** to animate the
+observed radar history through the current frame and into the forecast. The
+future portion is a movement-based radar nowcast for approximately the next
+hour; move the timeline back to review the observed radar history.
+
+The Windy map is an embedded service, and its selected timeline position may
+be temporary. Closing Caelus, reloading the page, or selecting **× Close
+forecast** can return the map to Windy's default current/history view. If that
+happens, activate the map and select the future portion of the timeline again.
+
 The lunar panel keeps the live Moon and its current illumination, lunar age,
 altitude, and local orientation in the center. The four most recent phase
 milestones appear chronologically on the left, and the next four appear on the
