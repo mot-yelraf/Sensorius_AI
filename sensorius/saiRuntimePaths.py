@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 
 RUNTIME_ROOT_NAME = "Sensorius"
+RUNTIME_ROOT_ENV = "SENSORIUS_RUNTIME_ROOT"
 TEST_RUNTIME_ROOT_ENV = "SENSORIUS_TEST_RUNTIME_ROOT"
 _RUNTIME_DIR_NAMES = {
     "automation_settings",
@@ -40,6 +41,9 @@ def resolve_runtime_base_dir(base_dir: str | Path) -> Path:
         return path.resolve()
 
     if raw in _RUNTIME_DIR_NAMES:
+        runtime_root = os.environ.get(RUNTIME_ROOT_ENV, "").strip()
+        if runtime_root:
+            return (Path(runtime_root).expanduser() / raw).resolve()
         return (Path.home() / RUNTIME_ROOT_NAME / raw).expanduser().resolve()
 
     return path.resolve()

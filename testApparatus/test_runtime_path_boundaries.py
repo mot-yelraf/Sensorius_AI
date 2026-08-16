@@ -39,6 +39,18 @@ def test_bare_settings_roots_resolve_to_runtime_home_outside_pytest(tmp_path, mo
     assert not (checkout / "automation_settings").exists()
 
 
+def test_packaged_runtime_root_override_outside_pytest(tmp_path, monkeypatch):
+    _, checkout = _non_pytest_runtime(tmp_path, monkeypatch)
+    runtime = tmp_path / "packaged-runtime"
+    monkeypatch.setenv("SENSORIUS_RUNTIME_ROOT", str(runtime))
+
+    assert resolve_runtime_base_dir("system_settings") == runtime / "system_settings"
+    assert resolve_runtime_base_dir("sensor_settings") == runtime / "sensor_settings"
+    assert resolve_runtime_base_dir("switch_settings") == runtime / "switch_settings"
+    assert resolve_runtime_base_dir("automation_settings") == runtime / "automation_settings"
+    assert not (checkout / "system_settings").exists()
+
+
 def test_bare_settings_roots_use_test_runtime_root_inside_pytest(tmp_path, monkeypatch):
     checkout = tmp_path / "checkout"
     runtime = tmp_path / "pytest-runtime"

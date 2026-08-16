@@ -17,6 +17,9 @@ Bare settings roots are resolved by `sensorius.saiRuntimePaths.resolve_runtime_b
 - Outside pytest, `system_settings`, `sensor_settings`, `switch_settings`, and
   `automation_settings` resolve under the installed runtime directory, for example
   `/home/<user>/Sensorius/` on Linux or `/Users/<user>/Sensorius/` on macOS.
+- Packaged deployments can set `SENSORIUS_RUNTIME_ROOT` to place all four
+  settings trees under another writable directory without changing immutable
+  application resources.
 - Inside pytest, relative roots stay relative so tests can use temporary
   directories.
 - Absolute paths are used unchanged.
@@ -50,9 +53,11 @@ directory.
 
 ## Environment And `.env`
 
-`sensorius/saiUtils.py` loads a project-root `.env` early at process startup. Environment
-variables supplied by the service manager or shell still work. Some runtime
-panels in Advanced Settings write selected values back to `.env`.
+`sensorius/saiUtils.py` loads a project-root `.env` early at process startup.
+Packaged deployments can set `SENSORIUS_ENV_FILE` to an absolute writable
+`.env` path outside the application bundle. Environment variables supplied by
+the service manager or shell still work. Some runtime panels in Advanced
+Settings write selected values back to the selected `.env` file.
 
 API keys:
 

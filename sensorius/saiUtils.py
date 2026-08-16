@@ -49,7 +49,9 @@ logger = logging.getLogger("saiUtils")
 logger.addHandler(logging.NullHandler())
 logger.setLevel(logging.NOTSET)
 _DOTENV_FILE_VALUES: dict[str, str] = {}
-_DOTENV_PATH = PROJECT_ROOT / ".env"
+_DOTENV_PATH = Path(
+    os.environ.get("SENSORIUS_ENV_FILE") or PROJECT_ROOT / ".env"
+).expanduser().resolve()
 _DOTENV_MTIME_NS: int | None = None
 
 
@@ -151,7 +153,7 @@ def _ensure_startup_api_keys() -> None:
     """
     keys = ("SAI_WEB_API_KEY", "SAI_PEER_API_KEY")
     base_dir = PROJECT_ROOT
-    dotenv_path = base_dir / ".env"
+    dotenv_path = _DOTENV_PATH
     dotenv_example_path = base_dir / ".env.def"
     running_from_repo = (base_dir / ".git").exists()
     allow_repo_write = str(os.environ.get("SENSORIUS_ALLOW_REPO_ENV_WRITE", "")).strip().lower() in {
@@ -214,7 +216,8 @@ def _ensure_startup_api_keys() -> None:
     if not write_back:
         return
 
-    if running_from_repo and not allow_repo_write:
+    project_dotenv_path = (base_dir / ".env").resolve()
+    if running_from_repo and dotenv_path == project_dotenv_path and not allow_repo_write:
         # Keep source repository .env clean by default.
         return
 
@@ -230,6 +233,7 @@ def _ensure_startup_api_keys() -> None:
             file_lines.append(new_line)
 
     try:
+        dotenv_path.parent.mkdir(parents=True, exist_ok=True)
         dotenv_path.write_text("\n".join(file_lines).rstrip() + "\n", encoding="utf-8")
         _normalize_dotenv_ownership(dotenv_path)
     except Exception:

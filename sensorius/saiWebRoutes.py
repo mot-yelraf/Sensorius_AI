@@ -1915,7 +1915,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         items = [{"name": name, "config": cfg} for name, cfg in sorted(data.items(), key=lambda kv: kv[0].lower())]
         return {"items": items, "last_used": (last_used or "")}
 
-    _ENV_PATH = PROJECT_ROOT / ".env"
+    _ENV_PATH = Path(
+        os.environ.get("SENSORIUS_ENV_FILE") or PROJECT_ROOT / ".env"
+    ).expanduser().resolve()
     _ENV_DEF_PATH = PROJECT_ROOT / ".env.def"
     _AUTOSTART_LABEL = "com.sensorius.app"
     _AUTOSTART_SERVICE = "sensorius.service"
