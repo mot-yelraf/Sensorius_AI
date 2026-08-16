@@ -150,6 +150,7 @@ if [ -d "${target_dir}/__pycache__" ]; then
   fi
 fi
 rm -rf -- "${target_dir}/sensor_modules"
+rm -rf -- "${target_dir}/platform_installers"
 rm -rf -- "${target_dir}/src/sensorius" "${target_dir}/src/sensorius.egg-info"
 rm -rf -- "${target_dir}/src/__pycache__"
 rm -f -- "${target_dir}/src/.DS_Store"
@@ -520,6 +521,7 @@ EXCLUDES=(
   ".git/"
   ".venv/"
   "node_modules/"
+  "platform_installers/"
   ".env"
   "__pycache__/"
   "*.pyc"

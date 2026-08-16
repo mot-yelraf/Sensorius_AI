@@ -108,7 +108,9 @@ The deploy script is intended for existing runtime directories such as
 runtime state, including `sensorius_data.db*`, `system_settings/`,
 `sensor_settings/`, `switch_settings/`, `automation_settings/`, and generated
 runtime data under `cache/`. Runtime-generated `.lgd-*` named pipes are also
-preserved. It explicitly allows factory templates under those settings trees
+preserved. The local `platform_installers/` build tree is excluded and any copy
+left by an earlier deployment is removed after a successful apply sync. The
+deploy script explicitly allows factory templates under those settings trees
 to update.
 
 Inventory format:

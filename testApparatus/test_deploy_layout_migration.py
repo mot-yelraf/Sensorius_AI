@@ -177,6 +177,13 @@ def test_deploy_syncs_preserve_system_automation_state():
     assert '"automation_settings/***"' in deploy_text
 
 
+def test_deploy_excludes_platform_installer_build_tree():
+    deploy_text = DEPLOY_SAI.read_text(encoding="utf-8")
+
+    assert '"platform_installers/"' in deploy_text
+    assert 'rm -rf -- "${target_dir}/platform_installers"' in deploy_text
+
+
 def test_deploy_dry_run_reports_required_dependency_install(tmp_path):
     result = _run_deploy_dependency_fixture(tmp_path, "--dry-run")
 
