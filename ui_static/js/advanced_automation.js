@@ -717,7 +717,7 @@ function addAction(modal, action) {
 
   const setWrap = create("div");
   const setLab = create("label");
-  setLab.textContent = "State";
+  setLab.textContent = "Set State";
   const setSel = create("select");
   setSel.classList.add("action-set");
   setSel.innerHTML = `
@@ -728,12 +728,12 @@ function addAction(modal, action) {
 
   const revertWrap = create("div");
   const revertLab = create("label");
-  revertLab.textContent = "Revert Action";
+  revertLab.textContent = "Restore Action";
   const revertSel = create("select");
   revertSel.classList.add("action-revert");
   revertSel.innerHTML = `
-    <option value="previous_state">Previous State</option>
-    <option value="do_nothing">Do Nothing</option>`;
+    <option value="previous_state">To previous state</option>
+    <option value="do_nothing">Leave at set state</option>`;
   const revertValue = (typeof action?.revert_action === "string" && action.revert_action.trim())
     ? action.revert_action.trim()
     : "previous_state";
@@ -742,7 +742,7 @@ function addAction(modal, action) {
 
   const delayWrap = create("div");
   const delayLab = create("label");
-  delayLab.textContent = "Delay Before Action (secs)";
+  delayLab.textContent = "Delay Action (secs)";
   const delayIn = create("input");
   delayIn.type = "number";
   delayIn.min = "0";

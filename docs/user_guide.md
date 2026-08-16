@@ -4,63 +4,127 @@
 
 # Sensorius User Guide
 
-Sensorius Automatio Instrumentorum, also called Sensorius AI or Sensorius, is an environmental sensing and automation hub for gardens, greenhouses, grow rooms, small farms, and other places where environmental conditions matter. It gives you live readings, historical graphs, switch control, calibration tools, optional integrations with Home Assistant, WeeWX, and farmOS, and a fully integrated Biodynamic Calendar.
+Sensorius Automatio Instrumentorum, also called Sensorius AI or Sensorius, is an environmental sensing and automation hub for gardens, greenhouses, grow rooms, small farms, and other places where environmental conditions matter. It gives you live readings, historical graphs, switch control, calibration tools, fully integrated Caelus Weather Forecast, Maria Thun-inspired Biodynamic Calendar, and optional integrations with Home Assistant, WeeWX, and farmOS.
 
-Sensorius can run as a Raspberry Pi hub with directly connected sensors and relays, as well as Wi-Fi Nodus sensors and switches that communicate through MQTT. It can also run on macOS, Windows, or Linux as a hub for Wi-Fi Nodus sensors and switches. In normal use, both kinds of devices appear together on the same dashboard.
+Sensorius can run as a Raspberry Pi hub with directly connected sensors and relays, as well as Wi-Fi Nodus sensors and switches that communicate via a lightweight, open-standard communications protocal, MQTT (Message Queuing Telemetry Transport), as well as Ecowitt Gateways (GW1100/GW1200) with weather sensor integration.
 
-This guide is written for people who want to use the system without necessarily knowing all of its back-end functionality. You do not need to understand MQTT, SQLite, or Python to use the app, but the guide explains where information comes from so you can make good decisions when something looks wrong.
+Sensorius can also run on macOS, Windows, or Linux as a hub for Wi-Fi Nodus sensors and switches, as well as Ecowitt Gateways (GW1100/GW1200) with weather sensor integration. In normal use, both kinds of devices appear together on the same dashboard.
 
+<!-- pdf-keep-together:start -->
 ## Dashboard Overview
 
 The dashboard is the main operating view. It is where you check current conditions, see switch state, open settings, and review quick trends.
 
 ![Dashboard overview using an example host](<../assets/screenshots/dashboard-overview.png>)
+<!-- pdf-keep-together:end -->
 
-This example is based on a representative Sensorius dashboard and
-uses the neutral host identity `sensorius-demo`. Sensor names, locations,
-metrics, switch channels, forecast source, and live values will vary by
-installation.
+This example was captured from a live Sensorius installation. Sensor names,
+locations, metrics, switch channels, forecast source, and live values will vary
+by installation.
 
 The dashboard presents:
+### Interface Icons
 
-- Sensor cards grouped by device and location.
-- Switch cards with live channel state and recent events.
-- Sun, moon, biodynamic, and optional weather forecast cards when Astral location is available.
-- Buttons for General Settings, the full-screen graph, sensor settings, switch settings, and calendar views.
+- <img src="../assets/icons/dashboard-graph.svg" alt="Graph icon" width="16"> The
+  **Graph icon**—a blue line graph on horizontal and vertical axes—opens
+  the full-screen **Sensorius Graphum** workspace.
+- <img src="../assets/icons/settings-gear.svg" alt="Settings icon" width="16"> The
+  **Settings icon (gear)** beside **Sensorius AI** opens General Settings.
+  Other gear icons open settings for the associated sensor or switch, or open
+  the timer control for a Switch Tile.
 
-The **24 Hour Forecast** card keeps its day-wide forecast summary, while its
-details include the maximum forecast precipitation chance, labeled as rain or
-snow from the forecast conditions. Its background reflects the current
-three-hour forecast window. Clear conditions
-use a sunny daytime sky or a starry night; cloudy conditions use gray daytime
-or nighttime skies; and precipitation adds rain streaks to the corresponding
-gray sky. This card appearance is independent of the theme selected for the
-full-screen Caelus display. Day artwork begins 30 minutes before the configured
-Astral sunrise to represent daybreak; night artwork begins 30 minutes after
-sunset to include dusk. The station timezone is used, and the boundary is
-checked once per minute.
+Sensorius uses the following expand and collapse controls throughout the
+interface:
 
-Select **Lunar Calendar** on the dashboard's **Moon Phase** card to open the Caelus observer-local
-phase timeline: four previous phases, the live Moon and its current details,
-and four upcoming phases with dates. Select **Sun/Moon Position** to open the
-separate 29-day position graph. Close it with the **×** button in the card's
-top-right corner, by selecting the card, or by pressing Escape.
+- A **right-pointing triangle (▶)** means that additional content is collapsed;
+  select it to expand the content.
+- A **down-pointing triangle (▼)** means that the content is expanded; select it
+  to collapse the content.
+- General Settings sections, integration blocks, and other expandable panes use
+  these same right/down disclosure triangles.
+- A dashboard Sensor Group shows a disclosure triangle only when it has more
+  than six Sensor Tiles. The first six Sensor Tiles remain visible when the
+  group is collapsed.
+- Sensorius Graphum uses **+** to expand a sensor or switch selector and **−**
+  to collapse it. Collapsing a selector does not clear its checked items.
+
+The **three horizontal bars** beside a Sensor Group heading open its **Move up**
+and **Move down** commands. Expand and collapse controls change only what is
+visible; they do not change sensor settings, switch state, or saved selections.
 
 Dashboard data comes from the latest values in the live runtime cache and from the local database. If a device is offline, the latest stored reading may still be visible, but the online/offline state comes from live device status, MQTT heartbeat or availability messages, and recent packets.
 
-### Sensor Cards
+- Buttons for General Settings, the full-screen graph, sensor settings, switch settings, and calendar views.
+- Weather, biodynamic, and astronomy information in the top row of tiles.
+- A **Sensor Group** for each sensor, containing that sensor's **Sensor Tiles**.
+- **Switch Tiles** with live channel state and recent events.
 
-Each sensor card shows the sensor ID or name, its location, and the selected metrics for that sensor. The 24-hour metric-card micrographs use consistent three-hour local AM/PM ticks, with a month/day marker at midnight. The 24-hour Min and Max timestamps also use local AM/PM time. The metric names come from the sensor's settings and the measurements that the device reports. Common metrics include temperature, relative humidity, absolute humidity, CO2, VPD, dew point, barometric pressure, soil moisture, soil temperature, soil pH, soil EC, soil nutrients, light, and PPFD.
+### Top Row Tiles
 
-Each metric tile can appear as:
+1. The **Caelus Weather Forecast Tile**.
+
+   The **Caelus Weather Forecast Tile** keeps its day-wide forecast summary,
+   while its details include the maximum forecast precipitation chance,
+   labeled as rain or snow from the forecast conditions. Its background
+   reflects the current three-hour forecast window. Clear conditions use a
+   sunny daytime sky or a starry night; cloudy conditions use gray daytime or
+   nighttime skies; and precipitation adds rain streaks to the corresponding
+   gray sky. This tile appearance is independent of the theme selected for the
+   full-screen Caelus display. Day artwork begins 30 minutes before the
+   configured Astral sunrise to represent daybreak; night artwork begins 30
+   minutes after sunset to include dusk. The station timezone is used, and the
+   boundary is checked once per minute.
+
+2. The **Maria Thun-inspired Biodynamic Calendar Tile**.
+
+   This tile summarizes the current observer-local biodynamic period. It shows
+   the date, hours of daylight, Moon zodiac sign, associated element and plant
+   part, and the current sign's time window. Select **Calendar** to open the
+   full Biodynamic Calendar for month planning, day summaries, guidance, notes,
+   and reports.
+
+3. The **Lunar Calendar Tile**.
+
+   Select **Lunar Calendar** on the dashboard's **Lunar Calendar Tile** to open
+   the Caelus observer-local phase timeline: four previous phases, the live Moon
+   and its current details, and four upcoming phases with dates.
+
+4. The **Sun/Moon Position Tile**.
+
+   This tile plots the Sun and Moon across the current observer-local day. It
+   shows the Sun's rise, noon, and set times and the Moon's rise and set times.
+   Select the tile to open the separate 29-day Sun/Moon position and Moon-phase
+   graph. Close that expanded graph with its **×** button, by selecting the
+   graph, or by pressing Escape.
+
+5. The **Location Tile**.
+
+   Use this tile to filter the dashboard's Sensor Groups and Switch Tiles by
+   their saved location. Select **All Locations** to show every device, or
+   select one location to show only devices assigned there. The refresh icon
+   reloads the current dashboard view.
+
+### Sensor Groups And Sensor Tiles
+
+Each Sensor Group shows the sensor ID or name, its location, and the Sensor Tiles
+selected for that sensor. Each Sensor Tile represents one sensor metric and its
+current reading. The 24-hour Sensor Tile micrographs use consistent three-hour
+local AM/PM ticks, with a month/day marker at midnight. The 24-hour Min and Max
+timestamps also use local AM/PM time. Metric names come from the sensor's
+settings and the measurements that the device reports. Common metrics include
+temperature, relative humidity, absolute humidity, CO2, VPD, dew point,
+barometric pressure, soil moisture, soil temperature, soil pH, soil EC, soil
+nutrients, light, and PPFD.
+
+Each Sensor Tile can appear as:
 
 - **Gauge**: shows the current value against a colored range.
-- **6Hr Graph**: shows the last six hours inside the dashboard tile.
-- **24Hr Graph**: shows the last 24 hours inside the dashboard tile.
+- **6Hr Graph**: shows the last six hours inside the Sensor Tile.
+- **24Hr Graph**: shows the last 24 hours inside the Sensor Tile.
 
 Newly onboarded Nodus sensors use **24Hr Graph** for their per-metric display styles. A full day is long enough to show the daily diurnal patterns for heating, cooling, humidity, irrigation, and lighting cycle without opening the full-screen graph, so it is the most useful general-purpose trend view. **General Settings > Display Style** is the system-wide fallback where no per-metric style is supplied; its factory value is **Gauge**. Blank per-metric styles on directly connected local sensors also currently resolve to **Gauge**.
 
-Click a metric tile to cycle **24Hr Graph → 6Hr Graph → Gauge → 24Hr Graph**. This is a convenient temporary view change for the current page. To make the choice persistent, open **Sensor Settings > Sensor Settings**, choose **Gauge**, **6Hr Graph**, or **24Hr Graph** for that metric slot, and click **Save**. **General Settings > Display Style** supplies the fallback when a sensor has no saved style.
+Click a Sensor Tile to cycle **24Hr Graph → 6Hr Graph → Gauge → 24Hr Graph**. This is a convenient temporary view change for the current page. To make the choice persistent, open **Sensor Settings > Sensor Settings**, choose **Gauge**, **6Hr Graph**, or **24Hr Graph** for that metric slot, and click **Save**. **General Settings > Display Style** supplies the fallback when a sensor has no saved style.
 
 The current value comes from the latest reading for that metric. A trend arrow
 beside it uses recent stored readings rather than comparing only the last two
@@ -84,7 +148,7 @@ arrow communicates direction and relative strength, not whether the change is
 good or bad. The small history graph comes from `/graph-data`, which reads
 stored samples from the local database for that sensor and metric.
 
-The solid line is the stored reading series. The dashed line is the arithmetic average of the visible graph window, repeated across the window as a reference line; it is not another sensor reading or an automation set point. The Min, Avg, and Max values below each tile are calculated from the last 24 hours. Min and Max include their exact timestamps so you can correlate an extreme with a switch event, weather change, irrigation cycle, or equipment problem. Consequently, a six-hour tile can show a 24-hour minimum or maximum that lies outside the six hours drawn in the tile.
+The solid line is the stored reading series. The dashed line is the arithmetic average of the visible graph window, repeated across the window as a reference line; it is not another sensor reading or an automation set point. The Min, Avg, and Max values below each Sensor Tile are calculated from the last 24 hours. Min and Max include their exact timestamps so you can correlate an extreme with a switch event, weather change, irrigation cycle, or equipment problem. Consequently, a six-hour Sensor Tile can show a 24-hour minimum or maximum that lies outside the six hours drawn in that Sensor Tile.
 
 #### Graph Background Colors And Thresholds
 
@@ -94,26 +158,26 @@ Colored backgrounds use that metric's gauge zones. The colors are metric-specifi
 - Relative humidity uses brown and yellow for dry ranges, light blue for the middle range, and progressively darker blue for wetter ranges.
 - CO2 uses green for its central configured range, yellow on either side, and red at the configured extremes.
 - AQI progresses from green through yellow, orange, red, purple, and maroon as the index rises.
-- VPD uses several moisture-demand bands. The compact tile uses the metric's gauge zones; the full-screen VPD graph uses its dedicated VPD background bands, so its palette is not identical to every compact tile.
+- VPD uses several moisture-demand bands. The Sensor Tile uses the metric's gauge zones; the full-screen VPD graph uses its dedicated VPD background bands, so its palette is not identical to every Sensor Tile.
 - A single-color background, such as barometric pressure's light blue or a light metric's yellow, identifies the metric's scale and does not by itself indicate an alarm.
 
 The boundaries come from Sensorius's gauge-zone configuration for each metric. Changing a zone boundary in that configuration changes where the corresponding background color begins and ends. The standard UI currently exposes gauge size and display style, but not gauge-zone boundary editing. An automation's **Threshold** and **Hysteresis** control when its rule runs; they do not change graph or gauge colors.
 
 #### Metric Ordering
 
-The system-wide **Metric Set** in **General Settings > Display** controls the initial row state. In **Pick 6** mode, the dashboard follows **Metric 1** through **Metric 6** exactly from left to right and initially collapses each sensor after those six cards. Use the triangle beside the connection indicator to reveal or hide the sensor's remaining known metrics. Sensors with six or fewer metrics do not show the triangle. You can therefore establish the operational summary order in **Sensor Settings**. Factory defaults are selected by sensor type and generally put the device's primary measurement first: for example, CO2 is first for a CO2 sensor and Air Quality is first for an AQI sensor. The remaining positions favor closely related temperature, humidity, VPD, dew-risk, pressure, plant, light, or soil measurements for that device.
+The system-wide **Metric Set** in **General Settings > Display** controls the initial Sensor Group state. In **Pick 6** mode, the dashboard follows **Metric 1** through **Metric 6** exactly from left to right and initially collapses each Sensor Group after those six Sensor Tiles. Use the disclosure triangle beside the connection indicator to reveal or hide the Sensor Group's remaining known metrics. Sensor Groups with six or fewer Sensor Tiles do not show the triangle. You can therefore establish the operational summary order in **Sensor Settings**. Factory defaults are selected by sensor type and generally put the device's primary measurement first: for example, CO2 is first for a CO2 sensor and Air Quality is first for an AQI sensor. The remaining positions favor closely related temperature, humidity, VPD, dew-risk, pressure, plant, light, or soil measurements for that device.
 
-In **All** mode, Sensorius uses the same ordering but initially expands every sensor. The row triangle can still collapse the display back to its six-card summary. Sensorius does not apply a universal rule that moves CO2, AQI, and every other specialized metric farther right. Nor does it guarantee that barometric pressure is always fifth or that dew point fills the fifth position when pressure is unavailable. Assign **Metric 1-6** when an exact summary convention is important.
+In **All** mode, Sensorius uses the same ordering but initially expands every Sensor Group. The disclosure triangle can still collapse the group back to its summary of six Sensor Tiles. Sensorius does not apply a universal rule that moves CO2, AQI, and every other specialized metric farther right. Nor does it guarantee that barometric pressure is always fifth or that dew point fills the fifth position when pressure is unavailable. Assign **Metric 1-6** when an exact summary convention is important.
 
 #### Sensor Names, Raspberry Pi Buses, And Locations
 
 A directly connected Raspberry Pi sensor ID has the form `<kind>-<bus>-<hostname>`, for example `avpd-i2c-1-sensorius-demo`. The kind identifies the sensor family, the bus segment identifies the Linux I2C interface used during discovery, and the final segment identifies the hub. `i2c-1` is the normal sensor bus on GPIO2/GPIO3. `i2c-0` is the secondary bus on GPIO0/GPIO1 used for supported plant-probe arrangements. A dual-bus APVPD device is represented by one sensor ID using its primary `i2c-1` descriptor even though its plant probe also uses `i2c-0`.
 
-The technical sensor or switch ID remains the stable identity used by settings, database history, MQTT, and switch keys. **Location** is the friendly, editable place name used to group and filter dashboard cards and to make automation selectors understandable. A card header shows both: use the ID when diagnosing wiring, topics, or stored settings, and use the location when operating the system. Renaming a location does not rename the device or disconnect its history.
+The technical sensor or switch ID remains the stable identity used by settings, database history, MQTT, and switch keys. **Location** is the friendly, editable place name used to group and filter dashboard Sensor Groups and Switch Tiles and to make automation selectors understandable. A Sensor Group or switch-device heading shows both: use the ID when diagnosing wiring, topics, or stored settings, and use the location when operating the system. Renaming a location does not rename the device or disconnect its history.
 
-### Switch Cards
+### Switch Tiles
 
-Switch cards show local Raspberry Pi relay channels and remote Nodus switch channels through the same interface. Each channel has a label, current state, and recent state changes. Manual toggles send commands through the shared switch controller. For Nodus switches, commands are sent through MQTT and Sensorius waits for state to return from the device.
+Switch Tiles show local Raspberry Pi relay channels and remote Nodus switch channels through the same interface. Each Switch Tile represents one channel and has a label, current state, and recent state changes. Sensorius groups Switch Tiles under their switch-device heading. Manual toggles send commands through the shared switch controller. For Nodus switches, commands are sent through MQTT and Sensorius waits for state to return from the device.
 
 If an enabled Advanced automation owns a switch channel, Sensorius blocks manual toggles for that channel so the automation remains in control.
 
@@ -169,11 +233,11 @@ Size** is shown only while **Gauge** is selected.
   display zones only. It does not rewrite sensor readings, database history,
   MQTT payloads, sensor configuration, metric identities, or automation
   thresholds.
-- **Metric Set**: applies to every sensor on the Sensorius dashboard. **Pick 6**
-  initially shows each sensor's six saved metric slots; its row triangle reveals
-  every additional known metric. **All** starts with those additional metrics
-  expanded. Neither option changes sensor settings. Additional metrics use the
-  system **Display Style**.
+- **Metric Set**: applies to every Sensor Group on the Sensorius dashboard.
+  **Pick 6** initially shows the six saved metric slots as Sensor Tiles; the
+  Sensor Group's disclosure triangle reveals every additional known metric.
+  **All** starts with those additional Sensor Tiles expanded. Neither option
+  changes sensor settings. Additional metrics use the system **Display Style**.
 - **Display Style**: default metric display when a sensor has no saved
   per-metric style. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
 - **Gauge Size**: dashboard gauge size. Options are **Small** and **Large**.
@@ -363,7 +427,7 @@ Forecast placement, astronomy, sunrise, and sunset use the latitude,
 longitude, and timezone under **General Settings > Astral**. The Current
 Readings panel follows the selected sensor's configured **Display Metrics**.
 When that sensor reports temperature or relative humidity, the dashboard's
-24-hour forecast card shows the live reading before the forecast range. The
+24-hour forecast tile shows the live reading before the forecast range. The
 temperature reading and range use the selected system display units.
 
 ### Automations Pane
@@ -439,13 +503,13 @@ Condition **Type** options:
 ##### Actions
 
 - **Actors**: action target. Switch entries are shown as `<switch_id>:<switch_label>` and use the stable channel ID behind the scenes. When email notifications are enabled, **Notify** is also available.
-- **State**: shown for a switch actor; selects **On** or **Off**.
-- **Revert Action**: shown for a switch actor. **Previous State** returns the switch to its previous state when the rule is no longer true. **Do Nothing** leaves the switch where the action put it.
-- **Delay Before Action (secs)**: shown for a switch actor; waits 0 to 60 seconds after the rule becomes true before applying the action.
+- **Set State**: shown for a switch actor; selects **On** or **Off**.
+- **Restore Action**: shown for a switch actor. **To previous state** returns the switch to its previous state when the rule is no longer true. **Leave at set state** leaves the switch where the action put it.
+- **Delay Action (secs)**: shown for a switch actor; waits 0 to 60 seconds after the rule becomes true before applying the action.
 - **To**: shown for the **Notify** actor. Enter the recipient for this automation. Sensorius sends a **TRIGGERED** email when the automation becomes true and a **CLEARED** email when it becomes false. Each message lists the AND/OR condition groups and their results, current sensor values where applicable, and all configured actions. Delivery uses the global rolling hourly and 24-hour email limits and retries a failed SMTP attempt up to three times. If every attempt fails, connected dashboards display an error toast that remains visible until clicked. Sensorius records the state only after successful email delivery, preventing duplicate messages after a restart while still detecting a changed state after downtime.
 
 Switch actions set absolute states, not toggle or invert commands. All actions
-in one automation share the same condition groups. **Previous State** is
+in one automation share the same condition groups. **To previous state** is
 captured when an action actually changes a switch; if the switch is already at
 the requested state, there is no new previous state for that action to restore.
 
@@ -454,7 +518,7 @@ To alternate two switch channels in one timer automation:
 1. Disable the automation.
 2. Put the channels in their normal baseline state manually. For example, set Green **On** and Yellow **Off**.
 3. In the automation action rows, choose the state wanted during the timer window. For example, set Green **Off** and Yellow **On**.
-4. Set **Revert Action** to **Previous State** for both rows.
+4. Set **Restore Action** to **To previous state** for both rows.
 5. Save and enable the automation.
 
 With that setup, the timer window applies the action states, and the end of the
@@ -480,7 +544,8 @@ Fields:
 
 Locations should describe places people recognize: Greenhouse 1, West Bed, Seedling Bench, Main Pump, Hoop House, or Barn Weather Station.
 After a location change is saved, Sensorius reloads the dashboard so existing
-sensor row headings, switch-card grouping, and the location filter use the new value.
+Sensor Group headings, the grouping of Switch Tiles, and the location filter
+use the new value.
 
 ### Add Device Pane
 
@@ -521,7 +586,7 @@ local API's unit tags are authoritative;
 gateway-local unit settings can differ from Ecowitt app display preferences.
 Sensorius normalizes wind speed into its canonical mph metric, while wind
 direction drives the compass and 6/24-hour wind roses. As with WeeWX, that
-combined card's current reading and statistics show wind speed. Sensorius reads
+combined Sensor Tile's current reading and statistics show wind speed. Sensorius reads
 the gateway only; it does not change Wi-Fi, sensor registration, calibration,
 rain settings, MQTT, firmware, weather-service configuration, or gateway units.
 
@@ -599,8 +664,8 @@ Shared Nodus fields and status rows:
 
 The legacy `Nodus_Setup` and `Nodus-Setup` names remain supported. When
 onboarding reaches Device Online, Sensorius automatically reloads the dashboard
-so the newly discovered sensor and switch cards appear without a manual browser
-refresh.
+so the newly discovered Sensor Group, Sensor Tiles, and Switch Tiles appear
+without a manual browser refresh.
 
 ### Update Device Pane
 
@@ -764,7 +829,9 @@ Advanced settings affect startup, logging, and stored data. Change them only whe
 
 ## Sensor Settings
 
-Open Sensor Settings from a sensor card when you need to organize a sensor, choose which readings appear on the dashboard, calibrate readings, or check device health.
+Open Sensor Settings from the gear in a Sensor Group heading when you need to
+organize a sensor, choose which Sensor Tiles appear on the dashboard, calibrate
+readings, or check device health.
 
 ### Sensor Settings Pane
 
@@ -784,7 +851,7 @@ Fields and selectors:
 
 Use clear location names. They are visible to nontechnical users and make later automation rules easier to understand.
 
-Metric slot order is authoritative in **Pick 6** mode: Metric 1 is the leftmost tile and Metric 6 is the rightmost. Display Style 1 applies to Metric 1, Display Style 2 to Metric 2, and so on. Saving these fields is the supported way to make a dashboard order or display style persistent.
+Metric slot order is authoritative in **Pick 6** mode: Metric 1 is the leftmost Sensor Tile and Metric 6 is the rightmost. Display Style 1 applies to Metric 1, Display Style 2 to Metric 2, and so on. Saving these fields is the supported way to make a dashboard order or display style persistent.
 
 ### Sensor Calibration Pane
 
@@ -861,9 +928,9 @@ Switches control things such as pumps, fans, lights, valves, heaters, vents, and
 
 Switch state changes are stored as switch events. These events are available for dashboard state, recent-event lists, full-screen graph overlays, and automation review.
 
-Open Switch Settings from a switch card when you need to label channels, set
-the switch location, or check switch health. Create and edit rules separately
-under **General Settings > Automations**.
+Open Switch Settings from the gear in a switch-device heading when you need to
+label its Switch Tiles, set the switch location, or check switch health. Create
+and edit rules separately under **General Settings > Automations**.
 
 ### Switch Settings Pane
 
@@ -910,12 +977,12 @@ investigate spikes, or see whether a switch action changed the environment.
 
 The full-screen graph displays up to four selected observations. The first selected metric uses the left axis, and additional metrics use the right axis. A switch channel counts as an observation and appears as ON/OFF transition markers. When average data is available, a purple dashed line labeled **Average** includes the arithmetic-average value for the selected visible window. The same value appears as a bold purple **Avg** tick at the line's height on its value axis. VPD graphs show VPD range coloring, and some metrics show gauge-zone background bands. These colored bands come from metric display zones, not automation thresholds.
 
-On the dashboard, a WeeWX **Wind Direction** card configured as a **6Hr Graph**
+On the dashboard, a WeeWX **Wind Direction** Sensor Tile configured as a **6Hr Graph**
 or **24Hr Graph** displays a wind rose instead of a direction line. Sixteen
 direction sectors show how frequently wind arrived from each compass direction.
 Stacked blue bands show wind speed in **0-5**, **5-15**, **15-30**, and **30+ mph**
 ranges, progressing from light blue for low speed to dark blue for high speed.
-The card title changes to **Wind-Rose (6hr)** or **Wind-Rose (24hr)** for the
+The Sensor Tile title changes to **Wind-Rose (6hr)** or **Wind-Rose (24hr)** for the
 selected graph window and returns to **Wind Direction (deg)** in compass mode.
 
 Each wind rose uses only observations from its selected 6-hour or 24-hour
@@ -974,7 +1041,7 @@ Use switch overlays to answer practical questions: whether a fan cooled the gree
 
 ## Caelus Weather Forecast
 
-Select **6 Day Forecast** on the dashboard forecast card to open the integrated
+Select **6 Day Forecast** on the dashboard forecast tile to open the integrated
 Caelus full-screen weather display at
 `http://<sensorius-host>:8000/weather-forecast`. Select the circled **×** in the
 upper-right to close the forecast and return to the Sensorius dashboard.
@@ -984,7 +1051,7 @@ upper-right to close the forecast and return to the Sensorius dashboard.
 The weather display uses the existing Sensorius Astral latitude, longitude,
 timezone, and optional Community/Location Name. Its top row presents the selected sensor's latest current
 readings, the canonical Sensorius forecast, and the sunrise/sunset daylight
-track. Hourly forecast times use the local 12-hour AM/PM clock. The sunlight card also shows current North and South Pole daylight, the
+track. Hourly forecast times use the local 12-hour AM/PM clock. The sunlight tile also shows current North and South Pole daylight, the
 next seasonal event, and up to three solar or lunar eclipses visible from the
 configured Astral location during the next twelve months. A full-width Windy
 map opens in radar view below that row, followed by
@@ -1072,7 +1139,7 @@ generate summaries for their default day. For the current day, the summary may
 include a **24hr Forecast** section if weather forecast data is enabled in
 General Settings.
 
-The dashboard Biodynamic Calendar card remains available for a quick current-status view. The Calendar button opens the full application for month planning, planting records, notes, daily guidance, and reports.
+The dashboard **Maria Thun-inspired Biodynamic Calendar Tile** remains available for a quick current-status view. The Calendar button opens the full application for month planning, planting records, notes, daily guidance, and reports.
 
 ### Integrated Biodynamic Calendar Features
 

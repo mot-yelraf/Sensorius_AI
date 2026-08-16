@@ -12,7 +12,16 @@ const temporaryHtml = path.join(root, "docs", ".user_guide.print.html");
 const temporaryPdf = path.join(root, "docs", ".user_guide.pdf.tmp");
 
 const markdown = await readFile(sourcePath, "utf8");
-const body = await marked.parse(markdown, { gfm: true });
+const parsedBody = await marked.parse(markdown, { gfm: true });
+const keepTogetherStart = "<!-- pdf-keep-together:start -->";
+const keepTogetherEnd = "<!-- pdf-keep-together:end -->";
+const hasKeepTogetherPair =
+  parsedBody.includes(keepTogetherStart) && parsedBody.includes(keepTogetherEnd);
+const body = hasKeepTogetherPair
+  ? parsedBody
+      .replace(keepTogetherStart, '<section class="pdf-keep-together">')
+      .replace(keepTogetherEnd, "</section>")
+  : parsedBody;
 const baseHref = pathToFileURL(path.join(root, "docs") + path.sep).href;
 const html = `<!doctype html>
 <html lang="en">
@@ -40,6 +49,7 @@ const html = `<!doctype html>
     img { display: block; height: auto; margin: 8pt auto; max-height: 8.15in; max-width: 100%; object-fit: contain; }
     blockquote { border-left: 3px solid #7aa99f; color: #40514e; margin-left: 0; padding-left: 10pt; }
     hr { border: 0; border-top: 1px solid #aac9c2; }
+    .pdf-keep-together { break-inside: avoid-page; page-break-inside: avoid; }
   </style>
 </head>
 <body>${body}</body>

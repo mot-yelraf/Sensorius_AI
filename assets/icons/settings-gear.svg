@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" role="img" aria-labelledby="title" fill="none" stroke="#0000ee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <title id="title">Sensorius Settings icon</title>
+  <circle cx="12" cy="12" r="7"/>
+  <rect x="11" y="1" width="2" height="4" rx="1" fill="#0000ee" stroke="none"/>
+  <rect x="11" y="19" width="2" height="4" rx="1" fill="#0000ee" stroke="none"/>
+  <rect x="1" y="11" width="4" height="2" rx="1" fill="#0000ee" stroke="none"/>
+  <rect x="19" y="11" width="4" height="2" rx="1" fill="#0000ee" stroke="none"/>
+  <rect x="11" y="1" width="2" height="4" rx="1" fill="#0000ee" stroke="none" transform="rotate(45 12 12)"/>
+  <rect x="11" y="19" width="2" height="4" rx="1" fill="#0000ee" stroke="none" transform="rotate(45 12 12)"/>
+  <rect x="1" y="11" width="4" height="2" rx="1" fill="#0000ee" stroke="none" transform="rotate(45 12 12)"/>
+  <rect x="19" y="11" width="4" height="2" rx="1" fill="#0000ee" stroke="none" transform="rotate(45 12 12)"/>
+  <circle cx="12" cy="12" r="2.25"/>
+</svg>

@@ -344,7 +344,7 @@ Operational rules:
   same switch key.
 - For timer rules that should return to a normal state, disable the automation,
   set the normal switch states manually, then save action rows as the active
-  timer-window states with `Previous State` revert behavior.
+  timer-window states with `To previous state` restore behavior.
 - Test critical automations with harmless loads before connecting equipment.
 
 ## Home Assistant Operations

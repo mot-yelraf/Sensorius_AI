@@ -58,6 +58,19 @@ def test_automation_condition_and_action_rows_align_fields_left_and_remove_right
         assert ".cond > .remove,\n.action-row > .remove{\n  grid-column:-2 / -1;" in css_text
 
 
+def test_switch_action_controls_use_operator_facing_restore_labels():
+    repo_root = Path(__file__).resolve().parents[1]
+    js_text = (
+        repo_root / "ui_static" / "js" / "advanced_automation.js"
+    ).read_text(encoding="utf-8")
+
+    assert 'setLab.textContent = "Set State";' in js_text
+    assert 'revertLab.textContent = "Restore Action";' in js_text
+    assert '<option value="previous_state">To previous state</option>' in js_text
+    assert '<option value="do_nothing">Leave at set state</option>' in js_text
+    assert 'delayLab.textContent = "Delay Action (secs)";' in js_text
+
+
 def test_none_actor_is_available_for_astral_and_other_conditions():
     repo_root = Path(__file__).resolve().parents[1]
     js_text = (

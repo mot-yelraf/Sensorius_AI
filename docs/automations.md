@@ -159,11 +159,11 @@ every 15 minutes:
 2. Set the baseline state manually: Green on, Yellow off.
 3. Edit the automation condition to `timer`, Every `15 minutes`, Duration `8`.
 4. Set the action rows to the active-window state: Green off, Yellow on.
-5. Set both action rows to `Previous State`.
+5. Set **Restore Action** to `To previous state` for both action rows.
 6. Save and enable the automation.
 
 During the timer window Sensorius applies the action states. When the window
-ends, `Previous State` restores the baseline state that existed before the
+ends, `To previous state` restores the baseline state that existed before the
 actions changed the channels.
 
 Do not encode the baseline as the action state. If the action rows are Green on
