@@ -638,7 +638,7 @@ while IFS= read -r raw_line || [[ -n "${raw_line}" ]]; do
 
   if [[ "${DRY_RUN}" -eq 0 && -n "${post_cmd}" ]]; then
     echo "Post-deploy -> ${host}: ${post_cmd}"
-    if ! ssh "${host}" "${post_cmd}"; then
+    if ! ssh -n "${host}" "${post_cmd}"; then
       echo "Post-deploy command failed for ${host}" >&2
       FAILURES=$((FAILURES + 1))
     fi

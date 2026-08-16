@@ -42,6 +42,10 @@ def _deploy_fixture(tmp_path: Path, runtime_override: bool = True):
     fake_ssh = fake_bin / "ssh"
     fake_ssh.write_text(
         """#!/bin/sh
+if [ "${1:-}" = "-n" ]; then
+  shift
+  exec </dev/null
+fi
 script=$(cat)
 if printf '%s' "$script" | grep -q 'profile=mac'; then
   for arg in "$@"; do configured_python=$arg; done
@@ -201,6 +205,39 @@ def test_deploy_inventory_runtime_python_remains_optional(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "python=/remote/Sensorius/.venv/bin/python" in result.stdout
     assert "source=target-venv" in result.stdout
+
+
+def test_post_deploy_ssh_does_not_consume_the_next_inventory_host(tmp_path):
+    source, hosts, fake_rsync, env = _deploy_fixture(tmp_path)
+    hosts.write_text(
+        "restart-host|/remote/Sensorius|restart-sensorius|\n"
+        "samhain|/Users/twfarley/Sensorius||\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(DEPLOY_SAI),
+            "--apply",
+            "--skip-deps",
+            "--hosts",
+            str(hosts),
+            "--source",
+            str(source),
+            "--rsync-bin",
+            str(fake_rsync),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Post-deploy -> restart-host: restart-sensorius" in result.stdout
+    assert "Deploying -> samhain:/Users/twfarley/Sensorius/" in result.stdout
+    assert result.stdout.count("Deploying ->") == 2
 
 
 def test_deploy_runtime_discovery_supports_external_virtual_environments():

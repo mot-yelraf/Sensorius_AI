@@ -13,6 +13,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+from sensorius.saiDisplayUnits import apply_display_units_to_gauge_config
 from sensorius.saiHtml import APP_VERSION, get_gauge_config, render_dashboard, render_graph_modal
 
 
@@ -313,12 +314,40 @@ def test_weewx_wind_direction_micrograph_renders_speed_banded_wind_rose():
     assert "{ min: 5, max: 15, label: '5-15', color: '#5290bf' }" in html
     assert "{ min: 15, max: 30, label: '15-30', color: '#2e6396' }" in html
     assert "{ min: 30, max: Infinity, label: '30+', color: '#0b376d' }" in html
+    assert "const speedConfig = gaugeConfig?.['Wind Speed'] || {};" in html
+    assert "Math.ceil(convertForDisplay(value, speedConfig) ?? value)" in html
+    assert "const speed = convertForDisplay(rawSpeed, speedConfig);" in html
+    assert "ctx.fillText(speedUnit, width - 3, legendY);" in html
     assert "renderWindRoseMicrograph(canvas, seriesObj, speedSeries, xTitleText)" in html
     assert "canvas.setAttribute('aria-label', `${rangeLabel} wind rose." in html
     assert "baseTitle = 'Wind-Rose';" in html
     assert "baseTitle = `Wind Direction (${unit})`;" in html
     assert "title.textContent = durationPrefix + baseTitle;" in html
     assert "window.updateMetricCardTitle(container, norm)" in html
+
+
+def test_metric_wind_rose_converts_mph_bands_and_legend_to_kmh():
+    gauge_config = apply_display_units_to_gauge_config(get_gauge_config(), "Metric")
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["weewx-station"],
+            {"weewx-station": {"Wind Direction": 270.0, "Wind Speed": 12.5}},
+            {"weewx-station": {"Wind Speed": {"min": 2.0, "avg": 8.0, "max": 18.0}}},
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=gauge_config,
+            expected_gauge_map={"weewx-station": ["Wind Direction"]},
+            expected_display_style_map={"weewx-station": {"METRIC_1": "Graph24hr"}},
+            display_style="Graph24hr",
+        )
+    )
+
+    assert '"Wind Speed": {"unit": "km/h"' in html
+    assert '"display_factor": 1.609344' in html
+    assert "const speedUnit = String(speedConfig.unit || speedConfig.source_unit || 'mph').trim();" in html
+    assert "label: Number.isFinite(max) ? `${min}-${max}` : `${min}+`" in html
+    assert "Average wind speed ${averageSpeed.toFixed(1)} ${speedUnit}." in html
 
 
 def test_weewx_direction_only_compass_matches_wind_rose_canvas_height():
