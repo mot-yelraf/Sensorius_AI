@@ -631,6 +631,20 @@ def test_current_readings_primary_value_scales_inside_its_card():
     assert "font-size: clamp(3.25rem, 15cqw, 6.5rem)" in stylesheet
 
 
+def test_sunlight_path_contrast_and_sun_position_match_caelus():
+    stylesheet = (ROOT / "ui_static" / "weather_forecast" / "app.css").read_text(encoding="utf-8")
+    script = (ROOT / "ui_static" / "weather_forecast" / "app.js").read_text(encoding="utf-8")
+
+    assert "border: 1px solid var(--daylight-track-color);" in stylesheet
+    assert "border-bottom: 1px solid var(--daylight-horizon-color);" in stylesheet
+    assert "--daylight-track-color: #765000;" in stylesheet
+    assert "--daylight-sun-color: #d96f00;" in stylesheet
+    assert "color: var(--daylight-sun-color);" in stylesheet
+    assert "bottom: calc(var(--sun-rise, 0) * 5rem);" in stylesheet
+    assert "transform: translate(-50%, 50%);" in stylesheet
+    assert "Math.sqrt(1 - horizontalOffset ** 2)" in script
+
+
 def test_weather_forecast_system_settings_are_present():
     template = (ROOT / "ui_templates" / "modals" / "system_settings.html").read_text(encoding="utf-8")
     stylesheet = (ROOT / "ui_static" / "weather_forecast" / "app.css").read_text(encoding="utf-8")

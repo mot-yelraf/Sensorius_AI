@@ -190,8 +190,10 @@
     const sunMarker = document.getElementById("daylightSun");
     if (!sunMarker) return;
     const progress = Math.max(0, Math.min(100, Number(progressValue) || 0));
+    const horizontalOffset = progress / 50 - 1;
     sunMarker.style.setProperty("--daylight-progress", `${5 + progress * 0.9}%`);
-    sunMarker.style.setProperty("--sun-rise", String(Math.sin(Math.PI * progress / 100)));
+    sunMarker.style.setProperty("--sun-rise", String(Math.sqrt(1 - horizontalOffset ** 2)));
+    sunMarker.dataset.daylightProgress = String(progress);
   }
 
   function formatSolarTime(value) {
