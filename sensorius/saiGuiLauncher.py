@@ -13,6 +13,12 @@ import time
 import urllib.error
 import urllib.request
 
+from .saiWebServer import (
+    DESKTOP_ICON_PATH,
+    configure_linux_app_identity,
+    set_macos_app_icon,
+)
+
 DEFAULT_WINDOW_X = 0
 DEFAULT_WINDOW_Y = 48
 DEFAULT_WINDOW_WIDTH = 1920
@@ -72,6 +78,7 @@ def main() -> int:
         if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
             print("Sensorius GUI not started: no DISPLAY or WAYLAND_DISPLAY is set.")
             return 1
+        configure_linux_app_identity()
 
     try:
         import webview
@@ -84,7 +91,7 @@ def main() -> int:
         return 1
 
     geometry = _window_geometry()
-    webview.create_window(
+    window = webview.create_window(
         "Sensorius Automatio Instrumentorum",
         base_url,
         width=geometry["width"],
@@ -98,6 +105,8 @@ def main() -> int:
     if sys.platform.startswith("linux"):
         webview.start(gui="gtk")
     else:
+        if sys.platform == "darwin":
+            window.events.shown += set_macos_app_icon
         webview.start()
     return 0
 

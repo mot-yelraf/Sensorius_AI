@@ -30,6 +30,7 @@ install_pi_gui_autostart() {
   fi
 
   gui_exec="env PYTHONPATH=${project_dir} WEBKIT_DISABLE_COMPOSITING_MODE=1 GDK_BACKEND=wayland,x11 SENSORIUS_GUI_Y=48 ${venv_python} -m sensorius.saiGuiLauncher"
+  install_pi_gui_desktop_entry "${username}" "${project_dir}" "${gui_exec}"
   labwc_dir="${user_home}/.config/labwc"
   labwc_file="${labwc_dir}/autostart"
 
@@ -66,6 +67,7 @@ Name=Sensorius
 Comment=Open the Sensorius local dashboard
 Exec=${gui_exec}
 Path=${project_dir}
+Icon=${project_dir}/ui_static/sensorius-icon.png
 Terminal=false
 X-GNOME-Autostart-enabled=true
 EOF

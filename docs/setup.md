@@ -262,6 +262,11 @@ back to `/home/<user>/.config/autostart/sensorius-gui.desktop`. This requires a
 Raspberry Pi OS desktop session or desktop auto-login; headless/Lite images can
 still use the browser UI at `http://127.0.0.1:8000`.
 
+The GUI identifies itself as `ai.sensorius.Sensorius` and installs the matching
+desktop entry and hicolor application icon below `/home/<user>/.local/share/`.
+This identity match lets labwc and the Raspberry Pi application bar display the
+Sensorius S instead of resolving the Python launcher to a fallback icon.
+
 On Trixie, do not force `DISPLAY=:0` or clear `WAYLAND_DISPLAY` in
 `sensorius.service` to make pywebview appear. Let the labwc autostart entry
 inherit the graphical session display, use `GDK_BACKEND=wayland,x11`, and keep

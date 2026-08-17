@@ -9,7 +9,7 @@ hub on Raspberry Pi hardware.
 
 import asyncio
 import importlib.util
-from threading import Thread
+from threading import Event, Thread
 import socket
 from datetime import datetime
 from . import __version__
@@ -18,7 +18,11 @@ from .saiSensor import SensorController
 from .saiMQTTClient import saiMQTTClient, set_mqtt_client, get_all_mqtt_clients
 from .saiTaskSupervisor import TaskSupervisor
 from .saiGarbageCollection import GCManager
-from .saiWebServer import WebServerController, launch_webview
+from .saiWebServer import (
+    WebServerController,
+    launch_webview,
+    set_macos_app_icon,
+)
 from .saiWatchdog import WatchdogMonitor
 from .saiMQTTIngest import saiMQTTIngest
 from .saiFarmOSBridge import saiFarmOSBridge
@@ -487,7 +491,13 @@ async def bootstrap_astral_auto_location(settings, *, attempts: int = 1, initial
 
 
 # Sensorius main
-async def main():
+async def _wait_for_shutdown_request(shutdown_requested: Event) -> None:
+    """Wait asynchronously for a foreground process shutdown request."""
+    while not shutdown_requested.is_set():
+        await asyncio.sleep(0.1)
+
+
+async def main(shutdown_requested: Event | None = None):
     """Initialize the Sensorius runtime and return its task supervisor."""
     printDM(f"Sensorius startup... version={__version__}", location=f"{MODULE}:main")
 
@@ -768,7 +778,7 @@ async def main():
         if DEBUG:
             printDM(f"switch.switch_id {ctrl.switch_id}.", location=f"{MODULE}:main")
 
-    asyncio.create_task(supervisor.start())
+    supervisor_task = asyncio.create_task(supervisor.start())
 
     # Web server can run with zero local sensors; it will still show MQTT-discovered devices via ingest
     web_server = WebServerController(settings, net_mgr, supervisor, gc_mgr, mqtt_ingest_clients)
@@ -781,35 +791,104 @@ async def main():
     web_server.app.state.sensor_map = sensor_map
     web_server.app.state.switch_controllers = switch_controllers
     
-    await web_server.initialize_server()
-    await web_server.run_async()
+    server_task = None
+    shutdown_task = None
+    try:
+        await web_server.initialize_server()
+        server_task = asyncio.create_task(web_server.run_async())
+        if shutdown_requested is None:
+            await server_task
+        else:
+            shutdown_task = asyncio.create_task(
+                _wait_for_shutdown_request(shutdown_requested)
+            )
+            done, _pending = await asyncio.wait(
+                {server_task, shutdown_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if server_task in done:
+                await server_task
+            else:
+                server = getattr(web_server, "server", None)
+                if server is not None:
+                    server.should_exit = True
+                try:
+                    await asyncio.wait_for(server_task, timeout=10.0)
+                except asyncio.TimeoutError:
+                    server_task.cancel()
+                    await asyncio.gather(server_task, return_exceptions=True)
+    finally:
+        if shutdown_requested is not None:
+            shutdown_requested.set()
+        if shutdown_task is not None and not shutdown_task.done():
+            shutdown_task.cancel()
+            await asyncio.gather(shutdown_task, return_exceptions=True)
+        server = getattr(web_server, "server", None)
+        if server is not None:
+            server.should_exit = True
+        mqtt_ingest_clients.stop()
+        await supervisor.shutdown()
+        await asyncio.gather(supervisor_task, return_exceptions=True)
 
     return supervisor
 
-def run_main_thread():
+
+def run_main_thread(shutdown_requested: Event | None = None):
     """Run the asynchronous Sensorius runtime from the process main thread."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        supervisor = loop.run_until_complete(main())
-        if DEBUG:
-            printDM("All tasks registered. Launching supervisor.", location=f"{MODULE}:rmt")
-        loop.run_until_complete(supervisor.run_forever())
+        loop.run_until_complete(main(shutdown_requested))
+    except asyncio.CancelledError:
+        pass
     except Exception as e:
         printDM(f"Fatal error in run_main_thread: {e}", location=f"{MODULE}:rmt")
     finally:
+        pending_tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
+        for task in pending_tasks:
+            task.cancel()
+        if pending_tasks:
+            loop.run_until_complete(
+                asyncio.gather(*pending_tasks, return_exceptions=True)
+            )
+        loop.run_until_complete(loop.shutdown_asyncgens())
         for client in get_all_mqtt_clients():
             try:
                 client.close()
             except Exception as close_e:
                 printDM(f"MQTT client close failed: {close_e}", location=f"{MODULE}:rmt")
+        loop.close()
+
+
+def _close_window_for_shutdown(window, *, is_linux: bool) -> None:
+    """Close a native webview without allowing GTK to swallow SIGINT."""
+    if window is None:
+        return
+    try:
+        if is_linux:
+            native_window = getattr(window, "native", None)
+            application = (
+                native_window.get_application() if native_window is not None else None
+            )
+            if application is not None:
+                application.quit()
+                return
+        window.destroy()
+    except Exception as exc:
+        printDM(f"Webview close during shutdown failed: {exc}", location=MODULE)
+
 
 def run_application():
     """Start the Sensorius backend and optional desktop webview."""
     import os
+    import signal
     import sys
 
     instance_lock = None
+    main_thread = None
+    shutdown_requested = Event()
+    window = None
+    previous_sigint_handler = None
     try:
         configure_logging()
 
@@ -831,12 +910,28 @@ def run_application():
             return
 
         # Start backend system in a daemon thread
-        main_thread = Thread(target=run_main_thread, daemon=True)
+        main_thread = Thread(
+            target=run_main_thread,
+            args=(shutdown_requested,),
+            daemon=True,
+        )
         main_thread.start()
 
         platform = sys.platform
         is_macos = platform == "darwin"
         is_linux = platform.startswith("linux")
+
+        def handle_sigint(_signum, _frame):
+            if not shutdown_requested.is_set():
+                printDM(
+                    "Keyboard interrupt received. Shutting down.",
+                    location=f"{MODULE}:__main__",
+                )
+            shutdown_requested.set()
+            _close_window_for_shutdown(window, is_linux=is_linux)
+
+        previous_sigint_handler = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT, handle_sigint)
 
         gui_env = os.environ.get("SENSORIUS_GUI")
         gui_env_normalized = gui_env.strip().lower() if gui_env else ""
@@ -858,7 +953,11 @@ def run_application():
                     try:
                         import webview
                         gui_backend = "cocoa" if is_macos else ("gtk" if is_linux else None)
-                        if gui_backend:
+                        if is_macos:
+                            window.events.shown += set_macos_app_icon
+                        if is_linux:
+                            webview.start(gui=gui_backend)
+                        elif gui_backend:
                             webview.start(gui=gui_backend)
                         else:
                             webview.start()
@@ -874,10 +973,23 @@ def run_application():
         main_thread.join()
 
     except KeyboardInterrupt:
+        shutdown_requested.set()
+        _close_window_for_shutdown(window, is_linux=sys.platform.startswith("linux"))
         printDM("Keyboard interrupt received. Exiting.", location=f"{MODULE}:__main__")
     except Exception as e:
         printDM(f"Fatal error in __main__: {e}", location=f"{MODULE}:__main__")
     finally:
+        shutdown_requested.set()
+        if main_thread is not None and main_thread.is_alive():
+            try:
+                main_thread.join(timeout=12.0)
+            except KeyboardInterrupt:
+                printDM(
+                    "Second keyboard interrupt received during shutdown.",
+                    location=f"{MODULE}:__main__",
+                )
+        if previous_sigint_handler is not None:
+            signal.signal(signal.SIGINT, previous_sigint_handler)
         if instance_lock is not None:
             instance_lock.release()
 

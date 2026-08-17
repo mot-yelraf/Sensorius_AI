@@ -8,6 +8,8 @@ Responsibilities:
 """
 import asyncio
 import os
+import shutil
+import sys
 import uvicorn
 from pathlib import Path
 from .project_paths import PROJECT_ROOT
@@ -22,6 +24,107 @@ import inspect
 MODULE = "saiWebServer"
 DEBUG = debug_enabled(MODULE)
 _IMMUTABLE_STATIC_ASSETS = {"01-sensorius-overview-v5.png"}
+DESKTOP_ICON_PATH = PROJECT_ROOT / "ui_static" / "sensorius-icon.png"
+MACOS_ICON_PATH = PROJECT_ROOT / "ui_static" / "sensorius-macos-icon.png"
+LINUX_APP_ID = "ai.sensorius.Sensorius"
+
+
+def _desktop_exec_arg(value: str) -> str:
+    """Quote one freedesktop desktop-entry Exec argument."""
+    escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def configure_linux_app_identity() -> Path | None:
+    """Match the GTK/Wayland app ID to an icon-bearing desktop entry."""
+    if not sys.platform.startswith("linux"):
+        return None
+
+    try:
+        from gi.repository import GLib
+
+        GLib.set_prgname(LINUX_APP_ID)
+        GLib.set_application_name("Sensorius")
+    except Exception as exc:
+        printDM(f"Unable to set the Linux application ID: {exc}", location=MODULE)
+
+    data_home = os.environ.get("XDG_DATA_HOME")
+    data_root = (
+        Path(data_home).expanduser()
+        if data_home
+        else Path.home() / ".local" / "share"
+    )
+    applications_dir = data_root / "applications"
+    icons_dir = data_root / "icons" / "hicolor" / "512x512" / "apps"
+    desktop_path = applications_dir / f"{LINUX_APP_ID}.desktop"
+    themed_icon_path = icons_dir / f"{LINUX_APP_ID}.png"
+    python_path = str(Path(sys.executable).resolve())
+    exec_args = (
+        "/usr/bin/env",
+        f"PYTHONPATH={PROJECT_ROOT}",
+        "WEBKIT_DISABLE_COMPOSITING_MODE=1",
+        "GDK_BACKEND=wayland,x11",
+        "SENSORIUS_GUI_Y=48",
+        python_path,
+        "-m",
+        "sensorius.saiGuiLauncher",
+    )
+    desktop_text = "\n".join(
+        (
+            "[Desktop Entry]",
+            "Type=Application",
+            "Name=Sensorius",
+            "Comment=Open the Sensorius local dashboard",
+            f"Exec={' '.join(_desktop_exec_arg(arg) for arg in exec_args)}",
+            f"Path={PROJECT_ROOT}",
+            f"Icon={DESKTOP_ICON_PATH}",
+            "Terminal=false",
+            "StartupNotify=true",
+            f"StartupWMClass={LINUX_APP_ID}",
+            "",
+        )
+    )
+
+    try:
+        applications_dir.mkdir(parents=True, exist_ok=True)
+        icons_dir.mkdir(parents=True, exist_ok=True)
+        if (
+            not themed_icon_path.is_file()
+            or themed_icon_path.read_bytes() != DESKTOP_ICON_PATH.read_bytes()
+        ):
+            temporary_icon_path = themed_icon_path.with_suffix(".png.tmp")
+            shutil.copyfile(DESKTOP_ICON_PATH, temporary_icon_path)
+            temporary_icon_path.replace(themed_icon_path)
+        if (
+            not desktop_path.is_file()
+            or desktop_path.read_text(encoding="utf-8") != desktop_text
+        ):
+            temporary_path = desktop_path.with_suffix(".desktop.tmp")
+            temporary_path.write_text(desktop_text, encoding="utf-8")
+            temporary_path.replace(desktop_path)
+    except OSError as exc:
+        printDM(f"Unable to install the Linux desktop entry: {exc}", location=MODULE)
+        return None
+    return desktop_path
+
+
+def set_macos_app_icon() -> None:
+    """Set the running Cocoa application's Dock and app-switcher icon."""
+    if not MACOS_ICON_PATH.is_file():
+        return
+
+    try:
+        from AppKit import NSApplication, NSImage
+        from PyObjCTools import AppHelper
+
+        def apply_icon() -> None:
+            icon = NSImage.alloc().initWithContentsOfFile_(str(MACOS_ICON_PATH))
+            if icon is not None:
+                NSApplication.sharedApplication().setApplicationIconImage_(icon)
+
+        AppHelper.callAfter(apply_icon)
+    except Exception as exc:
+        printDM(f"Unable to set the macOS application icon: {exc}", location=MODULE)
 
 
 class SensoriusStaticFiles(StaticFiles):
@@ -143,7 +246,9 @@ class WebServerController:
 
 async def launch_webview(url: str = "http://127.0.0.1:8000", retries: int = 10, delay: float = 1.0):
     """Launch an optional native webview after the local server is reachable."""
-    import os, sys, traceback, httpx, asyncio
+    import traceback, httpx
+    if sys.platform.startswith("linux"):
+        configure_linux_app_identity()
     try:
         import webview
     except Exception as e:

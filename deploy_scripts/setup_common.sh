@@ -394,6 +394,43 @@ EOF
   fi
 }
 
+install_pi_gui_desktop_entry() {
+  local username="$1"
+  local project_dir="$2"
+  local gui_exec="$3"
+  local user_group user_home applications_dir desktop_file icons_dir icon_file tmp_file
+
+  user_group="$(id -gn "${username}" 2>/dev/null || printf '%s' "${username}")"
+  user_home="$(getent passwd "${username}" 2>/dev/null | cut -d: -f6 || true)"
+  if [[ -z "${user_home}" ]]; then
+    user_home="${HOME}"
+  fi
+
+  applications_dir="${user_home}/.local/share/applications"
+  desktop_file="${applications_dir}/ai.sensorius.Sensorius.desktop"
+  icons_dir="${user_home}/.local/share/icons/hicolor/512x512/apps"
+  icon_file="${icons_dir}/ai.sensorius.Sensorius.png"
+  sudo -u "${username}" mkdir -p "${applications_dir}"
+  sudo -u "${username}" mkdir -p "${icons_dir}"
+  sudo install -m 0644 -o "${username}" -g "${user_group}" \
+    "${project_dir}/ui_static/sensorius-icon.png" "${icon_file}"
+  tmp_file="$(mktemp)"
+  cat > "${tmp_file}" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Sensorius
+Comment=Open the Sensorius local dashboard
+Exec=${gui_exec}
+Path=${project_dir}
+Icon=${project_dir}/ui_static/sensorius-icon.png
+Terminal=false
+StartupNotify=true
+StartupWMClass=ai.sensorius.Sensorius
+EOF
+  sudo install -m 0644 -o "${username}" -g "${user_group}" "${tmp_file}" "${desktop_file}"
+  rm -f "${tmp_file}"
+}
+
 install_pi_gui_autostart() {
   local username="$1"
   local project_dir="$2"
@@ -407,6 +444,7 @@ install_pi_gui_autostart() {
   fi
 
   gui_exec="env PYTHONPATH=${project_dir} WEBKIT_DISABLE_COMPOSITING_MODE=1 GDK_BACKEND=wayland,x11 SENSORIUS_GUI_Y=48 ${venv_path}/bin/python -m sensorius.saiGuiLauncher"
+  install_pi_gui_desktop_entry "${username}" "${project_dir}" "${gui_exec}"
   labwc_dir="${user_home}/.config/labwc"
   labwc_file="${labwc_dir}/autostart"
 
@@ -443,6 +481,7 @@ Name=Sensorius
 Comment=Open the Sensorius local dashboard
 Exec=${gui_exec}
 Path=${project_dir}
+Icon=${project_dir}/ui_static/sensorius-icon.png
 Terminal=false
 X-GNOME-Autostart-enabled=true
 EOF
