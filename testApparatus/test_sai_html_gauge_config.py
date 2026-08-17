@@ -675,6 +675,30 @@ def test_dashboard_metric_refresh_isolates_bad_cards():
     assert "updateGauges: sensor update failed" in block
 
 
+def test_pick_six_lazily_materializes_overflow_metric_canvases():
+    metrics = ["Temperature", "Rel-Humidity", "Ambient VPD", "Dew Point", "CO2", "Air Quality", "Baro-Pressure"]
+    html = "".join(
+        render_dashboard(
+            "All",
+            None,
+            ["station-a"],
+            {"station-a": {metric: 1.0 for metric in metrics}},
+            {},
+            SimpleNamespace(expected_gauge_map={}),
+            gauge_config=get_gauge_config(),
+            expected_gauge_map={"station-a": metrics},
+            dashboard_metric_set="Pick 6",
+        )
+    )
+
+    assert "data-metric='Baro-Pressure' data-display-style='Gauge' data-lazy-metric-visual='1'" in html
+    assert "id='station-a_Baro-PressureGauge'" not in html
+    assert "window.materializeExpandedMetricVisuals = function(group)" in html
+    assert "window.releaseCollapsedMetricVisuals = function(group)" in html
+    assert "gauge.__sensoriusCanvas = canvas;" in html
+    assert "existingGauge.__sensoriusCanvas === canvas" in html
+
+
 def test_moon_position_footer_falls_back_to_nearest_moon_event():
     astro_payload = {
         "ok": True,

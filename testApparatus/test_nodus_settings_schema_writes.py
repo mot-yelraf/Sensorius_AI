@@ -5195,6 +5195,10 @@ def test_dashboard_micrograph_fetches_are_cached_and_throttled():
     assert "window.__lastMicrographForceRefreshAt = window.__lastMicrographForceRefreshAt || 0;" in html
     assert "async function getMicrographJson(requestKey, url, force)" in html
     assert "const cacheTtlMs = 60000;" in html
+    assert "const micrographCacheMaxEntries = 24;" in html
+    assert "const micrographCacheMaxBytes = 8 * 1024 * 1024;" in html
+    assert "function trimMicrographDataCache(now = Date.now())" in html
+    assert "while (cache.size > micrographCacheMaxEntries || totalBytes > micrographCacheMaxBytes)" in html
     assert "const existing = window.__micrographDataInflight.get(requestKey);" in html
     assert "if (!force && (!existingAt || (now - existingAt) < micrographInflightStaleMs)) {" in html
     assert "const MIN_FORCE_INTERVAL_MS = 5000;" in html

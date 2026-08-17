@@ -335,8 +335,10 @@ Runtime notes:
 - `[Display].metric_set` controls the initial dashboard row state globally.
   Both modes preserve each sensor's saved `METRIC_1` through `METRIC_6` slots
   and append every other known, renderable metric. `Pick 6` initially hides the
-  additional cards behind the sensor-row triangle; `All` initially expands
-  them. The default is `Pick 6`.
+  additional cards behind the sensor-row triangle without allocating their
+  gauge or graph canvases. Expanding the row creates those visuals, and
+  collapsing it releases them again. `All` initially expands them. The default
+  is `Pick 6`.
 - `[Display].unit_system` accepts `Imperial` or `Metric` and defaults to
   `Imperial`. It overrides sensor-reported units for dashboard presentation
   and also controls Caelus forecast values and the initial Windy map units,

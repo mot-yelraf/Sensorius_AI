@@ -119,6 +119,52 @@ from .saiWeatherForecastApp import normalize_weather_theme
 from .saiAddDevice import _SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR, get_hub_settings_path
 from . import __version__ as SAI_APP_VERSION
 
+
+GRAPH_MAX_POINTS_PER_SERIES = 900
+
+
+def _downsample_graph_points(timestamps, values, max_points: int = GRAPH_MAX_POINTS_PER_SERIES):
+    """Reduce a graph series while retaining its endpoints and bucket extrema.
+
+    Browser dashboards need a bounded number of points because Chart.js and its
+    parsed JSON otherwise retain every database reading for the selected range.
+    Min/max buckets preserve short spikes better than simple interval sampling.
+    """
+    paired_count = min(len(timestamps or ()), len(values or ()))
+    limit = max(3, int(max_points or GRAPH_MAX_POINTS_PER_SERIES))
+    if paired_count <= limit:
+        return list((timestamps or ())[:paired_count]), list((values or ())[:paired_count])
+
+    interior_count = paired_count - 2
+    bucket_count = max(1, (limit - 2) // 2)
+    bucket_width = max(1, math.ceil(interior_count / bucket_count))
+    selected_indexes = [0]
+    for start_idx in range(1, paired_count - 1, bucket_width):
+        stop_idx = min(paired_count - 1, start_idx + bucket_width)
+        numeric_points: list[tuple[int, float]] = []
+        for idx in range(start_idx, stop_idx):
+            try:
+                numeric = float(values[idx])
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(numeric):
+                numeric_points.append((idx, numeric))
+        if numeric_points:
+            min_idx = min(numeric_points, key=lambda item: item[1])[0]
+            max_idx = max(numeric_points, key=lambda item: item[1])[0]
+            selected_indexes.extend(sorted({min_idx, max_idx}))
+        else:
+            selected_indexes.append(start_idx)
+    selected_indexes.append(paired_count - 1)
+
+    selected_indexes = sorted(set(selected_indexes))
+    if len(selected_indexes) > limit:
+        stride = (len(selected_indexes) - 1) / float(limit - 1)
+        selected_indexes = sorted({selected_indexes[round(i * stride)] for i in range(limit)})
+        selected_indexes[0] = 0
+        selected_indexes[-1] = paired_count - 1
+    return [timestamps[idx] for idx in selected_indexes], [values[idx] for idx in selected_indexes]
+
 MODULE = "saiWebRoutes"
 DEBUG = debug_enabled(MODULE)
 # Bound by register_routes so background runtime modules can reach app.state
@@ -3814,7 +3860,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 rows = cur.fetchall()
                 ts = [r[0] for r in rows]
                 vs = [r[1] for r in rows]
-                return ts, vs
+                return _downsample_graph_points(ts, vs)
             except Exception as e:
                 printDM(f"[{MODULE}] Error fetching {sid}.{metric_name}: {e}", location=MODULE)
                 return [], []
