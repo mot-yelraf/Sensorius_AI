@@ -15,13 +15,13 @@ Sensorius can also run on macOS, Windows, or Linux as a hub for Wi-Fi Nodus sens
 
 The dashboard is the main operating view. It is where you check current conditions, see switch state, open settings, and review quick trends.
 
-![Samhain dashboard using the selected Flower theme](<../assets/screenshots/dashboard-overview.png>)
+![Samhain dashboard using the selected Fruit theme](<../assets/screenshots/dashboard-overview.png>)
 <!-- pdf-keep-together:end -->
 
 This example and the dashboard dialogs shown throughout this guide were
 captured from the live **Samhain** Sensorius installation with its saved
-**Flower** dashboard theme selected. The greenhouse background and pale blue
-Air palette therefore continue behind and through the dialog views. Sensor
+**Fruit** dashboard theme selected. The greenhouse background and warm
+peach-and-brown palette therefore continue behind and through the dialog views. Sensor
 names, locations, metrics, switch channels, forecast source, selected theme,
 and live values will vary by installation.
 
@@ -219,7 +219,7 @@ moon, biodynamic, weather, and location-aware automation calculations:
 
 #### Display
 
-![Display section open on Samhain with Flower, Desert Bloom, and automatic seasonal themes selected](<../assets/screenshots/system-settings-display.png>)
+![Display section open on Samhain with Fruit, Desert Bloom, and Spring themes selected](<../assets/screenshots/system-settings-display.png>)
 
 The **Display** section supplies system-wide presentation defaults. The controls
 appear in the order **Units**, **Metric Set**, and **Display Style**. **Gauge
@@ -985,7 +985,7 @@ Use this pane when commands do not seem to reach a switch or when a remote relay
 Open **Sensorius Graphum** when you want to compare readings over time,
 investigate spikes, or see whether a switch action changed the environment.
 
-![Sensorius Graphum with the selector pane open and a selected Ambient VPD history](<../assets/screenshots/graph-fullscreen-selectors.png>)
+![Fruit-themed Sensorius Graphum with the selector pane open and a selected Ambient VPD history](<../assets/screenshots/graph-fullscreen-selectors.png>)
 
 The full-screen graph displays up to four selected observations. The first selected metric uses the left axis, and additional metrics use the right axis. A switch channel counts as an observation and appears as ON/OFF transition markers. When average data is available, a purple dashed line labeled **Average** includes the arithmetic-average value for the selected visible window. The same value appears as a bold purple **Avg** tick at the line's height on its value axis. VPD graphs show VPD range coloring, and some metrics show gauge-zone background bands. These colored bands come from metric display zones, not automation thresholds.
 
@@ -1061,7 +1061,7 @@ Select **Theme** beside the **Caelus Weather Forecast** title to hide the
 forecast tiles and preview the five scenery choices from the bottom toolbar.
 Select **Return to Forecast** to restore the saved Caelus theme.
 
-![Current Weather Forecast overview with current readings, forecast, sunlight, and regional radar](<../assets/screenshots/weather-forecast-overview.png>)
+![Caelus using the selected Desert Bloom theme with current readings, forecast, sunlight, regional radar, and lunar phases](<../assets/screenshots/weather-forecast-overview.png>)
 
 The weather display uses the existing Sensorius Astral latitude, longitude,
 timezone, and optional Community/Location Name. Its top row presents the selected sensor's latest current
@@ -1116,7 +1116,7 @@ identify rain or snow when the provider predicts a precipitation type. Select
 **6-day details** under **Looking Ahead** to open the detailed outlook with
 daily conditions, temperature, relative humidity, wind, and rain or snow chance.
 
-![Detailed six-day weather outlook](<../assets/screenshots/weather-forecast-caelus-six-day.png>)
+![Detailed six-day weather outlook using the selected Desert Bloom theme](<../assets/screenshots/weather-forecast-caelus-six-day.png>)
 
 ## Biodynamic Calendar
 
@@ -1170,7 +1170,7 @@ The dashboard **Maria Thun-inspired Biodynamic Calendar Tile** remains available
 
 ### Integrated Biodynamic Calendar Features
 
-![Current Biodynamic Calendar overview](<../assets/screenshots/biodynamic-calendar-overview.png>)
+![Current Biodynamic Calendar overview using the selected Spring theme](<../assets/screenshots/biodynamic-calendar-overview.png>)
 
 The integrated application provides:
 
