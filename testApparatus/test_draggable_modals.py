@@ -102,7 +102,8 @@ def test_dashboard_window_close_controls_use_transparent_card_color_circles():
     assert ".caelus-moon-close{position:relative;width:2rem;height:2rem;padding:0;border:2px solid #7ec4c1;border-radius:50%;background:transparent;" in dashboard_html
     assert ".caelus-moon-close::before,.caelus-moon-close::after" in dashboard_html
     assert "#fullscreen_graph_dashboard{" in dashboard_html
-    assert "border:2px solid #d7e9df; background:transparent;" in dashboard_html
+    assert "border:2px solid var(--dashboard-card-border); background:transparent;" in dashboard_html
+    assert "color:var(--dashboard-card-text);" in dashboard_html
     assert "#fullscreen_graph_dashboard::before," in dashboard_html
 
     for stylesheet in (caelus_css, biodynamic_css):

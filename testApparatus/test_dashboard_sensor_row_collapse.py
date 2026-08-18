@@ -36,7 +36,8 @@ def test_dashboard_sensor_rows_include_responsive_collapse_controls():
     assert "class='settings-gear-icon'" in html
     assert "class='dashboard-graph-icon'" in html
     assert "M7.2 3.9A1.5 1.5" in html
-    assert "fill='none' stroke='currentColor' stroke-width='2.2'" in html
+    assert "fill='currentColor'" in html
+    assert "stroke='currentColor' stroke-width='2.2'" not in html
     assert "aria-controls='row_aht-test123'" in html
     assert "window.refreshSensorRowCollapse = function(group)" in html
     assert "Array.from(row.children).filter" in html
@@ -49,7 +50,7 @@ def test_dashboard_sensor_rows_include_responsive_collapse_controls():
     assert "window.setTimeout(initializeCollapseRows, 2000)" in html
 
 
-def test_dashboard_sensor_row_toggle_uses_theme_contrast_colors():
+def test_dashboard_sensor_rows_use_spaced_theme_tiles_without_glow():
     css = (
         Path(__file__).resolve().parents[1] / "ui_static" / "css" / "app.css"
     ).read_text(encoding="utf-8")
@@ -57,13 +58,17 @@ def test_dashboard_sensor_row_toggle_uses_theme_contrast_colors():
 
     assert "border:0" in toggle
     assert "background:transparent" in toggle
-    assert "color:var(--dashboard-card-bg)" in toggle
+    assert "color:var(--dashboard-card-text)" in toggle
     assert "border-radius:4px" in toggle
     assert "box-shadow" not in toggle
-    assert (
-        "body.dashboard-page:not(.dashboard-theme-leaf) .sensor-collapse-icon,\n"
-        "body.dashboard-page:not(.dashboard-theme-leaf) .sensor-status-dot,\n"
-        "body.dashboard-page:not(.dashboard-theme-leaf) .settings-gear-icon,\n"
-        "body.dashboard-page:not(.dashboard-theme-leaf) .dashboard-graph-icon"
-    ) in css
-    assert "drop-shadow(0 0 5px rgba(255,255,255,.92))" in css
+    assert "body.dashboard-page .sensor-group-header{" in css
+    assert "background:var(--dashboard-card-bg)" in css
+    assert "border-radius:12px" in css
+    header = css[css.index(".sensor-group-header{"):css.index(".sensor-group-title{")]
+    assert "width:fit-content" in header
+    assert "max-width:calc(100% - 10px)" in header
+    assert "margin:10px auto 8px" in header
+    assert "gap:10px" in css
+    assert "width:calc(100% - 10px)" in css
+    assert "text-shadow:0 1px 3px" not in css
+    assert "drop-shadow(0 0 5px" not in css

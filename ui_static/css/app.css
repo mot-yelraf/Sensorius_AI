@@ -74,17 +74,22 @@ body.dashboard-page.dashboard-theme-fruit{
   background-size:cover;
 }
 
-body.dashboard-page:not(.dashboard-theme-leaf) > h2,
-body.dashboard-page:not(.dashboard-theme-leaf) > #update_time,
-body.dashboard-page:not(.dashboard-theme-leaf) .sensor-group-header{
-  text-shadow:0 1px 3px rgba(255,255,255,.98),0 0 9px rgba(255,255,255,.92);
+body.dashboard-page .dashboard-content > #sensor_header,
+body.dashboard-page .dashboard-content > #update_time,
+body.dashboard-page .sensor-group-header{
+  box-sizing:border-box;
+  background:var(--dashboard-card-bg);
+  border:1px solid var(--dashboard-card-border);
+  border-radius:12px;
+  color:var(--dashboard-card-text);
 }
 
-body.dashboard-page:not(.dashboard-theme-leaf) .sensor-collapse-icon,
-body.dashboard-page:not(.dashboard-theme-leaf) .sensor-status-dot,
-body.dashboard-page:not(.dashboard-theme-leaf) .settings-gear-icon,
-body.dashboard-page:not(.dashboard-theme-leaf) .dashboard-graph-icon{
-  filter:drop-shadow(0 1px 2px rgba(255,255,255,.98)) drop-shadow(0 0 5px rgba(255,255,255,.92));
+body.dashboard-page .dashboard-content > #sensor_header,
+body.dashboard-page .dashboard-content > #update_time{
+  width:fit-content;
+  max-width:calc(100% - 10px);
+  margin:5px auto;
+  padding:.4rem .85rem;
 }
 
 body.dashboard-page .modal,
@@ -111,6 +116,56 @@ body.dashboard-page #setupPiModal .sai-system-dialog,
 body.dashboard-page .onboard-modal .modal-content{
   background:var(--dashboard-dialog-panel);
   border-color:var(--dashboard-card-border);
+  color:var(--dashboard-card-text);
+}
+body.dashboard-page #setupPiModal #automationEditorWrap .section,
+body.dashboard-page #setupPiModal #automationEditorWrap > .pane-footer,
+body.dashboard-page #setupPiModal .locations-scroll,
+body.dashboard-page #setupPiModal .remove-scroll{
+  background:var(--dashboard-dialog-panel);
+  border-color:var(--dashboard-card-border);
+  color:var(--dashboard-card-text);
+}
+body.dashboard-page #setupPiModal .integration-state,
+body.dashboard-page #setupPiModal .location-item,
+body.dashboard-page #setupPiModal .adv-debug-scroll,
+body.dashboard-page #setupPiModal .sai-system-dialog-device-list,
+body.dashboard-page #setupPiModal #add-mac-hint,
+body.dashboard-page #setupPiModal .onboard-steps .step.pending{
+  background:var(--dashboard-card-bg);
+  border-color:var(--dashboard-card-border);
+  color:var(--dashboard-card-text);
+}
+body.dashboard-page #setupPiModal .onboard-steps .step.pending{
+  border:1px solid var(--dashboard-card-border);
+}
+body.dashboard-page #sensorSettingsModal .section,
+body.dashboard-page #switchSettingsModal .section{
+  background:var(--dashboard-card-bg);
+  border-color:var(--dashboard-card-border);
+  color:var(--dashboard-card-text);
+}
+body.dashboard-page #sensorSettingsModal .network-info-cell,
+body.dashboard-page #sensorSettingsModal .statistics-row,
+body.dashboard-page #switchSettingsModal .network-info-cell,
+body.dashboard-page #switchSettingsModal .statistics-row{
+  background:var(--dashboard-dialog-panel);
+  border-color:var(--dashboard-card-border);
+  color:var(--dashboard-card-text);
+}
+body.dashboard-page #sensorSettingsModal .section .muted,
+body.dashboard-page #sensorSettingsModal .network-info-cell span,
+body.dashboard-page #sensorSettingsModal .statistics-row span,
+body.dashboard-page #switchSettingsModal .network-info-cell span,
+body.dashboard-page #switchSettingsModal .statistics-row span{
+  color:var(--dashboard-card-text);
+  opacity:.76;
+}
+body.dashboard-page #setupPiModal .integration-state-detail,
+body.dashboard-page #setupPiModal .wifi-device-detail,
+body.dashboard-page #setupPiModal .location-id,
+body.dashboard-page #setupPiModal .status-text,
+body.dashboard-page #setupPiModal .detail{
   color:var(--dashboard-card-text);
 }
 body.dashboard-page .modal .split > aside.panel,
@@ -287,8 +342,9 @@ body.dashboard-theme-preview-mode .dashboard-content{opacity:0;pointer-events:no
   flex-wrap:wrap;
   justify-content:center;
   align-items:flex-start;
-  gap:1rem;
-  width:100%;
+  gap:10px;
+  width:calc(100% - 10px);
+  margin:0 5px 5px;
 }
 
 .sensor-group-header{
@@ -296,8 +352,10 @@ body.dashboard-theme-preview-mode .dashboard-content{opacity:0;pointer-events:no
   align-items:center;
   justify-content:center;
   gap:.55rem;
-  width:100%;
-  margin-top:1rem;
+  width:fit-content;
+  max-width:calc(100% - 10px);
+  margin:10px auto 8px;
+  padding:.4rem .75rem;
 }
 
 .sensor-group-title{
@@ -318,7 +376,7 @@ body.dashboard-theme-preview-mode .dashboard-content{opacity:0;pointer-events:no
   background:transparent;
   appearance:none;
   -webkit-appearance:none;
-  color:var(--dashboard-card-bg);
+  color:var(--dashboard-card-text);
   display:inline-flex;
   align-items:center;
   justify-content:center;
@@ -347,7 +405,6 @@ body.dashboard-theme-preview-mode .dashboard-content{opacity:0;pointer-events:no
   width:18px;
   height:18px;
   color:inherit;
-  filter:drop-shadow(0 0 1px var(--dashboard-card-text)) drop-shadow(0 1px 2px rgba(0,0,0,.55));
   transform-origin:50% 50%;
   transition:transform 140ms ease;
 }

@@ -131,6 +131,18 @@ def test_fullscreen_graph_modal_has_astral_selector_and_sky_panel():
     assert "astral: astralSel ? normalizeAstralMode(astralSel.value || 'none') : 'none'" in html
 
 
+def test_fullscreen_graph_chrome_uses_dashboard_theme_without_recoloring_plot_panels():
+    html = "".join(render_graph_modal(switch_installed=False))
+
+    assert "background:var(--dashboard-dialog-bg)" in html
+    assert "background:var(--dashboard-card-bg); color:var(--dashboard-card-text)" in html
+    assert "background:var(--dashboard-dialog-panel)" in html
+    assert "border-right:1px solid var(--dashboard-card-border)" in html
+    assert "#fullscreen_data_panel{ flex:1 1 auto; background:#fff;" in html
+    assert "background:#dff1ff;" in html
+    assert "ctx.fillStyle = '#dff1ff';" in html
+
+
 def test_fullscreen_graph_uses_live_checkbox_selections_with_four_item_cap():
     html = "".join(render_graph_modal(switch_installed=False))
 
