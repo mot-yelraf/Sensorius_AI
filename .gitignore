@@ -45,3 +45,9 @@ node_modules/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+
+# Native installer build output (generator sources and tests are tracked).
+/platform_installers/generated/
+/platform_installers/**/build/
+/platform_installers/**/dist/
+/platform_installers/**/.build-venv/

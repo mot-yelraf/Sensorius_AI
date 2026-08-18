@@ -15,12 +15,15 @@ Sensorius can also run on macOS, Windows, or Linux as a hub for Wi-Fi Nodus sens
 
 The dashboard is the main operating view. It is where you check current conditions, see switch state, open settings, and review quick trends.
 
-![Dashboard overview using an example host](<../assets/screenshots/dashboard-overview.png>)
+![Samhain dashboard using the selected Flower theme](<../assets/screenshots/dashboard-overview.png>)
 <!-- pdf-keep-together:end -->
 
-This example was captured from a live Sensorius installation. Sensor names,
-locations, metrics, switch channels, forecast source, and live values will vary
-by installation.
+This example and the dashboard dialogs shown throughout this guide were
+captured from the live **Samhain** Sensorius installation with its saved
+**Flower** dashboard theme selected. The greenhouse background and pale blue
+Air palette therefore continue behind and through the dialog views. Sensor
+names, locations, metrics, switch channels, forecast source, selected theme,
+and live values will vary by installation.
 
 The dashboard presents:
 ### Interface Icons
@@ -216,7 +219,7 @@ moon, biodynamic, weather, and location-aware automation calculations:
 
 #### Display
 
-![Display section open](<../assets/screenshots/system-settings-display.png>)
+![Display section open on Samhain with Flower, Desert Bloom, and automatic seasonal themes selected](<../assets/screenshots/system-settings-display.png>)
 
 The **Display** section supplies system-wide presentation defaults. The controls
 appear in the order **Units**, **Metric Set**, and **Display Style**. **Gauge

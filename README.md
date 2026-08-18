@@ -40,6 +40,11 @@ Manual Setup
 - Linux (Debian/Ubuntu): `deploy_scripts/setup_linux.sh`
 - Windows: `deploy_scripts/setup_win.ps1` or `deploy_scripts/setup_win_uv.ps1`
 
+Native `.deb`, macOS `.pkg`, and Windows `.exe` installer build projects can
+be generated with `python platform_installers/installer_generator.py generate`.
+See `platform_installers/README.md` for the supported architecture matrix,
+native build commands, signing, and support-log locations.
+
 Then run:
 
 ```bash
