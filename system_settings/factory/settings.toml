@@ -28,7 +28,7 @@ PROVIDER = ""
 
 [WeatherForecast]
 PROVIDER = "met_no"
-THEME = "garden"
+THEME = "pollinator"
 CURRENT_SENSOR_ID = ""
 
 [WeeWX]
@@ -88,4 +88,4 @@ display_style = "Gauge"
 unit_system = "Imperial"
 metric_set = "Pick 6"
 background_theme = "leaf"
-biodynamic_calendar_theme = "leaf"
+biodynamic_calendar_theme = "garden_tools"

@@ -1920,6 +1920,52 @@ def test_biodynamic_transition_broadcast_reaches_runtime_app(
     }]
 
 
+def test_alert_broadcast_uses_sensor_value_without_rule_details(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from sensorius import saiWebRoutes
+
+    ctrl = _make_controller()
+    received = []
+
+    async def fake_broadcast(payload):
+        received.append(payload)
+
+    runtime_app = types.SimpleNamespace(
+        state=types.SimpleNamespace(switch_broadcast=fake_broadcast)
+    )
+    monkeypatch.setattr(saiWebRoutes, "app", runtime_app)
+    evaluated_groups = [{
+        "result": True,
+        "conditions": [({
+            "type": "sensor",
+            "sensor": "greenhouse-1",
+            "metric": "Temperature",
+            "op": ">",
+            "value": 82,
+            "hyst": 2,
+        }, True)],
+    }]
+
+    async def run_broadcast():
+        SwitchController._broadcast_automation_notification(
+            ctrl,
+            rule_id="high-temp",
+            rule_name="High Temperature",
+            evaluated_groups=evaluated_groups,
+            current_values_map={"greenhouse-1": {"Temperature": 87.4}},
+        )
+        await asyncio.sleep(0)
+
+    asyncio.run(run_broadcast())
+
+    assert received[0]["name"] == "High Temperature"
+    assert received[0]["details"] == ["Sensor greenhouse-1; value 87.4"]
+    assert "occurred_at" in received[0]
+    assert "Temperature > 82" not in str(received[0])
+    assert "hysteresis" not in str(received[0])
+
+
 def test_advanced_evaluation_ignores_actions_for_other_switch_ids():
     ctrl = _make_controller()
     ctrl._load_triggers_dict = lambda: {

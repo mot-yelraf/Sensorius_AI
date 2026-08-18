@@ -1331,10 +1331,15 @@ class SwitchController:
         cond: dict,
         result: bool,
         current_values_map: dict,
+        *,
+        alert_summary: bool = False,
     ) -> str:
-        """Format one evaluated automation condition for an email report."""
+        """Format one evaluated automation condition for email or an Alert toast."""
         ctype = str(cond.get("type", "") or "").strip().lower()
         status = "TRUE" if result else "FALSE"
+
+        if alert_summary and ctype != "sensor":
+            return ""
 
         raw_days = cond.get("days") or []
         day_names = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -1383,6 +1388,8 @@ class SwitchController:
             except Exception:
                 pass
             actual_text = "unavailable" if actual is None else str(actual)
+            if alert_summary:
+                return f"Sensor {sensor_id}; value {actual_text}"
             return (
                 f"[{status}] Sensor {sensor_id}; value {actual_text}; "
                 f"{metric} {op} {threshold}; hysteresis {hyst}{boundary_text}"
@@ -1550,9 +1557,8 @@ class SwitchController:
                         cond,
                         True,
                         current_values_map,
+                        alert_summary=True,
                     )
-                    if detail.startswith("[TRUE] "):
-                        detail = detail[7:]
                     if detail and detail not in details:
                         details.append(detail)
 
@@ -1562,6 +1568,7 @@ class SwitchController:
                 "rule_id": str(rule_id),
                 "name": display_name,
                 "details": details,
+                "occurred_at": datetime.now().astimezone().isoformat(),
             }
             result = broadcaster(payload)
             if asyncio.iscoroutine(result):

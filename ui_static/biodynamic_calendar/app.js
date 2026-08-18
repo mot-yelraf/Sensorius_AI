@@ -1698,6 +1698,68 @@ document.getElementById("printBtn").addEventListener("click", (ev) => {
   if (stageCurrentMonthReport()) window.print();
 });
 
+const calendarThemeView = document.getElementById("calendarThemeView");
+const calendarThemeButtons = Array.from(document.querySelectorAll("[data-calendar-preview-theme]"));
+const calendarThemeCloseButton = document.getElementById("closeCalendarThemeBtn");
+let calendarThemeReturnFocus = null;
+let savedCalendarResolvedTheme = Array.from(document.body.classList)
+  .find((name) => name.startsWith("biodynamic-theme-"))?.slice(17) || "spring";
+
+function applyCalendarPreviewTheme(preference) {
+  const resolved = preference === "auto"
+    ? (document.body.dataset.automaticTheme || "spring")
+    : preference;
+  Array.from(document.body.classList)
+    .filter((name) => name.startsWith("biodynamic-theme-"))
+    .forEach((name) => document.body.classList.remove(name));
+  document.body.classList.add(`biodynamic-theme-${resolved}`);
+  calendarThemeButtons.forEach((button) => {
+    const active = button.dataset.calendarPreviewTheme === preference;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+}
+
+function openCalendarThemeView() {
+  if (!calendarThemeView || document.body.classList.contains("calendar-theme-preview-mode")) return;
+  calendarThemeReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  savedCalendarResolvedTheme = Array.from(document.body.classList)
+    .find((name) => name.startsWith("biodynamic-theme-"))?.slice(17) || savedCalendarResolvedTheme;
+  const preference = document.body.dataset.themePreference || "auto";
+  applyCalendarPreviewTheme(preference);
+  calendarThemeView.hidden = false;
+  document.body.classList.add("calendar-theme-preview-mode");
+  document.querySelector("main.page")?.setAttribute("aria-hidden", "true");
+  calendarThemeCloseButton?.focus({preventScroll: true});
+}
+
+function closeCalendarThemeView() {
+  if (!calendarThemeView || !document.body.classList.contains("calendar-theme-preview-mode")) return;
+  document.body.classList.remove("calendar-theme-preview-mode");
+  calendarThemeView.hidden = true;
+  document.querySelector("main.page")?.removeAttribute("aria-hidden");
+  applyCalendarPreviewTheme(savedCalendarResolvedTheme);
+  if (calendarThemeReturnFocus?.isConnected) calendarThemeReturnFocus.focus({preventScroll: true});
+  calendarThemeReturnFocus = null;
+}
+
+document.querySelectorAll("[data-open-calendar-theme]").forEach((button) => {
+  button.addEventListener("click", openCalendarThemeView);
+});
+calendarThemeButtons.forEach((button) => {
+  button.addEventListener("click", () => applyCalendarPreviewTheme(button.dataset.calendarPreviewTheme || "auto"));
+});
+calendarThemeCloseButton?.addEventListener("click", closeCalendarThemeView);
+calendarThemeView?.addEventListener("click", (event) => {
+  if (event.target === calendarThemeView) closeCalendarThemeView();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && document.body.classList.contains("calendar-theme-preview-mode")) {
+    event.preventDefault();
+    closeCalendarThemeView();
+  }
+});
+
 function navigateCalendarMonth(delta) {
   const targetMonth = shiftMonth(state.month || currentMonthKey(), delta);
   state.followCurrentMonth = targetMonth === currentMonthKey();

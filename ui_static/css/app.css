@@ -20,6 +20,11 @@ body{
 }
 
 body.dashboard-page{
+  --dashboard-card-bg:#c4dcf8;
+  --dashboard-card-border:#78a9b8;
+  --dashboard-card-text:#132f38;
+  --dashboard-dialog-bg:color-mix(in srgb,var(--dashboard-card-bg) 82%,white);
+  --dashboard-dialog-panel:color-mix(in srgb,var(--dashboard-card-bg) 58%,white);
   background-color:#dff5e8;
   background-image:url("/ui_static/leaf-pattern.svg");
   background-repeat:repeat;
@@ -28,10 +33,189 @@ body.dashboard-page{
 }
 
 body.dashboard-page.dashboard-theme-leaf{background-color:#dff5e8;background-image:url("/ui_static/leaf-pattern.svg")}
-body.dashboard-page.dashboard-theme-garden-tools{background-color:#ead8c2;background-image:url("/ui_static/garden-tools-pattern.svg")}
-body.dashboard-page.dashboard-theme-herbarium{background-color:#f8dcc4;background-image:url("/ui_static/herbarium-pattern.svg")}
-body.dashboard-page.dashboard-theme-pollinator{background-color:#dceffc;background-image:url("/ui_static/pollinator-pattern.svg")}
-body.dashboard-page.dashboard-theme-white{background-color:#fff;background-image:none}
+body.dashboard-page.dashboard-theme-root{
+  --dashboard-card-bg:#efe2c6;
+  --dashboard-card-border:#9a7442;
+  --dashboard-card-text:#2f2114;
+  background-color:#806b4f;
+  background-image:url("/ui_static/backgrounds/roots-greenhouse.webp");
+  background-position:center;
+  background-repeat:no-repeat;
+  background-size:cover;
+}
+body.dashboard-page.dashboard-theme-leaf-crop{
+  --dashboard-card-bg:#cbdbed;
+  --dashboard-card-border:#5d8fc7;
+  --dashboard-card-text:#102f44;
+  background-color:#52765a;
+  background-image:url("/ui_static/backgrounds/leaf-greenhouse.webp");
+  background-position:center;
+  background-repeat:no-repeat;
+  background-size:cover;
+}
+body.dashboard-page.dashboard-theme-flower{
+  --dashboard-card-bg:#c4dcf8;
+  --dashboard-card-border:#78a9b8;
+  --dashboard-card-text:#132f38;
+  background-color:#5f7758;
+  background-image:url("/ui_static/backgrounds/flowers-greenhouse.webp");
+  background-position:center;
+  background-repeat:no-repeat;
+  background-size:cover;
+}
+body.dashboard-page.dashboard-theme-fruit{
+  --dashboard-card-bg:#fde1d3;
+  --dashboard-card-border:#b86a4a;
+  --dashboard-card-text:#3b1c12;
+  background-color:#6f5e48;
+  background-image:url("/ui_static/backgrounds/fruit-greenhouse.webp");
+  background-position:center;
+  background-repeat:no-repeat;
+  background-size:cover;
+}
+
+body.dashboard-page:not(.dashboard-theme-leaf) > h2,
+body.dashboard-page:not(.dashboard-theme-leaf) > #update_time,
+body.dashboard-page:not(.dashboard-theme-leaf) .sensor-group-header{
+  text-shadow:0 1px 3px rgba(255,255,255,.98),0 0 9px rgba(255,255,255,.92);
+}
+
+body.dashboard-page:not(.dashboard-theme-leaf) .sensor-collapse-icon,
+body.dashboard-page:not(.dashboard-theme-leaf) .sensor-status-dot,
+body.dashboard-page:not(.dashboard-theme-leaf) .settings-gear-icon,
+body.dashboard-page:not(.dashboard-theme-leaf) .dashboard-graph-icon{
+  filter:drop-shadow(0 1px 2px rgba(255,255,255,.98)) drop-shadow(0 0 5px rgba(255,255,255,.92));
+}
+
+body.dashboard-page .modal,
+body.dashboard-page #setupPiModal .system-settings-shell,
+body.dashboard-page .onboard-modal{
+  background:var(--dashboard-dialog-bg);
+  border:1px solid var(--dashboard-card-border);
+  color:var(--dashboard-card-text);
+}
+body.dashboard-page .modal-header,
+body.dashboard-page .modal-footer,
+body.dashboard-page #setupPiModal .system-settings-header,
+body.dashboard-page #setupPiModal .sai-system-dialog-header,
+body.dashboard-page #setupPiModal .sai-system-dialog-actions,
+body.dashboard-page .onboard-title{
+  background:var(--dashboard-card-bg);
+  border-color:var(--dashboard-card-border);
+  color:var(--dashboard-card-text);
+}
+body.dashboard-page .modal-body,
+body.dashboard-page .modal .split > section.panel,
+body.dashboard-page #setupPiModal .system-settings-content,
+body.dashboard-page #setupPiModal .sai-system-dialog,
+body.dashboard-page .onboard-modal .modal-content{
+  background:var(--dashboard-dialog-panel);
+  border-color:var(--dashboard-card-border);
+  color:var(--dashboard-card-text);
+}
+body.dashboard-page .modal .split > aside.panel,
+body.dashboard-page #setupPiModal .system-settings-menu{
+  background:var(--dashboard-dialog-bg);
+  border-color:var(--dashboard-card-border);
+}
+body.dashboard-page .switch-menu-btn,
+body.dashboard-page #setupPiModal .system-menu-btn,
+body.dashboard-page #setupPiModal .thumbnail-option,
+body.dashboard-page #setupPiModal .integration-block,
+body.dashboard-page #setupPiModal .notification-subsection,
+body.dashboard-page #setupPiModal .advanced-section{
+  background:var(--dashboard-dialog-panel);
+  border-color:var(--dashboard-card-border);
+  color:var(--dashboard-card-text);
+}
+body.dashboard-page .switch-menu-btn.active,
+body.dashboard-page #setupPiModal .system-menu-btn.active,
+body.dashboard-page .list-item.active{
+  background:var(--dashboard-card-bg);
+  border-color:var(--dashboard-card-border);
+}
+body.dashboard-page .modal input:not([type="checkbox"]):not([type="radio"]),
+body.dashboard-page .modal select,
+body.dashboard-page .modal textarea,
+body.dashboard-page #setupPiModal input:not([type="checkbox"]):not([type="radio"]),
+body.dashboard-page #setupPiModal select,
+body.dashboard-page #setupPiModal textarea{
+  background:var(--dashboard-dialog-panel);
+  border-color:var(--dashboard-card-border);
+  color:var(--dashboard-card-text);
+}
+body.dashboard-page .settings-title-close{
+  color:var(--dashboard-card-text);
+}
+
+.dash-theme-trigger{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  align-self:center;
+  width:auto;
+  min-width:118px;
+  margin-top:auto;
+  padding:.4rem .8rem;
+  border:1px solid var(--dashboard-card-border);
+  border-radius:999px;
+  background:var(--dashboard-card-bg);
+  color:var(--dashboard-card-text);
+  font-size:.7rem;
+  font-weight:800;
+  letter-spacing:.03em;
+  text-transform:uppercase;
+  cursor:pointer;
+}
+.dash-theme-trigger:hover,
+.dash-theme-trigger:focus-visible{filter:brightness(.96);outline:2px solid var(--dashboard-card-border);outline-offset:2px}
+body.dashboard-theme-preview-mode{overflow:hidden}
+body.dashboard-theme-preview-mode .dashboard-content{opacity:0;pointer-events:none;user-select:none}
+.dashboard-theme-view[hidden]{display:none}
+.dashboard-theme-view{
+  position:fixed;
+  z-index:11000;
+  inset:0;
+  display:flex;
+  align-items:flex-end;
+  justify-content:center;
+  padding:22px 18px;
+  box-sizing:border-box;
+  cursor:zoom-out;
+}
+.dashboard-theme-toolbar{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  max-width:calc(100vw - 36px);
+  padding:8px;
+  border:1px solid rgba(255,255,255,.72);
+  border-radius:16px;
+  background:rgba(8,20,19,.78);
+  box-shadow:0 14px 42px rgba(0,0,0,.38);
+  backdrop-filter:blur(14px) saturate(1.2);
+  cursor:default;
+}
+.dashboard-theme-options{display:flex;gap:4px}
+.dashboard-theme-toolbar button{
+  min-height:38px;
+  padding:8px 12px;
+  border:1px solid transparent;
+  border-radius:10px;
+  background:transparent;
+  color:#fff;
+  font-size:.76rem;
+  cursor:pointer;
+}
+.dashboard-theme-toolbar button:hover,
+.dashboard-theme-toolbar button:focus-visible{border-color:rgba(255,255,255,.72);background:rgba(255,255,255,.14)}
+.dashboard-theme-toolbar button.is-active{background:#f7fff8;color:#10231f}
+.dashboard-theme-toolbar .dashboard-theme-return{border-color:rgba(255,255,255,.72);background:#287c62;color:#fff;font-weight:800}
+@media (max-width:700px){
+  .dashboard-theme-toolbar{flex-direction:column;width:calc(100vw - 36px)}
+  .dashboard-theme-options{flex-wrap:wrap;justify-content:center}
+  .dashboard-theme-toolbar .dashboard-theme-return{width:100%}
+}
 
 .modal-busy-cursor,
 .modal-busy-cursor *{
@@ -127,14 +311,14 @@ body.dashboard-page.dashboard-theme-white{background-color:#fff;background-image
 }
 
 .sensor-collapse-toggle{
-  width:24px;
-  height:24px;
+  width:28px;
+  height:28px;
   border:0;
-  border-radius:6px;
+  border-radius:4px;
   background:transparent;
   appearance:none;
   -webkit-appearance:none;
-  color:#334155;
+  color:var(--dashboard-card-bg);
   display:inline-flex;
   align-items:center;
   justify-content:center;
@@ -154,15 +338,16 @@ body.dashboard-page.dashboard-theme-white{background-color:#fff;background-image
 }
 
 .sensor-collapse-toggle:focus-visible{
-  outline:2px solid var(--accent);
+  outline:2px solid var(--dashboard-card-text);
   outline-offset:2px;
 }
 
 .sensor-collapse-icon{
   display:inline-flex;
-  width:22px;
-  height:22px;
-  color:#202124;
+  width:18px;
+  height:18px;
+  color:inherit;
+  filter:drop-shadow(0 0 1px var(--dashboard-card-text)) drop-shadow(0 1px 2px rgba(0,0,0,.55));
   transform-origin:50% 50%;
   transition:transform 140ms ease;
 }
@@ -171,6 +356,7 @@ body.dashboard-page.dashboard-theme-white{background-color:#fff;background-image
   display:block;
   width:100%;
   height:100%;
+  overflow:visible;
 }
 
 .sensor-collapse-toggle[aria-expanded='true'] .sensor-collapse-icon{
@@ -271,11 +457,9 @@ body.dashboard-page.dashboard-theme-white{background-color:#fff;background-image
 .metric-container{
   display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
   width: var(--container-width);
-  padding: .5rem; border:1px solid #ccc; border-radius:12px;
-  background-color:#e6faff; margin-bottom:1rem; position:relative; box-sizing:border-box; flex:0 1 auto;
-}
-body.dashboard-page.dashboard-theme-pollinator .metric-container{
-  background-color:#c8e4f7;
+  padding: .5rem; border:1px solid var(--dashboard-card-border); border-radius:12px;
+  background-color:var(--dashboard-card-bg); color:var(--dashboard-card-text);
+  margin-bottom:1rem; position:relative; box-sizing:border-box; flex:0 1 auto;
 }
 .metric-title{ font-size:0.9rem; font-weight:bold; margin-bottom:.3rem; text-align:center; }
 .metric-current-value{
@@ -310,7 +494,8 @@ body.dashboard-page.dashboard-theme-pollinator .metric-container{
 /* Switch “card” */
 .switch-metric-container{
   display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start;
-  width: 530px; padding:1rem; border:1px solid #ccc; border-radius:12px; background-color:#ffffe0;
+  width: 530px; padding:1rem; border:1px solid var(--dashboard-card-border); border-radius:12px;
+  background-color:var(--dashboard-card-bg); color:var(--dashboard-card-text);
   margin-bottom:1.5rem; box-sizing:border-box;
   transition:width 160ms ease, padding 160ms ease;
 }
@@ -321,7 +506,8 @@ body.dashboard-page.dashboard-theme-pollinator .metric-container{
 }
 
 .switch-table{
-  width:100%; border-collapse:collapse; margin-top:.5rem; font-size:.95rem; background-color:#ffffe0;
+  width:100%; border-collapse:collapse; margin-top:.5rem; font-size:.95rem;
+  background-color:var(--dashboard-card-bg); color:var(--dashboard-card-text);
 }
 .switch-table th:nth-child(2),
 .switch-table td:nth-child(2){
@@ -329,7 +515,8 @@ body.dashboard-page.dashboard-theme-pollinator .metric-container{
   padding-right:.2rem;
 }
 .switch-table th, .switch-table td{
-  border:1px solid #ccc; padding:.4rem .6rem; text-align:center; vertical-align:middle; background-color:#ffffe0;
+  border:1px solid var(--dashboard-card-border); padding:.4rem .6rem; text-align:center; vertical-align:middle;
+  background-color:var(--dashboard-card-bg); color:var(--dashboard-card-text);
 }
 .switch-table th{ font-weight:bold; }
 

@@ -22,6 +22,17 @@ from sensorius.saiWeatherAstronomy import astronomy_context
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_caelus_pollinator_theme_is_supported_and_default():
+    routes_source = (ROOT / "sensorius" / "saiWebRoutes.py").read_text(encoding="utf-8")
+    factory_source = (ROOT / "system_settings" / "factory" / "settings.toml").read_text(encoding="utf-8")
+
+    assert weather_app.normalize_weather_theme("pollinator") == "pollinator"
+    assert weather_app.normalize_weather_theme("unsupported") == "pollinator"
+    assert "pollinator" in weather_app.WEATHER_THEMES
+    assert routes_source.count('get_setting("WeatherForecast", "THEME", "pollinator")') >= 3
+    assert 'THEME = "pollinator"' in factory_source
+
+
 class _Settings:
     values = {
         ("WeatherForecast", "THEME"): "river",
@@ -269,8 +280,19 @@ def test_hourly_carousel_keeps_hidden_edge_controls_in_fixed_grid_columns():
 def test_caelus_footer_preserves_title_case_attribution():
     template = (ROOT / "ui_templates" / "weather_forecast" / "index.html").read_text()
     css = (ROOT / "ui_static" / "weather_forecast" / "app.css").read_text()
+    javascript = (ROOT / "ui_static" / "weather_forecast" / "app.js").read_text()
 
     assert '<p class="eyebrow">Caelus Weather Forecast</p>' in template
+    assert template.index('<p class="eyebrow">Caelus Weather Forecast</p>') < template.index('data-open-caelus-theme')
+    assert 'data-open-caelus-theme aria-label="Preview Caelus themes">Theme</button>' in template
+    assert 'id="caelusThemeView"' in template
+    assert 'data-caelus-preview-theme="pollinator"' in template
+    assert 'data-caelus-preview-theme="garden"' in template
+    assert 'data-caelus-preview-theme="desert"' in template
+    assert "function openCaelusThemeView()" in javascript
+    assert "function closeCaelusThemeView()" in javascript
+    assert ".caelus-theme-toolbar" in css
+    assert "body.caelus-theme-preview-mode .dashboard-shell" in css
     assert "<p>Created by Peace Hill Studios</p>" in template
     footer_rule = css[css.index(".site-footer p {"):css.index("}", css.index(".site-footer p {"))]
     assert "text-transform" not in footer_rule
@@ -571,12 +593,31 @@ def test_dashboard_button_launches_full_screen_weather_app():
 def test_dashboard_background_theme_normalization():
     from sensorius.saiHtml import normalize_dashboard_background_theme, normalize_dashboard_metric_set
 
-    assert normalize_dashboard_background_theme("garden-tools") == "garden_tools"
-    assert normalize_dashboard_background_theme("pollinator") == "pollinator"
+    assert normalize_dashboard_background_theme("leaf-crop") == "leaf_crop"
+    assert normalize_dashboard_background_theme("flower") == "flower"
     assert normalize_dashboard_background_theme("unsupported") == "leaf"
     assert normalize_dashboard_metric_set("All") == "All"
     assert normalize_dashboard_metric_set("show-all") == "All"
     assert normalize_dashboard_metric_set("unsupported") == "Pick 6"
+
+
+def test_dashboard_elemental_card_palettes_have_high_contrast():
+    def relative_luminance(hex_color: str) -> float:
+        channels = [int(hex_color[index:index + 2], 16) / 255 for index in (1, 3, 5)]
+        linear = [value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4 for value in channels]
+        return (0.2126 * linear[0]) + (0.7152 * linear[1]) + (0.0722 * linear[2])
+
+    def contrast_ratio(background: str, foreground: str) -> float:
+        lighter, darker = sorted((relative_luminance(background), relative_luminance(foreground)), reverse=True)
+        return (lighter + 0.05) / (darker + 0.05)
+
+    palettes = {
+        "earth": ("#efe2c6", "#2f2114"),
+        "air": ("#c4dcf8", "#132f38"),
+        "water": ("#cbdbed", "#102f44"),
+        "fire": ("#fde1d3", "#3b1c12"),
+    }
+    assert all(contrast_ratio(background, foreground) >= 7 for background, foreground in palettes.values())
 
 
 def test_dashboard_reuses_detailed_forecast_moon_surface_and_selectable_backgrounds():
@@ -590,24 +631,30 @@ def test_dashboard_reuses_detailed_forecast_moon_surface_and_selectable_backgrou
     assert "#moonPhaseCanvas{width:88px;height:88px;border:0;border-radius:50%;background:transparent;}" in html_source
     assert "ctx.strokeStyle = 'rgba(255, 240, 198, 0.28)'" not in html_source
     assert "dashboard-theme-{dashboard_background_class}" in html_source
+    assert ".dash-loc-form{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:.45rem;background:#e6faff" in html_source
+    assert ".astro-box{display:flex;align-items:flex-start;justify-content:center;background:#ffffe0" in html_source
     assert 'background-image:url("/ui_static/leaf-pattern.svg")' in dashboard_css
-    assert 'background-image:url("/ui_static/garden-tools-pattern.svg")' in dashboard_css
-    assert 'background-image:url("/ui_static/herbarium-pattern.svg")' in dashboard_css
-    assert 'background-image:url("/ui_static/pollinator-pattern.svg")' in dashboard_css
     assert "dashboard-theme-leaf{background-color:#dff5e8" in dashboard_css
-    assert "dashboard-theme-garden-tools{background-color:#ead8c2" in dashboard_css
-    assert "dashboard-theme-herbarium{background-color:#f8dcc4" in dashboard_css
-    assert "dashboard-theme-pollinator{background-color:#dceffc" in dashboard_css
-    assert "dashboard-theme-pollinator .metric-container" in dashboard_css
-    assert "background-color:#c8e4f7" in dashboard_css
-    assert "dashboard-theme-white" in dashboard_css
-    for pattern in (
-        "leaf-pattern.svg",
-        "garden-tools-pattern.svg",
-        "herbarium-pattern.svg",
-        "pollinator-pattern.svg",
+    for theme, asset in (
+        ("root", "roots-greenhouse.webp"),
+        ("leaf-crop", "leaf-greenhouse.webp"),
+        ("flower", "flowers-greenhouse.webp"),
+        ("fruit", "fruit-greenhouse.webp"),
     ):
-        assert (ROOT / "ui_static" / pattern).is_file()
+        assert f"dashboard-theme-{theme}" in dashboard_css
+        assert f'background-image:url("/ui_static/backgrounds/{asset}")' in dashboard_css
+        assert (ROOT / "ui_static" / "backgrounds" / asset).is_file()
+    assert "background-color:var(--dashboard-card-bg)" in dashboard_css
+    assert "color:var(--dashboard-card-text)" in dashboard_css
+    assert "--dashboard-dialog-bg:color-mix(in srgb,var(--dashboard-card-bg) 82%,white)" in dashboard_css
+    assert "body.dashboard-page #setupPiModal .system-settings-shell" in dashboard_css
+    assert "body.dashboard-page .modal input:not([type=\"checkbox\"]):not([type=\"radio\"])" in dashboard_css
+    assert ".dash-theme-trigger" in dashboard_css
+    assert "align-self:center;\n  width:auto;\n  min-width:118px" in dashboard_css
+    assert "border-radius:999px;\n  background:var(--dashboard-card-bg)" in dashboard_css
+    assert "letter-spacing:.03em;\n  text-transform:uppercase" in dashboard_css
+    assert ".dashboard-theme-toolbar" in dashboard_css
+    assert "body.dashboard-theme-preview-mode .dashboard-content" in dashboard_css
 
 
 def test_dashboard_forecast_combines_selected_sensor_readings_with_system_unit_ranges():
@@ -659,11 +706,21 @@ def test_weather_forecast_system_settings_are_present():
     ]
     assert 'class="weather-forecast-controls"' in weather_section
     assert weather_section.index('for="weather_forecast_sensor_id"') < weather_section.index('for="weather_forecast_provider"')
-    assert weather_section.index('for="weather_forecast_provider"') < weather_section.index('id="weather_forecast_theme"')
-    for theme in ("garden", "island", "river", "desert"):
-        assert f'name="weather_forecast_theme" value="{theme}"' in weather_section
-    assert "Sunny Beach" in weather_section
-    assert "Ocean Island" not in weather_section
+    display_section = template[
+        template.index('data-runtime-section="system-display"'):
+        template.index('data-runtime-section="system-general"')
+    ]
+    assert 'id="weather_forecast_theme"' not in weather_section
+    assert display_section.index('id="dashboard_background_theme"') < display_section.index('id="weather_forecast_theme"')
+    for theme in ("pollinator", "garden", "island", "river", "desert"):
+        assert f'name="weather_forecast_theme" value="{theme}"' in display_section
+    assert display_section.count('class="thumbnail-option"><input type="radio" name="weather_forecast_theme"') == 5
+    assert ".theme-pollinator {" in stylesheet
+    assert '--scene-image: url("/ui_static/pollinator-pattern.svg");' in stylesheet
+    assert '--scene-repeat: repeat;' in stylesheet
+    assert (ROOT / "ui_static" / "pollinator-pattern.svg").is_file()
+    assert "Sunny Beach" in display_section
+    assert "Ocean Island" not in display_section
     assert "sunny-beach.webp" in template
     assert "desert-clear.webp" in template
     assert "sunny-beach.webp" in stylesheet

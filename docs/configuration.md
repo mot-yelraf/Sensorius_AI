@@ -323,15 +323,17 @@ Runtime notes:
   This is reversible obfuscation, not encryption.
 - `[WeatherForecast].PROVIDER` accepts `met_no`, `open_meteo`, `us`, or `none`.
   `none` disables the dashboard forecast card.
-- `[WeatherForecast].THEME` selects the full-screen weather scene: `garden`,
-  `island`, `river`, or `desert`.
+- `[WeatherForecast].THEME` selects the full-screen weather scene: `pollinator`,
+  `garden`, `island`, `river`, or `desert`. `pollinator` is the default.
 - `[WeatherForecast].CURRENT_SENSOR_ID` selects the Sensorius/Nodus sensor whose
   latest logged values populate Current Readings. The panel follows that
   sensor's ordered `[Display].METRIC_1` through `METRIC_6` settings. An empty
   value leaves the Current Readings panel unbound.
 - `[Display].background_theme` selects the Sensorius dashboard background:
-  `leaf`, `garden_tools`, `herbarium`, `pollinator`, or `white`. The default is
-  `leaf`; `white` disables the repeating SVG background image.
+  `leaf` (the default repeating SVG), `root`, `leaf_crop`, `flower`, or `fruit`.
+  The four crop themes use greenhouse photography and pair metric and switch
+  cards with high-contrast pale elemental palettes: Earth, Water, Air, and
+  Fire, respectively.
 - `[Display].metric_set` controls the initial dashboard row state globally.
   Both modes preserve each sensor's saved `METRIC_1` through `METRIC_6` slots
   and append every other known, renderable metric. `Pick 6` initially hides the
@@ -345,9 +347,11 @@ Runtime notes:
   while preserving canonical readings, MQTT payloads, database history,
   automation thresholds, and integration data.
 - `[Display].biodynamic_calendar_theme` independently selects the full-screen
-  Biodynamic Calendar background from the same five themes. The default is
-  `leaf`, so existing installations continue to use Leaves until another
-  calendar theme is saved.
+  Biodynamic Calendar background and matching card palette: `auto`, `spring`,
+  `summer`, `autumn`, `winter`, or `garden_tools`. The five concrete themes are
+  Garden Tools and the four seasons. The default is `garden_tools`. Selecting
+  `auto` resolves from the current month in the calendar's configured timezone
+  and changes at the start of March, June, September, and December.
 
 ## Sensor Settings
 

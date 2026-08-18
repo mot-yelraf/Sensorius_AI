@@ -322,20 +322,24 @@
   white-space: nowrap;
 }
 #setupPiModal .caelus-garden { background-image:linear-gradient(rgba(4,25,30,.12),rgba(4,25,30,.38)),url("/ui_static/weather_forecast/backgrounds/garden.webp"); }
+#setupPiModal .caelus-pollinator { background-color:#dceffc; background-image:url("/ui_static/pollinator-pattern.svg"); background-size:120px 90px; }
 #setupPiModal .caelus-island { background-image:linear-gradient(rgba(0,37,64,.02),rgba(0,30,42,.14)),url("/ui_static/weather_forecast/backgrounds/sunny-beach.webp"); }
 #setupPiModal .caelus-river { background-image:linear-gradient(rgba(4,25,30,.12),rgba(4,25,30,.38)),url("/ui_static/weather_forecast/backgrounds/river.webp"); }
 #setupPiModal .caelus-desert { background-image:linear-gradient(rgba(40,18,20,.02),rgba(40,18,20,.16)),url("/ui_static/weather_forecast/backgrounds/desert-clear.webp"); }
-#setupPiModal .dashboard-leaf,
-#setupPiModal .dashboard-garden-tools,
-#setupPiModal .dashboard-herbarium,
-#setupPiModal .dashboard-pollinator {
+#setupPiModal .biodynamic-auto-option { display:flex; align-items:center; justify-content:center; gap:.55rem; margin:.65rem 0 0; font-size:.82rem; cursor:pointer; }
+#setupPiModal .biodynamic-garden-tools { background-color:#ead8c2; background-image:url("/ui_static/garden-tools-pattern.svg"); background-size:120px 90px; }
+#setupPiModal .biodynamic-spring { background-image:url("/ui_static/biodynamic_calendar/backgrounds/valley-spring.webp"); }
+#setupPiModal .biodynamic-summer { background-image:url("/ui_static/biodynamic_calendar/backgrounds/valley-summer.webp"); }
+#setupPiModal .biodynamic-autumn { background-image:url("/ui_static/biodynamic_calendar/backgrounds/valley-autumn.webp"); }
+#setupPiModal .biodynamic-winter { background-image:url("/ui_static/biodynamic_calendar/backgrounds/valley-winter.webp"); }
+#setupPiModal .dashboard-default {
   background-size: 120px 90px;
 }
-#setupPiModal .dashboard-leaf { background-color:#dff5e8; background-image:url("/ui_static/leaf-pattern.svg"); }
-#setupPiModal .dashboard-garden-tools { background-color:#ead8c2; background-image:url("/ui_static/garden-tools-pattern.svg"); }
-#setupPiModal .dashboard-herbarium { background-color:#f8dcc4; background-image:url("/ui_static/herbarium-pattern.svg"); }
-#setupPiModal .dashboard-pollinator { background-color:#dceffc; background-image:url("/ui_static/pollinator-pattern.svg"); }
-#setupPiModal .dashboard-white { background:#fff; }
+#setupPiModal .dashboard-default { background-color:#dff5e8; background-image:url("/ui_static/leaf-pattern.svg"); }
+#setupPiModal .dashboard-root { background-image:url("/ui_static/backgrounds/roots-greenhouse.webp"); }
+#setupPiModal .dashboard-leaf-crop { background-image:url("/ui_static/backgrounds/leaf-greenhouse.webp"); }
+#setupPiModal .dashboard-flower { background-image:url("/ui_static/backgrounds/flowers-greenhouse.webp"); }
+#setupPiModal .dashboard-fruit { background-image:url("/ui_static/backgrounds/fruit-greenhouse.webp"); }
 #setupPiModal .conditional-field[hidden] { display:none !important; }
 #setupPiModal .notification-subsection {
   border: 1px solid #dfe7e1;
@@ -1026,23 +1030,35 @@
               <fieldset class="thumbnail-selector" id="dashboard_background_theme" style="--thumbnail-count:5">
                 <legend>Sensorius Dashboard Theme</legend>
                 <div class="thumbnail-options">
-                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="leaf" {% if selected_dashboard_background_theme == "leaf" %}checked{% endif %}><span class="theme-thumbnail dashboard-leaf"></span><span class="thumbnail-label">Leaves</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="garden_tools" {% if selected_dashboard_background_theme == "garden_tools" %}checked{% endif %}><span class="theme-thumbnail dashboard-garden-tools"></span><span class="thumbnail-label">Garden Tools</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="herbarium" {% if selected_dashboard_background_theme == "herbarium" %}checked{% endif %}><span class="theme-thumbnail dashboard-herbarium"></span><span class="thumbnail-label">Herbarium</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="pollinator" {% if selected_dashboard_background_theme == "pollinator" %}checked{% endif %}><span class="theme-thumbnail dashboard-pollinator"></span><span class="thumbnail-label">Pollinators</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="white" {% if selected_dashboard_background_theme == "white" %}checked{% endif %}><span class="theme-thumbnail dashboard-white"></span><span class="thumbnail-label">White</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="leaf" {% if selected_dashboard_background_theme == "leaf" %}checked{% endif %}><span class="theme-thumbnail dashboard-default"></span><span class="thumbnail-label">Default</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="root" {% if selected_dashboard_background_theme == "root" %}checked{% endif %}><span class="theme-thumbnail dashboard-root"></span><span class="thumbnail-label">Root</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="leaf_crop" {% if selected_dashboard_background_theme == "leaf_crop" %}checked{% endif %}><span class="theme-thumbnail dashboard-leaf-crop"></span><span class="thumbnail-label">Leaf</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="flower" {% if selected_dashboard_background_theme == "flower" %}checked{% endif %}><span class="theme-thumbnail dashboard-flower"></span><span class="thumbnail-label">Flower</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="fruit" {% if selected_dashboard_background_theme == "fruit" %}checked{% endif %}><span class="theme-thumbnail dashboard-fruit"></span><span class="thumbnail-label">Fruit</span></label>
                 </div>
               </fieldset>
-              {% set selected_biodynamic_calendar_theme = biodynamic_calendar_theme | default('leaf') %}
+              {% set selected_weather_forecast_theme = weather_forecast_theme | default('pollinator') %}
+              <fieldset class="thumbnail-selector" id="weather_forecast_theme" style="--thumbnail-count:5">
+                <legend>Caelus Theme</legend>
+                <div class="thumbnail-options">
+                  <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="pollinator" {% if selected_weather_forecast_theme == "pollinator" %}checked{% endif %}><span class="theme-thumbnail caelus-pollinator"></span><span class="thumbnail-label">Pollinator</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="garden" {% if selected_weather_forecast_theme == "garden" %}checked{% endif %}><span class="theme-thumbnail caelus-garden"></span><span class="thumbnail-label">Mountain Garden</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="island" {% if selected_weather_forecast_theme == "island" %}checked{% endif %}><span class="theme-thumbnail caelus-island"></span><span class="thumbnail-label">Sunny Beach</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="river" {% if selected_weather_forecast_theme == "river" %}checked{% endif %}><span class="theme-thumbnail caelus-river"></span><span class="thumbnail-label">Forest River</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="desert" {% if selected_weather_forecast_theme == "desert" %}checked{% endif %}><span class="theme-thumbnail caelus-desert"></span><span class="thumbnail-label">Desert Bloom</span></label>
+                </div>
+              </fieldset>
+              {% set selected_biodynamic_calendar_theme = biodynamic_calendar_theme | default('garden_tools') %}
               <fieldset class="thumbnail-selector" id="biodynamic_calendar_theme" style="--thumbnail-count:5">
                 <legend>Biodynamic Calendar Theme</legend>
                 <div class="thumbnail-options">
-                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="leaf" {% if selected_biodynamic_calendar_theme == "leaf" %}checked{% endif %}><span class="theme-thumbnail dashboard-leaf"></span><span class="thumbnail-label">Leaves</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="garden_tools" {% if selected_biodynamic_calendar_theme == "garden_tools" %}checked{% endif %}><span class="theme-thumbnail dashboard-garden-tools"></span><span class="thumbnail-label">Garden Tools</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="herbarium" {% if selected_biodynamic_calendar_theme == "herbarium" %}checked{% endif %}><span class="theme-thumbnail dashboard-herbarium"></span><span class="thumbnail-label">Herbarium</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="pollinator" {% if selected_biodynamic_calendar_theme == "pollinator" %}checked{% endif %}><span class="theme-thumbnail dashboard-pollinator"></span><span class="thumbnail-label">Pollinators</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="white" {% if selected_biodynamic_calendar_theme == "white" %}checked{% endif %}><span class="theme-thumbnail dashboard-white"></span><span class="thumbnail-label">White</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="garden_tools" {% if selected_biodynamic_calendar_theme == "garden_tools" %}checked{% endif %}><span class="theme-thumbnail biodynamic-garden-tools"></span><span class="thumbnail-label">Garden Tools</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="spring" {% if selected_biodynamic_calendar_theme == "spring" %}checked{% endif %}><span class="theme-thumbnail biodynamic-spring"></span><span class="thumbnail-label">Spring</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="summer" {% if selected_biodynamic_calendar_theme == "summer" %}checked{% endif %}><span class="theme-thumbnail biodynamic-summer"></span><span class="thumbnail-label">Summer</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="autumn" {% if selected_biodynamic_calendar_theme == "autumn" %}checked{% endif %}><span class="theme-thumbnail biodynamic-autumn"></span><span class="thumbnail-label">Autumn</span></label>
+                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="winter" {% if selected_biodynamic_calendar_theme == "winter" %}checked{% endif %}><span class="theme-thumbnail biodynamic-winter"></span><span class="thumbnail-label">Winter</span></label>
                 </div>
+                <label class="biodynamic-auto-option"><input type="radio" name="biodynamic_calendar_theme" value="auto" {% if selected_biodynamic_calendar_theme == "auto" %}checked{% endif %}><strong>Automatic Season Rotation</strong></label>
               </fieldset>
                     <div class="pane-footer section-action-footer">
                       <button type="button" class="button blue btn-system-save">Save</button>
@@ -1201,7 +1217,6 @@
                   <summary>Weather Forecast</summary>
                   <div class="integration-block-content">
                     {% set selected_weather_forecast_provider = weather_forecast_provider | default('met_no') %}
-                    {% set selected_weather_forecast_theme = weather_forecast_theme | default('garden') %}
                     <div class="weather-forecast-controls">
                       <div class="field-stack">
                         <label for="weather_forecast_sensor_id">Current Readings Sensor</label>
@@ -1220,15 +1235,6 @@
                         </select>
                       </div>
                     </div>
-                    <fieldset class="thumbnail-selector" id="weather_forecast_theme" style="--thumbnail-count:4">
-                      <legend>Caelus Theme</legend>
-                      <div class="thumbnail-options">
-                        <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="garden" {% if selected_weather_forecast_theme == "garden" %}checked{% endif %}><span class="theme-thumbnail caelus-garden"></span><span class="thumbnail-label">Mountain Garden</span></label>
-                        <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="island" {% if selected_weather_forecast_theme == "island" %}checked{% endif %}><span class="theme-thumbnail caelus-island"></span><span class="thumbnail-label">Sunny Beach</span></label>
-                        <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="river" {% if selected_weather_forecast_theme == "river" %}checked{% endif %}><span class="theme-thumbnail caelus-river"></span><span class="thumbnail-label">Forest River</span></label>
-                        <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="desert" {% if selected_weather_forecast_theme == "desert" %}checked{% endif %}><span class="theme-thumbnail caelus-desert"></span><span class="thumbnail-label">Desert Bloom</span></label>
-                      </div>
-                    </fieldset>
                     <div class="pane-footer section-action-footer">
                       <button type="button" class="button blue btn-system-save">Save</button>
                     </div>
@@ -2484,7 +2490,7 @@
 
   function applyDashboardBackgroundTheme(rawTheme) {
     const normalized = String(rawTheme || "leaf").trim().toLowerCase().replace(/_/g, "-");
-    const supported = new Set(["leaf", "garden-tools", "herbarium", "pollinator", "white"]);
+    const supported = new Set(["leaf", "root", "leaf-crop", "flower", "fruit"]);
     const theme = supported.has(normalized) ? normalized : "leaf";
     Array.from(document.body.classList)
       .filter((name) => name.startsWith("dashboard-theme-"))

@@ -19,7 +19,7 @@ import sensorius.saiBiodynamicCalendarApp as calendar_app
 
 
 class _Settings:
-    def __init__(self, biodynamic_calendar_theme: str = "leaf"):
+    def __init__(self, biodynamic_calendar_theme: str = "garden_tools"):
         self.biodynamic_calendar_theme = biodynamic_calendar_theme
 
     def get_setting(self, section, key, default=None):
@@ -59,6 +59,15 @@ class _Logger:
     def save_biodynamic_daily_summary(self, *_args):
         return True
 
+
+def test_seasonal_theme_preferences_normalize_and_rotate_by_month():
+    assert calendar_app.normalize_biodynamic_calendar_theme("autumn") == "autumn"
+    assert calendar_app.normalize_biodynamic_calendar_theme("garden-tools") == "garden_tools"
+    assert calendar_app.normalize_biodynamic_calendar_theme("leaf") == "garden_tools"
+    assert calendar_app.biodynamic_calendar_season(3) == "spring"
+    assert calendar_app.biodynamic_calendar_season(6) == "summer"
+    assert calendar_app.biodynamic_calendar_season(9) == "autumn"
+    assert calendar_app.biodynamic_calendar_season(12) == "winter"
 
 def test_current_transition_reuses_persisted_month_until_window_end():
     logger = _Logger()
@@ -148,30 +157,43 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     assert '<footer class="bd-site-footer">' in template
     assert "Created by Peace Hill Studios" in template
     assert template.index('<footer class="bd-site-footer">') < template.index('id="bd-calendar-bootstrap"')
-    assert "body {\n  margin: 0;\n  font-family:" in stylesheet
-    assert "background: #dff5e8;" in stylesheet
-    assert 'background-image: url("/ui_static/leaf-pattern.svg");' in stylesheet
+    assert "body {\n  min-height: 100vh;\n  margin: 0;\n  font-family:" in stylesheet
     for theme, color, asset in (
-        ("leaf", "#dff5e8", "leaf-pattern.svg"),
-        ("garden-tools", "#ead8c2", "garden-tools-pattern.svg"),
-        ("herbarium", "#f8dcc4", "herbarium-pattern.svg"),
-        ("pollinator", "#dceffc", "pollinator-pattern.svg"),
+        ("spring", "#e7f3df", "valley-spring.webp"),
+        ("summer", "#fff0bd", "valley-summer.webp"),
+        ("autumn", "#f3dcc2", "valley-autumn.webp"),
+        ("winter", "#dcebf3", "valley-winter.webp"),
     ):
         assert f"body.biodynamic-theme-{theme} {{" in stylesheet
-        assert f"background-color: {color};" in stylesheet
-        assert f'background-image: url("/ui_static/{asset}");' in stylesheet
-        assert (root / "ui_static" / asset).is_file()
-    assert "body.biodynamic-theme-white {" in stylesheet
-    assert "background-image: none;" in stylesheet
-    assert "biodynamic-theme-{{ biodynamic_calendar_theme" in template
-    assert "radial-gradient(circle at top left" not in stylesheet
+        assert f"--theme-panel: {color};" in stylesheet
+        assert f'background-image: url("/ui_static/biodynamic_calendar/backgrounds/{asset}");' in stylesheet
+        assert (root / "ui_static" / "biodynamic_calendar" / "backgrounds" / asset).is_file()
+    assert "body.biodynamic-theme-garden_tools {" in stylesheet
+    assert '--theme-panel: #eadfcf;' in stylesheet
+    assert 'background-image: url("/ui_static/garden-tools-pattern.svg");' in stylesheet
+    assert (root / "ui_static" / "garden-tools-pattern.svg").is_file()
+    assert 'body[class*="biodynamic-theme-"] .panel:not(.lunar-cycle-panel)' in stylesheet
+    assert "biodynamic-theme-{{ biodynamic_calendar_resolved_theme" in template
+    assert 'data-theme-preference="{{ biodynamic_calendar_theme' in template
     assert "/ui_static/biodynamic_calendar/app.js" in template
     assert "/api/biodynamic-calendar-app/calendar" in javascript
     assert 'id="printBtn" class="header-report" type="button"' in template
     assert 'class="print-icon" viewBox="0 0 24 24"' in template
+    assert template.index('id="printBtn"') < template.index('id="headerLocation"')
+    assert 'data-open-calendar-theme aria-label="Preview calendar themes">Theme</button>' in template
+    assert 'id="calendarThemeView"' in template
+    assert 'data-calendar-preview-theme="auto"' in template
+    assert 'data-calendar-preview-theme="garden_tools"' in template
+    assert 'data-calendar-preview-theme="winter"' in template
+    assert 'id="closeCalendarThemeBtn"' in template
     assert 'target="_blank"' not in template
     assert "window.localStorage" not in javascript
     assert "if (stageCurrentMonthReport()) window.print();" in javascript
+    assert "function openCalendarThemeView()" in javascript
+    assert "function closeCalendarThemeView()" in javascript
+    assert 'document.body.classList.contains("calendar-theme-preview-mode")' in javascript
+    assert ".calendar-theme-toolbar" in stylesheet
+    assert "body.calendar-theme-preview-mode .page" in stylesheet
     assert ".dashboard-return {\n    display: none !important;" in stylesheet
     assert ".bd-site-footer {\n    display: none !important;" in stylesheet
     assert "Sun/Moon Position</h2>" not in template
@@ -326,7 +348,7 @@ async def test_integrated_calendar_page_and_month_api_render(monkeypatch):
     service = calendar_app.register_biodynamic_calendar_routes(
         router,
         app=app,
-        settings=_Settings("garden_tools"),
+        settings=_Settings("winter"),
         data_logger=_Logger(),
     )
     service._legacy_import_done = True
@@ -338,7 +360,8 @@ async def test_integrated_calendar_page_and_month_api_render(monkeypatch):
 
     assert page.status_code == 200
     assert '<a class="dashboard-return" id="dashboardReturn" href="/"' in page.text
-    assert '<body class="sensorius-launch biodynamic-theme-garden-tools"' in page.text
+    assert '<body class="sensorius-launch biodynamic-theme-winter"' in page.text
+    assert 'data-theme-preference="winter"' in page.text
     assert '<span class="dashboard-close-icon" aria-hidden="true">&times;</span>' in page.text
     assert '/ui_static/biodynamic_calendar/bd-calendar-icon-512.svg' in page.text
     assert "Back to Sensorius" not in page.text

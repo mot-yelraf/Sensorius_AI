@@ -110,12 +110,13 @@ from .saiFastStats import FastStats
 from .saiSensorSettingsManager import SensorSettingsManager, infer_direct_local_device, is_direct_local_sensor_id
 from .saiSwitchSettingsManager import SwitchSettingsManager
 from .saiBiodynamics import get_biodynamic_payload, get_biodynamic_local_now, get_skyfield_runtime_if_installed
+from .saiBiodynamicCalendarApp import BIODYNAMIC_CALENDAR_THEMES, normalize_biodynamic_calendar_theme
 from .saiDailySummary import DailySummaryService, DEFAULT_PREWARM_DAYS, get_summary_prewarm_days
 from .saiNodusOTA import NodusOTAError, NodusOTAService
 from .saiEmailNotifications import EmailConfig, SMTPEmailSender, normalize_notification_rules
 from .saiWeatherForecast import get_weather_forecast_payload, normalize_weather_forecast_provider
 from .saiWeatherForecastApp import build_weather_display_forecast
-from .saiWeatherForecastApp import normalize_weather_theme
+from .saiWeatherForecastApp import WEATHER_THEMES, normalize_weather_theme
 from .saiAddDevice import _SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR, get_hub_settings_path
 from . import __version__ as SAI_APP_VERSION
 
@@ -765,7 +766,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 fresh_settings.get_setting("WeatherForecast", "PROVIDER", "met_no")
             ),
             "weather_forecast_theme": normalize_weather_theme(
-                fresh_settings.get_setting("WeatherForecast", "THEME", "garden")
+                fresh_settings.get_setting("WeatherForecast", "THEME", "pollinator")
             ),
             "gauge_config": apply_display_units_to_gauge_config(
                 get_gauge_config(),
@@ -2972,7 +2973,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             display_settings.get("dashboard_background_theme") or "leaf"
         )
         weatherForecastProvider = normalize_weather_forecast_provider(display_settings.get("weather_forecast_provider") or "met_no")
-        weatherForecastTheme = normalize_weather_theme(display_settings.get("weather_forecast_theme") or "garden")
+        weatherForecastTheme = normalize_weather_theme(display_settings.get("weather_forecast_theme") or "pollinator")
         try:
             configured_weewx_id = str(
                 settings.get_setting("WeeWX", "SENSOR_ID", WEEWX_DEFAULT_SENSOR_ID)
@@ -4283,14 +4284,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         dashboard_background_theme = normalize_dashboard_background_theme(
             settings.get_setting("Display", "background_theme", "leaf")
         )
-        biodynamic_calendar_theme = normalize_dashboard_background_theme(
-            settings.get_setting("Display", "biodynamic_calendar_theme", "leaf")
+        biodynamic_calendar_theme = normalize_biodynamic_calendar_theme(
+            settings.get_setting("Display", "biodynamic_calendar_theme", "garden_tools")
         )
         weather_forecast_provider = normalize_weather_forecast_provider(
             settings.get_setting("WeatherForecast", "PROVIDER", "met_no")
         )
         weather_forecast_theme = normalize_weather_theme(
-            settings.get_setting("WeatherForecast", "THEME", "garden")
+            settings.get_setting("WeatherForecast", "THEME", "pollinator")
         )
         weather_forecast_sensor_id = str(
             settings.get_setting("WeatherForecast", "CURRENT_SENSOR_ID", "") or ""
@@ -9260,13 +9261,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         raw_biodynamic_calendar_theme = str(
             form.get(
                 "biodynamic_calendar_theme",
-                settings.get_setting("Display", "biodynamic_calendar_theme", "leaf"),
+                settings.get_setting("Display", "biodynamic_calendar_theme", "garden_tools"),
             )
             or ""
         ).strip().lower().replace("-", "_")
-        if "biodynamic_calendar_theme" in form and raw_biodynamic_calendar_theme not in DASHBOARD_BACKGROUND_THEMES:
+        if "biodynamic_calendar_theme" in form and raw_biodynamic_calendar_theme not in BIODYNAMIC_CALENDAR_THEMES:
             return _modal_error_response(request, "Biodynamic Calendar theme is not supported.", status_code=400)
-        biodynamic_calendar_theme = normalize_dashboard_background_theme(raw_biodynamic_calendar_theme)
+        biodynamic_calendar_theme = normalize_biodynamic_calendar_theme(raw_biodynamic_calendar_theme)
         raw_weather_forecast_provider = str(
             form.get(
                 "weather_forecast_provider",
@@ -9276,9 +9277,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         ).strip()
         weather_forecast_provider = normalize_weather_forecast_provider(raw_weather_forecast_provider)
         raw_weather_forecast_theme = str(
-            form.get("weather_forecast_theme", settings.get_setting("WeatherForecast", "THEME", "garden")) or ""
+            form.get("weather_forecast_theme", settings.get_setting("WeatherForecast", "THEME", "pollinator")) or ""
         ).strip().lower()
-        if weather_form_present and raw_weather_forecast_theme not in {"garden", "island", "river", "desert"}:
+        if weather_form_present and raw_weather_forecast_theme not in WEATHER_THEMES:
             return _modal_error_response(request, "Weather Forecast theme is not supported.", status_code=400)
         weather_forecast_theme = normalize_weather_theme(raw_weather_forecast_theme)
         weather_forecast_sensor_id = str(

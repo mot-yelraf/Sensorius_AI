@@ -37,7 +37,7 @@ MODULE = "saiBiodynamicCalendarApp"
 DEBUG = debug_enabled(MODULE)
 _MAX_CACHE_ENTRIES = 120
 _REGISTERED_SERVICE: "BiodynamicCalendarService | None" = None
-_BIODYNAMIC_CALENDAR_THEMES = frozenset({"leaf", "garden_tools", "herbarium", "pollinator", "white"})
+BIODYNAMIC_CALENDAR_THEMES = frozenset({"auto", "garden_tools", "spring", "summer", "autumn", "winter"})
 
 
 def get_registered_biodynamic_calendar_service() -> "BiodynamicCalendarService | None":
@@ -72,9 +72,21 @@ def _shift_month(anchor: date, offset: int) -> date:
     return date(year, month_zero + 1, 1)
 
 
-def _normalize_biodynamic_calendar_theme(value: object) -> str:
+def normalize_biodynamic_calendar_theme(value: object) -> str:
+    """Return a supported calendar theme preference."""
     theme = str(value or "").strip().lower().replace("-", "_")
-    return theme if theme in _BIODYNAMIC_CALENDAR_THEMES else "leaf"
+    return theme if theme in BIODYNAMIC_CALENDAR_THEMES else "garden_tools"
+
+
+def biodynamic_calendar_season(month: int) -> str:
+    """Return the northern-hemisphere seasonal theme for a calendar month."""
+    if month in {3, 4, 5}:
+        return "spring"
+    if month in {6, 7, 8}:
+        return "summer"
+    if month in {9, 10, 11}:
+        return "autumn"
+    return "winter"
 
 
 def _cache_digest(value: object) -> str:
@@ -525,9 +537,15 @@ def register_biodynamic_calendar_routes(
     async def calendar_page(request: Request):
         await service.ensure_legacy_import()
         config, _location = await asyncio.to_thread(service.location)
-        biodynamic_calendar_theme = _normalize_biodynamic_calendar_theme(
-            settings.get_setting("Display", "biodynamic_calendar_theme", "leaf")
+        biodynamic_calendar_theme = normalize_biodynamic_calendar_theme(
+            settings.get_setting("Display", "biodynamic_calendar_theme", "garden_tools")
         )
+        try:
+            local_month = datetime.now(ZoneInfo(config.timezone_name)).month
+        except Exception:
+            local_month = datetime.now().month
+        automatic_theme = biodynamic_calendar_season(local_month)
+        resolved_theme = automatic_theme if biodynamic_calendar_theme == "auto" else biodynamic_calendar_theme
         return app.state.templates.TemplateResponse(
             request,
             "biodynamic_calendar/index.html",
@@ -537,6 +555,8 @@ def register_biodynamic_calendar_routes(
                 "app_version": SAI_APP_VERSION,
                 "sensorius_launch": True,
                 "biodynamic_calendar_theme": biodynamic_calendar_theme,
+                "biodynamic_calendar_resolved_theme": resolved_theme,
+                "biodynamic_calendar_automatic_theme": automatic_theme,
                 "runtime_instance_id": str(getattr(request.app.state, "ui_runtime_instance_id", "") or ""),
             },
         )

@@ -753,8 +753,8 @@ def test_system_settings_template_has_weather_forecast_controls():
     assert 'name="weather_forecast_theme"' in text
     assert 'name="weather_forecast_sensor_id"' in text
     assert 'class="weather-forecast-controls"' in text
-    assert 'style="--thumbnail-count:4"' in text
-    for theme in ("garden", "island", "river", "desert"):
+    assert 'id="weather_forecast_theme" style="--thumbnail-count:5"' in text
+    for theme in ("pollinator", "garden", "island", "river", "desert"):
         assert f'name="weather_forecast_theme" value="{theme}"' in text
     assert "The forecast uses the Sensorius Astral location." not in text
 
@@ -782,16 +782,26 @@ def test_system_settings_display_has_conditional_gauge_size_and_theme_thumbnails
     assert '<option value="All"' in display_section
     assert 'id="dashboard_background_theme"' in display_section
     assert '<legend>Sensorius Dashboard Theme</legend>' in display_section
+    assert 'id="weather_forecast_theme"' in display_section
+    assert '<legend>Caelus Theme</legend>' in display_section
     assert 'id="biodynamic_calendar_theme"' in display_section
     assert '<legend>Biodynamic Calendar Theme</legend>' in display_section
-    assert display_section.count('style="--thumbnail-count:5"') == 2
-    for theme in ("leaf", "garden_tools", "herbarium", "pollinator", "white"):
+    assert display_section.count('style="--thumbnail-count:5"') == 3
+    for theme in ("leaf", "root", "leaf_crop", "flower", "fruit"):
         assert f'name="dashboard_background_theme" value="{theme}"' in display_section
+    for theme in ("auto", "garden_tools", "spring", "summer", "autumn", "winter"):
         assert f'name="biodynamic_calendar_theme" value="{theme}"' in display_section
+    assert display_section.count('class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme"') == 5
+    assert "Automatic Season Rotation" in display_section
+    assert "Changes between Spring, Summer, Autumn, and Winter." not in display_section
+    assert display_section.index('class="thumbnail-options"', display_section.index('id="biodynamic_calendar_theme"')) < display_section.index('class="biodynamic-auto-option"')
+    assert display_section.index('id="dashboard_background_theme"') < display_section.index('id="weather_forecast_theme"')
+    assert display_section.index('id="weather_forecast_theme"') < display_section.index('id="biodynamic_calendar_theme"')
     assert 'background_theme = "leaf"' in factory_text
     assert 'metric_set = "Pick 6"' in factory_text
     assert 'unit_system = "Imperial"' in factory_text
-    assert 'biodynamic_calendar_theme = "leaf"' in factory_text
+    assert 'biodynamic_calendar_theme = "garden_tools"' in factory_text
+    assert 'THEME = "pollinator"' in factory_text
     assert 'if (ev?.target?.id === "display_style")' in text
     assert "updateGaugeSizeVisibility();" in text
 
@@ -1258,8 +1268,8 @@ async def test_submit_pi_setup_persists_metric_set_and_independent_background_th
                 "display_style": "Gauge",
                 "metric_set": "All",
                 "unit_system": "Metric",
-                "dashboard_background_theme": "pollinator",
-                "biodynamic_calendar_theme": "garden_tools",
+                "dashboard_background_theme": "flower",
+                "biodynamic_calendar_theme": "autumn",
             },
             headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
         )
@@ -1270,8 +1280,8 @@ async def test_submit_pi_setup_persists_metric_set_and_independent_background_th
         "display_style": "Gauge",
         "metric_set": "All",
         "unit_system": "Metric",
-        "background_theme": "pollinator",
-        "biodynamic_calendar_theme": "garden_tools",
+        "background_theme": "flower",
+        "biodynamic_calendar_theme": "autumn",
     }
 
 
@@ -5030,9 +5040,15 @@ def test_dashboard_biodynamic_calendar_card_has_calendar_button():
     assert "url.port = '8765'" not in html
     assert "bioOpenBtn.addEventListener('click'" in html
     assert "window.openBiodynamicCalendar) window.openBiodynamicCalendar();" in html
+    assert "class='dashboard-content'" in html
+    assert "class='dash-theme-trigger' id='dashboardThemeBtn'" in html
+    assert "id='dashboardThemeView'" in html
+    assert "data-dashboard-preview-theme='leaf-crop'" in html
+    assert "function openDashboardThemeView(){" in html
+    assert "function closeDashboardThemeView(){" in html
 
 
-def test_dashboard_weather_forecast_card_has_six_day_button():
+def test_dashboard_weather_forecast_card_has_caelus_button():
     from sensorius.saiHtml import get_gauge_config, render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
@@ -5050,11 +5066,11 @@ def test_dashboard_weather_forecast_card_has_six_day_button():
             expected_display_style_map={"co2-ykdvea": {"METRIC_1": "Gauge"}},
             display_style="Gauge",
             weather_forecast_theme="desert",
-            dashboard_background_theme="pollinator",
+            dashboard_background_theme="flower",
         )
     )
 
-    assert "<body class='dashboard-page dashboard-theme-pollinator'>" in html
+    assert "<body class='dashboard-page dashboard-theme-flower'>" in html
     assert "24 Hour Forecast</div>" in html
     assert "<dt id='forecastPrecipLabel'>Rain</dt><dd id='forecastPrecipChance'>--</dd>" in html
     assert "class='astro-box forecast-scene-pending' id='weatherForecastBox'" in html
@@ -5088,7 +5104,8 @@ def test_dashboard_weather_forecast_card_has_six_day_button():
     assert "`${Math.round(Math.max(0, Math.min(100, chance)))}% chance`" in html
     assert "Loading forecast..." not in html
     assert "class='forecast-open-btn' id='forecastFiveDayBtn'" in html
-    assert "<span class='forecast-open-btn-label'>6 Day Forecast</span>" in html
+    assert "aria-label='Open Caelus weather forecast' title='Caelus Forecast'" in html
+    assert "<span class='forecast-open-btn-label'>Caelus Forecast</span>" in html
     assert "<span class='spinner dashboard-card-spinner' aria-hidden='true'></span>" in html
     assert "/api/weather-forecast?days=1" in html
     assert "/api/weather-forecast?days=1&force_refresh=true" in html

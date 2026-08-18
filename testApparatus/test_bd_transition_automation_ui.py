@@ -131,6 +131,9 @@ def test_generic_automation_toast_is_persistent_and_click_dismissible():
 
     assert "automation-notification-toast" in branch
     assert "details.join('; ')" in branch
+    assert "msg.occurred_at" in branch
+    assert "month: 'long'" in branch
+    assert "`${alertDate}, ${alertTime}`" in branch
     assert "Click to dismiss" in branch
     assert "addEventListener('click'" in branch
     assert "setTimeout" not in branch

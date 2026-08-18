@@ -33,13 +33,13 @@ from .sensor_modules.station_ecowitt import DEFAULT_POLL_INTERVAL_SEC as ECOWITT
 from .sensor_modules.station_weewx import DEFAULT_UPDATE_PERIOD_SEC as WEEWX_DEFAULT_UPDATE_PERIOD_SEC
 
 
-WEATHER_THEMES = {"garden", "island", "river", "desert"}
+WEATHER_THEMES = {"pollinator", "garden", "island", "river", "desert"}
 
 
 def normalize_weather_theme(value: object) -> str:
     """Return a supported weather scene theme."""
     theme = str(value or "").strip().lower()
-    return theme if theme in WEATHER_THEMES else "garden"
+    return theme if theme in WEATHER_THEMES else "pollinator"
 
 
 def _metric_key(value: object) -> str:
@@ -491,7 +491,7 @@ class WeatherForecastAppService:
     def integration_settings(self) -> dict[str, str]:
         self._reload_settings()
         return {
-            "theme": normalize_weather_theme(self.settings.get_setting("WeatherForecast", "THEME", "garden")),
+            "theme": normalize_weather_theme(self.settings.get_setting("WeatherForecast", "THEME", "pollinator")),
             "sensor_id": str(self.settings.get_setting("WeatherForecast", "CURRENT_SENSOR_ID", "") or "").strip(),
         }
 

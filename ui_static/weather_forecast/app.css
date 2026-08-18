@@ -40,7 +40,8 @@ a { color: inherit; }
   background-color: var(--scene-fallback, #123f45);
   background-image: var(--scene-image);
   background-position: var(--scene-position, center);
-  background-size: cover;
+  background-repeat: var(--scene-repeat, no-repeat);
+  background-size: var(--scene-size, cover);
   transition: opacity 0.35s ease;
 }
 .world-scene::before {
@@ -56,6 +57,24 @@ a { color: inherit; }
   background: var(--scene-vignette, radial-gradient(ellipse at center, transparent 36%, rgba(0, 12, 18, 0.34) 100%));
 }
 .scene-sun, .scene-ridge { display: none; }
+
+.theme-pollinator {
+  --ink: #f5fbff;
+  --muted: rgba(229, 242, 250, 0.78);
+  --line: rgba(196, 220, 248, 0.48);
+  --glass: rgba(18, 43, 61, 0.76);
+  --glass-strong: rgba(13, 34, 50, 0.88);
+  --glass-soft: rgba(34, 65, 84, 0.64);
+  --accent: #f7e76b;
+  --accent-2: #9ad8ff;
+  --scene-image: url("/ui_static/pollinator-pattern.svg");
+  --scene-fallback: #dceffc;
+  --scene-position: center;
+  --scene-repeat: repeat;
+  --scene-size: 240px 180px;
+  --scene-shade: linear-gradient(180deg, rgba(18, 43, 61, 0.05), rgba(18, 43, 61, 0.18));
+  --scene-vignette: radial-gradient(ellipse at center, transparent 52%, rgba(12, 36, 52, 0.18) 100%);
+}
 
 .theme-garden {
   --scene-image: url("/ui_static/weather_forecast/backgrounds/garden.webp");
@@ -254,7 +273,71 @@ a { color: inherit; }
 .dashboard-shell { width: min(1540px, calc(100% - 3rem)); margin: 0 auto; padding: 5.2rem 0 3rem; }
 .station-intro { display: flex; align-items: end; justify-content: space-between; gap: 2rem; margin-bottom: 1.25rem; }
 .eyebrow { margin: 0 0 0.35rem; color: var(--accent); font-size: 0.68rem; font-weight: 750; letter-spacing: 0.17em; text-transform: uppercase; }
+.caelus-title-line { display: flex; align-items: center; gap: 0.7rem; }
+.caelus-title-line .eyebrow { margin-bottom: 0; }
+.caelus-theme-trigger {
+  min-height: 30px;
+  padding: 4px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(5, 31, 38, 0.46);
+  color: var(--ink);
+  font-size: 0.7rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.caelus-theme-trigger:hover,
+.caelus-theme-trigger:focus-visible { border-color: var(--accent); color: var(--accent); }
 .station-intro h1 { margin: 0; font: 500 clamp(2rem, 4vw, 4rem)/0.98 Georgia, serif; letter-spacing: -0.045em; text-shadow: 0 4px 24px rgba(0, 0, 0, 0.2); }
+
+body.caelus-theme-preview-mode { overflow: hidden; }
+body.caelus-theme-preview-mode .dashboard-shell,
+body.caelus-theme-preview-mode .site-footer,
+body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: none; user-select: none; }
+.caelus-theme-view[hidden] { display: none; }
+.caelus-theme-view {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 22px 18px;
+  cursor: zoom-out;
+}
+.caelus-theme-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 36px);
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 16px;
+  background: rgba(5, 25, 31, 0.78);
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(14px) saturate(1.2);
+  cursor: default;
+}
+.caelus-theme-options { display: flex; gap: 4px; }
+.caelus-theme-toolbar button {
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: #fff;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+.caelus-theme-toolbar button:hover,
+.caelus-theme-toolbar button:focus-visible { border-color: rgba(255, 255, 255, 0.72); background: rgba(255, 255, 255, 0.14); }
+.caelus-theme-toolbar button.is-active { background: #f7fff8; color: #10231f; }
+.caelus-theme-toolbar .caelus-theme-return { border-color: rgba(255, 255, 255, 0.72); background: #287c62; color: #fff; font-weight: 800; }
+@media (max-width: 720px) {
+  .caelus-theme-toolbar { flex-direction: column; width: calc(100vw - 36px); }
+  .caelus-theme-options { flex-wrap: wrap; justify-content: center; }
+  .caelus-theme-toolbar .caelus-theme-return { width: 100%; }
+}
 .station-subtitle { margin: 0.65rem 0 0; color: var(--muted); font-size: 0.83rem; }
 .station-state { display: flex; align-items: center; gap: 0.55rem; padding-bottom: 0.25rem; color: var(--muted); font-size: 0.78rem; }
 .status-dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; background: #efbd54; box-shadow: 0 0 0 5px rgba(239, 189, 84, 0.11); }
@@ -604,6 +687,7 @@ a { color: inherit; }
 .theme-preview { display: grid; place-items: center; height: 4.7rem; color: white; font-size: 2rem; overflow: hidden; }
 .theme-preview { background-position: center; background-size: cover; text-shadow: 0 2px 10px rgba(0,0,0,.75); }
 .theme-swatch-garden .theme-preview { background-image: linear-gradient(rgba(4,25,30,.12), rgba(4,25,30,.38)), url("/ui_static/weather_forecast/backgrounds/garden.webp"); }
+.theme-swatch-pollinator .theme-preview { background-color: #dceffc; background-image: url("/ui_static/pollinator-pattern.svg"); background-size: 120px 90px; }
 .theme-swatch-island .theme-preview { background-image: linear-gradient(rgba(0,37,64,.02), rgba(0,30,42,.14)), url("/ui_static/weather_forecast/backgrounds/sunny-beach.webp"); }
 .theme-swatch-river .theme-preview { background-image: linear-gradient(rgba(4,25,30,.12), rgba(4,25,30,.38)), url("/ui_static/weather_forecast/backgrounds/river.webp"); }
 .theme-swatch-desert .theme-preview { background-image: linear-gradient(rgba(40,18,20,.02), rgba(40,18,20,.16)), url("/ui_static/weather_forecast/backgrounds/desert-clear.webp"); }

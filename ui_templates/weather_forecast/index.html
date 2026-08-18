@@ -40,7 +40,7 @@
   <main id="top" class="dashboard-shell">
     <section class="station-intro" aria-labelledby="station-title">
       <div>
-        <p class="eyebrow">Caelus Weather Forecast</p>
+        <div class="caelus-title-line"><p class="eyebrow">Caelus Weather Forecast</p><button type="button" class="caelus-theme-trigger" data-open-caelus-theme aria-label="Preview Caelus themes">Theme</button></div>
         <h1 id="station-title">{{ location.name or 'Your weather, alive.' }}</h1>
         <p class="station-subtitle" id="stationSubtitle">
           {% if latest.ok %}{{ latest.sensor_id }} · Last observation <time datetime="{{ latest.timestamp }}">{{ latest_observation_time }}</time>
@@ -137,5 +137,18 @@
     <p class="forecast-dialog-meta">Forecast from {{ forecast.provider_label }} · {{ '%.4f' | format(location.latitude) }}, {{ '%.4f' | format(location.longitude) }}</p>
     {% if forecast.days %}<div class="forecast-detail-grid">{% for day in forecast.days %}<article><h3>{{ day.label }}</h3><p>{{ day.summary }}</p><dl><dt>Temp</dt><dd>{{ day.temp_range }}</dd><dt>RH</dt><dd>{{ day.rh_range }}</dd><dt>Wind</dt><dd>{{ day.wind }}</dd><dt>{{ day.precip_label }}</dt><dd>{{ reading(day.precip_probability, '%') }}</dd></dl></article>{% endfor %}</div>{% else %}<p class="forecast-dialog-empty">Future forecast data is not available yet.</p>{% endif %}
   </dialog>
+
+  <section class="caelus-theme-view" id="caelusThemeView" aria-label="Caelus theme preview" hidden>
+    <div class="caelus-theme-toolbar" aria-label="Choose a Caelus theme">
+      <div class="caelus-theme-options" role="group" aria-label="Preview a Caelus scene">
+        <button type="button" data-caelus-preview-theme="pollinator">Pollinator</button>
+        <button type="button" data-caelus-preview-theme="garden">Mountain Garden</button>
+        <button type="button" data-caelus-preview-theme="island">Sunny Beach</button>
+        <button type="button" data-caelus-preview-theme="river">Forest River</button>
+        <button type="button" data-caelus-preview-theme="desert">Desert Bloom</button>
+      </div>
+      <button type="button" class="caelus-theme-return" id="closeCaelusThemeBtn">Return to Forecast</button>
+    </div>
+  </section>
 </body>
 </html>

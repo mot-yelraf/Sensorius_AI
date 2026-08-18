@@ -241,11 +241,22 @@ Size** is shown only while **Gauge** is selected.
 - **Display Style**: default metric display when a sensor has no saved
   per-metric style. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
 - **Gauge Size**: dashboard gauge size. Options are **Small** and **Large**.
-- **Sensorius Dashboard Theme**: five thumbnails select **Leaves**, **Garden
-  Tools**, **Herbarium**, **Pollinators**, or **White** for the main dashboard.
+- **Sensorius Dashboard Theme**: five thumbnails select the **Default** leaf
+  pattern or the greenhouse **Root**, **Leaf**, **Flower**, and **Fruit** scenes.
+  The four greenhouse themes use matching pale Earth, Water, Air, and Fire
+  colors for metric and switch cards while retaining dark, high-contrast text.
+  The **Theme** button at the bottom of **Show Device by Location** hides the
+  dashboard tiles for an unobstructed temporary preview. Choose a theme from
+  the bottom toolbar, then select **Return to Dashboard**; saved settings are
+  not changed by previewing.
+- **Caelus Theme**: five thumbnails select the default **Pollinator** pattern,
+  **Mountain Garden**, **Sunny Beach**, **Forest River**, or **Desert Bloom**
+  for the full-screen forecast.
 - **Biodynamic Calendar Theme**: independently selects the full-screen calendar
-  background from the same five choices. Both theme settings default to
-  **Leaves**; **White** removes the repeating SVG background image.
+  background and matching card palette. The five themes are **Garden Tools**,
+  **Spring**, **Summer**, **Autumn**, and **Winter**. **Garden Tools** is the
+  default. **Automatic seasonal rotation** is optional and changes
+  at the start of March, June, September, and December in the calendar timezone.
 - **Save**: writes the display defaults. Reload the dashboard to see changes
   that are not applied immediately.
 
@@ -411,8 +422,6 @@ Fields and selectors:
 - **Forecast Provider**: selects the forecast source used by the dashboard and
   Caelus. Options are **MET Norway**, **US · National Weather Service**,
   **Open-Meteo**, and **Disabled**.
-- **Caelus Theme**: four image thumbnails select the full-screen scene:
-  **Mountain Garden**, **Ocean Island**, **Forest River**, or **Desert Bloom**.
 - **Current Readings Sensor**: selects any live sensor in the sensor directory.
   Directly connected Raspberry Pi sensors remain selectable while their first
   reading is being collected after startup. If the directory is briefly empty,
@@ -1045,6 +1054,9 @@ Select **6 Day Forecast** on the dashboard forecast tile to open the integrated
 Caelus full-screen weather display at
 `http://<sensorius-host>:8000/weather-forecast`. Select the circled **×** in the
 upper-right to close the forecast and return to the Sensorius dashboard.
+Select **Theme** beside the **Caelus Weather Forecast** title to hide the
+forecast tiles and preview the five scenery choices from the bottom toolbar.
+Select **Return to Forecast** to restore the saved Caelus theme.
 
 ![Current Weather Forecast overview with current readings, forecast, sunlight, and regional radar](<../assets/screenshots/weather-forecast-overview.png>)
 
@@ -1167,6 +1179,10 @@ The integrated application provides:
 - Planting records with crop details.
 - Notes and print reports.
 - Sensorius SQLite storage for notes, summaries, planting records, and cache entries.
+- A **Theme** button in the header that hides the calendar panels and previews
+  Garden Tools, Spring, Summer, Autumn, and Winter from a bottom toolbar, with
+  Automatic rotation available as a separate control.
+  **Return to Calendar** restores the saved calendar theme.
 
 Companion app fields and controls:
 

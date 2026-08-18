@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/ui_static/biodynamic_calendar/favicon.svg?v={{ app_version }}">
   <link rel="stylesheet" href="/ui_static/biodynamic_calendar/app.css?v={{ app_version }}">
 </head>
-<body class="{% if sensorius_launch %}sensorius-launch {% endif %}biodynamic-theme-{{ biodynamic_calendar_theme | default('leaf') | replace('_', '-') }}" data-runtime-instance-id="{{ runtime_instance_id | default('') }}">
+<body class="{% if sensorius_launch %}sensorius-launch {% endif %}biodynamic-theme-{{ biodynamic_calendar_resolved_theme | default('garden_tools') }}" data-theme-preference="{{ biodynamic_calendar_theme | default('garden_tools') }}" data-automatic-theme="{{ biodynamic_calendar_automatic_theme | default('spring') }}" data-runtime-instance-id="{{ runtime_instance_id | default('') }}">
   <a class="dashboard-return" id="dashboardReturn" href="/" aria-label="Return to Sensorius dashboard">
     <span class="dashboard-return-spinner" aria-hidden="true"></span>
     <span class="dashboard-close-icon" aria-hidden="true">&times;</span>
@@ -17,10 +17,6 @@
       <div class="header-title-group">
         <h1>Biodynamic Calendar{% if app_version %} <span class="title-version">{{ app_version }}</span>{% endif %}</h1>
         <div class="header-meta">
-          <span id="headerLocation">Location loading&hellip;</span>
-          <span aria-hidden="true">&middot;</span>
-          <span id="headerDate">Today</span>
-          <span aria-hidden="true">&middot;</span>
           <button id="printBtn" class="header-report" type="button" aria-label="Print monthly report">
             Report
             <svg class="print-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -28,6 +24,12 @@
               <circle cx="18" cy="11" r="1"/>
             </svg>
           </button>
+          <span aria-hidden="true">&middot;</span>
+          <span id="headerLocation">Location loading&hellip;</span>
+          <span aria-hidden="true">&middot;</span>
+          <span id="headerDate">Today</span>
+          <span aria-hidden="true">&middot;</span>
+          <button type="button" class="calendar-theme-trigger" data-open-calendar-theme aria-label="Preview calendar themes">Theme</button>
         </div>
       </div>
     </header>
@@ -191,6 +193,20 @@
   <footer class="bd-site-footer">
     <p>Created by Peace Hill Studios</p>
   </footer>
+
+  <section class="calendar-theme-view" id="calendarThemeView" aria-label="Biodynamic Calendar theme preview" hidden>
+    <div class="calendar-theme-toolbar" aria-label="Choose a calendar theme">
+      <button type="button" class="calendar-theme-auto" data-calendar-preview-theme="auto">Automatic rotation</button>
+      <div class="calendar-theme-options" role="group" aria-label="Preview a season">
+        <button type="button" data-calendar-preview-theme="garden_tools">Garden Tools</button>
+        <button type="button" data-calendar-preview-theme="spring">Spring</button>
+        <button type="button" data-calendar-preview-theme="summer">Summer</button>
+        <button type="button" data-calendar-preview-theme="autumn">Autumn</button>
+        <button type="button" data-calendar-preview-theme="winter">Winter</button>
+      </div>
+      <button type="button" class="calendar-theme-return" id="closeCalendarThemeBtn">Return to Calendar</button>
+    </div>
+  </section>
 
   <script id="bd-calendar-bootstrap" type="application/json">{{ plantings|tojson }}</script>
   <script type="module" src="/ui_static/biodynamic_calendar/app.js?v={{ app_version }}"></script>

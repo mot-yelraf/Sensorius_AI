@@ -27,6 +27,7 @@ APP_NAME_LONG = f"{APP_TITLE} Automatio Instrumentorum"
 def _settings_gear_svg_lines(*, indent: str = "", aria_label: str | None = "Settings", aria_hidden: bool = False):
     attrs = [
         "xmlns='http://www.w3.org/2000/svg'",
+        "class='settings-gear-icon'",
         "width='21'",
         "height='21'",
         "viewBox='0 0 24 24'",
@@ -173,7 +174,7 @@ def _trend_arrow_html(metric: str, trend: dict | None) -> str:
     )
 
 
-DASHBOARD_BACKGROUND_THEMES = frozenset({"leaf", "garden_tools", "herbarium", "pollinator", "white"})
+DASHBOARD_BACKGROUND_THEMES = frozenset({"leaf", "root", "leaf_crop", "flower", "fruit"})
 DASHBOARD_METRIC_SETS = frozenset({"Pick 6", "All"})
 
 
@@ -189,7 +190,7 @@ def normalize_dashboard_metric_set(value: object) -> str:
     return "All" if compact in {"all", "showall"} else "Pick 6"
 
 
-def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="garden", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6"):
+def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6"):
     """Yield the complete Sensorius dashboard HTML document."""
 
     import json
@@ -1180,8 +1181,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     weather_forecast_provider = normalize_weather_forecast_provider(weather_forecast_provider)
     weather_forecast_enabled = weather_forecast_provider != "none"
     weather_forecast_theme = str(weather_forecast_theme or "").strip().lower()
-    if weather_forecast_theme not in {"garden", "island", "river", "desert"}:
-        weather_forecast_theme = "garden"
+    if weather_forecast_theme not in {"pollinator", "garden", "island", "river", "desert"}:
+        weather_forecast_theme = "pollinator"
     dashboard_background_theme = normalize_dashboard_background_theme(dashboard_background_theme)
     dashboard_background_class = dashboard_background_theme.replace("_", "-")
 
@@ -1676,11 +1677,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         for sid, metrics in sensor_display_map.items():
             printDM(f"Display Metrics for {sid}: {metrics}", location=f"{MODULE}.render_dashboard")
 
-    yield "<div style='text-align:center; width:100%;'>"
+    yield "<div class='dashboard-content' style='text-align:center; width:100%;'>"
 
     yield "<h2 id='sensor_header'>"
     yield "<a href='javascript:void(0)' onclick='openGraphModal()' title='View Graph' style='margin-right:8px; vertical-align:middle;'>"
-    yield "  <svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' role='img'>"
+    yield "  <svg xmlns='http://www.w3.org/2000/svg' class='dashboard-graph-icon' width='22' height='22' viewBox='0 0 24 24' role='img'>"
     yield "    <title>Full Screen Graphs</title>"
     yield "    <!-- Y-axis -->"
     yield "    <line x1='2' y1='2' x2='2' y2='22' stroke='black' stroke-width='1'/>"
@@ -1913,9 +1914,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         yield "      </dl>"
         yield "    </div>"
         yield "    <div class='forecast-card-actions'>"
-        yield "      <button type='button' class='forecast-open-btn' id='forecastFiveDayBtn' aria-label='Open six day weather forecast' title='6 Day Forecast'>"
+        yield "      <button type='button' class='forecast-open-btn' id='forecastFiveDayBtn' aria-label='Open Caelus weather forecast' title='Caelus Forecast'>"
         yield "        <span class='spinner' aria-hidden='true'></span>"
-        yield "        <span class='forecast-open-btn-label'>6 Day Forecast</span>"
+        yield "        <span class='forecast-open-btn-label'>Caelus Forecast</span>"
         yield "      </button>"
         yield "    </div>"
         yield "  </div>"
@@ -2001,6 +2002,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         sel = "selected" if sensor_id == val else ""
         yield f"<option value='{val}' {sel}>{disp}</option>"
     yield "</select>"
+    yield "<button type='button' class='dash-theme-trigger' id='dashboardThemeBtn' aria-label='Preview Sensorius dashboard themes'>Theme</button>"
     yield "</form>"
     yield "</div>"
     yield "<div class='sun-moon-29-overlay' id='sunMoon29Overlay' aria-hidden='true'>"
@@ -2056,7 +2058,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             f"         aria-controls='row_{sid}' aria-expanded='{expanded_text}'"
             f"         aria-label='{'Collapse' if default_expanded else 'Expand'} {sidUpper} metrics' title='{'Collapse' if default_expanded else 'Expand'} {sidUpper} metrics' hidden>"
             f"   <span class='sensor-collapse-icon' aria-hidden='true'>"
-            f"     <svg viewBox='0 0 24 24' focusable='false'><path fill='currentColor' d='M7.2 3.9A1.5 1.5 0 0 0 5 5.25v13.5a1.5 1.5 0 0 0 2.2 1.34l11.65-6.75a1.55 1.55 0 0 0 0-2.68z'></path></svg>"
+            f"     <svg viewBox='0 0 24 24' focusable='false'><path fill='none' stroke='currentColor' stroke-width='2.2' stroke-linejoin='round' d='M7.2 3.9A1.5 1.5 0 0 0 5 5.25v13.5a1.5 1.5 0 0 0 2.2 1.34l11.65-6.75a1.55 1.55 0 0 0 0-2.68z'></path></svg>"
             f"   </span>"
             f" </button>"
         )
@@ -4381,7 +4383,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const icon = document.createElement('span');"
     yield "    icon.className = 'sensor-collapse-icon';"
     yield "    icon.setAttribute('aria-hidden', 'true');"
-    yield "    icon.innerHTML = `<svg viewBox='0 0 24 24' focusable='false'><path fill='currentColor' d='M7.2 3.9A1.5 1.5 0 0 0 5 5.25v13.5a1.5 1.5 0 0 0 2.2 1.34l11.65-6.75a1.55 1.55 0 0 0 0-2.68z'></path></svg>`;"
+    yield "    icon.innerHTML = `<svg viewBox='0 0 24 24' focusable='false'><path fill='none' stroke='currentColor' stroke-width='2.2' stroke-linejoin='round' d='M7.2 3.9A1.5 1.5 0 0 0 5 5.25v13.5a1.5 1.5 0 0 0 2.2 1.34l11.65-6.75a1.55 1.55 0 0 0 0-2.68z'></path></svg>`;"
     yield "    button.appendChild(icon);"
     yield "    header.insertBefore(button, header.firstChild);"
     yield "  }"
@@ -7257,7 +7259,12 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "        } else if (msg.type === 'automation_notification'){"
     yield "          const name = String(msg.name || msg.rule_id || 'Automation').trim();"
     yield "          const details = Array.isArray(msg.details) ? msg.details.map(v => String(v || '').trim()).filter(Boolean) : [];"
-    yield "          const text = `Alert — ${name}${details.length ? ` — ${details.join('; ')}` : ''}`;"
+    yield "          const rawAt = String(msg.occurred_at || '');"
+    yield "          const parsedAt = rawAt ? new Date(rawAt) : new Date();"
+    yield "          const alertDate = parsedAt.toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' });"
+    yield "          const alertTime = parsedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });"
+    yield "          const when = `${alertDate}, ${alertTime}`;"
+    yield "          const text = `Alert — ${name}${details.length ? ` — ${details.join('; ')}` : ''} — ${when}`;"
     yield "          const c = window.getToastContainer ? window.getToastContainer(document.body) : null;"
     yield "          if (c) {"
     yield "            const t = document.createElement('div');"
@@ -7926,11 +7933,54 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  catch(e){ console.error('Failed metrics for', sensorId, e); return {}; }"
     yield "};"
 
+    yield "let dashboardThemeReturnFocus = null;"
+    yield "let savedDashboardTheme = (Array.from(document.body.classList).find(function(name){ return /^dashboard-theme-(leaf|root|leaf-crop|flower|fruit)$/.test(name); }) || 'dashboard-theme-leaf').slice(16);"
+    yield "function applyDashboardPreviewTheme(theme){"
+    yield "  const supported = new Set(['leaf','root','leaf-crop','flower','fruit']);"
+    yield "  const nextTheme = supported.has(theme) ? theme : 'leaf';"
+    yield "  Array.from(document.body.classList).filter(function(name){ return /^dashboard-theme-(leaf|root|leaf-crop|flower|fruit)$/.test(name); }).forEach(function(name){ document.body.classList.remove(name); });"
+    yield "  document.body.classList.add('dashboard-theme-' + nextTheme);"
+    yield "  document.querySelectorAll('[data-dashboard-preview-theme]').forEach(function(button){"
+    yield "    const active = button.dataset.dashboardPreviewTheme === nextTheme;"
+    yield "    button.classList.toggle('is-active', active);"
+    yield "    button.setAttribute('aria-pressed', String(active));"
+    yield "  });"
+    yield "}"
+    yield "function openDashboardThemeView(){"
+    yield "  const view = document.getElementById('dashboardThemeView');"
+    yield "  if (!view || document.body.classList.contains('dashboard-theme-preview-mode')) return;"
+    yield "  dashboardThemeReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;"
+    yield "  savedDashboardTheme = (Array.from(document.body.classList).find(function(name){ return /^dashboard-theme-(leaf|root|leaf-crop|flower|fruit)$/.test(name); }) || ('dashboard-theme-' + savedDashboardTheme)).slice(16);"
+    yield "  applyDashboardPreviewTheme(savedDashboardTheme);"
+    yield "  view.hidden = false;"
+    yield "  document.body.classList.add('dashboard-theme-preview-mode');"
+    yield "  document.querySelector('.dashboard-content')?.setAttribute('aria-hidden', 'true');"
+    yield "  document.getElementById('closeDashboardThemeBtn')?.focus({preventScroll:true});"
+    yield "}"
+    yield "function closeDashboardThemeView(){"
+    yield "  const view = document.getElementById('dashboardThemeView');"
+    yield "  if (!view || !document.body.classList.contains('dashboard-theme-preview-mode')) return;"
+    yield "  document.body.classList.remove('dashboard-theme-preview-mode');"
+    yield "  view.hidden = true;"
+    yield "  document.querySelector('.dashboard-content')?.removeAttribute('aria-hidden');"
+    yield "  applyDashboardPreviewTheme(savedDashboardTheme);"
+    yield "  if (dashboardThemeReturnFocus && dashboardThemeReturnFocus.isConnected) dashboardThemeReturnFocus.focus({preventScroll:true});"
+    yield "  dashboardThemeReturnFocus = null;"
+    yield "}"
+    yield "function initializeDashboardThemePreview(){"
+    yield "  document.getElementById('dashboardThemeBtn')?.addEventListener('click', openDashboardThemeView);"
+    yield "  document.getElementById('closeDashboardThemeBtn')?.addEventListener('click', closeDashboardThemeView);"
+    yield "  document.querySelectorAll('[data-dashboard-preview-theme]').forEach(function(button){ button.addEventListener('click', function(){ applyDashboardPreviewTheme(button.dataset.dashboardPreviewTheme || 'leaf'); }); });"
+    yield "  document.getElementById('dashboardThemeView')?.addEventListener('click', function(event){ if (event.target === event.currentTarget) closeDashboardThemeView(); });"
+    yield "  document.addEventListener('keydown', function(event){ if (event.key === 'Escape' && document.body.classList.contains('dashboard-theme-preview-mode')) { event.preventDefault(); closeDashboardThemeView(); } });"
+    yield "}"
+
     # ---- single onload ----
     yield "window.onload = function() {"
     yield "  setTimeout(checkAndRetryIfNoGauges, 1000);"
 
     yield "  initGauge();"
+    yield "  initializeDashboardThemePreview();"
     yield "  initializeTrendArrows();"
     yield "  initSwitchTimersFromDom();"
     yield "  refreshAndApplySwitchStatus();"
@@ -7967,6 +8017,18 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "</div>"
     yield "<div id='modal-host'></div>"
     yield "</div>"
+    yield "<section class='dashboard-theme-view' id='dashboardThemeView' aria-label='Sensorius dashboard theme preview' hidden>"
+    yield "  <div class='dashboard-theme-toolbar' aria-label='Choose a Sensorius dashboard theme'>"
+    yield "    <div class='dashboard-theme-options' role='group' aria-label='Preview a dashboard theme'>"
+    yield "      <button type='button' data-dashboard-preview-theme='leaf'>Default</button>"
+    yield "      <button type='button' data-dashboard-preview-theme='root'>Root</button>"
+    yield "      <button type='button' data-dashboard-preview-theme='leaf-crop'>Leaf</button>"
+    yield "      <button type='button' data-dashboard-preview-theme='flower'>Flower</button>"
+    yield "      <button type='button' data-dashboard-preview-theme='fruit'>Fruit</button>"
+    yield "    </div>"
+    yield "    <button type='button' class='dashboard-theme-return' id='closeDashboardThemeBtn'>Return to Dashboard</button>"
+    yield "  </div>"
+    yield "</section>"
     yield "</body></html>"
 
 def core_helpers_html() -> str:

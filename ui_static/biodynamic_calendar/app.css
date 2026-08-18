@@ -1,37 +1,97 @@
 body {
+  min-height: 100vh;
   margin: 0;
   font-family: "Avenir Next", "Segoe UI", sans-serif;
   color: #27313a;
-  background: #dff5e8;
-  background-image: url("/ui_static/leaf-pattern.svg");
-  background-repeat: repeat;
-  background-size: 240px 180px;
+  background:
+    radial-gradient(circle at top left, rgba(242, 193, 96, 0.32), transparent 28%),
+    radial-gradient(circle at top right, rgba(118, 159, 204, 0.18), transparent 24%),
+    linear-gradient(180deg, #f6f0d5 0%, #fbfaf4 45%, #eef4ea 100%);
+}
+
+body.biodynamic-theme-spring,
+body.biodynamic-theme-summer,
+body.biodynamic-theme-autumn,
+body.biodynamic-theme-winter {
   background-attachment: fixed;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
 }
 
-body.biodynamic-theme-leaf {
-  background-color: #dff5e8;
-  background-image: url("/ui_static/leaf-pattern.svg");
+body.biodynamic-theme-spring {
+  --theme-panel: #e7f3df;
+  --theme-panel-strong: #f8fff4;
+  --theme-panel-soft: #cfe4c6;
+  --theme-border: #315e39;
+  --theme-ink: #14261a;
+  --theme-muted: #3e5943;
+  --theme-accent: #2c7a43;
+  --theme-button: #cce5c1;
+  --theme-lunar: #092b22;
+  --theme-lunar-edge: #78d39c;
+  background-image: url("/ui_static/biodynamic_calendar/backgrounds/valley-spring.webp");
 }
 
-body.biodynamic-theme-garden-tools {
+body.biodynamic-theme-summer {
+  --theme-panel: #fff0bd;
+  --theme-panel-strong: #fffaf0;
+  --theme-panel-soft: #f1d579;
+  --theme-border: #80510b;
+  --theme-ink: #241b0c;
+  --theme-muted: #594620;
+  --theme-accent: #a85e00;
+  --theme-button: #f0d16a;
+  --theme-lunar: #0b2943;
+  --theme-lunar-edge: #f1c24b;
+  background-image: url("/ui_static/biodynamic_calendar/backgrounds/valley-summer.webp");
+}
+
+body.biodynamic-theme-autumn {
+  --theme-panel: #f3dcc2;
+  --theme-panel-strong: #fff6e9;
+  --theme-panel-soft: #e5b78c;
+  --theme-border: #79351f;
+  --theme-ink: #2b1711;
+  --theme-muted: #654235;
+  --theme-accent: #a73e22;
+  --theme-button: #e7ad73;
+  --theme-lunar: #32170f;
+  --theme-lunar-edge: #ef914d;
+  background-image: url("/ui_static/biodynamic_calendar/backgrounds/valley-autumn.webp");
+}
+
+body.biodynamic-theme-winter {
+  --theme-panel: #dcebf3;
+  --theme-panel-strong: #f8fcff;
+  --theme-panel-soft: #bcd5e5;
+  --theme-border: #244e6b;
+  --theme-ink: #122633;
+  --theme-muted: #385569;
+  --theme-accent: #22658c;
+  --theme-button: #aed2e6;
+  --theme-lunar: #101d31;
+  --theme-lunar-edge: #87c7eb;
+  background-image: url("/ui_static/biodynamic_calendar/backgrounds/valley-winter.webp");
+}
+
+body.biodynamic-theme-garden_tools {
+  --theme-panel: #eadfcf;
+  --theme-panel-strong: #fffaf3;
+  --theme-panel-soft: #d8c4aa;
+  --theme-border: #6f5638;
+  --theme-ink: #2c2116;
+  --theme-muted: #65513c;
+  --theme-accent: #73522f;
+  --theme-button: #dec8aa;
+  --theme-lunar: #252117;
+  --theme-lunar-edge: #c9a66f;
   background-color: #ead8c2;
   background-image: url("/ui_static/garden-tools-pattern.svg");
-}
-
-body.biodynamic-theme-herbarium {
-  background-color: #f8dcc4;
-  background-image: url("/ui_static/herbarium-pattern.svg");
-}
-
-body.biodynamic-theme-pollinator {
-  background-color: #dceffc;
-  background-image: url("/ui_static/pollinator-pattern.svg");
-}
-
-body.biodynamic-theme-white {
-  background-color: #fff;
-  background-image: none;
+  background-attachment: fixed;
+  background-position: center;
+  background-repeat: repeat;
+  background-size: 240px 180px;
 }
 
 .page {
@@ -167,6 +227,106 @@ body.biodynamic-theme-white {
   color: #6f6655;
   font-size: 0.82rem;
   font-weight: 700;
+}
+
+.calendar-theme-trigger {
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.76rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+body.calendar-theme-preview-mode {
+  overflow: hidden;
+}
+
+body.calendar-theme-preview-mode .page,
+body.calendar-theme-preview-mode .bd-site-footer,
+body.calendar-theme-preview-mode .dashboard-return {
+  opacity: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+.calendar-theme-view[hidden] {
+  display: none;
+}
+
+.calendar-theme-view {
+  position: fixed;
+  z-index: 1100;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 22px 18px;
+  box-sizing: border-box;
+  cursor: zoom-out;
+}
+
+.calendar-theme-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 36px);
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 16px;
+  background: rgba(8, 20, 19, 0.76);
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(14px) saturate(1.2);
+  cursor: default;
+}
+
+.calendar-theme-options {
+  display: flex;
+  gap: 4px;
+}
+
+body[class*="biodynamic-theme-"] .calendar-theme-toolbar button,
+.calendar-theme-toolbar button {
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: #fff;
+  box-shadow: none;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+body[class*="biodynamic-theme-"] .calendar-theme-toolbar button:hover,
+body[class*="biodynamic-theme-"] .calendar-theme-toolbar button:focus-visible,
+.calendar-theme-toolbar button:hover,
+.calendar-theme-toolbar button:focus-visible {
+  border-color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+body[class*="biodynamic-theme-"] .calendar-theme-toolbar button.is-active,
+.calendar-theme-toolbar button.is-active {
+  background: #f7fff8;
+  color: #10231f;
+}
+
+body[class*="biodynamic-theme-"] .calendar-theme-toolbar .calendar-theme-return,
+.calendar-theme-toolbar .calendar-theme-return {
+  border-color: rgba(255, 255, 255, 0.72);
+  background: #287c62;
+  color: #fff;
+  font-weight: 800;
+}
+
+@media (max-width: 700px) {
+  .calendar-theme-toolbar { flex-direction: column; width: calc(100vw - 36px); }
+  .calendar-theme-options { flex-wrap: wrap; justify-content: center; }
+  .calendar-theme-toolbar .calendar-theme-return { width: 100%; }
 }
 
 .location-settings {
@@ -1696,6 +1856,94 @@ button:disabled:hover {
     color: #4b5563;
     font-style: italic;
   }
+}
+
+body[class*="biodynamic-theme-"] {
+  color: var(--theme-ink);
+}
+
+body[class*="biodynamic-theme-"] .standalone-app-header {
+  color: var(--theme-ink);
+  text-shadow: 0 1px 2px var(--theme-panel-strong), 0 0 8px var(--theme-panel-strong);
+}
+
+body[class*="biodynamic-theme-"] .header-meta,
+body[class*="biodynamic-theme-"] .bd-site-footer {
+  color: var(--theme-ink);
+}
+
+body[class*="biodynamic-theme-"] .dashboard-return {
+  color: var(--theme-ink);
+  border-color: var(--theme-border);
+  text-shadow: 0 1px 2px var(--theme-panel-strong);
+}
+
+body[class*="biodynamic-theme-"] .panel:not(.lunar-cycle-panel) {
+  color: var(--theme-ink);
+  background: linear-gradient(145deg, var(--theme-panel-strong), var(--theme-panel));
+  border: 2px solid var(--theme-border);
+  box-shadow: 0 14px 32px rgba(11, 24, 21, 0.28);
+}
+
+body[class*="biodynamic-theme-"] .lunar-cycle-panel {
+  background:
+    radial-gradient(circle at 50% 26%, color-mix(in srgb, var(--theme-lunar-edge) 25%, transparent), transparent 28%),
+    linear-gradient(105deg, color-mix(in srgb, var(--theme-lunar) 88%, #000), var(--theme-lunar));
+  border: 2px solid var(--theme-lunar-edge);
+  box-shadow: 0 14px 34px rgba(5, 14, 18, 0.42);
+}
+
+body[class*="biodynamic-theme-"] .compact-position-panel .sun-graph {
+  border-color: var(--theme-border);
+}
+
+body[class*="biodynamic-theme-"] .cosmic-group,
+body[class*="biodynamic-theme-"] .astro-stats div,
+body[class*="biodynamic-theme-"] .moon-meta div,
+body[class*="biodynamic-theme-"] .selected-facts div,
+body[class*="biodynamic-theme-"] .selected-facts .segment-list,
+body[class*="biodynamic-theme-"] .summary-box,
+body[class*="biodynamic-theme-"] .guidance-group,
+body[class*="biodynamic-theme-"] .planting-item,
+body[class*="biodynamic-theme-"] .range-month {
+  color: var(--theme-ink);
+  background: var(--theme-panel-strong);
+  border-color: color-mix(in srgb, var(--theme-border) 58%, white);
+}
+
+body[class*="biodynamic-theme-"] .cosmic-group h3,
+body[class*="biodynamic-theme-"] .astro-stats span,
+body[class*="biodynamic-theme-"] .moon-meta span,
+body[class*="biodynamic-theme-"] .selected-facts > div > span,
+body[class*="biodynamic-theme-"] .segment-list span,
+body[class*="biodynamic-theme-"] .hint,
+body[class*="biodynamic-theme-"] .weekday {
+  color: var(--theme-muted);
+}
+
+body[class*="biodynamic-theme-"] .range-head,
+body[class*="biodynamic-theme-"] .inspector-section > summary,
+body[class*="biodynamic-theme-"] .planting-editor > summary {
+  color: var(--theme-ink);
+}
+
+body[class*="biodynamic-theme-"] button:not(.moon-view-btn),
+body[class*="biodynamic-theme-"] .header-report {
+  border-color: var(--theme-border);
+}
+
+body[class*="biodynamic-theme-"] button:not(.moon-view-btn),
+body[class*="biodynamic-theme-"] .secondary-btn {
+  color: var(--theme-ink);
+  background: var(--theme-button);
+}
+
+body[class*="biodynamic-theme-"] input,
+body[class*="biodynamic-theme-"] textarea,
+body[class*="biodynamic-theme-"] select {
+  color: var(--theme-ink);
+  background: var(--theme-panel-strong);
+  border-color: var(--theme-border);
 }
 
 @media (max-width: 980px) {
