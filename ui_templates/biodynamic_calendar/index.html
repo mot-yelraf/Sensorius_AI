@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/ui_static/biodynamic_calendar/favicon.svg?v={{ app_version }}">
   <link rel="stylesheet" href="/ui_static/biodynamic_calendar/app.css?v={{ app_version }}">
 </head>
-<body class="{% if sensorius_launch %}sensorius-launch {% endif %}biodynamic-theme-{{ biodynamic_calendar_resolved_theme | default('garden_tools') }}" data-theme-preference="{{ biodynamic_calendar_theme | default('garden_tools') }}" data-automatic-theme="{{ biodynamic_calendar_automatic_theme | default('spring') }}" data-runtime-instance-id="{{ runtime_instance_id | default('') }}">
+<body class="{% if sensorius_launch %}sensorius-launch {% endif %}biodynamic-theme-{{ biodynamic_calendar_resolved_theme | default('garden_tools') }}"{% if biodynamic_calendar_theme_style %} style="{{ biodynamic_calendar_theme_style }}"{% endif %} data-theme-preference="{{ biodynamic_calendar_theme | default('garden_tools') }}" data-automatic-theme="{{ biodynamic_calendar_automatic_theme | default('spring') }}" data-runtime-instance-id="{{ runtime_instance_id | default('') }}">
   <a class="dashboard-return" id="dashboardReturn" href="/" aria-label="Return to Sensorius dashboard">
     <span class="dashboard-return-spinner" aria-hidden="true"></span>
     <span class="dashboard-close-icon" aria-hidden="true">&times;</span>

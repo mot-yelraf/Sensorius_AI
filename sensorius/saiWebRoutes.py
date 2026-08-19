@@ -117,6 +117,13 @@ from .saiEmailNotifications import EmailConfig, SMTPEmailSender, normalize_notif
 from .saiWeatherForecast import get_weather_forecast_payload, normalize_weather_forecast_provider
 from .saiWeatherForecastApp import build_weather_display_forecast
 from .saiWeatherForecastApp import WEATHER_THEMES, normalize_weather_theme
+from .saiThemeManager import (
+    MAX_UPLOAD_BYTES,
+    ThemeManager,
+    ThemeValidationError,
+    is_custom_theme_selection,
+    normalize_theme_selection,
+)
 from .saiAddDevice import _SENSOR_BASE_DIR, _SWITCH_BASE_DIR, _SYS_BASE_DIR, get_hub_settings_path
 from . import __version__ as SAI_APP_VERSION
 
@@ -640,6 +647,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     if not str(getattr(app.state, "ui_runtime_instance_id", "") or "").strip():
         app.state.ui_runtime_instance_id = uuid4().hex
     router = APIRouter()
+    theme_manager = getattr(app.state, "theme_manager", None)
+    if not isinstance(theme_manager, ThemeManager):
+        theme_manager = ThemeManager(resolve_runtime_base_dir(getattr(saiSettings, "DEFAULT_BASE_DIR", "system_settings")).parent)
+        app.state.theme_manager = theme_manager
     _BIODYNAMIC_PAYLOAD_CACHE.clear()
     biodynamic_payload_tasks: dict[str, asyncio.Task] = {}
     biodynamic_payload_cache_lock = threading.Lock()
@@ -759,14 +770,22 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "metric_set": normalize_dashboard_metric_set(
                 fresh_settings.get_setting("Display", "metric_set", "Pick 6")
             ),
-            "dashboard_background_theme": normalize_dashboard_background_theme(
-                fresh_settings.get_setting("Display", "background_theme", "leaf")
+            "dashboard_background_theme": normalize_theme_selection(
+                theme_manager,
+                "sensorius",
+                fresh_settings.get_setting("Display", "background_theme", "leaf"),
+                "leaf",
+                normalize_dashboard_background_theme,
             ),
             "weather_forecast_provider": normalize_weather_forecast_provider(
                 fresh_settings.get_setting("WeatherForecast", "PROVIDER", "met_no")
             ),
-            "weather_forecast_theme": normalize_weather_theme(
-                fresh_settings.get_setting("WeatherForecast", "THEME", "pollinator")
+            "weather_forecast_theme": normalize_theme_selection(
+                theme_manager,
+                "caelus",
+                fresh_settings.get_setting("WeatherForecast", "THEME", "pollinator"),
+                "pollinator",
+                normalize_weather_theme,
             ),
             "gauge_config": apply_display_units_to_gauge_config(
                 get_gauge_config(),
@@ -2969,11 +2988,21 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         displayStyle = str(display_settings.get("display_style") or "Gauge")
         dashboardMetricSet = normalize_dashboard_metric_set(display_settings.get("metric_set") or "Pick 6")
         all_metrics_mode = dashboardMetricSet == "All"
-        dashboardBackgroundTheme = normalize_dashboard_background_theme(
-            display_settings.get("dashboard_background_theme") or "leaf"
+        dashboardBackgroundTheme = normalize_theme_selection(
+            theme_manager,
+            "sensorius",
+            display_settings.get("dashboard_background_theme") or "leaf",
+            "leaf",
+            normalize_dashboard_background_theme,
         )
         weatherForecastProvider = normalize_weather_forecast_provider(display_settings.get("weather_forecast_provider") or "met_no")
-        weatherForecastTheme = normalize_weather_theme(display_settings.get("weather_forecast_theme") or "pollinator")
+        weatherForecastTheme = normalize_theme_selection(
+            theme_manager,
+            "caelus",
+            display_settings.get("weather_forecast_theme") or "pollinator",
+            "pollinator",
+            normalize_weather_theme,
+        )
         try:
             configured_weewx_id = str(
                 settings.get_setting("WeeWX", "SENSOR_ID", WEEWX_DEFAULT_SENSOR_ID)
@@ -3492,6 +3521,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 expected_display_style_map = expected_display_style_map,
                 display_style = displayStyle,
                 dashboard_background_theme = dashboardBackgroundTheme,
+                dashboard_custom_theme_style = theme_manager.style_attribute(
+                    theme_manager.style_values("sensorius", dashboardBackgroundTheme)
+                ),
                 dashboard_metric_set = dashboardMetricSet,
                 weather_forecast_provider = weatherForecastProvider,
                 weather_forecast_theme = weatherForecastTheme,
@@ -4238,6 +4270,74 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "lon": lon_val,
         })
 
+    @router.get("/api/themes", response_class=JSONResponse)
+    async def list_custom_themes(section: str = Query("")):
+        """List custom theme collections and safe palette choices."""
+        normalized_section = str(section or "").strip().lower()
+        if normalized_section and normalized_section not in {"sensorius", "caelus", "biodynamic"}:
+            return JSONResponse({"ok": False, "error": "Theme section is not supported."}, status_code=400)
+        return JSONResponse({
+            "ok": True,
+            "themes": theme_manager.list_themes(normalized_section or None),
+            "palettes": theme_manager.palettes(),
+        })
+
+    @router.post("/api/themes", response_class=JSONResponse)
+    async def create_custom_theme(request: Request):
+        """Create a custom theme collection from one to five uploaded images."""
+        try:
+            form = await request.form()
+            uploads = list(form.getlist("images"))
+            image_names = [str(value or "") for value in form.getlist("image_names")]
+            palettes = [str(value or "") for value in form.getlist("palettes")]
+            if len(uploads) != len(image_names) or len(uploads) != len(palettes):
+                raise ThemeValidationError("Every image requires a name and palette.")
+            image_inputs = []
+            for index, upload in enumerate(uploads):
+                if not callable(getattr(upload, "read", None)):
+                    raise ThemeValidationError("Choose a valid image file.")
+                content = await upload.read(MAX_UPLOAD_BYTES + 1)
+                image_inputs.append({
+                    "name": image_names[index],
+                    "palette": palettes[index],
+                    "content": content,
+                })
+            created = await asyncio.to_thread(
+                theme_manager.create_theme,
+                section=str(form.get("section") or ""),
+                name=form.get("name"),
+                images=image_inputs,
+            )
+            return JSONResponse({"ok": True, "theme": created})
+        except ThemeValidationError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+        except Exception as exc:
+            printDM(f"Custom theme creation failed: {exc}", location=MODULE)
+            return JSONResponse({"ok": False, "error": "Could not create the custom theme."}, status_code=500)
+
+    @router.delete("/api/themes/{theme_id}", response_class=JSONResponse)
+    async def delete_custom_theme(theme_id: str):
+        """Delete a custom collection and restore defaults if it was selected."""
+        try:
+            deleted = await asyncio.to_thread(theme_manager.delete_theme, theme_id)
+            if not deleted:
+                return JSONResponse({"ok": False, "error": "Custom theme was not found."}, status_code=404)
+            active_settings = settings
+            if not callable(getattr(active_settings, "replace_setting", None)):
+                active_settings = saiSettings()
+            fallbacks = (
+                ("Display", "background_theme", "leaf"),
+                ("WeatherForecast", "THEME", "pollinator"),
+                ("Display", "biodynamic_calendar_theme", "garden_tools"),
+            )
+            for settings_section, key, fallback in fallbacks:
+                selected = str(active_settings.get_setting(settings_section, key, "") or "")
+                if selected.startswith(f"custom:{theme_id}:"):
+                    active_settings.replace_setting(settings_section, key, fallback)
+            return JSONResponse({"ok": True})
+        except ThemeValidationError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+
     @router.get("/edit-system", response_class=HTMLResponse)
     async def edit_pi_settings_page(request: Request):
         _route_started = time.monotonic()
@@ -4281,17 +4381,29 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         metric_set = normalize_dashboard_metric_set(
             settings.get_setting("Display", "metric_set", "Pick 6")
         )
-        dashboard_background_theme = normalize_dashboard_background_theme(
-            settings.get_setting("Display", "background_theme", "leaf")
+        dashboard_background_theme = normalize_theme_selection(
+            theme_manager,
+            "sensorius",
+            settings.get_setting("Display", "background_theme", "leaf"),
+            "leaf",
+            normalize_dashboard_background_theme,
         )
-        biodynamic_calendar_theme = normalize_biodynamic_calendar_theme(
-            settings.get_setting("Display", "biodynamic_calendar_theme", "garden_tools")
+        biodynamic_calendar_theme = normalize_theme_selection(
+            theme_manager,
+            "biodynamic",
+            settings.get_setting("Display", "biodynamic_calendar_theme", "garden_tools"),
+            "garden_tools",
+            normalize_biodynamic_calendar_theme,
         )
         weather_forecast_provider = normalize_weather_forecast_provider(
             settings.get_setting("WeatherForecast", "PROVIDER", "met_no")
         )
-        weather_forecast_theme = normalize_weather_theme(
-            settings.get_setting("WeatherForecast", "THEME", "pollinator")
+        weather_forecast_theme = normalize_theme_selection(
+            theme_manager,
+            "caelus",
+            settings.get_setting("WeatherForecast", "THEME", "pollinator"),
+            "pollinator",
+            normalize_weather_theme,
         )
         weather_forecast_sensor_id = str(
             settings.get_setting("WeatherForecast", "CURRENT_SENSOR_ID", "") or ""
@@ -4424,6 +4536,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             biodynamic_calendar_theme=biodynamic_calendar_theme,
             weather_forecast_provider=weather_forecast_provider,
             weather_forecast_theme=weather_forecast_theme,
+            custom_themes={
+                "sensorius": theme_manager.list_themes("sensorius"),
+                "caelus": theme_manager.list_themes("caelus"),
+                "biodynamic": theme_manager.list_themes("biodynamic"),
+            },
+            theme_palettes=theme_manager.palettes(),
             weather_forecast_sensor_id=weather_forecast_sensor_id,
             astral_lat=astral_lat,
             astral_lon=astral_lon,
@@ -9255,9 +9373,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             )
             or ""
         ).strip().lower().replace("-", "_")
-        if "dashboard_background_theme" in form and raw_dashboard_background_theme not in DASHBOARD_BACKGROUND_THEMES:
-            return _modal_error_response(request, "Dashboard background theme is not supported.", status_code=400)
-        dashboard_background_theme = normalize_dashboard_background_theme(raw_dashboard_background_theme)
+        if "dashboard_background_theme" in form:
+            custom_dashboard = theme_manager.resolve("sensorius", raw_dashboard_background_theme)
+            if raw_dashboard_background_theme not in DASHBOARD_BACKGROUND_THEMES and not custom_dashboard:
+                return _modal_error_response(request, "Dashboard background theme is not supported.", status_code=400)
+        dashboard_background_theme = normalize_theme_selection(
+            theme_manager,
+            "sensorius",
+            raw_dashboard_background_theme,
+            "leaf",
+            normalize_dashboard_background_theme,
+        )
         raw_biodynamic_calendar_theme = str(
             form.get(
                 "biodynamic_calendar_theme",
@@ -9265,9 +9391,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             )
             or ""
         ).strip().lower().replace("-", "_")
-        if "biodynamic_calendar_theme" in form and raw_biodynamic_calendar_theme not in BIODYNAMIC_CALENDAR_THEMES:
-            return _modal_error_response(request, "Biodynamic Calendar theme is not supported.", status_code=400)
-        biodynamic_calendar_theme = normalize_biodynamic_calendar_theme(raw_biodynamic_calendar_theme)
+        if "biodynamic_calendar_theme" in form:
+            custom_biodynamic = theme_manager.resolve("biodynamic", raw_biodynamic_calendar_theme)
+            if raw_biodynamic_calendar_theme not in BIODYNAMIC_CALENDAR_THEMES and not custom_biodynamic:
+                return _modal_error_response(request, "Biodynamic Calendar theme is not supported.", status_code=400)
+        biodynamic_calendar_theme = normalize_theme_selection(
+            theme_manager,
+            "biodynamic",
+            raw_biodynamic_calendar_theme,
+            "garden_tools",
+            normalize_biodynamic_calendar_theme,
+        )
         raw_weather_forecast_provider = str(
             form.get(
                 "weather_forecast_provider",
@@ -9279,9 +9413,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         raw_weather_forecast_theme = str(
             form.get("weather_forecast_theme", settings.get_setting("WeatherForecast", "THEME", "pollinator")) or ""
         ).strip().lower()
-        if weather_form_present and raw_weather_forecast_theme not in WEATHER_THEMES:
-            return _modal_error_response(request, "Weather Forecast theme is not supported.", status_code=400)
-        weather_forecast_theme = normalize_weather_theme(raw_weather_forecast_theme)
+        if weather_form_present:
+            custom_weather = theme_manager.resolve("caelus", raw_weather_forecast_theme)
+            if raw_weather_forecast_theme not in WEATHER_THEMES and not custom_weather:
+                return _modal_error_response(request, "Weather Forecast theme is not supported.", status_code=400)
+        weather_forecast_theme = normalize_theme_selection(
+            theme_manager,
+            "caelus",
+            raw_weather_forecast_theme,
+            "pollinator",
+            normalize_weather_theme,
+        )
         weather_forecast_sensor_id = str(
             form.get(
                 "weather_forecast_sensor_id",

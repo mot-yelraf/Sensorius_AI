@@ -178,9 +178,37 @@ body.dashboard-page #setupPiModal .system-menu-btn,
 body.dashboard-page #setupPiModal .thumbnail-option,
 body.dashboard-page #setupPiModal .integration-block,
 body.dashboard-page #setupPiModal .notification-subsection,
-body.dashboard-page #setupPiModal .advanced-section{
+body.dashboard-page #setupPiModal .advanced-section,
+body.dashboard-page #setupPiModal .theme-section{
   background:var(--dashboard-dialog-panel);
   border-color:var(--dashboard-card-border);
+  color:var(--dashboard-card-text);
+}
+body.dashboard-page #setupPiModal .theme-section > summary{
+  background:var(--dashboard-card-bg);
+  border-color:var(--dashboard-card-border);
+  color:var(--dashboard-card-text);
+}
+body.dashboard-page #setupPiModal .theme-section-content{
+  background:var(--dashboard-dialog-panel);
+  color:var(--dashboard-card-text);
+}
+body.dashboard-page #setupPiModal .theme-thumbnail{
+  border-color:var(--dashboard-card-border);
+}
+body.dashboard-page #setupPiModal .thumbnail-option:hover,
+body.dashboard-page #setupPiModal .thumbnail-option:has(input:checked){
+  border-color:var(--dashboard-card-text);
+}
+body.dashboard-page #setupPiModal .thumbnail-option:has(input:checked){
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--dashboard-card-border) 34%,transparent);
+}
+body.dashboard-page #setupPiModal .thumbnail-option:has(input:focus-visible){
+  outline-color:var(--dashboard-card-border);
+}
+body.dashboard-page #setupPiModal .open-custom-theme{
+  border:2px solid var(--dashboard-card-border);
+  background:var(--dashboard-card-bg);
   color:var(--dashboard-card-text);
 }
 body.dashboard-page .switch-menu-btn.active,

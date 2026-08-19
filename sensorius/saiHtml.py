@@ -190,7 +190,7 @@ def normalize_dashboard_metric_set(value: object) -> str:
     return "All" if compact in {"all", "showall"} else "Pick 6"
 
 
-def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6"):
+def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6", dashboard_custom_theme_style=""):
     """Yield the complete Sensorius dashboard HTML document."""
 
     import json
@@ -1183,8 +1183,12 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     weather_forecast_theme = str(weather_forecast_theme or "").strip().lower()
     if weather_forecast_theme not in {"pollinator", "garden", "island", "river", "desert"}:
         weather_forecast_theme = "pollinator"
-    dashboard_background_theme = normalize_dashboard_background_theme(dashboard_background_theme)
-    dashboard_background_class = dashboard_background_theme.replace("_", "-")
+    dashboard_custom_theme_style = str(dashboard_custom_theme_style or "").strip()
+    if dashboard_custom_theme_style:
+        dashboard_background_class = "custom"
+    else:
+        dashboard_background_theme = normalize_dashboard_background_theme(dashboard_background_theme)
+        dashboard_background_class = dashboard_background_theme.replace("_", "-")
 
     yield "<!DOCTYPE html>"
     yield f"<html><head><title>{APP_NAME_LONG}</title>"
@@ -1201,7 +1205,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield f"<script src='/ui_static/js/draggable_modals.js?v={APP_VERSION}'></script>"
     yield f"<script type='module' src='/ui_static/js/advanced_automation.js?v={APP_VERSION}'></script>"
     yield "<script src='/ui_static/js/sensor_settings_modal.js'></script>"
-    yield f"</head><body class='dashboard-page dashboard-theme-{dashboard_background_class}'>"
+    body_style = f" style='{html_escape(dashboard_custom_theme_style)}'" if dashboard_custom_theme_style else ""
+    yield f"</head><body class='dashboard-page dashboard-theme-{dashboard_background_class}'{body_style}>"
     yield (
       f"<div class='dashboard' "
       f"style='--container-width:{layout['container_width']};"
@@ -7258,18 +7263,23 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "          }"
     yield "        } else if (msg.type === 'automation_notification'){"
     yield "          const name = String(msg.name || msg.rule_id || 'Automation').trim();"
-    yield "          const details = Array.isArray(msg.details) ? msg.details.map(v => String(v || '').trim()).filter(Boolean) : [];"
+    yield "          const trigger = msg.trigger && typeof msg.trigger === 'object' ? msg.trigger : {};"
+    yield "          const device = String(trigger.device || trigger.sensor_id || 'Unknown device').trim();"
+    yield "          const metric = String(trigger.metric || 'Unknown metric').trim();"
+    yield "          const value = trigger.value === null || trigger.value === undefined ? 'unavailable' : String(trigger.value);"
+    yield "          const unit = String(trigger.unit || '');"
     yield "          const rawAt = String(msg.occurred_at || '');"
     yield "          const parsedAt = rawAt ? new Date(rawAt) : new Date();"
     yield "          const alertDate = parsedAt.toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' });"
     yield "          const alertTime = parsedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });"
     yield "          const when = `${alertDate}, ${alertTime}`;"
-    yield "          const text = `Alert — ${name}${details.length ? ` — ${details.join('; ')}` : ''} — ${when}`;"
+    yield "          const text = `${name} - ${device}\n${metric} = ${value}${unit} @ ${when}`;"
     yield "          const c = window.getToastContainer ? window.getToastContainer(document.body) : null;"
     yield "          if (c) {"
     yield "            const t = document.createElement('div');"
     yield "            t.className = 'toast automation-notification-toast';"
     yield "            t.textContent = text;"
+    yield "            t.style.whiteSpace = 'pre-line';"
     yield "            t.title = 'Click to dismiss';"
     yield "            t.setAttribute('role', 'status');"
     yield "            t.addEventListener('click', () => { t.remove(); if (!c.children.length) c.remove(); });"
@@ -7282,13 +7292,14 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "            ? parsedAt.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })"
     yield "            : rawAt;"
     yield "          const segmentText = (segment) => [segment && segment.sign, segment && segment.element, segment && segment.plant_part].map(v => String(v || '').trim()).filter(Boolean).join(' • ') || 'Unknown';"
-    yield "          const title = msg.test ? 'BD Transition Test' : 'BD Transition';"
-    yield "          const text = `${title} — ${when} — From ${segmentText(msg.from)} → To ${segmentText(msg.to)}`;"
+    yield "          const transition = `From ${segmentText(msg.from)} → To ${segmentText(msg.to)}`;"
+    yield "          const text = `BD Transition @ ${when}\n${transition}`;"
     yield "          const c = window.getToastContainer ? window.getToastContainer(document.body) : null;"
     yield "          if (c) {"
     yield "            const t = document.createElement('div');"
     yield "            t.className = 'toast bd-transition-toast';"
     yield "            t.textContent = text;"
+    yield "            t.style.whiteSpace = 'pre-line';"
     yield "            const colorHelper = window.biodynamicActionColors;"
     yield "            const actionColors = typeof colorHelper === 'function'"
     yield "              ? colorHelper(msg.to)"
@@ -7934,11 +7945,12 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "};"
 
     yield "let dashboardThemeReturnFocus = null;"
-    yield "let savedDashboardTheme = (Array.from(document.body.classList).find(function(name){ return /^dashboard-theme-(leaf|root|leaf-crop|flower|fruit)$/.test(name); }) || 'dashboard-theme-leaf').slice(16);"
+    yield "let savedDashboardTheme = (Array.from(document.body.classList).find(function(name){ return /^dashboard-theme-(leaf|root|leaf-crop|flower|fruit|custom)$/.test(name); }) || 'dashboard-theme-leaf').slice(16);"
+    yield "let savedDashboardCustomStyle = document.body.getAttribute('style') || '';"
     yield "function applyDashboardPreviewTheme(theme){"
     yield "  const supported = new Set(['leaf','root','leaf-crop','flower','fruit']);"
     yield "  const nextTheme = supported.has(theme) ? theme : 'leaf';"
-    yield "  Array.from(document.body.classList).filter(function(name){ return /^dashboard-theme-(leaf|root|leaf-crop|flower|fruit)$/.test(name); }).forEach(function(name){ document.body.classList.remove(name); });"
+    yield "  Array.from(document.body.classList).filter(function(name){ return /^dashboard-theme-(leaf|root|leaf-crop|flower|fruit|custom)$/.test(name); }).forEach(function(name){ document.body.classList.remove(name); });"
     yield "  document.body.classList.add('dashboard-theme-' + nextTheme);"
     yield "  document.querySelectorAll('[data-dashboard-preview-theme]').forEach(function(button){"
     yield "    const active = button.dataset.dashboardPreviewTheme === nextTheme;"
@@ -7950,8 +7962,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  const view = document.getElementById('dashboardThemeView');"
     yield "  if (!view || document.body.classList.contains('dashboard-theme-preview-mode')) return;"
     yield "  dashboardThemeReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;"
-    yield "  savedDashboardTheme = (Array.from(document.body.classList).find(function(name){ return /^dashboard-theme-(leaf|root|leaf-crop|flower|fruit)$/.test(name); }) || ('dashboard-theme-' + savedDashboardTheme)).slice(16);"
-    yield "  applyDashboardPreviewTheme(savedDashboardTheme);"
+    yield "  savedDashboardTheme = (Array.from(document.body.classList).find(function(name){ return /^dashboard-theme-(leaf|root|leaf-crop|flower|fruit|custom)$/.test(name); }) || ('dashboard-theme-' + savedDashboardTheme)).slice(16);"
+    yield "  savedDashboardCustomStyle = document.body.getAttribute('style') || '';"
+    yield "  if (savedDashboardTheme === 'custom') { document.body.removeAttribute('style'); applyDashboardPreviewTheme('leaf'); } else { applyDashboardPreviewTheme(savedDashboardTheme); }"
     yield "  view.hidden = false;"
     yield "  document.body.classList.add('dashboard-theme-preview-mode');"
     yield "  document.querySelector('.dashboard-content')?.setAttribute('aria-hidden', 'true');"
@@ -7963,7 +7976,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  document.body.classList.remove('dashboard-theme-preview-mode');"
     yield "  view.hidden = true;"
     yield "  document.querySelector('.dashboard-content')?.removeAttribute('aria-hidden');"
-    yield "  applyDashboardPreviewTheme(savedDashboardTheme);"
+    yield "  if (savedDashboardTheme === 'custom') {"
+    yield "    Array.from(document.body.classList).filter(function(name){ return /^dashboard-theme-(leaf|root|leaf-crop|flower|fruit|custom)$/.test(name); }).forEach(function(name){ document.body.classList.remove(name); });"
+    yield "    document.body.classList.add('dashboard-theme-custom');"
+    yield "    if (savedDashboardCustomStyle) document.body.setAttribute('style', savedDashboardCustomStyle);"
+    yield "  } else { applyDashboardPreviewTheme(savedDashboardTheme); }"
     yield "  if (dashboardThemeReturnFocus && dashboardThemeReturnFocus.isConnected) dashboardThemeReturnFocus.focus({preventScroll:true});"
     yield "  dashboardThemeReturnFocus = null;"
     yield "}"

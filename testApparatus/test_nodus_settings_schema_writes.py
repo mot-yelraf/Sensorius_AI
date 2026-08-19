@@ -7,6 +7,7 @@ handling, and Nodus-facing config payload generation.
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import math
 import os
@@ -21,6 +22,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from datetime import datetime, timedelta
 from jinja2 import Environment, FileSystemLoader
+from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -602,6 +604,35 @@ async def _build_app_base_dir_only(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_custom_theme_upload_and_list_routes(tmp_path, monkeypatch):
+    app, _ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    image_buffer = io.BytesIO()
+    Image.new("RGB", (640, 360), "#8bbf8b").save(image_buffer, "PNG")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post(
+            "/api/themes",
+            data={
+                "section": "biodynamic",
+                "name": "Moon Garden",
+                "image_names": "Moonlit Beds",
+                "palettes": "pale_water",
+            },
+            files={"images": ("moon-garden.png", image_buffer.getvalue(), "image/png")},
+        )
+        listed = await client.get("/api/themes", params={"section": "biodynamic"})
+
+    assert created.status_code == 200
+    payload = created.json()
+    assert payload["theme"]["section"] == "biodynamic"
+    assert payload["theme"]["images"][0]["name"] == "Moonlit Beds"
+    assert payload["theme"]["images"][0]["selection"].startswith("custom:")
+    assert listed.status_code == 200
+    assert listed.json()["themes"][0]["name"] == "Moon Garden"
+    assert list((tmp_path / "theme_assets").glob("*/*.webp"))
+
+
+@pytest.mark.asyncio
 async def test_bd_transition_test_endpoint_broadcasts_to_live_dashboards(
     tmp_path,
     monkeypatch,
@@ -781,17 +812,54 @@ def test_system_settings_display_has_conditional_gauge_size_and_theme_thumbnails
     assert '<option value="Pick 6"' in display_section
     assert '<option value="All"' in display_section
     assert 'id="dashboard_background_theme"' in display_section
-    assert '<legend>Sensorius Dashboard Theme</legend>' in display_section
+    assert '<summary>Sensorius Dashboard Theme</summary>' in display_section
+    assert '<legend class="theme-selector-legend">Sensorius Dashboard Theme</legend>' in display_section
     assert 'id="weather_forecast_theme"' in display_section
-    assert '<legend>Caelus Theme</legend>' in display_section
+    assert '<summary>Caelus Theme</summary>' in display_section
+    assert '<legend class="theme-selector-legend">Caelus Theme</legend>' in display_section
     assert 'id="biodynamic_calendar_theme"' in display_section
-    assert '<legend>Biodynamic Calendar Theme</legend>' in display_section
+    assert '<summary>Biodynamic Calendar Theme</summary>' in display_section
+    assert '<legend class="theme-selector-legend">Biodynamic Calendar Theme</legend>' in display_section
+    assert display_section.count('<details class="theme-section">') == 3
+    assert display_section.count('<div class="theme-section-content">') == 3
+    assert '#setupPiModal .theme-section > summary {' in text
+    assert '#setupPiModal .theme-section > summary::before {' in text
+    assert '#setupPiModal .theme-section[open] > summary::before' in text
+    assert 'text-align: left;' in text[
+        text.index('#setupPiModal .theme-section > summary {'):
+        text.index('#setupPiModal .theme-section > summary::-webkit-details-marker')
+    ]
     assert display_section.count('style="--thumbnail-count:5"') == 3
     for theme in ("leaf", "root", "leaf_crop", "flower", "fruit"):
         assert f'name="dashboard_background_theme" value="{theme}"' in display_section
     for theme in ("auto", "garden_tools", "spring", "summer", "autumn", "winter"):
         assert f'name="biodynamic_calendar_theme" value="{theme}"' in display_section
-    assert display_section.count('class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme"') == 5
+    biodynamic_builtin = display_section[
+        display_section.index('id="biodynamic_calendar_theme"'):
+        display_section.index('{% for theme in custom_themes.biodynamic')
+    ]
+    assert biodynamic_builtin.count('class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme"') == 5
+    assert display_section.count('open-custom-theme') == 3
+    assert 'data-theme-section="sensorius"' in display_section
+    assert 'data-theme-section="caelus"' in display_section
+    assert 'data-theme-section="biodynamic"' in display_section
+    assert "Automatic Season Rotation uses only the built-in seasonal themes." in text
+    assert 'customThemeField("Image Selector", file)' in text
+    assert 'customThemeField("Image", preview)' in text
+    assert 'customThemeField("Palette Selector", palette)' in text
+    assert 'customThemeField("Image Name", name)' in text
+    assert 'remove.textContent = "Remove Image"' in text
+    assert 'customThemeAddImage.textContent = "Add Image"' in text
+    assert 'main.append(fileWrap, previewWrap, paletteWrap)' in text
+    assert 'row.append(main, nameWrap, actions)' in text
+    assert 'justify-content:space-between' in text
+    assert '#setupPiModal .sai-system-dialog.custom-theme-dialog { width:min(54rem' in text
+    assert '#setupPiModal .custom-theme-image-actions .custom-theme-remove-image { margin-left:auto; }' in text
+    assert '#setupPiModal .custom-theme-dialog .sai-system-dialog-actions .button {' in text
+    assert '#setupPiModal .custom-theme-dialog .sai-system-dialog-actions #custom-theme-create {' in text
+    assert 'background:var(--dashboard-card-bg' in text
+    assert 'background:var(--dashboard-dialog-panel' in text
+    assert 'border:1px solid var(--dashboard-card-border' in text
     assert "Automatic Season Rotation" in display_section
     assert "Changes between Spring, Summer, Autumn, and Winter." not in display_section
     assert display_section.index('class="thumbnail-options"', display_section.index('id="biodynamic_calendar_theme"')) < display_section.index('class="biodynamic-auto-option"')

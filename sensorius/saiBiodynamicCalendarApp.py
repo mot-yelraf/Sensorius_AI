@@ -31,6 +31,7 @@ from .biodynamic_calendar import (
 from .biodynamic_calendar.core import CALCULATION_IMPLEMENTATION_VERSION
 from .biodynamic_calendar.storage_validation import MAX_NOTE_LENGTH, _normalize_planting
 from .saiUtils import debug_enabled, printDM
+from .saiThemeManager import ThemeManager, normalize_theme_selection
 
 
 MODULE = "saiBiodynamicCalendarApp"
@@ -528,6 +529,9 @@ def register_biodynamic_calendar_routes(
         data_logger=data_logger,
         supervisor=getattr(app.state, "supervisor", None),
     )
+    theme_manager = getattr(app.state, "theme_manager", None)
+    if not isinstance(theme_manager, ThemeManager):
+        theme_manager = ThemeManager()
     app.state.biodynamic_calendar_service = service
     _REGISTERED_SERVICE = service
     app.add_event_handler("startup", service.ensure_background_warm)
@@ -537,15 +541,26 @@ def register_biodynamic_calendar_routes(
     async def calendar_page(request: Request):
         await service.ensure_legacy_import()
         config, _location = await asyncio.to_thread(service.location)
-        biodynamic_calendar_theme = normalize_biodynamic_calendar_theme(
-            settings.get_setting("Display", "biodynamic_calendar_theme", "garden_tools")
+        biodynamic_calendar_theme = normalize_theme_selection(
+            theme_manager,
+            "biodynamic",
+            settings.get_setting("Display", "biodynamic_calendar_theme", "garden_tools"),
+            "garden_tools",
+            normalize_biodynamic_calendar_theme,
         )
         try:
             local_month = datetime.now(ZoneInfo(config.timezone_name)).month
         except Exception:
             local_month = datetime.now().month
         automatic_theme = biodynamic_calendar_season(local_month)
-        resolved_theme = automatic_theme if biodynamic_calendar_theme == "auto" else biodynamic_calendar_theme
+        custom_theme_style = theme_manager.style_attribute(
+            theme_manager.style_values("biodynamic", biodynamic_calendar_theme)
+        )
+        resolved_theme = (
+            "custom"
+            if custom_theme_style
+            else automatic_theme if biodynamic_calendar_theme == "auto" else biodynamic_calendar_theme
+        )
         return app.state.templates.TemplateResponse(
             request,
             "biodynamic_calendar/index.html",
@@ -557,6 +572,7 @@ def register_biodynamic_calendar_routes(
                 "biodynamic_calendar_theme": biodynamic_calendar_theme,
                 "biodynamic_calendar_resolved_theme": resolved_theme,
                 "biodynamic_calendar_automatic_theme": automatic_theme,
+                "biodynamic_calendar_theme_style": custom_theme_style,
                 "runtime_instance_id": str(getattr(request.app.state, "ui_runtime_instance_id", "") or ""),
             },
         )

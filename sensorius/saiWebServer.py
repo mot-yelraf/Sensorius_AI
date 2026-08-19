@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.gzip import GZipMiddleware
 from .saiUtils import printDM, debug_enabled
+from .saiThemeManager import ThemeManager
 import inspect
 
 MODULE = "saiWebServer"
@@ -171,6 +172,13 @@ class WebServerController:
 
         # Static + templates
         self.app.mount("/ui_static", SensoriusStaticFiles(directory=str(ui_static_dir)), name="ui_static")
+        self.theme_manager = ThemeManager()
+        self.app.state.theme_manager = self.theme_manager
+        self.app.mount(
+            "/theme-assets",
+            StaticFiles(directory=str(self.theme_manager.assets_dir)),
+            name="theme_assets",
+        )
         self.templates = Jinja2Templates(directory=str(ui_templates_dir))
         # Make templates available to route modules without circular imports
         self.app.state.templates = self.templates

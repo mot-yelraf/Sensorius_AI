@@ -714,7 +714,11 @@ def test_weather_forecast_system_settings_are_present():
     assert display_section.index('id="dashboard_background_theme"') < display_section.index('id="weather_forecast_theme"')
     for theme in ("pollinator", "garden", "island", "river", "desert"):
         assert f'name="weather_forecast_theme" value="{theme}"' in display_section
-    assert display_section.count('class="thumbnail-option"><input type="radio" name="weather_forecast_theme"') == 5
+    caelus_builtin = display_section[
+        display_section.index('id="weather_forecast_theme"'):
+        display_section.index('{% for theme in custom_themes.caelus')
+    ]
+    assert caelus_builtin.count('class="thumbnail-option"><input type="radio" name="weather_forecast_theme"') == 5
     assert ".theme-pollinator {" in stylesheet
     assert '--scene-image: url("/ui_static/pollinator-pattern.svg");' in stylesheet
     assert '--scene-repeat: repeat;' in stylesheet

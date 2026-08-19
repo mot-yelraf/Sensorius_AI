@@ -46,6 +46,9 @@ macOS, Windows, and non-Pi Linux hub:
   and switch routes.
 - `sensorius/saiSettings.py`: system settings in
   `system_settings/<device_id>/settings.toml`.
+- `sensorius/saiThemeManager.py`: custom theme manifests, safe palette
+  definitions, uploaded-image validation and WebP generation, theme selection
+  resolution, and custom asset lifecycle.
 - `sensorius/saiSensorSettingsManager.py`: per-sensor settings in
   `sensor_settings/<sensor_id>/sensor.toml`.
 - `sensorius/saiSwitchSettingsManager.py`: per-switch settings in

@@ -324,7 +324,9 @@ Runtime notes:
 - `[WeatherForecast].PROVIDER` accepts `met_no`, `open_meteo`, `us`, or `none`.
   `none` disables the dashboard forecast card.
 - `[WeatherForecast].THEME` selects the full-screen weather scene: `pollinator`,
-  `garden`, `island`, `river`, or `desert`. `pollinator` is the default.
+  `garden`, `island`, `river`, or `desert`. `pollinator` is the default. A
+  selected custom Caelus image is stored as
+  `custom:<theme_collection_id>:<image_id>`.
 - `[WeatherForecast].CURRENT_SENSOR_ID` selects the Sensorius/Nodus sensor whose
   latest logged values populate Current Readings. The panel follows that
   sensor's ordered `[Display].METRIC_1` through `METRIC_6` settings. An empty
@@ -333,7 +335,8 @@ Runtime notes:
   `leaf` (the default repeating SVG), `root`, `leaf_crop`, `flower`, or `fruit`.
   The four crop themes use greenhouse photography and pair metric and switch
   cards with high-contrast pale elemental palettes: Earth, Water, Air, and
-  Fire, respectively.
+  Fire, respectively. Custom dashboard selections use the same
+  `custom:<theme_collection_id>:<image_id>` form.
 - `[Display].metric_set` controls the initial dashboard row state globally.
   Both modes preserve each sensor's saved `METRIC_1` through `METRIC_6` slots
   and append every other known, renderable metric. `Pick 6` initially hides the
@@ -351,7 +354,21 @@ Runtime notes:
   `summer`, `autumn`, `winter`, or `garden_tools`. The five concrete themes are
   Garden Tools and the four seasons. The default is `garden_tools`. Selecting
   `auto` resolves from the current month in the calendar's configured timezone
-  and changes at the start of March, June, September, and December.
+  and changes at the start of March, June, September, and December. Seasonal
+  automatic selection applies only to the built-in themes; custom Biodynamic
+  Calendar selections are always static.
+
+Custom theme metadata and processed images are runtime state under:
+
+```text
+/home/<user>/Sensorius/theme_settings/themes.json
+/home/<user>/Sensorius/theme_assets/<theme_collection_id>/
+```
+
+The equivalent macOS root is `/Users/<user>/Sensorius/`. Uploaded WebP, JPEG,
+and PNG files are validated, center-cropped to 16:9, converted to bounded WebP
+assets, and served from the local `/theme-assets` route. Built-in themes remain
+repository assets and cannot be edited or deleted through the UI.
 
 ## Sensor Settings
 

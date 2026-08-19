@@ -1547,6 +1547,7 @@ class SwitchController:
                 return
 
             details: list[str] = []
+            trigger: dict = {}
             for group in evaluated_groups:
                 if not bool(group.get("result", False)):
                     continue
@@ -1561,6 +1562,49 @@ class SwitchController:
                     )
                     if detail and detail not in details:
                         details.append(detail)
+                    if trigger or str(cond.get("type", "") or "").strip().lower() != "sensor":
+                        continue
+                    sensor_id = str(cond.get("sensor", "") or "").strip()
+                    metric = str(cond.get("metric", "") or "").strip()
+                    values = self._get_values_for_sensor(sensor_id, current_values_map)
+                    actual = values.get(metric)
+                    if actual is None:
+                        wanted = metric.lower().replace("-", "").replace("_", "").replace(" ", "")
+                        for key, value in values.items():
+                            normalized = str(key).lower().replace("-", "").replace("_", "").replace(" ", "")
+                            if normalized == wanted:
+                                actual = value
+                                break
+                    device_name = sensor_id
+                    try:
+                        from .saiSensorSettingsManager import SensorSettingsManager
+
+                        location = str(
+                            SensorSettingsManager("sensor_settings").get_setting(
+                                sensor_id,
+                                "Sensor.LOCATION",
+                                "",
+                            )
+                            or ""
+                        ).strip()
+                        if location and location.lower() != "unknown":
+                            device_name = location
+                    except Exception:
+                        pass
+                    unit = ""
+                    try:
+                        from .saiHomeAssistantMqtt import metric_meta_for_metric
+
+                        unit = str(metric_meta_for_metric(metric).get("unit", "") or "")
+                    except Exception:
+                        pass
+                    trigger = {
+                        "device": device_name or sensor_id or "Unknown device",
+                        "sensor_id": sensor_id,
+                        "metric": metric or "Unknown metric",
+                        "value": "unavailable" if actual is None else actual,
+                        "unit": unit,
+                    }
 
             display_name = str(rule_name or rule_id).strip() or str(rule_id)
             payload = {
@@ -1568,6 +1612,7 @@ class SwitchController:
                 "rule_id": str(rule_id),
                 "name": display_name,
                 "details": details,
+                "trigger": trigger,
                 "occurred_at": datetime.now().astimezone().isoformat(),
             }
             result = broadcaster(payload)

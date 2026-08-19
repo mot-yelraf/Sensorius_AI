@@ -69,7 +69,10 @@ Advanced rules can express:
 - Email Notify actors with a per-action recipient when email is enabled.
 - `Alert` actors for Web UI-only notifications without relay or email actions.
   These retain the internal `none` action type for compatibility with existing
-  rules.
+  rules. The dashboard toast uses two lines: `<alert name> - <trigger device>`,
+  then `<trigger metric> = <value><units> @ <date time>`. The configured sensor
+  location is used as the device name when available; otherwise its sensor ID
+  is shown.
 - Revert behavior through `revert_action`.
 - Optional delayed action application through `delay_s`.
 
@@ -94,7 +97,8 @@ BD Transitions behavior:
   biodynamic calendar enters a new segment.
 - A transition publishes a dashboard toast containing the local transition
   date and time plus the outgoing and incoming zodiac sign, element, and plant
-  part.
+  part. The toast uses two lines: `BD Transition @ <date time>`, then the
+  `From ... → To ...` transition description.
 - The toast background uses the incoming element's established biodynamic
   color, with automatically contrasting text.
 - The actor list always includes `Alert`.
@@ -114,7 +118,8 @@ BD Transitions behavior:
 - Operators can exercise the live dashboard delivery path without changing
   calendar or automation state by sending a POST request to
   `/advanced/automations/test-bd-transition`. The resulting persistent toast
-  is labeled `BD Transition Test` and is broadcast to every connected dashboard.
+  uses the standard BD Transition format and is broadcast to every connected
+  dashboard.
 
 Notify behavior:
 

@@ -223,7 +223,9 @@ moon, biodynamic, weather, and location-aware automation calculations:
 
 The **Display** section supplies system-wide presentation defaults. The controls
 appear in the order **Units**, **Metric Set**, and **Display Style**. **Gauge
-Size** is shown only while **Gauge** is selected.
+Size** is shown only while **Gauge** is selected. Each of the three theme areas
+has its own disclosure marker so its thumbnail choices can be expanded or
+collapsed without moving the section's **Save** button.
 
 - **Units**: chooses **Imperial** or **Metric** presentation throughout the
   dashboard, historical graphs, and Caelus weather forecast. Sensorius converts
@@ -251,15 +253,31 @@ Size** is shown only while **Gauge** is selected.
   The **Theme** button at the bottom of **Show Device by Location** hides the
   dashboard tiles for an unobstructed temporary preview. Choose a theme from
   the bottom toolbar, then select **Return to Dashboard**; saved settings are
-  not changed by previewing.
+  not changed by previewing. Select **Custom Theme** to create a named local
+  collection containing one to five individually named background images. The
+  theme section surfaces, selection outline, and Custom Theme action use the
+  active dashboard palette; the Display **Save** button retains its standard
+  blue action color.
 - **Caelus Theme**: five thumbnails select the default **Pollinator** pattern,
   **Mountain Garden**, **Sunny Beach**, **Forest River**, or **Desert Bloom**
-  for the full-screen forecast.
+  for the full-screen forecast. Its **Custom Theme** button adds custom forecast
+  backgrounds through the same creator.
 - **Biodynamic Calendar Theme**: independently selects the full-screen calendar
   background and matching card palette. The five themes are **Garden Tools**,
   **Spring**, **Summer**, **Autumn**, and **Winter**. **Garden Tools** is the
   default. **Automatic seasonal rotation** is optional and changes
   at the start of March, June, September, and December in the calendar timezone.
+  Automatic rotation applies only to these built-in seasonal themes. Custom BD
+  themes are static selections and are never substituted by seasonal rotation.
+- **Custom Theme images**: accept WebP, JPEG, or PNG files up to 5 MB each.
+  A 16:9 image at 1920 × 1080 is recommended; the minimum accepted size is
+  320 × 180. Sensorius center-crops, removes image metadata, converts uploads
+  to WebP, and creates a thumbnail. Every image requires a display name and one
+  of the predefined pale palettes. In the creator, the image selector, preview,
+  and palette selector share one row; the image name and the Add/Remove image
+  actions appear beneath it. The creator uses the active dashboard theme colors.
+  Built-in themes remain read-only; custom collections can be deleted from their
+  theme section.
 - **Save**: writes the display defaults. Reload the dashboard to see changes
   that are not applied immediately.
 

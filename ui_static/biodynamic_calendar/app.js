@@ -1704,6 +1704,7 @@ const calendarThemeCloseButton = document.getElementById("closeCalendarThemeBtn"
 let calendarThemeReturnFocus = null;
 let savedCalendarResolvedTheme = Array.from(document.body.classList)
   .find((name) => name.startsWith("biodynamic-theme-"))?.slice(17) || "spring";
+let savedCalendarCustomStyle = document.body.getAttribute("style") || "";
 
 function applyCalendarPreviewTheme(preference) {
   const resolved = preference === "auto"
@@ -1726,7 +1727,13 @@ function openCalendarThemeView() {
   savedCalendarResolvedTheme = Array.from(document.body.classList)
     .find((name) => name.startsWith("biodynamic-theme-"))?.slice(17) || savedCalendarResolvedTheme;
   const preference = document.body.dataset.themePreference || "auto";
-  applyCalendarPreviewTheme(preference);
+  savedCalendarCustomStyle = document.body.getAttribute("style") || "";
+  if (savedCalendarResolvedTheme === "custom") {
+    document.body.removeAttribute("style");
+    applyCalendarPreviewTheme("auto");
+  } else {
+    applyCalendarPreviewTheme(preference);
+  }
   calendarThemeView.hidden = false;
   document.body.classList.add("calendar-theme-preview-mode");
   document.querySelector("main.page")?.setAttribute("aria-hidden", "true");
@@ -1738,7 +1745,15 @@ function closeCalendarThemeView() {
   document.body.classList.remove("calendar-theme-preview-mode");
   calendarThemeView.hidden = true;
   document.querySelector("main.page")?.removeAttribute("aria-hidden");
-  applyCalendarPreviewTheme(savedCalendarResolvedTheme);
+  if (savedCalendarResolvedTheme === "custom") {
+    Array.from(document.body.classList)
+      .filter((name) => name.startsWith("biodynamic-theme-"))
+      .forEach((name) => document.body.classList.remove(name));
+    document.body.classList.add("biodynamic-theme-custom");
+    if (savedCalendarCustomStyle) document.body.setAttribute("style", savedCalendarCustomStyle);
+  } else {
+    applyCalendarPreviewTheme(savedCalendarResolvedTheme);
+  }
   if (calendarThemeReturnFocus?.isConnected) calendarThemeReturnFocus.focus({preventScroll: true});
   calendarThemeReturnFocus = null;
 }

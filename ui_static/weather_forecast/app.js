@@ -61,6 +61,7 @@
   let caelusThemeReturnFocus = null;
   let savedCaelusTheme = Array.from(document.body.classList)
     .find((name) => name.startsWith("theme-"))?.slice(6) || "pollinator";
+  let savedCaelusCustomStyle = document.body.getAttribute("style") || "";
 
   function applyCaelusPreviewTheme(theme) {
     const supported = new Set(["pollinator", "garden", "island", "river", "desert"]);
@@ -81,7 +82,13 @@
     caelusThemeReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     savedCaelusTheme = Array.from(document.body.classList)
       .find((name) => name.startsWith("theme-"))?.slice(6) || savedCaelusTheme;
-    applyCaelusPreviewTheme(savedCaelusTheme);
+    savedCaelusCustomStyle = document.body.getAttribute("style") || "";
+    if (savedCaelusTheme === "custom") {
+      document.body.removeAttribute("style");
+      applyCaelusPreviewTheme("pollinator");
+    } else {
+      applyCaelusPreviewTheme(savedCaelusTheme);
+    }
     caelusThemeView.hidden = false;
     document.body.classList.add("caelus-theme-preview-mode");
     document.querySelector("main.dashboard-shell")?.setAttribute("aria-hidden", "true");
@@ -93,7 +100,15 @@
     document.body.classList.remove("caelus-theme-preview-mode");
     caelusThemeView.hidden = true;
     document.querySelector("main.dashboard-shell")?.removeAttribute("aria-hidden");
-    applyCaelusPreviewTheme(savedCaelusTheme);
+    if (savedCaelusTheme === "custom") {
+      Array.from(document.body.classList)
+        .filter((name) => name.startsWith("theme-"))
+        .forEach((name) => document.body.classList.remove(name));
+      document.body.classList.add("theme-custom");
+      if (savedCaelusCustomStyle) document.body.setAttribute("style", savedCaelusCustomStyle);
+    } else {
+      applyCaelusPreviewTheme(savedCaelusTheme);
+    }
     if (caelusThemeReturnFocus?.isConnected) caelusThemeReturnFocus.focus({preventScroll: true});
     caelusThemeReturnFocus = null;
   }

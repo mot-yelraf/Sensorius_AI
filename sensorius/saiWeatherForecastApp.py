@@ -29,6 +29,7 @@ from .saiDisplayUnits import (
 from .saiSensorSettingsManager import SensorSettingsManager
 from .saiWeatherAstronomy import astronomy_context
 from .saiWeatherForecast import get_weather_forecast_payload
+from .saiThemeManager import ThemeManager, normalize_theme_selection
 from .sensor_modules.station_ecowitt import DEFAULT_POLL_INTERVAL_SEC as ECOWITT_DEFAULT_POLL_INTERVAL_SEC
 from .sensor_modules.station_weewx import DEFAULT_UPDATE_PERIOD_SEC as WEEWX_DEFAULT_UPDATE_PERIOD_SEC
 
@@ -457,6 +458,7 @@ class WeatherForecastAppService:
         self.data_logger = data_logger
         self.sensor_settings_manager = sensor_settings_manager or SensorSettingsManager("sensor_settings")
         self._warm_task: asyncio.Task[dict[str, Any]] | None = None
+        self.theme_manager = ThemeManager()
 
     def ensure_background_warm(self) -> None:
         """Start a non-blocking forecast cache warm once per app process."""
@@ -490,8 +492,19 @@ class WeatherForecastAppService:
 
     def integration_settings(self) -> dict[str, str]:
         self._reload_settings()
+        theme = normalize_theme_selection(
+            self.theme_manager,
+            "caelus",
+            self.settings.get_setting("WeatherForecast", "THEME", "pollinator"),
+            "pollinator",
+            normalize_weather_theme,
+        )
         return {
-            "theme": normalize_weather_theme(self.settings.get_setting("WeatherForecast", "THEME", "pollinator")),
+            "theme": theme,
+            "theme_class": "custom" if self.theme_manager.resolve("caelus", theme) else theme,
+            "theme_style": self.theme_manager.style_attribute(
+                self.theme_manager.style_values("caelus", theme)
+            ),
             "sensor_id": str(self.settings.get_setting("WeatherForecast", "CURRENT_SENSOR_ID", "") or "").strip(),
         }
 
@@ -606,6 +619,7 @@ def register_weather_forecast_app_routes(
         data_logger=data_logger,
         sensor_settings_manager=sensor_settings_manager,
     )
+    service.theme_manager = getattr(app.state, "theme_manager", service.theme_manager)
     app.state.weather_forecast_app_service = service
     app.add_event_handler("startup", service.ensure_background_warm)
 

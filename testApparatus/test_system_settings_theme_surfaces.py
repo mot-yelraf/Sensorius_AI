@@ -53,6 +53,20 @@ def test_affected_settings_panels_use_the_shared_themed_classes():
     assert template.count('class="section"') >= 2
 
 
+def test_display_theme_sections_use_the_active_dashboard_palette():
+    css = (ROOT / "ui_static" / "css" / "app.css").read_text(encoding="utf-8")
+
+    assert "body.dashboard-page #setupPiModal .theme-section{" in css
+    assert "body.dashboard-page #setupPiModal .theme-section > summary{" in css
+    assert "body.dashboard-page #setupPiModal .theme-section-content{" in css
+    assert "body.dashboard-page #setupPiModal .theme-thumbnail{" in css
+    assert "body.dashboard-page #setupPiModal .thumbnail-option:has(input:checked){" in css
+    assert "body.dashboard-page #setupPiModal .open-custom-theme{" in css
+    assert "background:var(--dashboard-card-bg)" in css
+    assert "border-color:var(--dashboard-card-border)" in css
+    assert "color:var(--dashboard-card-text)" in css
+
+
 def test_nodus_onboarding_theme_surfaces_cover_macos_linux_and_raspberry_pi():
     css = (ROOT / "ui_static" / "css" / "app.css").read_text(encoding="utf-8")
     template = (ROOT / "ui_templates" / "modals" / "system_settings.html").read_text(

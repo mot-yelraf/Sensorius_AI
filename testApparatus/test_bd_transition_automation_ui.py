@@ -89,8 +89,9 @@ def test_bd_transition_toast_is_persistent_and_shows_from_to():
     ).read_text(encoding="utf-8")
 
     assert "msg.type === 'bd_transition'" in html_builder
-    assert "msg.test ? 'BD Transition Test' : 'BD Transition'" in html_builder
+    assert "`BD Transition @ ${when}\\n${transition}`" in html_builder
     assert "From ${segmentText(msg.from)} → To ${segmentText(msg.to)}" in html_builder
+    assert "t.style.whiteSpace = 'pre-line';" in html_builder
     assert "window.biodynamicActionColors = biodynamicActionColors;" in html_builder
     assert "const colorHelper = window.biodynamicActionColors;" in html_builder
     assert "typeof colorHelper === 'function'" in html_builder
@@ -130,10 +131,13 @@ def test_generic_automation_toast_is_persistent_and_click_dismissible():
     ]
 
     assert "automation-notification-toast" in branch
-    assert "details.join('; ')" in branch
+    assert "`${name} - ${device}\\n${metric} = ${value}${unit} @ ${when}`" in branch
+    assert "msg.trigger && typeof msg.trigger === 'object'" in branch
+    assert "msg.details" not in branch
     assert "msg.occurred_at" in branch
     assert "month: 'long'" in branch
     assert "`${alertDate}, ${alertTime}`" in branch
+    assert "t.style.whiteSpace = 'pre-line';" in branch
     assert "Click to dismiss" in branch
     assert "addEventListener('click'" in branch
     assert "setTimeout" not in branch

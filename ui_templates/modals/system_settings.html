@@ -261,14 +261,69 @@
   min-width: 0;
   width: 100%;
   max-width: 760px;
-  margin: .8rem auto 0;
+  margin: 0 auto;
   padding: 0;
   border: 0;
 }
-#setupPiModal .thumbnail-selector legend {
-  margin-bottom: .35rem;
-  font-weight: 600;
+#setupPiModal .theme-section {
+  width: 100%;
+  max-width: 760px;
+  margin: .8rem auto 0;
+  border: 1px solid #dfe7e1;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
 }
+#setupPiModal .theme-section > summary {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .58rem .72rem;
+  cursor: pointer;
+  font-weight: 600;
+  text-align: left;
+  list-style: none;
+  user-select: none;
+}
+#setupPiModal .theme-section > summary::-webkit-details-marker { display: none; }
+#setupPiModal .theme-section > summary::before {
+  content: "\25B6";
+  width: .8rem;
+  flex: 0 0 .8rem;
+  transition: transform .15s ease;
+}
+#setupPiModal .theme-section[open] > summary::before { transform: rotate(90deg); }
+#setupPiModal .theme-section[open] > summary { border-bottom: 1px solid #e6ece8; }
+#setupPiModal .theme-section-content { padding: .65rem .75rem .75rem; }
+#setupPiModal .theme-selector-legend { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+#setupPiModal .theme-section-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: .65rem;
+}
+#setupPiModal .custom-theme-collection { margin-top: .7rem; padding-top: .65rem; border-top: 1px solid #e6ece8; }
+#setupPiModal .custom-theme-collection-head { display:flex; align-items:center; justify-content:space-between; gap:.6rem; margin-bottom:.4rem; }
+#setupPiModal .custom-theme-collection-name { font-size:.8rem; font-weight:700; color:#33463a; }
+#setupPiModal .custom-theme-delete { padding:.28rem .48rem; font-size:.72rem; }
+#setupPiModal .custom-theme-badge { position:absolute; top:.42rem; right:.42rem; padding:.12rem .3rem; border-radius:999px; background:rgba(16,35,31,.78); color:#fff; font-size:.58rem; font-weight:700; }
+#setupPiModal .sai-system-dialog.custom-theme-dialog { width:min(54rem, calc(100vw - 2rem)); max-height:calc(100vh - 3rem); overflow:hidden; }
+#setupPiModal .custom-theme-dialog .sai-system-dialog-body { overflow:auto; background:var(--dashboard-dialog-panel, #f8fcf9); }
+#setupPiModal .custom-theme-help { color:var(--dashboard-card-text, #526057); font-size:.8rem; line-height:1.35; opacity:.82; }
+#setupPiModal .custom-theme-image-list { display:flex; flex-direction:column; gap:.6rem; margin-top:.7rem; }
+#setupPiModal .custom-theme-image-row { display:flex; flex-direction:column; gap:.65rem; padding:.75rem; border:1px solid var(--dashboard-card-border, #dfe7e1); border-radius:10px; background:var(--dashboard-card-bg, #fafdfb); color:var(--dashboard-card-text, #202522); }
+#setupPiModal .custom-theme-image-main { display:grid; grid-template-columns:minmax(11rem,1fr) minmax(15rem,1.35fr) minmax(11rem,1fr); gap:.75rem; align-items:start; }
+#setupPiModal .custom-theme-image-row .field-stack { min-width:0; }
+#setupPiModal .custom-theme-image-row input[type="file"] { width:100%; min-height:2.72rem; padding:.45rem; }
+#setupPiModal .custom-theme-image-name-field { width:100%; }
+#setupPiModal .custom-theme-preview { width:100%; aspect-ratio:16/9; border:1px solid var(--dashboard-card-border, #cad5cd); border-radius:7px; background:var(--dashboard-dialog-panel, #edf2ee) center/cover no-repeat; }
+#setupPiModal .custom-theme-palette-preview { display:grid; grid-template-columns:repeat(3,1fr); width:100%; min-width:0; height:.55rem; margin-top:.35rem; overflow:hidden; box-sizing:border-box; border:1px solid var(--dashboard-card-border, #cad5cd); border-radius:999px; }
+#setupPiModal .custom-theme-image-actions { display:flex; align-items:center; justify-content:space-between; gap:.75rem; }
+#setupPiModal .custom-theme-image-actions .custom-theme-remove-image { margin-left:auto; }
+#setupPiModal .custom-theme-row-action { border:1px solid var(--dashboard-card-border, #668366); background:var(--dashboard-dialog-panel, #f7f1c1); color:var(--dashboard-card-text, #212529); }
+#setupPiModal .custom-theme-row-action:hover:not(:disabled) { filter:brightness(.96); }
+#setupPiModal .custom-theme-dialog .sai-system-dialog-actions .button { border:1px solid var(--dashboard-card-border, #668366); background:var(--dashboard-dialog-panel, #f7f1c1); color:var(--dashboard-card-text, #212529); }
+#setupPiModal .custom-theme-dialog .sai-system-dialog-actions #custom-theme-create { border-width:2px; background:var(--dashboard-card-bg, #e4f1e4); }
+#setupPiModal .custom-theme-status { min-height:1.2rem; margin-top:.55rem; }
 #setupPiModal .thumbnail-options {
   display: grid;
   grid-template-columns: repeat(var(--thumbnail-count), minmax(0, 1fr));
@@ -905,6 +960,7 @@
   #setupPiModal .notification-rule-grid {
     grid-template-columns: 1fr;
   }
+  #setupPiModal .custom-theme-image-main { grid-template-columns:1fr; }
   #setupPiModal .ha-grid {
     grid-template-columns: 1fr;
     max-width: 100%;
@@ -1027,39 +1083,81 @@
                 </div>
               </div>
               {% set selected_dashboard_background_theme = dashboard_background_theme | default('leaf') %}
-              <fieldset class="thumbnail-selector" id="dashboard_background_theme" style="--thumbnail-count:5">
-                <legend>Sensorius Dashboard Theme</legend>
-                <div class="thumbnail-options">
-                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="leaf" {% if selected_dashboard_background_theme == "leaf" %}checked{% endif %}><span class="theme-thumbnail dashboard-default"></span><span class="thumbnail-label">Default</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="root" {% if selected_dashboard_background_theme == "root" %}checked{% endif %}><span class="theme-thumbnail dashboard-root"></span><span class="thumbnail-label">Root</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="leaf_crop" {% if selected_dashboard_background_theme == "leaf_crop" %}checked{% endif %}><span class="theme-thumbnail dashboard-leaf-crop"></span><span class="thumbnail-label">Leaf</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="flower" {% if selected_dashboard_background_theme == "flower" %}checked{% endif %}><span class="theme-thumbnail dashboard-flower"></span><span class="thumbnail-label">Flower</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="fruit" {% if selected_dashboard_background_theme == "fruit" %}checked{% endif %}><span class="theme-thumbnail dashboard-fruit"></span><span class="thumbnail-label">Fruit</span></label>
+              <details class="theme-section">
+                <summary>Sensorius Dashboard Theme</summary>
+                <div class="theme-section-content">
+                  <fieldset class="thumbnail-selector" id="dashboard_background_theme" style="--thumbnail-count:5">
+                    <legend class="theme-selector-legend">Sensorius Dashboard Theme</legend>
+                    <div class="thumbnail-options">
+                      <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="leaf" {% if selected_dashboard_background_theme == "leaf" %}checked{% endif %}><span class="theme-thumbnail dashboard-default"></span><span class="thumbnail-label">Default</span></label>
+                      <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="root" {% if selected_dashboard_background_theme == "root" %}checked{% endif %}><span class="theme-thumbnail dashboard-root"></span><span class="thumbnail-label">Root</span></label>
+                      <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="leaf_crop" {% if selected_dashboard_background_theme == "leaf_crop" %}checked{% endif %}><span class="theme-thumbnail dashboard-leaf-crop"></span><span class="thumbnail-label">Leaf</span></label>
+                      <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="flower" {% if selected_dashboard_background_theme == "flower" %}checked{% endif %}><span class="theme-thumbnail dashboard-flower"></span><span class="thumbnail-label">Flower</span></label>
+                      <label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="fruit" {% if selected_dashboard_background_theme == "fruit" %}checked{% endif %}><span class="theme-thumbnail dashboard-fruit"></span><span class="thumbnail-label">Fruit</span></label>
+                    </div>
+                    {% for theme in custom_themes.sensorius | default([]) %}
+                    <div class="custom-theme-collection" data-custom-theme-id="{{ theme.id }}">
+                      <div class="custom-theme-collection-head"><span class="custom-theme-collection-name">{{ theme.name }}</span><button type="button" class="button red custom-theme-delete" data-theme-id="{{ theme.id }}">Delete</button></div>
+                      <div class="thumbnail-options">
+                        {% for image in theme.images %}<label class="thumbnail-option"><input type="radio" name="dashboard_background_theme" value="{{ image.selection }}" {% if selected_dashboard_background_theme == image.selection %}checked{% endif %}><span class="theme-thumbnail" style="background-image:url('{{ image.thumbnail_url }}')"></span><span class="custom-theme-badge">Custom</span><span class="thumbnail-label">{{ image.name }}</span></label>{% endfor %}
+                      </div>
+                    </div>
+                    {% endfor %}
+                  </fieldset>
+                  <div class="theme-section-toolbar"><button type="button" class="button green open-custom-theme" data-theme-section="sensorius">Custom Theme</button></div>
                 </div>
-              </fieldset>
+              </details>
               {% set selected_weather_forecast_theme = weather_forecast_theme | default('pollinator') %}
-              <fieldset class="thumbnail-selector" id="weather_forecast_theme" style="--thumbnail-count:5">
-                <legend>Caelus Theme</legend>
-                <div class="thumbnail-options">
-                  <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="pollinator" {% if selected_weather_forecast_theme == "pollinator" %}checked{% endif %}><span class="theme-thumbnail caelus-pollinator"></span><span class="thumbnail-label">Pollinator</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="garden" {% if selected_weather_forecast_theme == "garden" %}checked{% endif %}><span class="theme-thumbnail caelus-garden"></span><span class="thumbnail-label">Mountain Garden</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="island" {% if selected_weather_forecast_theme == "island" %}checked{% endif %}><span class="theme-thumbnail caelus-island"></span><span class="thumbnail-label">Sunny Beach</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="river" {% if selected_weather_forecast_theme == "river" %}checked{% endif %}><span class="theme-thumbnail caelus-river"></span><span class="thumbnail-label">Forest River</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="desert" {% if selected_weather_forecast_theme == "desert" %}checked{% endif %}><span class="theme-thumbnail caelus-desert"></span><span class="thumbnail-label">Desert Bloom</span></label>
+              <details class="theme-section">
+                <summary>Caelus Theme</summary>
+                <div class="theme-section-content">
+                  <fieldset class="thumbnail-selector" id="weather_forecast_theme" style="--thumbnail-count:5">
+                    <legend class="theme-selector-legend">Caelus Theme</legend>
+                    <div class="thumbnail-options">
+                      <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="pollinator" {% if selected_weather_forecast_theme == "pollinator" %}checked{% endif %}><span class="theme-thumbnail caelus-pollinator"></span><span class="thumbnail-label">Pollinator</span></label>
+                      <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="garden" {% if selected_weather_forecast_theme == "garden" %}checked{% endif %}><span class="theme-thumbnail caelus-garden"></span><span class="thumbnail-label">Mountain Garden</span></label>
+                      <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="island" {% if selected_weather_forecast_theme == "island" %}checked{% endif %}><span class="theme-thumbnail caelus-island"></span><span class="thumbnail-label">Sunny Beach</span></label>
+                      <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="river" {% if selected_weather_forecast_theme == "river" %}checked{% endif %}><span class="theme-thumbnail caelus-river"></span><span class="thumbnail-label">Forest River</span></label>
+                      <label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="desert" {% if selected_weather_forecast_theme == "desert" %}checked{% endif %}><span class="theme-thumbnail caelus-desert"></span><span class="thumbnail-label">Desert Bloom</span></label>
+                    </div>
+                    {% for theme in custom_themes.caelus | default([]) %}
+                    <div class="custom-theme-collection" data-custom-theme-id="{{ theme.id }}">
+                      <div class="custom-theme-collection-head"><span class="custom-theme-collection-name">{{ theme.name }}</span><button type="button" class="button red custom-theme-delete" data-theme-id="{{ theme.id }}">Delete</button></div>
+                      <div class="thumbnail-options">
+                        {% for image in theme.images %}<label class="thumbnail-option"><input type="radio" name="weather_forecast_theme" value="{{ image.selection }}" {% if selected_weather_forecast_theme == image.selection %}checked{% endif %}><span class="theme-thumbnail" style="background-image:url('{{ image.thumbnail_url }}')"></span><span class="custom-theme-badge">Custom</span><span class="thumbnail-label">{{ image.name }}</span></label>{% endfor %}
+                      </div>
+                    </div>
+                    {% endfor %}
+                  </fieldset>
+                  <div class="theme-section-toolbar"><button type="button" class="button green open-custom-theme" data-theme-section="caelus">Custom Theme</button></div>
                 </div>
-              </fieldset>
+              </details>
               {% set selected_biodynamic_calendar_theme = biodynamic_calendar_theme | default('garden_tools') %}
-              <fieldset class="thumbnail-selector" id="biodynamic_calendar_theme" style="--thumbnail-count:5">
-                <legend>Biodynamic Calendar Theme</legend>
-                <div class="thumbnail-options">
-                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="garden_tools" {% if selected_biodynamic_calendar_theme == "garden_tools" %}checked{% endif %}><span class="theme-thumbnail biodynamic-garden-tools"></span><span class="thumbnail-label">Garden Tools</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="spring" {% if selected_biodynamic_calendar_theme == "spring" %}checked{% endif %}><span class="theme-thumbnail biodynamic-spring"></span><span class="thumbnail-label">Spring</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="summer" {% if selected_biodynamic_calendar_theme == "summer" %}checked{% endif %}><span class="theme-thumbnail biodynamic-summer"></span><span class="thumbnail-label">Summer</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="autumn" {% if selected_biodynamic_calendar_theme == "autumn" %}checked{% endif %}><span class="theme-thumbnail biodynamic-autumn"></span><span class="thumbnail-label">Autumn</span></label>
-                  <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="winter" {% if selected_biodynamic_calendar_theme == "winter" %}checked{% endif %}><span class="theme-thumbnail biodynamic-winter"></span><span class="thumbnail-label">Winter</span></label>
+              <details class="theme-section">
+                <summary>Biodynamic Calendar Theme</summary>
+                <div class="theme-section-content">
+                  <fieldset class="thumbnail-selector" id="biodynamic_calendar_theme" style="--thumbnail-count:5">
+                    <legend class="theme-selector-legend">Biodynamic Calendar Theme</legend>
+                    <div class="thumbnail-options">
+                      <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="garden_tools" {% if selected_biodynamic_calendar_theme == "garden_tools" %}checked{% endif %}><span class="theme-thumbnail biodynamic-garden-tools"></span><span class="thumbnail-label">Garden Tools</span></label>
+                      <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="spring" {% if selected_biodynamic_calendar_theme == "spring" %}checked{% endif %}><span class="theme-thumbnail biodynamic-spring"></span><span class="thumbnail-label">Spring</span></label>
+                      <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="summer" {% if selected_biodynamic_calendar_theme == "summer" %}checked{% endif %}><span class="theme-thumbnail biodynamic-summer"></span><span class="thumbnail-label">Summer</span></label>
+                      <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="autumn" {% if selected_biodynamic_calendar_theme == "autumn" %}checked{% endif %}><span class="theme-thumbnail biodynamic-autumn"></span><span class="thumbnail-label">Autumn</span></label>
+                      <label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="winter" {% if selected_biodynamic_calendar_theme == "winter" %}checked{% endif %}><span class="theme-thumbnail biodynamic-winter"></span><span class="thumbnail-label">Winter</span></label>
+                    </div>
+                    <label class="biodynamic-auto-option"><input type="radio" name="biodynamic_calendar_theme" value="auto" {% if selected_biodynamic_calendar_theme == "auto" %}checked{% endif %}><strong>Automatic Season Rotation</strong></label>
+                    {% for theme in custom_themes.biodynamic | default([]) %}
+                    <div class="custom-theme-collection" data-custom-theme-id="{{ theme.id }}">
+                      <div class="custom-theme-collection-head"><span class="custom-theme-collection-name">{{ theme.name }}</span><button type="button" class="button red custom-theme-delete" data-theme-id="{{ theme.id }}">Delete</button></div>
+                      <div class="thumbnail-options">
+                        {% for image in theme.images %}<label class="thumbnail-option"><input type="radio" name="biodynamic_calendar_theme" value="{{ image.selection }}" {% if selected_biodynamic_calendar_theme == image.selection %}checked{% endif %}><span class="theme-thumbnail" style="background-image:url('{{ image.thumbnail_url }}')"></span><span class="custom-theme-badge">Custom</span><span class="thumbnail-label">{{ image.name }}</span></label>{% endfor %}
+                      </div>
+                    </div>
+                    {% endfor %}
+                  </fieldset>
+                  <div class="theme-section-toolbar"><button type="button" class="button green open-custom-theme" data-theme-section="biodynamic">Custom Theme</button></div>
                 </div>
-                <label class="biodynamic-auto-option"><input type="radio" name="biodynamic_calendar_theme" value="auto" {% if selected_biodynamic_calendar_theme == "auto" %}checked{% endif %}><strong>Automatic Season Rotation</strong></label>
-              </fieldset>
+              </details>
                     <div class="pane-footer section-action-footer">
                       <button type="button" class="button blue btn-system-save">Save</button>
                     </div>
@@ -1734,6 +1832,26 @@
       </div>
     </div>
   </div>
+  <div id="custom-theme-dialog" class="sai-system-dialog-backdrop" hidden
+       role="dialog" aria-modal="true" aria-labelledby="custom-theme-title">
+    <div class="sai-system-dialog custom-theme-dialog">
+      <div class="sai-system-dialog-header"><h3 id="custom-theme-title">Create Custom Theme</h3></div>
+      <div class="sai-system-dialog-body">
+        <div class="row two">
+          <div class="field-stack"><label for="custom-theme-section">Theme Section</label><select id="custom-theme-section"><option value="sensorius">Sensorius</option><option value="caelus">Caelus</option><option value="biodynamic">Biodynamic Calendar</option></select></div>
+          <div class="field-stack"><label for="custom-theme-name">Theme Name</label><input id="custom-theme-name" type="text" maxlength="60" placeholder="My Farm"></div>
+        </div>
+        <p class="custom-theme-help">Add one to five named images. WebP, JPEG, or PNG; 16:9 recommended at 1920 × 1080; minimum 320 × 180; maximum 5 MB each. Images are center-cropped and converted to WebP. Custom Biodynamic themes are static; Automatic Season Rotation uses only the built-in seasonal themes.</p>
+        <div id="custom-theme-image-list" class="custom-theme-image-list"></div>
+        <div id="custom-theme-status" class="custom-theme-status sai-live-status" aria-live="polite"></div>
+      </div>
+      <div class="sai-system-dialog-actions">
+        <button type="button" class="button neutral" id="custom-theme-cancel">Cancel</button>
+        <button type="button" class="button green" id="custom-theme-create">Create Theme</button>
+      </div>
+    </div>
+  </div>
+  <script type="application/json" id="theme-palettes-data">{{ theme_palettes | default([]) | tojson }}</script>
   <div id="nodus-wifi-confirm-dialog" class="sai-system-dialog-backdrop" hidden
        role="dialog" aria-modal="true" aria-labelledby="nodus-wifi-confirm-title">
     <div class="sai-system-dialog">
@@ -1801,6 +1919,266 @@
   let nodusWifiRefreshTimer = null;
   let onboardWs = null;
   let onboardSessionId = "";
+  const customThemeDialog = document.getElementById("custom-theme-dialog");
+  const customThemeSection = document.getElementById("custom-theme-section");
+  const customThemeName = document.getElementById("custom-theme-name");
+  const customThemeImageList = document.getElementById("custom-theme-image-list");
+  const customThemeStatus = document.getElementById("custom-theme-status");
+  const customThemeAddImage = document.createElement("button");
+  customThemeAddImage.type = "button";
+  customThemeAddImage.id = "custom-theme-add-image";
+  customThemeAddImage.className = "button custom-theme-row-action";
+  customThemeAddImage.textContent = "Add Image";
+  const customThemeCreate = document.getElementById("custom-theme-create");
+  let themePalettes = [];
+  try {
+    themePalettes = JSON.parse(document.getElementById("theme-palettes-data")?.textContent || "[]");
+  } catch (_err) {
+    themePalettes = [];
+  }
+
+  function customThemeField(labelText, control) {
+    const wrap = document.createElement("div");
+    wrap.className = "field-stack";
+    const label = document.createElement("label");
+    label.textContent = labelText;
+    wrap.append(label, control);
+    return wrap;
+  }
+
+  function updateCustomThemeImageActions() {
+    const rows = Array.from(customThemeImageList?.querySelectorAll(".custom-theme-image-row") || []);
+    rows.forEach((row, index) => {
+      const actions = row.querySelector(".custom-theme-image-actions");
+      const remove = row.querySelector(".custom-theme-remove-image");
+      if (remove) remove.disabled = rows.length <= 1;
+      if (actions && index === rows.length - 1) actions.prepend(customThemeAddImage);
+    });
+    customThemeAddImage.disabled = rows.length >= 5;
+  }
+
+  function addCustomThemeImageRow() {
+    if (!customThemeImageList || customThemeImageList.children.length >= 5) return;
+    const row = document.createElement("div");
+    row.className = "custom-theme-image-row";
+    const file = document.createElement("input");
+    file.type = "file";
+    file.accept = "image/webp,image/jpeg,image/png";
+    file.className = "custom-theme-file";
+    const preview = document.createElement("div");
+    preview.className = "custom-theme-preview";
+    preview.setAttribute("role", "img");
+    preview.setAttribute("aria-label", "Selected image preview");
+    const fileWrap = customThemeField("Image Selector", file);
+    const previewWrap = customThemeField("Image", preview);
+    const name = document.createElement("input");
+    name.type = "text";
+    name.maxLength = 60;
+    name.placeholder = "Image name";
+    name.className = "custom-theme-image-name";
+    const palette = document.createElement("select");
+    palette.className = "custom-theme-palette";
+    themePalettes.forEach((item) => {
+      const option = document.createElement("option");
+      option.value = String(item.id || "");
+      option.textContent = String(item.name || item.id || "Palette");
+      palette.appendChild(option);
+    });
+    const palettePreview = document.createElement("div");
+    palettePreview.className = "custom-theme-palette-preview";
+    palettePreview.setAttribute("aria-hidden", "true");
+    palettePreview.append(document.createElement("span"), document.createElement("span"), document.createElement("span"));
+    const updatePalettePreview = () => {
+      const selected = themePalettes.find((item) => String(item.id || "") === palette.value) || themePalettes[0] || {};
+      const swatches = palettePreview.children;
+      if (swatches[0]) swatches[0].style.background = String(selected.panel || "#e4f1e4");
+      if (swatches[1]) swatches[1].style.background = String(selected.soft || "#cfe2cf");
+      if (swatches[2]) swatches[2].style.background = String(selected.border || "#668366");
+    };
+    palette.addEventListener("change", updatePalettePreview);
+    updatePalettePreview();
+    const paletteWrap = customThemeField("Palette Selector", palette);
+    paletteWrap.appendChild(palettePreview);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "button custom-theme-row-action custom-theme-remove-image";
+    remove.textContent = "Remove Image";
+    remove.addEventListener("click", () => {
+      const previewUrl = preview.dataset.objectUrl;
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      row.remove();
+      updateCustomThemeImageActions();
+    });
+    file.addEventListener("change", () => {
+      const previousUrl = preview.dataset.objectUrl;
+      if (previousUrl) URL.revokeObjectURL(previousUrl);
+      const selected = file.files?.[0];
+      if (!selected) {
+        preview.style.backgroundImage = "";
+        delete preview.dataset.objectUrl;
+        return;
+      }
+      const objectUrl = URL.createObjectURL(selected);
+      preview.dataset.objectUrl = objectUrl;
+      preview.style.backgroundImage = `url('${objectUrl}')`;
+      if (!name.value.trim()) name.value = selected.name.replace(/\.[^.]+$/, "");
+    });
+    const main = document.createElement("div");
+    main.className = "custom-theme-image-main";
+    main.append(fileWrap, previewWrap, paletteWrap);
+    const nameWrap = customThemeField("Image Name", name);
+    nameWrap.classList.add("custom-theme-image-name-field");
+    const actions = document.createElement("div");
+    actions.className = "custom-theme-image-actions";
+    actions.appendChild(remove);
+    row.append(main, nameWrap, actions);
+    customThemeImageList.appendChild(row);
+    updateCustomThemeImageActions();
+  }
+
+  function closeCustomThemeDialog() {
+    if (customThemeDialog) customThemeDialog.hidden = true;
+  }
+
+  function openCustomThemeDialog(section) {
+    if (!customThemeDialog || !customThemeImageList) return;
+    customThemeImageList.querySelectorAll(".custom-theme-preview").forEach((preview) => {
+      if (preview.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl);
+    });
+    customThemeImageList.innerHTML = "";
+    if (customThemeSection) customThemeSection.value = section;
+    if (customThemeName) customThemeName.value = "";
+    if (customThemeStatus) customThemeStatus.textContent = "";
+    addCustomThemeImageRow();
+    customThemeDialog.hidden = false;
+    customThemeName?.focus();
+  }
+
+  function customThemeTarget(section) {
+    const map = {
+      sensorius: ["dashboard_background_theme", "dashboard_background_theme"],
+      caelus: ["weather_forecast_theme", "weather_forecast_theme"],
+      biodynamic: ["biodynamic_calendar_theme", "biodynamic_calendar_theme"],
+    };
+    return map[section] || map.sensorius;
+  }
+
+  function appendCustomThemeCollection(theme) {
+    const [fieldsetId, radioName] = customThemeTarget(String(theme.section || ""));
+    const fieldset = document.getElementById(fieldsetId);
+    if (!fieldset) return;
+    const collection = document.createElement("div");
+    collection.className = "custom-theme-collection";
+    collection.dataset.customThemeId = String(theme.id || "");
+    const head = document.createElement("div");
+    head.className = "custom-theme-collection-head";
+    const title = document.createElement("span");
+    title.className = "custom-theme-collection-name";
+    title.textContent = String(theme.name || "Custom Theme");
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "button red custom-theme-delete";
+    remove.dataset.themeId = String(theme.id || "");
+    remove.textContent = "Delete";
+    head.append(title, remove);
+    const options = document.createElement("div");
+    options.className = "thumbnail-options";
+    (theme.images || []).forEach((image) => {
+      const label = document.createElement("label");
+      label.className = "thumbnail-option";
+      const radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = radioName;
+      radio.value = String(image.selection || "");
+      const thumbnail = document.createElement("span");
+      thumbnail.className = "theme-thumbnail";
+      thumbnail.style.backgroundImage = `url('${String(image.thumbnail_url || "")}')`;
+      const badge = document.createElement("span");
+      badge.className = "custom-theme-badge";
+      badge.textContent = "Custom";
+      const imageName = document.createElement("span");
+      imageName.className = "thumbnail-label";
+      imageName.textContent = String(image.name || "Custom Theme");
+      label.append(radio, thumbnail, badge, imageName);
+      options.appendChild(label);
+    });
+    collection.append(head, options);
+    fieldset.appendChild(collection);
+  }
+
+  async function createCustomTheme() {
+    const rows = Array.from(customThemeImageList?.querySelectorAll(".custom-theme-image-row") || []);
+    const name = String(customThemeName?.value || "").trim();
+    if (!name) {
+      if (customThemeStatus) customThemeStatus.textContent = "Enter a theme name.";
+      return;
+    }
+    const body = new FormData();
+    body.append("section", String(customThemeSection?.value || "sensorius"));
+    body.append("name", name);
+    for (const row of rows) {
+      const file = row.querySelector(".custom-theme-file")?.files?.[0];
+      const imageName = String(row.querySelector(".custom-theme-image-name")?.value || "").trim();
+      const palette = String(row.querySelector(".custom-theme-palette")?.value || "");
+      if (!file || !imageName) {
+        if (customThemeStatus) customThemeStatus.textContent = "Choose and name every image.";
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        if (customThemeStatus) customThemeStatus.textContent = "Each image must be 5 MB or smaller.";
+        return;
+      }
+      body.append("images", file);
+      body.append("image_names", imageName);
+      body.append("palettes", palette);
+    }
+    try {
+      setButtonBusy(customThemeCreate, true, "Creating...");
+      if (customThemeStatus) customThemeStatus.textContent = "Processing images...";
+      const response = await fetch("/api/themes", {method: "POST", body});
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.ok) throw new Error(String(payload.error || "Could not create theme."));
+      appendCustomThemeCollection(payload.theme);
+      closeCustomThemeDialog();
+      showSettingsToast("Custom theme created", "ok");
+    } catch (error) {
+      if (customThemeStatus) customThemeStatus.textContent = error?.message || "Could not create theme.";
+    } finally {
+      setButtonBusy(customThemeCreate, false);
+    }
+  }
+
+  async function deleteCustomTheme(button) {
+    const themeId = String(button?.dataset?.themeId || "");
+    if (!themeId || !window.confirm("Delete this custom theme and its images?")) return;
+    try {
+      setButtonBusy(button, true, "Deleting...");
+      const response = await fetch(`/api/themes/${encodeURIComponent(themeId)}`, {method: "DELETE"});
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.ok) throw new Error(String(payload.error || "Could not delete theme."));
+      const collection = button.closest(".custom-theme-collection");
+      const selected = collection?.querySelector("input[type=radio]:checked");
+      if (selected) {
+        const fallback = {dashboard_background_theme: "leaf", weather_forecast_theme: "pollinator", biodynamic_calendar_theme: "garden_tools"}[selected.name];
+        root.querySelector(`input[name="${selected.name}"][value="${fallback}"]`)?.click();
+      }
+      collection?.remove();
+      showSettingsToast("Custom theme deleted", "ok");
+    } catch (error) {
+      showSettingsToast(error?.message || "Could not delete theme.", "error");
+      setButtonBusy(button, false);
+    }
+  }
+
+  root.querySelectorAll(".open-custom-theme").forEach((button) => button.addEventListener("click", () => openCustomThemeDialog(button.dataset.themeSection || "sensorius")));
+  customThemeAddImage?.addEventListener("click", addCustomThemeImageRow);
+  customThemeCreate?.addEventListener("click", createCustomTheme);
+  document.getElementById("custom-theme-cancel")?.addEventListener("click", closeCustomThemeDialog);
+  customThemeDialog?.addEventListener("click", (event) => { if (event.target === customThemeDialog) closeCustomThemeDialog(); });
+  root.addEventListener("click", (event) => {
+    const button = event.target?.closest?.(".custom-theme-delete");
+    if (button) deleteCustomTheme(button);
+  });
   let onboardSessionState = "";
   let onboardPollTimer = null;
   let onboardCountdownTimer = null;
@@ -2572,7 +2950,9 @@
         applyDashboardWeatherForecastChange(body.get("weather_forecast_provider"));
       }
       if (body.has("dashboard_background_theme")) {
-        applyDashboardBackgroundTheme(body.get("dashboard_background_theme"));
+        const selectedDashboardTheme = String(body.get("dashboard_background_theme") || "");
+        if (selectedDashboardTheme.startsWith("custom:")) scheduleDashboardReloadAfterSettingsSave();
+        else applyDashboardBackgroundTheme(selectedDashboardTheme);
       }
       if (body.has("metric_set") || body.has("unit_system")) {
         scheduleDashboardReloadAfterSettingsSave();
