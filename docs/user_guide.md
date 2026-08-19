@@ -278,6 +278,14 @@ collapsed without moving the section's **Save** button.
   actions appear beneath it. The creator uses the active dashboard theme colors.
   Built-in themes remain read-only; custom collections can be deleted from their
   theme section.
+
+  ![Custom Theme creator on Samhain with one named image and the Pale Fruit palette](<../assets/screenshots/system-settings-custom-theme.png>)
+
+  Select **Add Image** to append another image editor. The Add Image action
+  follows the final row, while every removable row keeps **Remove Image** at
+  the right edge.
+
+  ![Custom Theme creator on Samhain with two named images and different pale palettes](<../assets/screenshots/system-settings-custom-theme-images.png>)
 - **Save**: writes the display defaults. Reload the dashboard to see changes
   that are not applied immediately.
 
