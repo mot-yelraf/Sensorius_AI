@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from astral import LocationInfo
 from astral.moon import azimuth as moon_azimuth
 from astral.moon import elevation as moon_elevation
+from astral.moon import moonrise, moonset
 from astral.moon import phase
 from astral.sun import azimuth as sun_azimuth
 from astral.sun import elevation as sun_elevation
@@ -470,7 +471,36 @@ def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, An
             float(settings.latitude),
             float(settings.longitude),
         )
-        solar = sun(location.observer, date=local.date(), tzinfo=tzinfo)
+        today = local.date()
+        tomorrow = today + timedelta(days=1)
+        solar = sun(location.observer, date=today, tzinfo=tzinfo)
+        next_solar = sun(location.observer, date=tomorrow, tzinfo=tzinfo)
+
+        def _lunar_event_for_day(event_fn, event_date):
+            try:
+                return event_fn(location.observer, date=event_date, tzinfo=tzinfo)
+            except ValueError:
+                return None
+
+        local_moonrise = _lunar_event_for_day(moonrise, today)
+        local_moonset = _lunar_event_for_day(moonset, today)
+        next_moonrise = _lunar_event_for_day(moonrise, tomorrow)
+        next_moonset = _lunar_event_for_day(moonset, tomorrow)
+        timeline_start = solar["sunrise"]
+        timeline_end = next_solar["sunrise"]
+
+        def _event_in_timeline(*events):
+            return next(
+                (
+                    event
+                    for event in events
+                    if isinstance(event, datetime) and timeline_start <= event <= timeline_end
+                ),
+                None,
+            )
+
+        timeline_moonrise = _event_in_timeline(local_moonrise, next_moonrise)
+        timeline_moonset = _event_in_timeline(local_moonset, next_moonset)
         effective_sunset = solar["sunset"]
         if effective_sunset <= solar["sunrise"]:
             effective_sunset += timedelta(days=1)
@@ -492,9 +522,21 @@ def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, An
         result.update(
             sunrise=solar["sunrise"].strftime("%H:%M"),
             sunset=solar["sunset"].strftime("%H:%M"),
+            next_sunrise=next_solar["sunrise"].strftime("%H:%M"),
+            moonrise=local_moonrise.strftime("%H:%M") if local_moonrise else "—",
+            moonset=local_moonset.strftime("%H:%M") if local_moonset else "—",
+            timeline_moonrise=timeline_moonrise.strftime("%H:%M") if timeline_moonrise else "—",
+            timeline_moonset=timeline_moonset.strftime("%H:%M") if timeline_moonset else "—",
+            timeline_start_at=timeline_start.isoformat(),
+            timeline_sunset_at=effective_sunset.isoformat(),
+            timeline_end_at=timeline_end.isoformat(),
+            timeline_moonrise_at=timeline_moonrise.isoformat() if timeline_moonrise else "",
+            timeline_moonset_at=timeline_moonset.isoformat() if timeline_moonset else "",
             solar_noon=solar["noon"].strftime("%H:%M"),
             sunrise_display=_clock_label(solar["sunrise"]),
             sunset_display=_clock_label(solar["sunset"]),
+            moonrise_display=_clock_label(local_moonrise) if local_moonrise else "No rise today",
+            moonset_display=_clock_label(local_moonset) if local_moonset else "No set today",
             solar_noon_display=_clock_label(solar["noon"]),
             daylight_hours=round(daylight_seconds / 3600, 2),
             daylight_duration=f"{daylight_minutes // 60}h {daylight_minutes % 60:02d}m",
@@ -525,9 +567,21 @@ def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, An
         result.update(
             sunrise="—",
             sunset="—",
+            next_sunrise="—",
+            moonrise="—",
+            moonset="—",
+            timeline_moonrise="—",
+            timeline_moonset="—",
+            timeline_start_at="",
+            timeline_sunset_at="",
+            timeline_end_at="",
+            timeline_moonrise_at="",
+            timeline_moonset_at="",
             solar_noon="—",
             sunrise_display="—",
             sunset_display="—",
+            moonrise_display="—",
+            moonset_display="—",
             solar_noon_display="—",
             daylight_hours=None,
             daylight_duration="—",

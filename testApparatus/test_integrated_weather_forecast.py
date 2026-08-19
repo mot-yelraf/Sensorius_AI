@@ -258,8 +258,12 @@ def test_windy_map_requires_deliberate_interaction():
     assert 'tabindex="-1"' in template
     assert 'windyGuard.addEventListener("click"' in script
     assert 'windyInteraction.addEventListener("mouseleave"' in script
-    assert "window.CaelusMoon = Object.freeze({renderMoonDisk});" in moon_script
+    assert 'const MOON_VIEW_STORAGE_KEY = "sensorius.moonViewMode";' in moon_script
+    assert "referenceBrightLimbAngle = localBrightLimbAngle - localDiskRotation" in moon_script
+    assert "window.CaelusMoon = Object.freeze({getViewMode, renderAllMoonDisks, renderMoonDisk, setViewMode});" in moon_script
     assert "const renderMoonDisk = window.CaelusMoon?.renderMoonDisk" in script
+    assert 'label.textContent = "Reference orientation · lunar north up";' in script
+    assert 'window.addEventListener("sensorius:moon-view-change"' in script
 
 
 def test_windy_interaction_prompt_sits_on_map_top_border():
@@ -337,12 +341,23 @@ def test_sunlight_card_uses_ampm_times_and_current_polar_daylight():
                 "location_name": "Test station",
             },
         )(),
-        datetime(2026, 8, 10, 18, tzinfo=timezone.utc),
+        datetime(2026, 8, 19, 18, tzinfo=timezone.utc),
     )
 
     assert context["sunrise_display"].endswith(" AM")
     assert context["solar_noon_display"].endswith(" PM")
     assert context["sunset_display"].endswith(" PM")
+    assert context["moonrise_display"].endswith((" AM", " PM")) or context["moonrise_display"] == "No rise today"
+    assert context["moonset_display"].endswith((" AM", " PM")) or context["moonset_display"] == "No set today"
+    timeline_start = datetime.fromisoformat(context["timeline_start_at"])
+    timeline_sunset = datetime.fromisoformat(context["timeline_sunset_at"])
+    timeline_end = datetime.fromisoformat(context["timeline_end_at"])
+    timeline_moonrise = datetime.fromisoformat(context["timeline_moonrise_at"])
+    timeline_moonset = datetime.fromisoformat(context["timeline_moonset_at"])
+    assert timeline_start < timeline_sunset < timeline_end
+    assert timeline_start <= timeline_moonrise <= timeline_end
+    assert timeline_start <= timeline_moonset <= timeline_end
+    assert context["next_sunrise"] == timeline_end.strftime("%H:%M")
     assert context["north_pole_daylight"] == "24h 00m"
     assert context["south_pole_daylight"] == "0h 00m"
     assert context["next_season_label"] == "September Equinox"
@@ -393,10 +408,24 @@ def test_sunlight_card_uses_three_semantic_text_colors():
 def test_lunar_strip_uses_dates_and_does_not_symmetrize_local_orientation():
     template = (ROOT / "ui_templates" / "weather_forecast" / "index.html").read_text()
     script = (ROOT / "ui_static" / "weather_forecast" / "app.js").read_text()
+    css = (ROOT / "ui_static" / "weather_forecast" / "app.css").read_text()
 
     assert 'data-lunar-period="previous"' in template
     assert 'data-lunar-period="upcoming"' in template
     assert "data-phase-date" in template
+    assert 'id="lunarEventTimeline"' in template
+    assert 'id="forecastNextSunriseMarker"' in template
+    assert 'id="forecastMoonriseMarker"' in template
+    assert 'id="forecastMoonsetMarker"' in template
+    assert 'id="nextSunriseTime"' in template
+    assert 'id="lunarMoonriseTime"' in template
+    assert 'id="lunarMoonsetTime"' in template
+    assert "function renderLunarEventTimeline(moon)" in script
+    assert 'positionLunarEventMarker("forecastSunsetMarker", sunsetAt, startAt, endAt);' in script
+    assert 'positionLunarEventMarker("forecastMoonriseMarker", moonriseAt, startAt, endAt);' in script
+    assert 'positionLunarEventMarker("forecastMoonsetMarker", moonsetAt, startAt, endAt);' in script
+    assert ".lunar-event-row-sun .lunar-event-track" in css
+    assert ".lunar-event-row-moon .lunar-event-marker strong" in css
     assert "pairedPhaseCycle" not in script
     assert 'updatePhaseStrip("previous", moon.previous_phases || [])' in script
 

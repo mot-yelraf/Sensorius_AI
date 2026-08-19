@@ -1,8 +1,37 @@
 (function () {
+  const MOON_VIEW_STORAGE_KEY = "sensorius.moonViewMode";
   const moonSurfaceImage = new Image();
   const moonRenders = new Map();
 
-  function renderMoonDisk(canvas, moon) {
+  function normalizeViewMode(mode) {
+    return mode === "reference" ? "reference" : "local";
+  }
+
+  function getViewMode() {
+    try {
+      return normalizeViewMode(window.localStorage.getItem(MOON_VIEW_STORAGE_KEY));
+    } catch (_error) {
+      return "local";
+    }
+  }
+
+  function renderAllMoonDisks() {
+    moonRenders.forEach((moon, canvas) => renderMoonDisk(canvas, moon));
+  }
+
+  function setViewMode(mode) {
+    const nextMode = normalizeViewMode(mode);
+    try {
+      window.localStorage.setItem(MOON_VIEW_STORAGE_KEY, nextMode);
+    } catch (_error) {
+      // A private browsing policy may make localStorage unavailable.
+    }
+    renderAllMoonDisks();
+    window.dispatchEvent(new CustomEvent("sensorius:moon-view-change", {detail: {mode: nextMode}}));
+    return nextMode;
+  }
+
+  function renderMoonDisk(canvas, moon, requestedMode) {
     if (!canvas) return;
     moonRenders.set(canvas, moon);
     const context = canvas.getContext("2d");
@@ -16,8 +45,12 @@
       illuminationPercent = canonicalIllumination[phaseIndex] ?? 0;
     }
     const illumination = Math.max(0, Math.min(100, illuminationPercent)) / 100;
-    const angle = Number(moon.bright_limb_angle || 0) * Math.PI / 180;
-    const diskRotation = Number(moon.disk_rotation || 0) * Math.PI / 180;
+    const viewMode = normalizeViewMode(requestedMode || getViewMode());
+    const localBrightLimbAngle = Number(moon.bright_limb_angle || 0);
+    const localDiskRotation = Number(moon.disk_rotation || 0);
+    const referenceBrightLimbAngle = localBrightLimbAngle - localDiskRotation;
+    const angle = (viewMode === "reference" ? referenceBrightLimbAngle : localBrightLimbAngle) * Math.PI / 180;
+    const diskRotation = (viewMode === "reference" ? 0 : localDiskRotation) * Math.PI / 180;
     const rotationCosine = Math.cos(diskRotation);
     const rotationSine = Math.sin(diskRotation);
     const width = canvas.width;
@@ -75,15 +108,21 @@
     context.strokeStyle = "rgba(255, 240, 198, 0.28)";
     context.lineWidth = 1.5;
     context.stroke();
-    canvas.setAttribute("aria-label", `Observer-local view of the ${moon.name}, ${illuminationPercent} percent illuminated`);
+    const viewLabel = viewMode === "reference" ? "Reference north-up view" : "Observer-local view";
+    canvas.setAttribute("aria-label", `${viewLabel} of the ${moon.name}, ${illuminationPercent} percent illuminated`);
     canvas.title = moon.representative_date
-      ? `${moon.name} · local view near lunar transit on ${moon.representative_date}`
-      : `${moon.name} · local view now`;
+      ? `${moon.name} · ${viewMode === "reference" ? "reference view" : "local view near lunar transit"} on ${moon.representative_date}`
+      : `${moon.name} · ${viewMode === "reference" ? "reference view" : "local view"} now`;
   }
 
   moonSurfaceImage.addEventListener("load", () => {
-    moonRenders.forEach((moon, canvas) => renderMoonDisk(canvas, moon));
+    renderAllMoonDisks();
+  });
+  window.addEventListener("storage", (event) => {
+    if (event.key !== MOON_VIEW_STORAGE_KEY) return;
+    renderAllMoonDisks();
+    window.dispatchEvent(new CustomEvent("sensorius:moon-view-change", {detail: {mode: getViewMode()}}));
   });
   moonSurfaceImage.src = "/ui_static/weather_forecast/moon-surface.png?v=1";
-  window.CaelusMoon = Object.freeze({renderMoonDisk});
+  window.CaelusMoon = Object.freeze({getViewMode, renderAllMoonDisks, renderMoonDisk, setViewMode});
 })();

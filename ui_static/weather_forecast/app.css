@@ -459,9 +459,9 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
   display: grid;
   grid-template-columns: 1fr minmax(15rem, 0.72fr) 1fr;
   align-items: center;
-  min-height: 14rem;
+  min-height: 17rem;
   margin-top: 0.85rem;
-  padding: 1.25rem 1.5rem 2.5rem;
+  padding: 1.25rem 1.5rem 4.8rem;
   background: linear-gradient(105deg, rgba(4, 16, 40, 0.94), rgba(7, 35, 51, 0.78));
 }
 .lunar-arc {
@@ -485,9 +485,21 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
 .lunar-current h2 { margin: 0.2rem 0 0; font: 500 1.25rem Georgia, serif; }
 .lunar-current p:last-child { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.65rem; }
 .observer-view-label { color: var(--accent-2); font-size: 0.52rem; letter-spacing: 0.08em; text-transform: uppercase; }
-.solar-times { position: absolute; left: 1.5rem; right: 1.5rem; bottom: 0.75rem; display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 0.62rem; }
-.solar-times strong { color: var(--warm); }
-.solar-times small { color: rgba(235,247,240,.42); }
+.lunar-event-footer { position: absolute; left: 1.5rem; right: 1.5rem; bottom: 0.45rem; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 1rem; color: var(--muted); font-size: 0.58rem; }
+.lunar-event-timeline { display: grid; gap: 0.3rem; min-width: 0; }
+.lunar-event-row { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); align-items: center; gap: 0.55rem; }
+.lunar-event-row-title { color: rgba(235,247,240,.58); font-size: 0.48rem; font-weight: 750; letter-spacing: 0.13em; text-align: right; text-transform: uppercase; }
+.lunar-event-track { position: relative; height: 1.12rem; margin-top: 0.72rem; border-top: 1px solid rgba(126,196,193,.48); }
+.lunar-event-row-sun .lunar-event-track { border-color: rgba(239,189,101,.68); }
+.lunar-event-marker { position: absolute; left: var(--timeline-left, 50%); top: -0.72rem; display: grid; justify-items: center; min-width: 4.3rem; transform: translateX(-50%); white-space: nowrap; }
+.lunar-event-marker::after { width: 1px; height: 0.65rem; margin-top: 0.1rem; background: currentColor; content: ""; opacity: 0.72; }
+.lunar-event-marker span { color: var(--muted); font-size: 0.47rem; letter-spacing: 0.05em; text-transform: uppercase; }
+.lunar-event-marker strong { color: var(--warm); font-size: 0.58rem; }
+.lunar-event-row-moon .lunar-event-marker strong { color: var(--accent-2); }
+.lunar-event-marker.is-start { justify-items: start; transform: none; }
+.lunar-event-marker.is-end { justify-items: end; transform: translateX(-100%); }
+.lunar-event-marker.is-unavailable { display: none; }
+.lunar-event-footer > small { align-self: end; color: rgba(235,247,240,.42); white-space: nowrap; }
 
 .conditions-row { display: grid; grid-template-columns: 0.82fr 1.48fr 0.82fr; gap: 0.85rem; align-items: stretch; }
 .readings-panel, .forecast-panel, .daylight-card { min-height: 32rem; padding: 1.25rem; }
@@ -741,12 +753,16 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
   .theme-option { grid-template-columns: 5rem 1fr; }
   .modal-footer p { display: none; }
   .modal-footer { justify-content: flex-end; }
-  .lunar-header { grid-template-columns: 1fr; padding-top: 1rem; }
+  .lunar-header { grid-template-columns: 1fr; min-height: 28rem; padding: 1rem 0.65rem 5rem; }
   .lunar-side { width: 100%; max-width: 34rem; margin: 0 auto; }
   .lunar-current { margin-top: 0; }
   .lunar-current-disk { width: 5.4rem; height: 5.4rem; }
   .lunar-arc { left: 16%; right: 16%; }
-  .solar-times small { display: none; }
+  .lunar-event-footer { left: 0.6rem; right: 0.6rem; grid-template-columns: 1fr; }
+  .lunar-event-footer > small { display: none; }
+  .lunar-event-row { grid-template-columns: 2rem minmax(0, 1fr); gap: 0.35rem; }
+  .lunar-event-marker { min-width: 3.7rem; }
+  .lunar-event-marker span { font-size: 0.42rem; }
   .conditions-row { grid-template-columns: 1fr; }
   .readings-panel, .forecast-panel, .daylight-card { min-height: auto; }
   .hourly-strip { grid-template-columns: repeat(4, 1fr); row-gap: 0.8rem; }

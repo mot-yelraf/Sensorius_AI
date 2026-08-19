@@ -839,7 +839,19 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "id='moonCalendarBtn' aria-label='Open Lunar Calendar'" in html
     assert "<span class='bio-open-btn-label'>Lunar Calendar</span>" in html
     assert "id='caelusMoonDialogTitle'>Lunar Calendar</h2>" in html
+    assert "id='caelusMoonViewLocal' data-moon-view='local'" in html
+    assert "id='caelusMoonViewReference' data-moon-view='reference'" in html
     assert "id='caelusMoonClose' aria-label='Close Lunar Calendar'" in html
+    assert "id='caelusMoonrise'" in html
+    assert "id='caelusMoonset'" in html
+    assert "id='caelusNextSunrise'" in html
+    assert "function positionCaelusTimelineMarker(markerId, eventAt, startAt, endAt)" in html
+    assert "setCaelusMoonText('caelusMoonrise', moon.timeline_moonrise);" in html
+    assert "setCaelusMoonText('caelusMoonset', moon.timeline_moonset);" in html
+    assert "positionCaelusTimelineMarker('caelusSunsetMarker', moon.timeline_sunset_at" in html
+    assert "positionCaelusTimelineMarker('caelusMoonriseMarker', moon.timeline_moonrise_at" in html
+    assert "positionCaelusTimelineMarker('caelusMoonsetMarker', moon.timeline_moonset_at" in html
+    assert "grid-template-columns:minmax(0,1fr) auto" in html
     assert ".moon-layout{width:100%;max-width:100%;margin:-.18rem auto -.08rem;" in html
     assert ".moon-card-actions{margin-top:auto;}" in html
     assert "openSunMoon29Day();" in html
@@ -850,6 +862,9 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "renderCaelusPhaseSide('caelusUpcomingPhases', 'Upcoming phases', moon.upcoming_phases);" in html
     assert "fetch('/api/weather-forecast-app/astronomy', {cache:'no-store'})" in html
     assert "/ui_static/weather_forecast/moon.js" in html
+    assert "window.localStorage.getItem('sensorius.moonViewMode')" in html
+    assert "document.querySelectorAll('[data-moon-view]').forEach" in html
+    assert "Reference orientation · lunar north up" in html
     assert "id='sunMoon29Canvas'" in html
     assert "29 Day Sun/Moon Position" in html
     assert "id='sunMoon29Close' aria-label='Close 29 Day Sun/Moon Position'" in html

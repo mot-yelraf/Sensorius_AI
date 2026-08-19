@@ -34,3 +34,31 @@ test('renders the Sensorius dashboard and expands additional metrics', async ({ 
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
   await expect(sensorGroup.locator('.metric-container').last()).toBeVisible();
 });
+
+test('shares and persists the Lunar Calendar view mode', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await page.evaluate(() => localStorage.removeItem('sensorius.moonViewMode'));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+
+  await page.locator('#moonCalendarBtn').click();
+  await expect(page.locator('#caelusMoonViewLocal')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('#caelusCurrentMoonDisk').evaluate((canvas) => {
+    window.CaelusMoon.renderMoonDisk(canvas, {
+      name: 'First quarter',
+      illumination: 50,
+      bright_limb_angle: 135,
+      disk_rotation: 42,
+    });
+  });
+  const localDisk = await page.locator('#caelusCurrentMoonDisk').evaluate((canvas) => canvas.toDataURL());
+
+  await page.locator('#caelusMoonViewReference').click();
+  await expect(page.locator('#caelusMoonViewReference')).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('sensorius.moonViewMode'))).toBe('reference');
+  const referenceDisk = await page.locator('#caelusCurrentMoonDisk').evaluate((canvas) => canvas.toDataURL());
+  expect(referenceDisk).not.toBe(localDisk);
+  await expect(page.locator('#caelusCurrentMoonDisk')).toHaveAttribute('aria-label', /Reference north-up view/);
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#moonViewReference')).toHaveAttribute('aria-pressed', 'true');
+});

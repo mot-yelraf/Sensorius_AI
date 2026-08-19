@@ -90,7 +90,13 @@ Dashboard data comes from the latest values in the live runtime cache and from t
 
    Select **Lunar Calendar** on the dashboard's **Lunar Calendar Tile** to open
    the Caelus observer-local phase timeline: four previous phases, the live Moon
-   and its current details, and four upcoming phases with dates.
+   and its current details, four upcoming phases with dates, and today's local
+   solar and lunar events. Its lower timeline runs from today's sunrise to the
+   next sunrise, with sunrise and sunset on the Sun row and chronologically
+   interlaced moonrise and moonset markers on the Moon row. Use **Local** beside
+   the calendar title for the observer's sky orientation or **Ref** for a
+   lunar-north-up reference view. The saved choice also controls the Moon disks
+   in the integrated Caelus Forecast Lunar Calendar.
 
 4. The **Sun/Moon Position Tile**.
 
@@ -1123,6 +1129,9 @@ milestones appear chronologically on the left, and the next four appear on the
 right, with each phase's local date below its name. Every disk is oriented for
 the configured Astral location near the Moon's highest point on that date.
 Full-moon milestones use familiar traditional names such as **Harvest Moon**.
+Below the phases, a shared timeline runs from today's sunrise to the next
+sunrise. Sunrise, sunset, and next sunrise appear on the Sun row; moonrise and
+moonset are chronologically interlaced on the Moon row using the same scale.
 
 Current Readings displays the selected sensor's configured **Display Metrics**
 in their saved order, including their standard Sensorius units, and identifies
