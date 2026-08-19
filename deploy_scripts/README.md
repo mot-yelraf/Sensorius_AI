@@ -25,11 +25,17 @@ Requirements files in this folder include:
 - `setup_win.ps1`: Windows + pip path
 - `setup_win_uv.ps1`: Windows + uv path
 
-Shell and PowerShell setup scripts deploy app files from your cloned repo into:
+Shell and PowerShell setup scripts display a native folder chooser where one is
+available, then deploy app files from your cloned repo into a `Sensorius`
+directory beneath the selected folder. The initial default remains:
 
 - `~/Sensorius`
 
-That path is used for runtime execution and service working directories.
+The selected absolute path is saved per user and offered again during later
+installer runs. Set `SENSORIUS_INSTALL_DIR` or `PROJECT_DIR` to an exact
+absolute application directory for unattended installation. The chosen path
+is used for runtime execution and service working directories. It does not
+change `deploy_sai.sh` inventory targets.
 
 ## Mosquitto Scope
 

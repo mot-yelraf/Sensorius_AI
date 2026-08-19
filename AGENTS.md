@@ -345,6 +345,12 @@ entities. Do not rename metrics casually.
 
 Prefer the smallest relevant verification first.
 
+Before creating a commit or handing off work intended for a pull request, run
+the host-side browser gate with `npm run validate:pr`. The gate starts the
+isolated `testApparatus.playwright_host` fixture and validates the rendered
+Sensorius dashboard in local Chromium; it must not be moved back into GitHub
+Actions unless explicitly requested.
+
 ### Web UI Verification Environment
 
 - Playwright and Google Chrome are installed on this system and should be used

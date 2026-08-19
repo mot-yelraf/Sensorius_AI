@@ -1,10 +1,27 @@
 # Setup Guide
 
-Sensorius setup scripts install the runtime under the user's home directory,
-for example `/home/<user>/Sensorius` on Linux or
-`/Users/<user>/Sensorius` on macOS, and configure the web UI, Python
-environment, optional GUI support, Mosquitto, and service or autostart behavior
-for the target platform.
+Sensorius setup scripts ask where to install the runtime and create or reuse a
+`Sensorius` directory beneath the selected folder. The selector starts in the
+user's home directory by default, producing `/home/<user>/Sensorius` on Linux,
+`/Users/<user>/Sensorius` on macOS, or `C:\Users\<user>\Sensorius` on Windows.
+The selected absolute path is remembered for repairs and later installer runs.
+The scripts then configure the web UI, Python environment, optional GUI
+support, Mosquitto, and service or autostart behavior for the target platform.
+
+macOS uses its native folder chooser. Windows uses the native Windows Forms
+folder chooser. Graphical Linux installs prefer Zenity or KDialog and fall back
+to Python's Tk folder chooser; terminal-only installs offer a text prompt or
+reuse the remembered location when non-interactive. Linux and macOS remember
+the location in `/home/<user>/.config/sensorius/install-location` or
+`/Users/<user>/.config/sensorius/install-location` unless `XDG_CONFIG_HOME` is
+set. Windows uses
+`C:\Users\<user>\AppData\Local\Sensorius\install-location.txt`.
+
+Set `SENSORIUS_INSTALL_DIR` or the existing `PROJECT_DIR` override to an exact
+absolute application directory for unattended installs. Explicit paths skip
+the chooser and become the remembered location. This selection applies to the
+source-based app installers, not `deploy_scripts/deploy_sai.sh` or native
+system packages generated under `platform_installers/`.
 
 Review setup scripts before running them on production devices. They are
 designed to be idempotent, but platform package managers, service managers, and

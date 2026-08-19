@@ -5,7 +5,8 @@ $PY_MM = if ($PY_VERSION -match '^(\d+\.\d+)') { $Matches[1] } else { '3.13' }
 $PY_WINGET_ID = if ($env:PY_WINGET_ID) { $env:PY_WINGET_ID } else { 'Python.Python.3.13' }
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $SourceRepoDir = Split-Path -Parent $ScriptDir
-$ProjectDir = if ($env:PROJECT_DIR) { $env:PROJECT_DIR } else { Join-Path $HOME 'Sensorius' }
+. (Join-Path $ScriptDir 'setup_install_location.ps1')
+$ProjectDir = Resolve-SensoriusInstallLocation
 $VenvPath = if ($env:VENV_PATH) { $env:VENV_PATH } else { Join-Path $ProjectDir '.venv' }
 $ReqFile = if ($env:REQ_FILE) { $env:REQ_FILE } else { Join-Path $ScriptDir 'setup_reqs_win.txt' }
 $InstallPywebview = if ($env:INSTALL_PYWEBVIEW) { $env:INSTALL_PYWEBVIEW } else { '1' }

@@ -48,6 +48,7 @@ main() {
 
   # shellcheck disable=SC1091
   source "${DEPLOY_DIR}/setup_common.sh"
+  resolve_sensorius_install_location
   start_install_log "$0" "$@"
 
   local manager target uname_s codename

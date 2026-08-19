@@ -3,12 +3,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-PROJECT_DIR="${PROJECT_DIR:-$HOME/Sensorius}"
-VENV_PATH="${VENV_PATH:-${PROJECT_DIR}/.venv}"
 REQ_FILE="${REQ_FILE:-${SCRIPT_DIR}/setup_reqs_linux.txt}"
 
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/setup_common.sh"
+resolve_sensorius_install_location
+VENV_PATH="${VENV_PATH:-${PROJECT_DIR}/.venv}"
 start_install_log "$0" "$@"
 
 deploy_project_files

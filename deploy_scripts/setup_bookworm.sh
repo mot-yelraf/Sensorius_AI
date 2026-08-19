@@ -3,10 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-PROJECT_DIR="${PROJECT_DIR:-$HOME/Sensorius}"
 
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/setup_common.sh"
+resolve_sensorius_install_location
 start_install_log "$0" "$@"
 
 deploy_project_files

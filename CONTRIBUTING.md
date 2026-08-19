@@ -135,6 +135,20 @@ When submitting changes, describe:
 Place new automated tests under `testApparatus/` and keep hardware-dependent
 assumptions explicit.
 
+Before committing work intended for a pull request, run the host-side browser
+validation:
+
+```bash
+npm ci
+npm run validate:pr
+```
+
+This starts an isolated local Sensorius fixture host and runs Chromium through
+the project Playwright checks. It does not start sensor, MQTT, service, or
+production runtime tasks, and it does not rely on GitHub Actions. Install the
+local Chromium bundle once with `npx playwright install chromium` if Playwright
+reports that the browser executable is missing.
+
 ## Pull Request Guidelines
 
 Pull requests should:

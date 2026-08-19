@@ -3,7 +3,156 @@ set -euo pipefail
 
 SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 SOURCE_REPO_DIR="${SOURCE_REPO_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
-PROJECT_DIR="${PROJECT_DIR:-$HOME/Sensorius}"
+
+sensorius_install_user_home() {
+  local account="${SUDO_USER:-}" resolved=""
+  if [[ -n "${account}" && "${account}" != "root" ]]; then
+    if command -v getent >/dev/null 2>&1; then
+      resolved="$(getent passwd "${account}" 2>/dev/null | awk -F: 'NR == 1 {print $6}')"
+    elif command -v dscl >/dev/null 2>&1; then
+      resolved="$(dscl . -read "/Users/${account}" NFSHomeDirectory 2>/dev/null | awk 'NR == 1 {print $2}')"
+    fi
+  fi
+  printf '%s\n' "${resolved:-$HOME}"
+}
+
+choose_sensorius_install_parent() {
+  local initial_parent="$1" python_bin=""
+  case "$(uname -s)" in
+    Darwin)
+      osascript - "${initial_parent}" <<'APPLESCRIPT'
+on run argv
+  set initialFolder to POSIX file (item 1 of argv)
+  set chosenFolder to choose folder with prompt "Choose where Sensorius should be installed. A Sensorius folder will be created here." default location initialFolder
+  return POSIX path of chosenFolder
+end run
+APPLESCRIPT
+      ;;
+    Linux)
+      if [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]] && command -v zenity >/dev/null 2>&1; then
+        zenity --file-selection --directory --title="Choose where Sensorius should be installed" --filename="${initial_parent}/"
+        return
+      fi
+      if [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]] && command -v kdialog >/dev/null 2>&1; then
+        kdialog --getexistingdirectory "${initial_parent}" --title "Choose where Sensorius should be installed"
+        return
+      fi
+      if [[ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
+        return 2
+      fi
+      if command -v python3 >/dev/null 2>&1; then
+        python_bin="$(command -v python3)"
+      elif command -v python >/dev/null 2>&1; then
+        python_bin="$(command -v python)"
+      else
+        return 2
+      fi
+      "${python_bin}" - "${initial_parent}" <<'PYTHON'
+import sys
+
+try:
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    root.update_idletasks()
+    selected = filedialog.askdirectory(
+        title="Choose where Sensorius should be installed",
+        initialdir=sys.argv[1],
+        mustexist=True,
+    )
+    root.destroy()
+except Exception:
+    raise SystemExit(2)
+
+if not selected:
+    raise SystemExit(1)
+print(selected)
+PYTHON
+      ;;
+    *) return 2 ;;
+  esac
+}
+
+remember_sensorius_install_location() {
+  local state_dir="$1" state_file="$2" install_dir="$3" state_temp
+  mkdir -p "${state_dir}"
+  state_temp="${state_file}.tmp.$$"
+  printf '%s\n' "${install_dir}" > "${state_temp}"
+  mv "${state_temp}" "${state_file}"
+  if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+    chown -R "${SUDO_USER}" "${state_dir}" 2>/dev/null || true
+  fi
+}
+
+resolve_sensorius_install_location() {
+  if [[ "${SENSORIUS_INSTALL_LOCATION_RESOLVED:-0}" == "1" ]]; then
+    return
+  fi
+
+  local install_home default_dir state_root state_dir state_file remembered_dir
+  local initial_parent selected_parent selection_status=0
+  install_home="$(sensorius_install_user_home)"
+  default_dir="${install_home}/Sensorius"
+  if [[ -n "${XDG_CONFIG_HOME:-}" && -z "${SUDO_USER:-}" ]]; then
+    state_root="${XDG_CONFIG_HOME}"
+  else
+    state_root="${install_home}/.config"
+  fi
+  state_dir="${state_root}/sensorius"
+  state_file="${state_dir}/install-location"
+  remembered_dir=""
+  if [[ -f "${state_file}" ]]; then
+    IFS= read -r remembered_dir < "${state_file}" || true
+  fi
+  case "${remembered_dir}" in
+    ""|/) remembered_dir="${default_dir}" ;;
+  esac
+
+  if [[ -n "${SENSORIUS_INSTALL_DIR:-}" ]]; then
+    PROJECT_DIR="${SENSORIUS_INSTALL_DIR}"
+  elif [[ -n "${PROJECT_DIR:-}" ]]; then
+    PROJECT_DIR="${PROJECT_DIR}"
+  else
+    initial_parent="$(dirname -- "${remembered_dir}")"
+    if [[ ! -d "${initial_parent}" ]]; then
+      initial_parent="${install_home}"
+    fi
+    selected_parent="$(choose_sensorius_install_parent "${initial_parent}")" || selection_status=$?
+    if [[ "${selection_status}" -eq 1 ]]; then
+      echo "Sensorius installation was cancelled." >&2
+      return 1
+    elif [[ "${selection_status}" -eq 0 && -n "${selected_parent}" ]]; then
+      PROJECT_DIR="${selected_parent%/}/Sensorius"
+    elif [[ -t 0 ]]; then
+      printf 'Install Sensorius under which directory? [%s] ' "${initial_parent}"
+      IFS= read -r selected_parent
+      selected_parent="${selected_parent:-$initial_parent}"
+      PROJECT_DIR="${selected_parent%/}/Sensorius"
+    else
+      PROJECT_DIR="${remembered_dir}"
+      echo "No graphical folder chooser is available; using ${PROJECT_DIR}"
+    fi
+  fi
+
+  case "${PROJECT_DIR}" in
+    ""|/|"${install_home}")
+      echo "Install location must name a dedicated Sensorius directory." >&2
+      return 1
+      ;;
+    /*) ;;
+    *)
+      echo "Install location must be an absolute path: ${PROJECT_DIR}" >&2
+      return 1
+      ;;
+  esac
+  mkdir -p "${PROJECT_DIR}"
+  PROJECT_DIR="$(cd "${PROJECT_DIR}" && pwd -P)"
+  remember_sensorius_install_location "${state_dir}" "${state_file}" "${PROJECT_DIR}"
+  export PROJECT_DIR
+  export SENSORIUS_INSTALL_LOCATION_RESOLVED=1
+}
 
 _log_command_first_line() {
   local label="$1"
