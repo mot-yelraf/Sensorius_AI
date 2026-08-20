@@ -131,7 +131,9 @@ def test_generic_automation_toast_is_persistent_and_click_dismissible():
     ]
 
     assert "automation-notification-toast" in branch
-    assert "`${name} - ${device}\\n${metric} = ${value}${unit} @ ${when}`" in branch
+    assert "`${name} @ ${when}\\n${conditionText}\\n${valueText}`" in branch
+    assert "conditions.join(' OR ')" in branch
+    assert "triggerValues.join('; ')" in branch
     assert "msg.trigger && typeof msg.trigger === 'object'" in branch
     assert "msg.details" not in branch
     assert "msg.occurred_at" in branch

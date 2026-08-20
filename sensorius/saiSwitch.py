@@ -1547,10 +1547,13 @@ class SwitchController:
                 return
 
             details: list[str] = []
+            trigger_conditions: list[str] = []
+            trigger_values: list[str] = []
             trigger: dict = {}
             for group in evaluated_groups:
                 if not bool(group.get("result", False)):
                     continue
+                group_conditions: list[str] = []
                 for cond, result in group.get("conditions", []):
                     if not bool(result):
                         continue
@@ -1562,7 +1565,15 @@ class SwitchController:
                     )
                     if detail and detail not in details:
                         details.append(detail)
-                    if trigger or str(cond.get("type", "") or "").strip().lower() != "sensor":
+                    ctype = str(cond.get("type", "") or "").strip().lower()
+                    if ctype != "sensor":
+                        report = self._automation_condition_report(
+                            cond,
+                            True,
+                            current_values_map,
+                        )
+                        group_conditions.append(report.removeprefix("[TRUE] "))
+                        trigger_values.append("Triggered")
                         continue
                     sensor_id = str(cond.get("sensor", "") or "").strip()
                     metric = str(cond.get("metric", "") or "").strip()
@@ -1598,13 +1609,26 @@ class SwitchController:
                         unit = str(metric_meta_for_metric(metric).get("unit", "") or "")
                     except Exception:
                         pass
-                    trigger = {
+                    op = str(cond.get("op", ">") or ">").strip()
+                    threshold = cond.get("value")
+                    group_conditions.append(
+                        f"{device_name or sensor_id or 'Unknown device'} "
+                        f"{metric or 'Unknown metric'} {op} {threshold}"
+                    )
+                    trigger_values.append(
+                        f"{'unavailable' if actual is None else actual}{unit}"
+                    )
+                    sensor_trigger = {
                         "device": device_name or sensor_id or "Unknown device",
                         "sensor_id": sensor_id,
                         "metric": metric or "Unknown metric",
                         "value": "unavailable" if actual is None else actual,
                         "unit": unit,
                     }
+                    if not trigger:
+                        trigger = sensor_trigger
+                if group_conditions:
+                    trigger_conditions.append(" AND ".join(group_conditions))
 
             display_name = str(rule_name or rule_id).strip() or str(rule_id)
             payload = {
@@ -1613,6 +1637,8 @@ class SwitchController:
                 "name": display_name,
                 "details": details,
                 "trigger": trigger,
+                "trigger_conditions": trigger_conditions,
+                "trigger_values": trigger_values,
                 "occurred_at": datetime.now().astimezone().isoformat(),
             }
             result = broadcaster(payload)

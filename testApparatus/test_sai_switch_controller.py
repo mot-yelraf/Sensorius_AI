@@ -1968,8 +1968,12 @@ def test_alert_broadcast_uses_sensor_value_without_rule_details(
         "value": 87.4,
         "unit": "°C",
     }
+    assert received[0]["trigger_conditions"] == [
+        "greenhouse-1 Temperature > 82"
+    ]
+    assert received[0]["trigger_values"] == ["87.4°C"]
     assert "occurred_at" in received[0]
-    assert "Temperature > 82" not in str(received[0])
+    assert "Temperature > 82" in str(received[0])
     assert "hysteresis" not in str(received[0])
 
 

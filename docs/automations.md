@@ -69,10 +69,10 @@ Advanced rules can express:
 - Email Notify actors with a per-action recipient when email is enabled.
 - `Alert` actors for Web UI-only notifications without relay or email actions.
   These retain the internal `none` action type for compatibility with existing
-  rules. The dashboard toast uses two lines: `<alert name> - <trigger device>`,
-  then `<trigger metric> = <value><units> @ <date time>`. The configured sensor
-  location is used as the device name when available; otherwise its sensor ID
-  is shown.
+  rules. The dashboard toast uses three lines: `<automation name> @ <date time>`,
+  `<trigger condition(s)>`, then `<trigger value>`. AND/OR condition groups are
+  retained in the condition line. The configured sensor location is used as
+  the device name when available; otherwise its sensor ID is shown.
 - Revert behavior through `revert_action`.
 - Optional delayed action application through `delay_s`.
 
