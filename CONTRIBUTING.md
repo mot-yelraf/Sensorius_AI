@@ -23,6 +23,12 @@ Direct pushes to `trunk` are not accepted.
 
 Keep pull requests small and focused on a single logical change.
 
+Pull requests run read-only remote compile and focused regression checks. The
+workflow does not receive repository secrets and is safe to run for forked pull
+requests. Maintainers must review workflow-file changes before approving a run.
+The rendered dashboard browser gate remains a trusted-host check and is not run
+by GitHub Actions.
+
 ## Areas Where Contributions Are Welcome
 
 - Documentation improvements
@@ -148,6 +154,11 @@ the project Playwright checks. It does not start sensor, MQTT, service, or
 production runtime tasks, and it does not rely on GitHub Actions. Install the
 local Chromium bundle once with `npx playwright install chromium` if Playwright
 reports that the browser executable is missing.
+
+The browser gate is required when a change can affect rendered UI behavior.
+Record its result in the pull request. Maintainers should run it from a trusted
+checkout before merging an untrusted contribution; do not expose local runtime
+settings, broker credentials, or other secrets to contributor-controlled code.
 
 ## Pull Request Guidelines
 

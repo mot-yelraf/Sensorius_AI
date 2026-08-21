@@ -1,0 +1,90 @@
+name: Pull request checks
+
+on:
+  pull_request:
+    branches:
+      - trunk
+  workflow_dispatch:
+
+# Pull requests from forks execute contributor-controlled code. Keep the token
+# read-only and do not add repository secrets to this workflow.
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    name: Python compile (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.11"
+          - "3.13"
+
+    steps:
+      - name: Check out pull request merge commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          check-latest: false
+
+      - name: Compile Python sources
+        run: >-
+          python -m compileall -q
+          Sensorius.py
+          sensorius
+          testApparatus
+          platform_installers
+
+  focused-tests:
+    name: Focused regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out pull request merge commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: deploy_scripts/setup_reqs_linux.txt
+          check-latest: false
+
+      - name: Install host-mode dependencies
+        run: python -m pip install --requirement deploy_scripts/setup_reqs_linux.txt
+
+      - name: Run focused regression tests
+        env:
+          SENSORIUS_GUI: "false"
+          SENSORIUS_HTTP_HOST: "127.0.0.1"
+        run: >-
+          python -m pytest -q
+          testApparatus/test_homeassistant_mqtt.py
+          testApparatus/test_mqtt_ingest_auth.py
+          testApparatus/test_mqtt_ingest_liveness.py
+          testApparatus/test_datalogger_migration.py
+          testApparatus/test_automation_contract.py
+          testApparatus/test_sai_switch_controller.py
+          testApparatus/test_sai_switch_settings_manager.py
+          testApparatus/test_sai_switch_trigger_manager_compat.py
+          testApparatus/test_onboarding_v2_core.py
+          testApparatus/test_onboarding_v2_routes.py
+          testApparatus/test_nodus_settings_schema_writes.py
+          testApparatus/test_weewx_ingest.py
+          testApparatus/test_weewx_sensor_settings.py
