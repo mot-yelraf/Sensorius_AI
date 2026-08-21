@@ -845,6 +845,9 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "id='caelusMoonrise'" in html
     assert "id='caelusMoonset'" in html
     assert "id='caelusNextSunrise'" in html
+    assert html.index("<div class='caelus-lunar-timeline-row caelus-lunar-timeline-row-moon'>") < html.index(
+        "<div class='caelus-lunar-timeline-row caelus-lunar-timeline-row-sun'>"
+    )
     assert "function positionCaelusTimelineMarker(markerId, eventAt, startAt, endAt)" in html
     assert "setCaelusMoonText('caelusMoonrise', moon.timeline_moonrise);" in html
     assert "setCaelusMoonText('caelusMoonset', moon.timeline_moonset);" in html

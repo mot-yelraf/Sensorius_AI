@@ -420,6 +420,9 @@ def test_lunar_strip_uses_dates_and_does_not_symmetrize_local_orientation():
     assert 'id="nextSunriseTime"' in template
     assert 'id="lunarMoonriseTime"' in template
     assert 'id="lunarMoonsetTime"' in template
+    assert template.index('<div class="lunar-event-row lunar-event-row-moon">') < template.index(
+        '<div class="lunar-event-row lunar-event-row-sun">'
+    )
     assert "function renderLunarEventTimeline(moon)" in script
     assert 'positionLunarEventMarker("forecastSunsetMarker", sunsetAt, startAt, endAt);' in script
     assert 'positionLunarEventMarker("forecastMoonriseMarker", moonriseAt, startAt, endAt);' in script

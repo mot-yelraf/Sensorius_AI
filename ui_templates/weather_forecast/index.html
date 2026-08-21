@@ -127,15 +127,15 @@
         {% for phase in moon.get('upcoming_phases', []) %}<div class="lunar-step"><canvas class="lunar-step-disk" width="96" height="96" data-phase-moon data-phase-index="{{ phase.index }}" data-illumination="{{ phase.get('illumination', phase_illuminations[phase.index]) }}" data-bright-limb-angle="{{ phase.get('bright_limb_angle', 0) }}" data-disk-rotation="{{ phase.get('disk_rotation', 0) }}" data-representative-date="{{ phase.representative_date }}" role="img" aria-label="Observer-local view of the {{ phase.name }}"></canvas><small data-phase-name>{{ phase.name }}</small><time data-phase-date datetime="{{ phase.representative_date }}">{{ phase.date_label }}</time></div>{% endfor %}
       </div>
       <div class="lunar-event-footer">
-        <div class="lunar-event-timeline" id="lunarEventTimeline" role="img" aria-label="Sun and Moon events from sunrise to the next sunrise" data-start-at="{{ moon.get('timeline_start_at', '') }}" data-sunset-at="{{ moon.get('timeline_sunset_at', '') }}" data-end-at="{{ moon.get('timeline_end_at', '') }}" data-moonrise-at="{{ moon.get('timeline_moonrise_at', '') }}" data-moonset-at="{{ moon.get('timeline_moonset_at', '') }}">
+        <div class="lunar-event-timeline" id="lunarEventTimeline" role="img" aria-label="Moon and Sun events from sunrise to the next sunrise" data-start-at="{{ moon.get('timeline_start_at', '') }}" data-sunset-at="{{ moon.get('timeline_sunset_at', '') }}" data-end-at="{{ moon.get('timeline_end_at', '') }}" data-moonrise-at="{{ moon.get('timeline_moonrise_at', '') }}" data-moonset-at="{{ moon.get('timeline_moonset_at', '') }}">
+          <div class="lunar-event-row lunar-event-row-moon"><span class="lunar-event-row-title">Moon</span><div class="lunar-event-track">
+            <span class="lunar-event-marker" id="forecastMoonriseMarker"><span>Moonrise</span><strong id="lunarMoonriseTime">{{ moon.get('timeline_moonrise', '—') }}</strong></span>
+            <span class="lunar-event-marker" id="forecastMoonsetMarker"><span>Moonset</span><strong id="lunarMoonsetTime">{{ moon.get('timeline_moonset', '—') }}</strong></span>
+          </div></div>
           <div class="lunar-event-row lunar-event-row-sun"><span class="lunar-event-row-title">Sun</span><div class="lunar-event-track">
             <span class="lunar-event-marker is-start" id="forecastSunriseMarker" style="--timeline-left:0%"><span>Sunrise</span><strong id="sunriseTime">{{ moon.sunrise }}</strong></span>
             <span class="lunar-event-marker" id="forecastSunsetMarker"><span>Sunset</span><strong id="sunsetTime">{{ moon.sunset }}</strong></span>
             <span class="lunar-event-marker is-end" id="forecastNextSunriseMarker" style="--timeline-left:100%"><span>Next sunrise</span><strong id="nextSunriseTime">{{ moon.get('next_sunrise', '—') }}</strong></span>
-          </div></div>
-          <div class="lunar-event-row lunar-event-row-moon"><span class="lunar-event-row-title">Moon</span><div class="lunar-event-track">
-            <span class="lunar-event-marker" id="forecastMoonriseMarker"><span>Moonrise</span><strong id="lunarMoonriseTime">{{ moon.get('timeline_moonrise', '—') }}</strong></span>
-            <span class="lunar-event-marker" id="forecastMoonsetMarker"><span>Moonset</span><strong id="lunarMoonsetTime">{{ moon.get('timeline_moonset', '—') }}</strong></span>
           </div></div>
         </div>
         <small id="lunarUpdated">Updated {{ moon.updated_at[11:16] }} UTC</small>
