@@ -155,6 +155,29 @@ rm -rf -- "${target_dir}/src/sensorius" "${target_dir}/src/sensorius.egg-info"
 rm -rf -- "${target_dir}/src/__pycache__"
 rm -f -- "${target_dir}/src/.DS_Store"
 rmdir "${target_dir}/src" 2>/dev/null || true
+
+# Remove repository-only artifacts copied by older blacklist-based deploys.
+# Runtime settings, databases, caches, custom themes, and local host state are
+# deliberately absent from this narrow cleanup list.
+rm -rf -- \
+  "${target_dir}/.github" \
+  "${target_dir}/assets" \
+  "${target_dir}/docs" \
+  "${target_dir}/playwright-report" \
+  "${target_dir}/test-results" \
+  "${target_dir}/testApparatus" \
+  "${target_dir}/tests" \
+  "${target_dir}/sensorius.egg-info" \
+  "${target_dir}/utils"
+rm -f -- \
+  "${target_dir}/install.sh" \
+  "${target_dir}/package-lock.json" \
+  "${target_dir}/package.json" \
+  "${target_dir}/playwright.config.js" \
+  "${target_dir}/pyproject.toml" \
+  "${target_dir}/pytest.ini" \
+  "${target_dir}/scripts/build_user_guide_pdf.mjs" \
+  "${target_dir}/scripts/pep257_audit.py"
 REMOTE_CLEANUP
 }
 
@@ -166,7 +189,7 @@ detect_remote_runtime() {
   ssh "${host}" sh -s -- "${target}" "${configured_python}" <<'REMOTE_RUNTIME'
 set -eu
 target_dir=$1
-configured_python=$2
+configured_python=${2-}
 os_name=$(uname -s)
 target_real=$(cd "${target_dir}" 2>/dev/null && pwd -P || printf '%s' "${target_dir}")
 python_path=""
@@ -517,62 +540,86 @@ reconcile_remote_dependencies() {
   fi
 }
 
-EXCLUDES=(
-  ".git/"
-  ".venv/"
-  "node_modules/"
-  "platform_installers/"
-  ".env"
-  "__pycache__/"
-  "*.pyc"
-  "*.pyo"
-  ".pytest_cache/"
-  ".mypy_cache/"
-  ".ruff_cache/"
-  ".DS_Store"
-  ".lgd-*"
-  "*.local/"
-  "*.local/***"
-  "deploy_scripts/"
-  "docs/"
-  "testApparatus/"
-  "*.md"
-  "sensor_data.db"
-  "sensordata.db"
-  "sensorius_data.db*"
-  "database_archives/"
-  "database_archives/***"
-  "database_recovery/"
-  "database_recovery/***"
-  "cache/"
-  "cache/***"
-  "system_settings/***"
-  "sensor_settings/***"
-  "switch_settings/***"
-  "automation_settings/***"
-  "*.log"
-)
+# Keep deployment source selection explicit. The final exclude makes newly
+# added repository tooling opt-in instead of silently copying it to every hub.
+# Excluded destination paths are also protected from rsync --delete.
+RSYNC_FILTERS=(
+  --exclude ".git/"
+  --exclude ".env"
+  --exclude ".venv/"
+  --exclude "node_modules/"
+  --exclude "__pycache__/"
+  --exclude "*.pyc"
+  --exclude "*.pyo"
+  --exclude ".pytest_cache/"
+  --exclude ".mypy_cache/"
+  --exclude ".ruff_cache/"
+  --exclude ".DS_Store"
+  --exclude "._*"
+  --exclude "*.md"
+  --exclude ".lgd-*"
+  --exclude "*.local/"
+  --exclude "*.local/***"
+  --exclude "sensor_data.db"
+  --exclude "sensordata.db"
+  --exclude "sensorius_data.db*"
+  --exclude "database_archives/"
+  --exclude "database_archives/***"
+  --exclude "database_recovery/"
+  --exclude "database_recovery/***"
+  --exclude "cache/"
+  --exclude "cache/***"
+  --exclude "automation_settings/"
+  --exclude "theme_settings/"
+  --exclude "theme_assets/"
+  --exclude "*.log"
 
-# Keep runtime settings directories excluded, but explicitly include factory templates.
-INCLUDES=(
-  "utils/"
-  "utils/***"
-  "system_settings/"
-  "system_settings/factory/"
-  "system_settings/factory/***"
-  "system_settings/factory_nodus/"
-  "system_settings/factory_nodus/***"
-  "sensor_settings/"
-  "sensor_settings/factory/"
-  "sensor_settings/factory/***"
-  "sensor_settings/factory_nodus/"
-  "sensor_settings/factory_nodus/***"
-  "switch_settings/"
-  "switch_settings/factory/"
-  "switch_settings/factory/***"
-  "switch_settings/factory_nodus/"
-  "switch_settings/factory_nodus/***"
-  "automation_settings/"
+  --include "/Sensorius.py"
+  --include "/__init__.py"
+  --include "/.env.def"
+  --include "/LICENSE"
+
+  --include "/sensorius/"
+  --include "/sensorius/***"
+  --include "/ui_static/"
+  --include "/ui_static/***"
+  --include "/ui_templates/"
+  --include "/ui_templates/***"
+
+  --include "/data/"
+  --include "/data/skyfield/"
+  --include "/data/skyfield/***"
+  --exclude "/data/***"
+
+  --include "/ota_packages/"
+  --include "/ota_packages/***"
+
+  --include "/system_settings/"
+  --include "/system_settings/factory/"
+  --include "/system_settings/factory/***"
+  --include "/system_settings/factory_nodus/"
+  --include "/system_settings/factory_nodus/***"
+  --exclude "/system_settings/***"
+
+  --include "/sensor_settings/"
+  --include "/sensor_settings/factory/"
+  --include "/sensor_settings/factory/***"
+  --include "/sensor_settings/factory_nodus/"
+  --include "/sensor_settings/factory_nodus/***"
+  --exclude "/sensor_settings/***"
+
+  --include "/switch_settings/"
+  --include "/switch_settings/factory/"
+  --include "/switch_settings/factory/***"
+  --include "/switch_settings/factory_nodus/"
+  --include "/switch_settings/factory_nodus/***"
+  --exclude "/switch_settings/***"
+
+  --include "/scripts/"
+  --include "/scripts/setup_rpi_printer.sh"
+  --exclude "/scripts/***"
+
+  --exclude "*"
 )
 
 RSYNC_OPTS=(-az --delete --itemize-changes --human-readable)
@@ -582,12 +629,7 @@ if [[ "${DRY_RUN}" -eq 1 ]]; then
 else
   echo "Mode: APPLY"
 fi
-for i in "${INCLUDES[@]}"; do
-  RSYNC_OPTS+=(--include "${i}")
-done
-for x in "${EXCLUDES[@]}"; do
-  RSYNC_OPTS+=(--exclude "${x}")
-done
+RSYNC_OPTS+=("${RSYNC_FILTERS[@]}")
 
 FAILURES=0
 LINE_NO=0
