@@ -110,14 +110,20 @@ deploy script verifies that marker exists before syncing; the repository-root
 static-asset URLs both use the canonical package value.
 
 The deploy script is intended for existing runtime directories such as
-`/home/<user>/Sensorius` or `/Users/<user>/Sensorius`. It excludes installed
-runtime state, including `sensorius_data.db*`, `system_settings/`,
-`sensor_settings/`, `switch_settings/`, `automation_settings/`, and generated
-runtime data under `cache/`. Runtime-generated `.lgd-*` named pipes are also
-preserved. The local `platform_installers/` build tree is excluded and any copy
-left by an earlier deployment is removed after a successful apply sync. The
-deploy script explicitly allows factory templates under those settings trees
-to update.
+`/home/<user>/Sensorius` or `/Users/<user>/Sensorius`. It uses an explicit
+runtime allowlist: the Python application, UI resources, ephemeris data, OTA
+packages, environment defaults, factory settings templates, and the optional
+Raspberry Pi printer helper. Repository documentation, CI configuration,
+tests, reports, packaging metadata, and installer sources are not deployed.
+
+Installed runtime state is protected, including `sensorius_data.db*`, `.env`,
+`.venv`, `system_settings/`, `sensor_settings/`, `switch_settings/`,
+`automation_settings/`, `theme_settings/`, `theme_assets/`, and generated data
+under `cache/`. Runtime-generated `.lgd-*` named pipes are also preserved. The
+deploy script explicitly allows factory templates under the device settings
+trees to update. Apply mode removes a narrow list of repository-only artifacts
+that may have been copied by older deployments; it never includes runtime state
+in that cleanup list.
 
 Inventory format:
 
