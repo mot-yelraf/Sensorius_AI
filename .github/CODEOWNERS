@@ -1,0 +1,4 @@
+# Request maintainer review for all contributions, with an explicit entry for
+# automation changes that can affect the public pull-request trust boundary.
+* @mot-yelraf
+/.github/ @mot-yelraf
