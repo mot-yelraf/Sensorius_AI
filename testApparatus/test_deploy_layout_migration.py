@@ -5,8 +5,11 @@ case with owner-protected bytecode.
 """
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
+
+import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -173,14 +176,129 @@ def test_deploy_syncs_preserve_system_automation_state():
 
     assert "--include 'automation_settings/'" in setup_text
     assert "--exclude 'automation_settings/***'" in setup_text
-    assert '"automation_settings/"' in deploy_text
-    assert '"automation_settings/***"' in deploy_text
+    assert '--exclude "automation_settings/"' in deploy_text
+
+
+def test_deploy_sync_preserves_custom_theme_state():
+    deploy_text = DEPLOY_SAI.read_text(encoding="utf-8")
+
+    assert '--exclude "theme_settings/"' in deploy_text
+    assert '--exclude "theme_assets/"' in deploy_text
+    cleanup = deploy_text.split("# Remove repository-only artifacts", 1)[1]
+    assert '"${target_dir}/theme_settings"' not in cleanup
+    assert '"${target_dir}/theme_assets"' not in cleanup
+
+
+def test_deploy_uses_runtime_allowlist_and_cleans_repository_tooling():
+    deploy_text = DEPLOY_SAI.read_text(encoding="utf-8")
+
+    for required_path in (
+        "/Sensorius.py",
+        "/sensorius/***",
+        "/ui_static/***",
+        "/ui_templates/***",
+        "/data/skyfield/***",
+        "/ota_packages/***",
+        "/scripts/setup_rpi_printer.sh",
+    ):
+        assert f'--include "{required_path}"' in deploy_text
+
+    for repository_only_path in (
+        ".github",
+        "assets",
+        "docs",
+        "playwright-report",
+        "test-results",
+        "testApparatus",
+        "tests",
+        "sensorius.egg-info",
+        "utils",
+    ):
+        assert f'"${{target_dir}}/{repository_only_path}"' in deploy_text
+
+    assert '--exclude "*"' in deploy_text
+
+
+def test_runtime_allowlist_copies_only_runtime_and_preserves_state(tmp_path):
+    rsync = Path("/opt/homebrew/bin/rsync")
+    if not rsync.is_file():
+        resolved = shutil.which("rsync")
+        if resolved is None:
+            pytest.skip("rsync is not installed")
+        rsync = Path(resolved)
+
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    for path, content in (
+        (source / "Sensorius.py", "# launcher\n"),
+        (source / "sensorius" / "app.py", "# runtime\n"),
+        (source / "ui_static" / "app.css", "/* runtime */\n"),
+        (source / "ui_templates" / "base.html", "runtime\n"),
+        (source / "system_settings" / "factory" / "settings.toml", "[Network]\n"),
+        (source / "docs" / "guide.md", "not runtime\n"),
+        (source / "tests" / "test_ui.py", "# not runtime\n"),
+        (source / "theme_settings" / "themes.json", "source must not replace state\n"),
+        (target / "theme_settings" / "themes.json", "installed theme state\n"),
+        (target / "automation_settings" / "automations.toml", "installed rules\n"),
+        (target / ".env", "SAI_WEB_API_KEY=installed\n"),
+        (target / "sensorius_data.db", "installed database\n"),
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    deploy_text = DEPLOY_SAI.read_text(encoding="utf-8")
+    start = deploy_text.index("RSYNC_FILTERS=(")
+    end = deploy_text.index("\n)\n\nRSYNC_OPTS=", start) + 2
+    filter_block = deploy_text[start:end]
+    command = filter_block + '\n"$1" -a --delete "${RSYNC_FILTERS[@]}" "$2/" "$3/"'
+    result = subprocess.run(
+        ["bash", "-c", command, "bash", str(rsync), str(source), str(target)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (target / "sensorius" / "app.py").is_file()
+    assert (target / "ui_static" / "app.css").is_file()
+    assert (target / "ui_templates" / "base.html").is_file()
+    assert (target / "system_settings" / "factory" / "settings.toml").is_file()
+    assert not (target / "docs").exists()
+    assert not (target / "tests").exists()
+    assert (target / "theme_settings" / "themes.json").read_text() == "installed theme state\n"
+    assert (target / "automation_settings" / "automations.toml").is_file()
+    assert (target / ".env").is_file()
+    assert (target / "sensorius_data.db").is_file()
+
+
+def test_remote_runtime_detection_accepts_missing_optional_python(tmp_path):
+    deploy_text = DEPLOY_SAI.read_text(encoding="utf-8")
+    remote_script = deploy_text.split("<<'REMOTE_RUNTIME'\n", 1)[1].split(
+        "\nREMOTE_RUNTIME", 1
+    )[0]
+    target = tmp_path / "Sensorius"
+    python_path = target / ".venv" / "bin" / "python"
+    python_path.parent.mkdir(parents=True)
+    python_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    python_path.chmod(0o755)
+
+    result = subprocess.run(
+        ["sh", "-s", "--", str(target)],
+        input=remote_script,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "parameter not set" not in result.stderr
+    assert f"|{python_path}|target-venv" in result.stdout
 
 
 def test_deploy_excludes_platform_installer_build_tree():
     deploy_text = DEPLOY_SAI.read_text(encoding="utf-8")
 
-    assert '"platform_installers/"' in deploy_text
+    assert '--exclude "*"' in deploy_text
     assert 'rm -rf -- "${target_dir}/platform_installers"' in deploy_text
 
 
