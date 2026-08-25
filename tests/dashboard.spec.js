@@ -62,3 +62,23 @@ test('shares and persists the Lunar Calendar view mode', async ({ page }) => {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#moonViewReference')).toHaveAttribute('aria-pressed', 'true');
 });
+
+test('opens the 29 day Sun/Moon graph from an aligned tile button', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+
+  const graphButton = page.locator('#sunMoon29Btn');
+  const lunarButton = page.locator('#moonCalendarBtn');
+  await expect(graphButton).toBeVisible();
+  await expect(graphButton).toHaveText('29 Day Graph');
+
+  const chartBox = await page.locator('#sunPathCanvas').boundingBox();
+  expect(chartBox?.height).toBeLessThanOrEqual(72);
+
+  const graphButtonBox = await graphButton.boundingBox();
+  const lunarButtonBox = await lunarButton.boundingBox();
+  expect(Math.abs((graphButtonBox?.y || 0) - (lunarButtonBox?.y || 0))).toBeLessThanOrEqual(2);
+
+  await graphButton.click();
+  await expect(page.locator('#sunMoon29Overlay')).toBeVisible();
+  await expect(page.locator('#sunMoon29Overlay')).toHaveAttribute('aria-hidden', 'false');
+});

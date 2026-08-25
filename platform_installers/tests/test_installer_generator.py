@@ -55,6 +55,8 @@ def test_generate_all_targets(tmp_path):
     mac_spec = (release / "macos-arm64" / "Sensorius.spec").read_text(encoding="utf-8")
     assert "sensorius-macos-icon.png" in windows_spec
     assert f'"CFBundleVersion": "{generator.macos_bundle_version(version)}"' in mac_spec
+    assert '"CFBundleDisplayName": "Sensorius"' in mac_spec
+    assert '"CFBundleName": "Sensorius"' in mac_spec
     assert 'test "${HOST_ARCH}" = "amd64"' in (
         release / "linux-amd64" / "build.sh"
     ).read_text(encoding="utf-8")

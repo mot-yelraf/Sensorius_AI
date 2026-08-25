@@ -21,6 +21,7 @@ from .saiGarbageCollection import GCManager
 from .saiWebServer import (
     WebServerController,
     launch_webview,
+    relaunch_as_named_macos_app,
     set_macos_app_icon,
 )
 from .saiWatchdog import WatchdogMonitor
@@ -878,6 +879,13 @@ def _close_window_for_shutdown(window, *, is_linux: bool) -> None:
         printDM(f"Webview close during shutdown failed: {exc}", location=MODULE)
 
 
+def _request_shutdown_after_webview_exit(shutdown_requested: Event) -> None:
+    """Stop the backend after the native desktop window has closed."""
+    if not shutdown_requested.is_set():
+        printDM("Desktop window closed. Shutting down.", location=f"{MODULE}:__main__")
+    shutdown_requested.set()
+
+
 def run_application():
     """Start the Sensorius backend and optional desktop webview."""
     import os
@@ -890,6 +898,8 @@ def run_application():
     window = None
     previous_sigint_handler = None
     try:
+        if relaunch_as_named_macos_app():
+            return
         configure_logging()
 
         lock_settings = saiSettings(make_startup_backup=False, apply_live=False)
@@ -961,6 +971,7 @@ def run_application():
                             webview.start(gui=gui_backend)
                         else:
                             webview.start()
+                        _request_shutdown_after_webview_exit(shutdown_requested)
                     except Exception as e:
                         printDM(f"webview.start failed: {e} — continuing headless", location=f"{MODULE}:__main__")
                 else:

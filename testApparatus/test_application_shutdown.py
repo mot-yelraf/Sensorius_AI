@@ -49,3 +49,11 @@ def test_shutdown_request_wakes_async_runtime():
         await asyncio.wait_for(waiter, timeout=1.0)
 
     asyncio.run(exercise())
+
+
+def test_webview_exit_requests_backend_shutdown():
+    shutdown_requested = Event()
+
+    sensorius_app._request_shutdown_after_webview_exit(shutdown_requested)
+
+    assert shutdown_requested.is_set()

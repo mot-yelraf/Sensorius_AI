@@ -836,6 +836,10 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "target.closest('#moonBox') && !target.closest('[data-moon-view]')" not in html
     assert "target.closest('#sunBox')" in html
     assert "openCaelusMoonPhases();" in html
+    assert "id='sunMoon29Btn' aria-label='Open 29 Day Sun/Moon Position'" in html
+    assert "<span class='bio-open-btn-label'>29 Day Graph</span>" in html
+    assert "#sunPathCanvas{display:block;width:204px;height:72px;" in html
+    assert "#sunBox .astro-card{width:100%;min-width:0;height:100%;" in html
     assert "id='moonCalendarBtn' aria-label='Open Lunar Calendar'" in html
     assert "<span class='bio-open-btn-label'>Lunar Calendar</span>" in html
     assert "id='caelusMoonDialogTitle'>Lunar Calendar</h2>" in html

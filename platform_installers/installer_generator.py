@@ -173,6 +173,8 @@ def pyinstaller_spec(version: str, target: str) -> str:
     icon=str(payload / "ui_static" / "sensorius-macos-icon.png"),
     bundle_identifier="com.peacehillstudios.sensorius",
     info_plist={{
+        "CFBundleDisplayName": "Sensorius",
+        "CFBundleName": "Sensorius",
         "CFBundleShortVersionString": "{bundle_version}",
         "CFBundleVersion": "{bundle_version}",
         "NSHighResolutionCapable": True,

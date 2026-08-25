@@ -317,6 +317,9 @@ Notes:
 - Nodus onboarding uses a manual macOS Wi-Fi join and verifies the setup AP by
   its local address and HTTP metadata endpoint.
 - GUI is optional. Set `SENSORIUS_GUI=0` to force headless mode.
+- Source-run macOS GUI launches use a lightweight named application bundle under
+  `/Users/<user>/Library/Application Support/Sensorius/Launcher/Sensorius.app`
+  so Dock, app-switcher, and Force Quit surfaces identify the process as Sensorius.
 - If `pywebview` is unavailable, Sensorius continues headless.
 
 ## Windows
