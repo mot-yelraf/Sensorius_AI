@@ -8,6 +8,7 @@ Responsibilities:
 """
 import asyncio
 import os
+import plistlib
 import shutil
 import sys
 import uvicorn
@@ -28,6 +29,9 @@ _IMMUTABLE_STATIC_ASSETS = {"01-sensorius-overview-v5.png"}
 DESKTOP_ICON_PATH = PROJECT_ROOT / "ui_static" / "sensorius-icon.png"
 MACOS_ICON_PATH = PROJECT_ROOT / "ui_static" / "sensorius-macos-icon.png"
 LINUX_APP_ID = "ai.sensorius.Sensorius"
+MACOS_APP_NAME = "Sensorius"
+MACOS_BUNDLE_ID = "com.peacehillstudios.sensorius"
+MACOS_BUNDLE_RELAUNCH_ENV = "SENSORIUS_MACOS_BUNDLE_RELAUNCHED"
 
 
 def _desktop_exec_arg(value: str) -> str:
@@ -107,6 +111,77 @@ def configure_linux_app_identity() -> Path | None:
         printDM(f"Unable to install the Linux desktop entry: {exc}", location=MODULE)
         return None
     return desktop_path
+
+
+def relaunch_as_named_macos_app(
+    *,
+    bundle_root: Path | None = None,
+    executable: Path | None = None,
+    argv: list[str] | None = None,
+    environ: dict[str, str] | None = None,
+    execve=None,
+) -> bool:
+    """Relaunch a source-run macOS GUI with a native application identity."""
+    if sys.platform != "darwin" or bool(getattr(sys, "frozen", False)):
+        return False
+
+    launch_env = dict(os.environ if environ is None else environ)
+    gui_setting = str(launch_env.get("SENSORIUS_GUI") or "").strip().lower()
+    if gui_setting in {"0", "false", "no", "off"}:
+        return False
+    if launch_env.get(MACOS_BUNDLE_RELAUNCH_ENV) == "1":
+        return False
+
+    python_executable = Path(executable or sys.executable).resolve()
+    launch_args = list(sys.argv if argv is None else argv)
+    app_bundle = bundle_root or (
+        Path.home()
+        / "Library"
+        / "Application Support"
+        / MACOS_APP_NAME
+        / "Launcher"
+        / f"{MACOS_APP_NAME}.app"
+    )
+    contents_dir = app_bundle / "Contents"
+    executable_dir = contents_dir / "MacOS"
+    bundle_executable = executable_dir / MACOS_APP_NAME
+    info_path = contents_dir / "Info.plist"
+    info = {
+        "CFBundleDisplayName": MACOS_APP_NAME,
+        "CFBundleExecutable": MACOS_APP_NAME,
+        "CFBundleIdentifier": MACOS_BUNDLE_ID,
+        "CFBundleName": MACOS_APP_NAME,
+        "CFBundlePackageType": "APPL",
+        "LSUIElement": False,
+        "NSHighResolutionCapable": True,
+    }
+
+    try:
+        executable_dir.mkdir(parents=True, exist_ok=True)
+        temporary_info = info_path.with_suffix(f".plist.tmp-{os.getpid()}")
+        temporary_info.write_bytes(plistlib.dumps(info, sort_keys=True))
+        temporary_info.replace(info_path)
+
+        if not bundle_executable.is_symlink() or bundle_executable.resolve() != python_executable:
+            if bundle_executable.exists() and not bundle_executable.is_symlink():
+                raise OSError(f"refusing to replace non-symlink launcher: {bundle_executable}")
+            temporary_executable = executable_dir / f".{MACOS_APP_NAME}.tmp-{os.getpid()}"
+            if temporary_executable.is_symlink():
+                temporary_executable.unlink()
+            temporary_executable.symlink_to(python_executable)
+            temporary_executable.replace(bundle_executable)
+    except OSError as exc:
+        printDM(f"Unable to prepare the named macOS application launcher: {exc}", location=MODULE)
+        return False
+
+    launch_env[MACOS_BUNDLE_RELAUNCH_ENV] = "1"
+    launcher = execve or os.execve
+    launcher(
+        str(bundle_executable),
+        [str(bundle_executable), str(PROJECT_ROOT / "Sensorius.py"), *launch_args[1:]],
+        launch_env,
+    )
+    return True
 
 
 def set_macos_app_icon() -> None:

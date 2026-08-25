@@ -1061,7 +1061,10 @@ def test_advanced_runtime_ownership_persists_only_previous_state_actions(monkeyp
     ]
 
 
-def test_advanced_previous_state_bootstraps_from_time_start_transition():
+def test_advanced_previous_state_bootstraps_from_time_start_transition(monkeypatch: pytest.MonkeyPatch):
+    fixed_local_time = time.struct_time((2026, 3, 31, 13, 0, 0, 1, 90, -1))
+    monkeypatch.setattr(saiSwitch.time, "localtime", lambda: fixed_local_time)
+
     ctrl = _make_controller()
     ctrl.is_remote = True
     ctrl.switch_id = "switch-x943fm"

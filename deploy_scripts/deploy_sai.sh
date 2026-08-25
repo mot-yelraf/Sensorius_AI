@@ -444,12 +444,21 @@ import sys
 Path(sys.argv[2]).write_bytes(base64.b64decode(sys.argv[1]))
 PYTHON_DECODE
 
+uv_path=""
+if command -v uv >/dev/null 2>&1; then
+  uv_path=$(command -v uv)
+elif [ -x "/opt/homebrew/bin/uv" ]; then
+  uv_path="/opt/homebrew/bin/uv"
+elif [ -x "/usr/local/bin/uv" ]; then
+  uv_path="/usr/local/bin/uv"
+elif [ -x "${HOME}/.local/bin/uv" ]; then
+  uv_path="${HOME}/.local/bin/uv"
+fi
+
 if "${python_path}" -m pip --version >/dev/null 2>&1; then
   "${python_path}" -m pip install -r "${requirements_file}"
-elif command -v uv >/dev/null 2>&1; then
-  uv pip install -r "${requirements_file}" --python "${python_path}"
-elif [ -x "${HOME}/.local/bin/uv" ]; then
-  "${HOME}/.local/bin/uv" pip install -r "${requirements_file}" --python "${python_path}"
+elif [ -n "${uv_path}" ]; then
+  "${uv_path}" pip install -r "${requirements_file}" --python "${python_path}"
 else
   echo "Neither pip nor uv is available for ${python_path}. Run install.sh to repair the environment." >&2
   exit 14

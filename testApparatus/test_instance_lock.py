@@ -35,6 +35,7 @@ def test_instance_locks_are_independent_by_port(tmp_path):
 def test_run_application_stops_before_backend_thread_when_lock_is_busy(monkeypatch):
     events = []
     monkeypatch.delenv("SENSORIUS_HTTP_PORT", raising=False)
+    monkeypatch.setenv("SENSORIUS_GUI", "0")
 
     class _Settings:
         def __init__(self, **kwargs):

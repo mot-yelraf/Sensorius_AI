@@ -378,3 +378,17 @@ def test_deploy_runtime_discovery_supports_external_virtual_environments():
     assert "process_exe=$(tr '\\000' '\\n'" in deploy_text
     assert "systemctl show sensorius.service" in deploy_text
     assert inventory < active_process < systemd_service < target_venv
+
+
+def test_remote_dependency_install_finds_homebrew_uv_outside_ssh_path():
+    deploy_text = DEPLOY_SAI.read_text(encoding="utf-8")
+    remote_install = deploy_text.split("<<'REMOTE_INSTALL'\n", 1)[1].split(
+        "\nREMOTE_INSTALL", 1
+    )[0]
+
+    assert 'uv_path=$(command -v uv)' in remote_install
+    assert 'elif [ -x "/opt/homebrew/bin/uv" ]; then' in remote_install
+    assert 'uv_path="/opt/homebrew/bin/uv"' in remote_install
+    assert 'elif [ -x "/usr/local/bin/uv" ]; then' in remote_install
+    assert 'uv_path="/usr/local/bin/uv"' in remote_install
+    assert '"${uv_path}" pip install' in remote_install

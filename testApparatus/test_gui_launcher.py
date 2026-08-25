@@ -5,6 +5,7 @@ without opening an actual desktop window.
 """
 
 import os
+import plistlib
 import sys
 from types import ModuleType, SimpleNamespace
 
@@ -118,6 +119,53 @@ def test_macos_launcher_sets_native_app_icon(monkeypatch):
     assert shown_handlers == [saiGuiLauncher.set_macos_app_icon]
     shown_handlers[0]()
     assert native_icon_calls == [True]
+
+
+def test_macos_source_gui_relaunches_from_named_app_bundle(monkeypatch, tmp_path):
+    calls = []
+    python_executable = tmp_path / "python3"
+    python_executable.touch()
+    bundle_root = tmp_path / "Sensorius.app"
+    monkeypatch.setattr(saiWebServer.sys, "platform", "darwin")
+
+    relaunched = saiWebServer.relaunch_as_named_macos_app(
+        bundle_root=bundle_root,
+        executable=python_executable,
+        argv=["Sensorius.py", "--example"],
+        environ={},
+        execve=lambda path, args, env: calls.append((path, args, env)),
+    )
+
+    assert relaunched is True
+    bundle_executable = bundle_root / "Contents" / "MacOS" / "Sensorius"
+    assert bundle_executable.is_symlink()
+    assert bundle_executable.resolve() == python_executable.resolve()
+    info = plistlib.loads((bundle_root / "Contents" / "Info.plist").read_bytes())
+    assert info["CFBundleDisplayName"] == "Sensorius"
+    assert info["CFBundleIdentifier"] == "com.peacehillstudios.sensorius"
+    assert calls[0][0] == str(bundle_executable)
+    assert calls[0][1] == [
+        str(bundle_executable),
+        str(saiWebServer.PROJECT_ROOT / "Sensorius.py"),
+        "--example",
+    ]
+    assert calls[0][2]["SENSORIUS_MACOS_BUNDLE_RELAUNCHED"] == "1"
+
+
+def test_macos_named_app_relaunch_skips_headless_and_recursive_launch(monkeypatch, tmp_path):
+    monkeypatch.setattr(saiWebServer.sys, "platform", "darwin")
+    unexpected_exec = lambda *_args: (_ for _ in ()).throw(AssertionError("must not relaunch"))
+
+    assert saiWebServer.relaunch_as_named_macos_app(
+        bundle_root=tmp_path / "headless.app",
+        environ={"SENSORIUS_GUI": "0"},
+        execve=unexpected_exec,
+    ) is False
+    assert saiWebServer.relaunch_as_named_macos_app(
+        bundle_root=tmp_path / "recursive.app",
+        environ={"SENSORIUS_MACOS_BUNDLE_RELAUNCHED": "1"},
+        execve=unexpected_exec,
+    ) is False
 
 
 def test_window_geometry_defaults_keep_titlebar_visible(monkeypatch):
