@@ -6,7 +6,7 @@ for biodynamic daily summaries.
 
 import sqlite3
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -367,13 +367,14 @@ def test_available_metrics_by_sensor_caches_and_invalidates_on_write(tmp_path, m
     logger = saiDataLogger(db_path=str(db_path))
 
     try:
+        reading_time = datetime.now().replace(microsecond=0)
         logger.log_readings(
-            "2026-05-24T12:00:00",
+            reading_time.isoformat(),
             "co2-ykdvea",
             {"CO2": 700.0, "Temperature": 25.0, "Rel-Humidity": 55.0},
         )
         logger.log_readings(
-            "2026-05-24T12:00:00",
+            reading_time.isoformat(),
             "apvpd-test123",
             {"Temperature": 24.0, "Rel-Humidity": 50.0},
         )
@@ -382,7 +383,11 @@ def test_available_metrics_by_sensor_caches_and_invalidates_on_write(tmp_path, m
         assert metrics_by_sensor["co2-ykdvea"] == ["CO2", "Rel-Humidity", "Temperature"]
         assert logger.get_available_metrics("CO2-YKDVEA") == ["CO2", "Rel-Humidity", "Temperature"]
 
-        logger.log_readings("2026-05-24T12:01:00", "co2-ykdvea", {"Ambient VPD": 1.2})
+        logger.log_readings(
+            (reading_time + timedelta(minutes=1)).isoformat(),
+            "co2-ykdvea",
+            {"Ambient VPD": 1.2},
+        )
 
         assert "Ambient VPD" in logger.get_available_metrics("co2-ykdvea")
     finally:
