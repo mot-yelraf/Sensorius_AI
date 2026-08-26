@@ -10,9 +10,11 @@ import asyncio
 import os
 import plistlib
 import shutil
+import subprocess
 import sys
 import uvicorn
 from pathlib import Path
+from . import __version__
 from .project_paths import PROJECT_ROOT
 from fastapi import FastAPI
 from fastapi.responses import PlainTextResponse, Response
@@ -28,10 +30,16 @@ DEBUG = debug_enabled(MODULE)
 _IMMUTABLE_STATIC_ASSETS = {"01-sensorius-overview-v5.png"}
 DESKTOP_ICON_PATH = PROJECT_ROOT / "ui_static" / "sensorius-icon.png"
 MACOS_ICON_PATH = PROJECT_ROOT / "ui_static" / "sensorius-macos-icon.png"
+MACOS_ICNS_PATH = Path(__file__).resolve().parent / "resources" / "Sensorius.icns"
+PYTHON_PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 LINUX_APP_ID = "ai.sensorius.Sensorius"
 MACOS_APP_NAME = "Sensorius"
 MACOS_BUNDLE_ID = "com.peacehillstudios.sensorius"
 MACOS_BUNDLE_RELAUNCH_ENV = "SENSORIUS_MACOS_BUNDLE_RELAUNCHED"
+MACOS_LSREGISTER = Path(
+    "/System/Library/Frameworks/CoreServices.framework/Frameworks/"
+    "LaunchServices.framework/Support/lsregister"
+)
 
 
 def _desktop_exec_arg(value: str) -> str:
@@ -121,46 +129,71 @@ def relaunch_as_named_macos_app(
     environ: dict[str, str] | None = None,
     execve=None,
 ) -> bool:
-    """Relaunch a source-run macOS GUI with a native application identity."""
-    if sys.platform != "darwin" or bool(getattr(sys, "frozen", False)):
+    """Relaunch a macOS GUI through a registered native application bundle."""
+    requested_executable = Path(executable or sys.executable)
+    executable_parts = requested_executable.parts
+    already_bundled = any(
+        part.endswith(".app")
+        and executable_parts[index + 1 : index + 3] == ("Contents", "MacOS")
+        for index, part in enumerate(executable_parts[:-2])
+    )
+    if (
+        sys.platform != "darwin"
+        or bool(getattr(sys, "frozen", False))
+        or hasattr(sys, "_MEIPASS")
+        or already_bundled
+    ):
         return False
+    python_executable = requested_executable.resolve()
 
     launch_env = dict(os.environ if environ is None else environ)
     gui_setting = str(launch_env.get("SENSORIUS_GUI") or "").strip().lower()
     if gui_setting in {"0", "false", "no", "off"}:
         return False
-    if launch_env.get(MACOS_BUNDLE_RELAUNCH_ENV) == "1":
+    relaunch_setting = str(launch_env.get(MACOS_BUNDLE_RELAUNCH_ENV) or "").strip().lower()
+    if relaunch_setting in {"1", "true", "yes", "on"}:
         return False
 
-    python_executable = Path(executable or sys.executable).resolve()
     launch_args = list(sys.argv if argv is None else argv)
     app_bundle = bundle_root or (
         Path.home()
         / "Library"
         / "Application Support"
         / MACOS_APP_NAME
-        / "Launcher"
         / f"{MACOS_APP_NAME}.app"
     )
     contents_dir = app_bundle / "Contents"
     executable_dir = contents_dir / "MacOS"
+    resources_dir = contents_dir / "Resources"
     bundle_executable = executable_dir / MACOS_APP_NAME
     info_path = contents_dir / "Info.plist"
+    bundle_icon = resources_dir / MACOS_ICNS_PATH.name
+    app_version = __version__.removeprefix("v")
     info = {
         "CFBundleDisplayName": MACOS_APP_NAME,
         "CFBundleExecutable": MACOS_APP_NAME,
         "CFBundleIdentifier": MACOS_BUNDLE_ID,
+        "CFBundleIconFile": MACOS_ICNS_PATH.name,
         "CFBundleName": MACOS_APP_NAME,
         "CFBundlePackageType": "APPL",
+        "CFBundleShortVersionString": app_version,
+        "CFBundleVersion": app_version,
         "LSUIElement": False,
         "NSHighResolutionCapable": True,
     }
 
     try:
         executable_dir.mkdir(parents=True, exist_ok=True)
+        resources_dir.mkdir(parents=True, exist_ok=True)
         temporary_info = info_path.with_suffix(f".plist.tmp-{os.getpid()}")
         temporary_info.write_bytes(plistlib.dumps(info, sort_keys=True))
         temporary_info.replace(info_path)
+
+        icon_bytes = MACOS_ICNS_PATH.read_bytes()
+        if not bundle_icon.is_file() or bundle_icon.read_bytes() != icon_bytes:
+            temporary_icon = resources_dir / f".{MACOS_ICNS_PATH.name}.tmp-{os.getpid()}"
+            shutil.copyfile(MACOS_ICNS_PATH, temporary_icon)
+            temporary_icon.replace(bundle_icon)
 
         if not bundle_executable.is_symlink() or bundle_executable.resolve() != python_executable:
             if bundle_executable.exists() and not bundle_executable.is_symlink():
@@ -170,15 +203,42 @@ def relaunch_as_named_macos_app(
                 temporary_executable.unlink()
             temporary_executable.symlink_to(python_executable)
             temporary_executable.replace(bundle_executable)
+        os.utime(app_bundle, None)
     except OSError as exc:
         printDM(f"Unable to prepare the named macOS application launcher: {exc}", location=MODULE)
         return False
 
+    try:
+        result = subprocess.run(
+            [str(MACOS_LSREGISTER), "-f", str(app_bundle)],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if result.returncode != 0:
+            printDM(
+                f"Unable to register the macOS application bundle (exit {result.returncode}).",
+                location=MODULE,
+                level="warning",
+            )
+    except OSError as exc:
+        printDM(
+            f"Unable to register the macOS application bundle: {exc}",
+            location=MODULE,
+            level="warning",
+        )
+
     launch_env[MACOS_BUNDLE_RELAUNCH_ENV] = "1"
+    package_root = str(PYTHON_PACKAGE_ROOT)
+    existing_pythonpath = launch_env.get("PYTHONPATH")
+    existing_parts = existing_pythonpath.split(os.pathsep) if existing_pythonpath else []
+    launch_env["PYTHONPATH"] = os.pathsep.join(
+        [package_root, *(part for part in existing_parts if part != package_root)]
+    )
     launcher = execve or os.execve
     launcher(
         str(bundle_executable),
-        [str(bundle_executable), str(PROJECT_ROOT / "Sensorius.py"), *launch_args[1:]],
+        [str(bundle_executable), "-m", "sensorius.app", *launch_args[1:]],
         launch_env,
     )
     return True

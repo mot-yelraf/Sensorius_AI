@@ -11,3 +11,6 @@ requires-python = ">=3.11"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["sensorius*"]
+
+[tool.setuptools.package-data]
+sensorius = ["resources/*.icns"]
