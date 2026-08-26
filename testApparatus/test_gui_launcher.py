@@ -6,7 +6,11 @@ without opening an actual desktop window.
 
 import os
 import plistlib
+import shutil
+import struct
+import subprocess
 import sys
+import zipfile
 from types import ModuleType, SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -123,10 +127,17 @@ def test_macos_launcher_sets_native_app_icon(monkeypatch):
 
 def test_macos_source_gui_relaunches_from_named_app_bundle(monkeypatch, tmp_path):
     calls = []
+    registrations = []
     python_executable = tmp_path / "python3"
     python_executable.touch()
     bundle_root = tmp_path / "Sensorius.app"
     monkeypatch.setattr(saiWebServer.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        saiWebServer.subprocess,
+        "run",
+        lambda args, **kwargs: registrations.append((args, kwargs))
+        or SimpleNamespace(returncode=0),
+    )
 
     relaunched = saiWebServer.relaunch_as_named_macos_app(
         bundle_root=bundle_root,
@@ -143,13 +154,30 @@ def test_macos_source_gui_relaunches_from_named_app_bundle(monkeypatch, tmp_path
     info = plistlib.loads((bundle_root / "Contents" / "Info.plist").read_bytes())
     assert info["CFBundleDisplayName"] == "Sensorius"
     assert info["CFBundleIdentifier"] == "com.peacehillstudios.sensorius"
+    assert info["CFBundleIconFile"] == "Sensorius.icns"
+    expected_version = saiWebServer.__version__.removeprefix("v")
+    assert info["CFBundleShortVersionString"] == expected_version
+    assert info["CFBundleVersion"] == expected_version
+    assert info["NSHighResolutionCapable"] is True
+    assert (
+        bundle_root / "Contents" / "Resources" / "Sensorius.icns"
+    ).read_bytes() == saiWebServer.MACOS_ICNS_PATH.read_bytes()
+    assert registrations[0][0] == [
+        str(saiWebServer.MACOS_LSREGISTER),
+        "-f",
+        str(bundle_root),
+    ]
     assert calls[0][0] == str(bundle_executable)
     assert calls[0][1] == [
         str(bundle_executable),
-        str(saiWebServer.PROJECT_ROOT / "Sensorius.py"),
+        "-m",
+        "sensorius.app",
         "--example",
     ]
     assert calls[0][2]["SENSORIUS_MACOS_BUNDLE_RELAUNCHED"] == "1"
+    assert calls[0][2]["PYTHONPATH"].split(os.pathsep)[0] == str(
+        saiWebServer.PYTHON_PACKAGE_ROOT
+    )
 
 
 def test_macos_named_app_relaunch_skips_headless_and_recursive_launch(monkeypatch, tmp_path):
@@ -163,9 +191,220 @@ def test_macos_named_app_relaunch_skips_headless_and_recursive_launch(monkeypatc
     ) is False
     assert saiWebServer.relaunch_as_named_macos_app(
         bundle_root=tmp_path / "recursive.app",
-        environ={"SENSORIUS_MACOS_BUNDLE_RELAUNCHED": "1"},
+        environ={"SENSORIUS_MACOS_BUNDLE_RELAUNCHED": "yes"},
         execve=unexpected_exec,
     ) is False
+
+
+def test_macos_named_app_touches_registers_then_executes(monkeypatch, tmp_path):
+    events = []
+    python_executable = tmp_path / "python3"
+    python_executable.touch()
+    bundle_root = tmp_path / "Sensorius.app"
+    monkeypatch.setattr(saiWebServer.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        saiWebServer.os,
+        "utime",
+        lambda path, _times: events.append(("touch", path)),
+    )
+    monkeypatch.setattr(
+        saiWebServer.subprocess,
+        "run",
+        lambda args, **_kwargs: events.append(("register", args))
+        or SimpleNamespace(returncode=0),
+    )
+
+    assert saiWebServer.relaunch_as_named_macos_app(
+        bundle_root=bundle_root,
+        executable=python_executable,
+        argv=["Sensorius.py"],
+        environ={},
+        execve=lambda *_args: events.append(("exec", None)),
+    ) is True
+
+    assert [event[0] for event in events] == ["touch", "register", "exec"]
+    assert events[0][1] == bundle_root
+
+
+def test_macos_registration_failure_warns_but_still_launches(monkeypatch, tmp_path):
+    warnings = []
+    launches = []
+    python_executable = tmp_path / "python3"
+    python_executable.touch()
+    monkeypatch.setattr(saiWebServer.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        saiWebServer.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=7),
+    )
+    monkeypatch.setattr(
+        saiWebServer,
+        "printDM",
+        lambda message, **_kwargs: warnings.append(message),
+    )
+
+    assert saiWebServer.relaunch_as_named_macos_app(
+        bundle_root=tmp_path / "Sensorius.app",
+        executable=python_executable,
+        environ={},
+        execve=lambda *args: launches.append(args),
+    ) is True
+
+    assert launches
+    assert any("exit 7" in warning for warning in warnings)
+
+
+def test_macos_relaunch_preserves_installed_pythonpath(monkeypatch, tmp_path):
+    calls = []
+    package_root = tmp_path / "site-packages"
+    python_executable = tmp_path / "venv" / "bin" / "python3"
+    python_executable.parent.mkdir(parents=True)
+    python_executable.touch()
+    monkeypatch.setattr(saiWebServer.sys, "platform", "darwin")
+    monkeypatch.setattr(saiWebServer, "PYTHON_PACKAGE_ROOT", package_root)
+    monkeypatch.setattr(
+        saiWebServer.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=0),
+    )
+
+    assert saiWebServer.relaunch_as_named_macos_app(
+        bundle_root=tmp_path / "Sensorius.app",
+        executable=python_executable,
+        environ={"PYTHONPATH": f"/first{os.pathsep}{package_root}{os.pathsep}/last"},
+        execve=lambda _path, _args, env: calls.append(env),
+    ) is True
+
+    assert calls[0]["PYTHONPATH"].split(os.pathsep) == [
+        str(package_root),
+        "/first",
+        "/last",
+    ]
+
+
+def test_macos_relaunch_skips_unsupported_runtime_contexts(monkeypatch, tmp_path):
+    unexpected_exec = lambda *_args: (_ for _ in ()).throw(AssertionError("must not relaunch"))
+    monkeypatch.setattr(saiWebServer.sys, "platform", "linux")
+    assert saiWebServer.relaunch_as_named_macos_app(execve=unexpected_exec) is False
+
+    monkeypatch.setattr(saiWebServer.sys, "platform", "darwin")
+    monkeypatch.setattr(saiWebServer.sys, "frozen", True, raising=False)
+    assert saiWebServer.relaunch_as_named_macos_app(execve=unexpected_exec) is False
+    monkeypatch.delattr(saiWebServer.sys, "frozen")
+    monkeypatch.setattr(saiWebServer.sys, "_MEIPASS", "/tmp/frozen", raising=False)
+    assert saiWebServer.relaunch_as_named_macos_app(execve=unexpected_exec) is False
+    monkeypatch.delattr(saiWebServer.sys, "_MEIPASS")
+
+    bundled_python = tmp_path / "Existing.app" / "Contents" / "MacOS" / "python3"
+    bundled_python.parent.mkdir(parents=True)
+    bundled_python.touch()
+    assert saiWebServer.relaunch_as_named_macos_app(
+        executable=bundled_python,
+        execve=unexpected_exec,
+    ) is False
+
+
+def test_macos_missing_icon_fails_gracefully(monkeypatch, tmp_path):
+    warnings = []
+    monkeypatch.setattr(saiWebServer.sys, "platform", "darwin")
+    monkeypatch.setattr(saiWebServer, "MACOS_ICNS_PATH", tmp_path / "missing.icns")
+    monkeypatch.setattr(
+        saiWebServer,
+        "printDM",
+        lambda message, **_kwargs: warnings.append(message),
+    )
+
+    assert saiWebServer.relaunch_as_named_macos_app(
+        bundle_root=tmp_path / "Sensorius.app",
+        environ={},
+        execve=lambda *_args: None,
+    ) is False
+    assert any("Unable to prepare" in warning for warning in warnings)
+
+
+def test_macos_relaunch_replaces_stale_icon_and_symlink(monkeypatch, tmp_path):
+    bundle_root = tmp_path / "Sensorius.app"
+    executable_dir = bundle_root / "Contents" / "MacOS"
+    resources_dir = bundle_root / "Contents" / "Resources"
+    executable_dir.mkdir(parents=True)
+    resources_dir.mkdir()
+    old_python = tmp_path / "old-python"
+    new_python = tmp_path / "new-python"
+    old_python.touch()
+    new_python.touch()
+    bundle_executable = executable_dir / "Sensorius"
+    bundle_executable.symlink_to(old_python)
+    bundle_icon = resources_dir / "Sensorius.icns"
+    bundle_icon.write_bytes(b"stale icon")
+    monkeypatch.setattr(saiWebServer.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        saiWebServer.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=0),
+    )
+
+    assert saiWebServer.relaunch_as_named_macos_app(
+        bundle_root=bundle_root,
+        executable=new_python,
+        environ={},
+        execve=lambda *_args: None,
+    ) is True
+
+    assert bundle_executable.is_symlink()
+    assert bundle_executable.resolve() == new_python.resolve()
+    assert bundle_icon.read_bytes() == saiWebServer.MACOS_ICNS_PATH.read_bytes()
+
+
+def _icns_png_dimensions(path):
+    data = path.read_bytes()
+    assert data[:4] == b"icns"
+    assert struct.unpack(">I", data[4:8])[0] == len(data)
+    dimensions = set()
+    offset = 8
+    while offset < len(data):
+        chunk_length = struct.unpack(">I", data[offset + 4 : offset + 8])[0]
+        png = data[offset + 8 : offset + chunk_length]
+        if png.startswith(b"\x89PNG\r\n\x1a\n"):
+            dimensions.add(struct.unpack(">II", png[16:24]))
+        offset += chunk_length
+    return dimensions
+
+
+def test_packaged_icns_contains_required_physical_png_sizes():
+    dimensions = _icns_png_dimensions(saiWebServer.MACOS_ICNS_PATH)
+    assert {(size, size) for size in (32, 64, 128, 256, 512, 1024)} <= dimensions
+
+
+def test_icns_resource_is_in_built_wheel(tmp_path):
+    build_source = tmp_path / "source"
+    shutil.copytree(
+        saiWebServer.PROJECT_ROOT / "sensorius",
+        build_source / "sensorius",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+    shutil.copy2(saiWebServer.PROJECT_ROOT / "pyproject.toml", build_source)
+    wheel_dir = tmp_path / "wheel"
+    wheel_dir.mkdir()
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "wheel",
+            str(build_source),
+            "--no-build-isolation",
+            "--no-deps",
+            "--wheel-dir",
+            str(wheel_dir),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    wheel = next(wheel_dir.glob("sensorius-*.whl"))
+    with zipfile.ZipFile(wheel) as archive:
+        assert "sensorius/resources/Sensorius.icns" in archive.namelist()
 
 
 def test_window_geometry_defaults_keep_titlebar_visible(monkeypatch):
