@@ -365,6 +365,31 @@ def test_sunlight_card_uses_ampm_times_and_current_polar_daylight():
     assert 0 < len(context["next_eclipses"]) <= 3
     assert context["next_eclipses"][0]["kind"] == "Partial lunar eclipse"
     assert context["next_eclipses"][0]["date"] == "Aug 27, 2026"
+    assert context["next_eclipses"][0]["starts_at"] < context["next_eclipses"][0]["ends_at"]
+    assert context["eclipse_next_24h"] is None
+
+
+def test_astronomy_context_flags_an_observer_visible_eclipse_in_the_next_24_hours():
+    context = astronomy_context(
+        type(
+            "AstralSettings",
+            (),
+            {
+                "latitude": 32.77,
+                "longitude": -108.28,
+                "timezone": "America/Denver",
+                "location_name": "Test station",
+            },
+        )(),
+        datetime(2026, 8, 27, 18, tzinfo=timezone.utc),
+    )
+
+    eclipse = context["eclipse_next_24h"]
+    assert eclipse is not None
+    assert eclipse["kind"] == "Partial lunar eclipse"
+    assert eclipse["date"] == "Aug 27, 2026"
+    assert eclipse["starts"].endswith((" AM", " PM"))
+    assert eclipse["ends"].endswith((" AM", " PM"))
 
 
 def test_sunlight_card_places_times_horizontally_and_shows_poles():

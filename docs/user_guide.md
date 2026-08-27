@@ -54,6 +54,8 @@ interface:
 The **three horizontal bars** beside a Sensor Group heading open its **Move up**
 and **Move down** commands. Expand and collapse controls change only what is
 visible; they do not change sensor settings, switch state, or saved selections.
+Reordering sensor groups does not move the Sensorius overview graphic from the
+bottom of the dashboard.
 
 Dashboard data comes from the latest values in the live runtime cache and from the local database. If a device is offline, the latest stored reading may still be visible, but the online/offline state comes from live device status, MQTT heartbeat or availability messages, and recent packets.
 
@@ -88,11 +90,18 @@ Dashboard data comes from the latest values in the live runtime cache and from t
 
 3. The **Lunar Calendar Tile**.
 
+   When an eclipse visible from the configured Astral location overlaps the
+   next 24 hours, the Moon Phase tile adds an eclipse line with the eclipse
+   type, local date, and locally visible start and end times. The line remains
+   hidden when no visible eclipse falls in that window.
+
    Select **Lunar Calendar** on the dashboard's **Lunar Calendar Tile** to open
    the Caelus observer-local phase timeline: four previous phases, the live Moon
    and its current details, four upcoming phases with dates, and today's local
-   solar and lunar events. Its lower timeline runs from today's sunrise to the
-   next sunrise, with sunrise and sunset on the Sun row and chronologically
+   solar and lunar events. An **Upcoming eclipse** line identifies the next
+   locally visible eclipse in the coming twelve months, including its local
+   date and visibility window. Its lower timeline runs from today's sunrise to
+   the next sunrise, with sunrise and sunset on the Sun row and chronologically
    interlaced moonrise and moonset markers on the Moon row. Use **Local** beside
    the calendar title for the observer's sky orientation or **Ref** for a
    lunar-north-up reference view. The saved choice also controls the Moon disks

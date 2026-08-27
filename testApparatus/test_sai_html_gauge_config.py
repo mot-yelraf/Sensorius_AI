@@ -491,7 +491,7 @@ def test_dashboard_renders_centered_overview_graphic_at_bottom():
     assert f"src='/ui_static/01-sensorius-overview-v5.png?v={APP_VERSION}'" in html
     assert html.index(graphic) < html.index("<div id='modal-host'></div>")
     assert ".dashboard-overview-graphic{" in css
-    assert "order:9999;" in css
+    assert "order:2147483647;" in css
     assert "justify-content:center;" in css
     assert "width:min(100%, 522px);" in css
     assert "border-radius:12px;" in css
@@ -514,14 +514,19 @@ def test_sensor_reordering_keeps_overview_graphic_as_footer():
     start = html.index("window.applySensorGroupOrder = function(order)")
     end = html.index("window.reorderSensorGroup = async function", start)
     reorder_block = html[start:end]
+    assert "window.pinDashboardOverviewFooter = function()" in html
+    assert "dashboardContent.lastElementChild !== overviewFooter" in html
     assert "document.getElementById('dashboard-overview-footer')" in reorder_block
-    assert "dashboard.insertBefore(el, overviewFooter)" in reorder_block
+    assert "dashboardContent.insertBefore(el, overviewFooter)" in reorder_block
+    assert "(firstSensorGroup && firstSensorGroup.parentElement)" in reorder_block
     assert "if (switchGroup) insertBeforeFooter(switchGroup);" in reorder_block
-    assert "if (el) dashboard.appendChild(el);" not in reorder_block
+    assert "window.pinDashboardOverviewFooter();" in reorder_block
+    assert "dashboard.appendChild(el)" not in reorder_block
 
     ensure_start = html.index("function ensureSensorUI(sid, metricList, locationText)")
     ensure_end = html.index("window.DISPLAY_STYLES", ensure_start)
     ensure_block = html[ensure_start:ensure_end]
+    assert "(overviewFooter && overviewFooter.parentElement)" in ensure_block
     assert "parent.insertBefore(group, overviewFooter)" in ensure_block
 
 
@@ -842,6 +847,9 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "#sunBox .astro-card{width:100%;min-width:0;height:100%;" in html
     assert "id='moonCalendarBtn' aria-label='Open Lunar Calendar'" in html
     assert "<span class='bio-open-btn-label'>Lunar Calendar</span>" in html
+    assert "id='moonEclipse24h' hidden" in html
+    assert "id='moonEclipse24hText'" in html
+    assert "renderDashboardEclipse(moon);" in html
     assert "id='caelusMoonDialogTitle'>Lunar Calendar</h2>" in html
     assert "id='caelusMoonViewLocal' data-moon-view='local'" in html
     assert "id='caelusMoonViewReference' data-moon-view='reference'" in html
@@ -849,6 +857,10 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "id='caelusMoonrise'" in html
     assert "id='caelusMoonset'" in html
     assert "id='caelusNextSunrise'" in html
+    assert "id='caelusUpcomingEclipse'" in html
+    assert "id='caelusUpcomingEclipseText'" in html
+    assert "No visible eclipse in the next 12 months" in html
+    assert "renderUpcomingEclipse(moon);" in html
     assert html.index("<div class='caelus-lunar-timeline-row caelus-lunar-timeline-row-moon'>") < html.index(
         "<div class='caelus-lunar-timeline-row caelus-lunar-timeline-row-sun'>"
     )
