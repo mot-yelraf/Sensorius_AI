@@ -48,6 +48,7 @@ SUN_RADIUS_KM = 696_340.0
 MOON_RADIUS_KM = 1_737.4
 ECLIPSE_WINDOW_DAYS = 365
 ECLIPSE_LIMIT = 3
+ECLIPSE_ALERT_HOURS = 24
 
 
 def _horizontal_vector(azimuth_degrees: float, elevation_degrees: float) -> tuple[float, float, float]:
@@ -353,7 +354,8 @@ def _next_visible_eclipses_for_hour(
     _loader, ts, eph, _constellation_at = runtime
     observed_at = datetime.fromisoformat(observed_hour_iso)
     window_end = observed_at + timedelta(days=ECLIPSE_WINDOW_DAYS)
-    start = ts.from_datetime(observed_at)
+    search_start = observed_at - timedelta(days=1)
+    start = ts.from_datetime(search_start)
     end = ts.from_datetime(window_end)
     observer = eph["earth"] + wgs84.latlon(latitude, longitude)
     tzinfo = ZoneInfo(timezone_name)
@@ -392,6 +394,11 @@ def _next_visible_eclipses_for_hour(
                 "kind": "Solar eclipse",
                 "date": f"{event_local.strftime('%b')} {event_local.day}, {event_local.year}",
                 "at": event_local.isoformat(),
+                "starts_at": sample_datetimes[visible_indices[0]].astimezone(tzinfo).isoformat(),
+                "ends_at": sample_datetimes[visible_indices[-1]].astimezone(tzinfo).isoformat(),
+                "time": _clock_label(event_local),
+                "starts": _clock_label(sample_datetimes[visible_indices[0]].astimezone(tzinfo)),
+                "ends": _clock_label(sample_datetimes[visible_indices[-1]].astimezone(tzinfo)),
             }
         )
 
@@ -416,7 +423,12 @@ def _next_visible_eclipses_for_hour(
         moon_altitudes = (
             observer.at(sample_times).observe(eph["moon"]).apparent().altaz()[0].degrees
         )
-        if not any(altitude >= -0.833 for altitude in moon_altitudes):
+        visible_indices = [
+            sample_index
+            for sample_index, altitude in enumerate(moon_altitudes)
+            if altitude >= -0.833
+        ]
+        if not visible_indices:
             continue
         event_local = center.astimezone(tzinfo)
         visible.append(
@@ -424,11 +436,21 @@ def _next_visible_eclipses_for_hour(
                 "kind": f"{eclipselib.LUNAR_ECLIPSES[int(eclipse_type)]} lunar eclipse",
                 "date": f"{event_local.strftime('%b')} {event_local.day}, {event_local.year}",
                 "at": event_local.isoformat(),
+                "starts_at": sample_datetimes[visible_indices[0]].astimezone(tzinfo).isoformat(),
+                "ends_at": sample_datetimes[visible_indices[-1]].astimezone(tzinfo).isoformat(),
+                "time": _clock_label(event_local),
+                "starts": _clock_label(sample_datetimes[visible_indices[0]].astimezone(tzinfo)),
+                "ends": _clock_label(sample_datetimes[visible_indices[-1]].astimezone(tzinfo)),
             }
         )
 
-    visible.sort(key=lambda event: event["at"])
-    return tuple(visible[:ECLIPSE_LIMIT])
+    upcoming_or_active = [
+        event
+        for event in visible
+        if datetime.fromisoformat(event["ends_at"]).astimezone(timezone.utc) >= observed_at
+    ]
+    upcoming_or_active.sort(key=lambda event: event["at"])
+    return tuple(upcoming_or_active[:ECLIPSE_LIMIT])
 
 
 def _next_visible_eclipses(
@@ -442,7 +464,7 @@ def _next_visible_eclipses(
         minute=0, second=0, microsecond=0
     )
     try:
-        return list(
+        eclipses = list(
             _next_visible_eclipses_for_hour(
                 observed_hour.isoformat(),
                 round(latitude, 4),
@@ -450,8 +472,30 @@ def _next_visible_eclipses(
                 tzinfo.key,
             )
         )
+        return [
+            eclipse
+            for eclipse in eclipses
+            if datetime.fromisoformat(eclipse["ends_at"]).astimezone(timezone.utc)
+            >= observed_at
+        ]
     except Exception:
         return []
+
+
+def _eclipse_in_next_24_hours(
+    observed_at: datetime, eclipses: list[dict[str, str]]
+) -> dict[str, str] | None:
+    """Return the first visible eclipse overlapping the next 24 hours."""
+    alert_end = observed_at + timedelta(hours=ECLIPSE_ALERT_HOURS)
+    for eclipse in eclipses:
+        try:
+            starts_at = datetime.fromisoformat(eclipse["starts_at"]).astimezone(timezone.utc)
+            ends_at = datetime.fromisoformat(eclipse["ends_at"]).astimezone(timezone.utc)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if starts_at <= alert_end and ends_at >= observed_at:
+            return eclipse
+    return None
 
 
 def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, Any]:
@@ -546,6 +590,7 @@ def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, An
             next_season_date=next_season["date"],
             next_season_at=next_season["at"],
             next_eclipses=next_eclipses,
+            eclipse_next_24h=_eclipse_in_next_24_hours(observed_at, next_eclipses),
             daylight_progress=daylight_progress,
             sun_is_up=solar["sunrise"] <= local < effective_sunset,
             moon_altitude=round(_moon_elevation(location.observer, observed_at), 1),
@@ -591,6 +636,7 @@ def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, An
             next_season_date="—",
             next_season_at="",
             next_eclipses=[],
+            eclipse_next_24h=None,
             daylight_progress=0,
             sun_is_up=False,
             moon_altitude=None,

@@ -350,7 +350,7 @@ body.dashboard-theme-preview-mode .dashboard-content{opacity:0;pointer-events:no
 }
 
 .dashboard-overview-graphic{
-  order:9999;
+  order:2147483647;
   flex:0 0 100%;
   display:flex;
   justify-content:center;

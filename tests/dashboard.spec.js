@@ -35,6 +35,49 @@ test('renders the Sensorius dashboard and expands additional metrics', async ({ 
   await expect(sensorGroup.locator('.metric-container').last()).toBeVisible();
 });
 
+test('keeps the overview graphic below sensors after moving the bottom sensor up', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await page.evaluate(() => {
+    const footer = document.getElementById('dashboard-overview-footer');
+    const dashboardContent = footer?.parentElement;
+    const source = dashboardContent?.querySelector('.sensor-group[data-sensor-id]');
+    if (!dashboardContent || !source || !footer) throw new Error('dashboard fixture is incomplete');
+    const ecowitt = source.cloneNode(true);
+    ecowitt.id = 'group_ecowitt-bottom-test';
+    ecowitt.dataset.sensorId = 'ecowitt-bottom-test';
+    ecowitt.querySelectorAll('[data-sensor-id]').forEach((element) => {
+      element.setAttribute('data-sensor-id', 'ecowitt-bottom-test');
+    });
+    dashboardContent.insertBefore(ecowitt, footer);
+  });
+
+  let reordered = false;
+  await page.route('**/dashboard/metric-position', async (route) => {
+    const groups = await page.locator('.sensor-group[data-sensor-id]').evaluateAll((elements) =>
+      elements.map((element) => element.getAttribute('data-sensor-id')),
+    );
+    const body = route.request().postDataJSON();
+    const index = groups.indexOf(body.sensor_id);
+    if (index > 0 && body.direction === 'up') {
+      [groups[index - 1], groups[index]] = [groups[index], groups[index - 1]];
+    }
+    reordered = true;
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ status: 'ok', moved: true, order: groups }) });
+  });
+
+  const ecowitt = page.locator(".sensor-group[data-sensor-id='ecowitt-bottom-test']");
+  await ecowitt.locator('.sensor-order-btn').click();
+  await ecowitt.locator(".sensor-order-item[data-move='up']").click();
+  await expect.poll(() => reordered).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.getElementById('dashboard-overview-footer')?.parentElement?.lastElementChild?.id)).toBe('dashboard-overview-footer');
+
+  const footerTop = await page.locator('#dashboard-overview-footer').evaluate((element) => element.getBoundingClientRect().top + window.scrollY);
+  const sensorBottom = await page.locator('.sensor-group[data-sensor-id]').evaluateAll((elements) =>
+    Math.max(...elements.map((element) => element.getBoundingClientRect().bottom + window.scrollY)),
+  );
+  expect(footerTop).toBeGreaterThanOrEqual(sensorBottom);
+});
+
 test('shares and persists the Lunar Calendar view mode', async ({ page }) => {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await page.evaluate(() => localStorage.removeItem('sensorius.moonViewMode'));
@@ -61,6 +104,39 @@ test('shares and persists the Lunar Calendar view mode', async ({ page }) => {
 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#moonViewReference')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('shows eclipse details in the Moon tile and Lunar Calendar', async ({ page }) => {
+  await page.route('**/api/weather-forecast-app/astronomy', async (route) => {
+    const eclipse = {
+      kind: 'Partial lunar eclipse',
+      date: 'Aug 27, 2026',
+      at: '2026-08-27T22:12:00-06:00',
+      starts_at: '2026-08-27T20:48:00-06:00',
+      ends_at: '2026-08-27T23:38:00-06:00',
+      time: '10:12 PM',
+      starts: '8:48 PM',
+      ends: '11:38 PM',
+    };
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        eclipse_next_24h: eclipse,
+        next_eclipses: [eclipse],
+        previous_phases: [],
+        upcoming_phases: [],
+      }),
+    });
+  });
+
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#moonEclipse24h')).toBeVisible();
+  await expect(page.locator('#moonEclipse24hText')).toContainText('Partial lunar eclipse');
+  await expect(page.locator('#moonEclipse24hText')).toContainText('8:48 PM–11:38 PM');
+
+  await page.locator('#moonCalendarBtn').click();
+  await expect(page.locator('#caelusUpcomingEclipseText')).toContainText('Partial lunar eclipse');
+  await expect(page.locator('#caelusUpcomingEclipseText')).toContainText('Aug 27, 2026');
 });
 
 test('opens the 29 day Sun/Moon graph from an aligned tile button', async ({ page }) => {
