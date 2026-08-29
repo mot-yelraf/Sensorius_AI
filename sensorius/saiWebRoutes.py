@@ -606,6 +606,8 @@ _cdp_debug_last_log: float = 0.0
 _CDP_DEBUG_MIN_INTERVAL_SEC: float = 30.0
 _DASHBOARD_JSON_CACHE_TTL_SEC: float = 2.0
 _DASHBOARD_JSON_CACHE: dict[tuple[str, int], tuple[float, dict[str, object]]] = {}
+_DASHBOARD_HTML_CACHE_MAX_ENTRIES: int = 2
+_DASHBOARD_HTML_CACHE: OrderedDict[str, str] = OrderedDict()
 _DASHBOARD_INVENTORY_CACHE_TTL_SEC: float = 2.0
 _DASHBOARD_INVENTORY_CACHE: tuple[float, dict[str, object]] | None = None
 _DASHBOARD_DISPLAY_SETTINGS_CACHE_TTL_SEC: float = 2.0
@@ -652,6 +654,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         theme_manager = ThemeManager(resolve_runtime_base_dir(getattr(saiSettings, "DEFAULT_BASE_DIR", "system_settings")).parent)
         app.state.theme_manager = theme_manager
     _BIODYNAMIC_PAYLOAD_CACHE.clear()
+    _DASHBOARD_HTML_CACHE.clear()
     biodynamic_payload_tasks: dict[str, asyncio.Task] = {}
     biodynamic_payload_cache_lock = threading.Lock()
     biodynamic_payload_cache_generation = 0
@@ -690,6 +693,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         global _DASHBOARD_INVENTORY_CACHE, _DASHBOARD_DISPLAY_SETTINGS_CACHE, _ASTRO_PAYLOAD_CACHE
         global _sensor_ids_cache_payload, _sensor_ids_cache_until
         _DASHBOARD_JSON_CACHE.clear()
+        _DASHBOARD_HTML_CACHE.clear()
         _DASHBOARD_INVENTORY_CACHE = None
         _DASHBOARD_DISPLAY_SETTINGS_CACHE = None
         with astro_payload_cache_lock:
@@ -2355,11 +2359,31 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         sensor_id: str = Query(None),
         json_only: bool = Query(False),
         include_extras: bool = Query(False),
+        dashboard_return: bool = Query(False),
     ):
         _route_started = time.monotonic()
         phase_ms: dict[str, float] = {}
         _phase_started = time.monotonic()
         global _cdp_debug_last_log
+        dashboard_cache_key = str(sensor_id or "All")
+        if dashboard_return and not json_only:
+            cached_dashboard = _DASHBOARD_HTML_CACHE.get(dashboard_cache_key)
+            if cached_dashboard is not None:
+                _DASHBOARD_HTML_CACHE.move_to_end(dashboard_cache_key)
+                _ui_profile_log(
+                    "dashboard",
+                    _route_started,
+                    shell_cache=1,
+                    sensor_id=dashboard_cache_key,
+                )
+                return HTMLResponse(
+                    content=cached_dashboard,
+                    headers={
+                        "Cache-Control": "no-store, max-age=0",
+                        "Pragma": "no-cache",
+                        "X-Sensorius-Dashboard-Shell": "hit",
+                    },
+                )
         try:
             seen = set()
             available = []
@@ -3532,6 +3556,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             ))
         )
         phase_ms["render"] = (time.monotonic() - render_started) * 1000.0
+        _DASHBOARD_HTML_CACHE[dashboard_cache_key] = rendered_dashboard
+        _DASHBOARD_HTML_CACHE.move_to_end(dashboard_cache_key)
+        while len(_DASHBOARD_HTML_CACHE) > _DASHBOARD_HTML_CACHE_MAX_ENTRIES:
+            _DASHBOARD_HTML_CACHE.popitem(last=False)
         _ui_profile_log(
             "dashboard",
             _route_started,

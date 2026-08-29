@@ -537,6 +537,7 @@ async def test_integrated_weather_routes_render_dashboard_and_namespaced_apis(mo
     assert page.headers["cache-control"] == "no-store, max-age=0"
     assert page.headers["pragma"] == "no-cache"
     assert 'class="dashboard-return"' in page.text
+    assert 'id="dashboardReturn" href="/?dashboard_return=true"' in page.text
     assert '<span class="dashboard-close-icon" aria-hidden="true">&times;</span>' in page.text
     assert ">Dashboard<" not in page.text
     assert "System Settings" not in page.text
@@ -787,6 +788,8 @@ def test_weather_forecast_system_settings_are_present():
     assert "sunny-beach.webp" in stylesheet
     assert "desert-clear.webp" in stylesheet
     assert ".theme-desert .glass-card:not(.lunar-header)" in stylesheet
+    assert "border-radius: 1rem;" in stylesheet[stylesheet.index(".glass-card {"):stylesheet.index(".glass-card::after")]
+    assert "border-radius: 0.75rem;" in stylesheet[stylesheet.index(".forecast-day {"):stylesheet.index(".forecast-day time")]
     assert "--glass: rgba(229, 241, 221, 0.88)" in stylesheet
     assert "--ink: #18382b" in stylesheet
     assert "--muted: rgba(24, 56, 43, 0.78)" in stylesheet

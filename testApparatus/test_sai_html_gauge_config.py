@@ -833,6 +833,7 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "function setAstroCardsLoading(isLoading){" in html
     assert "['moonBox','sunBox','sunMoon29Card'].forEach((id) => setDashboardCardLoading(id, isLoading));" in html
     assert "const keepExistingAstro = warming && astroData && astroData.ok;" in html
+    assert "new URLSearchParams(window.location.search).has('dashboard_return')" in html
     assert "setAstroCardsLoading(warming && !keepExistingAstro);" in html
     assert "if (keepExistingAstro) return;" in html
     assert "if (!warming) { delete astroData.reason; delete astroData.cache_status; }" in html
@@ -840,6 +841,7 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "target.closest('#moonCalendarBtn')" in html
     assert "target.closest('#moonBox') && !target.closest('[data-moon-view]')" not in html
     assert "target.closest('#sunBox')" in html
+    assert "if (!row) return { reason: `sensor:${sid}` };" in html
     assert "openCaelusMoonPhases();" in html
     assert "id='sunMoon29Btn' aria-label='Open 29 Day Sun/Moon Position'" in html
     assert "<span class='bio-open-btn-label'>29 Day Graph</span>" in html
@@ -855,6 +857,7 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "astronomyDateKey !== __lastAstronomyDateKey" in html
     assert "refreshCaelusAstronomy().catch" in html
     assert "id='caelusMoonDialogTitle'>Lunar Calendar</h2>" in html
+    assert ".caelus-moon-dialog{position:relative;width:min(1180px,96vw);max-height:92vh;overflow:auto;border:1px solid rgba(126,196,193,.46);border-radius:1rem;" in html
     assert "id='caelusMoonViewLocal' data-moon-view='local'" in html
     assert "id='caelusMoonViewReference' data-moon-view='reference'" in html
     assert "id='caelusMoonClose' aria-label='Close Lunar Calendar'" in html

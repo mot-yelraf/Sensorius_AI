@@ -84,6 +84,7 @@ test('shares and persists the Lunar Calendar view mode', async ({ page }) => {
   await page.reload({ waitUntil: 'domcontentloaded' });
 
   await page.locator('#moonCalendarBtn').click();
+  await expect.poll(() => page.locator('#caelusMoonDialog').evaluate((element) => getComputedStyle(element).borderRadius)).toBe('16px');
   await expect(page.locator('#caelusMoonViewLocal')).toHaveAttribute('aria-pressed', 'true');
   await page.locator('#caelusCurrentMoonDisk').evaluate((canvas) => {
     window.CaelusMoon.renderMoonDisk(canvas, {
