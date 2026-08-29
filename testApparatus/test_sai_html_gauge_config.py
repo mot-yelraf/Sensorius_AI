@@ -850,6 +850,10 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "id='moonEclipse24h' hidden" in html
     assert "id='moonEclipse24hText'" in html
     assert "renderDashboardEclipse(moon);" in html
+    assert "function astronomyLocalDateKey(now)" in html
+    assert "astroData.timezone || astroData.tz" in html
+    assert "astronomyDateKey !== __lastAstronomyDateKey" in html
+    assert "refreshCaelusAstronomy().catch" in html
     assert "id='caelusMoonDialogTitle'>Lunar Calendar</h2>" in html
     assert "id='caelusMoonViewLocal' data-moon-view='local'" in html
     assert "id='caelusMoonViewReference' data-moon-view='reference'" in html
@@ -880,6 +884,7 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "renderCaelusPhaseSide('caelusPreviousPhases', 'Previous phases', moon.previous_phases);" in html
     assert "renderCaelusPhaseSide('caelusUpcomingPhases', 'Upcoming phases', moon.upcoming_phases);" in html
     assert "fetch('/api/weather-forecast-app/astronomy', {cache:'no-store'})" in html
+    assert "caelusAstronomyPromise = null;" in html
     assert "/ui_static/weather_forecast/moon.js" in html
     assert "window.localStorage.getItem('sensorius.moonViewMode')" in html
     assert "document.querySelectorAll('[data-moon-view]').forEach" in html
