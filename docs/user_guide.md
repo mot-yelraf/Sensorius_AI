@@ -93,7 +93,9 @@ Dashboard data comes from the latest values in the live runtime cache and from t
    When an eclipse visible from the configured Astral location overlaps the
    next 24 hours, the Moon Phase tile adds an eclipse line with the eclipse
    type, local date, and locally visible start and end times. The line remains
-   hidden when no visible eclipse falls in that window.
+   hidden when no visible eclipse falls in that window. An open dashboard
+   refreshes this eclipse line at each configured-location midnight; reloading
+   the dashboard refreshes it immediately.
 
    Select **Lunar Calendar** on the dashboard's **Lunar Calendar Tile** to open
    the Caelus observer-local phase timeline: four previous phases, the live Moon

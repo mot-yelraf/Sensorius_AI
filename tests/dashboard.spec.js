@@ -139,6 +139,37 @@ test('shows eclipse details in the Moon tile and Lunar Calendar', async ({ page 
   await expect(page.locator('#caelusUpcomingEclipseText')).toContainText('Aug 27, 2026');
 });
 
+test('clears stale eclipse details at the next station-local midnight', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-08-28T23:59:30-06:00') });
+  let astronomyRequests = 0;
+  await page.route('**/api/weather-forecast-app/astronomy', async (route) => {
+    astronomyRequests += 1;
+    const eclipse = {
+      kind: 'Partial lunar eclipse',
+      date: 'Aug 27, 2026',
+      starts: '7:43 PM',
+      ends: '12:43 AM',
+    };
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        timezone: 'America/Denver',
+        eclipse_next_24h: astronomyRequests === 1 ? eclipse : null,
+        next_eclipses: astronomyRequests === 1 ? [eclipse] : [],
+        previous_phases: [],
+        upcoming_phases: [],
+      }),
+    });
+  });
+
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#moonEclipse24h')).toBeVisible();
+  await page.clock.fastForward(1_000);
+  await page.clock.fastForward(60_000);
+  await expect.poll(() => astronomyRequests).toBeGreaterThanOrEqual(2);
+  await expect(page.locator('#moonEclipse24h')).toBeHidden();
+});
+
 test('opens the 29 day Sun/Moon graph from an aligned tile button', async ({ page }) => {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
 
