@@ -4064,6 +4064,38 @@ async def test_submit_switch_settings_remote_last_state_uses_previous_label_mapp
 
 
 @pytest.mark.asyncio
+async def test_companion_return_reuses_last_dashboard_shell(tmp_path, monkeypatch):
+    app, _ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    monkeypatch.setattr(saiWebRoutes, "_DASHBOARD_INVENTORY_CACHE", None)
+    monkeypatch.setattr(saiWebRoutes, "_DASHBOARD_DISPLAY_SETTINGS_CACHE", None)
+    render_calls = []
+
+    def _render_dashboard(*_args, **_kwargs):
+        render_calls.append(len(render_calls) + 1)
+        return iter([f"<html><body>dashboard-shell-{render_calls[-1]}</body></html>"])
+
+    monkeypatch.setattr(saiWebRoutes, "render_dashboard", _render_dashboard)
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_values_and_timestamps", lambda ids: ({}, {}))
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        first = await client.get("/")
+        returned = await client.get("/", params={"dashboard_return": "true"})
+        regular = await client.get("/")
+
+    assert first.status_code == 200
+    assert returned.status_code == 200
+    assert regular.status_code == 200
+    assert first.text == "<html><body>dashboard-shell-1</body></html>"
+    assert returned.text == first.text
+    assert returned.headers["x-sensorius-dashboard-shell"] == "hit"
+    assert regular.text == "<html><body>dashboard-shell-2</body></html>"
+    assert render_calls == [1, 2]
+
+
+@pytest.mark.asyncio
 async def test_dashboard_sensor_locations_ignore_unknown_live_cache_and_use_toml(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     saiWebRoutes._SENSOR_LOCATION_CACHE.clear()

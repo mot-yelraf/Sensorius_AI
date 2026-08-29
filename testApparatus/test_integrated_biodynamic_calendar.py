@@ -148,7 +148,7 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     javascript = (root / "ui_static" / "biodynamic_calendar" / "app.js").read_text(encoding="utf-8")
     dashboard = (root / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
 
-    assert 'id="dashboardReturn" href="/" aria-label="Return to Sensorius dashboard"' in template
+    assert 'id="dashboardReturn" href="/?dashboard_return=true" aria-label="Return to Sensorius dashboard"' in template
     assert 'class="dashboard-return-spinner"' in template
     assert '<span class="dashboard-close-icon" aria-hidden="true">&times;</span>' in template
     assert '<span class="dashboard-return-label">Dashboard</span>' not in template
@@ -359,7 +359,7 @@ async def test_integrated_calendar_page_and_month_api_render(monkeypatch):
         payload = await client.get("/api/biodynamic-calendar-app/calendar?month=2026-03")
 
     assert page.status_code == 200
-    assert '<a class="dashboard-return" id="dashboardReturn" href="/"' in page.text
+    assert '<a class="dashboard-return" id="dashboardReturn" href="/?dashboard_return=true"' in page.text
     assert '<body class="sensorius-launch biodynamic-theme-winter"' in page.text
     assert 'data-theme-preference="winter"' in page.text
     assert '<span class="dashboard-close-icon" aria-hidden="true">&times;</span>' in page.text
