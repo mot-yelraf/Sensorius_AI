@@ -1,10 +1,11 @@
-# Sensorius
+# Sensorius Automatio Instrumentorum
 
 **Environmental Sensing + Automation Hub**
 
 Sensorius is a Raspberry Pi-first sensor and automation hub with a full web UI, MQTT ingestion, and optional Home Assistant and farmOS integrations. It auto-detects local sensors, discovers Nodus devices over MQTT, and turns those signals into live dashboards, historical data, switch control, and optional farmOS telemetry export.
 
-The goal is simple: get visibility, storage, and control with minimal manual setup.
+For illustrated setup and operating instructions, see the
+[Sensorius AI User Guide](docs/user_guide.md).
 
 ## What It Does
 
