@@ -107,7 +107,12 @@ missing system-level I2C setup.
 The canonical project version is stored once in `sensorius/__init__.py`. The
 deploy script verifies that marker exists before syncing; the repository-root
 `__init__.py` re-exports it for compatibility. The runtime UI and versioned
-static-asset URLs both use the canonical package value.
+static-asset URLs both use the canonical package value. Python package metadata
+also derives its version from that marker through `pyproject.toml`.
+
+Platform requirement files contain runtime dependencies only. Developers and
+CI install `setup_reqs_dev.txt` in addition to the applicable platform file for
+pytest and coverage tooling.
 
 The deploy script is intended for existing runtime directories such as
 `/home/<user>/Sensorius` or `/Users/<user>/Sensorius`. It uses an explicit

@@ -398,17 +398,17 @@ class saiStats:
         self._all_stats_cache = (now_mono + self._stats_cache_ttl_sec, dict(results))
         return results
 
-def create_stats_router(settings, gc_mgr):
-    """Create the FastAPI router for statistics and trend endpoints."""
+def create_stats_router(settings, gc_mgr, data_logger=None):
+    """Create the statistics router, optionally reusing the runtime logger."""
     from .saiDataLogger import saiDataLogger
     router = APIRouter()
-    statter = saiStats()
-    data_logger = saiDataLogger()
+    data_logger = data_logger or saiDataLogger()
+    statter = saiStats(db_path=getattr(data_logger, "db_path", "sensorius_data.db"))
 
     @router.get("/stats", response_class=JSONResponse)
     async def get_24hr_stats(sensor_id: str = Query(None)):
         all_sensor_ids = settings.get_all_sensor_ids()
-        available = data_logger.get_available_sensors()
+        available = await asyncio.to_thread(data_logger.get_available_sensors)
         valid_ids = sorted(set(all_sensor_ids) | set(available))
 
         if not sensor_id or sensor_id not in valid_ids:

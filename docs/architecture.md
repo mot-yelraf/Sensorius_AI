@@ -57,6 +57,8 @@ macOS, Windows, and non-Pi Linux hub:
   liveness events,
   switch identities, switch events, biodynamic notes, plantings, calendar
   cache entries, and daily summaries.
+  Schema initialization is cached per resolved database path so explicit test,
+  archive, and recovery databases cannot inherit another database's state.
 - `sensorius/saiFastStats.py`: optional live-statistics websocket
   broadcaster. It remains dormant without subscribers and performs database
   aggregation outside the asyncio event loop.
@@ -76,6 +78,9 @@ macOS, Windows, and non-Pi Linux hub:
   retained
   metadata processing, liveness, remote switch state cache, onboarding events,
   calibration events, and optional Nodus mirroring.
+  Broker connection setup is moved off the asyncio event loop. Inbound callback
+  timing and contention counters are exposed through Advanced status without
+  recording payload contents.
 - `sensorius/saiHomeAssistantMqtt.py`: Home Assistant discovery, state
   publishing,
   availability, and command routing.

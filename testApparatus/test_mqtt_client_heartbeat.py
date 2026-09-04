@@ -119,6 +119,22 @@ def test_reconnect_configures_lwt_and_publishes_online_heartbeat(monkeypatch):
     assert data["heartbeat_interval_s"] == 30
 
 
+def test_reconnect_offloads_blocking_connect(monkeypatch):
+    c = _build_client(monkeypatch)
+    offloaded = []
+
+    async def _fake_to_thread(func, *args, **kwargs):
+        offloaded.append((func, args, kwargs))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(mqtt_client_mod.asyncio, "to_thread", _fake_to_thread)
+    asyncio.run(c.mqtt_reconnect())
+
+    assert offloaded
+    assert offloaded[0][0] == c.client.connect
+    assert offloaded[0][1] == ("broker.local", 1883)
+
+
 def test_close_publishes_offline_heartbeat(monkeypatch):
     c = _build_client(monkeypatch)
     asyncio.run(c.mqtt_reconnect())

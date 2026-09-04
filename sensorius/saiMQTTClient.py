@@ -254,9 +254,10 @@ class saiMQTTClient:
                 if DEBUG:
                     printDM(f"MQTT connect attempt {attempt+1}/3 to {self.broker}:{self.port}", location=MODULE)
 
-                # connect() is non-blocking enough for typical use; it triggers on_connect via loop thread
+                # DNS and TCP setup can block for seconds on a degraded network.
+                # Keep that work off the shared asyncio event loop.
                 self._configure_last_will()
-                self.client.connect(self.broker, self.port)
+                await asyncio.to_thread(self.client.connect, self.broker, self.port)
 
                 # Give on_connect a moment to run (without busy waiting)
                 ok = await self.ensure_connected(timeout=5)

@@ -21,7 +21,8 @@ def test_canonicalize_veml_ppfd_alias():
 
 def test_canonicalize_soil_moisture_alias():
     cfg = get_gauge_config()
-    assert canonicalize_metric_name("Soil Moisture", cfg) == "Soil-Moisture"
+    assert canonicalize_metric_name("Soil Moisture", cfg) == "Soil Moisture"
+    assert canonicalize_metric_name("Soil-Moisture", cfg) == "Soil Moisture"
 
 
 def test_canonicalize_dewpoint_aliases():

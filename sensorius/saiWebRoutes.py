@@ -10142,6 +10142,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 runtime_health = supervisor.runtime_status_snapshot()
             except Exception:
                 runtime_health = None
+        mqtt_ingest_health = None
+        if mqtt_ingest and hasattr(mqtt_ingest, "mqtt_callback_health_snapshot"):
+            try:
+                mqtt_ingest_health = mqtt_ingest.mqtt_callback_health_snapshot()
+            except Exception:
+                mqtt_ingest_health = None
 
         return JSONResponse({
             "platform": platform.system(),
@@ -10154,6 +10160,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "debug_modules": debug_modules,
             "db_retention_days": retention_days,
             "runtime_health": runtime_health,
+            "mqtt_ingest_health": mqtt_ingest_health,
             "runtime_instance_id": app.state.ui_runtime_instance_id,
             "autostart_note": "If you manually run 'python Sensorius.py', stop that instance before enabling auto-start to avoid duplicate instances.",
             "autostart_scope_note": "macOS user-level launchctl is default. System-level may require admin privileges.",
@@ -12832,7 +12839,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         import time
         from .saiCalibration import CalibrationManager
         from .saiSensorSettingsManager import SensorSettingsManager
-        from .saiDataLogger import saiDataLogger
 
         # Parse/normalize inputs
         try:
@@ -12854,7 +12860,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # Build helpers
         sensor_mgr = SensorSettingsManager("sensor_settings")
-        data_logger = saiDataLogger()  # if you already have a global, reuse that instead
         cal_mgr = CalibrationManager(data_logger, sensor_mgr)
 
         # Compute offsets + sigmas (no disk writes)
@@ -16103,6 +16108,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         data_logger=data_logger,
         sensor_settings_manager=SensorSettingsManager("sensor_settings"),
     )
-    app.include_router(create_stats_router(settings, gc_mgr))
+    app.include_router(create_stats_router(settings, gc_mgr, data_logger=data_logger))
     app.include_router(router)
     return router

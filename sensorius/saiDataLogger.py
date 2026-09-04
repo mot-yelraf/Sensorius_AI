@@ -151,6 +151,7 @@ class saiDataLogger:
 
     _init_lock = threading.RLock()
     _schema_ready = False
+    _schema_ready_paths: set[str] = set()
     _recovery_lock = threading.RLock()
     _recovery_last_attempt_by_path = {}
     _recovery_instances = weakref.WeakSet()
@@ -830,9 +831,15 @@ class saiDataLogger:
 
     # Enable Write-Ahead-Logging, add PRAGMA and indexes, plus new switch tables
     def _init_db(self):
-        # Multiple logger instances are created during startup; run schema init once per process.
+        # Multiple logger instances are created during startup; initialize each
+        # distinct database once per process.
         with self.__class__._init_lock:
-            if self.__class__._schema_ready:
+            if not self.__class__._schema_ready:
+                # Preserve the long-standing reset hook used by recovery and tests.
+                self.__class__._schema_ready_paths.clear()
+            schema_path = str(self.__class__._resolve_db_path(self.db_path))
+            if schema_path in self.__class__._schema_ready_paths:
+                self.__class__._schema_ready = True
                 return
 
             # Tolerate transient lock contention from another process touching the DB at boot.
@@ -1114,6 +1121,7 @@ class saiDataLogger:
                         self._maybe_migrate_legacy_switch_rows(cur)
                         conn.commit()
 
+                    self.__class__._schema_ready_paths.add(schema_path)
                     self.__class__._schema_ready = True
                     return
 

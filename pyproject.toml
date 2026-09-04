@@ -4,9 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sensorius"
-version = "0.26.204.8"
+dynamic = ["version"]
 description = "Cross-platform environmental sensing and automation hub"
 requires-python = ">=3.11"
+
+[tool.setuptools.dynamic]
+version = {attr = "sensorius.__init__.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["."]

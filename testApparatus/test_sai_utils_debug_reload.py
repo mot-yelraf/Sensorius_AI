@@ -11,7 +11,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import sensorius.saiUtils as saiUtils
 
-def test_debug_flag_reflects_env_change_without_module_reload(monkeypatch):
+def test_debug_flag_reflects_env_change_without_module_reload(tmp_path, monkeypatch):
+    monkeypatch.setattr(saiUtils, "_DOTENV_PATH", tmp_path / "missing.env")
+    monkeypatch.setattr(saiUtils, "_DOTENV_FILE_VALUES", {})
+    monkeypatch.setattr(saiUtils, "_DOTENV_MTIME_NS", None)
     monkeypatch.setenv("SENSORIUS_DEBUG_MODULES", "Sensorius")
 
     flag = saiUtils.debug_enabled("saiSwitch")

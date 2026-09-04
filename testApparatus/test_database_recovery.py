@@ -10,6 +10,7 @@ import os
 import importlib
 import shutil
 import sqlite3
+import subprocess
 import sys
 from pathlib import Path
 
@@ -172,6 +173,15 @@ def test_sqlite_cli_recovery_preserves_rows_when_available(tmp_path, monkeypatch
     sqlite3_bin = shutil.which("sqlite3")
     if not sqlite3_bin:
         pytest.skip("sqlite3 CLI is not installed")
+    recover_probe = subprocess.run(
+        [sqlite3_bin, ":memory:", ".recover"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    if recover_probe.returncode != 0:
+        pytest.skip("sqlite3 CLI does not provide functional .recover support")
 
     _reset_recovery_state(monkeypatch)
     monkeypatch.chdir(tmp_path)

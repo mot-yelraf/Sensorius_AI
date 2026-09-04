@@ -13,6 +13,8 @@ from .saiUtils import printDM, debug_enabled
 MODULE = "saiTaskSupervisor"
 DEBUG = debug_enabled(MODULE)
 CRASH_RESTART_DELAY_SEC = 5.0
+CRASH_RESTART_MAX_DELAY_SEC = 60.0
+CRASH_BACKOFF_RESET_SEC = 300.0
 RETURN_RESTART_DELAY_SEC = 1.0
 FEED_LOG_MIN_INTERVAL_SEC = 10.0
 
@@ -35,6 +37,7 @@ class TaskSupervisor:
         self.task_policies = {}
         self.task_issues = {}
         self._last_feed_log = {}
+        self._consecutive_crashes = {}
 
     def add(
         self,
@@ -68,9 +71,11 @@ class TaskSupervisor:
                 await self.pause_event.wait()
                 if self._shutdown:
                     return
+                started_mono = time.monotonic()
                 if DEBUG:
                     printDM(f"Starting task: {name}", location=f"{__name__}.runner")
                 await func(*args, **kwargs)
+                self._consecutive_crashes[name] = 0
                 if self._shutdown:
                     return
                 printDM(
@@ -81,8 +86,30 @@ class TaskSupervisor:
             except asyncio.CancelledError:
                 return
             except Exception as e:
-                printDM(f"Task {name} crashed with: {e}", location=f"{__name__}.runner")
-                await asyncio.sleep(CRASH_RESTART_DELAY_SEC)
+                runtime_s = max(0.0, time.monotonic() - started_mono)
+                previous_crashes = 0 if runtime_s >= CRASH_BACKOFF_RESET_SEC else int(
+                    self._consecutive_crashes.get(name, 0)
+                )
+                consecutive_crashes = min(previous_crashes + 1, 16)
+                self._consecutive_crashes[name] = consecutive_crashes
+                restart_delay_s = min(
+                    CRASH_RESTART_DELAY_SEC * (2 ** (consecutive_crashes - 1)),
+                    CRASH_RESTART_MAX_DELAY_SEC,
+                )
+                now = time.monotonic()
+                self.failed_tasks[name] = now
+                self.report_issue(
+                    name,
+                    f"Task crashed: {e}; retrying in {restart_delay_s:.0f}s",
+                    recommend_restart=True,
+                    issue_type="task_crash",
+                )
+                printDM(
+                    f"Task {name} crashed with: {e}; restarting in {restart_delay_s:.0f}s",
+                    location=f"{__name__}.runner",
+                    level="warning",
+                )
+                await asyncio.sleep(restart_delay_s)
 
     async def start(self):
         async with self._start_lock:
@@ -180,6 +207,10 @@ class TaskSupervisor:
                 self.failed_tasks[task_name] = now
             else:
                 self.failed_tasks.pop(task_name, None)
+                self._consecutive_crashes[task_name] = 0
+                issue = self.task_issues.get(task_name) or {}
+                if issue.get("issue_type") == "task_crash":
+                    self.task_issues.pop(task_name, None)
             if DEBUG:
                 # Heartbeats are frequent; throttle debug noise per task.
                 last = self._last_feed_log.get(task_name, 0.0)

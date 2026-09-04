@@ -91,6 +91,9 @@ Useful web routes:
 - `/ecowitt/status`: Ecowitt configuration, reachability, last accepted
   reading, safe last error, and discovered sensor inventory.
 - `/advanced/status`: Advanced Settings status.
+  Its `runtime_health` block reports supervised-task issues, while
+  `mqtt_ingest_health` reports callback counts, latency, and contention. Slow
+  callback warnings identify only the MQTT topic and never include payloads.
 
 For Ecowitt troubleshooting, confirm the Sensorius host can reach the saved GW
 URL over plain HTTP, the gateway remains on the same LAN address, and **Find

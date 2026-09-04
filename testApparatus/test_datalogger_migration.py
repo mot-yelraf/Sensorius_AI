@@ -49,6 +49,24 @@ def _create_legacy_db(path: str) -> None:
         conn.commit()
 
 
+def test_schema_initializes_each_distinct_database_path(tmp_path):
+    saiDataLogger._schema_ready = False
+    first = saiDataLogger(str(tmp_path / "first.db"))
+    second = saiDataLogger(str(tmp_path / "second.db"))
+    try:
+        second.log_readings(None, "co2-test", {"CO2": 650.0})
+        with sqlite3.connect(tmp_path / "second.db") as conn:
+            tables = {
+                row[0]
+                for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+            }
+        assert {"readings", "switch_ids", "sw_events"}.issubset(tables)
+    finally:
+        first.close()
+        second.close()
+        saiDataLogger._schema_ready = False
+
+
 def test_init_db_migrates_legacy_ts_epoch_columns(tmp_path, monkeypatch: pytest.MonkeyPatch):
     class _StubSettings:
         def __init__(self, apply_live=False):

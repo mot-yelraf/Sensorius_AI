@@ -12,6 +12,8 @@ import secrets
 import string
 from pathlib import Path
 
+from .saiRuntimePaths import resolve_runtime_base_dir
+
 try:
     import tomllib
 except Exception:  # pragma: no cover
@@ -72,8 +74,8 @@ def resolve_persisted_host_serial(
         return generate_host_serial()
 
     candidates: list[Path] = []
-    switch_base = Path(switch_base_dir).expanduser().resolve()
-    sensor_base = Path(sensor_base_dir).expanduser().resolve()
+    switch_base = resolve_runtime_base_dir(switch_base_dir)
+    sensor_base = resolve_runtime_base_dir(sensor_base_dir)
 
     candidates.append(switch_base / host / "switch.toml")
     candidates.append(switch_base / f"{host}.toml")

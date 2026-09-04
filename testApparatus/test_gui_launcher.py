@@ -405,6 +405,9 @@ def test_icns_resource_is_in_built_wheel(tmp_path):
     wheel = next(wheel_dir.glob("sensorius-*.whl"))
     with zipfile.ZipFile(wheel) as archive:
         assert "sensorius/resources/Sensorius.icns" in archive.namelist()
+        metadata_name = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
+        metadata = archive.read(metadata_name).decode("utf-8")
+        assert f"Version: {saiWebServer.__version__.removeprefix('v')}" in metadata
 
 
 def test_window_geometry_defaults_keep_titlebar_visible(monkeypatch):

@@ -47,7 +47,7 @@ jobs:
           testApparatus
           platform_installers
 
-  focused-tests:
+  full-tests:
     name: Focused regression tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -63,28 +63,21 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-          cache-dependency-path: deploy_scripts/setup_reqs_linux.txt
+          cache-dependency-path: |
+            deploy_scripts/setup_reqs_linux.txt
+            deploy_scripts/setup_reqs_dev.txt
           check-latest: false
 
-      - name: Install host-mode dependencies
-        run: python -m pip install --requirement deploy_scripts/setup_reqs_linux.txt
+      - name: Install host-mode and test dependencies
+        run: >-
+          python -m pip install
+          --requirement deploy_scripts/setup_reqs_linux.txt
+          --requirement deploy_scripts/setup_reqs_dev.txt
 
-      - name: Run focused regression tests
+      - name: Run full regression suite with coverage floor
         env:
           SENSORIUS_GUI: "false"
           SENSORIUS_HTTP_HOST: "127.0.0.1"
-        run: >-
-          python -m pytest -q
-          testApparatus/test_homeassistant_mqtt.py
-          testApparatus/test_mqtt_ingest_auth.py
-          testApparatus/test_mqtt_ingest_liveness.py
-          testApparatus/test_datalogger_migration.py
-          testApparatus/test_automation_contract.py
-          testApparatus/test_sai_switch_controller.py
-          testApparatus/test_sai_switch_settings_manager.py
-          testApparatus/test_sai_switch_trigger_manager_compat.py
-          testApparatus/test_onboarding_v2_core.py
-          testApparatus/test_onboarding_v2_routes.py
-          testApparatus/test_nodus_settings_schema_writes.py
-          testApparatus/test_weewx_ingest.py
-          testApparatus/test_weewx_sensor_settings.py
+        run: |
+          python -m pytest -q --cov=sensorius --cov-report=term
+          python -m coverage report --include=sensorius/biodynamic_calendar/core.py --fail-under=45
