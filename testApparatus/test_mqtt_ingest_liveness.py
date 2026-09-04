@@ -436,6 +436,38 @@ def test_registered_topics_include_heartbeat(monkeypatch):
     assert "sensorius/nodus/+/event/calibration_result" in ingest.registered_topics
 
 
+def test_start_offloads_blocking_broker_connect(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    offloaded = []
+
+    async def _fake_to_thread(func, *args, **kwargs):
+        offloaded.append((func, args, kwargs))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(ingest_mod.asyncio, "to_thread", _fake_to_thread)
+    asyncio.run(ingest.start())
+
+    assert offloaded
+    assert offloaded[0][0] == ingest.client.connect
+    assert offloaded[0][1] == ("broker.local", 1883)
+    assert offloaded[0][2] == {"keepalive": 60}
+
+
+def test_mqtt_callback_health_snapshot_records_latency(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    monkeypatch.setattr(ingest_mod, "MQTT_CALLBACK_SLOW_SEC", 0.0)
+
+    ingest._on_message(ingest.client, None, _Msg("unmatched/topic", "{}"))
+
+    health = ingest.mqtt_callback_health_snapshot()
+    assert health["callback_count"] == 1
+    assert health["callbacks_inflight"] == 0
+    assert health["max_callbacks_inflight"] == 1
+    assert health["slow_callback_count"] == 1
+    assert health["last_callback_ms"] >= 0.0
+    assert health["max_callback_ms"] >= health["last_callback_ms"]
+
+
 def test_removed_nodus_family_ignores_switch_replay_and_persists(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     ingest.nodus_switch_topic_map["nodus/S1-1jm5s1/state"] = {

@@ -35,4 +35,4 @@ def test_generated_calendar_navigation_uses_integrated_route():
     assert "window.requestAnimationFrame(function(){" in text
     assert "window.requestAnimationFrame(function(){ window.location.assign('/calendar'); });" in text
     assert "url.port = '8765'" not in text
-    assert ">Dashboard</button>" in text
+    assert "aria-label='Close'>&times;</button>" in text

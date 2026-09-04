@@ -60,6 +60,13 @@ the replacement package was copied successfully.
 
 Default UI URL: `http://127.0.0.1:8000`
 
+For source-development and test tooling, install the platform runtime
+requirements plus `deploy_scripts/setup_reqs_dev.txt`. Deployment installers
+intentionally omit pytest and coverage packages. Before opening a pull request,
+run `pytest -q` and the host browser gate with `npm run validate:pr`.
+CI enforces a 55% whole-package coverage floor and a 45% floor for the
+biodynamic calculation core; both are intended to be raised incrementally.
+
 ## Security Boundary
 
 Sensorius is intended for a trusted private LAN. The default HTTP bind is

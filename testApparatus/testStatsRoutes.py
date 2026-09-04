@@ -24,8 +24,9 @@ class _FakeSettings:
 
 
 class _FakeDataLogger:
-    def __init__(self, sensors=None):
+    def __init__(self, sensors=None, db_path="sensorius_data.db"):
         self._sensors = list(sensors or [])
+        self.db_path = db_path
 
     def get_available_sensors(self):
         return list(self._sensors)
@@ -105,6 +106,26 @@ async def test_stats_defaults_to_known_sensor(stats_client):
     response = await stats_client.get("/stats", params={"sensor_id": "unknown_sensor"})
     assert response.status_code == 200
     assert "temp" in response.json()
+
+
+@pytest.mark.asyncio
+async def test_stats_router_accepts_injected_data_logger(tmp_path, monkeypatch):
+    db_path = tmp_path / "injected-stats.db"
+    _seed_stats_db(str(db_path))
+    logger = _FakeDataLogger(["sensor_001"], db_path=str(db_path))
+
+    def _unexpected_logger():
+        raise AssertionError("injected logger should be reused")
+
+    monkeypatch.setattr("sensorius.saiDataLogger.saiDataLogger", _unexpected_logger)
+    app = FastAPI()
+    app.include_router(create_stats_router(_FakeSettings(["sensor_001"]), gc_mgr=None, data_logger=logger))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/stats", params={"sensor_id": "sensor_001"})
+
+    assert response.status_code == 200
+    assert response.json()["temp"]["avg"] == 25.0
 
 
 @pytest.mark.asyncio

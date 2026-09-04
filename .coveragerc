@@ -1,0 +1,9 @@
+[run]
+source = sensorius
+relative_files = True
+omit =
+    */test_icns_resource_is_in_built*/source/sensorius/*
+
+[report]
+fail_under = 55
+skip_empty = True

@@ -54,6 +54,8 @@ HEARTBEAT_CLOCK_SKEW_TOLERANCE_S = 15.0
 LEGACY_POLLER_SUNSET_DATE = "2026-06-30"
 NODUS_SWITCH_COMMAND_INFLIGHT_TTL_S = 45.0
 NODUS_SWITCH_COMMAND_FAILED_COOLDOWN_S = 5.0
+MQTT_CALLBACK_SLOW_SEC = 0.25
+MQTT_CALLBACK_SLOW_LOG_INTERVAL_SEC = 60.0
 
 # module helpers
 def _slugify(text: str) -> str:
@@ -352,6 +354,14 @@ class saiMQTTIngest:
         self.mqtt_clients = set(self.mqtt_clients or [])
 
         self._callback_lock = threading.RLock()
+        self._callback_metrics_lock = threading.Lock()
+        self._callback_count = 0
+        self._callback_inflight = 0
+        self._callback_max_inflight = 0
+        self._callback_slow_count = 0
+        self._callback_last_duration_s = 0.0
+        self._callback_max_duration_s = 0.0
+        self._callback_last_slow_log_mono = 0.0
         self._removed_nodus_ids: set[str] = self._load_removed_nodus_ids()
         self._callback_filters: set[str] = set()
         self._connected_evt = asyncio.Event()
@@ -1924,9 +1934,9 @@ class saiMQTTIngest:
             return
         self._started = True
         self._loop = asyncio.get_running_loop()
-        self._start_ingest_loop()
+        await self._start_ingest_loop()
         if self.ha_client is not self.client:
-            self._start_ha_loop()
+            await self._start_ha_loop()
 
     def stop(self):
         try:
@@ -1943,20 +1953,30 @@ class saiMQTTIngest:
             except Exception as e:
                 printDM(f"Error stopping MQTT HA client: {e}", location=MODULE)
 
-    def _start_ingest_loop(self):
+    async def _start_ingest_loop(self):
         if DEBUG:
             printDM("Entered _start_ingest_loop", location=MODULE)
         try:
-            self.client.connect(self.broker, self.port, keepalive=60)
+            await asyncio.to_thread(
+                self.client.connect,
+                self.broker,
+                self.port,
+                keepalive=60,
+            )
             self.client.loop_start()
         except Exception as e:
             printDM(f"MQTT Ingest start error: {e}", location=MODULE)
 
-    def _start_ha_loop(self):
+    async def _start_ha_loop(self):
         if DEBUG:
             printDM("Entered _start_ha_loop", location=MODULE)
         try:
-            self.ha_client.connect(self.ha_broker, self.ha_port, keepalive=60)
+            await asyncio.to_thread(
+                self.ha_client.connect,
+                self.ha_broker,
+                self.ha_port,
+                keepalive=60,
+            )
             self.ha_client.loop_start()
         except Exception as e:
             printDM(f"MQTT HA start error: {e}", location=MODULE)
@@ -2110,17 +2130,55 @@ class saiMQTTIngest:
             printDM(f"[weewx-mqtt] ingest failed: {exc}", location=MODULE)
             return False
 
+    def mqtt_callback_health_snapshot(self) -> dict[str, int | float]:
+        """Return non-sensitive MQTT callback latency and contention diagnostics."""
+        with self._callback_metrics_lock:
+            return {
+                "callback_count": int(self._callback_count),
+                "callbacks_inflight": int(self._callback_inflight),
+                "max_callbacks_inflight": int(self._callback_max_inflight),
+                "slow_callback_count": int(self._callback_slow_count),
+                "last_callback_ms": round(self._callback_last_duration_s * 1000.0, 3),
+                "max_callback_ms": round(self._callback_max_duration_s * 1000.0, 3),
+                "slow_callback_threshold_ms": round(MQTT_CALLBACK_SLOW_SEC * 1000.0, 3),
+            }
+
     def _on_message(self, client, userdata, msg):
-        """Serialize MQTT callbacks with device removal and suppress removed identities."""
+        """Serialize MQTT callbacks with device removal and record callback latency."""
         topic = str(getattr(msg, "topic", "") or "")
-        with self._callback_lock:
-            device_id = self._removed_nodus_topic_id(topic)
-            is_onboarding_hello = topic.endswith("/onboard/hello")
-            if device_id and not is_onboarding_hello and self.is_nodus_device_removed(device_id):
-                if DEBUG:
-                    printDM(f"[removed-nodus] ignored {topic}", location=MODULE)
-                return
-            return self._on_message_unlocked(client, userdata, msg)
+        started_mono = time.monotonic()
+        with self._callback_metrics_lock:
+            self._callback_inflight += 1
+            self._callback_max_inflight = max(self._callback_max_inflight, self._callback_inflight)
+        try:
+            with self._callback_lock:
+                device_id = self._removed_nodus_topic_id(topic)
+                is_onboarding_hello = topic.endswith("/onboard/hello")
+                if device_id and not is_onboarding_hello and self.is_nodus_device_removed(device_id):
+                    if DEBUG:
+                        printDM(f"[removed-nodus] ignored {topic}", location=MODULE)
+                    return
+                return self._on_message_unlocked(client, userdata, msg)
+        finally:
+            finished_mono = time.monotonic()
+            elapsed_s = max(0.0, finished_mono - started_mono)
+            should_log = False
+            with self._callback_metrics_lock:
+                self._callback_inflight = max(0, self._callback_inflight - 1)
+                self._callback_count += 1
+                self._callback_last_duration_s = elapsed_s
+                self._callback_max_duration_s = max(self._callback_max_duration_s, elapsed_s)
+                if elapsed_s >= MQTT_CALLBACK_SLOW_SEC:
+                    self._callback_slow_count += 1
+                    if (finished_mono - self._callback_last_slow_log_mono) >= MQTT_CALLBACK_SLOW_LOG_INTERVAL_SEC:
+                        self._callback_last_slow_log_mono = finished_mono
+                        should_log = True
+            if should_log:
+                printDM(
+                    f"MQTT callback took {elapsed_s * 1000.0:.1f} ms for topic {topic}",
+                    location=MODULE,
+                    level="warning",
+                )
 
     def _on_message_unlocked(self, client, userdata, msg):
         # --- basic, safe extraction ---

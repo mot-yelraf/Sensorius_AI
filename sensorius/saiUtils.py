@@ -388,6 +388,7 @@ async def supervised_task(name, coro_func, supervisor):
         raise  # important: re-raise to allow proper shutdown
     except Exception as e:
         printDM(f"[{name}] Task crashed: {e}", location="saiSupervisor")
+        raise
     finally:
         if supervisor:
             printDM(f"[{name}] Marking watchdog as fed with error", location="saiSupervisor")

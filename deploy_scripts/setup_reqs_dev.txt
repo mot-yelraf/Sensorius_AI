@@ -1,0 +1,6 @@
+# Development and test tooling; install in addition to the platform runtime
+# requirements file when working from a source checkout.
+pytest==8.4.0
+pytest-asyncio==1.3.0
+pytest-cov==6.1.1
+coverage==7.8.2

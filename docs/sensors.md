@@ -108,16 +108,19 @@ continue to work.
 
 Soil metrics:
 
-- `Soil-Moisture` - corrected volumetric moisture percent.
-- `SMD` - soil moisture deficit percent.
-- `SSI` - soil stress index percent.
-- `Soil-Temp` - degrees C.
-- `Soil-Temp_F` - degrees F.
-- `Soil-pH` - pH.
-- `Soil-EC` - mS/cm.
+- `Soil Moisture` - corrected volumetric moisture percent.
+- `Soil Moisture Deficit` - soil moisture deficit percent.
+- `Soil Stress Index` - soil stress index percent.
+- `Soil Temp_C` - degrees C.
+- `Soil pH` - pH.
+- `Soil EC` - mS/cm.
 - `Soil Nitrogen`, `Soil Phosphorus`, and `Soil Potassium` - mg/kg readings
   from 7-in-1 soil probes.
 - `Soil Fertility Index` - derived NPK sufficiency score, percent.
+
+Legacy spellings such as `Soil-Moisture`, `SMD`, `SSI`, `Soil-Temp`,
+`Soil-Temp_F`, `Soil-pH`, and `Soil-EC` remain accepted for existing settings,
+history, and integrations.
 
 WeeWX metrics are defined by `sensorius/sensor_modules/station_weewx.py`. The logger can
 derive rolling `Rain Last 24h` from interval `Rain` readings. WeeWX MQTT

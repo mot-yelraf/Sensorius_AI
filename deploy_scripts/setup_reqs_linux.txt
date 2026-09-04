@@ -50,9 +50,5 @@ h11==0.16.0
 httpcore==1.0.9
 tzdata==2025.2
 
-# Optional testing/dev tools
-pytest==8.4.0
-pytest-asyncio==1.3.0
-pytest-cov==6.1.1
-coverage==7.8.2
+# Runtime environment loading
 python-dotenv==1.1.0

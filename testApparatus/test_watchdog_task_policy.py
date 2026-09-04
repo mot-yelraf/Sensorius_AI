@@ -17,8 +17,63 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import sensorius.saiSensor as saiSensor
+import sensorius.saiTaskSupervisor as saiTaskSupervisor
 import sensorius.saiWatchdog as saiWatchdog
 from sensorius.saiTaskSupervisor import TaskSupervisor
+from sensorius.saiUtils import supervised_task
+
+
+@pytest.mark.asyncio
+async def test_supervisor_reports_crashes_and_applies_capped_backoff(monkeypatch):
+    supervisor = TaskSupervisor()
+    supervisor.add(lambda: None, name="Recoverable Worker", fatal_on_error=False)
+    calls = 0
+    sleep_delays = []
+
+    async def _crashing_worker():
+        nonlocal calls
+        calls += 1
+        if calls >= 6:
+            supervisor._shutdown = True
+        raise RuntimeError("simulated failure")
+
+    async def _capture_sleep(delay):
+        sleep_delays.append(delay)
+
+    monkeypatch.setattr(saiTaskSupervisor.asyncio, "sleep", _capture_sleep)
+
+    await supervisor.runner(_crashing_worker, (), {}, "Recoverable Worker")
+
+    assert sleep_delays == [5.0, 10.0, 20.0, 40.0, 60.0, 60.0]
+    assert supervisor.task_issues["Recoverable Worker"]["issue_type"] == "task_crash"
+    assert supervisor.task_issues["Recoverable Worker"]["count"] == 6
+    assert "Recoverable Worker" in supervisor.failed_tasks
+
+
+def test_successful_heartbeat_clears_task_crash_issue():
+    supervisor = TaskSupervisor()
+    supervisor.add(lambda: None, name="Recovered Worker", fatal_on_error=False)
+    supervisor.report_issue("Recovered Worker", "failed", issue_type="task_crash")
+    supervisor.failed_tasks["Recovered Worker"] = time.monotonic()
+
+    supervisor.feedthedogs("Recovered Worker")
+
+    assert "Recovered Worker" not in supervisor.task_issues
+    assert "Recovered Worker" not in supervisor.failed_tasks
+
+
+@pytest.mark.asyncio
+async def test_supervised_task_propagates_failure_to_restart_runner():
+    supervisor = TaskSupervisor()
+    supervisor.add(lambda: None, name="Wrapped Worker", fatal_on_error=False)
+
+    async def _fail():
+        raise RuntimeError("wrapped failure")
+
+    with pytest.raises(RuntimeError, match="wrapped failure"):
+        await supervised_task("Wrapped Worker", _fail, supervisor)
+
+    assert "Wrapped Worker" in supervisor.failed_tasks
 
 
 @pytest.mark.asyncio
