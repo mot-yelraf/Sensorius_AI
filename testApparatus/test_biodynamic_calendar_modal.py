@@ -282,7 +282,7 @@ async def test_biodynamic_calendar_api_default_month_uses_biodynamic_local_time(
     monkeypatch.setattr(saiWebRoutes, "datetime", _FixedDateTime)
     monkeypatch.setattr(saiWebRoutes, "get_biodynamic_payload", _fake_payload)
     monkeypatch.setattr(saiWebRoutes, "DailySummaryService", _FakeDailySummaryService)
-    monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_notes_for_month", lambda anchor: {})
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_notes_for_month", lambda anchor, **_kwargs: {})
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_daily_summaries_for_month", lambda anchor: {})
 
     app = FastAPI()
@@ -321,7 +321,7 @@ async def test_biodynamic_calendar_api_concurrent_month_requests_single_flight(m
 
     monkeypatch.setattr(saiWebRoutes, "get_biodynamic_payload", _fake_payload)
     monkeypatch.setattr(saiWebRoutes, "DailySummaryService", _FakeDailySummaryService)
-    monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_notes_for_month", lambda anchor: {})
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_notes_for_month", lambda anchor, **_kwargs: {})
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_daily_summaries_for_month", lambda anchor: {})
 
     app = FastAPI()
@@ -386,7 +386,7 @@ async def test_biodynamic_calendar_api_includes_spillover_day_summaries(monkeypa
     monkeypatch.setattr(
         saiWebRoutes.data_logger,
         "get_biodynamic_notes_for_range",
-        lambda start_date, end_date: (
+            lambda start_date, end_date, **_kwargs: (
             range_calls.append(("notes", start_date.isoformat(), end_date.isoformat())) or {"2026-04-01": "spillover note"}
         ),
     )

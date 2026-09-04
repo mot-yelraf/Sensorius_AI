@@ -6,6 +6,7 @@ storage-validation helpers used by the web application and background tasks.
 
 from .core import (
     BiodynamicConfig,
+    clear_biodynamic_payload_cache,
     ephemeris_status,
     get_astro_payload,
     get_biodynamic_calendar_range,
@@ -19,6 +20,7 @@ from .hints import get_hint_lines_for_day
 
 __all__ = [
     "BiodynamicConfig",
+    "clear_biodynamic_payload_cache",
     "ephemeris_status",
     "get_astro_payload",
     "get_biodynamic_calendar_range",

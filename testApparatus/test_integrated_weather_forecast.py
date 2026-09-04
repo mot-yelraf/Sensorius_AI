@@ -369,6 +369,30 @@ def test_sunlight_card_uses_ampm_times_and_current_polar_daylight():
     assert context["eclipse_next_24h"] is None
 
 
+def test_missing_twilight_does_not_blank_available_astronomy():
+    context = astronomy_context(
+        type(
+            "AstralSettings",
+            (),
+            {
+                "latitude": 64.1466,
+                "longitude": -21.9426,
+                "timezone": "Atlantic/Reykjavik",
+                "location_name": "Reykjavik",
+            },
+        )(),
+        datetime(2026, 6, 21, 12, tzinfo=timezone.utc),
+    )
+
+    assert context["sunrise"] != "—"
+    assert context["sunset"] != "—"
+    assert context["solar_noon"] != "—"
+    assert context["daylight_duration"] != "—"
+    assert context["moon_altitude"] is not None
+    assert context["next_season_label"] != "Seasonal event unavailable"
+    assert context["sun_is_up"] is True
+
+
 def test_astronomy_context_flags_an_observer_visible_eclipse_in_the_next_24_hours():
     context = astronomy_context(
         type(

@@ -41,11 +41,9 @@ class AHTSensor(BaseSensor):
 
             self.measurements = [
                 ("Temperature", "°C", lambda: self._get_calibrated_temp_c(), 2),
-                ("Temperature_F", "°F", lambda: self._get_calibrated_temp_f(), 1),
                 ("Rel-Humidity", "%", lambda: self._get_calibrated_rh(), 1),
                 ("Humidity", "g/m³", lambda: self._get_calibrated_abs_humidity(), 1),
                 ("Dew Point", "°C", lambda: self._get_calibrated_dewpoint_c(), 2),
-                ("Dew Point_F", "°F", lambda: self._get_calibrated_dewpoint_f(), 1),
                 ("Dew Point Deficit", "°C", lambda: self._get_calibrated_dewpoint_depression(), 2),
                 ("DewVPD Risk", "%", lambda: self._get_calibrated_dewvpd_risk(), 1),
                 ("Ambient VPD", "kPa", lambda: self._get_calibrated_vpd(), 3),
@@ -136,15 +134,6 @@ class AHTSensor(BaseSensor):
         self.current_values["Temperature"] = temp_c
         return temp_c
 
-    def _get_calibrated_temp_f(self) -> float:
-        temp_c = self._get_calibrated_temp_c()
-        if temp_c is None:
-            self.current_values["Temperature_F"] = None
-            return None
-        temp_f = (temp_c * 9.0 / 5.0) + 32.0
-        self.current_values["Temperature_F"] = temp_f
-        return temp_f
-
     def _get_calibrated_rh(self) -> float:
         raw_rh = self._get_raw_rh()
         if raw_rh is None:
@@ -187,15 +176,6 @@ class AHTSensor(BaseSensor):
         dewpoint = self.calculate_dewpoint(temp_c, rh)
         self.current_values["Dew Point"] = dewpoint
         return dewpoint
-
-    def _get_calibrated_dewpoint_f(self) -> float:
-        dewpoint_c = self._get_calibrated_dewpoint_c()
-        if dewpoint_c is None:
-            self.current_values["Dew Point_F"] = None
-            return None
-        dewpoint_f = (dewpoint_c * 9.0 / 5.0) + 32.0
-        self.current_values["Dew Point_F"] = dewpoint_f
-        return dewpoint_f
 
     def _get_calibrated_dewpoint_depression(self) -> float:
         temp_c = self._get_calibrated_temp_c()

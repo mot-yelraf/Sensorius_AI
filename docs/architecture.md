@@ -62,8 +62,9 @@ macOS, Windows, and non-Pi Linux hub:
   aggregation outside the asyncio event loop.
 - `sensorius/saiBiodynamicCalendarApp.py`: integrated full-screen calendar
   routes, shared cache access, and paced background warming.
-- `sensorius/biodynamic_calendar/`: BD Calendar calculations, Astral payloads,
-  and planting guidance.
+- `sensorius/biodynamic_calendar/`: canonical BD Calendar calculations, Astral
+  payloads, and planting guidance shared by the dashboard, full-screen
+  calendar, summaries, and automations.
 - `sensorius/saiSensor.py`, `sensorius/saiSensorFactory.py`, and
   `sensorius/sensor_modules/`: local sensor runtime.
 - `sensorius/saiSwitch.py`, `sensorius/saiSwitchFactory.py`, and
@@ -136,6 +137,11 @@ transition automations. It reads versioned month payloads from the shared
 Sensorius SQLite database and keeps only the current transition in memory until
 that window ends. This avoids recalculating or cloning a complete calendar
 month in every switch monitor loop.
+
+Process-local calendar payload caches are bounded, synchronized, and return
+defensive copies. User-authored note and planting failures are surfaced as
+service-unavailable responses; failures to write disposable calculated cache
+entries do not discard an otherwise valid fresh calculation.
 
 ## Data Flow
 

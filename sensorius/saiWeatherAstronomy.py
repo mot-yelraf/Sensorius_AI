@@ -17,7 +17,9 @@ from astral.moon import moonrise, moonset
 from astral.moon import phase
 from astral.sun import azimuth as sun_azimuth
 from astral.sun import elevation as sun_elevation
-from astral.sun import sun
+from astral.sun import noon as sun_noon
+from astral.sun import sunrise as sun_sunrise
+from astral.sun import sunset as sun_sunset
 
 PHASES = (
     ("New moon", "🌑"),
@@ -517,8 +519,17 @@ def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, An
         )
         today = local.date()
         tomorrow = today + timedelta(days=1)
-        solar = sun(location.observer, date=today, tzinfo=tzinfo)
-        next_solar = sun(location.observer, date=tomorrow, tzinfo=tzinfo)
+
+        def _solar_event_for_day(event_fn, event_date):
+            try:
+                return event_fn(location.observer, date=event_date, tzinfo=tzinfo)
+            except ValueError:
+                return None
+
+        local_sunrise = _solar_event_for_day(sun_sunrise, today)
+        local_sunset = _solar_event_for_day(sun_sunset, today)
+        local_solar_noon = _solar_event_for_day(sun_noon, today)
+        next_sunrise = _solar_event_for_day(sun_sunrise, tomorrow)
 
         def _lunar_event_for_day(event_fn, event_date):
             try:
@@ -530,25 +541,45 @@ def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, An
         local_moonset = _lunar_event_for_day(moonset, today)
         next_moonrise = _lunar_event_for_day(moonrise, tomorrow)
         next_moonset = _lunar_event_for_day(moonset, tomorrow)
-        timeline_start = solar["sunrise"]
-        timeline_end = next_solar["sunrise"]
+        timeline_start = local_sunrise
+        timeline_end = next_sunrise
 
         def _event_in_timeline(*events):
             return next(
                 (
                     event
                     for event in events
-                    if isinstance(event, datetime) and timeline_start <= event <= timeline_end
+                    if (
+                        isinstance(event, datetime)
+                        and isinstance(timeline_start, datetime)
+                        and isinstance(timeline_end, datetime)
+                        and timeline_start <= event <= timeline_end
+                    )
                 ),
                 None,
             )
 
         timeline_moonrise = _event_in_timeline(local_moonrise, next_moonrise)
         timeline_moonset = _event_in_timeline(local_moonset, next_moonset)
-        effective_sunset = solar["sunset"]
-        if effective_sunset <= solar["sunrise"]:
+        effective_sunset = local_sunset
+        if (
+            isinstance(effective_sunset, datetime)
+            and isinstance(local_sunrise, datetime)
+            and effective_sunset <= local_sunrise
+        ):
             effective_sunset += timedelta(days=1)
-        daylight_seconds = (effective_sunset - solar["sunrise"]).total_seconds()
+        sun_is_up = sun_elevation(location.observer, observed_at) > -0.833
+        if isinstance(local_sunrise, datetime) and isinstance(effective_sunset, datetime):
+            daylight_seconds = (effective_sunset - local_sunrise).total_seconds()
+            if local <= local_sunrise:
+                daylight_progress = 0
+            elif local >= effective_sunset:
+                daylight_progress = 100
+            else:
+                daylight_progress = round((local - local_sunrise).total_seconds() / daylight_seconds * 100)
+        else:
+            daylight_seconds = 86400.0 if sun_is_up else 0.0
+            daylight_progress = 50 if sun_is_up else 0
         daylight_minutes = round(daylight_seconds / 60)
         next_season = _next_season_event(observed_at, tzinfo)
         next_eclipses = _next_visible_eclipses(
@@ -557,31 +588,25 @@ def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, An
             float(settings.longitude),
             tzinfo,
         )
-        if local <= solar["sunrise"]:
-            daylight_progress = 0
-        elif local >= effective_sunset:
-            daylight_progress = 100
-        else:
-            daylight_progress = round((local - solar["sunrise"]).total_seconds() / daylight_seconds * 100)
         result.update(
-            sunrise=solar["sunrise"].strftime("%H:%M"),
-            sunset=solar["sunset"].strftime("%H:%M"),
-            next_sunrise=next_solar["sunrise"].strftime("%H:%M"),
+            sunrise=local_sunrise.strftime("%H:%M") if local_sunrise else "—",
+            sunset=local_sunset.strftime("%H:%M") if local_sunset else "—",
+            next_sunrise=next_sunrise.strftime("%H:%M") if next_sunrise else "—",
             moonrise=local_moonrise.strftime("%H:%M") if local_moonrise else "—",
             moonset=local_moonset.strftime("%H:%M") if local_moonset else "—",
             timeline_moonrise=timeline_moonrise.strftime("%H:%M") if timeline_moonrise else "—",
             timeline_moonset=timeline_moonset.strftime("%H:%M") if timeline_moonset else "—",
-            timeline_start_at=timeline_start.isoformat(),
-            timeline_sunset_at=effective_sunset.isoformat(),
-            timeline_end_at=timeline_end.isoformat(),
+            timeline_start_at=timeline_start.isoformat() if timeline_start else "",
+            timeline_sunset_at=effective_sunset.isoformat() if effective_sunset else "",
+            timeline_end_at=timeline_end.isoformat() if timeline_end else "",
             timeline_moonrise_at=timeline_moonrise.isoformat() if timeline_moonrise else "",
             timeline_moonset_at=timeline_moonset.isoformat() if timeline_moonset else "",
-            solar_noon=solar["noon"].strftime("%H:%M"),
-            sunrise_display=_clock_label(solar["sunrise"]),
-            sunset_display=_clock_label(solar["sunset"]),
+            solar_noon=local_solar_noon.strftime("%H:%M") if local_solar_noon else "—",
+            sunrise_display=_clock_label(local_sunrise) if local_sunrise else "No sunrise today",
+            sunset_display=_clock_label(local_sunset) if local_sunset else "No sunset today",
             moonrise_display=_clock_label(local_moonrise) if local_moonrise else "No rise today",
             moonset_display=_clock_label(local_moonset) if local_moonset else "No set today",
-            solar_noon_display=_clock_label(solar["noon"]),
+            solar_noon_display=_clock_label(local_solar_noon) if local_solar_noon else "Solar noon unavailable",
             daylight_hours=round(daylight_seconds / 3600, 2),
             daylight_duration=f"{daylight_minutes // 60}h {daylight_minutes % 60:02d}m",
             north_pole_daylight=_polar_daylight_duration(observed_at.date(), 90.0),
@@ -592,7 +617,7 @@ def astronomy_context(settings: Any, at: datetime | None = None) -> dict[str, An
             next_eclipses=next_eclipses,
             eclipse_next_24h=_eclipse_in_next_24_hours(observed_at, next_eclipses),
             daylight_progress=daylight_progress,
-            sun_is_up=solar["sunrise"] <= local < effective_sunset,
+            sun_is_up=sun_is_up,
             moon_altitude=round(_moon_elevation(location.observer, observed_at), 1),
             bright_limb_angle=local_bright_limb_angle(location.observer, observed_at),
             disk_rotation=local_lunar_north_angle(location.observer, observed_at),

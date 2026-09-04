@@ -94,7 +94,7 @@ Common HA units:
 
 - `CO2`: `ppm`
 - `Temperature`, `Dew Point`: `°C`
-- `Temperature_F`, `Dew Point_F`: `°F`
+- Legacy `Temperature_F`, `Dew Point_F`, and plant variants: `°F`
 - `Rel-Humidity`: `%`
 - `Humidity`: `g/m³` absolute humidity
 - `Ambient VPD` and `Plant VPD`: `kPa`

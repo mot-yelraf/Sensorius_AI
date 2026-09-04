@@ -81,7 +81,7 @@ from .sensor_modules.station_ecowitt import DEFAULT_POLL_INTERVAL_SEC as ECOWITT
 from .saiRuntimePaths import resolve_runtime_base_dir
 from .saiOnboardingStore import OnboardingSessionStore, OnboardingStates
 from .saiOnboardingToken import OnboardingTokenManager
-from .saiDataLogger import saiDataLogger
+from .saiDataLogger import BiodynamicStorageError, saiDataLogger
 try:
     from .saiDataLogger import build_switch_key as _build_switch_key
 except Exception:
@@ -129,6 +129,15 @@ from . import __version__ as SAI_APP_VERSION
 
 
 GRAPH_MAX_POINTS_PER_SERIES = 900
+
+
+async def resolve_astral_location_async(settings_obj, *, persist_if_auto: bool, timeout_sec: float) -> dict:
+    """Resolve location without blocking unrelated FastAPI requests."""
+    return await asyncio.to_thread(
+        settings_obj.resolve_astral_location,
+        persist_if_auto=persist_if_auto,
+        timeout_sec=timeout_sec,
+    )
 
 
 def _downsample_graph_points(timestamps, values, max_points: int = GRAPH_MAX_POINTS_PER_SERIES):
@@ -613,11 +622,12 @@ _DASHBOARD_INVENTORY_CACHE: tuple[float, dict[str, object]] | None = None
 _DASHBOARD_DISPLAY_SETTINGS_CACHE_TTL_SEC: float = 2.0
 _DASHBOARD_DISPLAY_SETTINGS_CACHE: tuple[float, dict[str, object]] | None = None
 _BIODYNAMIC_PAYLOAD_CACHE_TTL_SEC: float = 60.0
+_BIODYNAMIC_PAYLOAD_CACHE_MAX: int = 64
 _NODUS_CONFIG_ACK_TIMEOUT_SEC: float = 5.0
 _NODUS_CONFIG_RESULT_TIMEOUT_SEC: float = 20.0
 _NODUS_CALIBRATION_ACK_TIMEOUT_SEC: float = 8.0
 _NODUS_CALIBRATION_RESULT_TIMEOUT_SEC: float = 20.0
-_BIODYNAMIC_PAYLOAD_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
+_BIODYNAMIC_PAYLOAD_CACHE: OrderedDict[str, tuple[float, dict[str, object]]] = OrderedDict()
 _ASTRO_PAYLOAD_CACHE_TTL_SEC: float = 60.0
 _ASTRO_PAYLOAD_CACHE: tuple[float, dict[str, object]] | None = None
 _DASHBOARD_EXTRAS_FAST_WAIT_SEC: float = 0.05
@@ -634,6 +644,15 @@ def _dashboard_json_safe(value):
     if isinstance(value, (list, tuple)):
         return [_dashboard_json_safe(v) for v in value]
     return value
+
+
+def _dashboard_payload_is_warming(payload: object) -> bool:
+    """Return whether a dashboard extra is only a cold-start placeholder."""
+    if not isinstance(payload, dict):
+        return False
+    return str(payload.get("reason") or "").strip() == "warming" or str(
+        payload.get("cache_status") or ""
+    ).strip() == "warming"
 
 
 def _is_unknown_location_value(value: object) -> bool:
@@ -808,7 +827,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         with biodynamic_payload_cache_lock:
             cached = _BIODYNAMIC_PAYLOAD_CACHE.get(cache_key)
             if cached and cached[0] > now_mono:
-                return dict(cached[1])
+                _BIODYNAMIC_PAYLOAD_CACHE.move_to_end(cache_key)
+                return copy.deepcopy(cached[1])
         calendar_service = getattr(app.state, "biodynamic_calendar_service", None)
         if calendar_service is not None and hasattr(calendar_service.settings, "resolve_astral_location"):
             config, _location = calendar_service.location()
@@ -823,9 +843,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             if generation is None or generation == biodynamic_payload_cache_generation:
                 _BIODYNAMIC_PAYLOAD_CACHE[cache_key] = (
                     time.monotonic() + _BIODYNAMIC_PAYLOAD_CACHE_TTL_SEC,
-                    dict(payload),
+                    copy.deepcopy(payload),
                 )
-        return dict(payload)
+                _BIODYNAMIC_PAYLOAD_CACHE.move_to_end(cache_key)
+                while len(_BIODYNAMIC_PAYLOAD_CACHE) > _BIODYNAMIC_PAYLOAD_CACHE_MAX:
+                    _BIODYNAMIC_PAYLOAD_CACHE.popitem(last=False)
+        return copy.deepcopy(payload)
 
     def _get_stale_biodynamic_payload(anchor: date) -> dict[str, object] | None:
         cache_key = anchor.isoformat()
@@ -833,7 +856,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             cached = _BIODYNAMIC_PAYLOAD_CACHE.get(cache_key)
             if not cached:
                 return None
-            return dict(cached[1])
+            _BIODYNAMIC_PAYLOAD_CACHE.move_to_end(cache_key)
+            return copy.deepcopy(cached[1])
 
     def _warming_biodynamic_payload(anchor: date) -> dict[str, object]:
         return {
@@ -861,7 +885,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         with biodynamic_payload_cache_lock:
             cached = _BIODYNAMIC_PAYLOAD_CACHE.get(cache_key)
             if cached and cached[0] > now_mono:
-                return dict(cached[1])
+                _BIODYNAMIC_PAYLOAD_CACHE.move_to_end(cache_key)
+                return copy.deepcopy(cached[1])
             generation = biodynamic_payload_cache_generation
 
         stale_payload = _get_stale_biodynamic_payload(anchor)
@@ -885,12 +910,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return stale_payload
         if allow_stale:
             try:
-                return dict(await asyncio.wait_for(asyncio.shield(task), timeout=float(cold_wait_sec)))
+                return copy.deepcopy(await asyncio.wait_for(asyncio.shield(task), timeout=float(cold_wait_sec)))
             except asyncio.TimeoutError:
                 return _warming_biodynamic_payload(anchor)
             except Exception:
                 return _warming_biodynamic_payload(anchor)
-        return dict(await task)
+        return copy.deepcopy(await task)
 
     def _request_biodynamic_summary_window(today_local: date) -> tuple[str, float]:
         window_start = today_local.replace(day=1)
@@ -3556,10 +3581,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             ))
         )
         phase_ms["render"] = (time.monotonic() - render_started) * 1000.0
-        _DASHBOARD_HTML_CACHE[dashboard_cache_key] = rendered_dashboard
-        _DASHBOARD_HTML_CACHE.move_to_end(dashboard_cache_key)
-        while len(_DASHBOARD_HTML_CACHE) > _DASHBOARD_HTML_CACHE_MAX_ENTRIES:
-            _DASHBOARD_HTML_CACHE.popitem(last=False)
+        extras_are_warming = _dashboard_payload_is_warming(astro_payload) or _dashboard_payload_is_warming(
+            biodynamic_payload
+        )
+        if not extras_are_warming:
+            _DASHBOARD_HTML_CACHE[dashboard_cache_key] = rendered_dashboard
+            _DASHBOARD_HTML_CACHE.move_to_end(dashboard_cache_key)
+            while len(_DASHBOARD_HTML_CACHE) > _DASHBOARD_HTML_CACHE_MAX_ENTRIES:
+                _DASHBOARD_HTML_CACHE.popitem(last=False)
         _ui_profile_log(
             "dashboard",
             _route_started,
@@ -6054,10 +6083,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if visible_dates:
             range_start = min(visible_dates)
             range_end = max(visible_dates)
-            notes, daily_summaries = await asyncio.gather(
-                asyncio.to_thread(data_logger.get_biodynamic_notes_for_range, range_start, range_end),
-                asyncio.to_thread(data_logger.get_biodynamic_daily_summaries_for_range, range_start, range_end),
-            )
+            try:
+                notes, daily_summaries = await asyncio.gather(
+                    asyncio.to_thread(
+                        data_logger.get_biodynamic_notes_for_range,
+                        range_start,
+                        range_end,
+                        raise_on_error=True,
+                    ),
+                    asyncio.to_thread(data_logger.get_biodynamic_daily_summaries_for_range, range_start, range_end),
+                )
+            except BiodynamicStorageError:
+                return JSONResponse({"ok": False, "error": "storage_unavailable"}, status_code=503)
             try:
                 resolved = await asyncio.to_thread(
                     settings.resolve_astral_location,
@@ -6085,10 +6122,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             payload["notes"] = notes
             payload["daily_summaries"] = daily_summaries
         else:
-            notes, daily_summaries = await asyncio.gather(
-                asyncio.to_thread(data_logger.get_biodynamic_notes_for_month, anchor),
-                asyncio.to_thread(data_logger.get_biodynamic_daily_summaries_for_month, anchor),
-            )
+            try:
+                notes, daily_summaries = await asyncio.gather(
+                    asyncio.to_thread(data_logger.get_biodynamic_notes_for_month, anchor, raise_on_error=True),
+                    asyncio.to_thread(data_logger.get_biodynamic_daily_summaries_for_month, anchor),
+                )
+            except BiodynamicStorageError:
+                return JSONResponse({"ok": False, "error": "storage_unavailable"}, status_code=503)
             payload["notes"] = notes
             payload["daily_summaries"] = daily_summaries
         notes_ms = (time.monotonic() - notes_started) * 1000.0
@@ -9672,7 +9712,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         message = "General settings saved."
         if astral_reset_requested:
             try:
-                resolved = settings.resolve_astral_location(persist_if_auto=True, timeout_sec=3.5) or {}
+                resolved = await resolve_astral_location_async(
+                    settings,
+                    persist_if_auto=True,
+                    timeout_sec=3.5,
+                ) or {}
             except Exception as exc:
                 resolved = {"error": str(exc)}
             resolved_lat = _safe_float(resolved.get("lat"))

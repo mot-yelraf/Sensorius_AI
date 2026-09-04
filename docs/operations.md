@@ -409,11 +409,9 @@ Key tables:
 
 Biodynamic month and daily-guidance payloads used by the full-screen calendar,
 daily summaries, and transition automations are cached in the
-`biodynamic_calendar_cache` SQLite table. A compatibility fallback can use JSON
-files under `/home/<user>/Sensorius/cache/biodynamic/` on Linux or
-`/Users/<user>/Sensorius/cache/biodynamic/` on macOS before the integrated
-service is registered. Both caches are disposable and rebuild when missing or
-when location/calculation versions change.
+`biodynamic_calendar_cache` SQLite table. The cache is disposable and rebuilds
+when missing or when location/calculation versions change. Sensorius does not
+launch, probe, or depend on a separately installed Biodynamic Calendar app.
 
 After startup settles, the integrated calendar warms the current month,
 current-day Astral/guidance data, nearby months, and future planning months in

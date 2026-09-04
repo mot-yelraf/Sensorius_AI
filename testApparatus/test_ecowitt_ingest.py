@@ -104,10 +104,12 @@ def test_gateway_url_validation():
 
 
 def test_rain_delta_restart_and_same_day_reset_are_conservative():
+    now = datetime.now(timezone.utc)
     ingest = EcowittGatewayIngest(
         settings=_Settings(),
-        data_logger=_Logger({"Rain Day": 1.25}, "2026-08-10T08:00:00+00:00"),
+        data_logger=_Logger({"Rain Day": 1.25}, (now - timedelta(minutes=1)).isoformat()),
     )
+    ingest._rain_reset_hour = (now.hour + 1) % 24
     values = {"Rain Day": 1.5}
     ingest._add_interval_rain(values, "ecowitt-e8db840f1543")
     assert values["Rain"] == pytest.approx(0.25)
@@ -136,6 +138,21 @@ def test_configured_rain_day_boundary_accepts_new_counter_value():
     values = {"Rain Day": 0.1}
     ingest._add_interval_rain(values, "ecowitt-e8db840f1543")
     assert values["Rain"] == 0.1
+
+
+def test_configured_rain_day_boundary_does_not_subtract_previous_day_counter():
+    now = datetime.now(timezone.utc)
+    prior = now - timedelta(hours=1)
+    ingest = EcowittGatewayIngest(
+        settings=_Settings(),
+        data_logger=_Logger({"Rain Day": 0.1}, prior.isoformat()),
+    )
+    ingest._rain_reset_hour = now.hour
+    values = {"Rain Day": 0.2}
+
+    ingest._add_interval_rain(values, "ecowitt-e8db840f1543")
+
+    assert values["Rain"] == 0.2
 
 
 def test_sensor_settings_materialization_is_idempotent(tmp_path):

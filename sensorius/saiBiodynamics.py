@@ -128,6 +128,13 @@ def clear_biodynamic_payload_cache() -> None:
     """Clear cached biodynamic payloads after location or timezone changes."""
     with _PAYLOAD_CACHE_LOCK:
         _PAYLOAD_CACHE.clear()
+    try:
+        from .biodynamic_calendar import clear_biodynamic_payload_cache as clear_integrated_cache
+
+        clear_integrated_cache()
+    except Exception as exc:
+        if DEBUG:
+            printDM(f"Integrated biodynamic cache clear skipped: {exc}", location=MODULE)
 
 
 def _clone_payload(payload: dict[str, object]) -> dict[str, object]:
@@ -935,7 +942,7 @@ def _build_calendar(
     return days, segments
 
 
-def get_biodynamic_payload(target_date: date | None = None) -> dict[str, object]:
+def _get_legacy_biodynamic_payload(target_date: date | None = None) -> dict[str, object]:
     """Build the legacy-compatible biodynamic payload for a target month."""
     month_anchor = target_date or get_biodynamic_local_now().date()
     payload = _empty_payload(month_anchor)
@@ -1078,3 +1085,25 @@ def get_biodynamic_payload(target_date: date | None = None) -> dict[str, object]
             if DEBUG:
                 printDM(f"Biodynamics calculation failed: {exc}", location=MODULE)
             return payload
+
+
+def get_biodynamic_payload(target_date: date | None = None) -> dict[str, object]:
+    """Build a payload with the canonical integrated calendar engine."""
+    from .biodynamic_calendar import BiodynamicConfig, get_biodynamic_payload as build_integrated_payload
+
+    lat, lon, tz_name, _altitude = _resolve_location()
+    if lat is None or lon is None or not tz_name:
+        payload = _empty_payload(target_date or date.today())
+        payload["reason"] = "location_unavailable"
+        return payload
+    try:
+        config = BiodynamicConfig(
+            latitude=float(lat),
+            longitude=float(lon),
+            timezone_name=str(tz_name),
+        )
+        return build_integrated_payload(target_date, config=config)
+    except Exception as exc:
+        payload = _empty_payload(target_date or date.today())
+        payload["reason"] = str(exc) or exc.__class__.__name__
+        return payload
