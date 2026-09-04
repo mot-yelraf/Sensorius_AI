@@ -4068,6 +4068,17 @@ async def test_companion_return_reuses_last_dashboard_shell(tmp_path, monkeypatc
     app, _ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     monkeypatch.setattr(saiWebRoutes, "_DASHBOARD_INVENTORY_CACHE", None)
     monkeypatch.setattr(saiWebRoutes, "_DASHBOARD_DISPLAY_SETTINGS_CACHE", None)
+    monkeypatch.setattr(
+        saiWebRoutes,
+        "_ASTRO_PAYLOAD_CACHE",
+        (time.monotonic() + 60.0, {"ok": True, "moon_phase_value": 12.0}),
+    )
+    month_key = datetime.now().date().replace(day=1).isoformat()
+    saiWebRoutes._BIODYNAMIC_PAYLOAD_CACHE[month_key] = (
+        time.monotonic() + 60.0,
+        {"ok": True, "calendar": []},
+    )
+    saiWebRoutes._DASHBOARD_HTML_CACHE.clear()
     render_calls = []
 
     def _render_dashboard(*_args, **_kwargs):
