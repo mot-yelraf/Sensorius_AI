@@ -61,6 +61,16 @@ SW_STATE_PREFIX = "switch_state::"
 SW_KEY_DELIM = "::"
 
 
+class BiodynamicStorageError(RuntimeError):
+    """Report an unavailable biodynamic persistence operation to web callers."""
+
+
+def _biodynamic_storage_error(operation: str, exc: Exception, *, raise_on_error: bool) -> None:
+    printDM(f"[{operation}] error: {exc}", location=MODULE)
+    if raise_on_error:
+        raise BiodynamicStorageError(f"{operation} failed") from exc
+
+
 def _timestamp_to_epoch(ts_value, default_tz: ZoneInfo) -> Optional[float]:
     """
     Convert a timestamp value to POSIX epoch seconds.
@@ -2338,7 +2348,12 @@ class saiDataLogger:
             end_date = datetime.fromisoformat(end_date).date()
         return start_date.isoformat(), end_date.isoformat()
 
-    def get_biodynamic_notes_for_month(self, month_anchor) -> dict[str, str]:
+    def get_biodynamic_notes_for_month(
+        self,
+        month_anchor,
+        *,
+        raise_on_error: bool = False,
+    ) -> dict[str, str]:
         try:
             if isinstance(month_anchor, str):
                 month_anchor = datetime.fromisoformat(month_anchor).date()
@@ -2364,10 +2379,16 @@ class saiDataLogger:
                     if row and row["note_date"]
                 }
         except Exception as e:
-            printDM(f"[get_biodynamic_notes_for_month] error: {e}", location=MODULE)
+            _biodynamic_storage_error("get_biodynamic_notes_for_month", e, raise_on_error=raise_on_error)
             return {}
 
-    def get_biodynamic_notes_for_range(self, start_date, end_date) -> dict[str, str]:
+    def get_biodynamic_notes_for_range(
+        self,
+        start_date,
+        end_date,
+        *,
+        raise_on_error: bool = False,
+    ) -> dict[str, str]:
         try:
             start_iso, end_iso = self._normalize_biodynamic_date_range(start_date, end_date)
             with self._open_conn() as conn:
@@ -2387,7 +2408,7 @@ class saiDataLogger:
                     if row and row["note_date"]
                 }
         except Exception as e:
-            printDM(f"[get_biodynamic_notes_for_range] error: {e}", location=MODULE)
+            _biodynamic_storage_error("get_biodynamic_notes_for_range", e, raise_on_error=raise_on_error)
             return {}
 
     def get_biodynamic_daily_summaries_for_month(self, month_anchor) -> dict[str, str]:
@@ -2462,7 +2483,13 @@ class saiDataLogger:
             printDM(f"[get_biodynamic_daily_summary] error for {summary_date}: {e}", location=MODULE)
             return ""
 
-    def save_biodynamic_note(self, note_date: str, note_text: str) -> bool:
+    def save_biodynamic_note(
+        self,
+        note_date: str,
+        note_text: str,
+        *,
+        raise_on_error: bool = False,
+    ) -> bool:
         try:
             date_obj = datetime.fromisoformat(str(note_date).strip()).date()
             clean_date = date_obj.isoformat()
@@ -2487,7 +2514,7 @@ class saiDataLogger:
                 self._writer_conn.commit()
             return True
         except Exception as e:
-            printDM(f"[save_biodynamic_note] error for {note_date}: {e}", location=MODULE)
+            _biodynamic_storage_error("save_biodynamic_note", e, raise_on_error=raise_on_error)
             return False
 
     def save_biodynamic_daily_summary(self, summary_date: str, summary_text: str) -> bool:
@@ -2518,7 +2545,7 @@ class saiDataLogger:
             printDM(f"[save_biodynamic_daily_summary] error for {summary_date}: {e}", location=MODULE)
             return False
 
-    def get_biodynamic_plantings(self) -> list[dict[str, object]]:
+    def get_biodynamic_plantings(self, *, raise_on_error: bool = False) -> list[dict[str, object]]:
         """Return normalized planting records used by the integrated calendar."""
         try:
             with self._open_conn() as conn:
@@ -2539,10 +2566,15 @@ class saiDataLogger:
                     plantings.append(value)
             return plantings
         except Exception as e:
-            printDM(f"[get_biodynamic_plantings] error: {e}", location=MODULE)
+            _biodynamic_storage_error("get_biodynamic_plantings", e, raise_on_error=raise_on_error)
             return []
 
-    def save_biodynamic_planting(self, planting: dict[str, object]) -> bool:
+    def save_biodynamic_planting(
+        self,
+        planting: dict[str, object],
+        *,
+        raise_on_error: bool = False,
+    ) -> bool:
         """Insert or update a validated integrated-calendar planting record."""
         try:
             planting_id = str(planting.get("id") or "").strip()
@@ -2598,10 +2630,15 @@ class saiDataLogger:
                 self._writer_conn.commit()
             return True
         except Exception as e:
-            printDM(f"[save_biodynamic_planting] error: {e}", location=MODULE)
+            _biodynamic_storage_error("save_biodynamic_planting", e, raise_on_error=raise_on_error)
             return False
 
-    def delete_biodynamic_planting(self, planting_id: str) -> bool:
+    def delete_biodynamic_planting(
+        self,
+        planting_id: str,
+        *,
+        raise_on_error: bool = False,
+    ) -> bool:
         """Delete one planting record by its stable identifier."""
         try:
             target = str(planting_id or "").strip()
@@ -2616,7 +2653,7 @@ class saiDataLogger:
                 self._writer_conn.commit()
                 return int(cur.rowcount or 0) > 0
         except Exception as e:
-            printDM(f"[delete_biodynamic_planting] error: {e}", location=MODULE)
+            _biodynamic_storage_error("delete_biodynamic_planting", e, raise_on_error=raise_on_error)
             return False
 
     def get_biodynamic_calendar_cache(self, cache_key: str, location_key: str) -> dict[str, object] | None:

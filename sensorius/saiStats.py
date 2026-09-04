@@ -8,6 +8,7 @@ This module provides:
 """
 import asyncio
 from datetime import datetime, timedelta, timezone
+import math
 import sqlite3
 import time
 
@@ -55,6 +56,63 @@ class saiStats:
     def _pressure_metric(metric_name: str) -> bool:
         name = str(metric_name or "").strip()
         return name in ("Pressure", "Baro-Pressure") or name.endswith(" Baro-Pressure")
+
+    @staticmethod
+    def _wind_direction_metric(metric_name: str) -> bool:
+        """Return whether a metric contains circular compass-direction values."""
+        name = str(metric_name or "").strip().replace("_", " ").replace("-", " ").lower()
+        return " ".join(name.split()).endswith("wind direction")
+
+    @staticmethod
+    def _circular_mean_degrees(values) -> float | None:
+        """Return the circular mean of compass degrees, or None when undefined."""
+        directions = []
+        for value in values:
+            try:
+                direction = float(value)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(direction):
+                directions.append(math.radians(direction % 360.0))
+        if not directions:
+            return None
+        sine_sum = sum(math.sin(direction) for direction in directions)
+        cosine_sum = sum(math.cos(direction) for direction in directions)
+        if math.hypot(sine_sum, cosine_sum) <= 1e-12 * len(directions):
+            return None
+        mean = math.degrees(math.atan2(sine_sum, cosine_sum)) % 360.0
+        return 0.0 if math.isclose(mean, 360.0, abs_tol=1e-9) else mean
+
+    def _apply_circular_direction_averages(
+        self,
+        conn: sqlite3.Connection,
+        sensor_id: str,
+        stats: dict,
+        start_epoch: float,
+        end_epoch: float | None = None,
+    ) -> None:
+        """Replace scalar averages for direction metrics with circular means."""
+        for metric, metric_stats in stats.items():
+            if not self._wind_direction_metric(metric):
+                continue
+            params: list[object] = [sensor_id, metric, float(start_epoch)]
+            end_clause = ""
+            if end_epoch is not None:
+                end_clause = "AND ts_epoch < ?"
+                params.append(float(end_epoch))
+            rows = conn.execute(
+                f"""
+                SELECT value
+                FROM readings
+                WHERE sensor_id = ? COLLATE NOCASE
+                  AND metric = ? COLLATE NOCASE
+                  AND value IS NOT NULL
+                  AND ts_epoch >= ?
+                  {end_clause}
+                """,
+                tuple(params),
+            ).fetchall()
+            metric_stats["avg"] = self._circular_mean_degrees(row[0] for row in rows)
 
     def _metric_trends(
         self,
@@ -211,6 +269,13 @@ class saiStats:
                     "max": max_val,
                     "max_ts": max_ts,
                 }
+            self._apply_circular_direction_averages(
+                conn,
+                str(sensor_id),
+                results,
+                float(start_epoch),
+                float(end_epoch),
+            )
 
         return results
 
@@ -314,6 +379,13 @@ class saiStats:
                     "max": max_val,
                     "max_ts": max_ts,
                 }
+            for sensor_id, sensor_stats in results.items():
+                self._apply_circular_direction_averages(
+                    conn,
+                    sensor_id,
+                    sensor_stats,
+                    since_epoch,
+                )
             trends = self._metric_trends(conn)
             for sensor_id, sensor_trends in trends.items():
                 sensor_stats = results.get(sensor_id)

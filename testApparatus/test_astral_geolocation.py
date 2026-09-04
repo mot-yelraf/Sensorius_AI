@@ -240,3 +240,30 @@ async def test_startup_astral_bootstrap_retries_until_auto_location_succeeds():
     assert settings.calls == 2
     assert resolved["source"] == "ip"
     assert resolved["lat"] == 35.0
+
+
+@pytest.mark.asyncio
+async def test_route_location_resolution_does_not_block_event_loop():
+    import asyncio
+    import time
+
+    from sensorius.saiWebRoutes import resolve_astral_location_async
+
+    class _SlowSettings:
+        def resolve_astral_location(self, **_kwargs):
+            time.sleep(0.2)
+            return {"lat": 35.0, "lon": -106.0, "tz": "America/Denver"}
+
+    task = asyncio.create_task(
+        resolve_astral_location_async(
+            _SlowSettings(),
+            persist_if_auto=True,
+            timeout_sec=3.5,
+        )
+    )
+    started = time.perf_counter()
+    await asyncio.sleep(0.01)
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 0.1
+    assert (await task)["lat"] == 35.0

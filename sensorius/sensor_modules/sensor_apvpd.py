@@ -133,12 +133,6 @@ class VPDPlantSensor(BaseSensor):
                 # Ambient
                 ("Temperature", "°C", lambda: self._get_calibrated_ambient_temp_c(), 2),
                 (
-                    "Temperature_F",
-                    "°F",
-                    lambda: self._get_calibrated_ambient_temp_f(),
-                    1,
-                ),
-                (
                     "Rel-Humidity",
                     "%",
                     lambda: self._get_calibrated_ambient_rh(),
@@ -155,12 +149,6 @@ class VPDPlantSensor(BaseSensor):
                     "°C",
                     lambda: self._get_calibrated_ambient_dewpoint_c(),
                     2,
-                ),
-                (
-                    "Dew Point_F",
-                    "°F",
-                    lambda: self._get_calibrated_ambient_dewpoint_f(),
-                    1,
                 ),
                 (
                     "Dew Point Deficit",
@@ -195,12 +183,6 @@ class VPDPlantSensor(BaseSensor):
                     2,
                 ),
                 (
-                    "Plant Temperature_F",
-                    "°F",
-                    lambda: self._get_calibrated_plant_temp_f(),
-                    1,
-                ),
-                (
                     "Plant Rel-Humidity",
                     "%",
                     lambda: self._get_calibrated_plant_rh(),
@@ -217,12 +199,6 @@ class VPDPlantSensor(BaseSensor):
                     "°C",
                     lambda: self._get_calibrated_plant_dewpoint_c(),
                     2,
-                ),
-                (
-                    "Plant Dew Point_F",
-                    "°F",
-                    lambda: self._get_calibrated_plant_dewpoint_f(),
-                    1,
                 ),
                 (
                     "Plant Dewpoint Deficit",
@@ -423,15 +399,6 @@ class VPDPlantSensor(BaseSensor):
         self.current_values["Temperature"] = temp_c
         return temp_c
 
-    def _get_calibrated_ambient_temp_f(self) -> float:
-        temp_c = self._get_calibrated_ambient_temp_c()
-        if temp_c is None:
-            self.current_values["Temperature_F"] = None
-            return None
-        temp_f = (temp_c * 9.0 / 5.0) + 32.0
-        self.current_values["Temperature_F"] = temp_f
-        return temp_f
-
     def _get_calibrated_ambient_rh(self) -> float:
         raw_rh = self._get_raw_ambient_rh()
         if raw_rh is None:
@@ -471,12 +438,6 @@ class VPDPlantSensor(BaseSensor):
         if temp_c is None or rh is None:
             return None
         return self.calculate_dewpoint(temp_c, rh)
-
-    def _get_calibrated_ambient_dewpoint_f(self) -> float:
-        dewpoint_c = self._get_calibrated_ambient_dewpoint_c()
-        if dewpoint_c is None:
-            return None
-        return (dewpoint_c * 9.0 / 5.0) + 32.0
 
     def _get_calibrated_ambient_dewpoint_depression(self) -> float:
         temp_c = self._get_calibrated_ambient_temp_c()
@@ -522,15 +483,6 @@ class VPDPlantSensor(BaseSensor):
         self.current_values["Plant Temperature"] = temp_c
         return temp_c
 
-    def _get_calibrated_plant_temp_f(self) -> float:
-        temp_c = self._get_calibrated_plant_temp_c()
-        if temp_c is None:
-            self.current_values["Plant Temperature_F"] = None
-            return None
-        temp_f = (temp_c * 9.0 / 5.0) + 32.0
-        self.current_values["Plant Temperature_F"] = temp_f
-        return temp_f
-
     def _get_calibrated_plant_rh(self) -> float:
         raw_rh = self._get_raw_plant_rh()
         if raw_rh is None:
@@ -570,12 +522,6 @@ class VPDPlantSensor(BaseSensor):
         if temp_c is None or rh is None:
             return None
         return self.calculate_dewpoint(temp_c, rh)
-
-    def _get_calibrated_plant_dewpoint_f(self) -> float:
-        dewpoint_c = self._get_calibrated_plant_dewpoint_c()
-        if dewpoint_c is None:
-            return None
-        return (dewpoint_c * 9.0 / 5.0) + 32.0
 
     def _get_calibrated_plant_dewpoint_depression(self) -> float:
         temp_c = self._get_calibrated_plant_temp_c()

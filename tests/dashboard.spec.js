@@ -1,6 +1,45 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
 
+function successfulBiodynamicMonth(monthKey = '2026-09') {
+  const [year, month] = monthKey.split('-').map(Number);
+  const monthStart = new Date(Date.UTC(year, month - 1, 1));
+  const gridStart = new Date(monthStart);
+  gridStart.setUTCDate(1 - monthStart.getUTCDay());
+  const calendar = Array.from({ length: 42 }, (_, offset) => {
+    const current = new Date(gridStart);
+    current.setUTCDate(gridStart.getUTCDate() + offset);
+    const day = current.toISOString().slice(0, 10);
+    return {
+      date: day,
+      day: current.getUTCDate(),
+      weekday: current.toLocaleString('en-US', { weekday: 'short', timeZone: 'UTC' }),
+      in_month: current.getUTCMonth() === month - 1,
+      is_today: day === `${monthKey}-15`,
+      dominant_sign: 'Taurus',
+      dominant_sign_abbr: 'Tau',
+      dominant_element: 'Earth',
+      dominant_plant_part: 'Root',
+      dominant_color: '#e5b172',
+      dominant_accent: '#644817',
+      moon_direction: 'ascending',
+      segments: [{ start: '00:00', end: '24:00', sign: 'Taurus', element: 'Earth', plant_part: 'Root', kind: 'sign' }],
+      lunar_events: [],
+    };
+  });
+  return {
+    ok: true,
+    month_label: monthStart.toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }),
+    weekday_labels: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+    current: { sign: 'Taurus', element: 'Earth', plant_part: 'Root', window_start_hm: '00:00', window_end_hm: '24:00' },
+    calendar,
+    notes: {},
+    plantings: [],
+    astro: { ok: false, reason: 'Browser fixture' },
+    location: { ok: true, latitude: 39.7392, longitude: -104.9903, timezone_name: 'America/Denver' },
+  };
+}
+
 test.beforeEach(async ({ page }) => {
   await page.route('https://cdn.jsdelivr.net/**', async (route) => {
     await route.fulfill({ contentType: 'application/javascript', body: '' });
@@ -189,4 +228,62 @@ test('opens the 29 day Sun/Moon graph from an aligned tile button', async ({ pag
   await graphButton.click();
   await expect(page.locator('#sunMoon29Overlay')).toBeVisible();
   await expect(page.locator('#sunMoon29Overlay')).toHaveAttribute('aria-hidden', 'false');
+});
+
+test('renders the integrated Biodynamic Calendar and exercises its user workflows', async ({ page }) => {
+  const noteWrites = [];
+  const plantingWrites = [];
+  await page.route('**/api/biodynamic-calendar-app/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/calendar')) {
+      const month = url.searchParams.get('month') || '2026-09';
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify(successfulBiodynamicMonth(month)) });
+      return;
+    }
+    if (url.pathname.endsWith('/calendar-range')) {
+      const start = url.searchParams.get('start') || '2026-09';
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, months: [successfulBiodynamicMonth(start)] }) });
+      return;
+    }
+    if (url.pathname.endsWith('/daily-summary')) {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, summary: 'Biodynamic Hints\nSuggestion: tend roots.' }) });
+      return;
+    }
+    if (url.pathname.endsWith('/note') && request.method() === 'POST') {
+      noteWrites.push(request.postDataJSON());
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+      return;
+    }
+    if (url.pathname.endsWith('/planting') && request.method() === 'POST') {
+      const planting = { id: 'lettuce', ...request.postDataJSON() };
+      plantingWrites.push(planting);
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, planting, plantings: [planting] }) });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.goto('/calendar', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#calendar .bio-day')).toHaveCount(42);
+  await expect(page.locator('#monthLabel')).toHaveText('September 2026');
+  await page.locator('#calendar [data-date="2026-09-15"]').click();
+  await expect(page.locator('#dailySummary')).toContainText('tend roots');
+
+  await page.locator('.inspector-section').filter({ hasText: 'Note' }).locator(':scope > summary').click();
+  await page.locator('#noteInput').fill('Watered the root bed.');
+  await page.locator('#saveNoteBtn').click();
+  await expect.poll(() => noteWrites.length).toBe(1);
+  expect(noteWrites[0]).toEqual({ date: '2026-09-15', note: 'Watered the root bed.' });
+
+  await page.locator('.planting-panel > summary').click();
+  await page.locator('#plantingEditor > summary').click();
+  await page.locator('#plantingForm [name="name"]').fill('Lettuce');
+  await page.locator('#plantingForm [name="start_date"]').fill('2026-09-15');
+  await page.locator('#savePlantingBtn').click();
+  await expect.poll(() => plantingWrites.length).toBe(1);
+  expect(plantingWrites[0].name).toBe('Lettuce');
+
+  await page.locator('#nextBtn').click();
+  await expect(page.locator('#monthLabel')).toHaveText('October 2026');
 });

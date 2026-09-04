@@ -4095,6 +4095,12 @@ async def test_companion_return_reuses_last_dashboard_shell(tmp_path, monkeypatc
     assert render_calls == [1, 2]
 
 
+def test_dashboard_warming_payloads_are_not_stable_shell_content():
+    assert saiWebRoutes._dashboard_payload_is_warming({"reason": "warming"}) is True
+    assert saiWebRoutes._dashboard_payload_is_warming({"cache_status": "warming"}) is True
+    assert saiWebRoutes._dashboard_payload_is_warming({"ok": True, "moon_phase_value": 12.0}) is False
+
+
 @pytest.mark.asyncio
 async def test_dashboard_sensor_locations_ignore_unknown_live_cache_and_use_toml(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)

@@ -6,6 +6,8 @@ forecast ranges, and daily summaries without depending on the web layer.
 
 from __future__ import annotations
 
+from collections import OrderedDict
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from functools import lru_cache
@@ -23,7 +25,13 @@ try:
     from astral import LocationInfo
     from astral import moon as _astral_moon
     from astral.sidereal import lmst as _astral_lmst
-    from astral.sun import azimuth as _astral_azimuth, elevation as _astral_elevation, sun as _astral_sun
+    from astral.sun import (
+        azimuth as _astral_azimuth,
+        elevation as _astral_elevation,
+        sun as _astral_sun,
+        sunrise as _astral_sunrise,
+        sunset as _astral_sunset,
+    )
 except Exception:  # pragma: no cover - exercised via graceful fallback
     LocationInfo = None
     _astral_moon = None
@@ -31,6 +39,8 @@ except Exception:  # pragma: no cover - exercised via graceful fallback
     _astral_azimuth = None
     _astral_elevation = None
     _astral_sun = None
+    _astral_sunrise = None
+    _astral_sunset = None
 
 
 @dataclass(frozen=True)
@@ -59,7 +69,7 @@ class BiodynamicConfig:
 
 
 # Increment when persisted calendar or daily-summary calculation output changes.
-CALCULATION_IMPLEMENTATION_VERSION = 8
+CALCULATION_IMPLEMENTATION_VERSION = 9
 
 
 @dataclass(frozen=True)
@@ -108,7 +118,11 @@ _OFF_PERIOD_LABELS = {
 }
 _OFF_OVERLAY_KINDS = {"lunar_node", "perigee"}
 _PAYLOAD_CACHE_TTL_SEC = 30.0
-_PAYLOAD_CACHE: dict[tuple[str, str, str, str], tuple[float, dict[str, object]]] = {}
+_PAYLOAD_CACHE_MAX = 64
+_PAYLOAD_CACHE_LOCK = threading.RLock()
+_PAYLOAD_CACHE: OrderedDict[
+    tuple[str, str, str, str], tuple[float, dict[str, object]]
+] = OrderedDict()
 _MOON_SAMPLE_CACHE_MAX = 60000
 _MOON_SAMPLE_LOCK = threading.Lock()
 _MOON_SIGN_CACHE: dict[str, int] = {}
@@ -125,6 +139,52 @@ _CONSTELLATION_ALIASES: dict[str, str] = {
 }
 _CALENDAR_GRID_DAYS = 42
 _DAILY_FORECAST_DAYS = 29
+
+
+def _payload_cache_get(
+    key: tuple[str, str, str, str],
+    *,
+    now_monotonic: float,
+    current_date: str,
+) -> dict[str, object] | None:
+    """Return an isolated cached payload while pruning expired entries."""
+    with _PAYLOAD_CACHE_LOCK:
+        expired = [cache_key for cache_key, item in _PAYLOAD_CACHE.items() if item[0] <= now_monotonic]
+        for cache_key in expired:
+            _PAYLOAD_CACHE.pop(cache_key, None)
+        cached = _PAYLOAD_CACHE.get(key)
+        if cached is None:
+            return None
+        current = cached[1].get("current")
+        cached_current_date = str(current.get("timestamp") or "")[:10] if isinstance(current, dict) else ""
+        if cached_current_date != current_date:
+            _PAYLOAD_CACHE.pop(key, None)
+            return None
+        _PAYLOAD_CACHE.move_to_end(key)
+        return deepcopy(cached[1])
+
+
+def _payload_cache_set(
+    key: tuple[str, str, str, str],
+    payload: dict[str, object],
+    *,
+    now_monotonic: float,
+) -> None:
+    """Store an isolated payload and evict least-recently-used entries."""
+    with _PAYLOAD_CACHE_LOCK:
+        _PAYLOAD_CACHE[key] = (
+            now_monotonic + _PAYLOAD_CACHE_TTL_SEC,
+            deepcopy(payload),
+        )
+        _PAYLOAD_CACHE.move_to_end(key)
+        while len(_PAYLOAD_CACHE) > _PAYLOAD_CACHE_MAX:
+            _PAYLOAD_CACHE.popitem(last=False)
+
+
+def clear_biodynamic_payload_cache() -> None:
+    """Clear all process-local integrated calendar payloads."""
+    with _PAYLOAD_CACHE_LOCK:
+        _PAYLOAD_CACHE.clear()
 
 
 def load_config_from_env() -> BiodynamicConfig | None:
@@ -917,7 +977,7 @@ def _daylight_for_day(
         "daylight_minutes": None,
         "daylight_label": "",
     }
-    if LocationInfo is None or _astral_sun is None:
+    if LocationInfo is None or _astral_sunrise is None or _astral_sunset is None:
         return out
     try:
         observer = LocationInfo(
@@ -927,18 +987,32 @@ def _daylight_for_day(
             latitude=config.latitude,
             longitude=config.longitude,
         ).observer
-        sun_map = _astral_sun(observer, date=day_date, tzinfo=tzinfo)
-        sunrise = sun_map.get("sunrise")
-        sunset = sun_map.get("sunset")
-        if not isinstance(sunrise, datetime) or not isinstance(sunset, datetime) or sunset < sunrise:
+        try:
+            sunrise = _astral_sunrise(observer, date=day_date, tzinfo=tzinfo)
+        except ValueError:
+            sunrise = None
+        try:
+            sunset = _astral_sunset(observer, date=day_date, tzinfo=tzinfo)
+        except ValueError:
+            sunset = None
+        out["sunrise"] = _format_hm(sunrise) if isinstance(sunrise, datetime) else ""
+        out["sunset"] = _format_hm(sunset) if isinstance(sunset, datetime) else ""
+        if not isinstance(sunrise, datetime) or not isinstance(sunset, datetime):
+            noon = datetime.combine(day_date, time(hour=12), tzinfo=tzinfo)
+            sun_is_up = _astral_elevation is not None and _astral_elevation(observer, noon) > -0.833
+            total_minutes = 1440 if sun_is_up else 0
+            out["daylight_minutes"] = total_minutes
+            out["daylight_label"] = f"{total_minutes // 60} Hrs {total_minutes % 60} Mins"
+            out["polar_condition"] = "polar_day" if sun_is_up else "polar_night"
             return out
+        if sunset < sunrise:
+            sunset += timedelta(days=1)
         total_minutes = max(0, int((sunset - sunrise).total_seconds() // 60))
         out.update(
             {
-                "sunrise": _format_hm(sunrise),
-                "sunset": _format_hm(sunset),
                 "daylight_minutes": total_minutes,
                 "daylight_label": f"{total_minutes // 60} Hrs {total_minutes % 60} Mins",
+                "polar_condition": "",
             }
         )
     except Exception:
@@ -1845,10 +1919,13 @@ def get_biodynamic_payload(target_date: date | None = None, *, config: Biodynami
         resolved.timezone_name,
     )
     now_mono = time_mod.monotonic()
-    cached = _PAYLOAD_CACHE.get(cache_key)
-    cached_current_date = str((cached[1].get("current") or {}).get("timestamp") or "")[:10] if cached else ""
-    if cached and cached[0] > now_mono and cached_current_date == now_local.date().isoformat():
-        return dict(cached[1])
+    cached = _payload_cache_get(
+        cache_key,
+        now_monotonic=now_mono,
+        current_date=now_local.date().isoformat(),
+    )
+    if cached is not None:
+        return cached
 
     try:
         _, ts, eph, constellation_at = _skyfield_runtime()
@@ -1870,7 +1947,7 @@ def get_biodynamic_payload(target_date: date | None = None, *, config: Biodynami
                 current_timeline_builder=lambda: _build_current_segment_timeline(now_local, tzinfo, ts, eph, constellation_at),
             )
         )
-        _PAYLOAD_CACHE[cache_key] = (now_mono + _PAYLOAD_CACHE_TTL_SEC, dict(payload))
+        _payload_cache_set(cache_key, payload, now_monotonic=now_mono)
         return payload
     except Exception as exc:
         payload["reason"] = str(exc) or exc.__class__.__name__
@@ -1950,7 +2027,7 @@ def get_biodynamic_calendar_range(
                 str(round(float(resolved.longitude), 4)),
                 resolved.timezone_name,
             )
-            _PAYLOAD_CACHE[payload_cache_key] = (now_mono + _PAYLOAD_CACHE_TTL_SEC, dict(month_payload))
+            _payload_cache_set(payload_cache_key, month_payload, now_monotonic=now_mono)
     except Exception as exc:
         return {
             "ok": False,

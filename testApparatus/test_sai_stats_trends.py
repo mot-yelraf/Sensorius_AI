@@ -119,6 +119,44 @@ def test_fast_all_sensor_stats_preserve_deterministic_extrema_timestamps(tmp_pat
     assert temperature["max_ts"] == "2026-08-03T12:00:04Z"
 
 
+def test_wind_direction_uses_circular_average_in_range_and_fast_stats(tmp_path):
+    db_path = tmp_path / "wind-direction-stats.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE readings (
+                timestamp TEXT,
+                ts_epoch REAL,
+                sensor_id TEXT,
+                metric TEXT,
+                value REAL
+            )
+            """
+        )
+        conn.executemany(
+            """
+            INSERT INTO readings(timestamp, ts_epoch, sensor_id, metric, value)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                ("2026-08-03T12:00:00Z", 101.0, "weather", "Wind Direction", 350.0),
+                ("2026-08-03T12:01:00Z", 102.0, "weather", "Wind Direction", 10.0),
+            ),
+        )
+
+    statter = saiStats(str(db_path))
+    ranged = statter.get_stats_for_range("weather", 100.0, 103.0)
+    assert abs(ranged["Wind Direction"]["avg"]) < 0.001
+
+    statter._since_epoch_24h = lambda: 100.0
+    fast = statter.get_all_stats_fast()
+    assert abs(fast["weather"]["Wind Direction"]["avg"]) < 0.001
+
+
+def test_opposed_wind_directions_have_no_defined_average():
+    assert saiStats._circular_mean_degrees([90.0, 270.0]) is None
+
+
 def test_metric_trends_ignore_sensors_without_readings_in_last_24_hours(tmp_path):
     db_path = tmp_path / "bounded-trends.db"
     with sqlite3.connect(db_path) as conn:

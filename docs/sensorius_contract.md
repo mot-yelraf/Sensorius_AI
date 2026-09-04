@@ -231,6 +231,13 @@ SGP gas sensors use `Equivalent CO2` and `TVOC` for SGP30, `VOC Index` for
 SGP40, and `VOC Index` plus `NOx Index` for SGP41. Sensorius ingests these keys
 unchanged from Nodus `/data` payloads and honors their advertised
 `display_metrics`.
+Current Nodus firmware publishes one canonical SI value for each convertible
+environmental metric, such as `Temperature` and `Dew Point` in degrees C. It
+does not publish duplicate display-unit metrics such as `Temperature_F` or
+`Dew Point_F`; Sensorius applies the user's Metric or Imperial selection at
+presentation time. Sensorius continues to accept imperial-suffixed keys from
+older Nodus firmware and preserves those legacy metric identities when storing
+their readings.
 `Baro-Pressure` and `Plant Baro-Pressure` values are normalized to one decimal
 place in hPa before publication and storage.
 

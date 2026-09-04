@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 from httpx import ASGITransport, AsyncClient
 
 import sensorius.saiBiodynamicCalendarApp as calendar_app
+from sensorius.saiDataLogger import BiodynamicStorageError
 
 
 class _Settings:
@@ -50,14 +51,23 @@ class _Logger:
         self.cache[(key, location)] = dict(payload)
         return True
 
-    def get_biodynamic_plantings(self):
+    def get_biodynamic_plantings(self, **_kwargs):
         return []
 
-    def get_biodynamic_notes_for_range(self, *_args):
+    def get_biodynamic_notes_for_range(self, *_args, **_kwargs):
         return {}
 
     def save_biodynamic_daily_summary(self, *_args):
         return True
+
+    def save_biodynamic_note(self, *_args, **_kwargs):
+        return True
+
+    def save_biodynamic_planting(self, *_args, **_kwargs):
+        return True
+
+    def delete_biodynamic_planting(self, *_args, **_kwargs):
+        return False
 
 
 def test_seasonal_theme_preferences_normalize_and_rotate_by_month():
@@ -136,6 +146,25 @@ async def test_integrated_month_build_is_single_flight_and_persisted(monkeypatch
     assert one["ok"] is True
     assert two["ok"] is True
     assert calls == [(date(2026, 3, 1), "America/Denver")]
+
+
+def test_fresh_month_survives_disposable_cache_write_failure(monkeypatch):
+    class _CacheFailingLogger(_Logger):
+        def save_biodynamic_calendar_cache(self, *_args, **_kwargs):
+            return False
+
+    monkeypatch.setattr(
+        calendar_app,
+        "get_biodynamic_payload",
+        lambda anchor, *, config: {"ok": True, "calendar": [], "month_label": anchor.strftime("%B %Y")},
+    )
+    service = calendar_app.BiodynamicCalendarService(settings=_Settings(), data_logger=_CacheFailingLogger())
+    config, _location = service.location()
+
+    payload = service.build_month_sync(date(2026, 3, 1), config)
+
+    assert payload["ok"] is True
+    assert payload["month_label"] == "March 2026"
 
 
 def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
@@ -302,17 +331,17 @@ async def test_legacy_json_state_imports_only_into_empty_tables(tmp_path):
             self.notes = {}
             self.plantings = []
 
-        def get_biodynamic_notes_for_range(self, *_args):
+        def get_biodynamic_notes_for_range(self, *_args, **_kwargs):
             return dict(self.notes)
 
-        def save_biodynamic_note(self, day_iso, note):
+        def save_biodynamic_note(self, day_iso, note, **_kwargs):
             self.notes[day_iso] = note
             return True
 
-        def get_biodynamic_plantings(self):
+        def get_biodynamic_plantings(self, **_kwargs):
             return list(self.plantings)
 
-        def save_biodynamic_planting(self, planting):
+        def save_biodynamic_planting(self, planting, **_kwargs):
             self.plantings.append(dict(planting))
             return True
 
@@ -369,3 +398,42 @@ async def test_integrated_calendar_page_and_month_api_render(monkeypatch):
     assert payload.status_code == 200
     assert payload.json()["month_label"] == "March 2026"
     assert payload.json()["astro"]["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_user_storage_failures_return_service_unavailable():
+    root = Path(__file__).resolve().parents[1]
+
+    class _FailingLogger(_Logger):
+        def get_biodynamic_plantings(self, **_kwargs):
+            raise BiodynamicStorageError("injected read failure")
+
+        def save_biodynamic_note(self, *_args, **_kwargs):
+            raise BiodynamicStorageError("injected write failure")
+
+        def delete_biodynamic_planting(self, *_args, **_kwargs):
+            raise BiodynamicStorageError("injected delete failure")
+
+    app = FastAPI()
+    app.state.templates = Jinja2Templates(directory=str(root / "ui_templates"))
+    router = APIRouter()
+    service = calendar_app.register_biodynamic_calendar_routes(
+        router,
+        app=app,
+        settings=_Settings(),
+        data_logger=_FailingLogger(),
+    )
+    service._legacy_import_done = True
+    app.include_router(router)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        read_response = await client.get("/api/biodynamic-calendar-app/plantings")
+        note_response = await client.post(
+            "/api/biodynamic-calendar-app/note",
+            json={"date": "2026-09-04", "note": "Do not lose this"},
+        )
+        delete_response = await client.delete("/api/biodynamic-calendar-app/planting/example")
+
+    for response in (read_response, note_response, delete_response):
+        assert response.status_code == 503
+        assert response.json() == {"ok": False, "error": "storage_unavailable"}

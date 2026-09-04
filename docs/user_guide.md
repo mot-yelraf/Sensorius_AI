@@ -254,7 +254,9 @@ collapsed without moving the section's **Save** button.
   their native units. This setting changes labels, values, graph scales, and
   display zones only. It does not rewrite sensor readings, database history,
   MQTT payloads, sensor configuration, metric identities, or automation
-  thresholds.
+  thresholds. Directly connected sensors and current Nodus firmware provide
+  canonical SI readings; older Nodus devices that still publish Fahrenheit-
+  suffixed metrics remain supported.
 - **Metric Set**: applies to every Sensor Group on the Sensorius dashboard.
   **Pick 6** initially shows the six saved metric slots as Sensor Tiles; the
   Sensor Group's disclosure triangle reveals every additional known metric.
@@ -1143,6 +1145,8 @@ Full-moon milestones use familiar traditional names such as **Harvest Moon**.
 Below the phases, a shared timeline runs from today's sunrise to the next
 sunrise. Sunrise, sunset, and next sunrise appear on the Sun row; moonrise and
 moonset are chronologically interlaced on the Moon row using the same scale.
+At high latitudes, unavailable twilight or solar events are shown individually
+and do not suppress the remaining lunar, seasonal, eclipse, or solar details.
 
 Current Readings displays the selected sensor's configured **Display Metrics**
 in their saved order, including their standard Sensorius units, and identifies
@@ -1233,7 +1237,7 @@ The integrated application provides:
   Automatic rotation available as a separate control.
   **Return to Calendar** restores the saved calendar theme.
 
-Companion app fields and controls:
+Integrated calendar fields and controls:
 
 - **Location**: comes from the Astral and Time sections in Sensorius General Settings. Change it there to invalidate and rebuild calendar data.
 - **Previous / Next month arrows**: move the main month calendar.

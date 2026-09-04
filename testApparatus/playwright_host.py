@@ -17,15 +17,17 @@ _RUNTIME_DIR = tempfile.TemporaryDirectory(prefix="sensorius-playwright-")
 os.environ.setdefault("SENSORIUS_PROJECT_ROOT", str(REPO_ROOT))
 os.environ.setdefault("SENSORIUS_RUNTIME_ROOT", _RUNTIME_DIR.name)
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect  # noqa: E402
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect  # noqa: E402
 from fastapi.responses import HTMLResponse, PlainTextResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
+from fastapi.templating import Jinja2Templates  # noqa: E402
 
 from sensorius.saiHtml import get_gauge_config, render_dashboard  # noqa: E402
 
 
 app = FastAPI()
 app.mount("/ui_static", StaticFiles(directory=str(REPO_ROOT / "ui_static")), name="ui_static")
+templates = Jinja2Templates(directory=str(REPO_ROOT / "ui_templates"))
 
 
 @app.get("/healthz", response_class=PlainTextResponse)
@@ -74,3 +76,23 @@ def dashboard() -> HTMLResponse:
         )
     )
     return HTMLResponse(html)
+
+
+@app.get("/calendar", response_class=HTMLResponse)
+def biodynamic_calendar(request: Request):
+    """Render the real integrated calendar shell for browser interaction tests."""
+    return templates.TemplateResponse(
+        request,
+        "biodynamic_calendar/index.html",
+        {
+            "config": None,
+            "plantings": [],
+            "app_version": "playwright",
+            "sensorius_launch": True,
+            "biodynamic_calendar_theme": "garden_tools",
+            "biodynamic_calendar_resolved_theme": "garden_tools",
+            "biodynamic_calendar_automatic_theme": "autumn",
+            "biodynamic_calendar_theme_style": "",
+            "runtime_instance_id": "playwright",
+        },
+    )

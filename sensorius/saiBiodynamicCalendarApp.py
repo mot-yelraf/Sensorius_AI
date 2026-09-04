@@ -14,7 +14,7 @@ import threading
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Request
@@ -30,6 +30,7 @@ from .biodynamic_calendar import (
 )
 from .biodynamic_calendar.core import CALCULATION_IMPLEMENTATION_VERSION
 from .biodynamic_calendar.storage_validation import MAX_NOTE_LENGTH, _normalize_planting
+from .saiDataLogger import BiodynamicStorageError
 from .saiUtils import debug_enabled, printDM
 from .saiThemeManager import ThemeManager, normalize_theme_selection
 
@@ -132,10 +133,43 @@ class PlantingRequest(BaseModel):
     notes: Any = None
 
 
+class BiodynamicSettingsStore(Protocol):
+    """Describe the shared settings behavior required by the calendar service."""
+
+    def get_setting(self, section: str, key: str, default=None): ...
+
+    def resolve_astral_location(self, **kwargs) -> dict[str, object]: ...
+
+
+class BiodynamicDataStore(Protocol):
+    """Describe the SQLite operations required by the integrated calendar."""
+
+    def get_biodynamic_calendar_cache(self, cache_key: str, location_key: str): ...
+
+    def save_biodynamic_calendar_cache(self, cache_key: str, location_key: str, payload: dict, **kwargs): ...
+
+    def get_biodynamic_plantings(self, *, raise_on_error: bool = False): ...
+
+    def get_biodynamic_notes_for_range(self, start_date, end_date, *, raise_on_error: bool = False): ...
+
+    def save_biodynamic_note(self, note_date: str, note_text: str, *, raise_on_error: bool = False): ...
+
+    def save_biodynamic_planting(self, planting: dict, *, raise_on_error: bool = False): ...
+
+    def delete_biodynamic_planting(self, planting_id: str, *, raise_on_error: bool = False): ...
+
+
 class BiodynamicCalendarService:
     """Serve and prewarm BD Calendar data without blocking Sensorius' event loop."""
 
-    def __init__(self, *, settings, data_logger, supervisor=None, legacy_root: Path | None = None):
+    def __init__(
+        self,
+        *,
+        settings: BiodynamicSettingsStore,
+        data_logger: BiodynamicDataStore,
+        supervisor=None,
+        legacy_root: Path | None = None,
+    ):
         self.settings = settings
         self.data_logger = data_logger
         self.supervisor = supervisor
@@ -404,10 +438,17 @@ class BiodynamicCalendarService:
         dates = [str(row.get("date")) for row in payload.get("calendar") or [] if isinstance(row, dict) and row.get("date")]
         if not dates:
             return {}
-        return self.data_logger.get_biodynamic_notes_for_range(min(dates), max(dates))
+        return self.data_logger.get_biodynamic_notes_for_range(
+            min(dates),
+            max(dates),
+            raise_on_error=True,
+        )
 
     async def daily_summary(self, summary_date: date, config: BiodynamicConfig) -> str:
-        plantings = self.data_logger.get_biodynamic_plantings()
+        plantings = await asyncio.to_thread(
+            self.data_logger.get_biodynamic_plantings,
+            raise_on_error=True,
+        )
         cache_key = (
             f"calculation-v{CALCULATION_IMPLEMENTATION_VERSION}:daily-summary:"
             f"{summary_date.isoformat()}:{_cache_digest(plantings)}"
@@ -519,8 +560,8 @@ def register_biodynamic_calendar_routes(
     router: APIRouter,
     *,
     app,
-    settings,
-    data_logger,
+    settings: BiodynamicSettingsStore,
+    data_logger: BiodynamicDataStore,
 ) -> BiodynamicCalendarService:
     """Register the full-screen calendar and its namespaced API routes."""
     global _REGISTERED_SERVICE
@@ -536,6 +577,11 @@ def register_biodynamic_calendar_routes(
     _REGISTERED_SERVICE = service
     app.add_event_handler("startup", service.ensure_background_warm)
     app.add_event_handler("shutdown", service.shutdown)
+
+    def storage_unavailable(exc: Exception) -> JSONResponse:
+        """Return a stable response for unavailable user-owned calendar data."""
+        printDM(f"Biodynamic calendar storage unavailable: {exc}", location=MODULE)
+        return JSONResponse({"ok": False, "error": "storage_unavailable"}, status_code=503)
 
     @router.get("/calendar", response_class=HTMLResponse)
     async def calendar_page(request: Request):
@@ -561,12 +607,16 @@ def register_biodynamic_calendar_routes(
             if custom_theme_style
             else automatic_theme if biodynamic_calendar_theme == "auto" else biodynamic_calendar_theme
         )
+        try:
+            plantings = await asyncio.to_thread(data_logger.get_biodynamic_plantings, raise_on_error=True)
+        except BiodynamicStorageError as exc:
+            return storage_unavailable(exc)
         return app.state.templates.TemplateResponse(
             request,
             "biodynamic_calendar/index.html",
             {
                 "config": config,
-                "plantings": await asyncio.to_thread(data_logger.get_biodynamic_plantings),
+                "plantings": plantings,
                 "app_version": SAI_APP_VERSION,
                 "sensorius_launch": True,
                 "biodynamic_calendar_theme": biodynamic_calendar_theme,
@@ -597,8 +647,14 @@ def register_biodynamic_calendar_routes(
             return JSONResponse({"error": "invalid_month"}, status_code=400)
         payload = await service.month(anchor, config)
         payload["astro"] = await service.astro(config)
-        payload["notes"] = await asyncio.to_thread(service.notes_for_payload, payload)
-        payload["plantings"] = await asyncio.to_thread(data_logger.get_biodynamic_plantings)
+        try:
+            payload["notes"] = await asyncio.to_thread(service.notes_for_payload, payload)
+            payload["plantings"] = await asyncio.to_thread(
+                data_logger.get_biodynamic_plantings,
+                raise_on_error=True,
+            )
+        except BiodynamicStorageError as exc:
+            return storage_unavailable(exc)
         payload["location"] = location
         return JSONResponse(payload)
 
@@ -615,6 +671,10 @@ def register_biodynamic_calendar_routes(
         ready, missing = await asyncio.to_thread(service.cached_range, anchor, month_count, config)
         if missing:
             service.ensure_background_warm()
+        try:
+            plantings = await asyncio.to_thread(data_logger.get_biodynamic_plantings, raise_on_error=True)
+        except BiodynamicStorageError as exc:
+            return storage_unavailable(exc)
         return JSONResponse(
             {
                 "ok": bool(ready),
@@ -625,7 +685,7 @@ def register_biodynamic_calendar_routes(
                 "months_requested": month_count,
                 "months": ready,
                 "notes": {},
-                "plantings": await asyncio.to_thread(data_logger.get_biodynamic_plantings),
+                "plantings": plantings,
                 "location": location,
                 "generated_at": datetime.now(timezone.utc).isoformat(),
             }
@@ -640,32 +700,63 @@ def register_biodynamic_calendar_routes(
             summary_date = datetime.strptime(day, "%Y-%m-%d").date()
         except Exception:
             return JSONResponse({"error": "invalid_day"}, status_code=400)
-        summary = await service.daily_summary(summary_date, config)
+        try:
+            summary = await service.daily_summary(summary_date, config)
+        except BiodynamicStorageError as exc:
+            return storage_unavailable(exc)
         return JSONResponse({"ok": True, "date": summary_date.isoformat(), "summary": summary})
 
     @router.post("/api/biodynamic-calendar-app/note", response_class=JSONResponse)
     async def api_note(body: NoteRequest):
-        ok = await asyncio.to_thread(data_logger.save_biodynamic_note, body.day.isoformat(), body.note or "")
-        return JSONResponse({"ok": ok}, status_code=200 if ok else 500)
+        try:
+            ok = await asyncio.to_thread(
+                data_logger.save_biodynamic_note,
+                body.day.isoformat(),
+                body.note or "",
+                raise_on_error=True,
+            )
+        except BiodynamicStorageError as exc:
+            return storage_unavailable(exc)
+        return JSONResponse({"ok": ok}, status_code=200 if ok else 503)
 
     @router.get("/api/biodynamic-calendar-app/plantings", response_class=JSONResponse)
     async def api_plantings():
-        return JSONResponse({"ok": True, "plantings": await asyncio.to_thread(data_logger.get_biodynamic_plantings)})
+        try:
+            plantings = await asyncio.to_thread(data_logger.get_biodynamic_plantings, raise_on_error=True)
+        except BiodynamicStorageError as exc:
+            return storage_unavailable(exc)
+        return JSONResponse({"ok": True, "plantings": plantings})
 
     @router.post("/api/biodynamic-calendar-app/planting", response_class=JSONResponse)
     async def api_save_planting(body: PlantingRequest):
         planting, error = _normalize_planting(body.model_dump(exclude_none=True))
         if planting is None:
             return JSONResponse({"error": "invalid_planting", "reason": error}, status_code=400)
-        ok = await asyncio.to_thread(data_logger.save_biodynamic_planting, planting)
+        try:
+            ok = await asyncio.to_thread(
+                data_logger.save_biodynamic_planting,
+                planting,
+                raise_on_error=True,
+            )
+            plantings = await asyncio.to_thread(data_logger.get_biodynamic_plantings, raise_on_error=True)
+        except BiodynamicStorageError as exc:
+            return storage_unavailable(exc)
         return JSONResponse(
-            {"ok": ok, "planting": planting, "plantings": await asyncio.to_thread(data_logger.get_biodynamic_plantings)},
-            status_code=200 if ok else 500,
+            {"ok": ok, "planting": planting, "plantings": plantings},
+            status_code=200 if ok else 503,
         )
 
     @router.delete("/api/biodynamic-calendar-app/planting/{planting_id}", response_class=JSONResponse)
     async def api_delete_planting(planting_id: str):
-        deleted = await asyncio.to_thread(data_logger.delete_biodynamic_planting, planting_id)
-        return JSONResponse({"ok": True, "deleted": deleted, "plantings": await asyncio.to_thread(data_logger.get_biodynamic_plantings)})
+        try:
+            deleted = await asyncio.to_thread(
+                data_logger.delete_biodynamic_planting,
+                planting_id,
+                raise_on_error=True,
+            )
+            plantings = await asyncio.to_thread(data_logger.get_biodynamic_plantings, raise_on_error=True)
+        except BiodynamicStorageError as exc:
+            return storage_unavailable(exc)
+        return JSONResponse({"ok": True, "deleted": deleted, "plantings": plantings})
 
     return service

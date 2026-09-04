@@ -91,3 +91,23 @@ def test_device_relative_humidity_metrics_use_one_decimal_place():
 
         assert rh_precisions
         assert set(rh_precisions.values()) == {1}
+
+
+def test_local_environmental_sensors_publish_si_metrics_only():
+    """Keep display-unit variants out of directly connected sensor output."""
+    module_dir = Path(__file__).resolve().parents[1] / "sensorius" / "sensor_modules"
+
+    for module_name in DEVICE_RH_MODULES:
+        tree = ast.parse((module_dir / module_name).read_text(encoding="utf-8"))
+        measurement_units = {
+            (node.elts[0].value, node.elts[1].value)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Tuple)
+            and len(node.elts) == 4
+            and isinstance(node.elts[0], ast.Constant)
+            and isinstance(node.elts[1], ast.Constant)
+        }
+
+        assert measurement_units
+        assert all(not str(name).endswith("_F") for name, _unit in measurement_units)
+        assert all(unit != "°F" for _name, unit in measurement_units)

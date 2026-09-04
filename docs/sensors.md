@@ -55,7 +55,9 @@ Ecowitt gateway ingest:
   `Soil Moisture CH3`, `PM2.5 CH2`, and `Leaf Wetness CH1`.
 - Stores Ecowitt rain day/week/month/year values as cumulative metrics. Only a
   restart-safe day-total delta is written as interval `Rain`, allowing the
-  logger to derive `Rain Last 24h` correctly.
+  logger to derive `Rain Last 24h` correctly. The configured gateway reset
+  hour is checked before subtracting counters, including when the new day's
+  counter has already reached or exceeded the prior day's total.
 - Makes observed Ecowitt metrics available behind the dashboard sensor-row
   expander. **Pick 6** initially shows the configured six-card summary, while
   **All** initially expands both standard weather metrics and supported
@@ -76,14 +78,12 @@ used by dashboards, and referenced by automations.
 Common environmental metrics:
 
 - `Temperature` - degrees C.
-- `Temperature_F` - degrees F.
 - `Rel-Humidity` - relative humidity percent.
 - `Humidity` - absolute humidity, g/m3.
 - `CO2` - ppm.
 - `Ambient VPD` - kPa.
 - `Plant VPD` - kPa.
 - `Dew-Point` or `Dew Point` - degrees C, depending on sensor module.
-- `Dew-Point_F` or `Dew Point_F` - degrees F.
 - `Dewpoint Depression` or `Dew Point Deficit` - degrees C.
 - `DewVPD Risk` - percent.
 - `Baro-Pressure`, `Plant Baro-Pressure`, or legacy `Bar-Pressure` - hPa,
@@ -94,6 +94,17 @@ Common environmental metrics:
 - `VOC Index` - SGP40 or SGP41 VOC gas index, 0 through 500.
 - `NOx Index` - SGP41 NOx gas index, 0 through 500. SGP40 does not measure
   or derive this metric.
+
+Statistics use circular averaging for `Wind Direction`, so values on opposite
+sides of north average around north rather than south. Exactly opposed samples
+with no defined resultant direction report no average.
+
+Directly connected Sensorius sensors and current Nodus firmware publish one
+canonical SI value for each convertible environmental measurement. The system
+unit selection converts these values for presentation. Legacy Nodus metrics
+such as `Temperature_F`, `Dew Point_F`, and their plant variants remain
+accepted so existing devices, history, display selections, and automations
+continue to work.
 
 Soil metrics:
 

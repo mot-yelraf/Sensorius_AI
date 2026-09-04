@@ -392,9 +392,6 @@ class EcowittGatewayIngest:
         self._last_rain_timestamp = now.isoformat()
         if previous is None:
             return
-        if current >= previous:
-            values["Rain"] = round(float(current) - previous, 3)
-            return
         crossed_reset = False
         try:
             prior_dt = datetime.fromisoformat(previous_timestamp)
@@ -407,7 +404,12 @@ class EcowittGatewayIngest:
             crossed_reset = candidate <= now
         except Exception:
             pass
-        values["Rain"] = round(float(current), 3) if crossed_reset else 0.0
+        if crossed_reset:
+            values["Rain"] = round(float(current), 3)
+        elif current >= previous:
+            values["Rain"] = round(float(current) - previous, 3)
+        else:
+            values["Rain"] = 0.0
 
     async def poll_once(self) -> bool:
         """Fetch and store one live reading from the configured gateway."""

@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import sensorius.saiSettings as saiSettings
 from sensorius.saiCalibration import CalibrationManager
-from sensorius.saiDataLogger import build_switch_key, saiDataLogger
+from sensorius.saiDataLogger import BiodynamicStorageError, build_switch_key, saiDataLogger
 from sensorius.sensor_modules.station_weewx import WEEWX_RAIN_24H_METRIC
 
 
@@ -301,6 +301,21 @@ def test_biodynamic_daily_summaries_round_trip(tmp_path, monkeypatch: pytest.Mon
 
         assert summaries == {"2026-03-08": "24 hr Metrics for 2026-03-07"}
         assert notes == {"2026-03-08": "User note text"}
+    finally:
+        logger.close()
+        saiDataLogger._schema_ready = False
+
+
+def test_biodynamic_strict_storage_calls_propagate_database_failures(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    logger = saiDataLogger(db_path=str(tmp_path / "strict-biodynamic.db"))
+    try:
+        monkeypatch.setattr(logger, "_open_conn", lambda: (_ for _ in ()).throw(sqlite3.OperationalError("read failed")))
+        with pytest.raises(BiodynamicStorageError, match="get_biodynamic_plantings failed"):
+            logger.get_biodynamic_plantings(raise_on_error=True)
+
+        monkeypatch.setattr(logger, "_ensure_writer", lambda: (_ for _ in ()).throw(sqlite3.OperationalError("write failed")))
+        with pytest.raises(BiodynamicStorageError, match="save_biodynamic_note failed"):
+            logger.save_biodynamic_note("2026-09-04", "Keep this", raise_on_error=True)
     finally:
         logger.close()
         saiDataLogger._schema_ready = False

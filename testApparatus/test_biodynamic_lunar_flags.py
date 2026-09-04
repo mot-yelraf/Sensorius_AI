@@ -104,14 +104,15 @@ def test_active_calendar_daylight_formats_hours_and_minutes(monkeypatch):
         def __init__(self, **_kwargs):
             self.observer = SimpleNamespace()
 
-    def _fake_sun(_observer, *, date, tzinfo):
-        return {
-            "sunrise": datetime(date.year, date.month, date.day, 5, 32, tzinfo=tzinfo),
-            "sunset": datetime(date.year, date.month, date.day, 20, 31, tzinfo=tzinfo),
-        }
+    def _fake_sunrise(_observer, *, date, tzinfo):
+        return datetime(date.year, date.month, date.day, 5, 32, tzinfo=tzinfo)
+
+    def _fake_sunset(_observer, *, date, tzinfo):
+        return datetime(date.year, date.month, date.day, 20, 31, tzinfo=tzinfo)
 
     monkeypatch.setattr(biodynamic_core, "LocationInfo", _FakeLocationInfo)
-    monkeypatch.setattr(biodynamic_core, "_astral_sun", _fake_sun)
+    monkeypatch.setattr(biodynamic_core, "_astral_sunrise", _fake_sunrise)
+    monkeypatch.setattr(biodynamic_core, "_astral_sunset", _fake_sunset)
 
     payload = biodynamic_core._daylight_for_day(date(2026, 6, 23), tzinfo, config)
 

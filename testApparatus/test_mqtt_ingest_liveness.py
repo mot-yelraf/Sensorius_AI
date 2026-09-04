@@ -369,6 +369,42 @@ def test_nodus_sgp41_values_and_display_metrics_are_ingested(monkeypatch):
     ]
 
 
+def test_nodus_si_only_environmental_values_are_ingested(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    values = {
+        "Temperature": 24.01,
+        "Rel-Humidity": 37.0,
+        "Dew Point": 8.41,
+        "Dew Point Deficit": 15.6,
+        "Ambient VPD": 1.881,
+    }
+
+    ingest._on_message(
+        ingest.client,
+        None,
+        _Msg("nodus/aht-yuk0nv/data", json.dumps({"values": values})),
+    )
+
+    args, _kwargs = ingest.data_logger.readings[-1]
+    assert args[1] == "aht-yuk0nv"
+    assert args[2] == values
+
+
+def test_legacy_nodus_imperial_metric_names_remain_supported(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    values = {"Temperature_F": 75.2, "Dew Point_F": 47.1}
+
+    ingest._on_message(
+        ingest.client,
+        None,
+        _Msg("nodus/aht-legacy/data", json.dumps({"values": values})),
+    )
+
+    args, _kwargs = ingest.data_logger.readings[-1]
+    assert args[1] == "aht-legacy"
+    assert args[2] == values
+
+
 def test_background_http_meta_discovery_defaults_off(monkeypatch):
     ingest = _build_ingest(monkeypatch)
     assert ingest._allow_background_http_meta_discovery() is False
