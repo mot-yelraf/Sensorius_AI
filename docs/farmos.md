@@ -11,6 +11,13 @@ through `sensorius/saiFarmOSBridge.py`.
 4. The worker loop posts JSON:API log payloads to farmOS with `httpx`.
 5. Failed writes are pushed back to the front of the queue for retry.
 
+The worker reuses its HTTP client and connection pool. Changes to URL, TLS
+verification, or timeout recreate the client; authentication changes invalidate
+the runtime token. Disabling export closes the idle client. Failed writes retain
+the existing front-of-queue retry policy, including HTTP errors; no permanent
+error is silently skipped. Overflow drops the oldest queued item, including an
+in-flight item returned to an already-full queue.
+
 The queue is in memory only. A service restart clears queued-but-unsent items.
 
 ## Settings
@@ -51,7 +58,8 @@ obfuscation, not encryption.
 ## APIs
 
 - `GET /farmos/status`: enabled flag, base URL, TLS verification state, log
-  bundle, queue depth, static/runtime token state, and last error.
+  bundle, queue depth, static/runtime token state, and last error. It also exposes
+  process-lifetime `dropped_count`, `retry_count`, and `exported_count` counters.
 - `POST /farmos/test`: best-effort connectivity and auth test.
 
 Use the test endpoint before enabling continuous export.

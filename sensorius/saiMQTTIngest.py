@@ -272,6 +272,8 @@ class saiMQTTIngest:
 
     def __init__(self, broker="localhost", client_id="rpi_ingest", mqtt_clients=None, supervisor=None, settings=None, data_logger=None):
         self._started = False
+        self._ha_subscriptions = {}
+        self.ha_connection_generation = 0
         self.supervisor = supervisor
         self.settings = settings
         self.broker = broker
@@ -1928,73 +1930,82 @@ class saiMQTTIngest:
                 pass
 
     async def start(self):
+        """Start Paho's network loops, including retries of the first connection."""
         if self._started:
-            if DEBUG:
-                printDM("MQTTIngest already started — skipping", location=MODULE)
             return
-        self._started = True
         self._loop = asyncio.get_running_loop()
-        await self._start_ingest_loop()
-        if self.ha_client is not self.client:
-            await self._start_ha_loop()
+        try:
+            await self._start_ingest_loop()
+            if self.ha_client is not self.client:
+                await self._start_ha_loop()
+        except Exception:
+            self.stop()
+            raise
+        self._started = True
 
     def stop(self):
-        try:
-            self.client.disconnect()
-            self.client.loop_stop(force=True)
-            printDM("MQTT ingest client disconnected cleanly", location=MODULE)
-        except Exception as e:
-            printDM(f"Error stopping MQTT ingest: {e}", location=MODULE)
-        if self.ha_client is not self.client:
+        """Disconnect and join each network loop, including pending retries."""
+        self._started = False
+        for client in dict.fromkeys((self.client, self.ha_client)):
+            if client is None:
+                continue
             try:
-                self.ha_client.disconnect()
-                self.ha_client.loop_stop(force=True)
-                printDM("MQTT HA client disconnected cleanly", location=MODULE)
-            except Exception as e:
-                printDM(f"Error stopping MQTT HA client: {e}", location=MODULE)
+                client.disconnect()
+            except Exception as exc:
+                printDM(f"MQTT disconnect error: {exc}", location=MODULE)
+            finally:
+                try:
+                    client.loop_stop()
+                except Exception as exc:
+                    printDM(f"MQTT loop stop error: {exc}", location=MODULE)
+        self._connected_evt.clear()
+        self._ha_connected_evt.clear()
+
+    def _start_client_loop(self, client, broker, port):
+        client.reconnect_delay_set(min_delay=1, max_delay=60)
+        client.connect_async(broker, port, keepalive=60)
+        result = client.loop_start()
+        if result != 0:
+            raise RuntimeError(f"MQTT network loop could not start: {result}")
 
     async def _start_ingest_loop(self):
-        if DEBUG:
-            printDM("Entered _start_ingest_loop", location=MODULE)
-        try:
-            await asyncio.to_thread(
-                self.client.connect,
-                self.broker,
-                self.port,
-                keepalive=60,
-            )
-            self.client.loop_start()
-        except Exception as e:
-            printDM(f"MQTT Ingest start error: {e}", location=MODULE)
+        self._start_client_loop(self.client, self.broker, self.port)
 
     async def _start_ha_loop(self):
-        if DEBUG:
-            printDM("Entered _start_ha_loop", location=MODULE)
-        try:
-            await asyncio.to_thread(
-                self.ha_client.connect,
-                self.ha_broker,
-                self.ha_port,
-                keepalive=60,
-            )
-            self.ha_client.loop_start()
-        except Exception as e:
-            printDM(f"MQTT HA start error: {e}", location=MODULE)
+        self._start_client_loop(self.ha_client, self.ha_broker, self.ha_port)
+
+    def _mark_connected(self, *, ha=False):
+        if not self._started:
+            return
+        if ha or self.ha_client is self.client:
+            self.ha_connection_generation += 1
+            self._ha_connected_evt.set()
+        if not ha:
+            self._connected_evt.set()
+
+    def mqtt_connection_health_snapshot(self) -> dict:
+        """Report actual broker readiness separately from discovery heartbeats."""
+        return {
+            "started": self._started,
+            "ingest_connected": self._connected_evt.is_set(),
+            "ha_connected": self._ha_connected_evt.is_set(),
+            "separate_ha_broker": self.ha_client is not self.client,
+        }
 
     def _on_connect(self, client, userdata, flags, rc):
         if rc == 0:
             if DEBUG:
                 printDM(f"Connected to MQTT Broker: {self.broker}", location=MODULE)
                     
-            for topic in self.registered_topics:
-                client.subscribe(topic)
+            for topic in tuple(self.registered_topics):
+                client.subscribe(topic, qos=self._ha_subscriptions.get(topic, 0))
                 if DEBUG:
                     printDM(f"Subscribed to topic: {topic}", location=MODULE)
 
             # signal ready after baseline subscriptions have been registered
             try:
                 if self._loop:
-                    self._loop.call_soon_threadsafe(self._connected_evt.set)
+                    self._loop.call_soon_threadsafe(self._mark_connected)
             except Exception:
                 pass
 
@@ -2003,11 +2014,13 @@ class saiMQTTIngest:
 
     def _on_ha_connect(self, client, userdata, flags, rc):
         if rc == 0:
+            for topic, qos in tuple(self._ha_subscriptions.items()):
+                client.subscribe(topic, qos=qos)
             if DEBUG:
                 printDM(f"Connected to HA MQTT Broker: {self.ha_broker}", location=MODULE)
             try:
                 if self._loop:
-                    self._loop.call_soon_threadsafe(self._ha_connected_evt.set)
+                    self._loop.call_soon_threadsafe(lambda: self._mark_connected(ha=True))
             except Exception:
                 pass
         else:
@@ -7364,7 +7377,9 @@ class saiMQTTIngest:
             if not topic_filter:
                 return False
 
-            self.registered_topics.add(topic_filter)
+            self._ha_subscriptions[topic_filter] = qos
+            if self.ha_client is self.client:
+                self.registered_topics.add(topic_filter)
 
             # Optional callback binding (needed for HA command topics)
             if callback is not None:

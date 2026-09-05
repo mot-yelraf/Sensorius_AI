@@ -211,3 +211,16 @@ MQTT publish stall on Pico 2 W:
   startup, save TOML files, flash `flash_nuke.uf2`, flash fresh CircuitPython,
   deploy a clean Nodus build, and restore TOML files. A plain CircuitPython
   reflash may not clear this failure mode.
+
+## Connection Recovery
+
+Ingest uses Paho's nonblocking connection setup and network loop. The loop
+retries an unavailable initial broker and later disconnects with delays bounded
+between 1 and 60 seconds. Separate Home Assistant broker connections use the
+same policy independently. Subscription restoration preserves each client's
+ownership and requested QoS, including Home Assistant command/status topics.
+Shutdown disconnects and joins each loop, including one awaiting a retry.
+
+Advanced runtime diagnostics include broker connection readiness separately
+from MQTT callback latency and the discovery task's heartbeat. A running
+discovery loop alone is not evidence of a connected broker.

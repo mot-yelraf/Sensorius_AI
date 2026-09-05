@@ -84,6 +84,20 @@ class rPiHomeAssistantBridge:
         self._asyncio_loop: asyncio.AbstractEventLoop | None = None
         self._ha_discovered_sensor_metrics: set[str] = set()
 
+    async def run_connection_monitor(self, supervisor=None) -> None:
+        """Install HA handlers and refresh discovery after every broker connection."""
+        published_generation = None
+        while True:
+            if supervisor:
+                supervisor.feedthedogs("Home Assistant Connection")
+            connected = await self.mqtt_clients.wait_until_ha_connected(timeout=1.0)
+            generation = self.mqtt_clients.ha_connection_generation
+            if connected and generation != published_generation:
+                self.install_command_handlers()
+                await self.publish_all_discovery()
+                published_generation = generation
+            await asyncio.sleep(1.0)
+
     def _remote_nodus_state(self, device_id: str, *, device_type: str | None = None) -> str | None:
         try:
             ing = self.mqtt_clients

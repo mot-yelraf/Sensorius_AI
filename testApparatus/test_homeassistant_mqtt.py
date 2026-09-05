@@ -218,3 +218,36 @@ def test_nodus_liveness_unknown_does_not_publish_ha_availability():
     )
 
     assert mqtt.text_publishes == []
+
+
+@pytest.mark.asyncio
+async def test_ha_monitor_waits_for_late_connection_and_republishes(monkeypatch):
+    from types import SimpleNamespace
+    import sensorius.saiHomeAssistantMqtt as module
+    bridge = object.__new__(rPiHomeAssistantBridge)
+    states = iter([(False, 0), (False, 0), (True, 1), (True, 1), (False, 1), (True, 2)])
+    calls = []
+    ingest = SimpleNamespace(ha_connection_generation=0)
+
+    async def wait(timeout):
+        try:
+            connected, generation = next(states)
+        except StopIteration:
+            raise asyncio.CancelledError()
+        ingest.ha_connection_generation = generation
+        return connected
+
+    async def publish():
+        calls.append(('discovery', ingest.ha_connection_generation))
+
+    async def sleep(delay):
+        pass
+
+    ingest.wait_until_ha_connected = wait
+    bridge.mqtt_clients = ingest
+    bridge.install_command_handlers = lambda: calls.append(('handlers', ingest.ha_connection_generation))
+    bridge.publish_all_discovery = publish
+    monkeypatch.setattr(module.asyncio, 'sleep', sleep)
+    with pytest.raises(asyncio.CancelledError):
+        await bridge.run_connection_monitor()
+    assert calls == [('handlers', 1), ('discovery', 1), ('handlers', 2), ('discovery', 2)]

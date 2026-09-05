@@ -287,3 +287,30 @@ test('renders the integrated Biodynamic Calendar and exercises its user workflow
   await page.locator('#nextBtn').click();
   await expect(page.locator('#monthLabel')).toHaveText('October 2026');
 });
+
+test('supports keyboard expansion and keeps collapse controls consistent after resize and inventory changes', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  const group = page.locator(".sensor-group[data-sensor-id='aht-pr-check']");
+  const toggle = group.locator('.sensor-collapse-toggle');
+  const lastMetric = group.locator('.metric-container').last();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(lastMetric).toBeHidden();
+  await toggle.focus();
+  await page.keyboard.press('Enter');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(lastMetric).toBeVisible();
+  await page.setViewportSize({ width: 720, height: 900 });
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(lastMetric).toBeVisible();
+  await toggle.focus();
+  await page.keyboard.press('Space');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(lastMetric).toBeHidden();
+  await group.evaluate((element) => {
+    Array.from(element.querySelectorAll('.metric-container')).slice(6).forEach((card) => card.remove());
+    window.dispatchEvent(new Event('resize'));
+  });
+  await expect(toggle).toBeHidden();
+  await expect(group.locator('.metric-container')).toHaveCount(6);
+  await expect(group.locator('.metric-container').last()).toBeVisible();
+});

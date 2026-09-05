@@ -2102,3 +2102,25 @@ def test_remote_switch_controller_refreshes_state_from_ingest_cache():
     ctrl.get_switch_names = lambda: ["Fan"]
 
     assert RemoteSwitchController.get_state(ctrl, "Fan") is True
+
+
+@pytest.mark.parametrize('wall_jump', [-3600, 3600])
+def test_auto_off_duration_survives_clock_correction(monkeypatch, wall_jump):
+    ctrl = _make_controller()
+    ctrl.last_state['Fan'] = True
+    now = {'wall': 1000.0, 'mono': 100.0}
+    monkeypatch.setattr(saiSwitch.time, 'time', lambda: now['wall'])
+    monkeypatch.setattr(saiSwitch.time, 'monotonic', lambda: now['mono'])
+    ctrl.set_auto_off_seconds('Fan', 60)
+    calls = []
+    ctrl.set_state = lambda *args, **kwargs: calls.append(args) or True
+    now['wall'] += wall_jump
+    now['mono'] += 30
+    assert ctrl.get_auto_off_status('Fan')['timer_remaining_s'] == 30
+    assert ctrl.get_auto_off_status('Fan')['timer_deadline_epoch'] == now['wall'] + 30
+    ctrl._process_auto_off_timers()
+    assert not calls
+    now['mono'] += 30
+    ctrl._process_auto_off_timers()
+    ctrl._process_auto_off_timers()
+    assert calls == [('Fan', False)]

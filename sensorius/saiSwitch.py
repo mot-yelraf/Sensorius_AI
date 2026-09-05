@@ -894,13 +894,29 @@ class SwitchController:
             self.auto_off_deadline[name] = None
         return value
 
+    def _auto_off_remaining(self, name: str) -> float:
+        deadline = self.auto_off_deadline.get(name)
+        timers = getattr(self, "_auto_off_monotonic", None)
+        if timers is None:
+            timers = self._auto_off_monotonic = {}
+        if not deadline:
+            timers.pop(name, None)
+            return 0.0
+        previous = timers.get(name)
+        if previous is None or previous[0] != deadline:
+            previous = (deadline, time.monotonic() + max(0.0, deadline - time.time()))
+            timers[name] = previous
+        return max(0.0, previous[1] - time.monotonic())
+
     def get_auto_off_status(self, name: str) -> dict:
+        """Expose the countdown and a UI epoch deadline derived from monotonic time."""
         seconds = int(self.auto_off_seconds.get(name, 0) or 0)
         deadline = self.auto_off_deadline.get(name)
         is_on = bool(self.get_state(name))
         remaining = 0
         if seconds > 0 and is_on and deadline:
-            remaining = max(0, int(deadline - time.time() + 0.999))
+            remaining = max(0, int(self._auto_off_remaining(name) + 0.999))
+            deadline = time.time() + self._auto_off_remaining(name)
             if remaining <= 0:
                 deadline = None
         return {
@@ -922,11 +938,12 @@ class SwitchController:
         if not is_on or seconds <= 0:
             self.auto_off_deadline[name] = None
             return
-        if restart:
-            self.auto_off_deadline[name] = time.time() + seconds
-            return
-        if allow_create_if_missing and not self.auto_off_deadline.get(name):
-            self.auto_off_deadline[name] = time.time() + seconds
+        if restart or (allow_create_if_missing and not self.auto_off_deadline.get(name)):
+            deadline = time.time() + seconds
+            self.auto_off_deadline[name] = deadline
+            if not hasattr(self, "_auto_off_monotonic"):
+                self._auto_off_monotonic = {}
+            self._auto_off_monotonic[name] = (deadline, time.monotonic() + seconds)
 
     def sync_manual_toggle_result(self, name: str, is_on: bool, *, previous_state: bool) -> None:
         """Apply post-toggle runtime state after a confirmed manual switch command."""
@@ -940,7 +957,6 @@ class SwitchController:
         )
 
     def _process_auto_off_timers(self) -> None:
-        now = time.time()
         for name, seconds in list((self.auto_off_seconds or {}).items()):
             try:
                 seconds = int(seconds or 0)
@@ -950,7 +966,7 @@ class SwitchController:
                 self.auto_off_deadline[name] = None
                 continue
             deadline = self.auto_off_deadline.get(name)
-            if not deadline or deadline > now:
+            if not deadline or self._auto_off_remaining(name) > 0:
                 continue
             if not bool(self.get_state(name)):
                 self.auto_off_deadline[name] = None

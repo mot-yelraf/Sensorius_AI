@@ -522,7 +522,15 @@ SENSORIUS_DB_RETENTION_DAYS=90
 
 The web UI accepts 30 to 365 days. Set the environment value to `0` to disable
 pruning. Retention applies to `readings`, `sw_events`, and `sensor_events` and
-is throttled during normal writes.
+runs in a supervised maintenance worker. Each batch deletes at most 500 rows
+per table, yields between batches, and checks again after five minutes when
+caught up. Normal ingestion does not run retention deletes or truncating WAL
+checkpoints.
+
+`SENSORIUS_DB_CACHE_KIB` sets the page-cache budget for each data-logger SQLite
+connection. The default remains `65536` (64 MiB); allocation grows with use.
+Values below 512 are clamped to 512 KiB. Benchmark the target hub before
+lowering this value; see the isolated graph benchmark in `docs/operations.md`.
 
 ## Configuration Change Checklist
 
