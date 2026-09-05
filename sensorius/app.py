@@ -681,15 +681,13 @@ async def main(shutdown_requested: Event | None = None):
             except Exception:
                 pass
 
-            async def _ha_bootstrap():
-                ok = await mqtt_ingest_clients.wait_until_ha_connected(timeout=10.0)
-                if not ok:
-                    printDM("[HA] MQTT ingest never became connected; skipping discovery", location=MODULE)
-                    return
-                ha_bridge.install_command_handlers()
-                await ha_bridge.publish_all_discovery()
-
-            asyncio.create_task(_ha_bootstrap())
+            supervisor.add(
+                ha_bridge.run_connection_monitor,
+                supervisor,
+                name="Home Assistant Connection",
+                fatal_on_timeout=False,
+                fatal_on_error=False,
+            )
         
     else:
         if DEBUG:
@@ -717,6 +715,7 @@ async def main(shutdown_requested: Event | None = None):
     )
     supervisor.add(weewx_ingest.run, name="WeeWX Archive Ingest", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(ecowitt_ingest.run, name="Ecowitt Gateway Ingest", fatal_on_timeout=False, fatal_on_error=False)
+    supervisor.add(data_logger.run_retention, supervisor, name="Database Retention", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(farmos_bridge.run, name="FarmOS Bridge", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(
         email_notifications.run,

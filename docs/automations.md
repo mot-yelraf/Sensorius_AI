@@ -243,3 +243,11 @@ Sensorius rule names while the corresponding lease is fresh.
 - Use existing tests in `testApparatus/test_automation_contract.py` and
   `testApparatus/test_sai_switch_trigger_manager_compat.py` as starting points
   for automation changes.
+
+## Manual Auto-Off Clock Handling
+
+Manual auto-off countdowns use monotonic elapsed time. Host clock corrections
+cannot shorten or extend a running countdown. The UI still receives an epoch
+deadline and remaining seconds, recalculated from that elapsed-time clock.
+Timers remain runtime-only and send one Off attempt on expiry; the existing
+manual/Advanced automation ownership rules are unchanged.

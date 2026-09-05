@@ -36,6 +36,9 @@ class saiFarmOSBridge:
         self._queue_lock = threading.RLock()
         self._token_runtime: str = ""
         self._last_error: str = ""
+        self._dropped_count = 0
+        self._retry_count = 0
+        self._exported_count = 0
 
     def status_snapshot(self) -> dict[str, Any]:
         with self._queue_lock:
@@ -46,6 +49,9 @@ class saiFarmOSBridge:
             "verify_tls": self._verify_tls(),
             "log_bundle": self._log_bundle(),
             "queue_depth": queue_depth,
+            "dropped_count": self._dropped_count,
+            "retry_count": self._retry_count,
+            "exported_count": self._exported_count,
             "has_static_token": bool(self._cfg_str("FarmOS", "ACCESS_TOKEN", "")),
             "has_runtime_token": bool(self._token_runtime),
             "last_error": self._last_error or "",
@@ -105,6 +111,7 @@ class saiFarmOSBridge:
             self._queue.append(item)
             while len(self._queue) > queue_max:
                 self._queue.popleft()
+                self._dropped_count += 1
 
     def _pop(self) -> dict[str, Any] | None:
         with self._queue_lock:
@@ -115,6 +122,10 @@ class saiFarmOSBridge:
     def _push_front(self, item: dict[str, Any]) -> None:
         with self._queue_lock:
             self._queue.appendleft(item)
+            queue_max = self._cfg_int("FarmOS", "QUEUE_MAX", 1000, minimum=10, maximum=50000)
+            while len(self._queue) > queue_max:
+                self._queue.popleft()
+                self._dropped_count += 1
 
     def _base_url(self) -> str:
         return self._cfg_str("FarmOS", "BASE_URL", "").rstrip("/")
@@ -263,44 +274,57 @@ class saiFarmOSBridge:
             return {"ok": False, "error": self._last_error}
 
     async def run(self):
+        """Export queued readings using a reusable client and the existing retry policy."""
         self._loop = asyncio.get_running_loop()
         self._register_listener_once()
-
-        while True:
-            item = None
-            try:
-                if self.supervisor:
-                    self.supervisor.feedthedogs("FarmOS Bridge")
-
-                if not self._is_enabled():
-                    await asyncio.sleep(2.0)
-                    continue
-
-                timeout_sec = self._timeout()
-                verify_tls = self._verify_tls()
-                interval_sec = self._cfg_float("FarmOS", "FLUSH_INTERVAL_SEC", 3.0, minimum=0.2, maximum=60.0)
-
-                item = self._pop()
-                if not item:
-                    await asyncio.sleep(interval_sec)
-                    continue
-
-                async with httpx.AsyncClient(
-                    timeout=httpx.Timeout(timeout_sec),
-                    verify=verify_tls,
-                ) as client:
+        client = None
+        client_config = None
+        auth_config = None
+        try:
+            while True:
+                item = None
+                try:
+                    if self.supervisor:
+                        self.supervisor.feedthedogs("FarmOS Bridge")
+                    if not self._is_enabled():
+                        if client is not None:
+                            await client.aclose()
+                            client = None
+                        await asyncio.sleep(2.0)
+                        continue
+                    config = (self._base_url(), self._verify_tls(), self._timeout())
+                    credentials = tuple(self._cfg_str("FarmOS", key) for key in (
+                        "BASE_URL", "CLIENT_ID", "CLIENT_SECRET", "USERNAME", "PASSWORD", "ACCESS_TOKEN",
+                    ))
+                    if credentials != auth_config:
+                        self._token_runtime = ""
+                        auth_config = credentials
+                    if client is None or config != client_config:
+                        if client is not None:
+                            await client.aclose()
+                        client = httpx.AsyncClient(timeout=httpx.Timeout(config[2]), verify=config[1])
+                        client_config = config
+                    interval = self._cfg_float("FarmOS", "FLUSH_INTERVAL_SEC", 3.0, minimum=0.2, maximum=60.0)
+                    item = self._pop()
+                    if not item:
+                        await asyncio.sleep(interval)
+                        continue
                     await self._refresh_token_if_needed(client)
                     await self._post_item(client, item)
-                self._last_error = ""
-
-                if DEBUG:
-                    sid = item.get("sensor_id", "?")
-                    printDM(f"farmOS write ok for {sid}", location=MODULE)
-
-            except Exception as exc:
-                self._last_error = str(exc)
-                if isinstance(item, dict):
-                    self._push_front(item)
-                await asyncio.sleep(2.0)
-                if DEBUG:
-                    printDM(f"farmOS write failed: {exc}", location=MODULE)
+                    self._exported_count += 1
+                    self._last_error = ""
+                except asyncio.CancelledError:
+                    if isinstance(item, dict):
+                        self._push_front(item)
+                    raise
+                except Exception as exc:
+                    self._last_error = str(exc)
+                    if isinstance(item, dict):
+                        self._retry_count += 1
+                        self._push_front(item)
+                    await asyncio.sleep(2.0)
+                    if DEBUG:
+                        printDM(f"farmOS write failed: {exc}", location=MODULE)
+        finally:
+            if client is not None:
+                await client.aclose()

@@ -155,3 +155,12 @@ Duplicate entities:
   `NODUS_PASSTHROUGH`, and `MIRROR_NODUS`.
 - Avoid changing `BASE_TOPIC`, node ID, switch IDs, or channel IDs after HA has
   already discovered entities unless you intentionally want new entity IDs.
+
+## Delayed Connections And Broker Restarts
+
+A supervised connection monitor waits for Home Assistant MQTT readiness without
+a fixed startup deadline. It installs command handlers and republishes discovery
+after each successful connection, including connections established after the
+hub has started. Separate HA broker reconnects restore HA subscriptions on the
+HA client. Shared broker reconnects restore those subscriptions on the ingest
+client. Existing discovery identifiers, topics, and retain settings are unchanged.

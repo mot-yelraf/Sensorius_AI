@@ -20,6 +20,7 @@ Operational characteristics:
 """
 
 import sqlite3
+import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
@@ -856,7 +857,7 @@ class saiDataLogger:
                         # Keep migration/index temp work off RAM-constrained Pis.
                         cur.execute("PRAGMA temp_store=FILE;")
                         cur.execute("PRAGMA busy_timeout=30000;")
-                        cur.execute("PRAGMA cache_size=-65536;")
+                        cur.execute(f"PRAGMA cache_size=-{self._env_int('SENSORIUS_DB_CACHE_KIB', 65536, minimum=512)};")
                         cur.execute("PRAGMA wal_autocheckpoint=1000;")
 
                         # ---- Sensor readings table (unchanged) -----------------------
@@ -1258,7 +1259,7 @@ class saiDataLogger:
             conn.execute("PRAGMA synchronous=NORMAL;")
             conn.execute("PRAGMA temp_store=FILE;")
             conn.execute("PRAGMA busy_timeout=30000;")
-            conn.execute("PRAGMA cache_size=-65536;")
+            conn.execute(f"PRAGMA cache_size=-{self._env_int('SENSORIUS_DB_CACHE_KIB', 65536, minimum=512)};")
             return conn
 
         try:
@@ -1293,68 +1294,44 @@ class saiDataLogger:
             value = int(default)
         return max(minimum, value)
 
-    def _maybe_prune_old_rows_locked(self) -> None:
-        """
-        Throttled retention cleanup for readings + switch events.
-
-        Retention window is controlled via SENSORIUS_DB_RETENTION_DAYS.
-        - 0 disables pruning.
-        - default is 90 days.
-        """
+    def prune_old_rows_batch(self, *, batch_size: int = 500) -> int:
+        """Delete a bounded retention batch, committing each table separately."""
         if self._db_retention_days <= 0:
-            return
-        now_mono = time.monotonic()
-        if now_mono < self._next_retention_prune_mono:
-            return
-
-        cutoff_epoch = time.time() - (float(self._db_retention_days) * 86400.0)
-        try:
-            cur = self._writer_conn.cursor()
-            cur.execute(
-                """
-                DELETE FROM readings
-                WHERE ts_epoch < ?
-                """,
-                (cutoff_epoch,),
-            )
-            readings_deleted = int(cur.rowcount or 0)
-            cur.execute(
-                """
-                DELETE FROM sw_events
-                WHERE ts_epoch < ?
-                """,
-                (cutoff_epoch,),
-            )
-            sw_events_deleted = int(cur.rowcount or 0)
-            cur.execute(
-                """
-                DELETE FROM sensor_events
-                WHERE ts_epoch < ?
-                """,
-                (cutoff_epoch,),
-            )
-            sensor_events_deleted = int(cur.rowcount or 0)
-            if readings_deleted or sw_events_deleted or sensor_events_deleted:
-                self._writer_conn.commit()
-                try:
-                    self._writer_conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
-                except Exception:
-                    pass
-                if DEBUG:
-                    printDM(
-                        (
-                            f"[retention] pruned readings={readings_deleted}, "
-                            f"sw_events={sw_events_deleted}, "
-                            f"sensor_events={sensor_events_deleted}, days={self._db_retention_days}"
-                        ),
-                        location=MODULE,
+            return 0
+        batch_size = max(1, min(int(batch_size), 5000))
+        cutoff_epoch = time.time() - self._db_retention_days * 86400.0
+        deleted = 0
+        for table in ("readings", "sw_events", "sensor_events"):
+            with self._writer_lock:
+                self._ensure_writer()
+                with self._writer_conn:
+                    cur = self._writer_conn.execute(
+                        f"DELETE FROM {table} WHERE id IN "
+                        f"(SELECT id FROM {table} WHERE ts_epoch < ? LIMIT ?)",
+                        (cutoff_epoch, batch_size),
                     )
-            self._next_retention_prune_mono = now_mono + self._db_retention_prune_interval_sec
-        except Exception as e:
-            # Keep writes alive even if retention cleanup fails.
-            self._next_retention_prune_mono = now_mono + self._db_retention_prune_interval_sec
-            printDM(f"[retention] prune error: {e}", location=MODULE)
-            
+                    deleted += max(0, cur.rowcount)
+        return deleted
+
+    async def run_retention(self, supervisor=None) -> None:
+        """Prune history outside ingestion, yielding between bounded batches."""
+        remaining = 0.0
+        while True:
+            if supervisor:
+                supervisor.feedthedogs("Database Retention")
+            if remaining <= 0:
+                work = asyncio.create_task(asyncio.to_thread(self.prune_old_rows_batch))
+                try:
+                    deleted = await asyncio.shield(work)
+                except asyncio.CancelledError:
+                    # Finish the bounded transaction before application shutdown closes SQLite.
+                    await work
+                    raise
+                remaining = 1.0 if deleted else self._db_retention_prune_interval_sec
+            delay = min(remaining, 20.0)
+            await asyncio.sleep(delay)
+            remaining -= delay
+
     def get_time_series(self, sensor_id: str, metric: str,
                         start_ts: float, end_ts: float):
         """
@@ -1461,36 +1438,43 @@ class saiDataLogger:
             timestamp, getattr(self, "local_tz", LOCAL_TIMEZONE)
         )
         raw_values = self._strip_derived_input_metrics(values or {})
+        if any(
+            not isinstance(value, (type(None), int, float, str, bytes, bytearray, memoryview))
+            or (isinstance(value, int) and not -(2 ** 63) <= value < 2 ** 63)
+            for value in raw_values.values()
+        ):
+            printDM(f"Error writing sensor data: unsupported metric value for {sensor_id}", location=MODULE)
+            return
 
         for attempt in range(2):
             t0 = time.monotonic()
             derived_values = {}
             try:
-                self._ensure_writer()
                 rows = [(timestamp, ts_epoch, sensor_id, metric, value) for metric, value in raw_values.items()]
                 write_start = time.monotonic()
                 with self._writer_lock:
-                    if rows:
-                        self._writer_conn.executemany(
-                            "INSERT INTO readings (timestamp, ts_epoch, sensor_id, metric, value) VALUES (?, ?, ?, ?, ?)",
-                            rows
+                    self._ensure_writer()
+                    with self._writer_conn:
+                        if rows:
+                            self._writer_conn.executemany(
+                                "INSERT INTO readings (timestamp, ts_epoch, sensor_id, metric, value) VALUES (?, ?, ?, ?, ?)",
+                                rows
+                            )
+                        derived_values = self._derive_rain_window_metrics_on_conn(
+                            self._writer_conn,
+                            sensor_id,
+                            raw_values,
+                            end_epoch=ts_epoch,
                         )
-                    derived_values = self._derive_rain_window_metrics_on_conn(
-                        self._writer_conn,
-                        sensor_id,
-                        raw_values,
-                        end_epoch=ts_epoch,
-                    )
-                    if derived_values:
-                        self._writer_conn.executemany(
-                            "INSERT INTO readings (timestamp, ts_epoch, sensor_id, metric, value) VALUES (?, ?, ?, ?, ?)",
-                            [
-                                (timestamp, ts_epoch, sensor_id, metric, value)
-                                for metric, value in derived_values.items()
-                            ],
-                        )
-                    self._writer_conn.commit()
-                    self._maybe_prune_old_rows_locked()
+                        if derived_values:
+                            self._writer_conn.executemany(
+                                "INSERT INTO readings (timestamp, ts_epoch, sensor_id, metric, value) VALUES (?, ?, ?, ?, ?)",
+                                [
+                                    (timestamp, ts_epoch, sensor_id, metric, value)
+                                    for metric, value in derived_values.items()
+                                ],
+                            )
+                        self._writer_conn.commit()
                 write_elapsed = time.monotonic() - write_start
                 logged_values = dict(raw_values)
                 logged_values.update(derived_values)
@@ -1743,17 +1727,17 @@ class saiDataLogger:
         )
         for attempt in range(2):
             try:
-                self._ensure_writer()
                 with self._writer_lock:
-                    self._writer_conn.execute(
-                        """
-                        INSERT INTO sensor_events(timestamp, ts_epoch, sensor_id, event_type, state, source)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                        (timestamp, ts_epoch, sid, typ, st or None, src),
-                    )
-                    self._writer_conn.commit()
-                    self._maybe_prune_old_rows_locked()
+                    self._ensure_writer()
+                    with self._writer_conn:
+                        self._writer_conn.execute(
+                            """
+                            INSERT INTO sensor_events(timestamp, ts_epoch, sensor_id, event_type, state, source)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                            """,
+                            (timestamp, ts_epoch, sid, typ, st or None, src),
+                        )
+                        self._writer_conn.commit()
                 if DEBUG:
                     printDM(
                         f"[log_sensor_event] sid={sid} type={typ} state={st or '-'} src={src or '-'}",
@@ -2936,17 +2920,17 @@ class saiDataLogger:
 
         for attempt in range(2):
             try:
-                self._ensure_writer()
                 with self._writer_lock:
-                    self._writer_conn.execute(
-                        """
-                        INSERT INTO sw_events(timestamp, ts_epoch, switch_key, state, source, sensor_id)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                        (timestamp, ts_epoch, switch_key, numeric, source, sensor_id)
-                    )
-                    self._writer_conn.commit()
-                    self._maybe_prune_old_rows_locked()
+                    self._ensure_writer()
+                    with self._writer_conn:
+                        self._writer_conn.execute(
+                            """
+                            INSERT INTO sw_events(timestamp, ts_epoch, switch_key, state, source, sensor_id)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                            """,
+                            (timestamp, ts_epoch, switch_key, numeric, source, sensor_id)
+                        )
+                        self._writer_conn.commit()
 
                 # Notify post-write listeners (non-blocking; do not break writer path)
                 listeners = list(getattr(self, "_on_switch_event_written", []) or [])

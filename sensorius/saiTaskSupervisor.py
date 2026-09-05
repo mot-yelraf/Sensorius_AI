@@ -200,6 +200,7 @@ class TaskSupervisor:
         }
 
     def feedthedogs(self, task_name, error=False):
+        """Record liveness without discarding the restart backoff history."""
         if task_name in self.time_to_feedthedogs and task_name != "Watchdog Monitor":
             now = time.monotonic()
             self.time_to_feedthedogs[task_name] = now
@@ -207,7 +208,6 @@ class TaskSupervisor:
                 self.failed_tasks[task_name] = now
             else:
                 self.failed_tasks.pop(task_name, None)
-                self._consecutive_crashes[task_name] = 0
                 issue = self.task_issues.get(task_name) or {}
                 if issue.get("issue_type") == "task_crash":
                     self.task_issues.pop(task_name, None)

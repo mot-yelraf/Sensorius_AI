@@ -3641,7 +3641,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     # graph data for the full-screen selector or the small single-axis gauge overlay
     @router.get("/graph-data", response_class=JSONResponse)
-    async def graph_data_api(
+    def graph_data_api(
         request: Request,
         # legacy / left axis primary (kept)
         sensor_id: str = Query(""),
@@ -3669,7 +3669,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # legacy fallback (kept temporarily for compatibility):
         switches: list[str] = Query([], alias="switches"),
     ):
+        """Return bounded historical graph data from a FastAPI worker."""
         import sqlite3
+        from contextlib import closing
         from datetime import datetime, timedelta, timezone
         from fastapi.responses import JSONResponse
         from fastapi import HTTPException
@@ -3931,26 +3933,14 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if not pairs:
             raise HTTPException(status_code=400, detail="No sensor/metric selections provided")
 
-        # ----- helpers (use LOCAL OFFSET ISO window for SQL string compare) -----
+        # ----- indexed epoch queries with legacy timestamp compatibility -----
         def fetch_xy(cur, sid: str, metric_name: str, window_since_iso: str, window_until_iso: str):
             try:
-                #printDM(f"[{MODULE}] Query {sid}.{metric_name} {since_iso} → {until_iso} (DB local-offset ISO)", location=MODULE)
-                cur.execute(
-                    """
-                    SELECT timestamp, value
-                    FROM readings
-                    WHERE sensor_id = ? COLLATE NOCASE
-                    AND metric    = ? COLLATE NOCASE
-                    AND julianday(timestamp) >= julianday(?)
-                    AND julianday(timestamp) <= julianday(?)
-                    ORDER BY julianday(timestamp) ASC
-                    """,
-                    (sid, metric_name, window_since_iso, window_until_iso)
+                from .saiGraphData import fetch_graph_series
+                return fetch_graph_series(
+                    cur.connection, sid, metric_name, window_since_iso, window_until_iso,
+                    max_points=GRAPH_MAX_POINTS_PER_SERIES,
                 )
-                rows = cur.fetchall()
-                ts = [r[0] for r in rows]
-                vs = [r[1] for r in rows]
-                return _downsample_graph_points(ts, vs)
             except Exception as e:
                 printDM(f"[{MODULE}] Error fetching {sid}.{metric_name}: {e}", location=MODULE)
                 return [], []
@@ -3959,7 +3949,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         series: dict[str, dict] = {}
         simple_avg: dict[str, dict] = {}
         display_names: dict[str, str] = {}
-        with _sqlite_connect_with_recovery(db_path, source="graph_series") as conn:
+        with closing(_sqlite_connect_with_recovery(db_path, source="graph_series")) as conn:
             cur = conn.cursor()
             for sid, metric_name in pairs:
                 ts, vs = fetch_xy(cur, sid, metric_name, since_iso, until_iso)
@@ -4051,7 +4041,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     return []
 
                 try:
-                    with _sqlite_connect_with_recovery(db_path, source="graph_switch_transitions") as conn2:
+                    with closing(_sqlite_connect_with_recovery(db_path, source="graph_switch_transitions")) as conn2:
                         cur2 = conn2.cursor()
                         cur2.execute(
                             """
@@ -4087,7 +4077,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # Optional: support readings-backed switch series as earlier (kept)
             def _fetch_transitions_from_readings(series_id: str, metric_name: str) -> list[tuple[str, int]]:
                 try:
-                    with _sqlite_connect_with_recovery(db_path, source="graph_reading_transitions") as conn2:
+                    with closing(_sqlite_connect_with_recovery(db_path, source="graph_reading_transitions")) as conn2:
                         cur2 = conn2.cursor()
                         cur2.execute(
                             """
@@ -10146,6 +10136,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if mqtt_ingest and hasattr(mqtt_ingest, "mqtt_callback_health_snapshot"):
             try:
                 mqtt_ingest_health = mqtt_ingest.mqtt_callback_health_snapshot()
+                if hasattr(mqtt_ingest, "mqtt_connection_health_snapshot"):
+                    mqtt_ingest_health["connections"] = mqtt_ingest.mqtt_connection_health_snapshot()
             except Exception:
                 mqtt_ingest_health = None
 

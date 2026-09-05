@@ -480,7 +480,9 @@ SENSORIUS_DB_RETENTION_DAYS=90
 
 Set to `0` to disable pruning.
 Pruning applies to `readings`, `sw_events`, and `sensor_events`.
-The web UI retention selector accepts 30 to 365 days.
+The web UI retention selector accepts 30 to 365 days. Retention runs in its
+own supervised worker with batches of up to 500 rows per table. It yields
+between batches and never truncates the WAL from the ingestion path.
 
 ### Automatic Database Recovery
 
@@ -576,3 +578,35 @@ Watchdog exits:
 - Review the timeout snapshot in logs.
 - Identify whether one task or many tasks stopped feeding.
 - Increase watchdog values only after understanding the blocked task.
+
+## Isolated Graph Benchmark And Regression Checks
+
+Run from the installed checkout, for example `/home/<user>/Sensorius/`:
+
+```sh
+python3 -m testApparatus.profile_graph_history --rows 250000 --cache-kib 8192 65536
+```
+
+This generates temporary synthetic history and reports query latency, sampled
+point count, and peak Python allocations. It never opens the live readings
+database. SQLite/native cache memory is not included in the Python allocation
+measurement. Use target-device memory monitoring alongside the benchmark before
+changing `SENSORIUS_DB_CACHE_KIB`; its default remains 64 MiB per connection.
+Graph requests execute in FastAPI workers, use indexed epoch ranges, stream
+bounded min/max samples, and continue to include legacy rows without epochs.
+
+Run the regression and syntax checks from the same checkout:
+
+```sh
+python3 -m pytest -q
+python3 -m pytest testApparatus/test_compile_python.py -q
+npm run validate:pr
+```
+
+The host Playwright gate exercises actual rendered dashboard/calendar markup
+and interaction using an isolated fixture. It substitutes runtime services and
+Chart/Gauge implementations; it does not validate live brokers, physical sensors,
+external integrations, or chart-library rendering. Python route tests separately
+verify graph responses and event-loop responsiveness. The Paho lifecycle test
+uses the installed library in a separate interpreter with simulated connection
+failures; its internal socket pair requires local socket binding permission.

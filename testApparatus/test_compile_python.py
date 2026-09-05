@@ -1,7 +1,6 @@
 """Repository-wide Python compile smoke test.
 
-This test walks the project tree and compiles Python modules to catch syntax and
-import-time breakage introduced by broad edits.
+This test walks the project tree and compiles Python modules to catch syntax errors introduced by broad edits.
 """
 
 import os
@@ -35,6 +34,17 @@ def compile_folder(folder_path: str):
 
     print(f"\n🔎 Scanned {file_count} file(s), found {error_count} error(s).")
     return error_count
+
+
+def test_python_sources_compile():
+    """Compile owned Python sources without traversing installed environments."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    errors = sum(compile_folder(str(root / name)) for name in (
+        "sensorius", "testApparatus", "platform_installers",
+    ))
+    compile((root / "Sensorius.py").read_bytes(), str(root / "Sensorius.py"), "exec")
+    assert errors == 0
 
 
 if __name__ == "__main__":

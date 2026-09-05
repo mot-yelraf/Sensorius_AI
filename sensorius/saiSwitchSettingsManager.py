@@ -198,16 +198,17 @@ class SwitchSettingsManager:
         """
         Write a single setting to [Switch] (or another section if you add support later).
         """
-        try:
-            section, key = dotted_key.split(".", 1)
-        except ValueError:
-            raise ValueError(f"Bad dotted key: {dotted_key!r}")
+        with self._lock:
+            try:
+                section, key = dotted_key.split(".", 1)
+            except ValueError:
+                raise ValueError(f"Bad dotted key: {dotted_key!r}")
 
-        current = self.load(switch_id) or OrderedDict()
-        if section not in current or not isinstance(current[section], dict):
-            current[section] = OrderedDict()
-        current[section][key] = value
-        self.save(switch_id, current)
+            current = self.load(switch_id) or OrderedDict()
+            if section not in current or not isinstance(current[section], dict):
+                current[section] = OrderedDict()
+            current[section][key] = value
+            self.save(switch_id, current)
 
 
     def get_switch_channel_names(self, doc_or_id) -> list[str]:
@@ -433,31 +434,32 @@ class SwitchSettingsManager:
         Save settings to disk and update RAM cache (write-through).
         Accepts the same structure the old code used: {"Switch": {...}}.
         """
-        # Clear both potential cache entries first to avoid dual-cache state
-        self.invalidate_cache(switch_id, str(self.base_dir))
-
-        abs_path = self._resolve_write_path(switch_id)
-        self._emit_toml_to_disk(abs_path, settings)
-
         with self._lock:
+            # Clear both potential cache entries first to avoid dual-cache state
+            self.invalidate_cache(switch_id, str(self.base_dir))
+
+            abs_path = self._resolve_write_path(switch_id)
+            self._emit_toml_to_disk(abs_path, settings)
+
             self.__class__._cache_by_path[str(abs_path)] = copy.deepcopy(OrderedDict(settings))
             try:
                 self.__class__._mtime_by_path[str(abs_path)] = os.path.getmtime(abs_path)
             except Exception:
                 self.__class__._mtime_by_path[str(abs_path)] = None
 
-        if DEBUG:
-            printDM(f"Saved and cached: {abs_path}", location=MODULE)
+            if DEBUG:
+                printDM(f"Saved and cached: {abs_path}", location=MODULE)
 
     def update_setting(self, switch_id: str, key: str, value) -> None:
         """
         Update a single key under [Switch].
         """
-        current = self.load(switch_id) or OrderedDict()
-        if "Switch" not in current or not isinstance(current["Switch"], dict):
-            current["Switch"] = OrderedDict()
-        current["Switch"][key] = value
-        self.save(switch_id, current)
+        with self._lock:
+            current = self.load(switch_id) or OrderedDict()
+            if "Switch" not in current or not isinstance(current["Switch"], dict):
+                current["Switch"] = OrderedDict()
+            current["Switch"][key] = value
+            self.save(switch_id, current)
 
     def delete_switch(self, switch_id: str) -> bool:
         new_file = self._new_path_for(switch_id)
@@ -745,19 +747,20 @@ class SwitchSettingsManager:
         Backfill SWITCH_N_CHANNEL_ID keys for an existing switch, if missing.
         Returns True if changes were made and saved, False otherwise.
         """
-        doc = self.load(switch_id) or OrderedDict()
-        sw = doc.get("Switch", {}) or {}
-        if not isinstance(sw, dict):
+        with self._lock:
+            doc = self.load(switch_id) or OrderedDict()
+            sw = doc.get("Switch", {}) or {}
+            if not isinstance(sw, dict):
+                return False
+
+            before = dict(sw)
+            self._ensure_local_identity_fields(switch_id, sw)
+
+            if sw != before:
+                # Something changed; write back
+                doc["Switch"] = sw
+                self.save(switch_id, doc)
+                if DEBUG:
+                    printDM(f"[SwitchMgr] Added missing channel IDs for {switch_id}", location=MODULE)
+                return True
             return False
-
-        before = dict(sw)
-        self._ensure_local_identity_fields(switch_id, sw)
-
-        if sw != before:
-            # Something changed; write back
-            doc["Switch"] = sw
-            self.save(switch_id, doc)
-            if DEBUG:
-                printDM(f"[SwitchMgr] Added missing channel IDs for {switch_id}", location=MODULE)
-            return True
-        return False

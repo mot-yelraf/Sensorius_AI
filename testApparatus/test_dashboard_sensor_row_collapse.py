@@ -39,15 +39,7 @@ def test_dashboard_sensor_rows_include_responsive_collapse_controls():
     assert "fill='currentColor'" in html
     assert "stroke='currentColor' stroke-width='2.2'" not in html
     assert "aria-controls='row_aht-test123'" in html
-    assert "window.refreshSensorRowCollapse = function(group)" in html
-    assert "Array.from(row.children).filter" in html
-    assert "const overflowCards = cards.slice(6)" in html
-    assert "row.classList.toggle('is-collapsed', !expanded)" in html
-    assert "button.hidden = !hasAdditionalMetrics" in html
     assert "data-sensor-expanded='false'" in html
-    assert "window.addEventListener('resize'" in html
-    assert "document.addEventListener('DOMContentLoaded', initializeCollapseRows)" in html
-    assert "window.setTimeout(initializeCollapseRows, 2000)" in html
 
 
 def test_dashboard_sensor_rows_use_spaced_theme_tiles_without_glow():

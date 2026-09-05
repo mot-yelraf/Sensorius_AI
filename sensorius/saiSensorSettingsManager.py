@@ -171,55 +171,56 @@ class SensorSettingsManager:
         Merge 'data' into existing TOML (if any) and write the FULL merged doc.
         Also updates RAM cache (write-through).
         """
-        # Invalidate both path variants before writing (prevents dual-cache)
-        self.invalidate_cache(file_id, str(self.base_dir))
-
-        # Determine write path (new layout) and potential read path (new or legacy)
-        abs_path = self._resolve_write_path(file_id)
-        read_path = self._resolve_read_path(file_id)
-
-        # Start from existing on-disk doc if present; else an empty OrderedDict
-        if read_path and read_path.exists():
-            current_doc = self._parse_toml_from_disk(read_path)
-        elif abs_path.exists():
-            current_doc = self._parse_toml_from_disk(abs_path)
-        else:
-            current_doc = OrderedDict()
-
-        # Normalize input to OrderedDict and deep-merge
-        incoming_doc = self._to_ordered(data)  # converts dicts to OrderedDict recursively
-        merged_doc = self._deep_merge(current_doc, incoming_doc)
-
-        # Emit FULL merged doc to the canonical (new-layout) path
-        self._emit_toml_to_disk(abs_path, merged_doc)
-
-        # Update RAM cache with the FULL merged doc
         with self._lock:
+            # Invalidate both path variants before writing (prevents dual-cache)
+            self.invalidate_cache(file_id, str(self.base_dir))
+
+            # Determine write path (new layout) and potential read path (new or legacy)
+            abs_path = self._resolve_write_path(file_id)
+            read_path = self._resolve_read_path(file_id)
+
+            # Start from existing on-disk doc if present; else an empty OrderedDict
+            if read_path and read_path.exists():
+                current_doc = self._parse_toml_from_disk(read_path)
+            elif abs_path.exists():
+                current_doc = self._parse_toml_from_disk(abs_path)
+            else:
+                current_doc = OrderedDict()
+
+            # Normalize input to OrderedDict and deep-merge
+            incoming_doc = self._to_ordered(data)  # converts dicts to OrderedDict recursively
+            merged_doc = self._deep_merge(current_doc, incoming_doc)
+
+            # Emit FULL merged doc to the canonical (new-layout) path
+            self._emit_toml_to_disk(abs_path, merged_doc)
+
+            # Update RAM cache with the FULL merged doc
             self.__class__._cache_by_path[str(abs_path)] = copy.deepcopy(merged_doc)
             try:
                 self.__class__._mtime_by_path[str(abs_path)] = os.path.getmtime(abs_path)
             except Exception:
                 self.__class__._mtime_by_path[str(abs_path)] = None
 
-        if DEBUG:
-            printDM(f"Saved (merged) and cached: {abs_path}", location=MODULE)
+            if DEBUG:
+                printDM(f"Saved (merged) and cached: {abs_path}", location=MODULE)
 
     def update_setting(self, file_id: str, key: str, value):
         """
         Update a single top-level key in the sensor's TOML file (flat or inside a section).
         If your files are sectioned, pass dotted keys like 'Display.metric_1'.
         """
-        current = self.load(file_id) or OrderedDict()
-        section_name, key_name = self._split_dotted_key(key)
+        with self._lock:
+            current = self.load(file_id) or OrderedDict()
+            section_name, key_name = self._split_dotted_key(key)
 
-        if section_name:
-            if section_name not in current or not isinstance(current[section_name], dict):
-                current[section_name] = OrderedDict()
-            current[section_name][key_name] = value
-        else:
-            current[key_name] = value
+            if section_name:
+                if section_name not in current or not isinstance(current[section_name], dict):
+                    current[section_name] = OrderedDict()
+                current[section_name][key_name] = value
+            else:
+                current[key_name] = value
 
-        self.save(file_id, current)
+            self.save(file_id, current)
 
     def get_setting(self, file_id: str, key: str, default=None):
         data = self.load(file_id) or {}
@@ -343,30 +344,27 @@ class SensorSettingsManager:
 
     def set_display_metric_mode(self, sensor_id: str, mode: str):
         """Persist the local WebUI metric selection mode without changing six-slot metrics."""
-        settings = self.load(sensor_id) or OrderedDict()
-        if "Display" not in settings or not isinstance(settings["Display"], dict):
-            settings["Display"] = OrderedDict()
-        settings["Display"][DISPLAY_METRIC_MODE_KEY] = self.normalize_display_metric_mode(mode)
-        self.save(sensor_id, settings)
+        self.update_setting(sensor_id, f"Display.{DISPLAY_METRIC_MODE_KEY}", self.normalize_display_metric_mode(mode))
 
     def set_display_metrics(self, sensor_id: str, metrics: list[str]):
         """
         Set display metrics for a sensor. Accepts a list of up to 6 items.
         Pads with empty strings if fewer than 6.
         """
-        if len(metrics) > 6:
-            raise ValueError("Maximum of 6 display metrics allowed")
+        with self._lock:
+            if len(metrics) > 6:
+                raise ValueError("Maximum of 6 display metrics allowed")
 
-        settings = self.load(sensor_id) or OrderedDict()
-        if "Display" not in settings or not isinstance(settings["Display"], dict):
-            settings["Display"] = OrderedDict()
+            settings = self.load(sensor_id) or OrderedDict()
+            if "Display" not in settings or not isinstance(settings["Display"], dict):
+                settings["Display"] = OrderedDict()
 
-        for ordinal in range(1, 7):
-            key_name = f"METRIC_{ordinal}"
-            value = metrics[ordinal - 1] if ordinal - 1 < len(metrics) else ""
-            settings["Display"][key_name] = value
+            for ordinal in range(1, 7):
+                key_name = f"METRIC_{ordinal}"
+                value = metrics[ordinal - 1] if ordinal - 1 < len(metrics) else ""
+                settings["Display"][key_name] = value
 
-        self.save(sensor_id, settings)
+            self.save(sensor_id, settings)
 
     # --------------- first-boot seeding ---------------
     def seed_from_factory(
@@ -471,9 +469,11 @@ class SensorSettingsManager:
             default_style = WEEWX_DISPLAY_STYLES[idx] if base_device == "weewx" else ""
             style_block.setdefault(key, default_style)
 
-        # write & cache
-        self._emit_toml_to_disk(dst, data)
+        # Recheck under the save lock: a concurrent discovery/save may have seeded it.
         with self._lock:
+            if dst.exists():
+                return dst
+            self._emit_toml_to_disk(dst, data)
             self.__class__._cache_by_path[str(dst)] = copy.deepcopy(data)
             try:
                 self.__class__._mtime_by_path[str(dst)] = os.path.getmtime(dst)

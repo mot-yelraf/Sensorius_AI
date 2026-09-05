@@ -117,13 +117,20 @@ class _FakeClient:
     def connect(self, *_args, **_kwargs):
         return 0
 
+    def reconnect_delay_set(self, min_delay=1, max_delay=120):
+        self.retry_delays = (min_delay, max_delay)
+
+    def connect_async(self, host, port=1883, keepalive=60):
+        self.connection_target = (host, port, keepalive)
+
     def loop_start(self):
-        return
+        self.loop_started = True
+        return 0
 
     def disconnect(self):
         return
 
-    def loop_stop(self, force=False):
+    def loop_stop(self):
         return
 
 
@@ -436,21 +443,12 @@ def test_registered_topics_include_heartbeat(monkeypatch):
     assert "sensorius/nodus/+/event/calibration_result" in ingest.registered_topics
 
 
-def test_start_offloads_blocking_broker_connect(monkeypatch):
+def test_start_uses_nonblocking_connection_with_initial_retry(monkeypatch):
     ingest = _build_ingest(monkeypatch)
-    offloaded = []
-
-    async def _fake_to_thread(func, *args, **kwargs):
-        offloaded.append((func, args, kwargs))
-        return func(*args, **kwargs)
-
-    monkeypatch.setattr(ingest_mod.asyncio, "to_thread", _fake_to_thread)
     asyncio.run(ingest.start())
-
-    assert offloaded
-    assert offloaded[0][0] == ingest.client.connect
-    assert offloaded[0][1] == ("broker.local", 1883)
-    assert offloaded[0][2] == {"keepalive": 60}
+    assert ingest.client.connection_target == ("broker.local", 1883, 60)
+    assert ingest.client.loop_started
+    assert ingest.client.retry_delays == (1, 60)
 
 
 def test_mqtt_callback_health_snapshot_records_latency(monkeypatch):
@@ -3896,3 +3894,34 @@ def test_prefixed_onboarding_topics_are_parsed(monkeypatch):
     assert received[0].get("device_id") == "apvpd-test123"
     assert ingest.get_nodus_board_type("apvpd-test123", device_type="sensor") == "pico2w"
     assert ingest.get_nodus_sensor_hardware("apvpd-test123", device_type="sensor") == "BME280"
+
+
+@pytest.mark.asyncio
+async def test_separate_ha_reconnect_restores_only_ha_subscriptions(monkeypatch):
+    ingest = _build_ingest(monkeypatch, values={("HomeAssistant", "HA_BROKER"): "ha.local"})
+    await ingest.start()
+    ingest.subscribe("sensorius/switch/+/+/set", lambda *args: None, qos=1)
+    ingest.ha_client.subs.clear()
+    ingest._on_ha_connect(ingest.ha_client, None, {}, 0)
+    ingest._on_connect(ingest.client, None, {}, 0)
+    await asyncio.sleep(0)
+    assert ingest.ha_client.subs == [("sensorius/switch/+/+/set", 1)]
+    assert ("sensorius/switch/+/+/set", 1) not in ingest.client.subs
+    assert ingest.ha_connection_generation == 1
+    assert ingest.mqtt_connection_health_snapshot()['ha_connected']
+    ingest.stop()
+    assert not ingest.mqtt_connection_health_snapshot()['ha_connected']
+
+
+@pytest.mark.asyncio
+async def test_network_loop_setup_failure_can_be_retried(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    real_start = ingest.client.loop_start
+    monkeypatch.setattr(ingest.client, 'loop_start', lambda: 3)
+    with pytest.raises(RuntimeError):
+        await ingest.start()
+    assert ingest._started is False
+    monkeypatch.setattr(ingest.client, 'loop_start', real_start)
+    await ingest.start()
+    assert ingest._started is True
+    ingest.stop()

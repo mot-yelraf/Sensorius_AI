@@ -324,3 +324,17 @@ Use these ownership boundaries when extending the system:
 - Route all sensor readings and switch events through `sensorius.saiDataLogger`.
 - Treat MQTT discovery, Home Assistant discovery, switch identity, and DB
   migrations as high-risk compatibility surfaces.
+
+## Recovery And Persistence Boundaries
+
+Sensor and switch settings managers serialize complete saves and their single-key
+read/modify/write methods across instances using their existing process locks.
+Full-document saves still express replacement intent (switches) or merge intent
+(sensors); callers changing individual fields should use the mutation methods
+rather than later saving an independently held stale document.
+
+Reading batches validate SQLite-bindable values before insertion. Reading,
+sensor-event, and switch-event transactions roll back on failure before releasing
+the writer lock. Failed batches do not publish successful cache/listener updates.
+Retention runs as bounded supervised maintenance outside the ingestion path.
+Task crash backoff resets after sustained execution, not at every heartbeat.
