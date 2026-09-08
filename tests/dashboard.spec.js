@@ -74,20 +74,19 @@ test('renders the Sensorius dashboard and expands additional metrics', async ({ 
   await expect(sensorGroup.locator('.metric-container').last()).toBeVisible();
 });
 
-test('keeps the overview graphic below sensors after moving the bottom sensor up', async ({ page }) => {
+test('keeps the header image above sensors after moving the bottom sensor up', async ({ page }) => {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await page.evaluate(() => {
-    const footer = document.getElementById('dashboard-overview-footer');
-    const dashboardContent = footer?.parentElement;
+    const dashboardContent = document.querySelector('.dashboard-content');
     const source = dashboardContent?.querySelector('.sensor-group[data-sensor-id]');
-    if (!dashboardContent || !source || !footer) throw new Error('dashboard fixture is incomplete');
+    if (!dashboardContent || !source) throw new Error('dashboard fixture is incomplete');
     const ecowitt = source.cloneNode(true);
     ecowitt.id = 'group_ecowitt-bottom-test';
     ecowitt.dataset.sensorId = 'ecowitt-bottom-test';
     ecowitt.querySelectorAll('[data-sensor-id]').forEach((element) => {
       element.setAttribute('data-sensor-id', 'ecowitt-bottom-test');
     });
-    dashboardContent.insertBefore(ecowitt, footer);
+    dashboardContent.appendChild(ecowitt);
   });
 
   let reordered = false;
@@ -108,13 +107,27 @@ test('keeps the overview graphic below sensors after moving the bottom sensor up
   await ecowitt.locator('.sensor-order-btn').click();
   await ecowitt.locator(".sensor-order-item[data-move='up']").click();
   await expect.poll(() => reordered).toBe(true);
-  await expect.poll(() => page.evaluate(() => document.getElementById('dashboard-overview-footer')?.parentElement?.lastElementChild?.id)).toBe('dashboard-overview-footer');
-
-  const footerTop = await page.locator('#dashboard-overview-footer').evaluate((element) => element.getBoundingClientRect().top + window.scrollY);
-  const sensorBottom = await page.locator('.sensor-group[data-sensor-id]').evaluateAll((elements) =>
-    Math.max(...elements.map((element) => element.getBoundingClientRect().bottom + window.scrollY)),
+  const image = page.locator('#sensor_header .dashboard-brand-image');
+  await expect(image).toBeVisible();
+  await expect(page.locator('#dashboard-overview-footer')).toHaveCount(0);
+  const imageBox = await image.boundingBox();
+  expect(imageBox.width).toBeCloseTo(261, 0);
+  const sensorTop = await page.locator('.sensor-group[data-sensor-id]').evaluateAll((elements) =>
+    Math.min(...elements.map((element) => element.getBoundingClientRect().top)),
   );
-  expect(footerTop).toBeGreaterThanOrEqual(sensorBottom);
+  expect(imageBox.y + imageBox.height).toBeLessThanOrEqual(sensorTop);
+  for (const width of [1280, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect.poll(() => page.locator('#sensor_header').evaluate((header) => {
+      const brand = header.querySelector('.dashboard-brand-image').getBoundingClientRect();
+      return Array.from(header.querySelectorAll('.dashboard-header-action')).map((button) => {
+        const box = button.getBoundingClientRect();
+        return Math.round(Math.abs((box.y + box.height / 2) - (brand.y + brand.height / 2)));
+      });
+    })).toEqual([0, 0]);
+    await page.locator('#sensor_header').screenshot({ path: test.info().outputPath(`header-${width}.png`) });
+  }
+
 });
 
 test('shares and persists the Lunar Calendar view mode', async ({ page }) => {

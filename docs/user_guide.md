@@ -25,6 +25,9 @@ peach-and-brown palette therefore continue behind and through the dialog views. 
 names, locations, metrics, switch channels, forecast source, selected theme,
 and live values will vary by installation.
 
+The dashboard header centers the Sensorius image between individual pill buttons for
+the full-screen graph (left) and General Settings (right).
+
 The dashboard presents:
 ### Interface Icons
 
@@ -32,7 +35,7 @@ The dashboard presents:
   **Graph icon**—a blue line graph on horizontal and vertical axes—opens
   the full-screen **Sensorius Graphum** workspace.
 - <img src="../assets/icons/settings-gear.svg" alt="Settings icon" width="16"> The
-  **Settings icon (gear)** beside **Sensorius AI** opens General Settings.
+  **Settings icon (gear)** to the right of the **Sensorius image** opens General Settings.
   Other gear icons open settings for the associated sensor or switch, or open
   the timer control for a Switch Tile.
 

@@ -74,7 +74,6 @@ body.dashboard-page.dashboard-theme-fruit{
   background-size:cover;
 }
 
-body.dashboard-page .dashboard-content > #sensor_header,
 body.dashboard-page .dashboard-content > #update_time,
 body.dashboard-page .sensor-group-header{
   box-sizing:border-box;
@@ -84,7 +83,6 @@ body.dashboard-page .sensor-group-header{
   color:var(--dashboard-card-text);
 }
 
-body.dashboard-page .dashboard-content > #sensor_header,
 body.dashboard-page .dashboard-content > #update_time{
   width:fit-content;
   max-width:calc(100% - 10px);
@@ -349,20 +347,41 @@ body.dashboard-theme-preview-mode .dashboard-content{opacity:0;pointer-events:no
   padding:1rem;
 }
 
-.dashboard-overview-graphic{
-  order:2147483647;
-  flex:0 0 100%;
+body.dashboard-page #sensor_header{
   display:flex;
+  align-items:center;
   justify-content:center;
-  padding:1rem 0;
+  gap:12px;
+  margin:5px auto;
+  padding:0;
+  background:none;
+  border:0;
 }
 
-.dashboard-overview-graphic img{
+.dashboard-brand-image{
   display:block;
-  width:min(100%, 522px);
+  width:261px;
+  max-width:calc(100vw - 168px);
   height:auto;
   border-radius:12px;
 }
+
+.dashboard-header-action{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  flex:0 0 56px;
+  height:44px;
+  box-sizing:border-box;
+  border:1px solid var(--dashboard-card-border);
+  border-radius:999px;
+  background:var(--dashboard-card-bg);
+  color:var(--dashboard-card-text);
+  text-decoration:none;
+  font-size:1.2rem;
+}
+.dashboard-header-action:hover{filter:brightness(.95)}
+.dashboard-header-action:focus-visible{outline:2px solid currentColor;outline-offset:3px}
 
 /* Each sensor’s row of metrics */
 .sensor-row{
