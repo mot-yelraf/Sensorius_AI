@@ -47,6 +47,16 @@
   min-height: 0;
   overflow: auto;
 }
+#setupPiModal .system-menu-brand {
+  display: block;
+  width: min(160px, 100%);
+  height: auto;
+  aspect-ratio: 1;
+  align-self: center;
+  flex-shrink: 0;
+  margin-top: auto;
+  padding-top: .75rem;
+}
 #setupPiModal .system-menu-btn {
   width: 100%;
   text-align: left;
@@ -1019,6 +1029,7 @@
           <button type="button" class="system-menu-btn" data-target="pane-remove">Remove Device</button>
           <button type="button" class="system-menu-btn" data-target="pane-integrations">Integrations</button>
           <button type="button" class="system-menu-btn" data-target="pane-advanced">Advanced</button>
+          <img class="system-menu-brand" src="/ui_static/icons/peace-hill-studios-512.svg?v={{ app_version }}" alt="Peace Hill Studios" width="160" height="160">
         </aside>
 
         <section class="system-settings-content">

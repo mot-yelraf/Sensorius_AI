@@ -463,6 +463,11 @@ Google Account when the hub is retired or no longer uses that account.
 
 #### Weather Forecast
 
+The full-screen forecast is titled **Living Weather**, with the Caelus icon and
+“Created by Peace Hill Studios” beneath the title. The Biodynamic Calendar
+includes this credit in the central calendar icon. The settings menu displays
+the Peace Hill Studios image at the bottom.
+
 ![Weather Forecast section open](<../assets/screenshots/system-settings-weather-forecast.png>)
 
 Fields and selectors:

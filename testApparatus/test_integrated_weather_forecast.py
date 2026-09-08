@@ -281,13 +281,13 @@ def test_hourly_carousel_keeps_hidden_edge_controls_in_fixed_grid_columns():
     assert ".hourly-page-next { grid-column: 3; }" in css
 
 
-def test_caelus_footer_preserves_title_case_attribution():
+def test_caelus_header_shows_living_weather_and_attribution():
     template = (ROOT / "ui_templates" / "weather_forecast" / "index.html").read_text()
     css = (ROOT / "ui_static" / "weather_forecast" / "app.css").read_text()
     javascript = (ROOT / "ui_static" / "weather_forecast" / "app.js").read_text()
 
-    assert '<p class="eyebrow">Caelus Weather Forecast</p>' in template
-    assert template.index('<p class="eyebrow">Caelus Weather Forecast</p>') < template.index('data-open-caelus-theme')
+    assert '<p class="eyebrow">Living Weather</p>' in template
+    assert template.index('<p class="eyebrow">Living Weather</p>') < template.index('data-open-caelus-theme')
     assert 'data-open-caelus-theme aria-label="Preview Caelus themes">Theme</button>' in template
     assert 'id="caelusThemeView"' in template
     assert 'data-caelus-preview-theme="pollinator"' in template
@@ -297,9 +297,9 @@ def test_caelus_footer_preserves_title_case_attribution():
     assert "function closeCaelusThemeView()" in javascript
     assert ".caelus-theme-toolbar" in css
     assert "body.caelus-theme-preview-mode .dashboard-shell" in css
-    assert "<p>Created by Peace Hill Studios</p>" in template
-    footer_rule = css[css.index(".site-footer p {"):css.index("}", css.index(".site-footer p {"))]
-    assert "text-transform" not in footer_rule
+    assert '<p class="caelus-attribution">Created by Peace Hill Studios</p>' in template
+    assert 'class="caelus-brand-icon"' in template
+    assert '<footer class="site-footer">' not in template
 
 
 def test_lunar_timeline_has_four_local_previous_and_upcoming_phases():

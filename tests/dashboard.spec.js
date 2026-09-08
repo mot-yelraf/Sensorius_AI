@@ -314,3 +314,41 @@ test('supports keyboard expansion and keeps collapse controls consistent after r
   await expect(group.locator('.metric-container')).toHaveCount(6);
   await expect(group.locator('.metric-container').last()).toBeVisible();
 });
+
+test('refreshes warming Sun and Moon data while a dashboard image is still loading', async ({ page }) => {
+  let releaseImage;
+  const imageGate = new Promise(resolve => { releaseImage = resolve; });
+  await page.route('**/ui_static/weather_forecast/moon-surface.png*', async route => {
+    await imageGate;
+    await route.abort();
+  });
+  const warming = { ok: false, reason: 'warming', cache_status: 'warming' };
+  let extrasRequests = 0;
+  await page.route('**/*', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== '/') return route.fallback();
+    if (url.searchParams.get('json_only') === 'true') {
+      if (url.searchParams.get('include_extras') === 'true') extrasRequests += 1;
+      return route.fulfill({ json: {
+        statuses: {},
+        astro: { ok: true, moon_phase_value: 25.23, moon_lit_pct: 9,
+          moon_phase_label: 'Waning Crescent', sun_points: [], moon_points: [], position_29d: [] },
+        biodynamic: { ok: false },
+      } });
+    }
+    const response = await route.fetch();
+    const html = (await response.text()).replace(/const astroData = .*?;/, `const astroData = ${JSON.stringify(warming)};`);
+    await route.fulfill({ response, body: html });
+  });
+  try {
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    expect(await page.evaluate(() => document.readyState)).toBe('interactive');
+    await expect.poll(() => extrasRequests, { timeout: 4000 }).toBeGreaterThan(0);
+    await expect(page.locator('#moonBox')).toHaveAttribute('aria-busy', 'false');
+    await expect(page.locator('#sunBox')).toHaveAttribute('aria-busy', 'false');
+    await expect(page.locator('#moonBox')).not.toContainText('Moon data unavailable');
+    expect(await page.evaluate(() => document.readyState)).toBe('interactive');
+  } finally {
+    releaseImage();
+  }
+});
