@@ -1194,6 +1194,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield f"<html><head><title>{APP_NAME_LONG}</title>"
     yield "<meta charset='UTF-8'>"
     yield "<link rel='icon' href='/ui_static/favicon.svg' type='image/svg+xml'>"
+    yield f"<link rel='apple-touch-icon' sizes='180x180' href='/ui_static/apple-touch-icon.png?v={APP_VERSION}'>"
     yield "<script src='https://cdn.jsdelivr.net/npm/gaugeJS@1.3.7/dist/gauge.min.js'></script>"
     yield "<script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'></script>"
     yield "<script src='https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns'></script>"
