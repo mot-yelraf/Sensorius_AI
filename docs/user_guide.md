@@ -1386,3 +1386,9 @@ If the Biodynamic Calendar is unavailable:
 - Integrated Biodynamic Calendar and companion migration: `docs/biodynamic_calendar_companion.md`
 - Security policy and deployment boundary: `SECURITY.md`
 - Third-party and binary notices: `THIRD_PARTY_NOTICES.md`
+
+## iPhone Home Screen icon
+
+Safari Home Screen shortcuts use the Sensorius favicon artwork through a
+180 × 180 PNG Apple touch icon. After installing this update, remove and re-add
+an existing shortcut in Safari if it still displays a plain S.
