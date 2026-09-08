@@ -610,3 +610,10 @@ external integrations, or chart-library rendering. Python route tests separately
 verify graph responses and event-loop responsiveness. The Paho lifecycle test
 uses the installed library in a separate interpreter with simulated connection
 failures; its internal socket pair requires local socket binding permission.
+
+### Dashboard Sun/Moon loading
+
+Sun/Moon and sensor-status refresh starts when the dashboard markup is ready,
+without waiting for images to finish loading. This lets a warming astronomy
+payload recover even while a Moon texture request is delayed, including in
+the desktop webview.

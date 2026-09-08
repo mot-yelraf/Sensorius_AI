@@ -40,7 +40,14 @@
   <main id="top" class="dashboard-shell">
     <section class="station-intro" aria-labelledby="station-title">
       <div>
-        <div class="caelus-title-line"><p class="eyebrow">Caelus Weather Forecast</p><button type="button" class="caelus-theme-trigger" data-open-caelus-theme aria-label="Preview Caelus themes">Theme</button></div>
+        <div class="caelus-title-line">
+          <img class="caelus-brand-icon" src="/ui_static/weather_forecast/caelus-weather-compass-titled.png?v={{ app_version }}" alt="Caelus" width="52" height="52">
+          <div class="caelus-brand-copy">
+            <p class="eyebrow">Living Weather</p>
+            <p class="caelus-attribution">Created by Peace Hill Studios</p>
+          </div>
+          <button type="button" class="caelus-theme-trigger" data-open-caelus-theme aria-label="Preview Caelus themes">Theme</button>
+        </div>
         <h1 id="station-title">{{ location.name or 'Your weather, alive.' }}</h1>
         <p class="station-subtitle" id="stationSubtitle">
           {% if latest.ok %}{{ latest.sensor_id }} · Last observation <time datetime="{{ latest.timestamp }}">{{ latest_observation_time }}</time>
@@ -143,7 +150,6 @@
     </section>
   </main>
 
-  <footer class="site-footer"><p>Created by Peace Hill Studios</p></footer>
 
   <dialog class="forecast-dialog" id="forecastDialog" aria-labelledby="forecastDialogTitle">
     <header><div><p class="eyebrow">Weather outlook</p><h2 id="forecastDialogTitle">6-day forecast</h2></div><button type="button" data-close-forecast aria-label="Close six-day forecast">×</button></header>

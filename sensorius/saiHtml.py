@@ -8059,10 +8059,16 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    }"
     yield "  } catch (_) { /* silent */ }"
     yield "}"
-    yield "window.addEventListener('load', ()=>{"
+    # Start data refresh without waiting for images to finish loading.
+    yield "function startDashboardStatusRefresh(){"
     yield "  setTimeout(refreshAndApplySensorStatus, 400);"
     yield "  setInterval(refreshAndApplySensorStatus, 15000);"
-    yield "});"
+    yield "}"
+    yield "if (document.readyState === 'loading') {"
+    yield "  document.addEventListener('DOMContentLoaded', startDashboardStatusRefresh, {once:true});"
+    yield "} else {"
+    yield "  startDashboardStatusRefresh();"
+    yield "}"
       
     yield "window.toggleScriptEnable = async function(btn, channel, scriptName, enabled){"
     yield "  try {"

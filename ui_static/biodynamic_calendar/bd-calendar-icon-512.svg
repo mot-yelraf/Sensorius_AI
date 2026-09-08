@@ -7,6 +7,7 @@
     <clipPath id="wheel-field">
       <circle cx="256" cy="256" r="182"/>
     </clipPath>
+    <path id="attribution-arc" d="M69 256a187 187 0 0 0 374 0"/>
   </defs>
 
   <!-- Element fields -->
@@ -121,6 +122,10 @@
   <!-- Wheel overlays the fields and symbols. -->
   <circle cx="256" cy="256" r="182" fill="none" stroke="#173f35" stroke-width="26"/>
   <path d="M256 74v364M74 256h364" fill="none" stroke="#173f35" stroke-width="20"/>
+
+  <text fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle">
+    <textPath href="#attribution-arc" startOffset="50%">Created by Peace Hill Studios</textPath>
+  </text>
 
   <!-- Lunar center -->
   <circle cx="256" cy="256" r="68" fill="#07100d" stroke="#173f35" stroke-width="22"/>

@@ -183,9 +183,9 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     assert '<span class="dashboard-return-label">Dashboard</span>' not in template
     assert "right: 1rem;" in stylesheet
     assert "border-radius: 50%;" in stylesheet
-    assert '<footer class="bd-site-footer">' in template
+    assert '<footer class="bd-site-footer">' not in template
     assert "Created by Peace Hill Studios" in template
-    assert template.index('<footer class="bd-site-footer">') < template.index('id="bd-calendar-bootstrap"')
+    assert "Created by Peace Hill Studios</textPath>" in calendar_icon
     assert "body {\n  min-height: 100vh;\n  margin: 0;\n  font-family:" in stylesheet
     for theme, color, asset in (
         ("spring", "#e7f3df", "valley-spring.webp"),
