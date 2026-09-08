@@ -1176,57 +1176,7 @@ daily conditions, temperature, relative humidity, wind, and rain or snow chance.
 
 ![Detailed six-day weather outlook using the selected Desert Bloom theme](<../assets/screenshots/weather-forecast-caelus-six-day.png>)
 
-## Biodynamic Calendar
-
-Sensorius includes the full Biodynamic Calendar application. It runs in the Sensorius web process and opens as a full-screen page when the dashboard **Calendar** button is selected.
-
-The built-in month view includes a color legend for Root, Leaf, Flower, Fruit,
-Rest, and Transition periods above the calendar grid.
-
-The calendar uses Sensorius Astral settings for latitude, longitude, altitude,
-and timezone. Notes, summaries, planting records, and computed cache entries
-are stored in the Sensorius SQLite database. It is available at
-`http://<sensorius-host>:8000/calendar`; select the circled **×** in the
-upper-right to close the calendar and return to the dashboard.
-
-### Full-Screen Calendar
-
-The full-screen calendar shows:
-
-- Current biodynamic sign, element, and plant focus.
-- Current day's biodynamic windows.
-- Month navigation.
-- Day cells colored by dominant biodynamic influence.
-- Daily Summary for the selected day.
-- Daily Notes for the selected day.
-- Save Note.
-- Print Report for the selected month calendar with dated biodynamic hints, cached daily summaries, and notes.
-
-### Printing Calendar Reports
-
-On the Raspberry Pi desktop shell, **Report** uses the Pi's default CUPS
-printer. Raspberry Pi deployment offers to configure a permanent driverless
-network-printer queue. If the printer was connected later, an administrator
-can rerun `/home/<user>/Sensorius/scripts/setup_rpi_printer.sh` once; ordinary
-report users do not need to configure the printer for every report.
-
-When the calendar is opened from another computer or mobile device, printing
-uses that device's browser and printers instead of the Raspberry Pi printer.
-Saving as PDF also occurs on the device displaying the print dialog.
-
-Before relying on local Pi printing, confirm that its print dialog shows one
-enabled default destination. If duplicate entries or a disabled destination
-appear, use the printer troubleshooting section in the Operations guide.
-
-Daily summaries come from Sensorius' biodynamic summary storage and are
-generated on demand when a day is selected. Browsing future months does not
-generate summaries for their default day. For the current day, the summary may
-include a **24hr Forecast** section if weather forecast data is enabled in
-General Settings.
-
-The dashboard **Maria Thun-inspired Biodynamic Calendar Tile** remains available for a quick current-status view. The Calendar button opens the full application for month planning, planting records, notes, daily guidance, and reports.
-
-### Integrated Biodynamic Calendar Features
+## Biodynamic Calendar Features
 
 ![Current Biodynamic Calendar overview using the selected Spring theme](<../assets/screenshots/biodynamic-calendar-overview.png>)
 
@@ -1269,7 +1219,27 @@ Integrated calendar fields and controls:
 - **Save Note**: stores the note for that date.
 - **Print**: prints the selected calendar/report view.
 
-No separate Biodynamic Calendar service, port, database path environment variable, or startup entry is required.
+### Printing Calendar Reports
+
+On the Raspberry Pi desktop shell, **Report** uses the Pi's default CUPS
+printer. Raspberry Pi deployment offers to configure a permanent driverless
+network-printer queue. If the printer was connected later, an administrator
+can rerun `/home/<user>/Sensorius/scripts/setup_rpi_printer.sh` once; ordinary
+report users do not need to configure the printer for every report.
+
+When the calendar is opened from another computer or mobile device, printing
+uses that device's browser and printers instead of the Raspberry Pi printer.
+Saving as PDF also occurs on the device displaying the print dialog.
+
+Before relying on local Pi printing, confirm that its print dialog shows one
+enabled default destination. If duplicate entries or a disabled destination
+appear, use the printer troubleshooting section in the Operations guide.
+
+Daily summaries come from Sensorius' biodynamic summary storage and are
+generated on demand when a day is selected. Browsing future months does not
+generate summaries for their default day. For the current day, the summary may
+include a **24hr Forecast** section if weather forecast data is enabled in
+General Settings.
 
 ## Good Operating Habits
 
