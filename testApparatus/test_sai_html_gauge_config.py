@@ -471,7 +471,7 @@ def test_dashboard_live_refresh_has_recovery_hooks():
     assert "document.addEventListener('visibilitychange'" in html
 
 
-def test_dashboard_renders_centered_overview_graphic_at_bottom():
+def test_dashboard_renders_overview_graphic_in_header():
     html = "".join(
         render_dashboard(
             "All",
@@ -486,18 +486,14 @@ def test_dashboard_renders_centered_overview_graphic_at_bottom():
     )
     css = (Path(__file__).resolve().parents[1] / "ui_static" / "css" / "app.css").read_text(encoding="utf-8")
 
-    graphic = "<div class='dashboard-overview-graphic' id='dashboard-overview-footer'>"
-    assert graphic in html
-    assert f"src='/ui_static/01-sensorius-overview-v5.png?v={APP_VERSION}'" in html
-    assert html.index(graphic) < html.index("<div id='modal-host'></div>")
-    assert ".dashboard-overview-graphic{" in css
-    assert "order:2147483647;" in css
-    assert "justify-content:center;" in css
-    assert "width:min(100%, 522px);" in css
-    assert "border-radius:12px;" in css
+    header = html[html.index("<h2 id='sensor_header'>"):html.index("<p id='update_time'>")]
+    assert f"src='/ui_static/01-sensorius-overview-v5.png?v={APP_VERSION}'" in header
+    assert header.count("class='dashboard-header-action'") == 2
+    assert 'dashboard-overview-footer' not in html
+    assert 'width:261px;' in css
 
 
-def test_sensor_reordering_keeps_overview_graphic_as_footer():
+def test_sensor_reordering_preserves_dashboard_content_parent():
     html = "".join(
         render_dashboard(
             "All",
@@ -514,20 +510,14 @@ def test_sensor_reordering_keeps_overview_graphic_as_footer():
     start = html.index("window.applySensorGroupOrder = function(order)")
     end = html.index("window.reorderSensorGroup = async function", start)
     reorder_block = html[start:end]
-    assert "window.pinDashboardOverviewFooter = function()" in html
-    assert "dashboardContent.lastElementChild !== overviewFooter" in html
-    assert "document.getElementById('dashboard-overview-footer')" in reorder_block
-    assert "dashboardContent.insertBefore(el, overviewFooter)" in reorder_block
     assert "(firstSensorGroup && firstSensorGroup.parentElement)" in reorder_block
-    assert "if (switchGroup) insertBeforeFooter(switchGroup);" in reorder_block
-    assert "window.pinDashboardOverviewFooter();" in reorder_block
-    assert "dashboard.appendChild(el)" not in reorder_block
-
+    assert "if (switchGroup) dashboardContent.appendChild(switchGroup);" in reorder_block
+    assert 'overviewFooter' not in html
     ensure_start = html.index("function ensureSensorUI(sid, metricList, locationText)")
     ensure_end = html.index("window.DISPLAY_STYLES", ensure_start)
     ensure_block = html[ensure_start:ensure_end]
-    assert "(overviewFooter && overviewFooter.parentElement)" in ensure_block
-    assert "parent.insertBefore(group, overviewFooter)" in ensure_block
+    assert "document.querySelector('.dashboard-content')" in ensure_block
+    assert "parent.insertBefore(group, switchGroup)" in ensure_block
 
 
 def test_dashboard_metric_cards_render_and_refresh_trend_arrows():
