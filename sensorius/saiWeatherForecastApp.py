@@ -220,8 +220,8 @@ def _forecast_temperature_range(value: object, unit_system: object) -> str:
     return text
 
 
-def _forecast_wind(value: object, unit_system: object) -> str:
-    """Format a canonical dual-unit wind summary in the selected display unit."""
+def _forecast_wind(value: object, unit_system: object, *, include_description: bool = True) -> str:
+    """Format a canonical wind summary or numeric range in the selected unit."""
     text = str(value or "").strip()
     if not text or text == "--":
         return "--"
@@ -248,8 +248,8 @@ def _forecast_wind(value: object, unit_system: object) -> str:
             high = round(float(match.group(2)) * 3.6)
             selected = f"{low}-{high} km/h"
     if not selected:
-        return text
-    return f"{descriptor}\n{selected}" if descriptor and descriptor != measurement else selected
+        return text if include_description else "--"
+    return f"{descriptor}\n{selected}" if include_description and descriptor and descriptor != measurement else selected
 
 
 def _format_hour_label(value: object) -> str:
@@ -363,6 +363,7 @@ def build_weather_display_forecast(
                 "temp_range": _forecast_temperature_range(raw.get("temp_range"), display_unit_system),
                 "rh_range": str(raw.get("rh_range") or "--"),
                 "wind": _forecast_wind(raw.get("wind"), display_unit_system),
+                "wind_range": _forecast_wind(raw.get("wind"), display_unit_system, include_description=False),
                 "precipitation_mm": _safe_float(raw.get("precip_mm")) or 0.0,
                 "precip_probability": (
                     round(probability) if (probability := _safe_float(raw.get("precip_probability"))) is not None else None

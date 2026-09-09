@@ -180,6 +180,7 @@
 <script>
 (function(){
   const modal = document.getElementById("switchSettingsModal");
+  window.initMobileSettings?.(modal);
   const form = modal ? modal.querySelector('form[action="/submit-switch-settings"]') : null;
   const saveBtn = document.getElementById("switchSettingsSaveBtn");
   const statusEl = document.getElementById("switchSettingsStatus");

@@ -3,6 +3,7 @@
 
 window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
   if (!modalEl) return false;
+  window.initMobileSettings?.(modalEl);
 
   const menu = modalEl.querySelector("#sensorSettingsMenu");
   const panes = modalEl.querySelectorAll(".sensor-pane-view");

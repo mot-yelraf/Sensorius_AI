@@ -358,6 +358,17 @@ body.dashboard-page #sensor_header{
   border:0;
 }
 
+.dashboard-brand-refresh{
+  display:block;
+  padding:0;
+  border:0;
+  border-radius:12px;
+  background:none;
+  cursor:pointer;
+  touch-action:manipulation;
+}
+.dashboard-brand-refresh:focus-visible{outline:2px solid currentColor;outline-offset:3px}
+
 .dashboard-brand-image{
   display:block;
   width:261px;

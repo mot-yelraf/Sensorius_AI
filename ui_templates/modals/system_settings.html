@@ -2211,6 +2211,8 @@
   let otaPollTimer = null;
   function openSetupModal() {
     root.style.display = "flex";
+    window.setMobileWorkspaceViewport?.(root, true);
+    root.__mobileSettings?.reset();
     const activeButton = menu?.querySelector(".system-menu-btn.active");
     const activePane = Array.from(panes).find((pane) => !pane.hidden);
     const activePaneId = String(activeButton?.dataset.target || activePane?.id || "").trim();
@@ -2219,6 +2221,7 @@
   }
 
   function closeSetupModal() {
+    window.setMobileWorkspaceViewport?.(root, false);
     stopNodusWifiAutoRefresh();
     clearNodusWifiCredentials();
     root.style.display = "none";
@@ -4979,5 +4982,6 @@
   }
   refreshTimezoneOptionsFromCoords();
   updateGaugeSizeVisibility();
+  window.initMobileSettings?.(root);
 })();
 </script>

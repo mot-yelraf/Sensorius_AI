@@ -186,6 +186,7 @@ def test_weather_display_forecast_uses_canonical_sensorius_contract():
     assert payload["days"][0]["temp_range"] == "64-82°F"
     assert payload["days"][0]["precip_probability"] == 42
     assert payload["days"][0]["precip_label"] == "Rain chance"
+    assert payload["days"][0]["wind_range"] == "--"
 
 
 def test_weather_display_forecast_uses_metric_units_when_selected():
@@ -208,6 +209,9 @@ def test_weather_display_forecast_uses_metric_units_when_selected():
     assert payload["hours"][0]["precipitation_unit"] == "mm"
     assert payload["days"][0]["temp_range"] == "18.0-28.0°C"
     assert payload["days"][0]["wind"] == "Mostly light\n4-14 km/h"
+    assert payload["days"][0]["wind_range"] == "4-14 km/h"
+    imperial = weather_app.build_weather_display_forecast(source, "Imperial")
+    assert imperial["days"][0]["wind_range"] == "2-9 mph"
 
 
 def test_snow_forecast_uses_snow_chance_label():
@@ -576,7 +580,11 @@ async def test_integrated_weather_routes_render_dashboard_and_namespaced_apis(mo
     assert "data-hourly-next" in page.text
     assert ">40%</strong> Rain chance" in page.text
     assert "40% rain chance" in page.text
-    assert "42% rain chance" in page.text
+    assert "Rain 42%" in page.text
+    assert "RH 30-60%" in page.text
+    assert "Wind --" in page.text
+    assert "Updated from" not in page.text
+    assert "data-open-forecast" not in page.text
     assert "PoP" not in page.text
     assert 'class="forecast-icon forecast-icon--rain"' in page.text
     assert 'class="forecast-icon forecast-icon--sunny"' in page.text

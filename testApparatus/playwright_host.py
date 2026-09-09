@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 
@@ -96,3 +97,61 @@ def biodynamic_calendar(request: Request):
             "runtime_instance_id": "playwright",
         },
     )
+
+
+@app.get("/edit-system", response_class=HTMLResponse)
+def system_settings() -> HTMLResponse:
+    """Render the actual settings dialog without production settings or hardware."""
+    return HTMLResponse(templates.get_template("modals/system_settings.html").render(
+        app_name_long="Sensorius AI", app_version="playwright", custom_themes={},
+        display_style="Gauge", metric_set="Pick 6", gauge_size="Small",
+    ))
+
+
+@app.get("/edit-sensor", response_class=HTMLResponse)
+def sensor_settings() -> HTMLResponse:
+    """Render a sensor's real settings and calibration panes for mobile checks."""
+    return HTMLResponse(templates.get_template("modals/sensor_settings.html").render(
+        sensor_id="aht-pr-check", current_metrics=["Temperature"] + [""] * 5,
+        metric_options=["", "Temperature"], settings={}, location="Greenhouse",
+    ))
+
+
+@app.get("/edit-switch", response_class=HTMLResponse)
+def switch_settings() -> HTMLResponse:
+    """Render a remote switch dialog without contacting a device."""
+    return HTMLResponse(templates.get_template("modals/switch_settings.html").render(
+        switch_id="switch-pr-check", settings={"Switch": {"SWITCH_LOCATION": "Greenhouse"}},
+        channels=[{"index": 0, "label": "Pump"}], channel_indices=[0],
+    ))
+
+
+@app.get("/weather-forecast", response_class=HTMLResponse)
+def weather_forecast(request: Request, units: str = "Metric"):
+    """Render the real Caelus page with a complete, deterministic six-day outlook."""
+    from sensorius.saiWeatherForecastApp import build_weather_display_forecast
+
+    start = datetime(2026, 9, 9, 15, tzinfo=timezone.utc)
+    forecast = build_weather_display_forecast({
+        "ok": True, "provider": "nws",
+        "current_24h": {"overall": "Cloudy early, clearing late", "precip_probability": 55},
+        "hourly": [{
+            "time": (start + timedelta(hours=hour)).isoformat(),
+            "local_time": (start + timedelta(hours=hour)).isoformat(),
+            "temp_c": 30 - hour / 2, "precip_probability": 55,
+            "symbol": "partlycloudy_day",
+        } for hour in range(24)],
+        "days": [{
+            "date": (start + timedelta(days=day)).date().isoformat(),
+            "label": (start + timedelta(days=day)).strftime("%a %b %d"),
+            "forecast": "Partly cloudy", "temp_range": "17.8-30.0°C / 64-86°F",
+            "rh_range": "35-85%", "wind": "Mostly light\n1-8 m/s / 2-18 mph",
+            "precip_probability": 59,
+        } for day in range(1, 7)],
+    }, units)
+    return templates.TemplateResponse(request, "weather_forecast/index.html", {
+        "settings": {"theme": "pollinator", "theme_class": "pollinator"},
+        "location": {"name": "Greenhouse", "latitude": 39.7, "longitude": -104.9},
+        "latest": {}, "moon": {"updated_at": start.isoformat()},
+        "forecast": forecast, "app_version": "playwright",
+    })

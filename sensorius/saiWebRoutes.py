@@ -4637,6 +4637,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         fragment_parts: list[str] = []
         fragment_parts.append(f"<link rel='stylesheet' href='/ui_static/css/app.css?v={APP_VERSION}'>")
+        fragment_parts.append(f"<link rel='stylesheet' href='/ui_static/css/mobile_settings.css?v={APP_VERSION}'>")
+        fragment_parts.append(f"<script src='/ui_static/js/mobile_settings.js?v={APP_VERSION}'></script>")
         fragment_parts.append(f"<script src='/ui_static/js/draggable_modals.js?v={APP_VERSION}'></script>")
         fragment_parts.append(f"<script type='module' src='/ui_static/js/advanced_automation.js?v={APP_VERSION}'></script>")
         fragment_parts.append(system_modal_html)
@@ -4653,6 +4655,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         html_parts: list[str] = []
         html_parts.append("<!DOCTYPE html>")
         html_parts.append("<html><head><title>General Settings</title>")
+        html_parts.append('<meta name="viewport" content="width=device-width, initial-scale=1">')
         html_parts.append("</head><body>")
         html_parts.append(fragment_html)
         html_parts.append("</body></html>")
@@ -11539,8 +11542,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             page: list[str] = []
             page.append("<!DOCTYPE html>")
             page.append("<html><head><title>Edit Sensor</title>")
+            page.append('<meta name="viewport" content="width=device-width, initial-scale=1">')
             page.append(f"<link rel='stylesheet' href='/ui_static/css/app.css?v={SAI_APP_VERSION}'>")
-            page.append("<script src='/ui_static/js/sensor_settings_modal.js'></script>")
+            page.append(f"<link rel='stylesheet' href='/ui_static/css/mobile_settings.css?v={SAI_APP_VERSION}'>")
+            page.append(f"<script src='/ui_static/js/mobile_settings.js?v={SAI_APP_VERSION}'></script>")
+            page.append(f"<script src='/ui_static/js/sensor_settings_modal.js?v={SAI_APP_VERSION}'></script>")
             page.append("<script src='/ui_static/js/system_calibration.js'></script>")
             page.append("</head><body>")
             page.append("<div id='modalHost'></div>")
@@ -13497,8 +13503,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # ---- full-page fallback (keeps existing behavior & JS wiring) ----
         page: list[str] = []
         page.append("<html><head><title>Edit Switch</title>")
+        page.append('<meta name="viewport" content="width=device-width, initial-scale=1">')
         # ensure app.css is loaded so modal styles look correct
         page.append(f"<link rel='stylesheet' href='/ui_static/css/app.css?v={SAI_APP_VERSION}'>")
+        page.append(f"<link rel='stylesheet' href='/ui_static/css/mobile_settings.css?v={SAI_APP_VERSION}'>")
+        page.append(f"<script src='/ui_static/js/mobile_settings.js?v={SAI_APP_VERSION}'></script>")
         page.append("</head><body>")
         page.append("<div id='modalHost'></div>")
         modal_json = json.dumps(modal_html).replace("</", "<\\/")

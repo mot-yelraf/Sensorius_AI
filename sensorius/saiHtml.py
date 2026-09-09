@@ -1202,10 +1202,12 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield from render_graph_modal(switch_installed=switch_installed, gauge_config=gauge_config)
     # global assets for templates
     yield f"<link rel='stylesheet' href='/ui_static/css/app.css?v={APP_VERSION}'>"
+    yield f"<link rel='stylesheet' href='/ui_static/css/mobile_settings.css?v={APP_VERSION}'>"
+    yield f"<script src='/ui_static/js/mobile_settings.js?v={APP_VERSION}'></script>"
     yield f"<script src='/ui_static/weather_forecast/moon.js?v={APP_VERSION}' defer></script>"
     yield f"<script src='/ui_static/js/draggable_modals.js?v={APP_VERSION}'></script>"
     yield f"<script type='module' src='/ui_static/js/advanced_automation.js?v={APP_VERSION}'></script>"
-    yield "<script src='/ui_static/js/sensor_settings_modal.js'></script>"
+    yield f"<script src='/ui_static/js/sensor_settings_modal.js?v={APP_VERSION}'></script>"
     body_style = f" style='{html_escape(dashboard_custom_theme_style)}'" if dashboard_custom_theme_style else ""
     yield f"</head><body class='dashboard-page dashboard-theme-{dashboard_background_class}'{body_style}>"
     yield (
@@ -1698,7 +1700,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "          fill='none' stroke='blue' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/>"
     yield "  </svg>"
     yield "</a>"
+    yield "<button type='button' class='dashboard-brand-refresh' onclick='window.location.reload()' title='Refresh Sensorius AI' aria-label='Refresh Sensorius AI'>"
     yield f"<img class='dashboard-brand-image' src='/ui_static/01-sensorius-overview-v5.png?v={APP_VERSION}' alt='Sensorius AI'>"
+    yield "</button>"
     yield "<a href='#' onclick='window.editSystemSettings && window.editSystemSettings(); return false;' title='Open General Settings' aria-label='Open General Settings' class='dashboard-header-action'>"
     yield from _settings_gear_svg_lines(indent="    ")
     yield "</a>"
@@ -6442,6 +6446,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "};"
     yield ""
     yield "window.closeSystemSettingsModal = function(){"
+    yield "  window.setMobileWorkspaceViewport?.(document.getElementById('setupPiModal'), false);"
     yield "  const ids = ["
     yield "    'setupPiModal',"
     yield "    'ha-settings-overlay',"
@@ -6764,6 +6769,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  const modal = modalEl || document.getElementById('switchSettingsModal');"
     yield "  if (!modal) return;"
     yield "  const btnSettings = modal.querySelector('#switchMenuSettings');"
+    yield "  window.initMobileSettings?.(modal);"
     yield "  const btnStats = modal.querySelector('#switchMenuStatistics');"
     yield "  const btnBacks = modal.querySelectorAll('[data-switch-pane-target=\"settings\"]');"
     yield "  const paneSettings = modal.querySelector('#switchSettingsPane');"
@@ -7123,6 +7129,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    if (!modalId) return;"
     yield "    const modal = document.getElementById(modalId);"
     yield "    if (!modal) return;"
+    yield "    window.setMobileWorkspaceViewport?.(modal, false);"
     yield "    const backdrop = modal.closest('.modal-backdrop');"
     yield "    if (backdrop && backdrop.parentNode) {"
     yield "      backdrop.parentNode.removeChild(backdrop);"
@@ -8421,12 +8428,32 @@ def render_graph_modal(switch_installed=None, gauge_config=None):
       margin-top:.35rem;
     }
     #graphLoadingState{ display:none; color:var(--dashboard-card-text); opacity:.76; font-size:.8rem; }
-    @media (max-width: 760px){
+    @media (max-width: 760px), (max-device-width: 760px), (pointer: coarse) and (max-height: 600px){
+      .fullscreen-graph-header{ min-height:56px; padding:.4rem .65rem; }
+      .fullscreen-graph-title{ font-size:1.25rem; }
       .fullscreen-graph-body{ flex-direction:column; overflow:auto; }
-      .fullscreen-graph-controls{ flex:0 0 auto; width:100%; max-height:43dvh; border-right:0; border-bottom:1px solid var(--dashboard-card-border); }
-      .fullscreen-graph-main{ min-height:54dvh; }
+      .fullscreen-graph-controls{
+        flex:0 0 auto; width:100%; min-width:0; max-height:none; overflow:visible;
+        border-right:0; border-top:1px solid var(--dashboard-card-border);
+      }
+      .fullscreen-graph-main{
+        order:-1; flex:0 0 auto; width:100%; min-height:0; padding:.5rem;
+        box-sizing:border-box;
+      }
       .fullscreen-graph-summary{ align-items:flex-start; flex-direction:column; gap:.35rem; }
+      #fullscreen_graph_stack{ flex:0 0 auto; }
+      #fullscreen_graph_container #fullscreen_data_panel{
+        flex:0 0 auto; height:clamp(240px, 50dvh, 480px); min-height:0;
+        box-sizing:border-box; overflow:hidden;
+      }
+      #fullscreen_astral_panel{ flex:0 0 140px; box-sizing:border-box; }
+      #fullscreen_graph, #fullscreen_astral_graph{ margin:0; }
       #fullscreenSelectedChips{ justify-content:flex-start; }
+      .fullscreen-time-grid span{ min-height:44px; }
+      #custom_time_inputs input, .fullscreen-astral-field select{ font-size:16px; }
+    }
+    @media (orientation: landscape) and (pointer: coarse) and (max-height: 600px){
+      .fullscreen-time-grid{ grid-template-columns:repeat(6, minmax(0, 1fr)); }
     }
     </style>
     """
@@ -10165,6 +10192,7 @@ def render_graph_modal(switch_installed=None, gauge_config=None):
     function closeFullscreenGraph(){
       const cont = document.getElementById('fullscreen_graph_container');
       if (cont) cont.style.display = 'none';
+      window.setMobileWorkspaceViewport?.(cont, false);
       if (cont) cont.classList.remove('has-astral');
       fullscreenGraphRequestToken += 1;
       if(fullscreenGraphRefreshTimer) window.clearTimeout(fullscreenGraphRefreshTimer);
@@ -10194,7 +10222,10 @@ def render_graph_modal(switch_installed=None, gauge_config=None):
       try {
         const workspace = document.getElementById('fullscreen_graph_container');
         if (workspace){
+          window.setMobileWorkspaceViewport?.(workspace, true,
+            '(max-width: 760px), (max-device-width: 760px), (pointer: coarse) and (max-height: 600px)');
           workspace.style.display = 'flex';
+          workspace.querySelector('.fullscreen-graph-body').scrollTop = 0;
           if (window.ensureButtonTooltips) window.ensureButtonTooltips(workspace);
           await window.ModalBusyCursor.untilPaint();
           await initFullscreenGraphWorkspace();

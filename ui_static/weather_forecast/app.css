@@ -557,13 +557,14 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
 .future-heading button { padding: 0.3rem 0.5rem; border: 1px solid var(--line); background: rgba(255,255,255,.06); color: var(--ink); font-size: 0.52rem; cursor: pointer; }
 .future-heading button:hover { border-color: var(--accent-2); }
 .daily-strip { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.4rem; margin-top: 0.65rem; }
-.forecast-day { min-width: 0; overflow: hidden; padding: 0.65rem 0.25rem; text-align: center; border: 1px solid var(--line); border-radius: 0.75rem; background: rgba(2,28,35,.18); }
+.forecast-day { min-width: 0; overflow: hidden; padding: 0.45rem 0.25rem; text-align: center; border: 1px solid var(--line); border-radius: 0.75rem; background: rgba(2,28,35,.18); }
 .forecast-day time, .forecast-day > span, .forecast-day strong, .forecast-day small { display: block; }
 .forecast-day time { color: var(--muted); font-size: 0.54rem; font-weight: 700; }
-.forecast-day > span { margin: 0.35rem 0; font-size: 1.45rem; }
+.forecast-day > span { margin: 0.18rem 0; font-size: 1.25rem; line-height: 1; }
 .forecast-day strong { font-size: 0.76rem; }
 .forecast-day strong em { color: #6dc8ff; font-style: normal; font-weight: 600; }
-.forecast-day small { margin-top: 0.25rem; color: var(--accent-2); font-size: 0.48rem; }
+.forecast-day small { margin-top: 0.18rem; color: var(--accent-2); font-size: 0.5rem; line-height: 1.25; }
+.forecast-day small.forecast-day-stat { color: var(--muted); }
 .forecast-dialog { width: min(72rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); margin: auto; padding: 0; overflow: auto; color: var(--ink); border: 1px solid var(--line); border-radius: 1rem; background: var(--glass-strong); box-shadow: 0 30px 100px rgba(0,15,19,.5); }
 .forecast-dialog::backdrop { background: rgba(2,18,23,.72); backdrop-filter: blur(8px); }
 .forecast-dialog > header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.3rem; background: var(--glass); border-bottom: 1px solid var(--line); }
