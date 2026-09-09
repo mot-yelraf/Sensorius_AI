@@ -1268,6 +1268,15 @@ device names, available metrics, settings, and time ranges depend on your
 installation. The screenshots show selected views, not every available option.
 Tap an image to open it at full size.
 
+On Android, open the dashboard in Chrome, open the browser menu, and choose
+**Add to Home screen** (or **Install app**, when offered). Confirm the name and
+icon before adding it. Sensorius supplies its logo in standard and adaptive
+Android icon formats. If an existing shortcut still shows an old or generic
+icon, remove that shortcut and add it again after reloading the dashboard.
+Installation options depend on the browser and connection: a local HTTP hub
+may be offered as a shortcut rather than a standalone installed app. This does
+not add offline operation; the phone still needs access to the running hub.
+
 ### Mobile Dashboard
 
 <p align="center">
