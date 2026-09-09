@@ -1,0 +1,120 @@
+/* Drill-down settings apply only to phone-sized viewports. */
+.mobile-settings-nav, .mobile-settings-chevron { display:none; }
+.mobile-settings-chevron::after { content:'›'; }
+@media (max-width:700px), (max-device-width:700px) {
+  .modal-backdrop:has(.mobile-settings), #setupPiModal.mobile-settings {
+    padding:.35rem;
+    box-sizing:border-box;
+  }
+  #setupPiModal.mobile-settings .system-settings-shell,
+  .modal.mobile-settings {
+    width:100% !important;
+    position:relative !important;
+    left:auto !important;
+    top:auto !important;
+    max-width:100%;
+    height:calc(100dvh - .7rem);
+    max-height:calc(100dvh - .7rem);
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    transform:none !important;
+  }
+  .mobile-settings .mobile-settings-nav {
+    display:flex;
+    align-items:center;
+    gap:.75rem;
+    flex-shrink:0;
+    padding:.35rem .65rem;
+    border-bottom:1px solid var(--line, #d6dfd8);
+  }
+  .mobile-settings-nav button {
+    min-height:44px;
+    padding:.45rem .65rem;
+    border:1px solid var(--line, #d6dfd8);
+    border-radius:8px;
+    background:var(--panel, #fff);
+    color:inherit;
+    font:inherit;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .mobile-settings-nav button[hidden] { display:none; }
+  .mobile-settings-title { font-weight:600; overflow-wrap:anywhere; }
+  #setupPiModal.mobile-settings .system-settings-body,
+  .mobile-settings > .modal-body {
+    padding:.65rem;
+    flex:1;
+    min-height:0;
+    overflow:auto;
+  }
+  #setupPiModal.mobile-settings .system-settings-split,
+  .mobile-settings .modal-body > .split {
+    display:block;
+    height:auto;
+    min-height:0 !important;
+  }
+  .mobile-settings .mobile-settings-menu { display:none !important; }
+  .mobile-settings.mobile-settings-root .mobile-settings-menu {
+    display:flex !important;
+    flex-direction:column;
+    gap:.5rem;
+  }
+  .mobile-settings.mobile-settings-root .mobile-settings-content { display:none !important; }
+  .mobile-settings .system-menu-brand { display:none !important; }
+  .mobile-settings .mobile-settings-menu button,
+  .mobile-settings details:not(.mobile-settings-current):not(.mobile-settings-ancestor) > summary {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:.75rem;
+    min-height:44px;
+    box-sizing:border-box;
+    text-align:left;
+  }
+  .mobile-settings .mobile-settings-chevron {
+    display:inline;
+    font-size:1.5rem;
+    line-height:1;
+    flex-shrink:0;
+  }
+  #setupPiModal.mobile-settings details > summary::before { display:none; }
+  .mobile-settings summary { list-style:none; }
+  .mobile-settings summary::-webkit-details-marker { display:none; }
+  .mobile-settings .mobile-settings-hidden { display:none !important; }
+  #setupPiModal.mobile-settings .system-settings-content,
+  #setupPiModal.mobile-settings .settings-pane,
+  .mobile-settings .sensor-pane-view,
+  .mobile-settings .sensor-pane-scroll,
+  .mobile-settings .switch-pane {
+    height:auto;
+    min-height:0;
+    max-height:none;
+    overflow:visible;
+  }
+  #setupPiModal.mobile-settings .system-settings-content { padding:.5rem; }
+  #setupPiModal.mobile-settings .integrations-list,
+  #setupPiModal.mobile-settings .advanced-sections { overflow:visible; }
+  .mobile-settings .mobile-settings-current > summary { display:none !important; }
+  #setupPiModal.mobile-settings .mobile-settings-ancestor {
+    border:0;
+    background:none;
+  }
+  #setupPiModal.mobile-settings .mobile-settings-ancestor > .integration-block-content { padding:0; }
+  .mobile-settings input:not([type='checkbox']):not([type='radio']),
+  .mobile-settings select, .mobile-settings textarea {
+    min-width:0;
+    max-width:100%;
+    box-sizing:border-box;
+    font-size:16px;
+  }
+  .mobile-settings .row.two, .mobile-settings .row.three,
+  .mobile-settings .display-metrics-row { grid-template-columns:minmax(0, 1fr); }
+  #setupPiModal.mobile-settings .thumbnail-options {
+    min-width:0;
+    grid-template-columns:repeat(2, minmax(0, 1fr));
+  }
+  #setupPiModal.mobile-settings .thumbnail-selector { overflow:visible; }
+  .mobile-settings .settings-modal-header { flex-shrink:0; }
+  .mobile-settings .settings-modal-header { cursor:default; touch-action:auto; }
+}

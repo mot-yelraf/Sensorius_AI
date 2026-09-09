@@ -46,8 +46,9 @@ interface:
   select it to expand the content.
 - A **down-pointing triangle (▼)** means that the content is expanded; select it
   to collapse the content.
-- General Settings sections, integration blocks, and other expandable panes use
-  these same right/down disclosure triangles.
+- On desktop, General Settings sections, integration blocks, and other expandable
+  panes use these same right/down disclosure triangles. Phone settings use the
+  menu navigation described below.
 - A dashboard Sensor Group shows a disclosure triangle only when it has more
   than six Sensor Tiles. The first six Sensor Tiles remain visible when the
   group is collapsed.
@@ -57,8 +58,9 @@ interface:
 The **three horizontal bars** beside a Sensor Group heading open its **Move up**
 and **Move down** commands. Expand and collapse controls change only what is
 visible; they do not change sensor settings, switch state, or saved selections.
-Reordering sensor groups does not move the Sensorius overview graphic from the
-bottom of the dashboard.
+Reordering sensor groups does not move the Sensorius AI graphic from the
+top of the dashboard. Tap or click that graphic to refresh the app, including
+when using an iPhone Home Screen web app.
 
 Dashboard data comes from the latest values in the live runtime cache and from the local database. If a device is offline, the latest stored reading may still be visible, but the online/offline state comes from live device status, MQTT heartbeat or availability messages, and recent packets.
 
@@ -215,6 +217,18 @@ The Events column shows up to five recent On/Off transitions, newest first, with
 General Settings contains hub-level settings, notifications, system-wide
 automations, device onboarding, integrations, locations, firmware updates, and
 maintenance tools.
+
+On phones, General, Sensor, and Switch Settings open with a list of menu items.
+Tap a row with a **›** to open its view. Sections that expand on desktop become
+another menu level on mobile, including theme selections inside Display.
+Use **< Back** at the top to return one level; entered values stay in the form.
+Back does not save changes. **Save** stays with its original section, and the
+Display Save button remains available while choosing a theme. The **×** closes
+the dialog. Opening settings again starts at the menu.
+
+Phone settings use a screen-width view while open. Closing the dialog restores
+the dashboard's existing scaling. Desktop settings keep their side menus and
+expand/collapse sections.
 
 ### General Settings Pane
 
@@ -1067,8 +1081,13 @@ Switch event overlays appear as vertical lines. The legend shows which colors me
 
 ### Sensorius Graphum Controls
 
-The graph button opens the full-screen workspace directly. Its scrollable left
-pane contains:
+The graph button opens the full-screen workspace directly. On phones in portrait
+or landscape, the chart spans the screen width at the top, followed by Time Range
+and then Sensor Metrics and Switch selections. Scroll down to reach the controls;
+all available time ranges are shown without a separate clipped selector pane.
+Closing Graphum restores the dashboard's existing scaling.
+
+On desktop, the controls remain in the scrollable left pane:
 
 - **Time range**: select **1Hr**, **3Hr**, **6Hr**, **12Hr**, **24Hr**,
   **3Day**, **7Day**, **14Day**, **30Day**, **60Day**, or **90Day**. Available
@@ -1170,11 +1189,11 @@ The hourly strip presents the next 24 hours as one-hour forecasts, with eight
 hours visible at a time. Use the narrow left and right controls to move the
 window one hour; each control disappears when its edge is reached. Hourly and
 daily forecasts show rain or snow chance percentages, while condition icons
-identify rain or snow when the provider predicts a precipitation type. Select
-**6-day details** under **Looking Ahead** to open the detailed outlook with
-daily conditions, temperature, relative humidity, wind, and rain or snow chance.
-
-![Detailed six-day weather outlook using the selected Desert Bloom theme](<../assets/screenshots/weather-forecast-caelus-six-day.png>)
+identify rain or snow when the provider predicts a precipitation type.
+**Looking Ahead** shows each day's date, weather icon, temperature minimum–maximum,
+relative humidity minimum–maximum, wind minimum–maximum, and rain or snow chance
+directly in the daily tiles. Temperature and wind follow the selected display
+units. These details fit within the existing forecast card.
 
 ## Biodynamic Calendar Features
 
@@ -1240,6 +1259,108 @@ generated on demand when a day is selected. Browsing future months does not
 generate summaries for their default day. For the current day, the summary may
 include a **24hr Forecast** section if weather forecast data is enabled in
 General Settings.
+
+## Mobile Operations
+
+Open Sensorius in your phone's browser or from its Home Screen shortcut, using
+the same hub address you normally use. The examples below show an iPhone;
+device names, available metrics, settings, and time ranges depend on your
+installation. The screenshots show selected views, not every available option.
+Tap an image to open it at full size.
+
+### Mobile Dashboard
+
+<p align="center">
+  <a href="../assets/screenshots/sai_mobile_dashboard.png"><img src="../assets/screenshots/sai_mobile_dashboard.png" alt="Mobile dashboard with navigation icons, overview tiles, and sensor groups" width="280"></a>
+</p>
+
+The dashboard is the starting point for readings, settings, and history.
+
+- Tap the **Sensorius AI image** at the top to refresh the app. Save any pending
+  settings changes before refreshing.
+- Tap the **graph icon to the left** of the image to open Sensorius Graphum.
+  Tap the **gear to the right** to open General Settings. A gear beside a sensor
+  or switch opens settings for that device.
+- Swipe up to see sensor groups and switch tiles farther down the dashboard.
+  Use **Show Device by Location** to narrow the display, or choose
+  **All Locations** to restore the complete view.
+- Tap a sensor group's **disclosure triangle** to reveal or hide its additional
+  metrics. Tap a Sensor Tile to cycle its available graph and gauge views;
+  save a preferred display style in Sensor Settings to make it persistent.
+- Use the named buttons on the overview tiles to open Caelus Forecast, the
+  Biodynamic Calendar, the Lunar Calendar, or the 29 Day Graph. These are
+  separate views from Graphum; use their close or return control to come back.
+
+### Mobile Settings
+
+The following row illustrates **Settings → General Settings → Display →
+Sensorius Dashboard Theme**. The same menu-and-Back navigation is used for
+Sensor Settings and Switch Settings, with options appropriate to each device.
+
+<table width="100%" style="table-layout: fixed;">
+  <tr>
+    <td width="25%" align="center"><a href="../assets/screenshots/sai_mobile_settings_1.png"><img src="../assets/screenshots/sai_mobile_settings_1.png" alt="Mobile settings menu with General Settings, Automations, device management, Integrations, and Advanced" width="100%"></a><br><strong>1. Settings menu</strong></td>
+    <td width="25%" align="center"><a href="../assets/screenshots/sai_mobile_settings_2.png"><img src="../assets/screenshots/sai_mobile_settings_2.png" alt="General Settings submenu with Astral, Display, Network Settings, Nodus Wifi Update, Notifications, and Weather Forecast" width="100%"></a><br><strong>2. General Settings</strong></td>
+    <td width="25%" align="center"><a href="../assets/screenshots/sai_mobile_settings_4.png"><img src="../assets/screenshots/sai_mobile_settings_4.png" alt="Display settings with units, metric set, display style, theme submenus, and Save" width="100%"></a><br><strong>3. Display</strong></td>
+    <td width="25%" align="center"><a href="../assets/screenshots/sai_mobile_settings_5.png"><img src="../assets/screenshots/sai_mobile_settings_5.png" alt="Sensorius Dashboard Theme choices with Back and Save controls" width="100%"></a><br><strong>4. Theme selection</strong></td>
+  </tr>
+</table>
+
+1. Tap a settings gear, then tap the desired **menu row with a ›**. Some rows
+   open entry fields immediately; others open another menu. Only the selected
+   view is displayed, so the previous menu is no longer beside or above it.
+2. Continue through any submenus. For example, choose **General Settings**,
+   then **Display** to change units, the metric set, or the display style.
+   Choose **Sensorius Dashboard Theme** within Display to see its theme choices.
+   Other entries lead to automations, device management, integrations, and
+   advanced settings; use the relevant sections of this guide for those controls.
+3. Swipe up within the view to reach fields, choices, and buttons below the
+   visible area. Tap a drop-down to see its available values. If the phone's
+   keyboard covers a control, finish the entry and dismiss the keyboard.
+4. Tap the section's **Save** button to apply its changes. Save remains with
+   the section being edited; the Display Save button is also available inside
+   a theme selection view. Save each section you change before moving on.
+5. Tap **< Back** at the top to return **one level**. From the theme choices,
+   Back returns to Display; subsequent taps return to General Settings and then
+   the settings menu. Back is navigation, not Save.
+6. Tap the **circled ×** to close settings and return to the dashboard. Closing
+   is not Save either. Reopening settings starts at its menu.
+
+### Mobile Graphum
+
+Graphum uses the full screen width in both orientations. Its scroll order is
+**chart → Time range and Astral → Sensors & metrics → Switches**. The landscape
+example shows the chart area; its selectors are farther down the same view.
+
+<table width="100%" style="table-layout: fixed;">
+  <tr>
+    <td width="25%" align="center"><a href="../assets/screenshots/sai_mobile_portrait_graph.png"><img src="../assets/screenshots/sai_mobile_portrait_graph.png" alt="Portrait Graphum chart with Time range controls below it" width="100%"></a><br><strong>Portrait chart</strong></td>
+    <td width="50%" align="center"><a href="../assets/screenshots/sai_mobile_landscape_graph.png"><img src="../assets/screenshots/sai_mobile_landscape_graph.png" alt="Landscape Graphum chart spanning the phone screen" width="100%"></a><br><strong>Landscape chart</strong></td>
+    <td width="25%" align="center"><a href="../assets/screenshots/sai_mobile_graph_selectors.png"><img src="../assets/screenshots/sai_mobile_graph_selectors.png" alt="Graphum scrolled down to expandable sensor metric and switch selectors" width="100%"></a><br><strong>Selectors below the chart</strong></td>
+  </tr>
+</table>
+
+1. Open Graphum using the dashboard's **graph icon**. Swipe up past the chart
+   to reach the controls, including in landscape. The chart and controls scroll
+   together rather than covering each other.
+2. Choose a **Time range**. Options run from **1Hr** through longer day ranges;
+   the longest available ranges depend on database retention, so your choices
+   may differ from the screenshot. Choose **Custom** to enter both a start and
+   an end date and time. Use **Astral** to add Sun, Moon, or Sun & Moon positions,
+   or select **None** to omit that panel.
+3. Under **Sensors & metrics**, tap a device's **+** to reveal its metrics,
+   then check the measurements to graph. Tap **−** to collapse the list without
+   clearing its checked metrics. Scroll farther down for other devices.
+4. To compare switching with sensor history, expand a device under **Switches**
+   and check a channel. Switch selections add ON/OFF transition markers to a
+   sensor graph. Metrics and switch channels share a limit of **four selections**;
+   uncheck an item to make room when the counter reaches four.
+5. The chart updates automatically when selections or the time range change.
+   Swipe down to return to the chart and check the selection labels above it.
+   Rotate the phone for a wider landscape graph; you do not need to select the
+   metrics again.
+6. Tap the **circled ×** at the top to return to the dashboard. The dashboard
+   returns to its usual scaling when Graphum closes.
 
 ## Good Operating Habits
 

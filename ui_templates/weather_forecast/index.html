@@ -80,8 +80,22 @@
             <button class="hourly-page-button hourly-page-next" type="button" data-hourly-next aria-label="Show next forecast hour"{% if hour_count <= 8 %} hidden{% endif %}>&gt;</button>
           </div>
           <p class="hourly-page-status" data-hourly-status aria-live="polite">Hours 1–{{ 8 if hour_count > 8 else hour_count }} of {{ hour_count }}</p>
-          <p class="forecast-meta">{{ 'Cached forecast · provider temporarily unavailable' if forecast.stale else 'Updated from ' ~ forecast.provider_label }}</p>
-          {% if forecast.days %}<div class="future-heading"><span>Looking ahead</span><button type="button" data-open-forecast>6-day details</button></div><div class="daily-strip">{% for day in forecast.days %}<article class="forecast-day"><time datetime="{{ day.date }}">{{ day.label }}</time><span>{{ weather_icon(day.icon_key, day.summary) }}</span><strong>{{ day.temp_range }}</strong><small>{{ reading(day.precip_probability, '%') }} {{ day.precip_label | lower }}</small></article>{% endfor %}</div>{% endif %}
+          {% if forecast.stale %}<p class="forecast-meta">Cached forecast · provider temporarily unavailable</p>{% endif %}
+          {% if forecast.days %}
+          <div class="future-heading"><span>Looking ahead</span></div>
+          <div class="daily-strip">
+            {% for day in forecast.days %}
+            <article class="forecast-day">
+              <time datetime="{{ day.date }}">{{ day.label }}</time>
+              <span>{{ weather_icon(day.icon_key, day.summary) }}</span>
+              <strong aria-label="Temperature range">{{ day.temp_range }}</strong>
+              <small class="forecast-day-stat">RH {{ day.rh_range }}</small>
+              <small class="forecast-day-stat">Wind {{ day.wind_range }}</small>
+              <small>{{ 'Snow' if day.precip_label == 'Snow chance' else 'Rain' }} {{ reading(day.precip_probability, '%') }}</small>
+            </article>
+            {% endfor %}
+          </div>
+          {% endif %}
         {% else %}<div class="forecast-empty"><span>◌</span><p>{{ forecast.reason or 'Set an Astral location and forecast provider to load the forecast.' }}</p></div>{% endif %}
       </article>
 

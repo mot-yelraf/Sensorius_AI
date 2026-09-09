@@ -44,6 +44,7 @@
 
     const modal = handle.closest(MODAL_SELECTOR);
     if (!modal || !document.body.contains(modal)) return;
+    if (modal.closest(".mobile-settings")) return;
 
     const rect = modal.getBoundingClientRect();
     modal.style.width = `${rect.width}px`;
