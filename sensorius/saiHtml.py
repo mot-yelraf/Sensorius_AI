@@ -1193,6 +1193,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "<!DOCTYPE html>"
     yield f"<html><head><title>{APP_NAME_LONG}</title>"
     yield "<meta charset='UTF-8'>"
+    yield "<link rel='manifest' href='/ui_static/manifest.webmanifest'>"
+    yield "<link rel='icon' href='/ui_static/icons/sensorius-192.png' type='image/png' sizes='192x192'>"
     yield "<link rel='icon' href='/ui_static/favicon.svg' type='image/svg+xml'>"
     yield f"<link rel='apple-touch-icon' sizes='180x180' href='/ui_static/apple-touch-icon.png?v={APP_VERSION}'>"
     yield "<script src='https://cdn.jsdelivr.net/npm/gaugeJS@1.3.7/dist/gauge.min.js'></script>"
