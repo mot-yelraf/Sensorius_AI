@@ -305,3 +305,58 @@ def test_weather_forecast_cache_normalizes_legacy_display_strings(tmp_path):
     assert loaded["current_24h"]["wind"] == "Mostly light/moderate\n2-4 m/s / 4-9 mph"
     assert loaded["current_24h"]["rh_range"] == "34-64%"
     assert loaded["days"][0]["temp_range"] == "15.1-26.5°C / 59-80°F"
+
+
+def test_nws_narrative_is_bound_to_its_period():
+    from sensorius.saiWeatherForecast import attach_nws_narratives
+    rows = [{"time": f"2026-09-10T{hour:02}:00:00Z"} for hour in (5, 6, 17, 18)]
+    attach_nws_narratives(rows, {"properties": {"periods": [{
+        "startTime": "2026-09-10T06:00:00Z", "endTime": "2026-09-10T18:00:00Z",
+        "name": "Today", "detailedForecast": "Sunny, with a high near 80.",
+    }]}})
+    assert "narrative" not in rows[0]
+    assert rows[1]["narrative_period"] == "Today"
+    assert rows[2]["narrative"] == "Sunny, with a high near 80."
+    assert "narrative" not in rows[3]
+
+
+def test_open_meteo_preserves_snow_and_thunder_codes():
+    rows = normalize_open_meteo_forecast({"hourly": {
+        "time": ["2026-09-10T12:00", "2026-09-10T13:00"],
+        "temperature_2m": [0, 1], "weather_code": [73, 95],
+    }}, tz_name="UTC")
+    assert [row["symbol"] for row in rows] == ["Snow", "Thunderstorms"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("narrative_status", [200, 503])
+async def test_nws_fetch_uses_optional_period_narrative(monkeypatch, narrative_status):
+    import httpx
+    import sensorius.saiWeatherForecast as forecast
+
+    requested = []
+    def respond(request):
+        requested.append(request.url.path)
+        if request.url.path.startswith("/points/"):
+            return httpx.Response(200, json={"properties": {
+                "forecastHourly": "https://api.weather.gov/hourly",
+                "forecast": "https://api.weather.gov/narrative",
+            }})
+        if request.url.path == "/hourly":
+            return httpx.Response(200, json={"properties": {"periods": [{
+                "startTime": "2026-09-10T12:00:00Z", "temperature": 68,
+                "temperatureUnit": "F", "shortForecast": "Sunny",
+            }]}})
+        return httpx.Response(narrative_status, json={"properties": {"periods": [{
+            "startTime": "2026-09-10T06:00:00Z", "endTime": "2026-09-10T18:00:00Z",
+            "name": "Today", "detailedForecast": "Sunny, with a high near 80.",
+        }]}})
+    client_class = httpx.AsyncClient
+    monkeypatch.setattr(forecast.httpx, "AsyncClient", lambda **kwargs: client_class(
+        transport=httpx.MockTransport(respond), **kwargs
+    ))
+    rows = await forecast._fetch_nws_forecast(40, -105, tz_name="UTC", timeout_sec=1)
+    assert "/narrative" in requested
+    assert len(rows) == 1
+    assert rows[0]["temp_c"] == 20
+    assert ("narrative" in rows[0]) == (narrative_status == 200)

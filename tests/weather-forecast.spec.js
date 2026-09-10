@@ -15,6 +15,10 @@ for (const budget of cardBudgets) {
       const card = page.locator('.forecast-panel');
       await expect(card).not.toContainText('Updated from');
       await expect(card.getByRole('button', { name: '6-day details' })).toHaveCount(0);
+      await expect(card.locator('.forecast-synopsis')).toContainText('then rain around 8 PM');
+      await expect(card.locator('.forecast-hour:visible').first()).toContainText('RH 55%');
+      await expect(card.locator('.forecast-hour:visible').first()).toContainText(units === 'Metric' ? 'Wind 14 km/h' : 'Wind 9 mph');
+      const originalHeight = (await card.boundingBox()).height;
       const days = card.locator('.forecast-day');
       await expect(days).toHaveCount(6);
       for (const day of await days.all()) {
@@ -30,6 +34,13 @@ for (const budget of cardBudgets) {
       await card.screenshot({ path: testInfo.outputPath(`forecast-${units}.png`) });
       await card.getByRole('button', { name: 'Show next forecast hour' }).click();
       await expect(card.locator('[data-hourly-status]')).toHaveText('Hours 2–9 of 24');
+      await page.goto(`/weather-forecast?units=${units}&native=true`);
+      const synopsis = card.locator('.forecast-synopsis');
+      await expect(synopsis).toContainText('This Afternoon (NWS · original units)');
+      expect((await card.boundingBox()).height).toBe(originalHeight);
+      await synopsis.focus();
+      await page.keyboard.press('End');
+      await expect.poll(() => synopsis.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
     }
   });
 }

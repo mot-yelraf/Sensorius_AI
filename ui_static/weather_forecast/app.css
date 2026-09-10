@@ -526,17 +526,20 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
 .current-reading-list strong { margin-top: 0.25rem; font-size: 0.86rem; }
 .readings-footer { width: 100%; margin-top: auto; padding: 0.85rem 0 0.1rem; border-top: 1px solid var(--line); box-sizing: border-box; }
 .provider-label { color: var(--accent-2); font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; }
-.forecast-summary { display: grid; grid-template-columns: 7rem 1fr; align-items: center; gap: 1rem; min-height: 8.4rem; border-bottom: 1px solid var(--line); }
-.forecast-main-icon { font-size: 4.6rem; text-align: center; line-height: 0; }
+.forecast-summary { display: grid; grid-template-columns: 3rem minmax(0, 1fr); align-items: center; gap: 1rem; min-height: 8.4rem; border-bottom: 1px solid var(--line); }
+.forecast-main-icon { font-size: 2.6rem; text-align: center; line-height: 0; }
 .forecast-icon { width: 1em; height: 1em; overflow: visible; }
 .forecast-icon-sun { fill: #ffd23f; stroke: #ffbd20; stroke-width: 3; stroke-linecap: round; }
 .forecast-icon-cloud { fill: #edf5f7; stroke: #bad2d8; stroke-width: 1.5; stroke-linejoin: round; }
 .forecast-icon-rain, .forecast-icon-fog { fill: none; stroke: #52c7ff; stroke-width: 4; stroke-linecap: round; }
 .forecast-icon-snow { fill: none; stroke: #dff7ff; stroke-width: 2.5; stroke-linecap: round; }
 .forecast-icon-bolt { fill: #ffd23f; stroke: #ffad1f; stroke-width: 1; stroke-linejoin: round; }
-.forecast-summary > div { display: flex; justify-content: space-around; gap: 0.5rem; }
-.forecast-summary span span, .forecast-summary > div > span { color: var(--muted); font-size: 0.62rem; text-align: center; }
-.forecast-summary strong { display: block; color: var(--ink); font: 500 1.45rem Georgia, serif; }
+.forecast-summary-content { min-width: 0; }
+.forecast-ranges { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.3rem; }
+.forecast-ranges > span { color: var(--muted); font-size: 0.52rem; text-align: center; }
+.forecast-ranges strong { display: block; color: var(--ink); font-size: 0.68rem; }
+.forecast-synopsis { height: 3.4rem; overflow: auto; margin: 0.6rem 0 0; font-size: 0.66rem; line-height: 1.3; }
+.forecast-synopsis:focus-visible { outline: 1px solid var(--accent-2); }
 .hourly-carousel { display: grid; grid-template-columns: 1.15rem minmax(0, 1fr) 1.15rem; align-items: stretch; gap: 0.25rem; margin-top: 1rem; }
 .hourly-page-previous { grid-column: 1; }
 .hourly-strip { grid-column: 2; display: grid; grid-template-columns: repeat(8, 1fr); gap: 0.35rem; }
@@ -544,13 +547,14 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
 .hourly-page-button { min-width: 0; padding: 0; border: 0; border-radius: 0.5rem; background: rgba(255,255,255,.05); color: var(--muted); font-size: 0.72rem; line-height: 1; cursor: pointer; }
 .hourly-page-button:hover, .hourly-page-button:focus-visible { background: rgba(255,255,255,.12); color: var(--ink); outline: 1px solid var(--accent-2); }
 .hourly-page-status { margin: 0.35rem 1.4rem 0; color: var(--muted); font-size: 0.48rem; letter-spacing: 0.04em; text-align: center; }
-.forecast-hour { min-width: 0; text-align: center; padding: 0.55rem 0.2rem; border-left: 1px solid var(--line); }
+.forecast-hour { min-width: 0; text-align: center; padding: 0.2rem 0.2rem; border-left: 1px solid var(--line); }
 .forecast-hour:first-child { border-left: 0; }
 .forecast-hour time, .forecast-hour strong, .forecast-hour small, .forecast-hour > span { display: block; }
 .forecast-hour time { color: var(--muted); font-size: 0.54rem; }
-.forecast-hour > span { margin: 0.45rem 0; font-size: 1.65rem; }
+.forecast-hour > span { margin: 0.1rem 0; font-size: 1.4rem; }
 .forecast-hour strong { font-size: 0.8rem; }
 .forecast-hour small { margin-top: 0.22rem; color: #6dc8ff; font-size: 0.53rem; }
+.forecast-hour .hour-stat { color: var(--muted); margin-top: 0; font-size: 0.5rem; }
 .forecast-meta { margin: 0.65rem 0 0; color: var(--muted); font-size: 0.58rem; text-align: right; }
 .future-heading { display: flex; align-items: baseline; justify-content: space-between; margin-top: 0.9rem; padding-top: 0.8rem; border-top: 1px solid var(--line); }
 .future-heading span { color: var(--warm); font-size: 0.62rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }

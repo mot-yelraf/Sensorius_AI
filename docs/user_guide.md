@@ -480,6 +480,18 @@ Google Account when the hub is retired or no longer uses that account.
 
 #### Weather Forecast
 
+Both forecast tiles include a forecast synopsis. Open-Meteo and MET Norway
+summaries are assembled from hourly conditions, temperature range, maximum wind,
+and peak precipitation chance, using the selected display units. NWS supplies
+its own period narrative when available; the period name is shown and its text
+keeps the provider’s original units. If that optional text is unavailable,
+Sensorius builds the same hourly summary used for the other providers.
+
+The Caelus forecast card also shows temperature, humidity, and wind ranges and
+hourly humidity and wind alongside precipitation chances. Both cards retain
+their existing footprint; focus or scroll the synopsis to read longer text.
+Missing provider values appear as dashes rather than a zero forecast.
+
 The full-screen forecast is titled **Living Weather**, with the Caelus icon and
 “Created by Peace Hill Studios” beneath the title. The Biodynamic Calendar
 includes this credit in the central calendar icon. The settings menu displays
