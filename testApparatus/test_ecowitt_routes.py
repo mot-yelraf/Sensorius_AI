@@ -35,6 +35,7 @@ class _Settings:
 
 class _Service:
     poll_interval_sec = 120
+    smart_plug_interval_sec = 30
 
     def __init__(self):
         self.saved = None
@@ -52,8 +53,11 @@ class _Service:
             "live_metric_count": 9,
         }
 
-    def save_configuration(self, discovery, interval):
+    def save_configuration(self, discovery, interval, plug_interval=30):
         self.saved = (discovery, interval)
+
+    async def activate_smart_plugs(self):
+        pass
 
     def status(self):
         return {"state": "online", "enabled": True, "inventory": []}

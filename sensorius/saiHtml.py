@@ -878,6 +878,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                     last_state = last_state,
                     last_set_time = last_time,
                     override_script = override,
+                    channel_id_for_label = dict(getattr(ctrl, "channel_id_for_label", {}) or {}),
+                    is_ecowitt = bool(getattr(ctrl, "is_ecowitt", False)),
+                    available = bool(getattr(ctrl, "available", True)),
+                    confirmed = bool(getattr(ctrl, "confirmed", True)),
                 )
 
                 loc_key = _norm_loc(effective_loc)
@@ -1532,9 +1536,12 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 f"  data-automation-enabled='{'1' if automation_enabled else '0'}' "
                 f"  data-state='{state_str}' "
                 f"  onclick='toggleSwitchInline(this)'>"
-                f"{'On' if is_on else 'Off'}"
+                f"{'Unknown' if getattr(switch_ctrl, 'is_ecowitt', False) and not switch_ctrl.confirmed else ('On' if is_on else 'Off')}"
                 f"</button>"
             )
+            if getattr(switch_ctrl, "is_ecowitt", False):
+                plug_status = "Online" if switch_ctrl.available else ("Offline" if switch_ctrl.confirmed else "Awaiting status")
+                yield f"<div class='ecowitt-plug-status detail'>{plug_status}</div>"
             yield "".join((
                 f"<div class='switch-timer-panel' data-switch-ui-key='{timer_ui_key}' data-switch-id='{getattr(switch_ctrl, 'switch_id', '')}' data-label='{label_norm}'>",
                 f"  <div class='switch-timer-summary'>",
@@ -7307,6 +7314,12 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  const isOn = !!(stateData && (stateData.state===true || String(stateData.state).toLowerCase()==='on'));"
     yield "  const lastTime = stateData && stateData.time ? stateData.time : '';"
     yield "  setSwitchBoxState(box, isOn);"
+    yield "  const plugStatus = box.parentElement && box.parentElement.querySelector('.ecowitt-plug-status');"
+    yield "  if (plugStatus && stateData && typeof stateData.online === 'boolean') {"
+    yield "    plugStatus.textContent = stateData.online ? 'Online' : (stateData.confirmed ? 'Offline' : 'Awaiting status');"
+    yield "    plugStatus.title = stateData.error || '';"
+    yield "    if (!stateData.confirmed) box.textContent = 'Unknown';"
+    yield "  }"
     yield "  try { console.debug('[switch-ui] setSwitchBoxState', { key, name, isOn, boxKey: box.dataset ? box.dataset.switchKey : '', boxText: (box.textContent || '').trim() }); } catch (_) {}"
     yield "  updateSwitchTimerUi(key, Object.assign({}, stateData || {}, { state: isOn }), name);"
     yield "  if (labelEl) {"
@@ -7582,14 +7595,15 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      continue;"
     yield "    }"
     yield ""
-    yield "    const hasTime = Object.prototype.hasOwnProperty.call(data,'time');"
+    yield "    const hasTime = Object.prototype.hasOwnProperty.call(data,'time') || Array.isArray(data?.events);"
     yield "    let events=[];"
-    yield "    if(Array.isArray(data?.time)){"
+    yield "    if(Array.isArray(data?.events)){"
+    yield "      events = data.events.slice();"
+    yield "    } else if(Array.isArray(data?.time)){"
     yield "      events = data.time.slice();"
     yield "    } else if(typeof data?.time==='string'){"
     yield "      events = [data.time];"
-    yield "    } else if(Array.isArray(data?.events)){"
-    yield "      events = data.events.slice();"
+
     yield "    } else if(data && (data.state!==undefined || data.time!==undefined)){"
     yield "      const isOn = (data.state===true) || (String(data.state).toLowerCase()==='on');"
     yield "      const ts   = (typeof data.time==='string') ? data.time : '';"
@@ -7750,7 +7764,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     # Keep the status map keyed by 'switch_id::label' when possible
     yield "      updateSwitchEventsFromStatus({ [key || `::${real}`]: data });"
     yield "    })"
-    yield "    .catch(e => console.warn('toggleSwitchInline failed', e))"
+    yield "    .catch(e => {"
+    yield "      console.warn('toggleSwitchInline failed', e);"
+    yield "      const status = el.parentElement && el.parentElement.querySelector('.ecowitt-plug-status');"
+    yield "      if (status) status.textContent = 'Plug command failed; check gateway status.';"
+    yield "    })"
     yield "    .finally(() => {"
     yield "      el.classList.remove('switch-pending');"
     yield "      scheduleSwitchStatusRefreshes([1500, 6000, 12000]);"

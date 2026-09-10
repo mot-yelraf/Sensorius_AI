@@ -1606,18 +1606,28 @@
                       <input type="url" id="ecowitt-gateway-url" name="ecowitt_gateway_url" placeholder="http://192.168.1.100" autocomplete="url">
                     </div>
                     <div class="field-stack">
-                      <label for="btn-ecowitt-find">Gateway Discovery</label>
-                      <button type="button" class="button yellow" id="btn-ecowitt-find">Find Sensors</button>
+                      <label>Gateway Discovery</label>
+                      <button type="button" class="button yellow" id="btn-ecowitt-find">Find Devices</button>
                     </div>
                     <div class="field-stack">
-                      <label>Available Valid GW Sensors</label>
+                      <label>Discovered GW Sensors</label>
                       <div id="ecowitt-sensor-list" class="integration-state" role="list" aria-live="polite">
-                        <div class="integration-state-detail">Enter the gateway URL and choose Find Sensors.</div>
+                        <div class="integration-state-detail">Enter the gateway URL and choose Find Devices.</div>
                       </div>
                     </div>
                     <div class="field-stack">
                       <label for="ecowitt-polling-interval">Data Retrieval Interval</label>
                       <input type="number" id="ecowitt-polling-interval" name="ecowitt_polling_interval" value="{{ ecowitt_poll_interval_sec | default(300) }}" min="60" max="3600" step="1" inputmode="numeric">
+                    </div>
+                    <div class="field-stack">
+                      <label>Discovered GW Smart Plugs</label>
+                      <div id="ecowitt-smart-plug-list" class="integration-state" role="list" aria-live="polite">
+                        <div class="integration-state-detail">Choose Find Devices to discover GW1200 smart plugs.</div>
+                      </div>
+                    </div>
+                    <div class="field-stack">
+                      <label for="ecowitt-smart-plug-interval">Smart Plug Query Interval (seconds)</label>
+                      <input type="number" id="ecowitt-smart-plug-interval" value="30" min="15" max="60" step="1" inputmode="numeric">
                     </div>
                   </div>
                   <div class="inline-actions" style="justify-content:flex-end;margin-top:.65rem;">
@@ -3233,6 +3243,25 @@
     });
   }
 
+  function renderEcowittSmartPlugs(plugs) {
+    const list = document.getElementById("ecowitt-smart-plug-list");
+    if (!list) return;
+    list.replaceChildren();
+    const devices = Array.isArray(plugs) ? plugs : [];
+    if (!devices.length) {
+      list.textContent = "No AC1100 smart plugs discovered (GW1200 required).";
+      return;
+    }
+    devices.forEach(plug => {
+      const row = document.createElement("div");
+      row.setAttribute("role", "listitem");
+      row.className = "integration-state-detail";
+      const state = typeof plug.state === "boolean" ? (plug.state ? " — On" : " — Off") : "";
+      row.textContent = `AC1100 — ID ${plug.id} — ${plug.online ? "online" : "offline"}${state}${plug.error ? " — " + plug.error : ""}`;
+      list.appendChild(row);
+    });
+  }
+
   async function loadEcowittStatus() {
     try {
       const resp = await fetch("/ecowitt/status", { cache: "no-store" });
@@ -3243,6 +3272,9 @@
       if (url && !url.value && data.gateway_url) url.value = data.gateway_url;
       if (interval && data.poll_interval_sec) interval.value = String(data.poll_interval_sec);
       if (Array.isArray(data.inventory) && data.inventory.length) renderEcowittSensors(data.inventory);
+      renderEcowittSmartPlugs(data.smart_plugs);
+      const plugInterval = document.getElementById("ecowitt-smart-plug-interval");
+      if (plugInterval && data.smart_plug_interval_sec) plugInterval.value = data.smart_plug_interval_sec;
       const parts = [data.label || "Ecowitt state unknown"];
       if (data.last_accepted_reading) parts.push("Latest reading: " + data.last_accepted_reading);
       if (data.last_error) parts.push(data.last_error);
@@ -3269,10 +3301,12 @@
       if (!resp.ok) throw new Error(data.error || "Gateway discovery failed.");
       ecowittDiscovery = data;
       renderEcowittSensors(data.inventory);
+      renderEcowittSmartPlugs(data.smart_plugs);
       if (save) save.disabled = false;
       setStatus("ecowitt-status", `${data.gateway_model || "Ecowitt gateway"}: ${data.inventory.length} valid sensor(s), ${data.live_metric_count || 0} live metric(s).`);
     } catch (e) {
       renderEcowittSensors([]);
+      renderEcowittSmartPlugs([]);
       const msg = e && e.message ? e.message : "Gateway discovery failed.";
       setStatus("ecowitt-status", msg);
       showSettingsToast(msg, "error");
@@ -3283,7 +3317,7 @@
 
   async function saveEcowittGateway() {
     if (!ecowittDiscovery) {
-      setStatus("ecowitt-status", "Choose Find Sensors before saving.");
+      setStatus("ecowitt-status", "Choose Find Devices before saving.");
       return;
     }
     const gateway_url = (document.getElementById("ecowitt-gateway-url")?.value || "").trim();
@@ -3293,7 +3327,7 @@
       const resp = await fetch("/ecowitt/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gateway_url, poll_interval_sec })
+        body: JSON.stringify({ gateway_url, poll_interval_sec, smart_plug_interval_sec: document.getElementById("ecowitt-smart-plug-interval").value })
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(data.error || "Failed to save Ecowitt gateway.");
@@ -3301,6 +3335,7 @@
       shell.dataset.ecowittPollInterval = String(data.poll_interval_sec || poll_interval_sec);
       ecowittDiscovery = data;
       renderEcowittSensors(data.inventory);
+      renderEcowittSmartPlugs(data.smart_plugs);
       setStatus("ecowitt-status", "Ecowitt gateway saved and polling enabled.");
       showSettingsToast("Ecowitt gateway saved", "ok");
     } catch (e) {

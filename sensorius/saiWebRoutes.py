@@ -9877,8 +9877,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 service.save_configuration,
                 discovery,
                 payload.get("poll_interval_sec", ECOWITT_DEFAULT_POLL_INTERVAL_SEC),
+                payload.get("smart_plug_interval_sec", 30),
             )
-            return JSONResponse({"ok": True, **discovery, "poll_interval_sec": service.poll_interval_sec})
+            controllers = getattr(request.app.state, "switch_controllers", None)
+            if not isinstance(controllers, dict):
+                controllers = globals().get("switch_controllers")
+            service.switch_controllers = controllers if isinstance(controllers, dict) else {}
+            globals()["switch_controllers"] = service.switch_controllers
+            request.app.state.switch_controllers = service.switch_controllers
+            await service.activate_smart_plugs()
+            _invalidate_dashboard_caches()
+            return JSONResponse({"ok": True, **discovery, "poll_interval_sec": service.poll_interval_sec,
+                                 "smart_plug_interval_sec": service.smart_plug_interval_sec})
         except EcowittError as exc:
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
         except Exception as exc:
@@ -13627,6 +13637,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             if override_key in form:
                 sw_block[override_key] = str(form.get(override_key, "") or "").strip().lower() in {"1", "true", "on", "yes"}
 
+        if existing_doc["Switch"].get("TYPE") == "ecowitt" and "SWITCH_1_LABEL" in sw_block:
+            sw_block["SWITCH_1_LABEL"] = sw_block["SWITCH_1_LABEL"] or "Plug"
+
         merged_doc = deep_merge_ordered(OrderedDict(existing_doc), OrderedDict({"Switch": sw_block}))
 
         base_dir = Path(getattr(manager, "base_dir", "switch_settings"))
@@ -15103,6 +15116,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if key in states:
                     states[key].update(timer_info)
 
+            for ctrl in ctrl_by_switch_id.values():
+                if not getattr(ctrl, "is_ecowitt", False):
+                    continue
+                for label in ctrl.get_switch_names():
+                    for key in (ctrl._switch_key(label), f"{ctrl.switch_id}::{label}",
+                                f"{ctrl.channel_id_for_label[label]}::{label}"):
+                        states.setdefault(key, {}).update(
+                            state=ctrl.get_state(label), online=ctrl.available,
+                            availability="online" if ctrl.available else "offline",
+                            confirmed=ctrl.confirmed, error=ctrl.last_error,
+                        )
+
             _switch_status_cache_payload = states
             _switch_status_cache_until = time.monotonic() + _SWITCH_STATUS_CACHE_TTL_SEC
             return JSONResponse(states)
@@ -15506,7 +15531,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 sid,
                 matched_label,
                 ctrl,
-                prefer_live_current=remote,
+                prefer_live_current=remote or bool(getattr(ctrl, "is_ecowitt", False)),
                 live_current=current,
             )
             response_state = bool(new_state)
@@ -15577,7 +15602,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     payload["note"] = note
                 return payload
 
-            if not remote:
+            if getattr(ctrl, "is_ecowitt", False):
+                if not ctrl.available:
+                    return JSONResponse({"error": "plug_unavailable", "message": ctrl.last_error or "Plug is offline or gateway polling is disabled."}, status_code=503)
+                ok = ctrl.set_state(matched_label, new_state, force=True)
+                if ok:
+                    ok = await asyncio.shield(ctrl.command_task)
+                    if not ok:
+                        return JSONResponse({"error": "plug_confirmation_failed", "message": ctrl.last_error}, status_code=502)
+                response_state = bool(ctrl.get_state(matched_label))
+            elif not remote:
                 # Direct GPIO on this Pi
                 try:
                     ok = bool(ctrl.set_state(matched_label, new_state, force=True))
@@ -15640,7 +15674,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             # Persist SWITCH_n_LAST_STATE
             try:
-                if sid and not remote:
+                if sid and not remote and not getattr(ctrl, "is_ecowitt", False):
                     mgr = SwitchSettingsManager("switch_settings")
                     # Prefer controller helper if available
                     idx = None
@@ -15662,7 +15696,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             ts = ts_map.get(matched_label, time.time())
             # Persist UI-originated switch events only for local/direct controllers.
             # For remote/Nodus, history should be written only from confirmed MQTT event/state ingest.
-            if not remote:
+            if not remote and not getattr(ctrl, "is_ecowitt", False):
                 try:
                     if sid:
                         try:

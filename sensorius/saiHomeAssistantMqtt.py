@@ -627,7 +627,12 @@ class rPiHomeAssistantBridge:
         if switch_id and resolved_switch_id and switch_id != resolved_switch_id and DEBUG:
             printDM(f"HA switch_id mismatch: got={switch_id}, resolved={resolved_switch_id} for channel_id={channel_id}", location=MODULE)
 
-        ctrl.set_state(label, desired_on, force=True)
+        accepted = ctrl.set_state(label, desired_on, force=True)
+        if getattr(ctrl, "is_ecowitt", False):
+            if not accepted:
+                return
+            await asyncio.shield(ctrl.command_task)
+            desired_on = bool(ctrl.get_state(label))
         await self.publish_switch_state(resolved_switch_id or switch_id, channel_id, desired_on)
 
     # ---------------------------------------------------------------------

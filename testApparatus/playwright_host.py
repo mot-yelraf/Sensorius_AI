@@ -155,3 +155,27 @@ def weather_forecast(request: Request, units: str = "Metric"):
         "latest": {}, "moon": {"updated_at": start.isoformat()},
         "forecast": forecast, "app_version": "playwright",
     })
+
+
+@app.get("/ac1100-fixture", response_class=HTMLResponse)
+def ac1100_dashboard() -> HTMLResponse:
+    """Render the actual switch card with an isolated AC1100 definition."""
+    from sensorius.saiSwitchSettingsManager import SwitchSettingsManager
+
+    sid = "ecowitt-aabbccddeeff-ac1100-000008d1"
+    channel_id = f"{sid}-1"
+    SwitchSettingsManager().save(sid, {"Switch": {
+        "TYPE": "ecowitt", "DEVICE": "AC1100", "SWITCH_DEVICE_ID": sid,
+        "SWITCH_LOCATION": "Greenhouse", "SWITCH_1_LABEL": "Plug",
+        "SWITCH_1_CHANNEL_ID": channel_id,
+    }})
+    controller = SimpleNamespace(
+        switch_id=sid, location="Greenhouse", is_present=True, is_ecowitt=True,
+        available=True, confirmed=True, switches=["Plug"], last_state={"Plug": False},
+        last_set_time={}, override_script={}, channel_id_for_label={"Plug": channel_id},
+    )
+    return HTMLResponse("".join(render_dashboard(
+        "All", None, [], {}, {}, SimpleNamespace(expected_gauge_map={}),
+        switch_controllers={sid: controller}, gauge_config=get_gauge_config(),
+        expected_gauge_map={}, expected_display_style_map={},
+    )))

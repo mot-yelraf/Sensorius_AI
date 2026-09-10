@@ -555,6 +555,9 @@ def create_switch(settings=None, mqtt_client=None):
     """Create a local GPIO or MQTT switch implementation from settings."""
     sw = (settings or {}).get("Switch", {}) or {}
     typ = str(sw.get("TYPE", "pi")).strip().lower()
+    if typ == "ecowitt":
+        from .saiEcowittSwitch import EcowittSwitchBackend
+        return EcowittSwitchBackend(settings)
     if typ in ("picow", "pico2w", "nodus", "remote", "mqtt"):
         return MQTTSwitch(settings=settings, mqtt_client=mqtt_client)
     # default: Pi GPIO

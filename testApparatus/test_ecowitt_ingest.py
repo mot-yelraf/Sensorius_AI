@@ -235,6 +235,7 @@ async def test_gw1200_discovers_wh65_array_and_normalizes_ws2000_metrics(monkeyp
     }
     _Client.responses = {
         "get_version": {"version": "Version: GW1200A_V1.0.0", "platform": "ecowitt"},
+        "get_iot_device_list": {"command": []},
         "get_network_info": {"mac": "A4:CF:12:34:56:78"},
         ("get_sensors_info", 1): [{
             "img": "wh69",

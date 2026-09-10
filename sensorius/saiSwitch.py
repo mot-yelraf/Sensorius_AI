@@ -126,7 +126,7 @@ class SwitchController:
         # If this is a Pi GPIO switch, ensure settings match detected hardware/template
         try:
             sw_type = str(sw.get("TYPE", "pi")).strip().lower()
-            if sw_type not in REMOTE_SWITCH_TYPES:
+            if sw_type not in REMOTE_SWITCH_TYPES and sw_type != "ecowitt":
                 from .saiSwitchFactory import ensure_switch_settings_for_host
                 refreshed = ensure_switch_settings_for_host(self.switch_id, self.location)
                 if isinstance(self.settings, dict):
@@ -2899,6 +2899,11 @@ class RemoteSwitchController(SwitchController):
 
 def build_switch_controller(*, switch_settings=None, supervisor=None, sensor=None, mqtt_ingest=None, data_logger=None):
     """Build the appropriate local or remote shared switch controller."""
+    if _switch_type_from_settings(switch_settings) == "ecowitt":
+        from .saiEcowittSwitch import EcowittSwitchController
+        return EcowittSwitchController(
+            switch_settings=switch_settings, supervisor=supervisor, sensor=sensor, data_logger=data_logger,
+        )
     if is_remote_switch_settings(switch_settings):
         return RemoteSwitchController(
             switch_settings=switch_settings,

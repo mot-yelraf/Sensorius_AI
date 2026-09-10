@@ -642,17 +642,21 @@ Ecowitt Gateway fields and controls are arranged in two columns:
 - **GW1100 / GW1200 URL**: the gateway base address, such as
   `http://192.168.1.100` or a local hostname. Do not include a path,
   credentials, query, or fragment.
-- **Find Sensors**: queries the gateway's read-only version, network, sensor
+- **Find Devices**: queries the gateway's read-only version, network, sensor
   inventory, live-data, and rain-priority endpoints. Both inventory pages are
-  checked.
-- **Available Valid GW Sensors**: lists registered gateway sensors and whether
+  checked; GW1200 gateways also return their registered AC1100 smart plugs.
+- **Discovered GW Sensors**: lists registered gateway sensors and whether
   their data family is present in the current live response. All valid listed
   sensors and supported additional channels are ingested.
-- **Data Retrieval Interval**: polling period from 60 through 3600 seconds.
+- **Data Retrieval Interval**: weather polling period from 60 through 3600 seconds.
+- **Discovered GW Smart Plugs**: lists all paired AC1100 plugs, including offline
+  plugs. AC1100 support in Sensorius requires a GW1200.
+- **Smart Plug Query Interval (seconds)**: independent status polling from 15
+  through 60 seconds, default 30. Weather polling keeps its own interval.
 - **Save Gateway**: revalidates the gateway, derives a stable Sensorius station
-  ID from its MAC address, creates station settings, and enables polling.
+  ID from its MAC address, creates station and plug settings, and enables polling.
 - **Disable**: stops polling without deleting station settings or historical
-  readings.
+  readings. It also prevents Sensorius plug commands while disabled.
 
 Configure the GW1100 or GW1200 on the same trusted LAN first. A DHCP reservation
 is recommended. For an Ambient Weather WS-2000 outdoor array, use a North
@@ -665,9 +669,32 @@ local API's unit tags are authoritative;
 gateway-local unit settings can differ from Ecowitt app display preferences.
 Sensorius normalizes wind speed into its canonical mph metric, while wind
 direction drives the compass and 6/24-hour wind roses. As with WeeWX, that
-combined Sensor Tile's current reading and statistics show wind speed. Sensorius reads
-the gateway only; it does not change Wi-Fi, sensor registration, calibration,
+combined Sensor Tile's current reading and statistics show wind speed. Weather ingestion
+is read-only; Sensorius does not change Wi-Fi, sensor registration, calibration,
 rain settings, MQTT, firmware, weather-service configuration, or gateway units.
+
+Pair each AC1100 with the GW1200 using Ecowitt first, then choose **Find Devices**
+and **Save Gateway**. Saved plugs appear in the normal dashboard switch cards.
+Open the switch settings gear to set its location and channel label (default
+**Plug**). The normal toggle, event list, timers, and Advanced automations apply;
+manual toggles are blocked while an enabled automation owns the plug.
+
+Sensorius does not send a relay command at startup. Until a successful status
+query, the dashboard shows **Unknown / Awaiting status**. After a user or
+Sensorius automation command, status is queried every two seconds, up to five
+attempts. Only confirmed relay states enter the event list. Periodic queries
+also record observed changes made using the plug button or Ecowitt app. Changes
+that happen entirely between queries cannot be recovered. Offline plugs retain
+their last confirmed state and reject commands. A command confirmation failure
+is reported instead of assuming the relay changed.
+
+Plug definitions persist at
+`/home/<user>/Sensorius/switch_settings/<gateway-id>-ac1100-<plug-id>/switch.toml`
+on Linux or `/Users/<user>/Sensorius/switch_settings/<gateway-id>-ac1100-<plug-id>/switch.toml`
+on macOS. Discovery preserves user labels, locations, and channel identities.
+Existing saved plugs survive rediscovery; an unpaired plug becomes unavailable.
+This integration has simulated API coverage; physical GW1200/AC1100 verification
+is still required.
 
 GW1200 support is tested against Ecowitt's generic LAN API schema. Because the
 Ambient-branded WH65B hardware response has not yet been captured, verify the
