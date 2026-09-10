@@ -308,6 +308,44 @@ def _hour_window_condition(hours: list[dict[str, Any]]) -> str:
     return "Clear"
 
 
+def _forecast_synopsis(hours: list[dict[str, Any]], unit_system: str, provider: str) -> str:
+    """Describe the upcoming hourly window, preferring its native NWS period text."""
+    if not hours:
+        return ""
+    if provider == "us" and hours[0].get("narrative"):
+        return f"{hours[0].get('narrative_period') or 'Forecast period'} (NWS · original units): {hours[0]['narrative']}"
+    names = {"sunny": "Clear", "partly-cloudy": "Partly cloudy", "cloudy": "Overcast",
+             "rain": "Rain", "snow": "Snow", "thunder": "Thunderstorms", "fog": "Fog"}
+    def condition(row):
+        value = _hour_window_condition([row])
+        return "Conditions unavailable" if value == "Forecast unavailable" else names[_condition_icon_key(value)]
+    def when(row):
+        value = str(row.get("local_time") or row.get("time") or "")
+        first = str(hours[0].get("local_time") or hours[0].get("time") or "")
+        return _format_hour_label(value) + (" next day" if value[:10] != first[:10] else "")
+    first_condition = condition(hours[0])
+    text = first_condition
+    for row in hours[1:]:
+        next_condition = condition(row)
+        if next_condition != first_condition:
+            text += f", then {next_condition.lower()} around {when(row)}"
+            break
+    parts = [text + "."]
+    temperatures = [value for row in hours if (value := _forecast_display_value(row.get("temp_c"), "Temperature", "°C", unit_system)[0]) is not None]
+    temp_unit = _forecast_display_value(None, "Temperature", "°C", unit_system)[1]
+    if temperatures:
+        parts.append(f"Temperatures {min(temperatures):.0f}–{max(temperatures):.0f}{temp_unit}.")
+    winds = [value for row in hours if (value := _forecast_display_value(row.get("wind_mps"), "Wind Speed", "m/s", unit_system)[0]) is not None]
+    wind_unit = _forecast_display_value(None, "Wind Speed", "m/s", unit_system)[1]
+    if winds:
+        parts.append(f"Winds up to {max(winds):.0f} {wind_unit}.")
+    probabilities = [row for row in hours if _safe_float(row.get("precip_probability")) is not None]
+    if probabilities:
+        peak = max(probabilities, key=lambda row: float(row["precip_probability"]))
+        parts.append(f"Precipitation chance peaks at {float(peak['precip_probability']):.0f}% around {when(peak)}.")
+    return " ".join(parts)
+
+
 def build_weather_display_forecast(
     payload: dict[str, Any],
     unit_system: object = "Imperial",
@@ -332,6 +370,9 @@ def build_weather_display_forecast(
         hours.append(
             {
                 "label": label,
+                "humidity": round(rh) if (rh := _safe_float(raw.get("rh"))) is not None else None,
+                "wind_speed": round(wind) if (wind := _forecast_display_value(raw.get("wind_mps"), "Wind Speed", "m/s", display_unit_system)[0]) is not None else None,
+                "wind_unit": _forecast_display_value(None, "Wind Speed", "m/s", display_unit_system)[1],
                 "icon": _condition_icon(condition),
                 "icon_key": _condition_icon_key(condition),
                 "precip_label": _precipitation_chance_label(condition),
@@ -404,6 +445,8 @@ def build_weather_display_forecast(
         "stale": bool(payload.get("stale", False)),
         "reason": str(payload.get("reason") or ""),
         "condition": condition,
+        "synopsis": _forecast_synopsis(normalized_hours, display_unit_system, str(payload.get("provider") or "")) or condition,
+        "wind_range": _forecast_wind(current.get("wind"), display_unit_system, include_description=False),
         "icon": _condition_icon(_hour_window_condition(normalized_hours[:3]) if normalized_hours else condition),
         "icon_key": _condition_icon_key(
             _hour_window_condition(normalized_hours[:3]) if normalized_hours else condition

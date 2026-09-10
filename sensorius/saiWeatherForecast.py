@@ -377,6 +377,17 @@ def normalize_met_forecast(payload: dict[str, Any], *, tz_name: str) -> list[dic
     return sorted(rows, key=lambda row: row["time"])
 
 
+def _open_meteo_symbol(value: object) -> str:
+    code = _safe_float(value)
+    if code in (95, 96, 99):
+        return "Thunderstorms"
+    if code in (71, 73, 75, 77, 85, 86):
+        return "Snow"
+    if code in (51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82):
+        return "Rain"
+    return {0: "Clear", 1: "Mostly clear", 2: "Partly cloudy", 3: "Overcast", 45: "Fog", 48: "Fog"}.get(code, "")
+
+
 def normalize_open_meteo_forecast(payload: dict[str, Any], *, tz_name: str) -> list[dict[str, Any]]:
     """Normalize Open-Meteo forecast payload into hourly rows."""
     hourly = payload.get("hourly") if isinstance(payload, dict) else None
@@ -389,6 +400,7 @@ def normalize_open_meteo_forecast(payload: dict[str, Any], *, tz_name: str) -> l
     precip_probability = hourly.get("precipitation_probability")
     clouds = hourly.get("cloud_cover")
     winds = hourly.get("wind_speed_10m")
+    codes = hourly.get("weather_code")
     if not isinstance(times, list):
         return []
     rows: list[dict[str, Any]] = []
@@ -402,6 +414,7 @@ def normalize_open_meteo_forecast(payload: dict[str, Any], *, tz_name: str) -> l
                 "temp_c": _at(temps),
                 "rh": _at(rhs),
                 "wind_mps": _at(winds),
+                "symbol": _open_meteo_symbol(_at(codes)),
                 "cloud": _at(clouds),
                 "precip_mm": _at(precip) or 0.0,
                 "precip_probability": _at(precip_probability),
@@ -750,7 +763,7 @@ async def _fetch_met_forecast(latitude: float, longitude: float, *, tz_name: str
 async def _fetch_open_meteo_forecast(latitude: float, longitude: float, *, tz_name: str, timeout_sec: float) -> list[dict[str, Any]]:
     hourly = (
         "temperature_2m,relative_humidity_2m,precipitation,"
-        "precipitation_probability,cloud_cover,wind_speed_10m"
+        "precipitation_probability,cloud_cover,wind_speed_10m,weather_code"
     )
     async with httpx.AsyncClient(timeout=timeout_sec, headers={"User-Agent": USER_AGENT}, follow_redirects=True) as client:
         resp = await client.get(
@@ -780,17 +793,20 @@ async def _fetch_nws_forecast(latitude: float, longitude: float, *, tz_name: str
         if not hourly_url:
             raise RuntimeError("NWS hourly forecast URL unavailable")
 
-        async def _fetch_grid() -> httpx.Response | None:
-            if not grid_url:
+        async def _fetch_optional(url: str) -> httpx.Response | None:
+            if not url:
                 return None
             try:
-                return await client.get(grid_url)
+                return await client.get(url)
             except Exception as exc:
                 if DEBUG:
-                    printDM(f"NWS grid probability request failed: {exc}", location=MODULE)
+                    printDM(f"NWS optional forecast request failed: {exc}", location=MODULE)
                 return None
 
-        hourly_resp, grid_resp = await asyncio.gather(client.get(hourly_url), _fetch_grid())
+        narrative_url = str((props or {}).get("forecast") or "").strip()
+        hourly_resp, grid_resp, narrative_resp = await asyncio.gather(
+            client.get(hourly_url), _fetch_optional(grid_url), _fetch_optional(narrative_url)
+        )
         hourly_resp.raise_for_status()
         rows = normalize_nws_forecast(hourly_resp.json(), tz_name=tz_name)
         if grid_resp is not None:
@@ -802,7 +818,30 @@ async def _fetch_nws_forecast(latitude: float, longitude: float, *, tz_name: str
                     printDM(f"NWS grid probability supplement failed: {exc}", location=MODULE)
             else:
                 supplement_precipitation_probabilities(rows, supplemental)
+        if narrative_resp is not None:
+            try:
+                narrative_resp.raise_for_status()
+                attach_nws_narratives(rows, narrative_resp.json())
+            except Exception as exc:
+                if DEBUG:
+                    printDM(f"NWS narrative supplement failed: {exc}", location=MODULE)
         return rows
+
+
+def attach_nws_narratives(rows: list[dict[str, Any]], payload: dict[str, Any]) -> None:
+    """Attach native NWS text only to hours within its forecast period."""
+    properties = payload.get("properties") or {}
+    for period in properties.get("periods") or []:
+        start = _parse_datetime(period.get("startTime"))
+        end = _parse_datetime(period.get("endTime"))
+        text = str(period.get("detailedForecast") or "").strip()
+        if not start or not end or not text:
+            continue
+        for row in rows:
+            instant = _parse_datetime(row.get("time"))
+            if instant and start <= instant < end:
+                row["narrative"] = text
+                row["narrative_period"] = str(period.get("name") or "Forecast period")
 
 
 def _resolve_forecast_location(settings: Any, *, timeout_sec: float) -> dict[str, Any]:

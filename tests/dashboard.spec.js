@@ -365,3 +365,25 @@ test('refreshes warming Sun and Moon data while a dashboard image is still loadi
     releaseImage();
   }
 });
+
+test('forecast synopsis stays readable without enlarging the dashboard tile', async ({ page }) => {
+  let synopsis = 'Sunny.';
+  await page.route(url => url.pathname === '/api/weather-forecast', route => route.fulfill({ json: {
+    ok: true, provider: 'us', hourly: [], days: [],
+    current_24h: { overall: 'Sunny', synopsis, temp_range: '20–25°C', rh_range: '40–60%', wind: '1-4 m/s', precip_probability: 10 },
+  } }));
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  const tile = page.locator('#weatherForecastBox');
+  await expect(page.locator('#forecastOverall')).toHaveText('Sunny.');
+  const original = await tile.boundingBox();
+  const longText = 'Today (NWS · original units): ' + 'Sunny, with a high near 80. West wind 5 to 10 mph. '.repeat(15);
+  synopsis = longText;
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#forecastOverall')).toHaveText(longText.trim());
+  const changed = await tile.boundingBox();
+  expect(changed.width).toBe(original.width);
+  expect(changed.height).toBe(original.height);
+  await page.locator('#forecastOverall').focus();
+  await page.keyboard.press('End');
+  await expect.poll(() => page.locator('#forecastOverall').evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+});

@@ -579,7 +579,7 @@ async def test_integrated_weather_routes_render_dashboard_and_namespaced_apis(mo
     assert "data-hourly-previous" in page.text
     assert "data-hourly-next" in page.text
     assert ">40%</strong> Rain chance" in page.text
-    assert "40% rain chance" in page.text
+    assert ">Rain 40%</small>" in page.text
     assert "Rain 42%" in page.text
     assert "RH 30-60%" in page.text
     assert "Wind --" in page.text
@@ -859,3 +859,37 @@ def test_six_day_dialog_uses_selected_theme_palette():
     assert ".forecast-dialog > header button::before" in css
     assert "transform: translate(-50%, -50%) rotate(45deg)" in css
     assert "transform: translate(-50%, -50%) rotate(-45deg)" in css
+
+
+def test_synopsis_uses_local_transition_time_units_and_missing_values():
+    payload = {"ok": True, "provider": "met_no", "hourly": [
+        {"local_time": "2026-09-10T23:00:00-06:00", "temp_c": 10, "symbol": "clearsky_night", "wind_mps": 2},
+        {"local_time": "2026-09-11T00:00:00-06:00", "temp_c": 20, "symbol": "snow", "wind_mps": 4, "rh": 60, "precip_probability": 75},
+    ]}
+    metric = weather_app.build_weather_display_forecast(payload, "Metric")
+    assert "then snow around 12 AM next day" in metric["synopsis"]
+    assert "10–20°C" in metric["synopsis"]
+    assert "14 km/h" in metric["synopsis"]
+    assert "75% around 12 AM next day" in metric["synopsis"]
+    assert metric["hours"][0]["humidity"] is None
+    assert metric["hours"][1]["humidity"] == 60
+    imperial = weather_app.build_weather_display_forecast(payload, "Imperial")
+    assert "50–68°F" in imperial["synopsis"]
+    assert "9 mph" in imperial["synopsis"]
+    for hour in payload["hourly"]:
+        hour.pop("precip_probability", None)
+        hour.pop("wind_mps", None)
+    missing = weather_app.build_weather_display_forecast(payload)["synopsis"]
+    assert "chance" not in missing
+    assert "Winds" not in missing
+
+
+def test_synopsis_prefers_nws_native_text_with_generated_fallback():
+    payload = {"ok": True, "provider": "us", "hourly": [{
+        "local_time": "2026-09-10T12:00:00Z", "temp_c": 20, "symbol": "Sunny",
+        "narrative_period": "This Afternoon", "narrative": "Sunny, with a high near 80.",
+    }]}
+    result = weather_app.build_weather_display_forecast(payload, "Metric")
+    assert result["synopsis"] == "This Afternoon (NWS · original units): Sunny, with a high near 80."
+    del payload["hourly"][0]["narrative"]
+    assert "Temperatures 20–20°C" in weather_app.build_weather_display_forecast(payload, "Metric")["synopsis"]

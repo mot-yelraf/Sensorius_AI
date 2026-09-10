@@ -127,19 +127,21 @@ def switch_settings() -> HTMLResponse:
 
 
 @app.get("/weather-forecast", response_class=HTMLResponse)
-def weather_forecast(request: Request, units: str = "Metric"):
+def weather_forecast(request: Request, units: str = "Metric", native: bool = False):
     """Render the real Caelus page with a complete, deterministic six-day outlook."""
     from sensorius.saiWeatherForecastApp import build_weather_display_forecast
 
     start = datetime(2026, 9, 9, 15, tzinfo=timezone.utc)
     forecast = build_weather_display_forecast({
-        "ok": True, "provider": "nws",
-        "current_24h": {"overall": "Cloudy early, clearing late", "precip_probability": 55},
+        "ok": True, "provider": "us" if native else "open_meteo",
+        "current_24h": {"overall": "Cloudy early, clearing late", "precip_probability": 55, "rh_range": "35-85%", "wind": "Mostly light\n1-8 m/s / 2-18 mph"},
         "hourly": [{
             "time": (start + timedelta(hours=hour)).isoformat(),
             "local_time": (start + timedelta(hours=hour)).isoformat(),
             "temp_c": 30 - hour / 2, "precip_probability": 55,
-            "symbol": "partlycloudy_day",
+            "narrative": "Sunny, with a high near 80. West wind 5 to 10 mph. " * 12 if native else "",
+            "narrative_period": "This Afternoon",
+            "symbol": "partlycloudy_day" if hour < 5 else "rain", "rh": 55, "wind_mps": 4,
         } for hour in range(24)],
         "days": [{
             "date": (start + timedelta(days=day)).date().isoformat(),

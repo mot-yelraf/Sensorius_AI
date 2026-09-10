@@ -6163,6 +6163,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             payload = copy.deepcopy(payload)
             current_24h = payload.get("current_24h")
             if isinstance(current_24h, dict):
+                current_24h["synopsis"] = display_forecast.get("synopsis")
                 current_24h["temp_range"] = display_forecast.get("temp_range") or current_24h.get("temp_range")
             payload["unit_system"] = display_unit_system
             if forecast_app_service is not None:

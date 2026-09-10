@@ -72,11 +72,17 @@
       <article class="glass-card forecast-panel">
         <div class="card-heading"><div><p class="eyebrow">Today’s forecast</p><h2>{{ forecast.condition }}</h2></div><span class="provider-label">{{ forecast.provider_label }}</span></div>
         {% if forecast.ok %}
-          <div class="forecast-summary"><span class="forecast-main-icon">{{ weather_icon(forecast.icon_key, forecast.condition) }}</span><div><span><strong>{{ reading(forecast.high, forecast.temperature_unit) }}</strong> high</span><span><strong>{{ reading(forecast.low, forecast.temperature_unit) }}</strong> low</span><span><strong>{{ reading(forecast.precip_probability, '%') }}</strong> {{ forecast.precip_label }}</span></div></div>
+          <div class="forecast-summary">
+            <span class="forecast-main-icon">{{ weather_icon(forecast.icon_key, forecast.condition) }}</span>
+            <div class="forecast-summary-content">
+              <div class="forecast-ranges"><span><strong>{{ reading(forecast.low, forecast.temperature_unit) }}–{{ reading(forecast.high, forecast.temperature_unit) }}</strong>Temperature</span><span><strong>{{ forecast.rh_range }}</strong>RH</span><span><strong>{{ forecast.wind_range }}</strong>Wind</span><span><strong>{{ reading(forecast.precip_probability, '%') }}</strong> {{ forecast.precip_label }}</span></div>
+              <p class="forecast-synopsis" tabindex="0" aria-label="Forecast synopsis">{{ forecast.synopsis }}</p>
+            </div>
+          </div>
           {% set hour_count = forecast.hours | length %}
           <div class="hourly-carousel" data-hourly-carousel data-page-size="8">
             <button class="hourly-page-button hourly-page-previous" type="button" data-hourly-previous aria-label="Show previous forecast hour" hidden>&lt;</button>
-            <div class="hourly-strip">{% for hour in forecast.hours %}<div class="forecast-hour" data-hourly-index="{{ loop.index0 }}"{% if loop.index0 >= 8 %} hidden{% endif %}><time>{{ hour.label }}</time><span>{{ weather_icon(hour.icon_key, 'Weather at ' ~ hour.label) }}</span><strong>{{ reading(hour.temperature, hour.temperature_unit) }}</strong><small>{{ reading(hour.precip_probability, '%') }} {{ hour.precip_label | lower }}</small></div>{% endfor %}</div>
+            <div class="hourly-strip">{% for hour in forecast.hours %}<div class="forecast-hour" data-hourly-index="{{ loop.index0 }}"{% if loop.index0 >= 8 %} hidden{% endif %}><time>{{ hour.label }}</time><span>{{ weather_icon(hour.icon_key, 'Weather at ' ~ hour.label) }}</span><strong>{{ reading(hour.temperature, hour.temperature_unit) }}</strong><small class="hour-stat">RH {{ reading(hour.humidity, '%') }}</small><small class="hour-stat">Wind {{ reading(hour.wind_speed, ' ' ~ hour.wind_unit) }}</small><small>{{ 'Snow' if hour.precip_label == 'Snow chance' else 'Rain' }} {{ reading(hour.precip_probability, '%') }}</small></div>{% endfor %}</div>
             <button class="hourly-page-button hourly-page-next" type="button" data-hourly-next aria-label="Show next forecast hour"{% if hour_count <= 8 %} hidden{% endif %}>&gt;</button>
           </div>
           <p class="hourly-page-status" data-hourly-status aria-live="polite">Hours 1–{{ 8 if hour_count > 8 else hour_count }} of {{ hour_count }}</p>
@@ -91,7 +97,7 @@
               <strong aria-label="Temperature range">{{ day.temp_range }}</strong>
               <small class="forecast-day-stat">RH {{ day.rh_range }}</small>
               <small class="forecast-day-stat">Wind {{ day.wind_range }}</small>
-              <small>{{ 'Snow' if day.precip_label == 'Snow chance' else 'Rain' }} {{ reading(day.precip_probability, '%') }}</small>
+              <small class="forecast-day-stat">{{ 'Snow' if day.precip_label == 'Snow chance' else 'Rain' }} {{ reading(day.precip_probability, '%') }}</small>
             </article>
             {% endfor %}
           </div>
