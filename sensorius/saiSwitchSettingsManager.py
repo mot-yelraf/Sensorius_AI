@@ -724,7 +724,7 @@ class SwitchSettingsManager:
             return ""
 
         sw_type = str(switch_block.get("TYPE", "pi") or "pi").strip().lower()
-        is_remote = sw_type in {"picow", "pico2w", "nodus", "mqtt", "remote"}
+        is_remote = sw_type in {"picow", "pico2w", "nodus", "mqtt", "remote", "ecowitt"}
         serial = str(switch_block.get("DEVICE_SERIAL_NUM", "") or "").strip()
 
         if not is_remote:

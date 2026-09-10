@@ -278,6 +278,8 @@ UPDATE_PERIOD_SEC = 300
 ENABLED = false
 GATEWAY_URL = ""
 POLL_INTERVAL_SEC = 300
+SMART_PLUG_INTERVAL_SEC = 30
+SMART_PLUGS_JSON = "[]"
 SENSOR_ID = ""
 INVENTORY_JSON = "[]"
 RAIN_SOURCE = ""
@@ -312,13 +314,16 @@ Runtime notes:
 - WeeWX MQTT settings are applied live through the running MQTT ingest client
   when available. If MQTT ingest is not running, the settings apply when MQTT
   ingest starts.
-- Ecowitt settings control one read-only GW1100, GW1200, or compatible generic
-  Ecowitt LAN gateway. `SENSOR_ID` is generated
+- Ecowitt settings control weather polling from one GW1100, GW1200, or compatible
+  Ecowitt LAN gateway, plus AC1100 discovery and control on GW1200. `SENSOR_ID` is generated
   from the gateway MAC during discovery; `INVENTORY_JSON` is an informational
   snapshot of valid registered sensors. `RAIN_SOURCE` and `RAIN_RESET_HOUR` are
   discovered gateway metadata used to preserve rain-counter correctness.
-  Enable/disable and interval changes are
-  read by the always-registered poller without a process restart.
+  `SMART_PLUG_INTERVAL_SEC` independently controls AC1100 status queries (15–60
+  seconds, default 30); `SMART_PLUGS_JSON` stores the last discovered plug list.
+  Disable stops both pollers and blocks plug commands. Enable/disable and interval
+  changes apply without a process restart. Saving discovery activates new plugs
+  and their automation monitors immediately.
 - Home Assistant and farmOS secrets are obfuscated at rest by `sensorius.saiSettings`.
   This is reversible obfuscation, not encryption.
 - `[WeatherForecast].PROVIDER` accepts `met_no`, `open_meteo`, `us`, or `none`.

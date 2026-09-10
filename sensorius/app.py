@@ -385,6 +385,8 @@ def seed_switch_state_history_once(data_logger, switch_controllers):
 
     try:
         for ctrl in (switch_controllers or {}).values():
+            if getattr(ctrl, "is_ecowitt", False):
+                continue
             sid = getattr(ctrl, "switch_id", None)
             if not sid:
                 continue
@@ -696,6 +698,8 @@ async def main(shutdown_requested: Event | None = None):
     # --- Always-on supervisors ---
     weewx_ingest = WeeWXArchiveIngest(settings=settings, data_logger=data_logger, supervisor=supervisor)
     ecowitt_ingest = EcowittGatewayIngest(settings=settings, data_logger=data_logger, supervisor=supervisor)
+    ecowitt_ingest.switch_controllers = switch_controllers
+    await ecowitt_ingest.activate_smart_plugs()
     farmos_bridge = saiFarmOSBridge(settings=settings, data_logger=data_logger, supervisor=supervisor)
     email_notifications = EmailNotificationService(
         settings=settings,
@@ -714,6 +718,7 @@ async def main(shutdown_requested: Event | None = None):
         supervisor=supervisor,
     )
     supervisor.add(weewx_ingest.run, name="WeeWX Archive Ingest", fatal_on_timeout=False, fatal_on_error=False)
+    supervisor.add(ecowitt_ingest.run_smart_plugs, name="Ecowitt Smart Plugs", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(ecowitt_ingest.run, name="Ecowitt Gateway Ingest", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(data_logger.run_retention, supervisor, name="Database Retention", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(farmos_bridge.run, name="FarmOS Bridge", fatal_on_timeout=False, fatal_on_error=False)

@@ -1,7 +1,7 @@
 # Sensors And Metrics
 
 Sensorius supports local Raspberry Pi sensors, MQTT-discovered Nodus sensors,
-optional WeeWX station ingest, and read-only Ecowitt LAN gateway polling. All readings are normalized into the same
+optional WeeWX station ingest, and Ecowitt LAN gateway weather polling. All readings are normalized into the same
 database and dashboard model.
 
 Each sensor defines a `measurements` list that determines the metric names
@@ -32,6 +32,12 @@ WeeWX station ingest:
 - Adds station metrics to the same dashboard and DB paths.
 
 Ecowitt gateway ingest:
+
+AC1100 smart plugs paired with a GW1200 use a separate local IoT API and appear
+as switches, with configurable labels and locations. Their 15–60 second status
+queries are independent of weather polling. Commands are followed by status
+confirmation; observed relay changes use the standard switch event history.
+See the Ecowitt section in the [user guide](user_guide.md#ecowitt-gateway).
 
 - Discovers GW1100 and GW1200 gateways, plus other compatible Ecowitt gateways,
   and their registered sensors through the local generic HTTP API. GW1200

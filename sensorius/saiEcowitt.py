@@ -154,6 +154,7 @@ class EcowittGatewayIngest:
         self.settings = settings
         self.data_logger = data_logger
         self.supervisor = supervisor
+        self.switch_controllers = {}
         self._request_lock = asyncio.Lock()
         self._last_rain_day: float | None = None
         self._last_rain_timestamp: str = ""
@@ -239,6 +240,10 @@ class EcowittGatewayIngest:
                 page2 = await self._get_json(client, base_url, "get_sensors_info", page=2)
                 live = await self._get_json(client, base_url, "get_livedata_info")
                 rain_totals = await self._get_json(client, base_url, "get_rain_totals")
+                from .saiEcowittSwitch import discover_smart_plugs, supports_smart_plugs
+                smart_plugs = []
+                if isinstance(version, dict) and supports_smart_plugs(version.get("version")):
+                    smart_plugs = await discover_smart_plugs(client, base_url)
 
         if not isinstance(version, dict) or not isinstance(network, dict) or not isinstance(live, dict):
             raise EcowittError("Gateway response schema is not supported.")
@@ -265,6 +270,7 @@ class EcowittGatewayIngest:
             "gateway_model": version_text or "Ecowitt Gateway",
             "firmware": version_text,
             "inventory": inventory,
+            "smart_plugs": smart_plugs,
             "rain_source": source,
             "rain_reset_hour": reset_hour,
             "live_metric_count": len(values),
@@ -310,7 +316,7 @@ class EcowittGatewayIngest:
             return "ch_lds" in live_sections
         return bool(live_sections.intersection({"common_list", "rain", "piezoRain", "wh25", "ch_ec"}))
 
-    def save_configuration(self, discovery: dict[str, Any], poll_interval_sec: Any) -> None:
+    def save_configuration(self, discovery: dict[str, Any], poll_interval_sec: Any, smart_plug_interval_sec: Any = 30) -> None:
         """Persist a successfully discovered gateway and materialize its station."""
         try:
             interval = int(poll_interval_sec)
@@ -320,6 +326,8 @@ class EcowittGatewayIngest:
             raise EcowittError(
                 f"Retrieval interval must be between {MIN_POLL_INTERVAL_SEC} and {MAX_POLL_INTERVAL_SEC} seconds."
             )
+        from .saiEcowittSwitch import query_interval, save_smart_plugs
+        plug_interval = query_interval(smart_plug_interval_sec)
         sensor_id = str(discovery.get("sensor_id", "") or "").strip()
         inventory = discovery.get("inventory") if isinstance(discovery.get("inventory"), list) else []
         ensure_ecowitt_sensor_settings(
@@ -327,10 +335,13 @@ class EcowittGatewayIngest:
             inventory=inventory,
             gateway_model=str(discovery.get("gateway_model", "") or "Ecowitt Gateway"),
         )
+        save_smart_plugs(discovery)
         self.settings.set_many_in_memory([
             ("Ecowitt", "ENABLED", True),
             ("Ecowitt", "GATEWAY_URL", str(discovery.get("gateway_url", "") or "")),
             ("Ecowitt", "POLL_INTERVAL_SEC", interval),
+            ("Ecowitt", "SMART_PLUG_INTERVAL_SEC", plug_interval),
+            ("Ecowitt", "SMART_PLUGS_JSON", _inventory_json(discovery.get("smart_plugs", []))),
             ("Ecowitt", "SENSOR_ID", sensor_id),
             ("Ecowitt", "INVENTORY_JSON", _inventory_json(inventory)),
             ("Ecowitt", "RAIN_SOURCE", str(discovery.get("rain_source", "traditional") or "traditional")),
@@ -351,6 +362,8 @@ class EcowittGatewayIngest:
             "enabled": self.enabled,
             "gateway_url": self.gateway_url,
             "poll_interval_sec": self.poll_interval_sec,
+            "smart_plug_interval_sec": self.smart_plug_interval_sec,
+            "smart_plugs": self.smart_plug_status(),
             "sensor_id": self.sensor_id or result.get("sensor_id", ""),
         })
         if not result.get("inventory"):
@@ -486,3 +499,76 @@ class EcowittGatewayIngest:
                     self._last_error_log_mono = now_mono
                     printDM(message, location=MODULE, level="warning")
             await self._sleep_with_heartbeat(self.poll_interval_sec)
+
+    @property
+    def smart_plug_interval_sec(self) -> int:
+        """Return the independent 15–60 second plug polling interval."""
+        from .saiEcowittSwitch import query_interval
+        try:
+            return query_interval(self.settings.get_setting(
+                "Ecowitt", "SMART_PLUG_INTERVAL_SEC", 30, reload_if_changed=True))
+        except EcowittError:
+            return 30
+
+    def smart_plug_status(self) -> list[dict]:
+        """Return saved device identities enriched with confirmed runtime status."""
+        try:
+            plugs = json.loads(str(self.settings.get_setting(
+                "Ecowitt", "SMART_PLUGS_JSON", "[]", reload_if_changed=True) or "[]"))
+        except (ValueError, TypeError):
+            plugs = []
+        if not isinstance(plugs, list):
+            return []
+        result = []
+        for plug in plugs:
+            if not isinstance(plug, dict) or type(plug.get("id")) is not int:
+                continue
+            row = {**plug, "online": False}
+            sid = f"{self.sensor_id}-ac1100-{plug['id']:08x}"
+            ctrl = self.switch_controllers.get(sid)
+            if ctrl:
+                row.update(online=ctrl.available, state=ctrl.get_state(ctrl.get_switch_names()[0])
+                           if ctrl.confirmed else None, error=ctrl.last_error)
+            result.append(row)
+        return result
+
+    async def activate_smart_plugs(self) -> None:
+        """Attach saved plugs to the live dashboard and shared automation monitors."""
+        from .saiEcowittSwitch import EcowittSwitchController
+        from .saiSwitch import build_switch_controller
+        from .saiSwitchSettingsManager import SwitchSettingsManager
+        manager = SwitchSettingsManager("switch_settings")
+        ids = await asyncio.to_thread(manager.list_switches)
+        for sid in ids:
+            doc = await asyncio.to_thread(manager.load, sid)
+            sw = (doc or {}).get("Switch", {})
+            if sw.get("TYPE") != "ecowitt":
+                continue
+            ctrl = self.switch_controllers.get(sid)
+            if ctrl is None:
+                ctrl = build_switch_controller(switch_settings=doc, supervisor=self.supervisor,
+                                               data_logger=self.data_logger)
+                self.switch_controllers[sid] = ctrl
+                if self.supervisor:
+                    self.supervisor.add(ctrl.run_controladora_monitor, ctrl.sensor,
+                                        name=f"{sid} Controladora Monitor",
+                                        fatal_on_timeout=False, fatal_on_error=False)
+            if isinstance(ctrl, EcowittSwitchController):
+                ctrl.service = self
+
+    async def run_smart_plugs(self) -> None:
+        """Poll saved plugs independently of the weather retrieval interval."""
+        from .saiEcowittSwitch import IOT_TASK_NAME
+        while True:
+            if self.enabled:
+                for ctrl in list(self.switch_controllers.values()):
+                    if getattr(ctrl, "is_ecowitt", False):
+                        if self.supervisor:
+                            self.supervisor.feedthedogs(IOT_TASK_NAME)
+                        await ctrl.poll_status()
+            remaining = self.smart_plug_interval_sec
+            while remaining > 0:
+                if self.supervisor:
+                    self.supervisor.feedthedogs(IOT_TASK_NAME)
+                await asyncio.sleep(min(5, remaining))
+                remaining -= 5
