@@ -1297,7 +1297,6 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         rendered_swids_here: set[str] = set()
         switch_rows: list[dict] = []
         switch_ids_here: list[str] = []
-        label_counts: dict[str, int] = defaultdict(int)
 
         for switch_ctrl in matched_switches:
             sw_id: str = (getattr(switch_ctrl, "switch_id", "") or "").strip()
@@ -1398,7 +1397,6 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 continue
 
             for label in render_labels:
-                label_counts[str(label or "").strip().lower()] += 1
                 switch_rows.append({
                     "empty": False,
                     "switch_ctrl": switch_ctrl,
@@ -1414,16 +1412,15 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         header_id = _safe(f"{'_'.join(switch_ids_here) if switch_ids_here else location}_header")
         yield f"<div class='switch-metric-container' data-switch-ids='{switch_ids_attr}'>"
         yield "<div style='text-align:center; width:100%; margin-top:-1.5rem; margin-bottom:-1.0rem;'>"
-        if not multi_switch_card and switch_ids_here:
+        if switch_ids_here:
             header_sw_id = switch_ids_here[0]
-            yield f"<h3 id='{header_id}'>{header_sw_id.upper()} "
+            yield f"<h3 id='{header_id}' class='switch-device-title'>{header_sw_id.upper()} "
             yield f"  <a href='javascript:void(0)' onclick='editSwitchSettings(\"{header_sw_id}\")' title='Open {header_sw_id} Settings' style='display:inline-flex; align-items:center; justify-content:center; line-height:1; margin-left:2px; margin-right:8px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
             yield from _settings_gear_svg_lines(indent="    ")
             yield "  </a>"
             yield f"{location}</h3>"
         else:
-            header_devices = ", ".join(sw.upper() for sw in switch_ids_here if sw)
-            yield f"<h3 id='{header_id}'>SWITCHES <span style='font-size:0.72em; font-weight:normal;'>{header_devices}</span> {location}</h3>"
+            yield f"<h3 id='{header_id}'>SWITCHES {location}</h3>"
         yield "</div>"
 
         yield "<div class='switch-container'>"
@@ -1434,15 +1431,28 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         yield "</tr></thead>"
         yield "<tbody>"
 
-        if not any(not row.get("empty") for row in switch_rows):
+        if not multi_switch_card and not any(not row.get("empty") for row in switch_rows):
             yield "<tr><td colspan='3' style='opacity:0.7;'>No enabled switch channels</td></tr>"
 
+        previous_device_id = switch_rows[0]["sw_id"]
         for row in switch_rows:
+            sw_id = row["sw_id"]
+            if multi_switch_card and sw_id != previous_device_id:
+                previous_device_id = sw_id
+                yield "<tr class='switch-device-divider'><th colspan='3'><h3 class='switch-device-title'>"
+                yield html_escape(sw_id.upper() or "Unknown device")
+                if sw_id:
+                    settings_action = html_escape(f"editSwitchSettings({json.dumps(sw_id)})")
+                    yield f" <a href='javascript:void(0)' onclick='{settings_action}' title='Open {html_escape(sw_id)} Settings' style='display:inline-flex; align-items:center; justify-content:center; line-height:1; margin-left:2px; margin-right:8px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
+                    yield from _settings_gear_svg_lines(indent="", aria_hidden=True)
+                    yield "</a>"
+                yield f" {html_escape(location)}</h3></th></tr>"
             if row.get("empty"):
+                if multi_switch_card:
+                    yield "<tr><td colspan='3' style='opacity:0.7;'>No enabled switch channels</td></tr>"
                 continue
 
             switch_ctrl = row["switch_ctrl"]
-            sw_id = row["sw_id"]
             label = row["label"]
             safe_label = label.lower().replace(" ", "_")
             is_on = bool(getattr(switch_ctrl, "last_state", {}).get(label, False))
@@ -1500,19 +1510,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             if automation_enabled:
                 state_cell_classes += " automation-enabled"
 
-            label_key = label_norm.lower()
-            display_label = label
-            if label_counts.get(label_key, 0) > 1 and sw_id:
-                display_label = f"{label} ({sw_id.upper()})"
-
-            label_cell = html_escape(display_label)
-            if multi_switch_card and sw_id:
-                label_cell += (
-                    f" <a href='javascript:void(0)' onclick='editSwitchSettings(\"{sw_id}\")' "
-                    f"title='Open {sw_id} Settings' style='display:inline-flex; align-items:center; justify-content:center; line-height:1; margin-left:4px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
-                )
-                label_cell += "".join(_settings_gear_svg_lines(indent="", aria_hidden=True))
-                label_cell += "</a>"
+            label_cell = html_escape(label)
 
             yield "<tr>"
             yield f"<td>{label_cell}</td>"

@@ -634,6 +634,12 @@ body.dashboard-page #sensor_header{
   background-color:var(--dashboard-card-bg); color:var(--dashboard-card-text);
 }
 .switch-table th{ font-weight:bold; }
+.switch-device-title{ font-size:1.17rem; font-weight:bold; }
+.switch-device-divider .switch-device-title{ margin:0; }
+.switch-table .switch-device-divider th{
+  text-align:center; overflow-wrap:anywhere;
+  border-top:2px solid var(--dashboard-card-border);
+}
 
 .switch-state-cell{
   display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:.05rem;
