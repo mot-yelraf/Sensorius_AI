@@ -202,7 +202,7 @@ The technical sensor or switch ID remains the stable identity used by settings, 
 
 ### Switch Tiles
 
-Switch Tiles show local Raspberry Pi relay channels and remote Nodus switch channels through the same interface. Each Switch Tile represents one channel and has a label, current state, and recent state changes. Sensorius groups Switch Tiles under their switch-device heading. Manual toggles send commands through the shared switch controller. For Nodus switches, commands are sent through MQTT and Sensorius waits for state to return from the device.
+Switch Tiles show local Raspberry Pi relay channels and remote Nodus switch channels through the same interface. Each Switch Tile represents one channel and has a label, current state, and recent state changes. Sensorius groups switches by location. When multiple devices share a location, the title identifies the first device and shows its settings gear. Each additional device has a centered, full-width divider with its ID, settings gear, and location above its channel labels, styled to match the title. Manual toggles send commands through the shared switch controller. For Nodus switches, commands are sent through MQTT and Sensorius waits for state to return from the device.
 
 If an enabled Advanced automation owns a switch channel, Sensorius blocks manual toggles for that channel so the automation remains in control.
 
