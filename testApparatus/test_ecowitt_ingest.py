@@ -292,7 +292,7 @@ async def test_poll_once_logs_normalized_values_and_first_rain_checkpoint(monkey
                 {"id": "0x02", "val": "20", "unit": "C"},
                 {"id": "0x07", "val": "65%"},
             ],
-            "rain": [{"id": "0x10", "val": "1.5 in"}],
+            "rain": [{"id": "0x10", "val": "1.5 in"}, {"id": "0x7C", "val": "2.3 in"}],
         },
         "get_rain_totals": {"rainFallPriority": "1"},
     }
@@ -312,4 +312,5 @@ async def test_poll_once_logs_normalized_values_and_first_rain_checkpoint(monkey
     assert logger.rows[0][2]["Humidity"] == pytest.approx(11.22, abs=0.02)
     assert logger.rows[0][2]["Ambient VPD"] == pytest.approx(0.819, abs=0.002)
     assert logger.rows[0][2]["Rain Day"] == 1.5
+    assert logger.rows[0][2]["Rain Last 24h"] == 2.3
     assert "Rain" not in logger.rows[0][2]

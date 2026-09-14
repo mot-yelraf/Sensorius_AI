@@ -712,37 +712,41 @@ class saiDataLogger:
         dedupe_epoch_minute: bool = False,
     ) -> float | None:
         start_epoch = float(end_epoch) - float(window_sec)
+        # Keep indexed epoch ranges separate from the legacy NULL-epoch path.
+        # LOWER()/COALESCE() around indexed columns forced whole-table scans.
+        window_query = """
+            SELECT ts_epoch AS epoch, value FROM readings
+            WHERE sensor_id = ? COLLATE NOCASE AND metric = ? COLLATE NOCASE
+              AND ts_epoch >= ? AND ts_epoch <= ? AND value IS NOT NULL
+            UNION ALL
+            SELECT CAST(strftime('%s', timestamp) AS REAL) AS epoch, value FROM readings
+            WHERE sensor_id = ? COLLATE NOCASE AND metric = ? COLLATE NOCASE
+              AND ts_epoch IS NULL AND value IS NOT NULL
+              AND CAST(strftime('%s', timestamp) AS REAL) >= ?
+              AND CAST(strftime('%s', timestamp) AS REAL) <= ?
+        """
+        params = (sensor_id, metric, start_epoch, float(end_epoch)) * 2
         if dedupe_epoch_minute:
             row = conn.execute(
-                """
+                f"""
                 SELECT SUM(bucket_value)
                 FROM (
                     SELECT
-                        CAST(COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) / 60 AS INTEGER) AS epoch_minute,
+                        CAST(epoch / 60 AS INTEGER) AS epoch_minute,
                         MAX(COALESCE(value, 0)) AS bucket_value
-                    FROM readings
-                    WHERE LOWER(sensor_id) = LOWER(?)
-                      AND LOWER(metric) = LOWER(?)
-                      AND value IS NOT NULL
-                      AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) >= ?
-                      AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) <= ?
+                    FROM ({window_query})
                     GROUP BY epoch_minute
                 )
                 """,
-                (sensor_id, metric, start_epoch, float(end_epoch)),
+                params,
             ).fetchone()
         else:
             row = conn.execute(
-                """
+                f"""
                 SELECT SUM(COALESCE(value, 0))
-                FROM readings
-                WHERE LOWER(sensor_id) = LOWER(?)
-                  AND LOWER(metric) = LOWER(?)
-                  AND value IS NOT NULL
-                  AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) >= ?
-                  AND COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) <= ?
+                FROM ({window_query})
                 """,
-                (sensor_id, metric, start_epoch, float(end_epoch)),
+                params,
             ).fetchone()
         if not row or row[0] is None:
             return None
@@ -785,6 +789,8 @@ class saiDataLogger:
         *,
         end_epoch: float,
     ) -> dict:
+        if str(sensor_id).lower().startswith("ecowitt-"):
+            return {}
         if self._metric_key(values, RAIN_INTERVAL_METRIC) is None:
             return {}
         total = self._sum_metric_window_on_conn(
@@ -801,6 +807,8 @@ class saiDataLogger:
 
     def _with_fallback_derived_metrics(self, sensor_id: str, values: dict) -> dict:
         out = dict(values or {})
+        if str(sensor_id).lower().startswith("ecowitt-"):
+            return out
         if self._metric_key(out, RAIN_INTERVAL_METRIC) is not None:
             total = self.get_metric_sum_for_window(
                 sensor_id,
@@ -1433,11 +1441,17 @@ class saiDataLogger:
     # ------------------------------- SENSOR API -------------------
 
     def log_readings(self, timestamp, sensor_id, values: dict):
-        """Fast writer using a dedicated WAL connection + in-RAM snapshot."""
+        """Persist readings and preserve Ecowitt's gateway-supplied rain total."""
         timestamp, ts_epoch = _normalize_timestamp_input(
             timestamp, getattr(self, "local_tz", LOCAL_TIMEZONE)
         )
-        raw_values = self._strip_derived_input_metrics(values or {})
+        if str(sensor_id).lower().startswith("ecowitt-"):
+            raw_values = dict(values or {})
+            # Missing gateway totals must clear old snapshots, including totals
+            # derived by earlier releases. Historical records remain untouched.
+            raw_values.setdefault(WEEWX_RAIN_24H_METRIC, None)
+        else:
+            raw_values = self._strip_derived_input_metrics(values or {})
         if any(
             not isinstance(value, (type(None), int, float, str, bytes, bytearray, memoryview))
             or (isinstance(value, int) and not -(2 ** 63) <= value < 2 ** 63)

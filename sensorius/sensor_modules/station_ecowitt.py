@@ -261,6 +261,7 @@ def _parse_rain(items: Any, out: dict[str, float]) -> None:
     names = {
         "0x0d": "Rain Event",
         "0x0e": "Rain Rate",
+        "0x7c": "Rain Last 24h",
         "0x10": "Rain Day",
         "0x11": "Rain Week",
         "0x12": "Rain Month",

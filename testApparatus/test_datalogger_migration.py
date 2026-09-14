@@ -479,6 +479,82 @@ def test_rain_last_24h_metric_is_derived_from_interval_rain(tmp_path, monkeypatc
         saiDataLogger._schema_ready = False
 
 
+def test_ecowitt_gateway_rain_survives_storage_restart_and_missing_packets(tmp_path, monkeypatch):
+    path = tmp_path / "ecowitt.db"
+    logger = saiDataLogger(str(path))
+    sid = "ecowitt-test"
+    scans = []
+    delivered = []
+    logger.add_readings_listener(lambda _sid, _ts, values: delivered.append(values))
+
+    def unexpected_scan(*args, **kwargs):
+        scans.append(args)
+        raise AssertionError("Ecowitt must not query rainfall history")
+
+    monkeypatch.setattr(saiDataLogger, "_sum_metric_window_on_conn", unexpected_scan)
+    try:
+        logger.log_readings("2026-09-14T12:00:00-06:00", sid, {"Rain": 0.01, WEEWX_RAIN_24H_METRIC: 0.49})
+        assert logger.get_latest_values(sid)[WEEWX_RAIN_24H_METRIC] == 0.49
+        assert delivered[0][WEEWX_RAIN_24H_METRIC] == 0.49
+        logger.close()
+        logger = saiDataLogger(str(path))
+        assert logger.get_latest_values(sid)[WEEWX_RAIN_24H_METRIC] == 0.49
+        values, _ = logger.get_latest_values_and_timestamps([sid])
+        assert values[sid][WEEWX_RAIN_24H_METRIC] == 0.49
+        logger.log_readings("2026-09-14T12:01:00-06:00", sid, {"Rain": 0.0, WEEWX_RAIN_24H_METRIC: 0.0})
+        assert logger.get_latest_values(sid)[WEEWX_RAIN_24H_METRIC] == 0.0
+        logger.log_readings("2026-09-14T12:02:00-06:00", sid, {"Rain": 0.01})
+        assert logger.get_latest_values(sid)[WEEWX_RAIN_24H_METRIC] is None
+        values, _ = logger.get_latest_values_and_timestamps([sid])
+        assert values[sid][WEEWX_RAIN_24H_METRIC] is None
+        with sqlite3.connect(path) as conn:
+            assert conn.execute(
+                "SELECT value FROM readings WHERE metric = ? ORDER BY id", (WEEWX_RAIN_24H_METRIC,)
+            ).fetchall() == [(0.49,), (0.0,), (None,)]
+        _, history = logger.get_time_series(
+            sid, WEEWX_RAIN_24H_METRIC,
+            datetime.fromisoformat("2026-09-14T11:59:00-06:00").timestamp(),
+            datetime.fromisoformat("2026-09-14T12:03:00-06:00").timestamp(),
+        )
+        assert history == [0.49, 0.0]
+        assert scans == []
+    finally:
+        logger.close()
+
+
+@pytest.mark.parametrize("dedupe,expected", [(True, 0.6), (False, 0.8)])
+def test_rain_window_uses_indexes_and_preserves_legacy_epoch_semantics(tmp_path, dedupe, expected):
+    logger = saiDataLogger(str(tmp_path / "rain-index.db"))
+    try:
+        # Narrow legacy fixture: NULL epochs and duplicates cannot be produced
+        # through log_readings, which normalizes timestamps on every write.
+        with sqlite3.connect(logger.db_path) as conn:
+            conn.executemany(
+                "INSERT INTO readings(timestamp,ts_epoch,sensor_id,metric,value) VALUES(?,?,?,?,?)",
+                [
+                    ("1970-01-01T00:01:00+00:00", 60, "Weather", "Rain", 0.1),
+                    ("1970-01-01T00:01:10+00:00", 70, "WEATHER", "rain", 0.2),
+                    ("1970-01-01T00:01:20+00:00", None, "weather", "RAIN", 0.1),
+                    ("1970-01-01T00:02:00+00:00", None, "weather", "Rain", 0.4),
+                    ("1970-01-01T00:00:59+00:00", 59, "weather", "Rain", 99),
+                    ("1970-01-01T00:02:01+00:00", None, "weather", "Rain", 99),
+                    ("1970-01-01T00:01:00+00:00", 60, "other", "Rain", 99),
+                ],
+            )
+            queries = []
+            conn.set_trace_callback(queries.append)
+            value = logger._sum_metric_window_on_conn(
+                conn, "weather", "rain", end_epoch=120, window_sec=60, dedupe_epoch_minute=dedupe,
+            )
+            conn.set_trace_callback(None)
+            assert value == expected
+            plan = " ".join(row[3] for row in conn.execute("EXPLAIN QUERY PLAN " + queries[-1]))
+            assert "SCAN readings" not in plan
+            assert "idx_readings_sid_metric_tse" in plan
+    finally:
+        logger.close()
+
+
 def test_latest_timestamps_bulk_lookup_uses_one_result_per_sensor(tmp_path, monkeypatch: pytest.MonkeyPatch):
     class _StubSettings:
         def __init__(self, apply_live=False):

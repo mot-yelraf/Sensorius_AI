@@ -65,6 +65,20 @@ def test_metric_and_imperial_payloads_normalize_to_same_values():
     assert metric_values["Ambient VPD"] == pytest.approx(0.819, abs=0.002)
 
 
+@pytest.mark.parametrize("unit,total", [("in", "0.49"), ("mm", "12.446")])
+def test_gateway_24h_rain_uses_selected_source_and_declared_units(unit, total):
+    payload = {
+        "rain": [{"id": "0x7C", "val": f"{total} {unit}"}, {"id": "0x10", "val": "0.34 in"}],
+        "piezoRain": [{"id": "0x7c", "val": "1.25 in"}],
+    }
+    values = normalize_ecowitt_livedata(payload)
+    assert values["Rain Last 24h"] == 0.49
+    assert values["Rain Day"] == 0.34
+    assert normalize_ecowitt_livedata(payload, rain_source="piezo")["Rain Last 24h"] == 1.25
+    assert "Rain Last 24h" not in normalize_ecowitt_livedata(payload, rain_source="none")
+    assert "Rain Last 24h" not in normalize_ecowitt_livedata({"rain": [{"id": "0x7C", "val": "--"}]})
+
+
 def test_real_gateway_wind_ids_keep_direction_separate_from_speed():
     values = normalize_ecowitt_livedata({
         "common_list": [

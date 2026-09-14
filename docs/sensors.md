@@ -30,6 +30,9 @@ WeeWX station ingest:
 - Copies the WeeWX station model, station type, and driver into the station
   sensor config when a readable WeeWX config exists on the host.
 - Adds station metrics to the same dashboard and DB paths.
+- Continues deriving `Rain Last 24h` from interval `Rain`. The window query uses
+  existing sensor/metric/epoch indexes and retains compatibility with older
+  readings that have no epoch value.
 
 Ecowitt gateway ingest:
 
@@ -59,9 +62,16 @@ See the Ecowitt section in the [user guide](user_guide.md#ecowitt-gateway).
   reading set is written to SQLite.
 - Uses distinct channel metric names such as `WH31 CH1 Temperature_F`,
   `Soil Moisture CH3`, `PM2.5 CH2`, and `Leaf Wetness CH1`.
-- Stores Ecowitt rain day/week/month/year values as cumulative metrics. Only a
-  restart-safe day-total delta is written as interval `Rain`, allowing the
-  logger to derive `Rain Last 24h` correctly. The configured gateway reset
+- Stores Ecowitt rain day/week/month/year values as cumulative metrics and uses
+  the selected traditional or piezo source's `0x7C` value directly as
+  `Rain Last 24h`, converting its declared units to inches. This rolling total
+  differs from `Rain Day`, which resets at the configured hour. Ecowitt totals
+  are neither derived during ingestion nor recalculated for dashboard reads.
+  A packet without a usable `0x7C` clears the current total to unavailable;
+  older gateway firmware does not receive a derived substitute. Existing
+  historical records remain intact, including totals derived by older releases.
+- A restart-safe day-total delta is still written as interval `Rain` for graphs
+  and existing consumers. The configured gateway reset
   hour is checked before subtracting counters, including when the new day's
   counter has already reached or exceeded the prior day's total.
 - Makes observed Ecowitt metrics available behind the dashboard sensor-row
