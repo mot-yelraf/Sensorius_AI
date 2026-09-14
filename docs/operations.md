@@ -95,6 +95,21 @@ Useful web routes:
   `mqtt_ingest_health` reports callback counts, latency, and contention. Slow
   callback warnings identify only the MQTT topic and never include payloads.
 
+Dashboard values normally refresh every 15 seconds. A failed response or a
+request exceeding 12 seconds (including the JSON body) shows **Live updates
+delayed** above the dashboard. Existing values remain visible while automatic
+retries continue; the notice clears after a successful update. Expanding
+metrics or changing their display uses the latest received values.
+
+For comparable Web UI profiles, close other dashboard tabs on the tested hub
+and run `testApparatus/profile_webui.py` with the same sample count and timeout
+for each host. The profiler uses headless Chromium, reports progress, and
+checks completion and success of the dashboard's live-update cycle. Its
+navigation timeout includes waiting for server headers; failed navigation is
+recorded and the corresponding modal scenarios are skipped. Review both load
+and refresh errors alongside timing summaries. The profiler timeout does not
+change the dashboard's own 12-second request deadline.
+
 For Ecowitt troubleshooting, confirm the Sensorius host can reach the saved GW
 URL over plain HTTP, the gateway remains on the same LAN address, and **Find
 Sensors** succeeds in **General Settings > Add Device > Ecowitt Gateway**. A

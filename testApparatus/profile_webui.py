@@ -320,14 +320,16 @@ class CDPClient:
         await self.send("Performance.enable")
 
     async def navigate(self, url: str, timeout_sec: float) -> None:
-        await self.send("Page.navigate", {"url": url})
-        deadline = time.time() + timeout_sec
-        while time.time() < deadline:
-            state = await self.evaluate("document.readyState")
-            if state == "complete":
-                return
-            await asyncio.sleep(0.1)
-        raise TimeoutError(f"Timed out loading {url}")
+        """Bound navigation, including time waiting for the server's headers."""
+        async def load() -> None:
+            await self.send("Page.navigate", {"url": url})
+            while await self.evaluate("document.readyState") != "complete":
+                await asyncio.sleep(0.1)
+
+        try:
+            await asyncio.wait_for(load(), timeout=max(float(timeout_sec), 0.01))
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError(f"Timed out loading {url}") from exc
 
     async def evaluate(self, expression: str, await_promise: bool = True) -> Any:
         result = await self.send(
@@ -630,8 +632,8 @@ def build_js_helper(timeout_ms: int) -> str:
     }},
     async profileDashboardRefresh() {{
       if (typeof window.updateGauges !== 'function') throw new Error('updateGauges is unavailable');
-      await window.updateGauges({{ ignoreVisibility: true, ignoreModal: true }});
-      await this.nextPaint();
+      this.closeKnownModals();
+      await this.waitFor(() => !window.__updateGaugesInFlight, this.timeoutMs, 'previous dashboard refresh');
       const overview = document.querySelector("img[src*='01-sensorius-overview-v5.png']");
       if (overview && !overview.complete) {{
         await Promise.race([
@@ -642,11 +644,15 @@ def build_js_helper(timeout_ms: int) -> str:
       }}
       performance.clearResourceTimings();
       const started = performance.now();
+      const finishedBefore = Number(window.__updateGaugesFinishedSeq || 0);
       await window.updateGauges({{ ignoreVisibility: true, ignoreModal: true }});
+      await this.waitFor(() => Number(window.__updateGaugesFinishedSeq || 0) > finishedBefore, this.timeoutMs, 'dashboard refresh completion');
       await this.nextPaint();
       const resources = performance.getEntriesByType('resource').map((entry) => String(entry.name || ''));
       return {{
-        ok: true,
+        ok: window.__updateGaugesLastOk === true,
+        error: String(window.__updateGaugesLastError || ''),
+        finished_seq: Number(window.__updateGaugesFinishedSeq || 0),
         total_ms: Number((performance.now() - started).toFixed(2)),
         resource_count: resources.length,
         resources,
@@ -945,15 +951,19 @@ def performance_delta(before: dict[str, float], after: dict[str, float]) -> dict
     return result
 
 
-async def collect_dashboard_sample(client: CDPClient) -> dict[str, Any]:
+async def collect_dashboard_sample(client: CDPClient, timeout_sec: float = 20.0) -> dict[str, Any]:
+    """Collect page timings and a completed, bounded live-update measurement."""
     nav = await client.evaluate("window.__sensProfiler.navMetrics()")
     page = await client.evaluate("window.__sensProfiler.pageMetrics()")
     targets = await client.evaluate("window.__sensProfiler.discoverTargets()")
     performance_after = await client.performance_metrics()
     try:
-        refresh = await client.evaluate("window.__sensProfiler.profileDashboardRefresh()")
+        refresh = await asyncio.wait_for(
+            client.evaluate("window.__sensProfiler.profileDashboardRefresh()"),
+            timeout=max(float(timeout_sec) * 2 + 15.0, 5.0),
+        )
     except Exception as exc:
-        refresh = {"ok": False, "error": str(exc)}
+        refresh = {"ok": False, "error": str(exc) or "Dashboard refresh exceeded hard timeout"}
     return {
         "ok": True,
         "navigation": nav,
@@ -1105,6 +1115,8 @@ def build_summary(samples: dict[str, list[dict[str, Any]]], scenarios: tuple[Sce
     dashboard_renderers = [item.get("renderer") or {} for item in samples.get("dashboard", [])]
     dashboard_refreshes = [item.get("refresh") or {} for item in samples.get("dashboard", [])]
     out["dashboard"] = {
+        "load_error_count": sum(1 for item in samples.get("dashboard", []) if item.get("ok") is False),
+        "load_errors": [item["error"] for item in samples.get("dashboard", []) if item.get("error")],
         "load_event_ms": summarize_metric([item.get("load_event_ms") for item in dashboard_nav]),
         "dom_content_loaded_ms": summarize_metric([item.get("dom_content_loaded_ms") for item in dashboard_nav]),
         "response_end_ms": summarize_metric([item.get("response_end_ms") for item in dashboard_nav]),
@@ -1115,6 +1127,7 @@ def build_summary(samples: dict[str, list[dict[str, Any]]], scenarios: tuple[Sce
         "js_heap_used_mb": summarize_metric([item.get("js_heap_used_mb") for item in dashboard_renderers]),
         "refresh_total_ms": summarize_metric([item.get("total_ms") for item in dashboard_refreshes]),
         "refresh_error_count": sum(1 for item in dashboard_refreshes if item.get("ok") is False),
+        "refresh_errors": [item["error"] for item in dashboard_refreshes if item.get("error")],
         "overview_image_refresh_requests": sum(1 for item in dashboard_refreshes if item.get("overview_image_requested")),
     }
     ecowitt_rows = samples.get("ecowitt_livedata", [])
@@ -1177,6 +1190,9 @@ def print_summary(
     print()
     dash = summary.get("dashboard", {})
     print("Dashboard")
+    print(f"  load_errors: {dash.get('load_error_count', 0)}")
+    for error in dash.get("load_errors", []):
+        print(f"  error: {error}")
     print(f"  load_event_ms: {json.dumps(dash.get('load_event_ms'))}")
     print(f"  dom_content_loaded_ms: {json.dumps(dash.get('dom_content_loaded_ms'))}")
     print(f"  response_end_ms: {json.dumps(dash.get('response_end_ms'))}")
@@ -1187,6 +1203,8 @@ def print_summary(
     print(f"  js_heap_used_mb: {json.dumps(dash.get('js_heap_used_mb'))}")
     print(f"  refresh_total_ms: {json.dumps(dash.get('refresh_total_ms'))}")
     print(f"  refresh_errors: {dash.get('refresh_error_count', 0)}")
+    for error in dash.get("refresh_errors", []):
+        print(f"  error: {error}")
     print(f"  overview_image_refresh_requests: {dash.get('overview_image_refresh_requests', 0)}")
     print()
     ecowitt = summary.get("ecowitt_livedata")
@@ -1275,14 +1293,28 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             await client.evaluate(build_js_helper(timeout_ms))
             await configure_profiler_targets(client, args)
             for index in range(args.samples):
-                await client.navigate(args.base_url, args.timeout_sec)
+                print(f"Sample {index + 1}/{args.samples}: loading {args.base_url}", flush=True)
+                try:
+                    await client.navigate(args.base_url, args.timeout_sec)
+                except Exception as exc:
+                    results["dashboard"].append({"ok": False, "error": str(exc)})
+                    print(f"  Dashboard failed: {exc}", flush=True)
+                    if args.fail_fast:
+                        raise
+                    for scenario in scenarios:
+                        results[scenario.name].append({
+                            "ok": False, "skipped": True, "sample_index": index + 1,
+                            "error": "Dashboard did not load",
+                        })
+                    continue
                 await client.evaluate(build_js_helper(timeout_ms))
                 await configure_profiler_targets(client, args)
-                results["dashboard"].append(await collect_dashboard_sample(client))
+                results["dashboard"].append(await collect_dashboard_sample(client, args.timeout_sec))
                 await ensure_profiler_helper(client, args, timeout_ms)
                 await pause_between_scenarios(client, args.cooldown_ms)
 
                 for scenario in dashboard_scenarios:
+                    print(f"  Profiling {scenario.label}", flush=True)
                     sample = await collect_scenario_sample(client, scenario, args.timeout_sec)
                     sample["sample_index"] = index + 1
                     results[scenario.name].append(sample)
@@ -1291,6 +1323,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
                     await pause_between_scenarios(client, args.cooldown_ms)
 
                 if calendar_scenario or calendar_month_scenario:
+                    print("  Profiling integrated calendar", flush=True)
                     try:
                         calendar_sample = await navigate_to_integrated_calendar(
                             client,

@@ -9,11 +9,21 @@ from __future__ import annotations
 import os
 import sys
 import asyncio
+import pytest
 from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(__file__))
 
 import profile_webui
+
+
+def test_navigation_timeout_includes_waiting_for_server_headers():
+    class SlowClient(profile_webui.CDPClient):
+        async def send(self, method, params=None):
+            await asyncio.sleep(10)
+
+    with pytest.raises(TimeoutError, match="Timed out loading"):
+        asyncio.run(SlowClient("unused").navigate("http://slow.invalid/", 0.01))
 
 
 class _EcowittResponse:
