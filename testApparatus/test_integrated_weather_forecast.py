@@ -505,8 +505,8 @@ def test_open_meteo_hourly_rows_do_not_show_rain_until_precipitation_hour():
 
     display = weather_app.build_weather_display_forecast(payload)
 
-    assert display["icon"] == "☀️"
-    assert display["icon_key"] == "sunny"
+    assert display["icon"] == "☁️"
+    assert display["icon_key"] == "cloudy"
     assert len(display["hours"]) == 13
     assert [row["precipitation_mm"] for row in display["hours"][:10]] == [0.0] * 10
     assert display["hours"][10]["precipitation_mm"] == 2.9
@@ -586,8 +586,9 @@ async def test_integrated_weather_routes_render_dashboard_and_namespaced_apis(mo
     assert "Updated from" not in page.text
     assert "data-open-forecast" not in page.text
     assert "PoP" not in page.text
-    assert 'class="forecast-icon forecast-icon--rain"' in page.text
-    assert 'class="forecast-icon forecast-icon--sunny"' in page.text
+    assert 'class="forecast-glyph"' in page.text
+    assert "/glyphs/partly-cloudy.svg?" in page.text
+    assert "/glyphs/sunny.svg?" in page.text
     assert current.json()["sensor_id"] == "nodus-weather"
     assert current.json()["location"] == "Kitchen Garden"
     assert current.json()["refresh_interval_sec"] == 60
@@ -867,7 +868,7 @@ def test_synopsis_uses_local_transition_time_units_and_missing_values():
         {"local_time": "2026-09-11T00:00:00-06:00", "temp_c": 20, "symbol": "snow", "wind_mps": 4, "rh": 60, "precip_probability": 75},
     ]}
     metric = weather_app.build_weather_display_forecast(payload, "Metric")
-    assert "then snow around 12 AM next day" in metric["synopsis"]
+    assert "then snow showers around 12 AM next day" in metric["synopsis"]
     assert "10–20°C" in metric["synopsis"]
     assert "14 km/h" in metric["synopsis"]
     assert "75% around 12 AM next day" in metric["synopsis"]
@@ -893,3 +894,38 @@ def test_synopsis_prefers_nws_native_text_with_generated_fallback():
     assert result["synopsis"] == "This Afternoon (NWS · original units): Sunny, with a high near 80."
     del payload["hourly"][0]["narrative"]
     assert "Temperatures 20–20°C" in weather_app.build_weather_display_forecast(payload, "Metric")["synopsis"]
+
+
+@pytest.mark.parametrize('symbol,is_day,expected', [
+    ('clearsky_night', None, 'clear-night'),
+    ('partlycloudy_night', None, 'partly-cloudy-night'),
+    ('clearsky_day', None, 'sunny'),
+    ('partlycloudy_day', None, 'partly-cloudy'),
+    ('Clear', False, 'clear-night'),
+    ('Partly cloudy', False, 'partly-cloudy-night'),
+    ('Clear', True, 'sunny'),
+    ('Rain', False, 'rain'),
+    ('Snow', False, 'snow'),
+    ('Thunderstorms', False, 'thunder'),
+    ('Fog', False, 'fog'),
+    ('Cloudy', False, 'cloudy'),
+])
+def test_hourly_glyphs_use_provider_daylight(symbol, is_day, expected):
+    payload = _forecast_payload()
+    payload['hourly'] = [{**payload['hourly'][0], 'symbol': symbol, 'is_day': is_day}]
+    display = weather_app.build_weather_display_forecast(payload)
+    assert display['hours'][0]['icon_key'] == expected
+    assert display['days'][0]['icon_key'] == 'sunny'
+
+
+@pytest.mark.parametrize('timestamp,latitude,expected', [
+    ('2026-09-15T00:00:00+00:00', 0, 'clear-night'),
+    ('2026-09-15T12:00:00+00:00', 0, 'sunny'),
+    ('2026-06-21T00:00:00+00:00', 89, 'sunny'),
+    ('2026-12-21T12:00:00+00:00', 89, 'clear-night'),
+])
+def test_hourly_glyph_solar_fallback_handles_polar_day_and_night(timestamp, latitude, expected):
+    assert weather_app._hour_icon_key(
+        {'symbol': 'Clear', 'time': timestamp},
+        {'latitude': latitude, 'longitude': 0, 'timezone': 'UTC'},
+    ) == expected

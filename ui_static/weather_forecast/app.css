@@ -527,13 +527,8 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
 .readings-footer { width: 100%; margin-top: auto; padding: 0.85rem 0 0.1rem; border-top: 1px solid var(--line); box-sizing: border-box; }
 .provider-label { color: var(--accent-2); font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; }
 .forecast-summary { display: grid; grid-template-columns: 3rem minmax(0, 1fr); align-items: center; gap: 1rem; min-height: 8.4rem; border-bottom: 1px solid var(--line); }
-.forecast-main-icon { font-size: 2.6rem; text-align: center; line-height: 0; }
-.forecast-icon { width: 1em; height: 1em; overflow: visible; }
-.forecast-icon-sun { fill: #ffd23f; stroke: #ffbd20; stroke-width: 3; stroke-linecap: round; }
-.forecast-icon-cloud { fill: #edf5f7; stroke: #bad2d8; stroke-width: 1.5; stroke-linejoin: round; }
-.forecast-icon-rain, .forecast-icon-fog { fill: none; stroke: #52c7ff; stroke-width: 4; stroke-linecap: round; }
-.forecast-icon-snow { fill: none; stroke: #dff7ff; stroke-width: 2.5; stroke-linecap: round; }
-.forecast-icon-bolt { fill: #ffd23f; stroke: #ffad1f; stroke-width: 1; stroke-linejoin: round; }
+.forecast-main-icon { font-size: 2.6rem; text-align: center; line-height: 1.2; }
+.forecast-glyph { width: 1em; height: 1em; vertical-align: middle; }
 .forecast-summary-content { min-width: 0; }
 .forecast-ranges { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.3rem; }
 .forecast-ranges > span { color: var(--muted); font-size: 0.52rem; text-align: center; }
