@@ -117,7 +117,7 @@ def test_met_forecast_is_summarized_for_dashboard_card():
     assert current["rh_range"] == "34-64%"
     assert "Cloudy early" in current["overall"]
     assert "light rain/showers afternoon" in current["overall"]
-    assert "clearing overnight" in current["overall"]
+    assert current["overall"] == "Cloudy early, light rain/showers afternoon"
     assert current["precip_probability"] == 65
     assert payload["hourly"][0]["precip_probability"] == 10.0
 
@@ -126,7 +126,7 @@ def test_met_forecast_is_summarized_for_dashboard_card():
     assert first_day["temp_range"] == "15.1-26.5°C / 59-80°F"
 
 
-def test_met_probability_can_come_from_longer_block_than_hourly_amount():
+def test_met_probability_uses_same_period_as_condition_and_amount():
     item = _sample_met_payload()["properties"]["timeseries"][0]
     item["data"]["next_1_hours"]["details"].pop("probability_of_precipitation")
     item["data"]["next_6_hours"] = {
@@ -143,7 +143,7 @@ def test_met_probability_can_come_from_longer_block_than_hourly_amount():
     )
 
     assert hourly[0]["precip_mm"] == 0.0
-    assert hourly[0]["precip_probability"] == 68.0
+    assert hourly[0]["precip_probability"] == 5.0
 
 
 def test_weather_forecast_provider_normalization():
@@ -360,3 +360,53 @@ async def test_nws_fetch_uses_optional_period_narrative(monkeypatch, narrative_s
     assert len(rows) == 1
     assert rows[0]["temp_c"] == 20
     assert ("narrative" in rows[0]) == (narrative_status == 200)
+
+
+@pytest.mark.parametrize('code,condition', [(0, 'Clear'), (1, 'Partly cloudy'), (2, 'Partly cloudy'), (3, 'Cloudy'), (45, 'Fog'), (51, 'Rain'), (80, 'Rain showers'), (71, 'Snow'), (85, 'Snow showers'), (95, 'Thunderstorms')])
+def test_caelus_weather_code_conditions(code, condition):
+    from sensorius.saiWeatherForecast import _open_meteo_symbol
+    assert _open_meteo_symbol(code) == condition
+
+
+def test_caelus_met_period_totals_and_conditions():
+    payload = {'properties': {'timeseries': [{'time': '2026-09-15T12:00:00Z', 'data': {
+        'instant': {'details': {'air_temperature': 10}},
+        'next_6_hours': {'summary': {'symbol_code': 'sleetshowers_day'}, 'details': {'precipitation_amount': 6}},
+    }}]}}
+    row = normalize_met_forecast(payload, tz_name='UTC')[0]
+    assert row['precip_mm'] == 6
+    assert row['precip_probability'] == 85
+    assert row['condition'] == 'Snow showers'
+
+
+def test_caelus_today_and_daily_condition_are_independent_of_summary():
+    from sensorius.saiWeatherForecast import _normalize_hour
+    from sensorius.saiWeatherForecastApp import build_weather_display_forecast
+    rows = [_normalize_hour({'time': time, 'temp_c': temp, 'symbol': symbol, 'cloud': 10, 'precip_mm': 0.2}, tz_name='UTC')
+            for time, temp, symbol in [('2026-09-15T23:00:00Z', 10, 'fair_night'),
+                                      ('2026-09-16T00:00:00Z', 30, 'clearsky_night'),
+                                      ('2026-09-16T01:00:00Z', 20, 'clearsky_night'),
+                                      ('2026-09-16T02:00:00Z', 15, 'snowshowers_night')]]
+    payload = build_forecast_payload(provider='met_no', latitude=1, longitude=1, tz_name='UTC', hourly=rows, retrieved_utc='2026-09-15T23:00:00Z')
+    display = build_weather_display_forecast(payload)
+    assert display['condition'] == 'Clear'
+    assert display['high_f'] == 50
+    assert len(display['hours']) == 4
+    assert display['hours'][0]['icon'] == '☀️'  # Provider code wins over trace precipitation.
+    assert display['days'][0]['condition'] == 'Clear'
+    assert display['days'][0]['icon'] == '☀️'
+    assert 'snow/sleet' in display['days'][0]['summary']
+    assert display['days'][0]['precip_label'] == 'Snow chance'
+
+
+def test_provider_daylight_flags_survive_normalization():
+    meteo = normalize_open_meteo_forecast({'hourly': {
+        'time': ['2026-09-15T00:00', '2026-09-15T12:00'],
+        'temperature_2m': [10, 20], 'weather_code': [0, 2], 'is_day': [0, 1],
+    }}, tz_name='UTC')
+    assert [row['is_day'] for row in meteo] == [False, True]
+    nws = normalize_nws_forecast({'properties': {'periods': [{
+        'startTime': '2026-09-15T00:00:00Z', 'temperature': 50,
+        'temperatureUnit': 'F', 'shortForecast': 'Clear', 'isDaytime': False,
+    }]}}, tz_name='UTC')
+    assert nws[0]['is_day'] is False

@@ -7,6 +7,7 @@ forecast when remote forecast providers are unavailable.
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 import json
 import math
 import re
@@ -228,55 +229,49 @@ def _period_name(hour: int) -> str:
     return "overnight"
 
 
-def _precip_phrase(total_mm: float, max_hour_mm: float) -> str:
-    if total_mm < 0.05 and max_hour_mm < 0.05:
-        return ""
-    if total_mm < 3.0 and max_hour_mm < 1.2:
-        return "light rain/showers"
-    if total_mm < 12.0 and max_hour_mm < 4.0:
-        return "rain/showers"
-    return "heavy rain/showers"
-
-
-def _overall_summary(hours: list[dict[str, Any]]) -> str:
-    if not hours:
+def _overall_summary(rows: list[dict[str, Any]]) -> str:
+    """Describe the day's early sky and most likely precipitation period."""
+    if not rows:
         return "Forecast unavailable"
-
-    third = max(1, len(hours) // 3)
-    early = hours[:third]
-    late = hours[-third:]
-
-    def _avg_cloud(items: list[dict[str, Any]]) -> float | None:
-        values = [float(h["cloud"]) for h in items if _safe_float(h.get("cloud")) is not None]
-        return (sum(values) / len(values)) if values else None
-
-    early_cloud = _avg_cloud(early)
-    late_cloud = _avg_cloud(late)
-    phrases = [f"{_cloud_phrase(early_cloud)} early"]
-
-    precip_hours = [h for h in hours if (_safe_float(h.get("precip_mm")) or 0.0) >= 0.05]
-    if precip_hours:
-        total_mm = sum(float(h.get("precip_mm") or 0.0) for h in hours)
-        max_mm = max(float(h.get("precip_mm") or 0.0) for h in hours)
-        phrase = _precip_phrase(total_mm, max_mm)
-        local_hours = [int(h.get("local_hour") or 0) for h in precip_hours]
-        period_counts: dict[str, int] = {}
-        for hour in local_hours:
-            period = _period_name(hour)
-            period_counts[period] = period_counts.get(period, 0) + 1
-        period = sorted(period_counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
-        if phrase:
-            phrases.append(f"{phrase} {period}")
-
-    if early_cloud is not None and late_cloud is not None and early_cloud - late_cloud >= 25 and late_cloud < 65:
-        phrases.append("clearing overnight" if _period_name(int(late[-1].get("local_hour") or 0)) == "overnight" else "clearing late")
-    elif not precip_hours and late_cloud is not None:
-        late_phrase = _cloud_phrase(late_cloud)
-        if late_phrase != _cloud_phrase(early_cloud):
-            phrases.append(late_phrase.lower() + " late")
-
-    text = ", ".join(dict.fromkeys(phrases))
-    return text[:1].upper() + text[1:]
+    third = max(1, len(rows) // 3)
+    early_clouds = [float(row["cloud"]) for row in rows[:third] if row.get("cloud") is not None]
+    average_cloud = sum(early_clouds) / len(early_clouds) if early_clouds else None
+    if average_cloud is None:
+        opening = forecast_condition(rows[0])
+    elif average_cloud < 20:
+        opening = "Clear"
+    elif average_cloud < 45:
+        opening = "Mostly clear"
+    elif average_cloud < 75:
+        opening = "Partly cloudy"
+    else:
+        opening = "Cloudy"
+    wet_rows = [
+        row
+        for row in rows
+        if row.get("precip_mm", 0) >= 0.05
+        or any(word in forecast_condition(row).lower() for word in ("rain", "shower", "snow", "sleet", "thunder"))
+    ]
+    if not wet_rows:
+        late_clouds = [float(row["cloud"]) for row in rows[-third:] if row.get("cloud") is not None]
+        if late_clouds:
+            late_average = sum(late_clouds) / len(late_clouds)
+            late = "Clear" if late_average < 20 else "Mostly clear" if late_average < 45 else "Partly cloudy" if late_average < 75 else "Cloudy"
+            if late != opening:
+                return f"{opening} early, {late.lower()} late"
+        return f"{opening} early"
+    periods = Counter(
+        _period_name(int(row.get("local_hour") or 0))
+        for row in wet_rows
+    )
+    wet_period = periods.most_common(1)[0][0]
+    total_mm = sum(float(row.get("precip_mm") or 0) for row in rows)
+    intensity = "light rain/showers" if total_mm < 3 else "rain/showers" if total_mm < 12 else "heavy rain/showers"
+    if any(any(word in forecast_condition(row).lower() for word in ("snow", "sleet")) for row in wet_rows):
+        intensity = "snow/sleet"
+    elif any("thunder" in forecast_condition(row).lower() for row in wet_rows):
+        intensity = "thunderstorms"
+    return f"{opening} early, {intensity} {wet_period}"
 
 
 def _date_label(local_date: date) -> str:
@@ -293,6 +288,8 @@ def _summarize_hours(hours: list[dict[str, Any]], *, label: str = "") -> dict[st
     ]
     return {
         "label": label,
+        "condition": Counter(forecast_condition(row) for row in hours).most_common(1)[0][0] if hours else "Forecast unavailable",
+        "precip_label": "Snow chance" if any(any(word in forecast_condition(row).lower() for word in ("snow", "sleet")) for row in hours) else "Rain chance",
         "forecast": _overall_summary(hours),
         "overall": _overall_summary(hours),
         "temp_range": _format_temp_range(hours),
@@ -324,6 +321,8 @@ def _normalize_hour(record: dict[str, Any], *, tz_name: str) -> dict[str, Any] |
         "precip_mm": _safe_float(record.get("precip_mm")) or 0.0,
         "precip_probability": _normalize_probability(record.get("precip_probability")),
         "symbol": str(record.get("symbol") or "").strip(),
+        "condition": str(record.get("condition") or ""),
+        "is_day": bool(record["is_day"]) if record.get("is_day") in (0, 1) else None,
     }
 
 
@@ -346,19 +345,17 @@ def normalize_met_forecast(payload: dict[str, Any], *, tz_name: str) -> list[dic
         precip = None
         precip_probability = None
         symbol = ""
-        for block, divisor in ((next_1h, 1.0), (next_6h, 6.0), (next_12h, 12.0)):
+        for block in (next_1h, next_6h, next_12h):
+            if not block:
+                continue
             block_details = block.get("details") if isinstance(block.get("details"), dict) else {}
-            block_precip = _safe_float(block_details.get("precipitation_amount"))
-            block_probability = _normalize_probability(block_details.get("probability_of_precipitation"))
+            precip = _safe_float(block_details.get("precipitation_amount")) or 0.0
+            precip_probability = _normalize_probability(block_details.get("probability_of_precipitation"))
+            if precip_probability is None:
+                precip_probability = 85 if precip >= 1 else 55 if precip > 0 else 5
             summary = block.get("summary") if isinstance(block.get("summary"), dict) else {}
-            if not symbol:
-                symbol = str(summary.get("symbol_code") or "").strip()
-            if precip is None and block_precip is not None:
-                precip = block_precip / divisor
-            if precip_probability is None and block_probability is not None:
-                precip_probability = block_probability
-            if precip is not None and precip_probability is not None:
-                break
+            symbol = str(summary.get("symbol_code") or "").strip()
+            break
         row = _normalize_hour(
             {
                 "time": item.get("time"),
@@ -369,6 +366,7 @@ def normalize_met_forecast(payload: dict[str, Any], *, tz_name: str) -> list[dic
                 "precip_mm": precip or 0.0,
                 "precip_probability": precip_probability,
                 "symbol": symbol,
+                "condition": _met_condition(symbol),
             },
             tz_name=tz_name,
         )
@@ -377,15 +375,54 @@ def normalize_met_forecast(payload: dict[str, Any], *, tz_name: str) -> list[dic
     return sorted(rows, key=lambda row: row["time"])
 
 
-def _open_meteo_symbol(value: object) -> str:
-    code = _safe_float(value)
-    if code in (95, 96, 99):
-        return "Thunderstorms"
-    if code in (71, 73, 75, 77, 85, 86):
-        return "Snow"
-    if code in (51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82):
+def _open_meteo_symbol(code: Any) -> str:
+    number = int(_safe_float(code) or 0)
+    if number == 0:
+        return "Clear"
+    if number in {1, 2}:
+        return "Partly cloudy"
+    if number == 3:
+        return "Cloudy"
+    if number in {45, 48}:
+        return "Fog"
+    if 51 <= number <= 67:
         return "Rain"
-    return {0: "Clear", 1: "Mostly clear", 2: "Partly cloudy", 3: "Overcast", 45: "Fog", 48: "Fog"}.get(code, "")
+    if 71 <= number <= 77:
+        return "Snow"
+    if 80 <= number <= 82:
+        return "Rain showers"
+    if 85 <= number <= 86:
+        return "Snow showers"
+    if number >= 95:
+        return "Thunderstorms"
+    return "Mixed skies"
+
+def _met_condition(symbol: str) -> str:
+    text = symbol.replace("_day", "").replace("_night", "").replace("_polartwilight", "")
+    if "thunder" in text:
+        return "Thunderstorms"
+    if "snow" in text or "sleet" in text:
+        return "Snow showers"
+    if "rain" in text:
+        return "Rain showers"
+    if "fog" in text:
+        return "Fog"
+    if "cloudy" in text:
+        return "Cloudy" if text == "cloudy" else "Partly cloudy"
+    return "Clear"
+
+def forecast_condition(row: dict[str, Any]) -> str:
+    """Return Caelus's provider condition, preserving native NWS wording."""
+    if row.get("condition"):
+        return str(row["condition"])
+    symbol = str(row.get("symbol") or "").strip()
+    if symbol:
+        if symbol == symbol.lower() and " " not in symbol:
+            return _met_condition(symbol)
+        return symbol
+    if (_safe_float(row.get("precip_mm")) or 0) >= 0.05:
+        return "Rain showers"
+    return _cloud_phrase(_safe_float(row.get("cloud")))
 
 
 def normalize_open_meteo_forecast(payload: dict[str, Any], *, tz_name: str) -> list[dict[str, Any]]:
@@ -401,6 +438,7 @@ def normalize_open_meteo_forecast(payload: dict[str, Any], *, tz_name: str) -> l
     clouds = hourly.get("cloud_cover")
     winds = hourly.get("wind_speed_10m")
     codes = hourly.get("weather_code")
+    daylight = hourly.get("is_day")
     if not isinstance(times, list):
         return []
     rows: list[dict[str, Any]] = []
@@ -415,6 +453,7 @@ def normalize_open_meteo_forecast(payload: dict[str, Any], *, tz_name: str) -> l
                 "rh": _at(rhs),
                 "wind_mps": _at(winds),
                 "symbol": _open_meteo_symbol(_at(codes)),
+                "is_day": _at(daylight),
                 "cloud": _at(clouds),
                 "precip_mm": _at(precip) or 0.0,
                 "precip_probability": _at(precip_probability),
@@ -460,23 +499,15 @@ def _nws_wind_speed_mps(value: object) -> float | None:
     return _mph_to_mps(speed)
 
 
-def _nws_cloud_fraction(text: object) -> float | None:
-    forecast = str(text or "").strip().lower()
-    if not forecast:
-        return None
-    if any(word in forecast for word in ("thunder", "rain", "shower", "snow", "sleet", "drizzle")):
+def _nws_cloud_fraction(condition: str) -> float:
+    text = condition.lower()
+    if any(word in text for word in ("thunder", "rain", "shower", "snow", "sleet")):
         return 85.0
-    if "mostly cloudy" in forecast:
-        return 85.0
-    if "partly cloudy" in forecast or "partly sunny" in forecast:
-        return 55.0
-    if "mostly sunny" in forecast or "mostly clear" in forecast:
-        return 25.0
-    if "cloudy" in forecast or "overcast" in forecast:
-        return 95.0
-    if "sunny" in forecast or "clear" in forecast:
-        return 8.0
-    return None
+    if "cloud" in text or "overcast" in text:
+        return 90.0 if "partly" not in text else 55.0
+    if "fog" in text:
+        return 100.0
+    return 10.0
 
 
 def normalize_nws_forecast(payload: dict[str, Any], *, tz_name: str) -> list[dict[str, Any]]:
@@ -503,6 +534,8 @@ def normalize_nws_forecast(payload: dict[str, Any], *, tz_name: str) -> list[dic
                     period.get("probabilityOfPrecipitation")
                 ),
                 "symbol": short_forecast,
+                "condition": short_forecast or "Mixed skies",
+                "is_day": period.get("isDaytime"),
             },
             tz_name=tz_name,
         )
@@ -619,12 +652,15 @@ def build_forecast_payload(
         "stale": False,
         "retrieved_utc": retrieved.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "refresh_sec": FORECAST_REFRESH_SEC,
+        "condition_format": 1,
         "location": {
             "latitude": latitude,
             "longitude": longitude,
             "timezone": tz_name,
             "source": location_source,
         },
+        "today": _summarize_hours(grouped.get(today_key) or next_24, label="Today"),
+        "today_hourly": grouped.get(today_key) or next_24,
         "current_24h": _summarize_hours(next_24, label="24 Hour Forecast") if next_24 else {},
         "days": days,
         "hourly": next_24,
@@ -719,6 +755,8 @@ def load_weather_forecast_cache(
 
 
 def _cache_age_sec(payload: dict[str, Any]) -> float | None:
+    if payload.get("condition_format") != 1:
+        return None
     retrieved = _parse_datetime(payload.get("retrieved_utc"), tz_name="UTC")
     if retrieved is None:
         return None
@@ -739,31 +777,13 @@ async def _fetch_met_forecast(latitude: float, longitude: float, *, tz_name: str
             resp.raise_for_status()
             return normalize_met_forecast(resp.json(), tz_name=tz_name)
 
-    async def _fetch_probability_supplement() -> list[dict[str, Any]]:
-        try:
-            return await _fetch_open_meteo_forecast(
-                latitude,
-                longitude,
-                tz_name=tz_name,
-                timeout_sec=timeout_sec,
-            )
-        except Exception as exc:
-            if DEBUG:
-                printDM(f"MET probability supplement failed: {exc}", location=MODULE)
-            return []
-
-    # MET Norway does not publish precipitation probability for every global
-    # model location. Use timestamp-matched Open-Meteo probabilities only for
-    # missing values; all other forecast fields remain sourced from MET.
-    rows, supplemental = await asyncio.gather(_fetch_primary(), _fetch_probability_supplement())
-    supplement_precipitation_probabilities(rows, supplemental)
-    return rows
+    return await _fetch_primary()
 
 
 async def _fetch_open_meteo_forecast(latitude: float, longitude: float, *, tz_name: str, timeout_sec: float) -> list[dict[str, Any]]:
     hourly = (
         "temperature_2m,relative_humidity_2m,precipitation,"
-        "precipitation_probability,cloud_cover,wind_speed_10m,weather_code"
+        "precipitation_probability,cloud_cover,wind_speed_10m,weather_code,is_day"
     )
     async with httpx.AsyncClient(timeout=timeout_sec, headers={"User-Agent": USER_AGENT}, follow_redirects=True) as client:
         resp = await client.get(

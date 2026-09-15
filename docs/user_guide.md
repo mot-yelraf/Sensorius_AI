@@ -480,6 +480,24 @@ Google Account when the hub is retired or no longer uses that account.
 
 #### Weather Forecast
 
+Hourly conditions use the same MET Norway symbol and Open-Meteo weather-code
+mappings as standalone Caelus; NWS conditions retain the provider's wording.
+The full-screen Today card covers the remaining local day, and each daily glyph
+represents the most common hourly condition (ties use the first encountered).
+Daily summaries describe early skies and the prevailing precipitation period,
+including snow/sleet and thunderstorms. Nine bundled SVG weather glyphs work offline without an emoji font. Hourly
+clear and partly cloudy forecasts use moon artwork at night, selected from
+provider daylight flags or MET day/night symbols. When those are absent,
+Sensorius calculates solar position at the forecast timestamp and station
+coordinates, including polar day/night. Incomplete offline records without
+location or time retain daytime artwork. Daily glyphs use daytime artwork.
+The icons use Twemoji artwork, with a composed partly cloudy night variant;
+forecast condition selection remains aligned with Caelus.
+MET amounts and probabilities come from the same shortest available forecast
+period, preserving six- and twelve-hour precipitation totals. When MET omits a
+probability, Caelus's estimate is used: 5% for no precipitation, 55% below 1 mm,
+and 85% at or above 1 mm.
+
 Both forecast tiles include a forecast synopsis. Open-Meteo and MET Norway
 summaries are assembled from hourly conditions, temperature range, maximum wind,
 and peak precipitation chance, using the selected display units. NWS supplies

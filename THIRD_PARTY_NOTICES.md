@@ -52,3 +52,13 @@ The three packages present on 2026-07-22 passed manifest size/SHA-256 checks and
 a static string scan found no committed runtime credentials. Their manifests
 do not record a source commit or license provenance, so reproducible source
 traceability remains a release-process requirement for future packages.
+
+## Weather Glyphs (Twemoji)
+
+The nine bundled weather SVGs in `ui_static/weather_forecast/glyphs/` use
+Twemoji v17.0.2 artwork by Twitter and other contributors, licensed under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+[Source artwork](https://github.com/jdecked/twemoji/tree/v17.0.2/assets/svg).
+The partly cloudy night glyph combines and repositions the crescent moon and
+foreground cloud. The other eight glyphs are unchanged. Asset mappings and the
+full graphics license are included alongside the SVG files.

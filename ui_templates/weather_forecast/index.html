@@ -12,23 +12,7 @@
 <body class="theme-{{ settings.theme_class }}"{% if settings.theme_style %} style="{{ settings.theme_style }}"{% endif %} data-saved-theme="{{ settings.theme }}" data-runtime-instance-id="{{ runtime_instance_id }}">
   {% macro reading(value, suffix='') -%}{{ value if value is not none else '—' }}{{ suffix if value is not none else '' }}{%- endmacro %}
   {% macro weather_icon(kind, label) -%}
-    <svg class="forecast-icon forecast-icon--{{ kind }}" viewBox="0 0 64 64" role="img" aria-label="{{ label }}">
-      {% if kind in ('sunny', 'partly-cloudy') %}
-        <g class="forecast-icon-sun"><circle cx="25" cy="24" r="10"/><path d="M25 5v7M25 36v7M6 24h7M37 24h7M12 11l5 5M33 33l5 5M38 11l-5 5M17 33l-5 5"/></g>
-      {% endif %}
-      {% if kind != 'sunny' %}
-        <path class="forecast-icon-cloud" d="M17 45h30a10 10 0 0 0 1-20 15 15 0 0 0-28-4 12 12 0 0 0-3 24Z"/>
-      {% endif %}
-      {% if kind == 'rain' %}
-        <path class="forecast-icon-rain" d="M22 50l-3 7M34 50l-3 7M46 50l-3 7"/>
-      {% elif kind == 'snow' %}
-        <path class="forecast-icon-snow" d="M21 50v9M17 52l8 5M25 52l-8 5M42 50v9M38 52l8 5M46 52l-8 5"/>
-      {% elif kind == 'thunder' %}
-        <path class="forecast-icon-bolt" d="M35 43h-8l-3 12h7l-2 8 13-15h-8Z"/>
-      {% elif kind == 'fog' %}
-        <path class="forecast-icon-fog" d="M14 50h38M18 57h30"/>
-      {% endif %}
-    </svg>
+    <img class="forecast-glyph" src="/ui_static/weather_forecast/glyphs/{{ kind }}.svg?v={{ app_version }}" alt="{{ label }}" width="36" height="36">
   {%- endmacro %}
   <div class="world-scene" aria-hidden="true"><span class="scene-sun"></span><span class="scene-ridge scene-ridge-far"></span><span class="scene-ridge scene-ridge-near"></span></div>
 
@@ -82,7 +66,7 @@
           {% set hour_count = forecast.hours | length %}
           <div class="hourly-carousel" data-hourly-carousel data-page-size="8">
             <button class="hourly-page-button hourly-page-previous" type="button" data-hourly-previous aria-label="Show previous forecast hour" hidden>&lt;</button>
-            <div class="hourly-strip">{% for hour in forecast.hours %}<div class="forecast-hour" data-hourly-index="{{ loop.index0 }}"{% if loop.index0 >= 8 %} hidden{% endif %}><time>{{ hour.label }}</time><span>{{ weather_icon(hour.icon_key, 'Weather at ' ~ hour.label) }}</span><strong>{{ reading(hour.temperature, hour.temperature_unit) }}</strong><small class="hour-stat">RH {{ reading(hour.humidity, '%') }}</small><small class="hour-stat">Wind {{ reading(hour.wind_speed, ' ' ~ hour.wind_unit) }}</small><small>{{ 'Snow' if hour.precip_label == 'Snow chance' else 'Rain' }} {{ reading(hour.precip_probability, '%') }}</small></div>{% endfor %}</div>
+            <div class="hourly-strip">{% for hour in forecast.hours %}<div class="forecast-hour" data-hourly-index="{{ loop.index0 }}"{% if loop.index0 >= 8 %} hidden{% endif %}><time>{{ hour.label }}</time><span>{{ weather_icon(hour.icon_key, hour.condition ~ ' at ' ~ hour.label) }}</span><strong>{{ reading(hour.temperature, hour.temperature_unit) }}</strong><small class="hour-stat">RH {{ reading(hour.humidity, '%') }}</small><small class="hour-stat">Wind {{ reading(hour.wind_speed, ' ' ~ hour.wind_unit) }}</small><small>{{ 'Snow' if hour.precip_label == 'Snow chance' else 'Rain' }} {{ reading(hour.precip_probability, '%') }}</small></div>{% endfor %}</div>
             <button class="hourly-page-button hourly-page-next" type="button" data-hourly-next aria-label="Show next forecast hour"{% if hour_count <= 8 %} hidden{% endif %}>&gt;</button>
           </div>
           <p class="hourly-page-status" data-hourly-status aria-live="polite">Hours 1–{{ 8 if hour_count > 8 else hour_count }} of {{ hour_count }}</p>
@@ -93,7 +77,7 @@
             {% for day in forecast.days %}
             <article class="forecast-day">
               <time datetime="{{ day.date }}">{{ day.label }}</time>
-              <span>{{ weather_icon(day.icon_key, day.summary) }}</span>
+              <span>{{ weather_icon(day.icon_key, day.condition) }}</span>
               <strong aria-label="Temperature range">{{ day.temp_range }}</strong>
               <small class="forecast-day-stat">RH {{ day.rh_range }}</small>
               <small class="forecast-day-stat">Wind {{ day.wind_range }}</small>

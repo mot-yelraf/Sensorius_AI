@@ -15,7 +15,7 @@ for (const budget of cardBudgets) {
       const card = page.locator('.forecast-panel');
       await expect(card).not.toContainText('Updated from');
       await expect(card.getByRole('button', { name: '6-day details' })).toHaveCount(0);
-      await expect(card.locator('.forecast-synopsis')).toContainText('then rain around 8 PM');
+      await expect(card.locator('.forecast-synopsis')).toContainText('then rain showers around 8 PM');
       await expect(card.locator('.forecast-hour:visible').first()).toContainText('RH 55%');
       await expect(card.locator('.forecast-hour:visible').first()).toContainText(units === 'Metric' ? 'Wind 14 km/h' : 'Wind 9 mph');
       const originalHeight = (await card.boundingBox()).height;
@@ -23,7 +23,7 @@ for (const budget of cardBudgets) {
       await expect(days).toHaveCount(6);
       for (const day of await days.all()) {
         await expect(day.locator('time')).toBeVisible();
-        await expect(day.locator('svg')).toBeVisible();
+        await expect(day.locator('.forecast-glyph')).toBeVisible();
         await expect(day).toContainText(units === 'Metric' ? '17.8-30.0°C' : '64-86°F');
         await expect(day).toContainText('RH 35-85%');
         await expect(day).toContainText(units === 'Metric' ? 'Wind 4-29 km/h' : 'Wind 2-18 mph');
@@ -44,3 +44,19 @@ for (const budget of cardBudgets) {
     }
   });
 }
+
+
+test('all nine bundled glyphs render without remote assets or emoji fonts', async ({ page }, testInfo) => {
+  await page.route('**/*', route => {
+    const url = new URL(route.request().url());
+    return ['127.0.0.1', 'localhost'].includes(url.hostname) ? route.continue() : route.abort();
+  });
+  await page.goto('/weather-forecast');
+  const glyphs = ['sunny', 'partly-cloudy', 'cloudy', 'rain', 'snow', 'thunder', 'fog', 'clear-night', 'partly-cloudy-night'];
+  await page.setContent(`<body style="background:#163c49;color:white;font-family:Arial;display:flex;flex-wrap:wrap;gap:20px;padding:24px">${glyphs.map(key => `<figure style="margin:0;text-align:center;width:160px"><img alt="${key}" width="96" height="96" src="/ui_static/weather_forecast/glyphs/${key}.svg"><figcaption>${key}</figcaption></figure>`).join('')}</body>`);
+  await page.locator('img').evaluateAll(images => Promise.all(images.map(image => image.decode())));
+  for (const img of await page.locator('img').all()) {
+    expect(await img.evaluate(image => image.naturalWidth)).toBeGreaterThan(0);
+  }
+  await page.screenshot({ path: testInfo.outputPath('nine-weather-glyphs.png') });
+});

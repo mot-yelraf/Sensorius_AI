@@ -7,6 +7,7 @@ the locally served forecast page without owning forecast retrieval itself.
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 import math
 import re
 from datetime import datetime
@@ -14,6 +15,9 @@ from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
+
+from astral import Observer
+from astral.sun import elevation as sun_elevation
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -28,7 +32,7 @@ from .saiDisplayUnits import (
 )
 from .saiSensorSettingsManager import SensorSettingsManager
 from .saiWeatherAstronomy import astronomy_context
-from .saiWeatherForecast import get_weather_forecast_payload
+from .saiWeatherForecast import forecast_condition, get_weather_forecast_payload
 from .saiThemeManager import ThemeManager, normalize_theme_selection
 from .sensor_modules.station_ecowitt import DEFAULT_POLL_INTERVAL_SEC as ECOWITT_DEFAULT_POLL_INTERVAL_SEC
 from .sensor_modules.station_weewx import DEFAULT_UPDATE_PERIOD_SEC as WEEWX_DEFAULT_UPDATE_PERIOD_SEC
@@ -158,7 +162,7 @@ def _condition_icon(text: object) -> str:
         return "🌧️"
     if "fog" in value:
         return "🌫️"
-    if "partly" in value or "mostly clear" in value:
+    if "partly" in value:
         return "🌤️"
     if "cloud" in value or "overcast" in value:
         return "☁️"
@@ -176,16 +180,44 @@ def _condition_icon_key(text: object) -> str:
         return "rain"
     if "fog" in value:
         return "fog"
-    if "partly" in value or "mostly clear" in value:
+    if "partly" in value:
         return "partly-cloudy"
     if "cloud" in value or "overcast" in value:
         return "cloudy"
     return "sunny"
 
 
+def _hour_icon_key(row: dict[str, Any], location: dict[str, Any]) -> str:
+    """Choose bundled hourly artwork using provider daylight or solar position."""
+    key = _condition_icon_key(forecast_condition(row))
+    if key not in ("sunny", "partly-cloudy"):
+        return key
+    is_day = row.get("is_day")
+    if not isinstance(is_day, bool):
+        symbol = str(row.get("symbol") or "")
+        if symbol.endswith("_night"):
+            is_day = False
+        elif symbol.endswith("_day"):
+            is_day = True
+        else:
+            try:
+                at = datetime.fromisoformat(str(row.get("local_time") or row.get("time")).replace("Z", "+00:00"))
+                if at.tzinfo is None:
+                    at = at.replace(tzinfo=ZoneInfo(str(location.get("timezone") or "UTC")))
+                observer = Observer(latitude=float(location["latitude"]), longitude=float(location["longitude"]))
+                is_day = sun_elevation(observer, at, with_refraction=False) > -0.833
+            except (KeyError, TypeError, ValueError):
+                # Legacy or incomplete offline payloads retain daytime artwork.
+                is_day = True
+    if not is_day:
+        return "clear-night" if key == "sunny" else "partly-cloudy-night"
+    return key
+
+
 def _precipitation_chance_label(condition: object) -> str:
     """Name a precipitation probability as a rain or snow chance."""
-    return "Snow chance" if _condition_icon_key(condition) == "snow" else "Rain chance"
+    text = str(condition or "").lower()
+    return "Snow chance" if "snow" in text or "sleet" in text else "Rain chance"
 
 
 def _hour_temperature_f(hour: dict[str, Any]) -> float | None:
@@ -281,31 +313,8 @@ def format_observation_time(value: object, timezone_name: str) -> str:
 
 
 def _hour_window_condition(hours: list[dict[str, Any]]) -> str:
-    """Describe one displayed hourly window without borrowing the daily summary."""
-    symbols = [str(row.get("symbol") or "").strip() for row in hours]
-    lowered_symbols = [symbol.lower() for symbol in symbols if symbol]
-    if any("thunder" in symbol for symbol in lowered_symbols):
-        return "Thunderstorms"
-    if any(any(token in symbol for token in ("snow", "sleet")) for symbol in lowered_symbols):
-        return "Snow"
-
-    precipitation_mm = sum(_safe_float(row.get("precip_mm")) or 0.0 for row in hours)
-    if precipitation_mm >= 0.05:
-        return "Rain/showers"
-    if any(any(token in symbol for token in ("rain", "shower", "drizzle")) for symbol in lowered_symbols):
-        return next(symbol for symbol in symbols if symbol)
-    if any(symbols):
-        return next(symbol for symbol in symbols if symbol)
-
-    cloud_values = [value for value in (_safe_float(row.get("cloud")) for row in hours) if value is not None]
-    average_cloud = sum(cloud_values) / len(cloud_values) if cloud_values else None
-    if average_cloud is None:
-        return "Forecast unavailable"
-    if average_cloud >= 85.0:
-        return "Cloudy"
-    if average_cloud >= 35.0:
-        return "Partly cloudy"
-    return "Clear"
+    """Select the most common provider condition, as in standalone Caelus."""
+    return Counter(forecast_condition(row) for row in hours).most_common(1)[0][0] if hours else "Forecast unavailable"
 
 
 def _forecast_synopsis(hours: list[dict[str, Any]], unit_system: str, provider: str) -> str:
@@ -314,11 +323,8 @@ def _forecast_synopsis(hours: list[dict[str, Any]], unit_system: str, provider: 
         return ""
     if provider == "us" and hours[0].get("narrative"):
         return f"{hours[0].get('narrative_period') or 'Forecast period'} (NWS · original units): {hours[0]['narrative']}"
-    names = {"sunny": "Clear", "partly-cloudy": "Partly cloudy", "cloudy": "Overcast",
-             "rain": "Rain", "snow": "Snow", "thunder": "Thunderstorms", "fog": "Fog"}
     def condition(row):
-        value = _hour_window_condition([row])
-        return "Conditions unavailable" if value == "Forecast unavailable" else names[_condition_icon_key(value)]
+        return _hour_window_condition([row])
     def when(row):
         value = str(row.get("local_time") or row.get("time") or "")
         first = str(hours[0].get("local_time") or hours[0].get("time") or "")
@@ -352,7 +358,8 @@ def build_weather_display_forecast(
 ) -> dict[str, Any]:
     """Adapt the canonical Sensorius forecast payload for the full-screen UI."""
     display_unit_system = normalize_display_unit_system(unit_system)
-    current = payload.get("current_24h") if isinstance(payload.get("current_24h"), dict) else {}
+    current = payload.get("today") or payload.get("current_24h") or {}
+    today_hours = payload.get("today_hourly") or payload.get("hourly") or []
     raw_hours = payload.get("hourly") if isinstance(payload.get("hourly"), list) else []
     hours = []
     normalized_hours = [row for row in raw_hours[:24] if isinstance(row, dict)]
@@ -370,11 +377,12 @@ def build_weather_display_forecast(
         hours.append(
             {
                 "label": label,
+                "condition": condition,
                 "humidity": round(rh) if (rh := _safe_float(raw.get("rh"))) is not None else None,
                 "wind_speed": round(wind) if (wind := _forecast_display_value(raw.get("wind_mps"), "Wind Speed", "m/s", display_unit_system)[0]) is not None else None,
                 "wind_unit": _forecast_display_value(None, "Wind Speed", "m/s", display_unit_system)[1],
                 "icon": _condition_icon(condition),
-                "icon_key": _condition_icon_key(condition),
+                "icon_key": _hour_icon_key(raw, payload.get("location") or {}),
                 "precip_label": _precipitation_chance_label(condition),
                 "temperature_f": round(temp_f) if temp_f is not None else None,
                 "temperature": round(temperature) if temperature is not None else None,
@@ -398,9 +406,10 @@ def build_weather_display_forecast(
                 "date": str(raw.get("date") or ""),
                 "label": str(raw.get("label") or raw.get("date") or "Day"),
                 "summary": summary,
-                "icon": _condition_icon(summary),
-                "icon_key": _condition_icon_key(summary),
-                "precip_label": _precipitation_chance_label(summary),
+                "condition": str(raw.get("condition") or summary),
+                "icon": _condition_icon(raw.get("condition") or summary),
+                "icon_key": _condition_icon_key(raw.get("condition") or summary),
+                "precip_label": raw.get("precip_label") or _precipitation_chance_label(summary),
                 "temp_range": _forecast_temperature_range(raw.get("temp_range"), display_unit_system),
                 "rh_range": str(raw.get("rh_range") or "--"),
                 "wind": _forecast_wind(raw.get("wind"), display_unit_system),
@@ -412,17 +421,17 @@ def build_weather_display_forecast(
             }
         )
 
-    temp_values = [value for value in (_hour_temperature_f(row) for row in raw_hours) if value is not None]
+    temp_values = [value for value in (_hour_temperature_f(row) for row in today_hours) if value is not None]
     display_temp_values = [
         converted
-        for row in raw_hours
+        for row in today_hours
         if (converted := _forecast_display_value(
             row.get("temp_c"), "Temperature", "°C", display_unit_system
         )[0]) is not None
     ]
     temperature_unit = _forecast_display_value(None, "Temperature", "°C", display_unit_system)[1]
     precipitation, precipitation_unit = _forecast_display_value(
-        sum(_safe_float(row.get("precip_mm")) or 0.0 for row in raw_hours),
+        sum(_safe_float(row.get("precip_mm")) or 0.0 for row in today_hours),
         "Rain",
         "mm",
         display_unit_system,
@@ -435,7 +444,7 @@ def build_weather_display_forecast(
     current_probability = _safe_float(current.get("precip_probability"))
     if current_probability is None and probabilities:
         current_probability = max(probabilities)
-    condition = str(current.get("overall") or current.get("forecast") or "Forecast standing by")
+    condition = str(current.get("condition") or _hour_window_condition(today_hours))
     return {
         "ok": bool(payload.get("ok")),
         "provider": str(payload.get("provider") or ""),
@@ -447,17 +456,15 @@ def build_weather_display_forecast(
         "condition": condition,
         "synopsis": _forecast_synopsis(normalized_hours, display_unit_system, str(payload.get("provider") or "")) or condition,
         "wind_range": _forecast_wind(current.get("wind"), display_unit_system, include_description=False),
-        "icon": _condition_icon(_hour_window_condition(normalized_hours[:3]) if normalized_hours else condition),
-        "icon_key": _condition_icon_key(
-            _hour_window_condition(normalized_hours[:3]) if normalized_hours else condition
-        ),
-        "precip_label": _precipitation_chance_label(condition),
+        "icon": _condition_icon(condition),
+        "icon_key": _condition_icon_key(condition),
+        "precip_label": current.get("precip_label") or _precipitation_chance_label(condition),
         "high_f": round(max(temp_values)) if temp_values else None,
         "low_f": round(min(temp_values)) if temp_values else None,
         "high": round(max(display_temp_values)) if display_temp_values else None,
         "low": round(min(display_temp_values)) if display_temp_values else None,
         "temperature_unit": temperature_unit,
-        "precipitation_mm": round(sum(_safe_float(row.get("precip_mm")) or 0.0 for row in raw_hours), 1),
+        "precipitation_mm": round(sum(_safe_float(row.get("precip_mm")) or 0.0 for row in today_hours), 1),
         "precipitation": round(precipitation or 0.0, 2),
         "precipitation_unit": precipitation_unit,
         "precip_probability": round(current_probability) if current_probability is not None else None,
