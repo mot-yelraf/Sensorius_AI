@@ -1,7 +1,8 @@
 /* Drill-down settings apply only to phone-sized viewports. */
 .mobile-settings-nav, .mobile-settings-chevron { display:none; }
 .mobile-settings-chevron::after { content:'›'; }
-@media (max-width:700px), (max-device-width:700px) {
+/* Keep the screen fallback aligned with phoneQuery in mobile_settings.js. */
+@media (max-width:700px), (min-device-width:1px) and (max-device-width:700px) and (pointer:coarse) {
   .modal-backdrop:has(.mobile-settings), #setupPiModal.mobile-settings {
     padding:.35rem;
     box-sizing:border-box;
