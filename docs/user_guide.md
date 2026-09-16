@@ -229,6 +229,11 @@ the dialog. Opening settings again starts at the menu.
 Phone settings use a screen-width view while open. Closing the dialog restores
 the dashboard's existing scaling. Desktop settings keep their side menus and
 expand/collapse sections.
+Settings switch to the compact layout when the window is at most 700 CSS pixels
+wide. Before phone scaling is enabled, a valid screen width of at most 700 CSS
+pixels also selects it when the browser reports a coarse (touch-style) pointer.
+A small or unavailable screen-width report alone does not select phone settings
+in a wide desktop window, including the Raspberry Pi pywebview desktop.
 
 ### General Settings Pane
 

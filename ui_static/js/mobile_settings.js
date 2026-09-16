@@ -3,7 +3,10 @@
 
 (() => {
 if (window.initMobileSettings) return;
-const phoneQuery = "(max-width: 700px), (max-device-width: 700px)";
+// Phones need the screen fallback before their settings viewport is installed.
+// A missing/small screen report alone must not classify desktop WebKit as mobile.
+// Keep this query aligned with mobile_settings.css.
+const phoneQuery = "(max-width: 700px), (min-device-width: 1px) and (max-device-width: 700px) and (pointer: coarse)";
 const viewportOwners = new Set();
 let settingsViewport = null;
 window.setMobileWorkspaceViewport = function setMobileWorkspaceViewport(root, open, query = phoneQuery) {
