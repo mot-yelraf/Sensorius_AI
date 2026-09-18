@@ -814,6 +814,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return dict(_DASHBOARD_DISPLAY_SETTINGS_CACHE[1])
         fresh_settings = saiSettings(apply_live=False)
         payload = {
+            "pressure_altitude": fresh_settings.get_setting("Astral", "ALTITUDE", ""),
             "gauge_size": fresh_settings.get_setting("Display", "gauge_size") or "Small",
             "display_style": fresh_settings.get_setting("Display", "display_style") or "Gauge",
             "unit_system": normalize_display_unit_system(
@@ -3104,7 +3105,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         sensor_mgr = sensor_settings_mgr or _get_sensor_settings_manager()
         expected_gauge_map = {}
         expected_display_style_map = {}
+        pressure_sensor_context = {}
         for sid in all_values:
+            if sensor_mgr is not None:
+                try:
+                    pressure_doc = await asyncio.to_thread(sensor_mgr.load, sid)
+                except FileNotFoundError:
+                    pressure_doc = {}
+                pressure_sensor_context[sid] = {
+                    "device": (pressure_doc.get("Sensor") or {}).get("DEVICE", ""),
+                    "altitude": ((pressure_doc.get("Calibration") or {}).get("Device") or {}).get("ALTITUDE_METERS"),
+                    "weewx": _is_weewx_dashboard_sensor(sid),
+                }
             try:
                 configured_metrics = sensor_mgr.get_display_metrics(sid)
             except Exception:
@@ -3595,6 +3607,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 sensor_locations = sensor_locations,
                 gauge_config=gauge_config, 
                 gauge_size = gaugeSize,
+                pressure_altitude=display_settings.get("pressure_altitude"),
+                pressure_sensor_context=pressure_sensor_context,
                 expected_gauge_map = expected_gauge_map,
                 expected_display_style_map = expected_display_style_map,
                 display_style = displayStyle,
