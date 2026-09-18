@@ -191,7 +191,7 @@ def normalize_dashboard_metric_set(value: object) -> str:
     return "All" if compact in {"all", "showall"} else "Pick 6"
 
 
-def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6", dashboard_custom_theme_style=""):
+def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6", dashboard_custom_theme_style="", pressure_altitude=None, pressure_sensor_context=None):
     """Yield the complete Sensorius dashboard HTML document."""
 
     import json
@@ -2324,6 +2324,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     
     yield "<script type='module'>"
     yield "\"use strict\";"
+    yield f"import {{ pressureGaugeConfig }} from '/ui_static/js/pressure_gauges.js?v={APP_VERSION}';"
+    yield f"const pressureAltitude = {json.dumps(pressure_altitude)};"
+    yield f"const pressureSensorContext = {json.dumps(pressure_sensor_context or {})};"
     yield f"import {{ startRainGauges }} from '/ui_static/js/rain_gauges.js?v={APP_VERSION}';"
     
     yield "let stepCount = 0;"
@@ -4860,7 +4863,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const canvas = document.getElementById(canvasId);"
     yield "    const label = document.getElementById(labelId);"
     yield "    if (!canvas || !label) return;"  
-    yield "    const config = gaugeConfig?.[metric];"
+    yield "    const config = pressureGaugeConfig(metric, gaugeConfig?.[metric], pressureAltitude, pressureSensorContext[sensor]);"
     yield "    if (!config) return;"
     yield "    let value = currentValues?.[sensor]?.[metric];"
     yield "    const isNull = (value == null);"
@@ -5397,7 +5400,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      const val  = vset[metric];"
     yield "      const labelEl = document.getElementById(`${safe}_val`);"
     yield "      const g       = window[`${safe}_gauge`];"
-    yield "      const metricConfig = gaugeConfig?.[metric] || {};"
+    yield "      const metricConfig = pressureGaugeConfig(metric, gaugeConfig?.[metric], pressureAltitude, pressureSensorContext[sid]) || {};"
     yield "      const renderMode = ((metricConfig.render) || '').toLowerCase();"
     yield "      const valueMetric = metricConfig.value_metric || metric;"
     yield "      const statsMetric = metricConfig.stats_metric || metric;"

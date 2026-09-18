@@ -549,3 +549,16 @@ Use this sequence for changes with runtime impact:
 4. Verify `GET /healthz`.
 5. Confirm MQTT ingest, Nodus metadata, Home Assistant discovery, or farmOS
    status as appropriate for the change.
+
+Barometric pressure gauges use the altitude entered in General Settings
+(`[Astral].ALTITUDE`, metres) to center raw/absolute pressure ranges on standard
+atmospheric pressure at that elevation, with at least 50 hPa of weather margin
+on either side. Metric bounds round outward to 10 hPa; Imperial bounds round
+outward to 0.1 inHg. Refresh the dashboard after changing altitude. Blank or
+invalid altitude retains the broad default range for raw pressure.
+
+Sea-level-corrected readings (Ecowitt relative pressure, WeeWX barometer, and
+BME/VPD/AQI sensors with altitude calibration) instead use a sea-level range:
+960–1070 hPa or 28.4–31.4 inHg. Explicit absolute-pressure metrics always use
+site altitude. Gauge scaling does not change measurements, history, MQTT, or
+calibration values.
