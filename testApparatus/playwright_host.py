@@ -181,3 +181,30 @@ def ac1100_dashboard() -> HTMLResponse:
         switch_controllers={sid: controller}, gauge_config=get_gauge_config(),
         expected_gauge_map={}, expected_display_style_map={},
     )))
+
+
+@app.get("/rain-gauges", response_class=HTMLResponse)
+def rain_gauges(unit_system: str = "Metric") -> HTMLResponse:
+    """Render rain accumulation gauges with deterministic readings for UI checks."""
+    from sensorius.saiDisplayUnits import apply_display_units_to_gauge_config
+    from sensorius.saiRainClimate import RAIN_PERIODS
+
+    sensor_id = "rain-pr-check"
+    metrics = {metric: .25 for metric in RAIN_PERIODS}
+    html = "".join(render_dashboard(
+        "All", None, [sensor_id], {sensor_id: metrics}, {},
+        SimpleNamespace(expected_gauge_map={}),
+        gauge_config=apply_display_units_to_gauge_config(get_gauge_config(), unit_system),
+        expected_gauge_map={sensor_id: list(metrics)},
+        expected_display_style_map={sensor_id: {}}, display_style="Gauge",
+    ))
+    return HTMLResponse(html)
+
+
+@app.get("/api/weather-climate")
+def weather_climate() -> dict:
+    """Supply deterministic historical averages without external network access."""
+    return {"status": "ready", "date": "2026-09-18", "baseline": "1991–2026",
+            "start_date": "1991-01-01", "end_date": "2026-09-13", "averages": {
+        "temperature_c": 20, "humidity_pct": 55, "wind_kmh": 16.09344, "rain_mm": 2.54, "samples": 35,
+    }}

@@ -115,6 +115,8 @@ from .saiDailySummary import DailySummaryService, DEFAULT_PREWARM_DAYS, get_summ
 from .saiNodusOTA import NodusOTAError, NodusOTAService
 from .saiEmailNotifications import EmailConfig, SMTPEmailSender, normalize_notification_rules
 from .saiWeatherForecast import get_weather_forecast_payload, normalize_weather_forecast_provider
+from .saiRainClimate import RainClimateService
+from .saiWeatherClimate import WeatherClimateService
 from .saiWeatherForecastApp import build_weather_display_forecast
 from .saiWeatherForecastApp import WEATHER_THEMES, normalize_weather_theme
 from .saiThemeManager import (
@@ -682,6 +684,31 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     astro_payload_cache_lock = threading.Lock()
     astro_payload_cache_generation = 0
     main_loop = asyncio.get_running_loop()
+    rain_climate_service = RainClimateService(
+        lambda: saiSettings(make_startup_backup=False, apply_live=False),
+        resolve_runtime_base_dir(getattr(saiSettings, "DEFAULT_BASE_DIR", "system_settings")).parent
+        / "weather_cache" / "rain_climate.json",
+    )
+    app.state.rain_climate_service = rain_climate_service
+    app.add_event_handler("shutdown", rain_climate_service.close)
+
+    @router.get("/api/rain-climate")
+    async def api_rain_climate():
+        """Return cached rain gauge limits while history loads in the background."""
+        return rain_climate_service.snapshot()
+
+    weather_climate_service = WeatherClimateService(
+        lambda: saiSettings(make_startup_backup=False, apply_live=False),
+        rain_climate_service.cache_path.with_name("weather_climate.json"),
+    )
+    app.state.weather_climate_service = weather_climate_service
+    app.add_event_handler("shutdown", weather_climate_service.close)
+
+    @router.get("/api/weather-climate")
+    async def api_weather_climate():
+        """Return historical daily averages for today's date at the hub location."""
+        return weather_climate_service.snapshot()
+
     daily_summary_service = DailySummaryService(settings=settings, data_logger=data_logger)
     app.state.daily_summary_service = daily_summary_service
     ota_service = getattr(app.state, "nodus_ota_service", None)
@@ -711,6 +738,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         nonlocal biodynamic_payload_cache_generation, astro_payload_cache_generation
         global _DASHBOARD_INVENTORY_CACHE, _DASHBOARD_DISPLAY_SETTINGS_CACHE, _ASTRO_PAYLOAD_CACHE
         global _sensor_ids_cache_payload, _sensor_ids_cache_until
+        rain_climate_service.invalidate()
+        weather_climate_service.invalidate()
         _DASHBOARD_JSON_CACHE.clear()
         _DASHBOARD_HTML_CACHE.clear()
         _DASHBOARD_INVENTORY_CACHE = None

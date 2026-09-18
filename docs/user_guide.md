@@ -188,6 +188,59 @@ Colored backgrounds use that metric's gauge zones. The colors are metric-specifi
 
 The boundaries come from Sensorius's gauge-zone configuration for each metric. Changing a zone boundary in that configuration changes where the corresponding background color begins and ends. The standard UI currently exposes gauge size and display style, but not gauge-zone boundary editing. An automation's **Threshold** and **Hysteresis** control when its rule runs; they do not change graph or gauge colors.
 
+#### Rain Gauge Colors And Historical Limits
+
+Rain accumulation gauges use light blue (`#add8e6`) from 0–20% of the scale,
+medium blue (`#66b2ff`) from 20–60%, and dark blue (`#0033cc`) from 60–100%.
+These bands indicate increasing rain amounts, not alarm thresholds.
+
+**Rain and location:** Check the hub's coordinates in **General Settings >
+Astral**. Sensorius uses those coordinates for all rain-gauge climate scales
+on that hub. A sensor's location label (for example, Greenhouse or Garden)
+does not select a different climate location. GeoIP provides an approximate
+location; enter the site's latitude and longitude manually when that estimate
+does not represent where the rain gauge is installed. Changing the hub's
+coordinates updates the historical scale, not the measured rainfall or stored
+sensor readings.
+
+Using the hub's Astral latitude/longitude and timezone (manual or GeoIP),
+Sensorius retrieves daily rainfall from [Open-Meteo's Historical Weather
+API](https://open-meteo.com/en/docs/historical-weather-api), using ERA5 for the
+period from January 1, 1991 through the latest available data (normally five
+days behind today, or earlier if the latest days are not yet published). The gauge maximum is the wettest corresponding period:
+
+| Gauge | Historical period used for maximum |
+| --- | --- |
+| Rain, Rain Last 24h, Rain Day | Wettest local calendar day |
+| Rain Week | Wettest seven consecutive days, including across year boundaries |
+| Rain Month | Wettest complete calendar month |
+| Rain Year | Wettest complete calendar year |
+
+Daily history approximates the rolling 24-hour gauge; it is not a historical
+rolling hourly record. `Rain` retains its existing station/interval meaning.
+The historical series is gridded outdoor rainfall, excludes snowfall, and is
+not a record measured by your own station. It works independently of the
+selected forecast provider. Rain Event and Rain Total get the same blue bands
+but retain their fixed limits; Rain Rate retains its existing scale.
+
+Limits and ticks follow the selected mm/in display units. A completely dry
+baseline uses a minimum 1 mm span. The needle stops at the scale maximum if a
+reading exceeds it; the full measured value remains visible numerically.
+Min/Avg/Max statistics still describe the sensor's last 24 hours, not climate
+history.
+
+Historical data loads in the background, using default limits while loading
+or unavailable. Scales update without a page reload or extra text inside the
+tiles, preserving their original height. A compact location-specific cache
+survives restarts; on Linux its default path is `/home/<user>/Sensorius/weather_cache/rain_climate.json`
+(`/Users/<user>/Sensorius/weather_cache/rain_climate.json` on macOS).
+The cache is checked hourly and refreshed when the historical end date advances.
+Only complete months and years contribute to their respective maxima; daily
+and seven-day maxima include recent complete days. Changing the hub location
+invalidates the active scale. Missing or incomplete history retries later;
+a previously cached summary for the same location remains usable during a
+refresh failure, otherwise the existing default limits apply.
+
 #### Metric Ordering
 
 The system-wide **Metric Set** in **General Settings > Display** controls the initial Sensor Group state. In **Pick 6** mode, the dashboard follows **Metric 1** through **Metric 6** exactly from left to right and initially collapses each Sensor Group after those six Sensor Tiles. Use the disclosure triangle beside the connection indicator to reveal or hide the Sensor Group's remaining known metrics. Sensor Groups with six or fewer Sensor Tiles do not show the triangle. You can therefore establish the operational summary order in **Sensor Settings**. Factory defaults are selected by sensor type and generally put the device's primary measurement first: for example, CO2 is first for a CO2 sensor and Air Quality is first for an AQI sensor. The remaining positions favor closely related temperature, humidity, VPD, dew-risk, pressure, plant, light, or soil measurements for that device.
@@ -1205,8 +1258,32 @@ next seasonal event, and up to three solar or lunar eclipses visible from the
 configured Astral location during the next twelve months. A full-width Windy
 map opens in radar view below that row, followed by
 the current Moon and phase cycle at the bottom. The display also provides
-theme-matched six-day details. It does not run a separate weather service or
+theme-matched six-day details. It reuses the Sensorius forecast and does not
 maintain a separate settings file or readings database.
+
+Today's forecast includes a compact **Historical daily average** row
+beneath its expected ranges, with temperature, RH, wind, and rain in the same
+column order. These are averages for the same calendar date at the hub's
+Astral location, using Open-Meteo/ERA5 historical data independently of the
+selected forecast provider. Temperature, RH, and wind are averages of daily
+means; rain is the average daily rainfall total, including dry days, **not a
+rain probability**. Units follow the selected Metric or Imperial display.
+
+The date follows the hub's timezone. History starts in 1991 and extends through
+the latest available data, allowing for ERA5's roughly five-day publication
+delay; unpublished trailing days are excluded. Each calendar date uses its available daily samples, including recent
+years; February 29 uses only leap years. The label shows the actual year range and hub-local date, for example
+**Historical daily average 1991–2026 for 18-Sep-2026**,
+and its tooltip gives the exact historical cutoff and sample count. These are
+regional climate estimates, not readings from the selected station. The source link and tooltip
+explain the baseline without adding a separate note or increasing the card's
+height. Dashes mean history is still loading or unavailable, never zero.
+Retrieval is non-blocking. The cache is checked hourly and refreshed as the
+historical end date advances; a compact calendar-day cache survives restarts
+at `/home/<user>/Sensorius/weather_cache/weather_climate.json` on Linux or
+`/Users/<user>/Sensorius/weather_cache/weather_climate.json` on macOS. Updating
+the hub's location invalidates the active history. The displayed date and
+averages refresh automatically, including after the hourly forecast refresh.
 
 The Windy map is initially interaction-locked so the mouse wheel continues to
 scroll the Caelus page. Select **Click to interact with map** on the map's top

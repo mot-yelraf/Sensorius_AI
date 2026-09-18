@@ -11,6 +11,7 @@ from .saiUtils import printDM, debug_enabled, html_escape, normalize_hostname_ba
 from .saiBiodynamics import get_biodynamic_payload, get_skyfield_runtime_if_installed
 from .sensor_modules.station_weewx import DEFAULT_SENSOR_ID as WEEWX_DEFAULT_SENSOR_ID, WEEWX_GAUGE_CONFIG
 from .sensor_modules.station_ecowitt import ECOWITT_GAUGE_CONFIG, ecowitt_gauge_config_for_metric
+from .saiRainClimate import style_rain_gauges
 from .saiDisplayUnits import convert_display_value
 from collections import defaultdict
 from pathlib import Path
@@ -142,7 +143,7 @@ def get_gauge_config():
     }
     gauge_config.update(WEEWX_GAUGE_CONFIG)
     gauge_config.update(ECOWITT_GAUGE_CONFIG)
-    return gauge_config
+    return style_rain_gauges(gauge_config)
 
 
 def extend_gauge_config_for_metrics(gauge_config: dict, metric_names) -> dict:
@@ -2323,6 +2324,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     
     yield "<script type='module'>"
     yield "\"use strict\";"
+    yield f"import {{ startRainGauges }} from '/ui_static/js/rain_gauges.js?v={APP_VERSION}';"
     
     yield "let stepCount = 0;"
     yield f"const gaugeConfig = {json.dumps(gauge_config)};"
@@ -4879,6 +4881,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    const gaugeValue = convertForDisplay(value, config);"
     yield "    const existingGauge = window[`${safe}_gauge`];"
     yield "    if (existingGauge && existingGauge.__sensoriusCanvas === canvas && typeof existingGauge.set === 'function') {"
+    yield "      if (config.rain_period && existingGauge.maxValue !== config.max) {"
+    yield "        existingGauge.maxValue = config.max;"
+    yield "        existingGauge.setMinValue(config.min);"
+    yield "        existingGauge.setOptions({...existingGauge.options, staticZones: config.zones, staticLabels: {...existingGauge.options.staticLabels, labels: config.ticks}});"
+    yield "      }"
     yield "      existingGauge.set(gaugeValue ?? 0);"
     yield "      label.innerText = isNull ? '--' : formatCurrentValue(value, config);"
     yield "      if (window.registerContainerStyle) {"
@@ -4891,6 +4898,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      angle: -0.2, lineWidth: 0.25, radiusScale: 0.9,"
     yield "      pointer: { length: 0.5, strokeWidth: 0.035, color: '#000000' },"
     yield "      staticZones: config.zones || [],"
+    yield "      limitMax: Boolean(config.rain_period),"
     yield "      staticLabels: {"
     yield "        font: '12px sans-serif',"
     yield "        labels: config.ticks, color: '#000', fractionDigits: 1"
@@ -8155,6 +8163,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  setTimeout(checkAndRetryIfNoGauges, 1000);"
 
     yield "  initGauge();"
+    yield "  startRainGauges(gaugeConfig, initGauge);"
     yield "  initializeDashboardThemePreview();"
     yield "  initializeTrendArrows();"
     yield "  initSwitchTimersFromDom();"

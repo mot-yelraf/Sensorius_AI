@@ -2,7 +2,7 @@
 
 **Environmental Sensing + Automation Hub**
 
-Sensorius is a Raspberry Pi-first sensor and automation hub with a full web UI, MQTT ingestion, and optional Home Assistant and farmOS integrations. It auto-detects local sensors, discovers Nodus devices over MQTT, and turns those signals into live dashboards, historical data, switch control, and optional farmOS telemetry export.
+Sensorius is a sensor, relay-switch automation hub with a robust web UI, MQTT ingestion, and optional Home Assistant and farmOS integrations, with a focus on gardening, farming, greenhouse monitor and control. When using Raspberry Pi's it can auto-detects directly-connected sensors, relay-switch(es) and on all supported platforms it automatically discovers Nodus WiFi/MQTT devices, and turns those data into live dashboards, automation controls, historical data; the application also includes integrated weather forecast and biodynamic calendar .
 
 For illustrated setup and operating instructions, see the
 [Sensorius AI User Guide](docs/user_guide.md).
@@ -10,7 +10,7 @@ For illustrated setup and operating instructions, see the
 ## What It Does
 
 - Auto-detects locally attached sensors (Raspberry Pi deployments)
-- Discovers Nodus sensors and switches via MQTT and retained `nodus/<device_id>/meta` metadata (`/itaot-meta` fallback for AP-mode/diagnostics)
+- Discovers Nodus sensors and switches via MQTT and retained `nodus/<device_id>/meta` metadata 
 - Stores sensor readings and switch events in a local SQLite database
 - Provides live dashboards, historical graphing, and location-based views
 - Shows Astral-based sun position and moon phase cards in the dashboard when location/timezone are available
@@ -18,6 +18,8 @@ For illustrated setup and operating instructions, see the
 - Supports calibration workflows for sensors
 - Can publish discovery/state for Home Assistant
 - Can export sensor telemetry to farmOS log entries
+- Integrated Caelus weather forecast
+- Integrated Biodynamic Calendar with hints, planting tracking and notes
 
 ## Deployment Modes
 
