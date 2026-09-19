@@ -11,7 +11,7 @@ from sensorius.saiRainClimate import START
 from sensorius import saiRainClimate as climate
 
 END = date(2020, 12, 31)
-from sensorius.saiWeatherClimate import WeatherClimateService, summarize_weather_history
+from sensorius.saiWeatherClimate import WeatherClimateService, summarize_weather_history, EXTREME_VARIABLES, VARIABLES
 
 
 @pytest.fixture(autouse=True)
@@ -19,21 +19,31 @@ def cutoff(monkeypatch):
     monkeypatch.setattr(climate, 'latest_history_date', lambda: END)
 
 
+def add_extremes(data):
+    for kind, variables in EXTREME_VARIABLES.items():
+        for variable, field in variables.items():
+            if variable not in data["daily"]:
+                mean_variable = next(key for key, value in VARIABLES.items() if value == field)
+                offset = -1 if kind == "min" else 1
+                data["daily"][variable] = [value + offset for value in data["daily"][mean_variable]]
+    return data
+
+
 def history():
     days = [START + timedelta(days=i) for i in range((END - START).days + 1)]
-    return {"daily_units": WeatherClimateService.expected_units, "daily": {
+    return add_extremes({"daily_units": WeatherClimateService.expected_units, "daily": {
         "time": [d.isoformat() for d in days],
         "temperature_2m_mean": [d.year - 1990 for d in days],
         "relative_humidity_2m_mean": [50.0] * len(days),
         "wind_speed_10m_mean": [10.0] * len(days),
         "rain_sum": [4.0 if d.year % 2 == 0 else 0.0 for d in days],
-    }}
+    }})
 
 
 def test_calendar_date_means_include_dry_days_and_leap_day_samples():
     averages = summarize_weather_history(history(), END)
     assert len(averages) == 366
-    assert averages['09-18'] == {'temperature_c': 15.5, 'humidity_pct': 50,
+    assert {key: value for key, value in averages['09-18'].items() if key != 'extremes'} == {'temperature_c': 15.5, 'humidity_pct': 50,
                                 'wind_kmh': 10, 'rain_mm': 2, 'samples': 30}
     assert averages['02-29']['samples'] == 8
     assert averages['02-29']['temperature_c'] == 16
@@ -98,7 +108,7 @@ def test_extended_averages_use_available_samples_and_validate_new_cache():
         'wind_speed_10m_mean': [10] * len(days),
         'rain_sum': [1] * len(days),
     }}
-    averages = summarize_weather_history(data, end)
+    averages = summarize_weather_history(add_extremes(data), end)
     assert averages['09-13']['samples'] == 36
     assert averages['09-13']['temperature_c'] == 18.5
     assert averages['09-14']['samples'] == 35
@@ -140,3 +150,24 @@ async def test_unpublished_tail_uses_actual_cutoff_and_reuses_cache(monkeypatch,
     data['daily']['rain_sum'][-8:] = [None] * 8
     with pytest.raises(ValueError):
         service._available_history(data, END)
+
+
+def test_extremes_track_daily_lows_highs_years_and_earliest_ties():
+    rows = summarize_weather_history(history(), END)
+    assert rows["09-18"]["extremes"]["min"]["temperature_c"] == {"value": 0, "year": 1991}
+    assert rows["09-18"]["extremes"]["max"]["temperature_c"] == {"value": 31, "year": 2020}
+    assert rows["09-18"]["extremes"]["min"]["rain_mm"] == {"value": 0, "year": 1991}
+    assert rows["09-18"]["extremes"]["max"]["rain_mm"] == {"value": 4, "year": 1992}
+    assert rows["02-29"]["extremes"]["min"]["humidity_pct"]["year"] == 1992
+    service = WeatherClimateService(None, "unused.json")
+    payload = {"end_date": END.isoformat(), "calendar_averages": rows}
+    assert service._valid_summary(payload)
+    del rows["09-18"]["extremes"]
+    assert not service._valid_summary(payload)
+
+
+def test_invalid_daily_extreme_rejected():
+    data = history()
+    data["daily"]["temperature_2m_min"][0] = None
+    with pytest.raises(ValueError):
+        summarize_weather_history(data, END)

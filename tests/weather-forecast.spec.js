@@ -21,12 +21,12 @@ for (const budget of cardBudgets) {
       const initialHeight = (await card.boundingBox()).height;
       const history = card.locator('[data-weather-history]');
       await expect(history).toHaveAttribute('data-status', 'ready');
-      await expect(history).toContainText('Historical daily average 1991–2026 for 18-Sep-2026');
+      await expect(history).toContainText('Historical Min, Max, Avg 1991–2026 for 18-Sep');
       await expect(history).toHaveAttribute('title', /through 2026-09-13.*35 samples/);
-      await expect(history.locator('[data-history-value="temperature_c"]')).toHaveText(units === 'Metric' ? '20.0°C' : '68.0°F');
-      await expect(history.locator('[data-history-value="humidity_pct"]')).toHaveText('55%');
-      await expect(history.locator('[data-history-value="wind_kmh"]')).toHaveText(units === 'Metric' ? '16.1 km/h' : '10.0 mph');
-      await expect(history.locator('[data-history-value="rain_mm"]')).toHaveText(units === 'Metric' ? '2.5 mm' : '0.10 in');
+      await expect(history.locator('[data-history-value="temperature_c"]')).toHaveText(units === 'Metric' ? 'Min 6.7°C (1993)Max 30.7°C (2016)Avg 20.0°C' : 'Min 44.1°F (1993)Max 87.3°F (2016)Avg 68.0°F');
+      await expect(history.locator('[data-history-value="humidity_pct"]')).toHaveText('Min 10% (1993)Max 100% (2016)Avg 55%');
+      await expect(history.locator('[data-history-value="wind_kmh"]')).toHaveText(units === 'Metric' ? 'Min 0.3 km/h (1993)Max 28.2 km/h (2016)Avg 16.1 km/h' : 'Min 0.2 mph (1993)Max 17.5 mph (2016)Avg 10.0 mph');
+      await expect(history.locator('[data-history-value="rain_mm"]')).toHaveText(units === 'Metric' ? 'Min 0.0 mm (1993)Max 21.1 mm (2016)Avg 2.5 mm' : 'Min 0.00 in (1993)Max 0.83 in (2016)Avg 0.10 in');
       const originalHeight = (await card.boundingBox()).height;
       expect(originalHeight).toBe(initialHeight);
       const days = card.locator('.forecast-day');
@@ -81,6 +81,6 @@ test('historical averages load asynchronously and show missing values without ch
   await expect(row).toHaveAttribute('data-status', 'warming');
   const height = (await page.locator('.forecast-panel').boundingBox()).height;
   await expect(row).toHaveAttribute('data-status', 'unavailable', { timeout: 10000 });
-  await expect(row.locator('[data-history-value]')).toHaveText(['—', '—', '—', '—']);
+  await expect(row.locator('[data-history-value]')).toHaveText(Array(4).fill('Min —Max —Avg —'));
   expect((await page.locator('.forecast-panel').boundingBox()).height).toBe(height);
 });

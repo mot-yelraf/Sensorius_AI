@@ -706,7 +706,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     @router.get("/api/weather-climate")
     async def api_weather_climate():
-        """Return historical daily averages for today's date at the hub location."""
+        """Return historical daily means and extremes for today's date at the hub location."""
         return weather_climate_service.snapshot()
 
     daily_summary_service = DailySummaryService(settings=settings, data_logger=data_logger)

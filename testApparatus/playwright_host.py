@@ -203,10 +203,16 @@ def rain_gauges(unit_system: str = "Metric") -> HTMLResponse:
 
 @app.get("/api/weather-climate")
 def weather_climate() -> dict:
-    """Supply deterministic historical averages without external network access."""
+    """Supply deterministic historical statistics without external network access."""
     return {"status": "ready", "date": "2026-09-18", "baseline": "1991–2026",
             "start_date": "1991-01-01", "end_date": "2026-09-13", "averages": {
         "temperature_c": 20, "humidity_pct": 55, "wind_kmh": 16.09344, "rain_mm": 2.54, "samples": 35,
+        "extremes": {
+            "min": {field: {"value": value, "year": 1993} for field, value in
+                    {"temperature_c": 6.7, "humidity_pct": 10, "wind_kmh": 0.3218688, "rain_mm": 0}.items()},
+            "max": {field: {"value": value, "year": 2016} for field, value in
+                    {"temperature_c": 30.7, "humidity_pct": 100, "wind_kmh": 28.16352, "rain_mm": 21.082}.items()},
+        },
     }}
 
 
