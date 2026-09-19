@@ -95,6 +95,13 @@ Useful web routes:
   `mqtt_ingest_health` reports callback counts, latency, and contention. Slow
   callback warnings identify only the MQTT topic and never include payloads.
 
+Dashboard queries use indexed latest-packet and recent-trend lookups so older
+history does not need to be scanned for each sensor refresh. Historical sensor
+ID spelling and case-sensitive trend grouping are preserved. The two-second
+dashboard JSON cache is checked before database work; its lifetime, inventory
+cache lifetimes, and statistics cache lifetimes start after computation finishes.
+These optimizations use existing SQLite indexes and require no schema migration.
+
 Dashboard values normally refresh every 15 seconds. A failed response or a
 request exceeding 12 seconds (including the JSON body) shows **Live updates
 delayed** above the dashboard. Existing values remain visible while automatic

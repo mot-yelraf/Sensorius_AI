@@ -1994,21 +1994,24 @@ class saiDataLogger:
             return {}
 
     def get_available_sensors(self):
+        """Return distinct historical sensor IDs in case-sensitive sorted order."""
         now_mono = time.monotonic()
         cached = self._available_sensors_cache
         if cached and cached[0] > now_mono:
             return list(cached[1])
-        query = "SELECT DISTINCT sensor_id FROM readings ORDER BY sensor_id"
+        # Sort only the small distinct result, not the entire historical index.
+        query = "SELECT DISTINCT sensor_id FROM readings"
         try:
             with self._open_conn() as conn:
-                result = [row[0] for row in conn.execute(query).fetchall()]
-                self._available_sensors_cache = (now_mono + 5.0, list(result))
+                result = sorted(row[0] for row in conn.execute(query).fetchall())
+                self._available_sensors_cache = (time.monotonic() + 5.0, list(result))
                 return result
         except Exception as e:
             printDM(f"Sensor ID query error: {e}", location=MODULE)
             return []
 
     def get_available_metrics(self, sensor_id):
+        """Return cached historical and derived metric names for a sensor."""
         sensor_key = str(sensor_id or "").strip().lower()
         now_mono = time.monotonic()
         cached = self._available_metrics_cache.get(sensor_key) if sensor_key else None
@@ -2020,7 +2023,7 @@ class saiDataLogger:
             for sid, metrics in cached_by_sensor[1].items():
                 if str(sid or "").strip().lower() == sensor_key:
                     result = list(metrics)
-                    self._available_metrics_cache[sensor_key] = (now_mono + 5.0, result)
+                    self._available_metrics_cache[sensor_key] = (time.monotonic() + 5.0, result)
                     return result
 
         try:
@@ -2036,13 +2039,14 @@ class saiDataLogger:
                 result = [row[0] for row in rows if row and row[0]]
                 result = self._with_available_derived_metrics(result)
                 if sensor_key:
-                    self._available_metrics_cache[sensor_key] = (now_mono + 5.0, list(result))
+                    self._available_metrics_cache[sensor_key] = (time.monotonic() + 5.0, list(result))
                 return result
         except Exception as e:
             printDM(f"Error fetching metrics for {sensor_id}: {e}", location=MODULE)
             return []
 
     def get_available_metrics_by_sensor(self):
+        """Return a cached inventory of historical and derived sensor metrics."""
         now_mono = time.monotonic()
         cached = self._available_metrics_by_sensor_cache
         if cached and cached[0] > now_mono:
@@ -2073,7 +2077,7 @@ class saiDataLogger:
             for sid, metrics in list(result.items()):
                 result[sid] = self._with_available_derived_metrics(metrics)
 
-            expires = now_mono + 5.0
+            expires = time.monotonic() + 5.0
             self._available_metrics_by_sensor_cache = (
                 expires,
                 {sid: list(metrics) for sid, metrics in result.items()},
@@ -2132,17 +2136,19 @@ class saiDataLogger:
             return result
 
         sid_map = {sid.lower(): sid for sid in missing}
-        placeholders = ",".join("?" for _ in sid_map)
+        placeholders = ",".join("(?)" for _ in sid_map)
         try:
             with self._open_conn() as conn:
                 rows = conn.execute(
                     f"""
-                    WITH latest AS (
-                        SELECT sensor_id COLLATE NOCASE AS sid_l,
-                               MAX(ts_epoch) AS latest_ts_epoch
-                        FROM readings
-                        WHERE sensor_id COLLATE NOCASE IN ({placeholders})
-                        GROUP BY sensor_id COLLATE NOCASE
+                    WITH requested(sid_l) AS (VALUES {placeholders}),
+                    latest AS (
+                        SELECT sid_l, (
+                            SELECT ts_epoch FROM readings
+                            WHERE sensor_id = requested.sid_l COLLATE NOCASE
+                            ORDER BY ts_epoch DESC LIMIT 1
+                        ) AS latest_ts_epoch
+                        FROM requested
                     )
                     SELECT r.sensor_id, r.timestamp
                     FROM readings r
@@ -2186,8 +2192,10 @@ class saiDataLogger:
         # The database may be written through another logger instance or process.
         # Always reconcile the dashboard snapshot with persisted data so a populated
         # RAM cache cannot remain stale while graph queries continue to advance.
+        # Seek each newest epoch through the existing sensor/time index, then
+        # retrieve every metric tied at that epoch as in the grouped MAX query.
         sid_map = {sid.lower(): sid for sid in clean_ids}
-        placeholders = ",".join("?" for _ in sid_map)
+        placeholders = ",".join("(?)" for _ in sid_map)
         db_values: dict[str, dict] = {}
         db_timestamps: dict[str, str] = {}
         try:
@@ -2195,12 +2203,14 @@ class saiDataLogger:
                 cur = conn.cursor()
                 cur.execute(
                     f"""
-                    WITH latest AS (
-                        SELECT sensor_id COLLATE NOCASE AS sid_l,
-                               MAX(ts_epoch) AS latest_ts_epoch
-                        FROM readings
-                        WHERE sensor_id COLLATE NOCASE IN ({placeholders})
-                        GROUP BY sensor_id COLLATE NOCASE
+                    WITH requested(sid_l) AS (VALUES {placeholders}),
+                    latest AS (
+                        SELECT sid_l, (
+                            SELECT ts_epoch FROM readings
+                            WHERE sensor_id = requested.sid_l COLLATE NOCASE
+                            ORDER BY ts_epoch DESC LIMIT 1
+                        ) AS latest_ts_epoch
+                        FROM requested
                     )
                     SELECT r.sensor_id, r.timestamp, r.metric, r.value
                     FROM readings r

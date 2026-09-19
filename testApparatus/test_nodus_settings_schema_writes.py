@@ -4106,6 +4106,37 @@ async def test_companion_return_reuses_last_dashboard_shell(tmp_path, monkeypatc
     assert render_calls == [1, 2]
 
 
+@pytest.mark.asyncio
+async def test_dashboard_json_cache_skips_queries_and_expires_after_completion(tmp_path, monkeypatch):
+    app, _ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    monkeypatch.setattr(saiWebRoutes, "_DASHBOARD_INVENTORY_CACHE", None)
+    monkeypatch.setattr(saiWebRoutes, "_DASHBOARD_JSON_CACHE", {})
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {})
+    original_clock = time.monotonic
+    offset = [0.0]
+    monkeypatch.setattr(time, "monotonic", lambda: original_clock() + offset[0])
+    calls = []
+
+    def slow_inventory():
+        calls.append(1)
+        offset[0] += 10.0
+        return []
+
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", slow_inventory)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        first = await client.get("/", params={"json_only": "true"})
+        second = await client.get("/", params={"json_only": "true", "sensor_id": "All"})
+        assert first.status_code == second.status_code == 200
+        assert second.json() == first.json()
+        assert len(calls) == 1
+        offset[0] += saiWebRoutes._DASHBOARD_JSON_CACHE_TTL_SEC + 1.0
+        expired = await client.get("/", params={"json_only": "true"})
+        assert expired.status_code == 200
+        assert len(calls) == 2
+
+
 def test_dashboard_warming_payloads_are_not_stable_shell_content():
     assert saiWebRoutes._dashboard_payload_is_warming({"reason": "warming"}) is True
     assert saiWebRoutes._dashboard_payload_is_warming({"cache_status": "warming"}) is True

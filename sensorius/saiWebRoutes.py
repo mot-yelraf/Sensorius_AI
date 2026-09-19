@@ -2421,6 +2421,22 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         _phase_started = time.monotonic()
         global _cdp_debug_last_log
         dashboard_cache_key = str(sensor_id or "All")
+        if json_only:
+            cache_key = (str(sensor_id or "All"), 1 if include_extras else 0)
+            now_mono = time.monotonic()
+            cached_json = _DASHBOARD_JSON_CACHE.get(cache_key)
+            if cached_json and cached_json[0] > now_mono:
+                cached_payload = cached_json[1]
+                _ui_profile_log(
+                    "dashboard",
+                    _route_started,
+                    json_only=1,
+                    include_extras=int(bool(include_extras)),
+                    cache=1,
+                    sensor_id=(sensor_id or "All"),
+                )
+                return JSONResponse(cached_payload)
+
         if dashboard_return and not json_only:
             cached_dashboard = _DASHBOARD_HTML_CACHE.get(dashboard_cache_key)
             if cached_dashboard is not None:
@@ -2891,7 +2907,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     lambda: {sid: resolve_location_for_sid(sid) for sid in available}
                 )
                 _DASHBOARD_INVENTORY_CACHE = (
-                    now_mono + _DASHBOARD_INVENTORY_CACHE_TTL_SEC,
+                    time.monotonic() + _DASHBOARD_INVENTORY_CACHE_TTL_SEC,
                     {
                         "local_ids": list(local_ids),
                         "available": list(available),
@@ -3470,23 +3486,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return "unknown"
          
         if json_only:
-            cache_key = (str(sensor_id or "All"), 1 if include_extras else 0)
-            now_mono = time.monotonic()
-            cached_json = _DASHBOARD_JSON_CACHE.get(cache_key)
-            if cached_json and cached_json[0] > now_mono:
-                cached_payload = cached_json[1]
-                _ui_profile_log(
-                    "dashboard",
-                    _route_started,
-                    json_only=1,
-                    include_extras=int(bool(include_extras)),
-                    cache=1,
-                    sensor_id=(sensor_id or "All"),
-                    sensors=len(available),
-                    switches=len(available_switches),
-                )
-                return JSONResponse(cached_payload)
-
             timestamps = await asyncio.to_thread(
                 lambda: {
                     sid: (bulk_timestamps.get(sid) or data_logger.get_latest_timestamp(sid) or "")
@@ -3562,7 +3561,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             payload = _dashboard_json_safe(payload)
             _DASHBOARD_JSON_CACHE[cache_key] = (
-                now_mono + _DASHBOARD_JSON_CACHE_TTL_SEC,
+                time.monotonic() + _DASHBOARD_JSON_CACHE_TTL_SEC,
                 payload,
             )
             _ui_profile_log(
