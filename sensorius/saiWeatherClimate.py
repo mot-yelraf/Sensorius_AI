@@ -1,4 +1,4 @@
-"""Provide same-calendar-date climate averages for the Caelus forecast card.
+"""Provide same-calendar-date climate statistics for the Caelus forecast card.
 
 Reuse the rainfall service's background loading and location-specific disk cache,
 keeping one compact 366-day climatology instead of the downloaded daily history.
@@ -16,6 +16,11 @@ VARIABLES = {
     "wind_speed_10m_mean": "wind_kmh",
     "rain_sum": "rain_mm",
 }
+EXTREME_VARIABLES = {
+    kind: {variable.replace("_mean", f"_{kind}"): field for variable, field in VARIABLES.items()}
+    for kind in ("min", "max")
+}
+ALL_VARIABLES = {**VARIABLES, **EXTREME_VARIABLES["min"], **EXTREME_VARIABLES["max"]}
 DAY_KEYS = {(date(2000, 1, 1) + timedelta(days=i)).strftime("%m-%d") for i in range(366)}
 
 
@@ -27,12 +32,12 @@ def _valid_value(key: str, value) -> bool:
 
 
 def summarize_weather_history(payload: dict, end: date) -> dict:
-    """Average daily temperature, RH, wind and rain by calendar date over the requested range."""
+    """Summarize calendar-date means and extremes, keeping the earliest year for ties."""
     daily = payload.get("daily") or {}
     count = (end - START).days + 1
-    if any(len(daily.get(key, [])) != count for key in ("time", *VARIABLES)):
+    if any(len(daily.get(key, [])) != count for key in ("time", *ALL_VARIABLES)):
         raise ValueError("Weather history does not cover the complete baseline")
-    totals, samples = {}, {}
+    totals, samples, extremes = {}, {}, {}
     for index in range(count):
         day = START + timedelta(days=index)
         if daily["time"][index] != day.isoformat():
@@ -44,17 +49,29 @@ def summarize_weather_history(payload: dict, end: date) -> dict:
             if not _valid_value(field, value):
                 raise ValueError(f"Weather history contains invalid {variable}")
             sums[field] += value
+        records = extremes.setdefault(key, {"min": {}, "max": {}})
+        for kind, variables in EXTREME_VARIABLES.items():
+            for variable, field in variables.items():
+                value = daily[variable][index]
+                if not _valid_value(field, value):
+                    raise ValueError(f"Weather history contains invalid {variable}")
+                previous = records[kind].get(field)
+                if previous is None or (value < previous["value"] if kind == "min" else value > previous["value"]):
+                    records[kind][field] = {"value": value, "year": day.year}
         samples[key] = samples.get(key, 0) + 1
     return {key: {**{field: round(value / samples[key], 3) for field, value in sums.items()},
-                  "samples": samples[key]} for key, sums in totals.items()}
+                  "samples": samples[key], "extremes": extremes[key]} for key, sums in totals.items()}
 
 
 class WeatherClimateService(RainClimateService):
-    """Cache weather averages and select today's date in the hub's timezone."""
+    """Cache weather statistics and select today's date in the hub's timezone."""
 
-    daily_variables = ",".join(VARIABLES)
+    daily_variables = ",".join(ALL_VARIABLES)
     expected_units = {"temperature_2m_mean": "°C", "relative_humidity_2m_mean": "%",
-                      "wind_speed_10m_mean": "km/h", "rain_sum": "mm"}
+                      "wind_speed_10m_mean": "km/h", "rain_sum": "mm",
+                      "temperature_2m_min": "°C", "temperature_2m_max": "°C",
+                      "relative_humidity_2m_min": "%", "relative_humidity_2m_max": "%",
+                      "wind_speed_10m_min": "km/h", "wind_speed_10m_max": "km/h"}
 
     def _location(self) -> dict:
         location = super()._location()
@@ -72,13 +89,33 @@ class WeatherClimateService(RainClimateService):
         samples = dict.fromkeys(DAY_KEYS, 0)
         for offset in range((end - START).days + 1):
             samples[(START + timedelta(days=offset)).strftime("%m-%d")] += 1
+
+        def valid_extremes(key, row):
+            for kind in ("min", "max"):
+                records = row.get("extremes", {}).get(kind, {})
+                for field in VARIABLES.values():
+                    record = records.get(field, {})
+                    year = record.get("year")
+                    if not _valid_value(field, record.get("value")) or type(year) is not int:
+                        return False
+                    try:
+                        occurred = date.fromisoformat(f"{year}-{key}")
+                    except ValueError:
+                        return False
+                    if not START <= occurred <= end:
+                        return False
+            return all(row["extremes"]["min"][field]["value"] <= row[field] + 0.001
+                       and row[field] <= row["extremes"]["max"][field]["value"] + 0.001
+                       for field in VARIABLES.values())
+
         return all(isinstance(row, dict)
                    and row.get("samples") == samples[key]
                    and all(_valid_value(field, row.get(field)) for field in VARIABLES.values())
+                   and valid_extremes(key, row)
                    for key, row in averages.items())
 
     def snapshot(self, *, now: datetime | None = None) -> dict:
-        """Return today's four averages, keeping the full climatology server-side."""
+        """Return today's averages and extremes, keeping the full climatology server-side."""
         payload = super().snapshot()
         calendar = payload.pop("calendar_averages", {})
         if payload.get("status") == "ready":

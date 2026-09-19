@@ -1261,29 +1261,30 @@ the current Moon and phase cycle at the bottom. The display also provides
 theme-matched six-day details. It reuses the Sensorius forecast and does not
 maintain a separate settings file or readings database.
 
-Today's forecast includes a compact **Historical daily average** row
+Today's forecast includes a compact **Historical Min, Max, Avg** section
 beneath its expected ranges, with temperature, RH, wind, and rain in the same
-column order. These are averages for the same calendar date at the hub's
+column order. These are statistics for the same calendar date at the hub's
 Astral location, using Open-Meteo/ERA5 historical data independently of the
 selected forecast provider. Temperature, RH, and wind are averages of daily
 means; rain is the average daily rainfall total, including dry days, **not a
-rain probability**. Units follow the selected Metric or Imperial display.
+rain probability**. Min and Max use daily lows and highs for temperature, RH,
+and wind, and daily totals for rain. Each extreme includes its occurrence year;
+ties show the earliest year. Existing averages-only caches are rebuilt automatically. Units follow the selected Metric or Imperial display.
 
 The date follows the hub's timezone. History starts in 1991 and extends through
 the latest available data, allowing for ERA5's roughly five-day publication
 delay; unpublished trailing days are excluded. Each calendar date uses its available daily samples, including recent
 years; February 29 uses only leap years. The label shows the actual year range and hub-local date, for example
-**Historical daily average 1991–2026 for 18-Sep-2026**,
+**Historical Min, Max, Avg 1991–2026 for 18-Sep**,
 and its tooltip gives the exact historical cutoff and sample count. These are
 regional climate estimates, not readings from the selected station. The source link and tooltip
-explain the baseline without adding a separate note or increasing the card's
-height. Dashes mean history is still loading or unavailable, never zero.
+explain the baseline. Dashes mean history is still loading or unavailable, never zero.
 Retrieval is non-blocking. The cache is checked hourly and refreshed as the
 historical end date advances; a compact calendar-day cache survives restarts
 at `/home/<user>/Sensorius/weather_cache/weather_climate.json` on Linux or
 `/Users/<user>/Sensorius/weather_cache/weather_climate.json` on macOS. Updating
 the hub's location invalidates the active history. The displayed date and
-averages refresh automatically, including after the hourly forecast refresh.
+statistics refresh automatically, including after the hourly forecast refresh.
 
 The Windy map is initially interaction-locked so the mouse wheel continues to
 scroll the Caelus page. Select **Click to interact with map** on the map's top
