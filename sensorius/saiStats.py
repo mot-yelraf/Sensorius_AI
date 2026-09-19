@@ -134,6 +134,8 @@ class saiStats:
             params.append(str(sensor_id))
         params.append(pressure_window_s)
 
+        # Match the index collation for bounded seeks, then preserve the original
+        # case-sensitive grouping when historical IDs differ only by case.
         rows = conn.execute(
             f"""
             WITH latest AS (
@@ -148,7 +150,8 @@ class saiStats:
             SELECT r.sensor_id, r.metric, r.value, r.ts_epoch, latest.end_ts
             FROM readings AS r
             JOIN latest
-              ON r.sensor_id = latest.sensor_id
+              ON r.sensor_id = latest.sensor_id COLLATE NOCASE
+             AND r.sensor_id = latest.sensor_id COLLATE BINARY
             WHERE r.value IS NOT NULL
               AND r.ts_epoch >= latest.end_ts - ?
               AND r.ts_epoch <= latest.end_ts
@@ -280,6 +283,7 @@ class saiStats:
         return results
 
     def get_24hr_stats(self, sensor_id):
+        """Return cached 24-hour extrema, averages, and trends for a sensor."""
         sid = str(sensor_id or "").strip()
         now_mono = time.monotonic()
         cached = self._stats_cache.get(sid)
@@ -294,7 +298,7 @@ class saiStats:
         for metric, trend in trends.items():
             if metric in result:
                 result[metric]["trend"] = trend
-        self._stats_cache[sid] = (now_mono + self._stats_cache_ttl_sec, dict(result))
+        self._stats_cache[sid] = (time.monotonic() + self._stats_cache_ttl_sec, dict(result))
         return result
 
     def get_all_stats_fast(self):
@@ -395,7 +399,7 @@ class saiStats:
                     if metric in sensor_stats:
                         sensor_stats[metric]["trend"] = trend
 
-        self._all_stats_cache = (now_mono + self._stats_cache_ttl_sec, dict(results))
+        self._all_stats_cache = (time.monotonic() + self._stats_cache_ttl_sec, dict(results))
         return results
 
 def create_stats_router(settings, gc_mgr, data_logger=None):
