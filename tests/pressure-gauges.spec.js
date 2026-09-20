@@ -37,10 +37,10 @@ for (const units of ['Metric', 'Imperial']) {
       };
     });
     await page.goto(`/pressure-gauges?unit_system=${units}`, { waitUntil: 'domcontentloaded' });
-    await expect.poll(() => page.evaluate(() => window.pressureTestGauges.length)).toBe(5);
+    await expect.poll(() => page.evaluate(() => window.pressureTestGauges.length)).toBe(6);
     const gauges = await page.evaluate(() => window.pressureTestGauges.map(g => ({ id: g.id, min: g.min, max: g.maxValue, ticks: g.options.staticLabels.labels, value: g.value })));
     for (const gauge of gauges) {
-      const corrected = gauge.id.startsWith('corrected_') || gauge.id === 'ecowitt_Gateway_Baro-PressureGauge';
+      const corrected = gauge.id.startsWith('corrected_') || gauge.id.startsWith('nodus_') || gauge.id === 'ecowitt_Gateway_Baro-PressureGauge';
       const raw = gauge.id.startsWith('raw_') || gauge.id.includes('Absolute');
       expect(corrected || raw).toBe(true);
       expect([gauge.min, gauge.max]).toEqual(units === 'Metric' ? (corrected ? [960, 1070] : [780, 890]) : (corrected ? [28.4, 31.4] : [23.1, 26.2]));
@@ -48,6 +48,7 @@ for (const units of ['Metric', 'Imperial']) {
       expect(gauge.ticks.at(-1)).toBe(gauge.max);
     }
     await expect(page.locator('#corrected_Baro-Pressure_val')).toContainText(units === 'Metric' ? '1022.5 hPa' : '30.19 inHg');
+    await expect(page.locator('#nodus_Baro-Pressure_val')).toContainText(units === 'Metric' ? '1018.6 hPa' : '30.08 inHg');
     await page.screenshot({ path: testInfo.outputPath(`pressure-${units}.png`), fullPage: true });
   });
 }
@@ -74,3 +75,59 @@ test('fallback canvas keeps altitude bounds after a live update', async ({ page 
   expect(labels).not.toContain('700');
   await page.screenshot({ path: testInfo.outputPath('pressure-fallback.png'), fullPage: true });
 });
+
+for (const renderer of ['GaugeJS', 'fallback']) {
+  test(`late Nodus calibration updates ${renderer} ranges without reloading`, async ({ page }) => {
+    await page.route('https://cdn.jsdelivr.net/**', route => route.fulfill({ contentType: 'application/javascript', body: '' }));
+    await page.addInitScript(renderer => {
+      window.pressureTestGauges = [];
+      window.pressureLabels = [];
+      if (renderer === 'GaugeJS') {
+        window.Gauge = class {
+          constructor(canvas) { this.id = canvas.id; window.pressureTestGauges.push(this); }
+          setOptions(options) { this.options = options; return this; }
+          setMinValue(value) { this.minValue = value; }
+          set(value) { this.value = value; }
+          render() {}
+        };
+      }
+      const fillText = CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText = function(text, ...args) {
+        if (this.canvas.id === 'nodus_Baro-PressureGauge') window.pressureLabels.push(String(text));
+        return fillText.call(this, text, ...args);
+      };
+    }, renderer);
+    let deviceAltitude = 0;
+    await page.route('**/*json_only=true*', route => route.fulfill({ json: {
+      available: ['raw', 'corrected', 'nodus', 'ecowitt'],
+      values: { nodus: { 'Baro-Pressure': 1038.27 } }, timestamps: {}, stats: {},
+      pressure_altitude: '1783',
+      pressure_sensor_context: { nodus: { device: 'avpd', altitude: deviceAltitude } },
+    } }));
+    await page.goto('/pressure-gauges?unit_system=Imperial&altitude=1783&nodus_altitude=0', { waitUntil: 'load' });
+    const checkRange = async (min, max) => {
+      if (renderer === 'GaugeJS') {
+        const gauges = await page.evaluate(() => window.pressureTestGauges.filter(g => g.id === 'nodus_Baro-PressureGauge').map(g => ({
+          min: g.minValue, max: g.maxValue, labels: g.options.staticLabels.labels, zones: g.options.staticZones,
+        })));
+        expect(gauges).toHaveLength(1);
+        expect([gauges[0].min, gauges[0].max]).toEqual([min, max]);
+        expect(gauges[0].labels[0]).toBe(min);
+        expect(gauges[0].labels.at(-1)).toBe(max);
+        expect(gauges[0].zones).toEqual([{ min, max, strokeStyle: '#add8e6' }]);
+      } else {
+        const labels = await page.evaluate(() => window.pressureLabels);
+        expect(labels).toContain(String(min));
+        expect(labels).toContain(String(max));
+      }
+    };
+    await checkRange(22.6, 25.6);
+    for (const altitude of [1783, 0]) {
+      deviceAltitude = altitude;
+      await page.evaluate(() => { window.pressureLabels = []; return window.updateGauges({ ignoreVisibility: true, ignoreModal: true }); });
+      await checkRange(...(altitude ? [28.4, 31.4] : [22.6, 25.6]));
+      await expect(page.locator('#nodus_Baro-Pressure_val')).toContainText('30.66 inHg');
+    }
+    expect(new URL(page.url()).pathname).toBe('/pressure-gauges');
+  });
+}

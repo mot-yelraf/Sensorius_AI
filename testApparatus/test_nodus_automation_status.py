@@ -56,9 +56,10 @@ class FakeIngest:
 
 def _rules(enabled=True):
     return {
-        "Night Lights": {
+        "auto-lights-123": {
             "enabled": enabled,
             "script_json": {
+                "name": "Night Lights",
                 "enabled": True,
                 "actions": [
                     {"switch_key": "switch-abc::switch-abc-2", "set": True},
@@ -119,6 +120,40 @@ def test_publisher_clears_removed_ownership_and_marks_offline():
     assert ingest.published[-1][1]["channels"] == []
     assert publisher.publish_offline(now=1010) == 1
     assert ingest.published[-1][1]["status"] == "offline"
+
+
+@pytest.mark.parametrize("name", [None, "", "   "])
+def test_build_status_channels_falls_back_to_legacy_id(name):
+    rules = _rules()
+    script = rules["auto-lights-123"]["script_json"]
+    if name is None:
+        script.pop("name")
+    else:
+        script["name"] = name
+    assert build_status_channels(rules, "switch-abc", {"switch-abc-2"}) == {
+        "switch-abc-2": ["auto-lights-123"]
+    }
+
+
+def test_publisher_republishes_status_when_rule_is_renamed():
+    ingest = FakeIngest()
+    manager = FakeManager(_rules())
+    publisher = NodusAutomationStatusPublisher(ingest, manager=manager)
+    publisher.publish_once(force=True, now=1000)
+    assert publisher.publish_once(now=1005) == 0
+
+    manager.rules["auto-lights-123"]["script_json"]["name"] = "Evening Lights"
+
+    assert publisher.publish_once(now=1010) == 1
+    assert ingest.published[-1][0].endswith("/automation/sensorius/status")
+    assert ingest.published[-1][1]["channels"] == [
+        {
+            "channel_id": "switch-abc-2",
+            "automations": ["Evening Lights"],
+            "enabled": True,
+        }
+    ]
+    assert ingest.published[-1][2]["retain"] is True
 
 
 def test_publisher_run_feeds_watchdog_each_scan(monkeypatch):

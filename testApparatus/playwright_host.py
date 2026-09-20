@@ -217,13 +217,14 @@ def weather_climate() -> dict:
 
 
 @app.get("/pressure-gauges", response_class=HTMLResponse)
-def pressure_gauges(unit_system: str = "Metric", altitude: str = "1609.3") -> HTMLResponse:
+def pressure_gauges(unit_system: str = "Metric", altitude: str = "1609.3", nodus_altitude: str = "1719.0") -> HTMLResponse:
     """Render raw and corrected pressure sensors together for browser checks."""
     from sensorius.saiDisplayUnits import apply_display_units_to_gauge_config
 
     values = {
         "raw": {"Baro-Pressure": 835.0, "Plant Baro-Pressure": 836.0},
         "corrected": {"Baro-Pressure": 1022.5},
+        "nodus": {"Baro-Pressure": 1018.6},
         "ecowitt": {"Gateway Baro-Pressure": 1032.5, "Gateway Absolute Baro-Pressure": 840.0},
     }
     return HTMLResponse("".join(render_dashboard(
@@ -232,5 +233,8 @@ def pressure_gauges(unit_system: str = "Metric", altitude: str = "1609.3") -> HT
         expected_gauge_map={sid: list(metrics) for sid, metrics in values.items()},
         expected_display_style_map={sid: {} for sid in values}, display_style="Gauge",
         pressure_altitude=altitude,
-        pressure_sensor_context={"corrected": {"device": "bme280", "altitude": 1609.3}},
+        pressure_sensor_context={
+            "corrected": {"device": "bme280", "altitude": 1609.3},
+            "nodus": {"device": "avpd", "altitude": nodus_altitude},
+        },
     )))

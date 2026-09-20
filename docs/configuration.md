@@ -554,7 +554,7 @@ Barometric pressure gauges use the altitude entered in General Settings
 (`[Astral].ALTITUDE`, metres) to center raw/absolute pressure ranges on standard
 atmospheric pressure at that elevation, with at least 50 hPa of weather margin
 on either side. Metric bounds round outward to 10 hPa; Imperial bounds round
-outward to 0.1 inHg. Refresh the dashboard after changing altitude. Blank or
+outward to 0.1 inHg. Dashboard refreshes update the range after altitude changes. Blank or
 invalid altitude retains the broad default range for raw pressure.
 
 Sea-level-corrected readings (Ecowitt relative pressure, WeeWX barometer, and
@@ -562,3 +562,14 @@ BME/VPD/AQI sensors with altitude calibration) instead use a sea-level range:
 960–1070 hPa or 28.4–31.4 inHg. Explicit absolute-pressure metrics always use
 site altitude. Gauge scaling does not change measurements, history, MQTT, or
 calibration values.
+
+For Nodus sensors, calibration altitude comes from the device's TOML via
+retained MQTT metadata (`sensor.calibration.Device.ALTITUDE_METERS`, or the
+corresponding child in `sensors`). Sensorius mirrors explicit values, including
+zero, into its sensor settings shadow. Missing fields in older firmware do not
+overwrite an existing mirrored altitude. Sensorius does not infer calibration
+from pressure readings or substitute the hub altitude for device calibration.
+An open dashboard receives updated calibration context with its regular JSON
+refresh and updates gauge limits, tick labels, and color bands without a page
+reload. The calibration form's "System Altitude" comes from General Settings;
+it is not confirmation that the remote device's altitude has been mirrored.

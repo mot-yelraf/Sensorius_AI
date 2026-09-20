@@ -58,6 +58,31 @@ MQTT_CALLBACK_SLOW_SEC = 0.25
 MQTT_CALLBACK_SLOW_LOG_INTERVAL_SEC = 60.0
 
 # module helpers
+def _merge_nodus_pressure_calibration(doc: dict, calibration: object) -> bool:
+    """Mirror an explicitly advertised device altitude without inventing defaults."""
+    if not isinstance(calibration, dict):
+        return False
+    device = calibration.get("Device")
+    if not isinstance(device, dict):
+        return False
+    raw = device.get("ALTITUDE_METERS")
+    if raw is None or isinstance(raw, bool):
+        return False
+    try:
+        altitude = float(raw)
+    except (TypeError, ValueError):
+        return False
+    if not -500 <= altitude <= 10000:
+        return False
+    for name in ("Calibration", "Device"):
+        if not isinstance(doc.get(name), dict):
+            doc[name] = OrderedDict()
+        doc = doc[name]
+    if doc.get("ALTITUDE_METERS") == altitude:
+        return False
+    doc["ALTITUDE_METERS"] = altitude
+    return True
+
 def _slugify(text: str) -> str:
     return (text or "").strip().lower().replace(" ", "_")
 
@@ -3243,6 +3268,14 @@ class saiMQTTIngest:
             child_name = section.split(".", 1)[1].strip()
             if not child_name:
                 return False
+            if (section_key == "calibration.device" and key_upper == "ALTITUDE_METERS"
+                    and not (update.get("sensor_id") or update.get("name"))):
+                # Legacy untargeted patches apply to the primary sensor. Keep
+                # its retained snapshot consistent with the shadow write below.
+                primary = meta.get("sensor") or {}
+                primary_id = primary.get("sensor_id") if isinstance(primary, dict) else None
+                if primary_id:
+                    self._apply_nodus_meta_patch_update(meta, {**update, "sensor_id": primary_id})
             targets = _sensor_targets()
             if update.get("sensor_id") or update.get("name"):
                 for sensor in targets:
@@ -4091,6 +4124,7 @@ class saiMQTTIngest:
                 "config_file": config_file,
                 "display_metrics": display_metrics,
                 "display_styles": display_styles,
+                "calibration": sensor_blob.get("calibration"),
             })
         if sensor_ids_for_host:
             self.nodus_host_sensors[base] = list(sensor_ids_for_host)
@@ -6034,6 +6068,7 @@ class saiMQTTIngest:
                                 style_block[style_key] = style_val
                                 changed = True
 
+                    changed = _merge_nodus_pressure_calibration(data, s.get("calibration")) or changed
                     if changed:
                         sensor_mgr.save(sensor_id, data)
                         if DEBUG:
@@ -6084,6 +6119,7 @@ class saiMQTTIngest:
                         for idx in range(6):
                             style_block[f"METRIC_{idx + 1}"] = remote_display_styles[idx] if idx < len(remote_display_styles) else "Graph24hr"
 
+                    _merge_nodus_pressure_calibration(data, s.get("calibration"))
                     sensor_mgr.save(sensor_id, data)
                 else:
                     data = OrderedDict()
@@ -6119,6 +6155,7 @@ class saiMQTTIngest:
                         for idx in range(6):
                             style_block[f"METRIC_{idx + 1}"] = remote_display_styles[idx] if idx < len(remote_display_styles) else "Graph24hr"
 
+                    _merge_nodus_pressure_calibration(data, s.get("calibration"))
                     sensor_mgr.save(sensor_id, data)
                 if DEBUG:
                     printDM(f"[itaot-settings] seeded sensor settings for {sensor_id}", location=MODULE)

@@ -70,7 +70,7 @@ def _device_inventory(ingest) -> dict[str, dict]:
 
 
 def build_status_channels(rules: dict, switch_id: str, channel_ids) -> dict[str, list[str]]:
-    """Map enabled Advanced rules to known channels for one Nodus switch."""
+    """Map enabled Advanced rule display names to known Nodus switch channels."""
     known = {str(value or "").strip() for value in (channel_ids or [])}
     controlled: dict[str, set[str]] = {}
     switch_prefix = f"{str(switch_id or '').strip()}::"
@@ -80,6 +80,7 @@ def build_status_channels(rules: dict, switch_id: str, channel_ids) -> dict[str,
         script = rule.get("script_json")
         if not isinstance(script, dict) or not _enabled(script.get("enabled", True)):
             continue
+        name = str(script.get("name") or "").strip() or str(rule_id)
         for action in script.get("actions") or []:
             if not isinstance(action, dict):
                 continue
@@ -88,7 +89,7 @@ def build_status_channels(rules: dict, switch_id: str, channel_ids) -> dict[str,
                 continue
             channel_id = switch_key[len(switch_prefix):].strip()
             if channel_id in known:
-                controlled.setdefault(channel_id, set()).add(str(rule_id))
+                controlled.setdefault(channel_id, set()).add(name)
     return {
         channel_id: sorted(names)
         for channel_id, names in sorted(controlled.items())
