@@ -6713,3 +6713,40 @@ def test_wifi_credential_helpers_do_not_log_plaintext_passwords():
 
     assert 'psk: {psk}' not in module_text
     assert '/itaot-init payload={raw_payload' not in module_text
+
+
+@pytest.mark.asyncio
+async def test_dashboard_json_refreshes_pressure_calibration_context(tmp_path, monkeypatch):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    monkeypatch.setattr(saiWebRoutes, "_DASHBOARD_JSON_CACHE", {})
+    monkeypatch.setattr(saiWebRoutes, "_DASHBOARD_JSON_CACHE_TTL_SEC", 0)
+    monkeypatch.setattr(saiWebRoutes, "_DASHBOARD_INVENTORY_CACHE", None)
+    sid = "avpd-test123"
+    ingest.mqtt_clients = [sid]
+    mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    doc = {
+        "Sensor": {"TYPE": "nodus", "DEVICE": "avpd", "SENSOR_ID": sid},
+        "Display": {"METRIC_1": "Baro-Pressure"},
+        "Calibration": {"Device": {"ALTITUDE_METERS": 0}},
+    }
+    mgr.save(sid, doc)
+    stamp = datetime.now().isoformat()
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: [sid])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda _sid: stamp)
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_values_and_timestamps",
+                        lambda ids: ({sid: {"Baro-Pressure": 1038.27}}, {sid: stamp}))
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {sid: {}})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        for altitude in [0, 1783, 0]:
+            doc["Calibration"]["Device"]["ALTITUDE_METERS"] = altitude
+            mgr.save(sid, doc)
+            response = await client.get("/", params={"json_only": "true"})
+            assert response.status_code == 200
+            body = response.json()
+            assert "pressure_altitude" in body
+            assert body["pressure_sensor_context"][sid] == {
+                "device": "avpd", "altitude": altitude, "weewx": False,
+            }
+            assert body["values"][sid]["Baro-Pressure"] == 1038.27

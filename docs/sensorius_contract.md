@@ -90,7 +90,10 @@ The retained status payload is:
 ```
 
 `channels` lists canonical Nodus channel IDs and their enabled Advanced-rule
-names. An empty list explicitly clears prior ownership. The retained
+display names from `script_json.name`, falling back to the rule ID only when
+the name is missing or blank. Nodus displays these strings directly; renaming
+a rule updates the retained status on the next publisher scan.
+An empty list explicitly clears prior ownership. The retained
 availability payload uses schema `nodus-automation-availability/v1`, the same
 controller fields, `updated_at`, and `status` set to `online` or `offline`.
 
@@ -301,9 +304,13 @@ The payload must include:
   `sensor.data_topic`,
   `sensor.event_topic`, `sensor.availability_topic`,
   `sensor.display_metrics`, `sensor.display_styles`
+- optional `sensor.calibration.Device.ALTITUDE_METERS`, reflecting the device
+  TOML calibration altitude in metres (number or numeric string); Sensorius
+  mirrors explicit values, including zero, and preserves existing shadow
+  calibration when the field is omitted by older firmware
 - optional `sensors` array for a multi-sensor Nodus; every entry carries its
   own `sensor_id`, logical device, hardware, `config_file`, location, display
-  settings, data topic, event topic, and availability topic
+  settings, calibration altitude, data topic, event topic, and availability topic
 - `switch.device_id`, `switch.channel_count`, and `switch.meta_topic` when
   switch capability is present
 

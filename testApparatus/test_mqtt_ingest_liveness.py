@@ -3925,3 +3925,59 @@ async def test_network_loop_setup_failure_can_be_retried(monkeypatch):
     await ingest.start()
     assert ingest._started is True
     ingest.stop()
+
+
+@pytest.mark.parametrize('shadow_mode', ['missing', 'factory', 'existing'])
+def test_nodus_meta_mirrors_authoritative_pressure_altitude(tmp_path, monkeypatch, shadow_mode):
+    ingest = _build_ingest(monkeypatch)
+    sensor_root = tmp_path / 'sensor_settings'
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    mgr = real_sensor_mgr(str(sensor_root))
+    monkeypatch.setattr(saiSensorSettingsManager, 'SensorSettingsManager', lambda *_a, **_k: mgr)
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    monkeypatch.setattr(saiSwitchSettingsManager, 'SwitchSettingsManager',
+                        lambda *_a, **_k: real_switch_mgr(str(tmp_path / 'switch_settings')))
+    monkeypatch.setattr(saiSettings.saiSettings, 'DEFAULT_BASE_DIR', str(tmp_path / 'system_settings'))
+    if shadow_mode == 'factory':
+        from pathlib import Path
+        factory = sensor_root / 'factory_nodus'
+        factory.mkdir(parents=True)
+        source = Path(__file__).resolve().parents[1] / 'sensor_settings/factory_nodus/sensor_i2c.toml.def'
+        (factory / source.name).write_bytes(source.read_bytes())
+    sid = 'avpd-1jm5s1'
+    if shadow_mode == 'existing':
+        mgr.save(sid, {'Sensor': {'TYPE': 'nodus', 'DEVICE': 'avpd'},
+                       'Calibration': {'Device': {'ALTITUDE_METERS': 0, 'TEMP_OFFSET': 1.5}}})
+    sensor = {'sensor_id': sid, 'device': 'avpd', 'config_file': 'sensor_i2c.toml',
+              'data_topic': f'nodus/{sid}/data',
+              'calibration': {'Device': {'ALTITUDE_METERS': '1719.0'}}}
+    other = {'sensor_id': 'aqi-1jm5s1', 'device': 'aqi',
+             'calibration': {'Device': {'ALTITUDE_METERS': 1200}}}
+    meta = {'schema': 'nodus-meta/v1', 'device_id': sid, 'sensor': sensor,
+            'sensors': [sensor, other]}
+    def receive(payload):
+        ingest._on_message(ingest.client, None, _Msg(f'nodus/{sid}/meta', json.dumps(payload), retain=True))
+    receive(meta)
+    assert mgr.load(sid)['Calibration']['Device']['ALTITUDE_METERS'] == 1719
+    assert mgr.load('aqi-1jm5s1')['Calibration']['Device']['ALTITUDE_METERS'] == 1200
+    if shadow_mode == 'existing':
+        assert mgr.load(sid)['Calibration']['Device']['TEMP_OFFSET'] == 1.5
+    path = mgr.get_path(sid)
+    before = path.stat().st_mtime_ns
+    receive(meta)
+    assert path.stat().st_mtime_ns == before
+    for bad in [None, {}, {'Device': {}}, {'Device': {'ALTITUDE_METERS': 'NaN'}},
+                {'Device': {'ALTITUDE_METERS': 10001}}]:
+        sensor['calibration'] = bad
+        receive(meta)
+        assert mgr.load(sid)['Calibration']['Device']['ALTITUDE_METERS'] == 1719
+    sensor['calibration'] = {'Device': {'ALTITUDE_METERS': 0}}
+    receive(meta)
+    assert mgr.load(sid)['Calibration']['Device']['ALTITUDE_METERS'] == 0
+    patch = {'schema': 'nodus-meta-patch/v1', 'device_id': sid, 'message_id': 'altitude-test',
+             'updates': [{'section': 'Calibration.Device', 'key': 'ALTITUDE_METERS', 'value': 1719}]}
+    ingest._on_message(ingest.client, None, _Msg(f'nodus/{sid}/meta/patch', json.dumps(patch)))
+    cached = ingest.discovery_cache[sid]
+    receive(cached)
+    assert mgr.load(sid)['Calibration']['Device']['ALTITUDE_METERS'] == 1719
+    assert mgr.load('aqi-1jm5s1')['Calibration']['Device']['ALTITUDE_METERS'] == 1200

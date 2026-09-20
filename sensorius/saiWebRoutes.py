@@ -3540,6 +3540,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "locations": sensor_locations,
                 "expected_gauge_map": expected_gauge_map,
                 "expected_display_style_map": expected_display_style_map,
+                "pressure_altitude": display_settings.get("pressure_altitude"),
+                "pressure_sensor_context": pressure_sensor_context,
                 "available_switches": available_switches,
                 "renderable_switches": renderable_switches,
                 "renderable_switches_view": renderable_switches_view,

@@ -106,6 +106,7 @@ roots.
   `/home/<user>/Sensorius/` on Linux or `/Users/<user>/Sensorius/` on macOS.
 - Inside pytest, relative roots remain relative for test isolation.
 - Absolute paths are used unchanged.
+- The 'source of truth' for the device toml files is the device toml files
 
 Canonical runtime state:
 
