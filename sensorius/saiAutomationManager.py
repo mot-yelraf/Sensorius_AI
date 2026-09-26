@@ -40,6 +40,7 @@ import io
 import json
 import re
 import shutil
+import uuid
 import threading
 from pathlib import Path
 from typing import Any, Dict, Callable, TypeVar
@@ -654,6 +655,30 @@ class AutomationManager:
                     script_json = json.dumps(parsed, separators=(",", ":"), ensure_ascii=False)
                 except Exception:
                     script_json = s  # store verbatim; runtime should validate before executing
+
+            # Notification state belongs to the conditions that produced it.
+            # Keep this metadata server-owned: the editor need not round-trip it.
+            previous_rule = adv.get(rule_id)
+            if previous_rule is None and rule_id not in self._ignored_legacy_rule_ids(data):
+                previous_rule = (self._load_legacy_data(hostname).get(SECTION_ADV) or {}).get(rule_id)
+            try:
+                incoming = json.loads(script_json)
+                previous = json.loads((previous_rule or {}).get("script_json", "{}"))
+            except (ValueError, TypeError):
+                incoming = previous = None
+            if isinstance(incoming, dict) and isinstance(previous, dict):
+                revision = previous.get("_notification_revision")
+                has_notify = any(
+                    str(action.get("type", "")).lower() == "notify"
+                    for action in (incoming.get("actions") or [])
+                    if isinstance(action, dict)
+                )
+                if previous_rule is not None and has_notify and incoming.get("conditions") != previous.get("conditions"):
+                    revision = uuid.uuid4().hex
+                incoming.pop("_notification_revision", None)
+                if revision:
+                    incoming["_notification_revision"] = revision
+                script_json = json.dumps(incoming, separators=(",", ":"), ensure_ascii=False)
 
             adv[rule_id] = {"enabled": bool(enabled), "script_json": script_json}
             data[SECTION_ADV] = adv
