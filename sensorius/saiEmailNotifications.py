@@ -283,6 +283,7 @@ class EmailNotificationService:
         self._delivery_guards = self._load_delivery_guards()
         self._pending_by_rule: set[str] = set()
         self._pending_automation_targets: dict[str, set[bool]] = {}
+        self._automation_revisions: dict[str, str] = {}
         self._sent_epochs_fallback: deque[float] = deque()
         self._last_error = ""
 
@@ -451,13 +452,27 @@ class EmailNotificationService:
             })
 
     @staticmethod
-    def automation_delivery_id(rule_id: str, recipient: str) -> str:
+    def automation_delivery_id(rule_id: str, recipient: str, revision: str = "") -> str:
         """Return the stable persisted identity for one automation recipient."""
-        return f"automation:{str(rule_id or '').strip()}:{str(recipient or '').strip().lower()}"
+        base = f"automation:{str(rule_id or '').strip()}:{str(recipient or '').strip().lower()}"
+        return f"{base}:revision:{revision}" if revision else base
 
-    def persisted_automation_state(self, rule_id: str, recipient: str) -> bool:
-        """Return the last successfully delivered state for an automation actor."""
-        delivery_id = self.automation_delivery_id(rule_id, recipient)
+    def persisted_automation_state(self, rule_id: str, recipient: str, revision: str = "") -> bool:
+        """Reconcile obsolete queued edges and return this revision's sent state."""
+        base = self.automation_delivery_id(rule_id, recipient)
+        delivery_id = self.automation_delivery_id(rule_id, recipient, revision)
+        with self._queue_lock:
+            if self._automation_revisions.get(base) == revision:
+                return bool(self._active_by_rule.get(delivery_id, False))
+            self._automation_revisions[base] = revision
+            retained = deque()
+            for item in self._queue:
+                if item.get("automation_base_id") == base and item.get("revision", "") != revision:
+                    self._pending_by_rule.discard(item["delivery_id"])
+                    self._clear_automation_pending(item)
+                else:
+                    retained.append(item)
+            self._queue = retained
         return bool(self._active_by_rule.get(delivery_id, False))
 
     def enqueue_automation_transition(
@@ -468,13 +483,14 @@ class EmailNotificationService:
         recipient: str,
         subject: str,
         body: str,
+        revision: str = "",
     ) -> bool:
         """Queue one automation edge for guarded, persisted SMTP delivery."""
         rid = str(rule_id or "").strip()
         to_address = str(recipient or "").strip()
         if not rid or not to_address or not EmailConfig.from_environment().enabled:
             return False
-        delivery_id = self.automation_delivery_id(rid, to_address)
+        delivery_id = self.automation_delivery_id(rid, to_address, revision)
         guard = self._delivery_guards.get(delivery_id, {})
         if float(guard.get("failure_retry_after_epoch", 0.0) or 0.0) > time.time():
             return False
@@ -490,6 +506,8 @@ class EmailNotificationService:
                 "rule_id": delivery_id,
                 "delivery_id": pending_id,
                 "kind": "automation",
+                "automation_base_id": self.automation_delivery_id(rid, to_address),
+                "revision": revision,
                 "active": target_state,
                 "value": None,
                 "timestamp": "",
@@ -563,6 +581,11 @@ class EmailNotificationService:
         """Attempt one queued delivery and requeue it within the retry limit."""
         rule_id = str(item["rule_id"])
         delivery_id = str(item.get("delivery_id") or rule_id)
+        base = item.get("automation_base_id")
+        if base in self._automation_revisions and item.get("revision", "") != self._automation_revisions[base]:
+            self._pending_by_rule.discard(delivery_id)
+            self._clear_automation_pending(item)
+            return
         try:
             send_kwargs = {}
             if item.get("to_addresses"):

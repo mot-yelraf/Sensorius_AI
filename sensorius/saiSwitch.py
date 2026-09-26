@@ -2256,6 +2256,9 @@ class SwitchController:
                         webui_states[notification_key] = rule_ok
                         continue
                     if action_type == "notify":
+                        revision_args = {}
+                        if script.get("_notification_revision"):
+                            revision_args["revision"] = str(script["_notification_revision"])
                         executor_sid = str(act.get("executor_switch_id", "") or "").strip()
                         own_sid = str(getattr(self, "switch_id", "") or "").strip()
                         if not executor_sid or executor_sid.lower() != own_sid.lower():
@@ -2268,6 +2271,7 @@ class SwitchController:
                                 delivery_service.persisted_automation_state(
                                     str(_rule_id),
                                     recipient,
+                                    **revision_args,
                                 )
                             )
                         else:
@@ -2327,6 +2331,7 @@ class SwitchController:
                                     recipient=recipient,
                                     subject=subject,
                                     body=body,
+                                    **revision_args,
                                 )
                         elif delivery_service is None:
                             notify_states[notify_key] = rule_ok

@@ -138,6 +138,16 @@ Notify behavior:
   recipient. Restarting while that state is unchanged does not resend it. If
   the current state changed while Sensorius was stopped, the corresponding
   ACTIVATED or CLEARED message remains eligible until delivery succeeds.
+- Editing a Notify rule's conditions (including its sensor, metric, threshold,
+  or hysteresis) starts a new notification state. A currently true condition
+  can send a fresh ACTIVATED email; a currently false condition starts inactive
+  without a CLEARED email for the old conditions. Renaming or saving unchanged
+  conditions preserves the existing state. The manager stores an internal
+  `_notification_revision` in `script_json` so this behavior survives restarts;
+  existing rules without it retain their state until their conditions are edited.
+  Queued messages from superseded conditions are discarded when the evaluator
+  observes the edit. An SMTP send already in progress may still complete, but
+  cannot mark the edited conditions as delivered.
 
 Revert behavior:
 
