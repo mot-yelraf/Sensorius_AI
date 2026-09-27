@@ -534,14 +534,18 @@ def test_reonboarding_refresh_renews_retained_metadata_subscriptions(monkeypatch
     assert set(result["topics"]) == {
         "nodus/+/meta",
         "nodus/+/meta/switch",
+        "nodus/+/meta/config",
         "sensorius/nodus/+/meta",
         "sensorius/nodus/+/meta/switch",
+        "sensorius/nodus/+/meta/config",
     }
     assert set(ingest.client.subs) == {
         ("nodus/+/meta", 0),
         ("nodus/+/meta/switch", 0),
+        ("nodus/+/meta/config", 0),
         ("sensorius/nodus/+/meta", 0),
         ("sensorius/nodus/+/meta/switch", 0),
+        ("sensorius/nodus/+/meta/config", 0),
     }
 
 
@@ -3395,7 +3399,7 @@ def test_ensure_settings_from_itaot_overwrites_shadow_locations_when_payload_is_
     assert switch_saved["Switch"]["SWITCH_LOCATION"] == "Unknown"
 
 
-def test_ensure_settings_from_itaot_resets_sensor_display_metrics_to_meta_defaults(tmp_path, monkeypatch):
+def test_ensure_settings_from_itaot_preserves_display_when_metadata_omits_it(tmp_path, monkeypatch):
     ingest = _build_ingest(monkeypatch)
 
     sensor_root = tmp_path / "sensor_settings"
@@ -3459,12 +3463,8 @@ def test_ensure_settings_from_itaot_resets_sensor_display_metrics_to_meta_defaul
     )
 
     sensor_saved = sensor_mgr.load("apvpd-test123")
-    assert sensor_saved["Display"]["METRIC_1"] == "Air Quality"
-    assert sensor_saved["Display"]["METRIC_2"] == "Temperature"
-    assert sensor_saved["Display"]["METRIC_3"] == "Rel-Humidity"
-    assert sensor_saved["Display"]["METRIC_4"] == "Ambient VPD"
-    assert sensor_saved["Display"]["METRIC_5"] == "Dewpoint Deficit"
-    assert sensor_saved["Display"]["METRIC_6"] == "dewVPD Risk"
+    for index in range(1, 7):
+        assert sensor_saved["Display"][f"METRIC_{index}"] == f"Old {index}"
 
 
 def test_nodus_meta_clears_switch_shadow_wiring_when_meta_fields_are_blank(tmp_path, monkeypatch):
@@ -3981,3 +3981,85 @@ def test_nodus_meta_mirrors_authoritative_pressure_altitude(tmp_path, monkeypatc
     receive(cached)
     assert mgr.load(sid)['Calibration']['Device']['ALTITUDE_METERS'] == 1719
     assert mgr.load('aqi-1jm5s1')['Calibration']['Device']['ALTITUDE_METERS'] == 1200
+
+
+@pytest.mark.parametrize("config_first", [False, True])
+@pytest.mark.parametrize("prefix", ["", "sensorius/"])
+def test_cpynodus_ii_saved_display_companion_and_incremental_slots(
+    tmp_path, monkeypatch, config_first, prefix,
+):
+    """Replay II startup/restart and paced display edits through MQTT ingestion."""
+    ingest = _build_ingest(monkeypatch)
+    real_sensor_mgr = saiSensorSettingsManager.SensorSettingsManager
+    real_switch_mgr = saiSwitchSettingsManager.SwitchSettingsManager
+    monkeypatch.setattr(saiSensorSettingsManager, "SensorSettingsManager",
+                        lambda *_a, **_k: real_sensor_mgr(str(tmp_path / "sensors")))
+    monkeypatch.setattr(saiSwitchSettingsManager, "SwitchSettingsManager",
+                        lambda *_a, **_k: real_switch_mgr(str(tmp_path / "switches")))
+    monkeypatch.setattr(saiSettings.saiSettings, "DEFAULT_BASE_DIR", str(tmp_path / "systems"))
+    mgr = real_sensor_mgr(str(tmp_path / "sensors"))
+    sid = "co2-pmoopn"
+    old_metrics = ["CO2", "Temperature", "Rel-Humidity", "Ambient VPD", "Dewpoint Deficit", "dewVPD Risk"]
+    metrics = ["Temperature", "Rel-Humidity", "Ambient VPD", "Dew Point Deficit", "DewVPD Risk", "CO2"]
+    styles = ["Gauge", "Graph6hr", "Graph24hr", "Gauge", "Graph6hr", "Graph24hr"]
+    mgr.save(sid, {"Sensor": {"SENSOR_ID": sid, "DEVICE": "co2", "TYPE": "nodus"},
+                   "Display": {**dict(zip([f"METRIC_{i}" for i in range(1, 7)], old_metrics)),
+                               "METRIC_DISPLAY_MODE": "Pick 6"}})
+    identity = {"sensor_id": sid, "device": "co2", "config_file": "sensor_i2c.toml"}
+    compact = {"schema": "nodus-meta/v1", "device_id": sid, "mcu": "pico2w",
+               "config_topic": f"nodus/{sid}/meta/config",
+               "sensor": {**identity, "data_topic": f"nodus/{sid}/data"}}
+    companion = {"schema": "nodus-meta-config/v1", "device_id": sid,
+                 "sensor": {**identity, "display_metrics": metrics, "display_styles": styles},
+                 "time": {"TZ": "UTC"}}
+
+    def receive(suffix, payload, retain=True):
+        ingest._on_message(ingest.client, None,
+                           _Msg(f"{prefix}nodus/{sid}/{suffix}", json.dumps(payload), retain=retain))
+
+    assert f"{prefix}nodus/+/meta/config" in ingest.registered_topics
+    if config_first:
+        receive("meta/config", companion)
+        receive("meta", compact)
+    else:
+        receive("meta", compact)
+        assert mgr.load(sid)["Display"]["METRIC_1"] == "CO2"
+        # A patch can arrive before the saved-settings companion. Preserve
+        # other slots using the existing shadow until the snapshot arrives.
+        receive("meta/patch", {"schema": "nodus-meta-patch/v1", "device_id": sid,
+                              "source": "config_set", "message_id": "cfg-early",
+                              "updates": [{"sensor_id": sid, "name": "sensor_i2c.toml",
+                                           "section": "Display", "key": "METRIC_2", "value": "CO2"}]}, False)
+        early = mgr.load(sid)["Display"]
+        assert early["METRIC_1"] == early["METRIC_2"] == "CO2"
+        assert early["METRIC_3"] == "Rel-Humidity"
+        assert early["METRIC_6"] == "dewVPD Risk"
+        receive("meta/config", companion)
+    saved = mgr.load(sid)
+    assert [saved["Display"][f"METRIC_{i}"] for i in range(1, 7)] == metrics
+    assert [saved["Display"]["Style"][f"METRIC_{i}"] for i in range(1, 7)] == styles
+    assert saved["Nodus"]["CONFIG_FILE"] == "sensor_i2c.toml"
+    assert saved["Display"]["METRIC_DISPLAY_MODE"] == "Pick 6"
+
+    # Reordering one key at a time temporarily duplicates a metric. Do not
+    # shift any other slot, including the styles paired with those slots.
+    for slot, value in [(1, "CO2"), (6, "Temperature"), (3, "")]:
+        receive("meta/patch", {"schema": "nodus-meta-patch/v1", "device_id": sid,
+                              "source": "config_set", "message_id": f"cfg-{slot}",
+                              "updates": [{"sensor_id": sid, "name": "sensor_i2c.toml",
+                                           "section": "Display", "key": f"METRIC_{slot}", "value": value}]}, False)
+        metrics[slot - 1] = value
+        saved = mgr.load(sid)
+        assert [saved["Display"][f"METRIC_{i}"] for i in range(1, 7)] == metrics
+        assert [saved["Display"]["Style"][f"METRIC_{i}"] for i in range(1, 7)] == styles
+    receive("meta/patch", {"schema": "nodus-meta-patch/v1", "device_id": sid,
+                          "source": "config_set", "message_id": "cfg-style",
+                          "updates": [{"sensor_id": sid, "name": "sensor_i2c.toml",
+                                       "section": "Display.Style", "key": "METRIC_6", "value": "Gauge"}]}, False)
+    assert mgr.load(sid)["Display"]["Style"]["METRIC_6"] == "Gauge"
+
+    # A device-side edit followed by restart must replace the hub shadow.
+    companion["sensor"]["display_metrics"] = list(reversed(old_metrics))
+    receive("meta", compact)
+    receive("meta/config", companion)
+    assert mgr.load(sid)["Display"]["METRIC_1"] == "dewVPD Risk"

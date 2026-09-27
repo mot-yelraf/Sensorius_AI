@@ -477,6 +477,7 @@ class saiMQTTIngest:
                 "nodus/+/status/heartbeat",
                 "nodus/+/meta",
                 "nodus/+/meta/switch",
+                "nodus/+/meta/config",
                 "nodus/+/fwupdate/result",
                 "nodus/+/meta/patch",
                 "nodus/+/calibration/ack",
@@ -537,6 +538,7 @@ class saiMQTTIngest:
                     f"{self.base_topic}/nodus/+/event/calibration_result",
                     f"{self.base_topic}/nodus/+/meta",
                     f"{self.base_topic}/nodus/+/meta/switch",
+                    f"{self.base_topic}/nodus/+/meta/config",
                     f"{self.base_topic}/nodus/+/fwupdate/result",
                     f"{self.base_topic}/nodus/+/meta/patch",
                     f"{self.base_topic}/nodus/+/onboard/hello",
@@ -793,12 +795,13 @@ class saiMQTTIngest:
         except Exception:
             pass
 
-        candidates = ["nodus/+/meta", "nodus/+/meta/switch"]
+        candidates = ["nodus/+/meta", "nodus/+/meta/switch", "nodus/+/meta/config"]
         if self.base_topic:
             candidates.extend(
                 [
                     f"{self.base_topic}/nodus/+/meta",
                     f"{self.base_topic}/nodus/+/meta/switch",
+                    f"{self.base_topic}/nodus/+/meta/config",
                 ]
             )
         topics = [topic for topic in candidates if topic in self.registered_topics]
@@ -2338,6 +2341,15 @@ class saiMQTTIngest:
                 if (
                     (not self.nodus_debug_data_only)
                     and len(parts) == id_index + 3
+                    and parts[id_index + 1:id_index + 3] == ["meta", "config"]
+                ):
+                    self._parse_nodus_config_meta(
+                        data, topic_device_id=parts[id_index], retain=retain,
+                    )
+                    return
+                if (
+                    (not self.nodus_debug_data_only)
+                    and len(parts) == id_index + 3
                     and parts[id_index + 1] == "meta"
                     and parts[id_index + 2] == "switch"
                 ):
@@ -2840,9 +2852,9 @@ class saiMQTTIngest:
                 out[key] = val
         return out or None
 
-    def _normalize_display_metrics(self, raw_metrics) -> list[str]:
+    def _normalize_display_metrics(self, raw_metrics, *, preserve_slots=False) -> list[str]:
         """
-        Normalize display metric hints into an ordered de-duplicated list.
+        Normalize metric hints; preserve positional slots when writing settings.
         """
         if isinstance(raw_metrics, dict):
             values = [raw_metrics.get(f"METRIC_{idx}", "") for idx in range(1, 7)]
@@ -2850,6 +2862,9 @@ class saiMQTTIngest:
             values = list(raw_metrics)
         else:
             return []
+
+        if preserve_slots:
+            return [str(value or "").strip() for value in values[:6]]
 
         ordered: list[str] = []
         seen: set[str] = set()
@@ -3180,10 +3195,24 @@ class saiMQTTIngest:
                     targets.append(primary)
             return targets
 
+        def _display_slots(sensor: dict, field: str) -> OrderedDict[str, str]:
+            raw = sensor.get(field)
+            if raw is None:
+                from .saiSensorSettingsManager import SensorSettingsManager
+
+                sensor_id = str(sensor.get("sensor_id") or "").strip()
+                if sensor_id:
+                    try:
+                        display = SensorSettingsManager().load(sensor_id).get("Display", {})
+                    except FileNotFoundError:
+                        display = {}
+                    raw = display.get("Style", {}) if field == "display_styles" else display
+            return self._meta_metric_slot_map(raw)
+
         if section_key == "display":
             targets = _sensor_targets()
             for sensor in targets:
-                display_metrics = self._meta_metric_slot_map(sensor.get("display_metrics"))
+                display_metrics = _display_slots(sensor, "display_metrics")
                 display_metrics[key_upper] = "" if value is None else str(value)
                 sensor["display_metrics"] = dict(display_metrics)
             return bool(targets)
@@ -3191,7 +3220,7 @@ class saiMQTTIngest:
         if section_key == "display.style":
             targets = _sensor_targets()
             for sensor in targets:
-                display_styles = self._meta_metric_slot_map(sensor.get("display_styles"))
+                display_styles = _display_slots(sensor, "display_styles")
                 display_styles[key_upper] = "" if value is None else str(value)
                 sensor["display_styles"] = dict(display_styles)
             return bool(targets)
@@ -3940,6 +3969,17 @@ class saiMQTTIngest:
         firmware_version = str(meta.get("version") or "").strip()
         board_type = _extract_nodus_board_type(meta)
 
+        # Config companions and compact identity may arrive in either order.
+        # Preserve only omitted configuration fields; explicit new values win.
+        previous = self.discovery_cache.get(base) or {}
+        previous_sensor = previous.get("sensor") or {}
+        incoming_sensor = meta.get("sensor")
+        if isinstance(incoming_sensor, dict) and isinstance(previous_sensor, dict):
+            if incoming_sensor.get("sensor_id") == previous_sensor.get("sensor_id"):
+                for field in ("display_metrics", "display_styles", "calibration"):
+                    if field not in incoming_sensor and field in previous_sensor:
+                        incoming_sensor[field] = copy.deepcopy(previous_sensor[field])
+
         primary_sensor_blob = dict(meta.get("sensor")) if isinstance(meta.get("sensor"), dict) else {}
         if not primary_sensor_blob:
             top_sensor_id = str(meta.get("sensor_id") or meta.get("SENSOR_ID") or "").strip()
@@ -4071,15 +4111,14 @@ class saiMQTTIngest:
             )
             sensor_serial = self._extract_sensor_serial(sensor_blob, meta)
             display_metrics = self._normalize_display_metrics(
-                sensor_blob.get("display_metrics")
-                or sensor_blob.get("metrics")
-                or sensor_blob.get("Display")
+                sensor_blob.get("display_metrics", sensor_blob.get("metrics", sensor_blob.get("Display"))),
+                preserve_slots=True,
             )
             display_styles = self._normalize_display_styles(
                 sensor_blob.get("display_styles") or sensor_blob.get("styles")
             )
             if display_metrics:
-                self.expected_gauge_map[sensor_id] = display_metrics
+                self.expected_gauge_map[sensor_id] = self._normalize_display_metrics(display_metrics)
 
             register_sensor = getattr(self.data_logger, "register_sensor", None)
             if callable(register_sensor):
@@ -4122,7 +4161,7 @@ class saiMQTTIngest:
                 "hardware": sensor_hardware,
                 "physical_device_id": base,
                 "config_file": config_file,
-                "display_metrics": display_metrics,
+                "display_metrics": display_metrics or None,
                 "display_styles": display_styles,
                 "calibration": sensor_blob.get("calibration"),
             })
@@ -4341,6 +4380,38 @@ class saiMQTTIngest:
                 pass
 
         return True, subscribed
+
+    def _parse_nodus_config_meta(self, payload, *, topic_device_id: str, retain=False):
+        """Merge a retained saved-settings companion into device discovery."""
+        if not isinstance(payload, dict) or payload.get("schema") != "nodus-meta-config/v1":
+            return False, False
+        device_id = str(payload.get("device_id") or topic_device_id).strip()
+        if device_id != topic_device_id:
+            return False, False
+        base = self._normalize_host_key(device_id) or device_id
+        meta = copy.deepcopy(self.discovery_cache.get(base) or {})
+        meta.update(schema="nodus-meta/v1", device_id=device_id)
+        sensor = payload.get("sensor")
+        if isinstance(sensor, dict):
+            existing = meta.get("sensor") or {}
+            if existing.get("sensor_id") != sensor.get("sensor_id"):
+                existing = {}
+            meta["sensor"] = {**existing, **copy.deepcopy(sensor)}
+            for child in meta.get("sensors", []):
+                if isinstance(child, dict) and child.get("sensor_id") == sensor.get("sensor_id"):
+                    child.update(copy.deepcopy(sensor))
+        for field in ("time", "homeassistant"):
+            if isinstance(payload.get(field), dict):
+                meta[field] = copy.deepcopy(payload[field])
+        result = self._parse_and_subscribe_from_nodus_meta(
+            meta, topic_device_id=device_id, retain=retain,
+        )
+        info = {"HOSTNAME": base}
+        for field, section in (("time", "Time"), ("homeassistant", "HomeAssistant")):
+            if isinstance(payload.get(field), dict):
+                info[section] = {key.upper(): value for key, value in payload[field].items()}
+        self._ensure_settings_from_itaot(info, base, [], [])
+        return result
 
     def _parse_and_subscribe_from_nodus_switch_meta(
         self,
@@ -5982,7 +6053,8 @@ class saiMQTTIngest:
                     or ""
                 ).strip()
                 remote_display_metrics = self._normalize_display_metrics(
-                    s.get("display_metrics") or s.get("metrics")
+                    s.get("display_metrics", s.get("metrics")),
+                    preserve_slots=True,
                 )
                 remote_display_styles = self._normalize_display_styles(
                     s.get("display_styles") or s.get("styles")
@@ -6044,9 +6116,11 @@ class saiMQTTIngest:
                     if "Display" not in data or not isinstance(data["Display"], dict):
                         data["Display"] = OrderedDict()
                     display = data["Display"]
-                    chosen_metrics = remote_display_metrics or _display_defaults_for_device(
-                        device_name or device_type,
-                        sensor_hardware,
+                    # Missing compact metadata is not a reset to factory defaults.
+                    chosen_metrics = remote_display_metrics or (
+                        [str(display.get(f"METRIC_{idx}", "") or "") for idx in range(1, 7)]
+                        if any(f"METRIC_{idx}" in display for idx in range(1, 7))
+                        else _display_defaults_for_device(device_name or device_type, sensor_hardware)
                     )
                     for idx in range(6):
                         metric_key = f"METRIC_{idx + 1}"

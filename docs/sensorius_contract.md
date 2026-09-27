@@ -15,6 +15,8 @@ define the contract. When other docs drift, this document wins.
 - Nodus publishes retained compact `meta` on connect/reconnect.
 - Nodus publishes retained `meta/switch` with detailed switch channel topics in
   the startup identity publish batch when switch channels are present.
+- Nodus II publishes retained `meta/config` with saved display and configuration
+  settings alongside compact startup metadata. Sensorius consumes both snapshots.
 - After accepted runtime changes, Nodus publishes only `meta/patch`.
 - Sensorius paces ordinary runtime config writes one key at a time per
   physical Nodus host and waits for `ack` plus successful `result`.
@@ -302,8 +304,10 @@ The payload must include:
 - `location_group.location`, `location_group.members`
 - `sensor.sensor_id`, `sensor.location`, `sensor.hardware`,
   `sensor.data_topic`,
-  `sensor.event_topic`, `sensor.availability_topic`,
-  `sensor.display_metrics`, `sensor.display_styles`
+  `sensor.event_topic`, `sensor.availability_topic`
+- `sensor.display_metrics`, `sensor.display_styles` in full metadata (including
+  Nodus III); compact Nodus II metadata advertises `config_topic` and supplies
+  these fields in retained `meta/config` instead
 - optional `sensor.calibration.Device.ALTITUDE_METERS`, reflecting the device
   TOML calibration altitude in metres (number or numeric string); Sensorius
   mirrors explicit values, including zero, and preserves existing shadow
@@ -758,6 +762,23 @@ Implemented behavior:
   the current `package_id`, or from fresh online metadata reporting the exact
   target version when the target differs from the prior version. A final
   confirmation timeout is a failed update, not a successful update.
+
+## Saved configuration companion (`meta/config`)
+
+Nodus II publishes retained `nodus/<device_id>/meta/config`, advertised by
+`config_topic` in compact `meta`, with schema `nodus-meta-config/v1`. Its
+`sensor` block identifies `sensor_id` and `config_file` and includes ordered
+`display_metrics`, matching `display_styles`, and saved calibration. The
+companion also carries `time` and `homeassistant` settings. Saved device TOML
+values are authoritative, including after device-side edits and a restart.
+
+Sensorius subscribes to both snapshots (including base-prefixed topics),
+accepts either arrival order, and merges configuration into its discovery
+cache and `/home/<user>/Sensorius/sensor_settings/<sensor_id>/sensor.toml`.
+Missing display fields must preserve existing shadow settings; factory defaults
+are only used to seed missing settings. Full metadata remains supported.
+Metric slots must keep their positions, including blank slots and temporary
+duplicates during a reorder. Styles belong to the corresponding slot.
 
 ## `meta/patch`
 
