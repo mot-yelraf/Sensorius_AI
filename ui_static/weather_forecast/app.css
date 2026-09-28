@@ -787,3 +787,15 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+.forecast-panel.severe-weather-active .forecast-synopsis {
+  background: #ffb459;
+  color: #241508;
+  border: 1px solid #965019;
+  border-radius: .6rem;
+  padding: .75rem;
+  white-space: pre-line;
+  height: auto;
+  max-height: 18rem;
+  overflow-y: auto;
+}

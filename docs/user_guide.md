@@ -1238,6 +1238,25 @@ workspace and return to the dashboard.
 
 Use switch overlays to answer practical questions: whether a fan cooled the greenhouse, whether irrigation raised soil moisture, or whether lights changed VPD.
 
+## Severe Weather (US NWS)
+
+When **US · National Weather Service** is selected, Sensorius checks the Astral
+location against NWS coverage and polls for official warnings and watches.
+During an active warning/watch, the dashboard forecast content and **Caelus
+Forecast** button turn orange. Caelus replaces the daily forecast statement
+with the event type, start/end times, expected duration, affected area and
+NWS instructions. Normal presentation returns at cancellation or expiry.
+
+To act on these events, create an automation with the **Severe Weather**
+condition and choose any existing actor. **Alert** displays the detailed
+message; **Notify** emails it when email is enabled. Each automation/actor
+triggers only once per event, including across NWS updates and hub restarts.
+You can dismiss an Alert toast without it appearing again for that event.
+The orange forecast indication remains until the weather warning ends.
+Advisories, statements, test messages, and other forecast providers do not
+activate this condition. See [Severe Weather automation behavior](automations.md#severe-weather)
+for delay, reversion, and delivery details.
+
 ## Caelus Weather Forecast
 
 Select **6 Day Forecast** on the dashboard forecast tile to open the integrated

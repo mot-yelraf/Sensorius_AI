@@ -126,6 +126,12 @@ def switch_settings() -> HTMLResponse:
     ))
 
 
+@app.get("/api/weather-alerts")
+def weather_alerts():
+    """Keep browser checks independent of live NWS weather and locations."""
+    return {"enabled": False, "active": False, "events": [], "message": ""}
+
+
 @app.get("/weather-forecast", response_class=HTMLResponse)
 def weather_forecast(request: Request, units: str = "Metric", native: bool = False):
     """Render the real Caelus page with a complete, deterministic six-day outlook."""

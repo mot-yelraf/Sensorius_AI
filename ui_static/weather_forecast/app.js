@@ -285,6 +285,7 @@
           const currentPanel = document.querySelector(".forecast-panel");
           if (nextPanel && currentPanel) {
             currentPanel.replaceWith(nextPanel);
+            window.renderSevereWeather?.();
             initializeHourlyCarousels(nextPanel);
             initializeForecastButtons(nextPanel);
             refreshHistoricalAverages();

@@ -65,6 +65,7 @@ Advanced rules can express:
 - Day-of-week schedules.
 - Sunrise and sunset schedules through Astral settings.
 - Timer windows through `duration_min`, `period_min`, and legacy `freq_hours`.
+- **Severe Weather**: active NWS weather warnings and watches at the Astral location.
 - Multi-action rules.
 - Email Notify actors with a per-action recipient when email is enabled.
 - `Alert` actors for Web UI-only notifications without relay or email actions.
@@ -186,6 +187,51 @@ and Yellow off, the timer window enforces Green on and Yellow off. Also note
 that all action rows in a rule share the same condition groups; adding a second
 condition row does not bind one condition to one action and another condition
 to another action.
+
+## Severe Weather
+
+Select **Severe Weather** as a condition. It has no additional parameters and
+requires **US · National Weather Service** as the forecast provider. Sensorius
+validates the Astral coordinates with the NWS point service and a US state or
+territory before polling the location-filtered active-alert feed once per minute.
+MET Norway, Open-Meteo, Disabled, and unsupported locations cannot trigger it.
+Actual weather/geophysical warnings and watches qualify; test messages,
+advisories, statements, future-effective and expired messages do not.
+
+The condition can be combined with other conditions using the existing AND/OR
+groups and can target any existing actor. Each automation/actor runs at most
+once for a given event. NWS CAP references and VTEC identities correlate updates
+with the original event. Trigger receipts live in SQLite `weather_alert_state`
+and survive restarts and condition edits. Separate events can each trigger,
+even when their periods overlap. Receipts are retained for 90 days after the
+last sighting of an event. Explicitly disabling and saving an existing weather
+automation, then enabling and saving it, rearms its actors for one new trigger
+per active event. Saving an already-enabled rule, dismissing an Alert, restarting
+the application, or receiving an NWS update does not rearm it.
+
+- **Alert** displays the event type, headline, onset/end times in the Astral
+  timezone, expected duration, affected area, description, and instructions.
+  Dismissing this toast does not cause it to return on subsequent polls or a
+  restart. Pending weather Alerts persist in SQLite and are delivered when a
+  dashboard connects (within its 15-second refresh interval). Dismissal is saved
+  separately and applies to every dashboard. Expired or cancelled events are
+  no longer replayed. Older trigger receipts without a saved message cannot be
+  replayed; this delivery protection applies to newly triggered events.
+- **Notify** uses the same details in an email and the event type in its subject.
+  The existing email delivery queue handles delivery attempts. No separate
+  recovery email is generated for this event condition. Once accepted into the
+  queue, the event receipt prevents re-enqueueing after restart; a process crash
+  before the queued email is sent can therefore lose that delivery.
+- **Switch** respects the configured delay and reversion behavior. After the
+  event action succeeds, it is not repeatedly reasserted. A configured return
+  to previous state runs when the rule becomes false.
+
+The dashboard forecast content and Caelus Forecast button remain orange while
+qualifying warnings are valid, independently of whether an automation exists
+or its toast has been dismissed. Caelus replaces its daily synopsis with all
+active event details. Expiry/cancellation restores the normal forecast. On a
+feed failure, previously received warnings remain visible only until their
+expiry/end; Caelus marks their details as potentially stale.
 
 ## Astral Conditions
 

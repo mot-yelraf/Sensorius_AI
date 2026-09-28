@@ -385,6 +385,7 @@ function addCondition(modal, cond) {
     <option value="astral">astral</option>
     <option value="timer">timer</option>
     <option value="bd_transitions">BD Transitions</option>
+    <option value="severe_weather">Severe Weather</option>
     <option value="or">or</option>`;
   typeSel.value = initialType;
   typeSel.style.width = "8rem";
@@ -661,6 +662,13 @@ function renderAsTime() {
     group.appendChild(row);
   }
 
+  function renderAsSevereWeather(){
+    group.innerHTML = "";
+    const row = create("div", "cond severe-weather");
+    row.append(typeWrap, rem);
+    group.appendChild(row);
+  }
+
   function renderAsSensor(){
     group.innerHTML = "";
     const top = create("div", "cond sensor-top");
@@ -682,6 +690,7 @@ function renderAsTime() {
   else if (initialType === "astral")  renderAsAstral();
   else if (initialType === "timer")   renderAsTimer();
   else if (initialType === "bd_transitions") renderAsBdTransitions();
+  else if (initialType === "severe_weather") renderAsSevereWeather();
   else if (initialType === "or")      renderAsOr();
   else                                renderAsSensor();
 
@@ -691,6 +700,7 @@ function renderAsTime() {
     else if (typeSel.value === "astral")  renderAsAstral();
     else if (typeSel.value === "timer")   renderAsTimer();
     else if (typeSel.value === "bd_transitions") renderAsBdTransitions();
+    else if (typeSel.value === "severe_weather") renderAsSevereWeather();
     else if (typeSel.value === "or")      renderAsOr();
     else                                  renderAsSensor();
     updateAstralDependencyWarning(modal);
@@ -895,6 +905,8 @@ function serializeForm(modal){
         condition.freq_hours = periodMin / 60;
       }
       return condition;
+    } else if (typeVal === "severe_weather") {
+      return { type:"severe_weather" };
     } else if (typeVal === "bd_transitions") {
       return { type:"bd_transitions", executor_switch_id: currentSwitchId };
     } else if (typeVal === "or"){

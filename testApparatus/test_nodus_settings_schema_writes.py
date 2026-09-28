@@ -6750,3 +6750,55 @@ async def test_dashboard_json_refreshes_pressure_calibration_context(tmp_path, m
                 "device": "avpd", "altitude": altitude, "weewx": False,
             }
             assert body["values"][sid]["Baro-Pressure"] == 1038.27
+
+
+@pytest.mark.asyncio
+async def test_severe_weather_condition_round_trip_and_cached_api(tmp_path, monkeypatch):
+    app, _ingest, _system_root, _sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    import sensorius.saiAutomationManager as automation_module
+    real_manager = automation_module.AutomationManager
+
+    class TmpManager(real_manager):
+        def __init__(self, _base_dir="switch_settings"):
+            super().__init__(str(switch_root))
+
+    monkeypatch.setattr(automation_module, "AutomationManager", TmpManager)
+    payload = {"switch_id": "sensoria-hub-0", "rule_id": "nws-weather", "enabled": "true",
+               "script_json": json.dumps({"name": "Severe Weather", "enabled": True,
+                    "conditions": [{"type": "severe_weather"}],
+                    "actions": [{"type": "none", "executor_switch_id": "sensoria-hub-0"}]})}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/submit-advanced-trigger", json=payload)
+        assert response.status_code == 200
+        assert response.json()["ok"]
+        status = await client.get("/api/weather-alerts")
+        assert status.status_code == 200
+        assert status.json()["active"] is False
+        assert status.headers["cache-control"] == "no-store"
+    script = json.loads(TmpManager().load("sensoria-hub-0")["Advanced"]["nws-weather"]["script_json"])
+    assert script["conditions"][0]["type"] == "severe_weather"
+    assert script["actions"][0]["type"] == "none"
+
+
+@pytest.mark.asyncio
+async def test_weather_alert_api_replays_and_persists_dismissal(tmp_path, monkeypatch, request):
+    app, *_ = await _build_app(tmp_path, monkeypatch)
+    from testApparatus.test_weather_alerts import Settings, feature
+    logger = saiDataLoggerModule.saiDataLogger(tmp_path / "weather-api.db")
+    request.addfinalizer(logger.close)
+    monkeypatch.setattr(saiWebRoutes, "data_logger", logger)
+    from sensorius.saiWeatherAlerts import WeatherAlertService
+    service = WeatherAlertService(settings=Settings(), data_logger=saiWebRoutes.data_logger)
+    service._location = (39.7, -104.9)
+    service.ingest({'features': [feature()]})
+    service.queue_alert({'weather_event_ids': ['event-1'], 'type': 'automation_notification'}, 'actor-a')
+    monkeypatch.setattr(saiWebRoutes.data_logger, 'weather_alert_service', service, raising=False)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as client:
+        response = await client.get('/api/weather-alerts')
+        alert_id = response.json()['pending_alerts'][0]['weather_alert_id']
+        response = await client.post(f'/api/weather-alerts/{alert_id}/dismiss')
+        assert response.status_code == 200
+        assert (await client.get('/api/weather-alerts')).json()['pending_alerts'] == []
+        assert (await client.post('/api/weather-alerts/unknown/dismiss')).status_code == 404
+    saved = saiWebRoutes.data_logger.load_weather_alert_state()
+    assert saved['event-1']['alerts'][alert_id]['dismissed']

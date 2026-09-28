@@ -6180,6 +6180,24 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         )
         return JSONResponse(payload)
 
+    @router.get("/api/weather-alerts", response_class=JSONResponse)
+    async def api_weather_alerts():
+        """Return cached official NWS weather events for the configured location."""
+        service = getattr(data_logger, "weather_alert_service", None)
+        payload = service.snapshot() if service else {
+            "enabled": False, "active": False, "events": [], "message": "", "reason": "unavailable",
+        }
+        payload["pending_alerts"] = service.pending_alerts() if service else []
+        return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+
+    @router.post("/api/weather-alerts/{alert_id}/dismiss")
+    async def dismiss_weather_alert(alert_id: str):
+        """Acknowledge a weather Alert across browsers and application restarts."""
+        service = getattr(data_logger, "weather_alert_service", None)
+        if service is None or not service.dismiss_alert(alert_id):
+            return JSONResponse({"ok": False}, status_code=404)
+        return JSONResponse({"ok": True})
+
     @router.get("/api/weather-forecast", response_class=JSONResponse)
     async def api_weather_forecast(
         days: int = Query(6, ge=1, le=6),

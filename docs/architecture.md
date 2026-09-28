@@ -202,6 +202,19 @@ Ecowitt:
 
 Weather forecast:
 
+- `sensorius/saiWeatherAlerts.py` runs as the supervised **NWS Weather Alerts**
+  task, independently of connected browsers. Only the `us` forecast provider
+  enables it. NWS validates the Astral point before the hub polls active
+  weather warnings/watches every 60 seconds. The `weather_alert_state` SQLite
+  table stores CAP/VTEC event identities, per-automation/actor receipts, and
+  pending dashboard Alert messages with separate durable dismissal state.
+  Automation monitors read the in-memory snapshot; they never fetch NWS.
+- `/api/weather-alerts` serves the shared snapshot without upstream requests.
+  Dashboard and Caelus poll it every 15 seconds, filter expired events, and
+  update warning presentation without reloading the page. Pending weather Alerts
+  are replayed by this endpoint; `POST /api/weather-alerts/{alert_id}/dismiss`
+  records dismissal for all dashboards, independently of the trigger receipt.
+
 - `sensorius/saiWeatherForecast.py` resolves the dashboard forecast location from Astral
   settings or Astral auto-detection.
 - The selected `[WeatherForecast].PROVIDER` controls the forecast source:

@@ -1083,6 +1083,13 @@ class saiDataLogger:
                             ON biodynamic_calendar_cache(created_at DESC)
                         """)
 
+                        cur.execute("""
+                            CREATE TABLE IF NOT EXISTS weather_alert_state (
+                                id INTEGER PRIMARY KEY CHECK (id = 1),
+                                payload TEXT NOT NULL
+                            )
+                        """)
+
                         # ---- email notification edge state -------------------
                         cur.execute("""
                             CREATE TABLE IF NOT EXISTS notification_rule_state (
@@ -1547,6 +1554,23 @@ class saiDataLogger:
                 self._on_readings_written.append(listener)
         except Exception:
             pass
+
+    def load_weather_alert_state(self) -> dict:
+        """Load NWS event identities and once-per-actor trigger receipts."""
+        with self._open_conn() as conn:
+            row = conn.execute("SELECT payload FROM weather_alert_state WHERE id = 1").fetchone()
+        return json.loads(row[0]) if row else {}
+
+    def save_weather_alert_state(self, state: dict) -> None:
+        """Atomically persist NWS event and automation deduplication state."""
+        with self._writer_lock:
+            self._ensure_writer()
+            self._writer_conn.execute(
+                "INSERT INTO weather_alert_state(id, payload) VALUES (1, ?) "
+                "ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
+                (json.dumps(state, separators=(",", ":")),),
+            )
+            self._writer_conn.commit()
 
     def get_notification_rule_states(self) -> dict[str, bool]:
         """Return persisted active/normal state for email notification rules."""
