@@ -53,7 +53,7 @@ def test_automation_condition_and_action_rows_align_fields_left_and_remove_right
 
         assert "#pane-automations .section-title," in css_text
         assert "#conditionsContainer,\n#actionsContainer{\n  text-align:left;" in css_text
-        assert ".cond.bd-transitions{" in css_text
+        assert ".cond.bd-transitions,\n.cond.severe-weather{" in css_text
         assert ".action-row.none-action{" in css_text
         assert ".cond > .remove,\n.action-row > .remove{\n  grid-column:-2 / -1;" in css_text
 
@@ -144,7 +144,7 @@ def test_generic_automation_toast_is_persistent_and_click_dismissible():
     assert "addEventListener('click'" in branch
     assert "setTimeout" not in branch
     assert (
-        ".toast.automation-notification-toast{background:#a34700;color:#fff;cursor:pointer}"
+        ".toast.automation-notification-toast{background:#ef8c23;color:#000;cursor:pointer}"
         in html_builder
     )
 

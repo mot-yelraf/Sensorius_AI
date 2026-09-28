@@ -564,7 +564,8 @@ select.op-select{ max-width:80px; width:100%; }
   grid-template-columns:minmax(180px, 260px) minmax(180px, 260px) minmax(120px, 165px) 44px;
   justify-content:space-between;
 }
-.cond.bd-transitions{
+.cond.bd-transitions,
+.cond.severe-weather{
   display:grid; align-items:end; gap:.75rem;
   grid-template-columns:minmax(180px, 320px) minmax(0, 1fr) 44px;
 }

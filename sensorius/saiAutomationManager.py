@@ -63,6 +63,26 @@ def _as_enabled(value: Any) -> bool:
         return value.strip().lower() not in {"0", "false", "off", "no", ""}
     return bool(value)
 
+
+def _preserve_weather_rearm(script: dict, previous_rule: dict | None, enabled: bool) -> None:
+    """Rearm weather actors only on a saved disabled-to-enabled transition."""
+    try:
+        previous = json.loads((previous_rule or {}).get("script_json", "{}"))
+    except (ValueError, TypeError):
+        previous = {}
+    if not isinstance(previous, dict):
+        previous = {}
+    revision = previous.get("_weather_rearm_revision")
+    was_enabled = bool(previous_rule) and _as_enabled(previous_rule.get("enabled", False)) and _as_enabled(previous.get("enabled", True))
+    has_weather = any(isinstance(cond, dict) and cond.get("type") == "severe_weather"
+                      for cond in (script.get("conditions") or []))
+    if previous_rule is not None and not was_enabled and enabled and has_weather:
+        revision = uuid.uuid4().hex
+    script.pop("_weather_rearm_revision", None)
+    if revision:
+        script["_weather_rearm_revision"] = revision
+
+
 class AutomationManager:
     """
     File layout:
@@ -459,7 +479,9 @@ class AutomationManager:
                 if not found_here:
                     continue
 
-                # Outer enabled flag
+                # Preserve the saved state before applying the explicit toggle.
+                if isinstance(script, dict):
+                    _preserve_weather_rearm(script, rule, enabled)
                 rule["enabled"] = bool(enabled)
 
                 # Inner script.enabled for consistency
@@ -667,6 +689,7 @@ class AutomationManager:
             except (ValueError, TypeError):
                 incoming = previous = None
             if isinstance(incoming, dict) and isinstance(previous, dict):
+                _preserve_weather_rearm(incoming, previous_rule, enabled)
                 revision = previous.get("_notification_revision")
                 has_notify = any(
                     str(action.get("type", "")).lower() == "notify"
@@ -735,15 +758,16 @@ class AutomationManager:
                 if not isinstance(legacy_rule, dict):
                     return False
                 rule = dict(legacy_rule)
-            rule["enabled"] = bool(enabled)
             # Keep inner payload in sync when possible.
             try:
                 script = json.loads(str(rule.get("script_json", "")))
                 if isinstance(script, dict):
+                    _preserve_weather_rearm(script, rule, enabled)
                     script["enabled"] = bool(enabled)
                     rule["script_json"] = json.dumps(script, separators=(",", ":"), ensure_ascii=False)
             except Exception:
                 pass
+            rule["enabled"] = bool(enabled)
             rules[rule_id] = rule
             data[section] = rules
             meta = data.get(SECTION_META, {}) or {}

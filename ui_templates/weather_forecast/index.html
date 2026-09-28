@@ -53,7 +53,8 @@
         <footer class="station-state readings-footer {{ 'is-live' if latest.ok else 'is-waiting' }}" data-readings-footer><span class="status-dot"></span><span data-readings-status>{{ 'Station reporting' if latest.ok else 'Sensor standing by' }}</span></footer>
       </article>
 
-      <article class="glass-card forecast-panel">
+      {% set severe = forecast.severe_weather | default({}) %}
+      <article class="glass-card forecast-panel{{ ' severe-weather-active' if severe.active else '' }}">
         <div class="card-heading"><div><p class="eyebrow">Today’s forecast</p><h2>{{ forecast.condition }}</h2></div><span class="provider-label">{{ forecast.provider_label }}</span></div>
         {% if forecast.ok %}
           <div class="forecast-summary">
@@ -64,7 +65,7 @@
                 <a class="forecast-history-label" href="https://open-meteo.com/en/docs/historical-weather-api" target="_blank" rel="noopener noreferrer">Historical Min, Max, Avg since 1991</a>
                 <div class="forecast-ranges"><span data-history-value="temperature_c" aria-label="Historical minimum, maximum and average temperature"><span>Min —</span><span>Max —</span><span>Avg —</span></span><span data-history-value="humidity_pct" aria-label="Historical minimum, maximum and average relative humidity"><span>Min —</span><span>Max —</span><span>Avg —</span></span><span data-history-value="wind_kmh" aria-label="Historical minimum, maximum and average wind speed"><span>Min —</span><span>Max —</span><span>Avg —</span></span><span data-history-value="rain_mm" aria-label="Historical minimum, maximum and average rainfall amount"><span>Min —</span><span>Max —</span><span>Avg —</span></span></div>
               </div>
-              <p class="forecast-synopsis" tabindex="0" aria-label="Forecast synopsis">{{ forecast.synopsis }}</p>
+              <p class="forecast-synopsis" tabindex="0" aria-live="polite" aria-label="Forecast synopsis" data-normal-synopsis="{{ forecast.synopsis }}">{{ severe.message if severe.active else forecast.synopsis }}</p>
             </div>
           </div>
           {% set hour_count = forecast.hours | length %}
@@ -90,7 +91,7 @@
             {% endfor %}
           </div>
           {% endif %}
-        {% else %}<div class="forecast-empty"><span>◌</span><p>{{ forecast.reason or 'Set an Astral location and forecast provider to load the forecast.' }}</p></div>{% endif %}
+        {% else %}<p class="forecast-synopsis" data-normal-synopsis="" aria-live="polite">{{ severe.message if severe.active else '' }}</p><div class="forecast-empty"><span>◌</span><p>{{ forecast.reason or 'Set an Astral location and forecast provider to load the forecast.' }}</p></div>{% endif %}
       </article>
 
       <article class="glass-card daylight-card">
@@ -177,5 +178,6 @@
       <button type="button" class="caelus-theme-return" id="closeCaelusThemeBtn">Return to Forecast</button>
     </div>
   </section>
+  <script src="/ui_static/js/weather_alerts.js?v={{ app_version }}" defer></script>
 </body>
 </html>

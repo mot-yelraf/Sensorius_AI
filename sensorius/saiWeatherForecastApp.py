@@ -650,10 +650,13 @@ class WeatherForecastAppService:
 
     async def forecast(self, *, force_refresh: bool = False) -> dict[str, Any]:
         payload = await self.canonical_forecast(force_refresh=force_refresh)
-        return build_weather_display_forecast(
+        forecast = build_weather_display_forecast(
             payload,
             self.settings.get_setting("Display", "unit_system", "Imperial"),
         )
+        alerts = getattr(self.data_logger, "weather_alert_service", None)
+        forecast["severe_weather"] = alerts.snapshot() if alerts else {}
+        return forecast
 
 
 def register_weather_forecast_app_routes(

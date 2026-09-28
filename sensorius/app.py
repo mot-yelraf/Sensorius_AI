@@ -35,6 +35,7 @@ from .saiUtils import SettingsWrapper
 from .saiSensorFactory import find_sensors
 from .saiSwitchFactory import detect_relay_board
 from .saiTimeSync import TimeSyncService
+from .saiWeatherAlerts import WeatherAlertService
 from .saiNodusAutomationStatus import NodusAutomationStatusPublisher
 from .saiEmailNotifications import AutomationNotificationService, EmailNotificationService
 from .saiInstanceLock import SensoriusInstanceLock
@@ -696,6 +697,9 @@ async def main(shutdown_requested: Event | None = None):
             printDM("No SensorNetwork.BROKER configured — MQTT ingest not started.", location=f"{MODULE}:main")
 
     # --- Always-on supervisors ---
+    weather_alerts = WeatherAlertService(settings=settings, data_logger=data_logger, supervisor=supervisor)
+    data_logger.weather_alert_service = weather_alerts
+    supervisor.add(weather_alerts.run, name="NWS Weather Alerts", fatal_on_timeout=False, fatal_on_error=False)
     weewx_ingest = WeeWXArchiveIngest(settings=settings, data_logger=data_logger, supervisor=supervisor)
     ecowitt_ingest = EcowittGatewayIngest(settings=settings, data_logger=data_logger, supervisor=supervisor)
     ecowitt_ingest.switch_controllers = switch_controllers

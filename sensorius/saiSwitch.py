@@ -1354,6 +1354,10 @@ class SwitchController:
         ctype = str(cond.get("type", "") or "").strip().lower()
         status = "TRUE" if result else "FALSE"
 
+        if ctype == "severe_weather":
+            messages = [event.get("message", "") for event in cond.get("_weather_events", [])]
+            return "\n\n".join(messages) or f"[{status}] Severe Weather: no active NWS event"
+
         if alert_summary and ctype != "sensor":
             return ""
 
@@ -1544,7 +1548,8 @@ class SwitchController:
         rule_name: str,
         evaluated_groups: list[dict],
         current_values_map: dict,
-    ) -> None:
+        weather_actor_key: str | None = None,
+    ) -> bool:
         """Publish a no-switch automation activation to dashboard clients."""
         try:
             from . import saiWebRoutes as routes
@@ -1554,13 +1559,13 @@ class SwitchController:
                 "switch_broadcast",
                 None,
             )
-            if not callable(broadcaster):
+            if not callable(broadcaster) and weather_actor_key is None:
                 printDM(
                     "[advanced] Web UI notification unavailable: dashboard broadcaster is not registered",
                     location=MODULE,
                     level="warning",
                 )
-                return
+                return False
 
             details: list[str] = []
             trigger_conditions: list[str] = []
@@ -1649,6 +1654,12 @@ class SwitchController:
             display_name = str(rule_name or rule_id).strip() or str(rule_id)
             payload = {
                 "type": "automation_notification",
+                "weather_event_ids": sorted({
+                    event["event_key"]
+                    for group in evaluated_groups if group.get("result")
+                    for cond, result in group.get("conditions", []) if result
+                    for event in cond.get("_weather_events", [])
+                }),
                 "rule_id": str(rule_id),
                 "name": display_name,
                 "details": details,
@@ -1657,15 +1668,20 @@ class SwitchController:
                 "trigger_values": trigger_values,
                 "occurred_at": datetime.now().astimezone().isoformat(),
             }
+            if weather_actor_key is not None:
+                self.data_logger.weather_alert_service.queue_alert(payload, weather_actor_key)
+                return True
             result = broadcaster(payload)
             if asyncio.iscoroutine(result):
                 asyncio.create_task(result)
+            return True
         except Exception as exc:
             printDM(
                 f"[advanced] Web UI notification broadcast failed: {exc}",
                 location=MODULE,
                 level="warning",
             )
+            return False
 
     def _automation_action_report(self, action: dict) -> str:
         """Format one configured automation action for an email report."""
@@ -1893,6 +1909,25 @@ class SwitchController:
             now_tm.tm_hour * 3600 + now_tm.tm_min * 60 + now_tm.tm_sec
         )
         bd_condition_results: dict[str, bool] = {}
+        weather_service = getattr(getattr(self, "data_logger", None), "weather_alert_service", None)
+        weather_events = weather_service.snapshot()["events"] if weather_service else []
+
+        def _weather_context(evaluated_groups, action, rule_id):
+            events = []
+            for group in evaluated_groups:
+                if group.get("result"):
+                    for cond, result in group.get("conditions", []):
+                        if result and cond.get("type") == "severe_weather":
+                            events = cond.get("_weather_events", [])
+                            break
+            key = weather_service.actor_key(str(rule_id), str(self.switch_id), action, script.get("_weather_rearm_revision")) if weather_service else ""
+            return events, key
+
+        def _event_groups(evaluated_groups, event):
+            return [dict(group, conditions=[
+                (dict(cond, _weather_events=[event]) if cond.get("type") == "severe_weather" else cond, result)
+                for cond, result in group.get("conditions", [])
+            ]) for group in evaluated_groups]
 
         def _split_condition_groups(conditions: list[dict]) -> list[list[dict]]:
             """
@@ -1924,6 +1959,10 @@ class SwitchController:
             Uses current_values_map + hysteresis around cond.value where applicable.
             """
             ctype = str(cond.get("type", "") or "").strip().lower()
+
+            if ctype == "severe_weather":
+                cond["_weather_events"] = weather_events
+                return bool(weather_events)
 
             # --- TIME-OF-DAY CONDITION ---------------------------------------
             # type == "time"
@@ -2175,6 +2214,8 @@ class SwitchController:
                 if not conditions or not actions:
                     continue
 
+                has_weather = any(str(cond.get("type", "")).lower() == "severe_weather" for cond in conditions)
+
                 # Build AND groups separated by OR markers
                 groups = _split_condition_groups(conditions)
                 if not groups:
@@ -2246,6 +2287,18 @@ class SwitchController:
                             bool(group.get("result", False))
                             for group in evaluated_groups
                         )
+                        events, weather_key = _weather_context(evaluated_groups, act, _rule_id)
+                        if events:
+                            for event in weather_service.pending(events, weather_key):
+                                if self._broadcast_automation_notification(
+                                    rule_id=str(_rule_id), rule_name=str(script.get("name", "") or _rule_id),
+                                    evaluated_groups=_event_groups(evaluated_groups, event),
+                                    current_values_map=current_values_map,
+                                    weather_actor_key=weather_key,
+                                ):
+                                    weather_service.mark_triggered([event], weather_key)
+                            webui_states[notification_key] = rule_ok
+                            continue
                         if rule_ok and not was_active and not has_bd_transition:
                             self._broadcast_automation_notification(
                                 rule_id=str(_rule_id),
@@ -2302,10 +2355,26 @@ class SwitchController:
                             bool(group.get("result", False))
                             for group in evaluated_groups
                         )
+                        events, weather_key = _weather_context(evaluated_groups, act, _rule_id)
+                        if events:
+                            for event in weather_service.pending(events, weather_key):
+                                subject, body = self._build_automation_notification(
+                                    rule_id=str(_rule_id), rule_name=str(script.get("name", "") or _rule_id),
+                                    triggered=True, evaluated_groups=_event_groups(evaluated_groups, event),
+                                    actions=list(actions), current_values_map=current_values_map,
+                                )
+                                if delivery_service is not None and delivery_service.enqueue_automation_transition(
+                                    rule_id=str(_rule_id), triggered=True, recipient=recipient,
+                                    subject=f"Sensorius Severe Weather: {event.get('event', 'NWS alert')}",
+                                    body=body, revision=(event["event_key"] + ":" + script["_weather_rearm_revision"]
+                                                         if script.get("_weather_rearm_revision") else event["event_key"]),
+                                ):
+                                    weather_service.mark_triggered([event], weather_key)
+                            continue
                         should_notify = (
                             rule_ok != was_active
                             and recipient
-                            and (rule_ok or not has_bd_transition)
+                            and (rule_ok or not (has_bd_transition or has_weather))
                         )
                         if should_notify:
                             rule_name = str(script.get("name", "") or _rule_id).strip()
@@ -2423,6 +2492,11 @@ class SwitchController:
                         revert_action = "do_nothing"
                     delay_s = int(act.get("delay_s", 0) or 0)
 
+                    weather_groups = [
+                        {"result": result, "conditions": [(cond, result) for cond in group]}
+                        for group, result in zip(groups, group_results)
+                    ]
+                    events, weather_key = _weather_context(weather_groups, act, _rule_id)
                     action_evals[action_key] = {
                         "rule_id": str(_rule_id),
                         "rule_name": str(script.get("name", "") or "").strip(),
@@ -2434,6 +2508,8 @@ class SwitchController:
                         "delay_s": max(0, delay_s),
                         "rule_ok": rule_ok,
                         "group_results": list(group_results),
+                        "weather_events": events or None,
+                        "weather_key": weather_key,
                     }
 
             except Exception as e:
@@ -2510,8 +2586,19 @@ class SwitchController:
 
             self._advanced_revert_cooldown.discard(action_key)
 
+            event_candidates = info.get("weather_events")
+            new_weather_events = weather_service.pending(event_candidates, info["weather_key"]) if event_candidates else []
+            if event_candidates and not new_weather_events:
+                # Event actors fire once; do not undo a subsequent manual change.
+                continue
+
+            def _mark_weather_applied():
+                if new_weather_events:
+                    weather_service.mark_triggered(new_weather_events, info["weather_key"])
+
             if active:
                 if current_state == desired:
+                    _mark_weather_applied()
                     if debug_cycle_verbose:
                         printDM(
                             f"[advanced] {target_label} rule {info['rule_id']} skipped: "
@@ -2523,6 +2610,7 @@ class SwitchController:
                 event_source = f"auto/rule:{rule_name}" if rule_name else "auto/rule"
                 ok = bool(self.set_state(target_label, desired, event_source=event_source))
                 if ok:
+                    _mark_weather_applied()
                     active_actions[action_key] = dict(active, last_applied_at=now_mono)
                     persist_active_actions = True
                 continue
@@ -2533,6 +2621,7 @@ class SwitchController:
                     continue
                 pending_actions.pop(action_key, None)
                 if current_state == desired:
+                    _mark_weather_applied()
                     if debug_cycle_verbose:
                         printDM(
                             f"[advanced] {target_label} rule {info['rule_id']} skipped after delay: "
@@ -2552,6 +2641,7 @@ class SwitchController:
                 if not ok:
                     pending_actions[action_key] = dict(pending, due_at=time.monotonic() + 1.0)
                     continue
+                _mark_weather_applied()
                 active_actions[action_key] = {
                     "rule_id": str(info.get("rule_id", "") or "").strip(),
                     "rule_name": str(info.get("rule_name", "") or "").strip(),
@@ -2579,6 +2669,7 @@ class SwitchController:
                 continue
 
             if current_state == desired:
+                _mark_weather_applied()
                 if debug_cycle_verbose:
                     printDM(
                         f"[advanced] {target_label} rule {info['rule_id']} skipped: "
@@ -2606,6 +2697,7 @@ class SwitchController:
             if not ok:
                 continue
 
+            _mark_weather_applied()
             active_actions[action_key] = {
                 "rule_id": str(info.get("rule_id", "") or "").strip(),
                 "rule_name": str(info.get("rule_name", "") or "").strip(),
