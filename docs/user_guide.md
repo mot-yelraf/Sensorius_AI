@@ -1272,11 +1272,11 @@ Select **Return to Forecast** to restore the saved Caelus theme.
 The weather display uses the existing Sensorius Astral latitude, longitude,
 timezone, and optional Community/Location Name. Its top row presents the selected sensor's latest current
 readings, the canonical Sensorius forecast, and the sunrise/sunset daylight
-track. Hourly forecast times use the local 12-hour AM/PM clock. The sunlight tile also shows current North and South Pole daylight, the
+track. Hourly forecast times use the local 12-hour AM/PM clock. The sunlight tile also shows the
 next seasonal event, and up to three solar or lunar eclipses visible from the
-configured Astral location during the next twelve months. A full-width Windy
-map opens in radar view below that row, followed by
-the current Moon and phase cycle at the bottom. The display also provides
+configured Astral location during the next twelve months. A two-column row below pairs the Windy
+map in radar view with the Lunar Calendar showing the current Moon and phase
+cycle. These tiles stack on narrow screens. The display also provides
 theme-matched six-day details. It reuses the Sensorius forecast and does not
 maintain a separate settings file or readings database.
 

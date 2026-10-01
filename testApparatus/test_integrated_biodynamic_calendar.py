@@ -231,7 +231,8 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     assert '<h2 id="planetaryAspectsTitle">Planetary Aspects</h2>' in template
     assert 'class="hero-calendar-mark"' in template
     assert '/ui_static/biodynamic_calendar/bd-calendar-icon-512.svg' in template
-    assert "grid-template-columns: minmax(320px, 1fr) 214px minmax(320px, 1fr);" in stylesheet
+    assert "--top-middle-col: 214px;" in stylesheet
+    assert "grid-template-columns: var(--top-left-col) var(--top-middle-col) var(--top-right-col);" in stylesheet
     assert "border-radius: 50%;" in stylesheet
     assert "object-fit: contain;" in stylesheet
     assert "transform: scale(1.24);" not in stylesheet

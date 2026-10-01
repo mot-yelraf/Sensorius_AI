@@ -461,18 +461,23 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
 
 .lunar-header {
   display: grid;
-  grid-template-columns: 1fr minmax(15rem, 0.72fr) 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
   align-items: center;
-  min-height: 17rem;
-  margin-top: 0.85rem;
-  padding: 1.25rem 1.5rem 4.8rem;
+  min-height: 31rem;
+  min-width: 0;
+  padding: 1.25rem 1.5rem 5.5rem;
   background: linear-gradient(105deg, rgba(4, 16, 40, 0.94), rgba(7, 35, 51, 0.78));
 }
+.lunar-calendar-title { grid-column: 1 / -1; margin: 0; align-self: start; font: 700 1.4rem Georgia, serif; }
+.lunar-side-left { grid-column: 1; grid-row: 3; }
+.lunar-side-right { grid-column: 2; grid-row: 3; }
+.lunar-current { grid-column: 1 / -1; grid-row: 2; }
 .lunar-arc {
   position: absolute;
   left: 5%;
   right: 5%;
-  top: 2.1rem;
+  top: 4.1rem;
   height: 8rem;
   border-top: 1px solid rgba(239, 194, 101, 0.7);
   border-radius: 50% 50% 0 0;
@@ -480,16 +485,16 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
 }
 .lunar-side { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.6rem; position: relative; z-index: 1; }
 .lunar-side-title { grid-column: 1 / -1; margin: 0 0 0.1rem; color: rgba(235,247,240,.52); font-size: 0.5rem; font-weight: 750; letter-spacing: 0.14em; text-align: center; text-transform: uppercase; }
-.lunar-step { text-align: center; color: var(--muted); }
-.lunar-step-disk { display: block; width: clamp(2.2rem, 3.6vw, 3.6rem); height: clamp(2.2rem, 3.6vw, 3.6rem); margin: 0 auto; filter: drop-shadow(0 0 11px rgba(237,229,198,.18)); }
-.lunar-step small { display: block; min-height: 1.3rem; margin-top: 0.3rem; font-size: 0.48rem; line-height: 1.25; letter-spacing: 0.08em; text-transform: uppercase; }
+.lunar-step { min-width: 0; text-align: center; color: var(--muted); }
+.lunar-step-disk { display: block; width: min(100%, clamp(2.2rem, 3.6vw, 3.6rem)); height: auto; aspect-ratio: 1; margin: 0 auto; filter: drop-shadow(0 0 11px rgba(237,229,198,.18)); }
+.lunar-step small { display: block; overflow-wrap: anywhere; min-height: 1.3rem; margin-top: 0.3rem; font-size: 0.48rem; line-height: 1.25; letter-spacing: 0.08em; text-transform: uppercase; }
 .lunar-step time { display: block; margin-top: 0.14rem; color: var(--warm); font-size: 0.52rem; font-weight: 700; letter-spacing: 0.04em; }
 .lunar-current { position: relative; z-index: 2; text-align: center; align-self: start; margin-top: -0.35rem; }
 .lunar-current-disk { display: block; width: 6rem; height: 6rem; margin: 0 auto; filter: drop-shadow(0 0 24px rgba(255,235,177,.34)); }
 .lunar-current h2 { margin: 0.2rem 0 0; font: 500 1.25rem Georgia, serif; }
 .lunar-current p:last-child { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.65rem; }
 .observer-view-label { color: var(--accent-2); font-size: 0.52rem; letter-spacing: 0.08em; text-transform: uppercase; }
-.lunar-event-footer { position: absolute; left: 1.5rem; right: 1.5rem; bottom: 0.45rem; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 1rem; color: var(--muted); font-size: 0.58rem; }
+.lunar-event-footer { position: absolute; left: 1.5rem; right: 1.5rem; bottom: 0.45rem; display: grid; grid-template-columns: minmax(0, 1fr); align-items: end; gap: 0.3rem; color: var(--muted); font-size: 0.58rem; }
 .lunar-event-timeline { display: grid; gap: 0.3rem; min-width: 0; }
 .lunar-event-row { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); align-items: center; gap: 0.55rem; }
 .lunar-event-row-title { color: rgba(235,247,240,.58); font-size: 0.48rem; font-weight: 750; letter-spacing: 0.13em; text-align: right; text-transform: uppercase; }
@@ -503,7 +508,7 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
 .lunar-event-marker.is-start { justify-items: start; transform: none; }
 .lunar-event-marker.is-end { justify-items: end; transform: translateX(-100%); }
 .lunar-event-marker.is-unavailable { display: none; }
-.lunar-event-footer > small { align-self: end; color: rgba(235,247,240,.42); white-space: nowrap; }
+.lunar-event-footer > small { justify-self: end; align-self: end; color: rgba(235,247,240,.42); white-space: nowrap; }
 
 .conditions-row { display: grid; grid-template-columns: 0.82fr 1.48fr 0.82fr; gap: 0.85rem; align-items: stretch; }
 .readings-panel, .forecast-panel, .daylight-card { min-height: 32rem; padding: 1.25rem; }
@@ -593,9 +598,9 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
 .forecast-empty { min-height: 22rem; display: grid; place-content: center; text-align: center; color: var(--muted); }
 .forecast-empty span { color: var(--accent-2); font-size: 4rem; }
 .forecast-empty p { max-width: 20rem; font-size: 0.75rem; }
-.map-row { display: grid; grid-template-columns: 0.82fr 1.48fr 0.82fr; gap: 0.85rem; padding: 0.85rem 0; }
-.full-width-map { grid-column: 1 / 4; width: 100%; min-height: 31rem; }
-.full-width-map iframe, .full-width-map .windy-map-interaction { min-height: 26rem; }
+.map-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.85rem; padding: 0.85rem 0; }
+.map-row > .map-card { grid-column: auto; min-width: 0; min-height: 31rem; }
+.map-row iframe, .map-row .windy-map-interaction { min-height: 26rem; }
 .daylight-card {
   --daylight-title-color: var(--accent);
   --daylight-data-color: var(--ink);
@@ -623,9 +628,6 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
 .next-season-note { display: flex; justify-content: space-between; gap: 0.5rem; align-items: baseline; margin: 0; color: var(--daylight-status-color); font-size: 0.58rem; }
 .next-season-note strong { color: var(--daylight-status-color); }
 .next-season-note time { color: var(--daylight-data-color); white-space: nowrap; }
-.polar-daylight-note { display: flex; justify-content: space-between; gap: 1rem; margin: 0.9rem 0 0; color: var(--daylight-status-color); font-size: 0.6rem; line-height: 1.5; }
-.polar-daylight-note span:last-child { text-align: right; }
-.polar-daylight-note strong { display: block; color: var(--daylight-data-color); font-size: 0.78rem; }
 .eclipse-list { display: grid; gap: 0.32rem; margin: 0; padding: 0; list-style: none; font-size: 0.56rem; }
 .eclipse-list li { display: flex; justify-content: space-between; gap: 0.5rem; color: var(--daylight-status-color); }
 .eclipse-list strong { color: var(--daylight-status-color); font-weight: 650; }
@@ -735,9 +737,9 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
   .moon-orbit::before { display: none; }
   .conditions-row { grid-template-columns: 1fr 1fr; }
   .daylight-card { min-height: auto; }
-  .lunar-header { grid-template-columns: 1fr minmax(12rem, .7fr) 1fr; }
+  .lunar-side { grid-column: 1 / -1; }
+  .lunar-side-right { grid-row: 4; }
   .map-row { grid-template-columns: 1fr 1fr; }
-  .full-width-map { grid-column: 1 / 3; }
 }
 
 @media (max-width: 760px) {
@@ -764,7 +766,7 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
   .modal-footer p { display: none; }
   .modal-footer { justify-content: flex-end; }
   .lunar-header { grid-template-columns: 1fr; min-height: 28rem; padding: 1rem 0.65rem 5rem; }
-  .lunar-side { width: 100%; max-width: 34rem; margin: 0 auto; }
+  .lunar-side { grid-column: 1; grid-row: auto; width: 100%; max-width: 34rem; margin: 0 auto; }
   .lunar-current { margin-top: 0; }
   .lunar-current-disk { width: 5.4rem; height: 5.4rem; }
   .lunar-arc { left: 16%; right: 16%; }
@@ -780,7 +782,6 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
   .forecast-detail-grid { grid-template-columns: 1fr; }
   .reading-hero { grid-template-columns: 7rem 1fr; }
   .map-row { grid-template-columns: 1fr; }
-  .full-width-map { grid-column: 1; }
   .daylight-card { min-height: auto; }
 }
 
