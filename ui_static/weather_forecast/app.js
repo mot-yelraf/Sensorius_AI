@@ -496,8 +496,6 @@
           eclipseList.append(item);
         });
       }
-      document.getElementById("northPoleDaylight").textContent = moon.north_pole_daylight ?? "—";
-      document.getElementById("southPoleDaylight").textContent = moon.south_pole_daylight ?? "—";
       document.getElementById("sunState").textContent = moon.sun_is_up ? "Sun above horizon" : "Sun below horizon";
       updateDaylightTrack(moon.daylight_progress);
       document.getElementById("lunarUpdated").textContent = `Updated ${moon.updated_at.slice(11, 16)} UTC`;

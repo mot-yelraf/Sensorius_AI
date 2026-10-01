@@ -420,16 +420,15 @@ def test_astronomy_context_flags_an_observer_visible_eclipse_in_the_next_24_hour
     assert eclipse["ends"].endswith((" AM", " PM"))
 
 
-def test_sunlight_card_places_times_horizontally_and_shows_poles():
+def test_sunlight_card_places_times_horizontally_without_poles():
     template = (ROOT / "ui_templates" / "weather_forecast" / "index.html").read_text()
     script = (ROOT / "ui_static" / "weather_forecast" / "app.js").read_text()
     css = (ROOT / "ui_static" / "weather_forecast" / "app.css").read_text()
 
-    assert 'id="northPoleDaylight"' in template
-    assert 'id="southPoleDaylight"' in template
+    assert 'id="northPoleDaylight"' not in template
+    assert 'id="southPoleDaylight"' not in template
     assert 'id="nextSeasonLabel"' in template
     assert 'id="nextSeasonDate"' in template
-    assert template.index('id="northPoleDaylight"') < template.index('id="nextSeasonHeading"')
     assert 'id="nextEclipseHeading"' in template
     assert 'id="nextEclipseList"' in template
     assert "No visible eclipses for the next 12 months" in template
@@ -437,7 +436,8 @@ def test_sunlight_card_places_times_horizontally_and_shows_poles():
     assert "grid-template-columns: repeat(3, minmax(0, 1fr))" in css
     assert ".daylight-times dd { order: -1;" in css
     assert "function formatSolarTime(value)" in script
-    assert 'moon.north_pole_daylight ?? "—"' in script
+    assert 'document.getElementById("northPoleDaylight")' not in script
+    assert 'document.getElementById("southPoleDaylight")' not in script
     assert 'moon.next_season_label ?? "—"' in script
     assert "moon.next_eclipses" in script
 
@@ -451,7 +451,6 @@ def test_sunlight_card_uses_three_semantic_text_colors():
     assert ".daylight-card .eyebrow," in css
     assert ".daylight-detail-section h3 { color: var(--daylight-title-color); }" in css
     assert ".daylight-times dd { order: -1; margin: 0; color: var(--daylight-data-color);" in css
-    assert ".polar-daylight-note strong { display: block; color: var(--daylight-data-color);" in css
     assert ".eclipse-list time { color: var(--daylight-data-color);" in css
     assert ".daylight-times dt { color: var(--daylight-status-color);" in css
     assert ".next-season-note strong { color: var(--daylight-status-color);" in css
@@ -608,7 +607,7 @@ async def test_integrated_weather_routes_render_dashboard_and_namespaced_apis(mo
     assert "Station reporting" in readings_panel
     assert "Station reporting" not in page.text[:page.text.index('id="conditions"')]
     assert "Environmental decisions" not in page.text
-    assert 'class="glass-card map-card full-width-map"' in page.text
+    assert 'class="glass-card map-card"' in page.text
     assert page.text.index('id="conditions"') < page.text.index('id="map"') < page.text.index('id="moon"')
     assert "overlay=radar" in page.text
     assert forecast.json()["days"][0]["label"] == "Sat Aug 8"
