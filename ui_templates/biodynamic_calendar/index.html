@@ -16,6 +16,7 @@
     <header class="standalone-app-header">
       <div class="header-title-group">
         <h1>Biodynamic Calendar{% if app_version %} <span class="title-version">{{ app_version }}</span>{% endif %}</h1>
+        <div id="headerDate" class="header-date">Today</div>
         <div class="header-meta">
           <button id="printBtn" class="header-report" type="button" aria-label="Print monthly report">
             Report
@@ -24,11 +25,7 @@
               <circle cx="18" cy="11" r="1"/>
             </svg>
           </button>
-          <span aria-hidden="true">&middot;</span>
           <span id="headerLocation">Location loading&hellip;</span>
-          <span aria-hidden="true">&middot;</span>
-          <span id="headerDate">Today</span>
-          <span aria-hidden="true">&middot;</span>
           <button type="button" class="calendar-theme-trigger" data-open-calendar-theme aria-label="Preview calendar themes">Theme</button>
         </div>
       </div>
