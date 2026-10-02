@@ -218,11 +218,17 @@ body.biodynamic-theme-garden_tools {
   font-size: 1.55rem;
 }
 
+.header-date {
+  margin-bottom: 5px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
 .header-meta {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 5px;
   color: #6f6655;
   font-size: 0.82rem;
@@ -1947,6 +1953,30 @@ body[class*="biodynamic-theme-"] select {
 }
 
 @media (max-width: 980px) {
+  .page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--layout-gap);
+  }
+
+  .standalone-app-header {
+    margin-bottom: 0;
+  }
+
+  /* Let the mobile tiles share one flow while retaining the desktop groups. */
+  .hero-grid,
+  .calendar-shell,
+  .calendar-plan {
+    display: contents;
+  }
+
+  .calendar-panel { order: 1; }
+  .details { order: 2; }
+  .moon-attributes-panel { order: 3; }
+  .planetary-panel { order: 4; }
+  .range-panel { order: 5; }
+  .hero-calendar-mark { order: 6; align-self: center; }
+
   .hero-grid,
   .config-grid,
   .calendar-shell {
