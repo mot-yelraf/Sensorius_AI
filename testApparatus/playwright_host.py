@@ -105,13 +105,19 @@ def system_settings() -> HTMLResponse:
     return HTMLResponse(templates.get_template("modals/system_settings.html").render(
         app_name_long="Sensorius AI", app_version="playwright", custom_themes={},
         display_style="Gauge", metric_set="Pick 6", gauge_size="Small",
+        unit_system="Imperial", astral_altitude=1000, astral_altitude_unit="ft",
     ))
 
 
 @app.get("/edit-sensor", response_class=HTMLResponse)
 def sensor_settings() -> HTMLResponse:
     """Render a sensor's real settings and calibration panes for mobile checks."""
+    from sensorius.saiInputUnits import calibration_presentation
+    offsets = [{"key": "Calibration.Device.TEMP_OFFSET", "label": "Temperature", "unit": "°C", "value": 1.0}]
+    presentation = calibration_presentation(offsets, 0.0, "Imperial")
     return HTMLResponse(templates.get_template("modals/sensor_settings.html").render(
+        device_kind="aht", device_offsets=offsets, **presentation,
+        candidate_sensors=["aht-pr-check", "reference"],
         sensor_id="aht-pr-check", current_metrics=["Temperature"] + [""] * 5,
         metric_options=["", "Temperature"], settings={}, location="Greenhouse",
     ))

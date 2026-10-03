@@ -1050,8 +1050,9 @@
                   <input type="text" id="astral_lon" name="astral_lon" value="{{ astral_lon | default('') }}" placeholder="Auto-detect" title="Enter manual coordinates. To reposition lat/long both fields must be empty, then save.">
                 </div>
                 <div class="field-stack">
-                  <label for="astral_altitude">Altitude (m)</label>
-                  <input type="text" id="astral_altitude" name="astral_altitude" value="{{ astral_altitude | default('') }}" placeholder="1600" inputmode="decimal" title="Enter altitude in meters.">
+                  <input type="hidden" name="astral_altitude_unit" value="{{ astral_altitude_unit | default('m') }}">
+                  <label for="astral_altitude">Altitude ({{ astral_altitude_unit | default('m') }})</label>
+                  <input type="text" id="astral_altitude" name="astral_altitude" value="{{ astral_altitude | default('') }}" inputmode="decimal" title="Enter altitude in the units shown.">
                 </div>
               </div>
                     <div class="pane-footer section-action-footer">

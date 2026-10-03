@@ -114,6 +114,10 @@ Dashboard data comes from the latest values in the live runtime cache and from t
    lunar-north-up reference view. The saved choice also controls the Moon disks
    in the integrated Caelus Forecast Lunar Calendar.
 
+   Sun and Moon data may briefly show a loading indicator while astronomy
+   calculations finish. The dashboard automatically retries warming or failed
+   requests; refreshing the page is normally unnecessary.
+
 4. The **Sun/Moon Position Tile**.
 
    This tile plots the Sun and Moon across the current observer-local day. It
@@ -329,7 +333,11 @@ collapsed without moving the section's **Save** button.
   their native units. This setting changes labels, values, graph scales, and
   display zones only. It does not rewrite sensor readings, database history,
   MQTT payloads, sensor configuration, metric identities, or automation
-  thresholds. Directly connected sensors and current Nodus firmware provide
+  thresholds. Calibration temperature offsets, General Settings altitude, and
+  temperature automation inputs also display in the selected units; saving converts
+  edited values back to the existing storage units. Changing Units does not change
+  when a saved rule triggers. Open forms keep the units printed beside their fields
+  until reopened. Directly connected sensors and current Nodus firmware provide
   canonical SI readings; older Nodus devices that still publish Fahrenheit-
   suffixed metrics remain supported.
 - **Metric Set**: applies to every Sensor Group on the Sensorius dashboard.
@@ -1065,6 +1073,19 @@ Common fields and controls:
 - **Calibrate pH 4.0 / 7.0 / 10.0**: soil-sensor pH buffer calibration buttons. Use the matching buffer solution and wait for the probe to stabilize before applying.
 - **Soil Offsets**: manual numeric offsets for soil sensor channels such as pH or other exposed calibration values.
 - **Apply Device Calibration**: saves the device calibration. For Nodus devices, the command is sent to the device and the local settings shadow is updated.
+
+Temperature corrections follow the selected Units, including ambient, plant
+system-calibration results, and soil temperature offsets. An offset is a temperature
+difference: **+1.8°F correction equals +1°C**, without adding or subtracting 32.
+System-calibration previews convert readings and correction statistics for display;
+the computed corrections remain Celsius when applied. The automatic plant
+calibration routine continues to run in the device's native units.
+
+**System Altitude** displays feet or meters and is read-only in calibration. Edit
+it in General Settings > Astral, then apply device calibration. Sensorius stores
+altitude in meters and sends meters to Nodus. Device-native Nodus calibration and
+automation screens continue to use their own units; Sensorius' display preference
+does not change the firmware.
 
 Calibration data comes from the sensor's `Calibration` section, Nodus metadata, and device-specific calibration endpoints. Apply small changes, then watch the dashboard and graphs to confirm the readings now track your trusted reference.
 

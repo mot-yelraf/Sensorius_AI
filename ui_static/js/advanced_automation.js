@@ -9,6 +9,7 @@ let currentSwitchId = "";
 let automations = [];
 let selectedId = null;
 let sensorDirectory = [];
+let sensorUnitsReady = false;
 let switchLabels = {};
 let switchChannelIds = {};
 let switchChannels = 1;
@@ -28,8 +29,8 @@ async function fetchSensorDirectory() {
 }
 
 async function fetchSensorMetrics(sensorId) {
-  const data = await fetchJSON(`/sensor-metrics?sensor_id=${encodeURIComponent(sensorId)}`);
-  return Object.keys(data || {});
+  const data = await fetchJSON(`/sensor-metrics?sensor_id=${encodeURIComponent(sensorId)}&input_units=true`);
+  return data || {};
 }
 
 async function fetchSwitchInfo() {
@@ -97,12 +98,6 @@ async function waitForSelector(root, selector, timeoutMs = 2000) {
 
 // ----- UI helpers (scoped to current modal) -----
 function q(root, sel){ return root ? root.querySelector(sel) : null; }
-
-function clampOneDecimal(value, fallback = 0) {
-  const n = Number.parseFloat(String(value ?? ""));
-  if (!Number.isFinite(n)) return fallback;
-  return Math.round(n * 10) / 10;
-}
 
 function getEnabledChannelIndexSet(modal) {
   return new Set(
@@ -540,6 +535,13 @@ function addCondition(modal, cond) {
     }
     sensorSel.value = cond?.sensor || sensorDirectory[0]?.id || "";
   }
+  if (cond?.sensor && !Array.from(sensorSel.options).some(option => option.value === cond.sensor)) {
+    const opt = create("option");
+    opt.value = cond.sensor;
+    opt.textContent = `${cond.sensor} (unavailable)`;
+    sensorSel.appendChild(opt);
+    sensorSel.value = cond.sensor;
+  }
   sensorWrap.append(sensorLab, sensorSel);
 
   const metricWrap = create("div");
@@ -553,7 +555,8 @@ function addCondition(modal, cond) {
     const sensorId = sensorSel.value;
     const found = sensorDirectory.find(s => s.id === sensorId);
     metricSel.innerHTML = "";
-    const metrics = found?.metrics || [];
+    const metrics = [...(found?.metrics || [])];
+    if (cond?.sensor === sensorId && cond?.metric && !metrics.includes(cond.metric)) metrics.push(cond.metric);
     if (metrics.length === 0) {
       const opt = create("option");
       opt.value = "";
@@ -570,6 +573,7 @@ function addCondition(modal, cond) {
       metricSel.appendChild(opt);
     }
     if (cond?.metric && metrics.includes(cond.metric)) metricSel.value = cond.metric;
+    updateInputUnits();
   }
 
   const opWrap = create("div");
@@ -586,10 +590,10 @@ function addCondition(modal, cond) {
   valueLab.textContent = "Threshold";
   const valueIn = create("input");
   valueIn.type = "number";
-  valueIn.step = "1";
+  valueIn.disabled = !sensorUnitsReady;
+  valueIn.step = "any";
   valueIn.inputMode = "decimal";
   valueIn.value = cond?.value ?? 0;
-  valueIn.addEventListener("blur", () => { valueIn.value = String(clampOneDecimal(valueIn.value, 0)); });
   valueWrap.append(valueLab, valueIn);
 
   const hystWrap = create("div");
@@ -597,11 +601,30 @@ function addCondition(modal, cond) {
   hystLab.textContent = "Hysteresis";
   const hystIn = create("input");
   hystIn.type = "number";
-  hystIn.step = "1";
+  hystIn.disabled = !sensorUnitsReady;
+  hystIn.step = "any";
   hystIn.inputMode = "decimal";
   hystIn.value = cond?.hyst ?? 0;
-  hystIn.addEventListener("blur", () => { hystIn.value = String(clampOneDecimal(hystIn.value, 0)); });
   hystWrap.append(hystLab, hystIn);
+  let inputMetric = null;
+  function updateInputUnits() {
+    const metric = metricSel.value;
+    if (inputMetric === metric) return;
+    const initial = inputMetric === null && metric === cond?.metric;
+    const meta = sensorDirectory.find(s => s.id === sensorSel.value)?.metricUnits?.[metric] || {};
+    const unit = meta.unit || "";
+    valueLab.textContent = `Threshold (${unit || "native units"})`;
+    hystLab.textContent = `Hysteresis (${unit ? "Δ " + unit : "native units"})`;
+    for (const [input, value, delta] of [[valueIn, initial ? cond.value : 0, false], [hystIn, initial ? (cond.hyst ?? 0) : 0, true]]) {
+      const native = Number(value);
+      input.value = String(Number((native * (meta.factor ?? 1) + (delta ? 0 : (meta.offset ?? 0))).toPrecision(12)));
+      input.dataset.originalDisplay = input.value;
+      input.dataset.nativeValue = String(native);
+      input.dataset.inputUnit = unit;
+    }
+    inputMetric = metric;
+  }
+  metricSel.addEventListener("change", updateInputUnits);
 
   const rem = create("button","remove");
   rem.type = "button";
@@ -912,13 +935,24 @@ function serializeForm(modal){
     } else if (typeVal === "or"){
       return { type:"or" };
     } else {
+      if (!sensorUnitsReady) throw new Error("Wait for sensor units to load before saving.");
       const sensor = group.querySelector(".sensor-top select.sensor-select")?.value || "";
       const metric = group.querySelector(".sensor-bottom select.metric-select")?.value || "";
       const op     = group.querySelector(".sensor-bottom select.op-select")?.value || ">";
       const nums   = [...group.querySelectorAll(".sensor-bottom input[type='number']")];
-      const value  = clampOneDecimal(nums[0]?.value || "0", 0);
-      const hyst   = clampOneDecimal(nums[1]?.value || "0", 0);
-      return { type:"sensor", sensor, metric, op, value, hyst };
+      const result = { type:"sensor", sensor, metric, op };
+      for (const [index, field] of [[0, "value"], [1, "hyst"]]) {
+        const input = nums[index];
+        const value = Number(input?.value);
+        if (!input || input.value.trim() === "" || !Number.isFinite(value) || (field === "hyst" && value < 0)) throw new Error("Enter a finite threshold and non-negative hysteresis.");
+        if (input.value === input.dataset.originalDisplay) {
+          result[field] = Number(input.dataset.nativeValue);
+        } else {
+          result[field] = value;
+          if (input.dataset.inputUnit) result[field + "_unit"] = input.dataset.inputUnit;
+        }
+      }
+      return result;
     }
   });
 
@@ -976,12 +1010,8 @@ async function loadSensors(){
     const id = String(item?.id || "").trim();
     const location = String(item?.location || "").trim();
     const label = String(item?.label || location || id).trim() || id;
-    return {
-      id,
-      label,
-      location,
-      metrics: await fetchSensorMetrics(id).catch(() => []),
-    };
+    const metricUnits = await fetchSensorMetrics(id);
+    return { id, label, location, metrics: Object.keys(metricUnits), metricUnits };
   }));
 }
 
@@ -1140,13 +1170,8 @@ async function saveCurrent(modal){
   }
   const saved = await res.json().catch(() => ({}));
   const savedRuleId = String(saved?.rule_id || doc.id || "").trim() || doc.id;
-  const nextDoc = { ...doc, id: savedRuleId };
-  const existingIndex = automations.findIndex(item => item.id === savedRuleId);
-  if (existingIndex >= 0) automations[existingIndex] = nextDoc;
-  else automations.push(nextDoc);
+  // Reload canonical values before rendering; submitted values may use display units.
   selectedId = savedRuleId;
-  renderList(modal);
-  loadSelectedIntoForm(modal);
   await loadAutomationsListInto(modal, { preserveSelection: true, openEditor: true });
   if (typeof window.refreshAndApplySwitchStatus === "function") {
     window.setTimeout(() => window.refreshAndApplySwitchStatus().catch?.(() => {}), 0);
@@ -1186,6 +1211,10 @@ window.initAdvancedAutomationModal = async function (modalEl) {
       modalEl.dataset?.switchId ||
       scope.dataset?.switchId ||
       "";
+    sensorDirectory = [];
+    sensorUnitsReady = false;
+    const editorWrap = modalRoot.querySelector("#automationEditorWrap");
+    if (editorWrap) editorWrap.inert = true;
     const isSystemEditor = !!modalRoot.querySelector("[data-automation-scope='system']");
     if (!currentSwitchId && !isSystemEditor) {
       console.error("initAdvancedAutomationModal: missing data-switch-id");
@@ -1252,9 +1281,14 @@ window.initAdvancedAutomationModal = async function (modalEl) {
     await loadAutomationsListInto(modalRoot);
 
     // ---- load sensors in background so slow sensor endpoints don't block the list ----
+    const unitsStatus = modalRoot.querySelector("#automationSaveStatus");
+    if (unitsStatus) unitsStatus.textContent = "Loading sensor units…";
     Promise.resolve()
       .then(() => loadSensors())
       .then(() => {
+        sensorUnitsReady = true;
+        if (editorWrap) editorWrap.inert = false;
+        if (unitsStatus) unitsStatus.textContent = "";
         // If editor is visible, refresh the form so sensor/metric selectors get populated.
         const chooser = q(modalRoot, "#automationChooser");
         const editorVisible = !!chooser && chooser.hidden;
@@ -1262,7 +1296,10 @@ window.initAdvancedAutomationModal = async function (modalEl) {
           loadSelectedIntoForm(modalRoot);
         }
       })
-      .catch(e => console.warn("[AdvancedAutomation] loadSensors failed:", e));
+      .catch(e => {
+        console.warn("[AdvancedAutomation] loadSensors failed:", e);
+        if (unitsStatus) unitsStatus.textContent = "Could not load sensor units. Close and reopen settings to retry.";
+      });
 
     // ---- finally show (parent sets display:none initially) ----
     const backdrop = modalRoot.closest?.(".modal-backdrop") || scope.closest?.(".modal-backdrop") || scope;

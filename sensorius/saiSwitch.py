@@ -15,6 +15,7 @@ import socket
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from .saiInputUnits import display_automation_values
 from .saiUtils import printDM, debug_enabled, get_timestamp
 from .saiSwitchFactory import create_switch
 from .saiMQTTClient import get_mqtt_client
@@ -1391,6 +1392,7 @@ class SwitchController:
                         actual = value
                         break
 
+            actual, threshold, hyst, unit = display_automation_values(metric, actual, threshold, hyst)
             boundary_text = ""
             try:
                 threshold_num = float(threshold)
@@ -1409,10 +1411,10 @@ class SwitchController:
                 pass
             actual_text = "unavailable" if actual is None else str(actual)
             if alert_summary:
-                return f"Sensor {sensor_id}; value {actual_text}"
+                return f"Sensor {sensor_id}; value {actual_text}{unit}"
             return (
-                f"[{status}] Sensor {sensor_id}; value {actual_text}; "
-                f"{metric} {op} {threshold}; hysteresis {hyst}{boundary_text}"
+                f"[{status}] Sensor {sensor_id}; value {actual_text}{unit}; "
+                f"{metric} {op} {threshold}{unit}; hysteresis {hyst}{unit}{boundary_text}"
             )
 
         if ctype == "time":
@@ -1623,18 +1625,12 @@ class SwitchController:
                             device_name = location
                     except Exception:
                         pass
-                    unit = ""
-                    try:
-                        from .saiHomeAssistantMqtt import metric_meta_for_metric
-
-                        unit = str(metric_meta_for_metric(metric).get("unit", "") or "")
-                    except Exception:
-                        pass
                     op = str(cond.get("op", ">") or ">").strip()
                     threshold = cond.get("value")
+                    actual, threshold, _, unit = display_automation_values(metric, actual, threshold)
                     group_conditions.append(
                         f"{device_name or sensor_id or 'Unknown device'} "
-                        f"{metric or 'Unknown metric'} {op} {threshold}"
+                        f"{metric or 'Unknown metric'} {op} {threshold}{unit}"
                     )
                     trigger_values.append(
                         f"{'unavailable' if actual is None else actual}{unit}"
@@ -1751,13 +1747,7 @@ class SwitchController:
                 if summary_key in seen:
                     continue
                 seen.add(summary_key)
-                unit = ""
-                try:
-                    from .saiHomeAssistantMqtt import metric_meta_for_metric
-
-                    unit = str(metric_meta_for_metric(metric).get("unit", "") or "")
-                except Exception:
-                    pass
+                actual, _, _, unit = display_automation_values(metric, actual)
                 summaries.append(f"{metric} was {actual}{unit}")
         return summaries
 

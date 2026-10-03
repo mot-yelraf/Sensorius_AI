@@ -417,7 +417,7 @@ def test_advanced_rule_does_nothing_when_conditions_are_false():
 
 
 def test_advanced_notify_actor_reports_triggered_and_cleared_edges(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, imperial_units,
 ):
     ctrl = _make_controller()
     ctrl.switch_id = "__system__"
@@ -460,17 +460,17 @@ def test_advanced_notify_actor_reports_triggered_and_cleared_edges(
     assert len(sent) == 1
     assert (
         sent[0][0]
-        == "Sensorius ACTIVATED: High temperature: temperature was 30°C"
+        == "Sensorius ACTIVATED: High temperature: temperature was 86.0°F"
     )
     assert sent[0][2]["to_addresses"] == ("grower@example.com",)
     assert "State: ACTIVATED" in sent[0][1]
     assert "Hub: sensorius-hub-3" in sent[0][1]
     assert "Group 1: TRUE" in sent[0][1]
     assert (
-        "[TRUE] Sensor sensor-1; value 30; temperature > 25; hysteresis 1"
+        "[TRUE] Sensor sensor-1; value 86.0°F; temperature > 77.0°F; hysteresis 1.8°F"
         in sent[0][1]
     )
-    assert "trigger > 26; clear <= 24" in sent[0][1]
+    assert "trigger > 78.8; clear <= 75.2" in sent[0][1]
     assert sent[0][1].index("Conditions (AND within each group") < sent[0][1].index(
         "State: ACTIVATED"
     )
@@ -480,11 +480,11 @@ def test_advanced_notify_actor_reports_triggered_and_cleared_edges(
     rule_on["value"] = False
     SwitchController._evaluate_and_apply_advanced(ctrl, values())
     assert len(sent) == 2
-    assert sent[1][0] == "Sensorius CLEARED: High temperature: temperature was 20°C"
+    assert sent[1][0] == "Sensorius CLEARED: High temperature: temperature was 68.0°F"
     assert "State: CLEARED" in sent[1][1]
     assert "Group 1: FALSE" in sent[1][1]
     assert (
-        "[FALSE] Sensor sensor-1; value 20; temperature > 25; hysteresis 1"
+        "[FALSE] Sensor sensor-1; value 68.0°F; temperature > 77.0°F; hysteresis 1.8°F"
         in sent[1][1]
     )
 
@@ -493,11 +493,11 @@ def test_advanced_notify_actor_reports_triggered_and_cleared_edges(
     assert len(sent) == 3
     assert (
         sent[2][0]
-        == "Sensorius ACTIVATED: High temperature: temperature was 30°C"
+        == "Sensorius ACTIVATED: High temperature: temperature was 86.0°F"
     )
 
 
-def test_advanced_notify_restart_uses_last_successfully_sent_state():
+def test_advanced_notify_restart_uses_last_successfully_sent_state(imperial_units):
     ctrl = _make_controller()
     ctrl.switch_id = "__system__"
     rule_on = {"value": True}
@@ -539,7 +539,7 @@ def test_advanced_notify_restart_uses_last_successfully_sent_state():
     rule_on["value"] = False
     SwitchController._evaluate_and_apply_advanced(ctrl, values())
     assert len(delivery.sent) == 1
-    assert delivery.sent[0][0] == "Sensorius CLEARED: High temperature: temperature was 20°C"
+    assert delivery.sent[0][0] == "Sensorius CLEARED: High temperature: temperature was 68.0°F"
 
 
 def test_automation_notification_reports_or_groups_and_switch_actions(
@@ -1924,7 +1924,7 @@ def test_biodynamic_transition_broadcast_reaches_runtime_app(
 
 
 def test_alert_broadcast_uses_sensor_value_without_rule_details(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, imperial_units,
 ):
     from sensorius import saiWebRoutes
 
@@ -1963,20 +1963,20 @@ def test_alert_broadcast_uses_sensor_value_without_rule_details(
     asyncio.run(run_broadcast())
 
     assert received[0]["name"] == "High Temperature"
-    assert received[0]["details"] == ["Sensor greenhouse-1; value 87.4"]
+    assert received[0]["details"] == ["Sensor greenhouse-1; value 189.32°F"]
     assert received[0]["trigger"] == {
         "device": "greenhouse-1",
         "sensor_id": "greenhouse-1",
         "metric": "Temperature",
-        "value": 87.4,
-        "unit": "°C",
+        "value": 189.32,
+        "unit": "°F",
     }
     assert received[0]["trigger_conditions"] == [
-        "greenhouse-1 Temperature > 82"
+        "greenhouse-1 Temperature > 179.6°F"
     ]
-    assert received[0]["trigger_values"] == ["87.4°C"]
+    assert received[0]["trigger_values"] == ["189.32°F"]
     assert "occurred_at" in received[0]
-    assert "Temperature > 82" in str(received[0])
+    assert "Temperature > 179.6°F" in str(received[0])
     assert "hysteresis" not in str(received[0])
 
 
@@ -2124,3 +2124,10 @@ def test_auto_off_duration_survives_clock_correction(monkeypatch, wall_jump):
     ctrl._process_auto_off_timers()
     ctrl._process_auto_off_timers()
     assert calls == [('Fan', False)]
+
+
+@pytest.fixture
+def imperial_units(monkeypatch):
+    """Pin notification presentation independently of host settings."""
+    from sensorius import saiInputUnits
+    monkeypatch.setattr(saiInputUnits, "_NOTIFICATION_UNIT_SYSTEM", "Imperial")

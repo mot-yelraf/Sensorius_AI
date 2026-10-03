@@ -749,7 +749,7 @@ def test_system_settings_template_has_astral_altitude_field():
     text = source.read_text(encoding="utf-8")
 
     assert 'class="field-grid-astral"' in text
-    assert '<label for="astral_altitude">Altitude (m)</label>' in text
+    assert "Altitude ({{ astral_altitude_unit | default('m') }})" in text
     assert 'id="astral_altitude" name="astral_altitude"' in text
     assert text.index('id="astral_lat"') < text.index('id="astral_lon"') < text.index('id="astral_altitude"')
     for removed_id in ("astral_sunrise", "astral_sunset", "astral_daylight", "astral_noon"):
@@ -2389,7 +2389,8 @@ async def test_sensor_settings_modal_shows_read_only_system_altitude_for_support
     assert 'data-key="Calibration.Device.ALTITUDE_METERS"' in html
     assert 'data-force-send="1"' in html
     assert 'readonly aria-readonly="true"' in html
-    assert 'value="1624.0"' in html
+    assert f'value="{1624.0 / 0.3048}"' in html
+    assert 'data-input-unit="ft"' in html
 
 
 @pytest.mark.asyncio
@@ -2439,7 +2440,8 @@ async def test_sensor_settings_modal_uses_fresh_system_altitude_for_local_avpd_s
     assert 'data-key="Calibration.Device.ALTITUDE_METERS"' in html
     assert 'data-force-send="1"' in html
     assert 'readonly aria-readonly="true"' in html
-    assert 'value="1783.0"' in html
+    assert f'value="{1783.0 / 0.3048}"' in html
+    assert 'data-input-unit="ft"' in html
 
 
 def test_switch_settings_modal_shows_nodus_firmware_version_in_settings_pane_title():

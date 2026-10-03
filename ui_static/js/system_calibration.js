@@ -12,6 +12,9 @@ window.initSystemCalibrationModal = async function(modalEl) {
   const backdrop = scope.closest?.(".modal-backdrop") || scope;
 
   const sensorId   = modalEl.dataset.sensorId || modalEl.getAttribute("data-sensor-id") || "";
+  const temperatureUnit = modalEl.dataset.temperatureUnit || "°C";
+  const temperatureFactor = temperatureUnit === "°F" ? 1.8 : 1;
+  const displayTemperature = (value, delta = false) => value == null ? value : Number(value) * temperatureFactor + (temperatureUnit === "°F" && !delta ? 32 : 0);
   const deviceKind = modalEl.dataset.deviceKind || modalEl.getAttribute("data-device-kind") || "";
   const isApvpd    = (modalEl.dataset.isApvpd || modalEl.getAttribute("data-is-apvpd") || "")
                        .toString().toLowerCase() === "true";
@@ -106,6 +109,7 @@ window.initSystemCalibrationModal = async function(modalEl) {
       const initial = initialRaw === "" ? 0 : Number(initialRaw);
       if (!forceSend && Number.isFinite(initial) && Math.abs(value - initial) < 1e-9) return;
       const item = { key, value };
+      if (input.dataset.inputUnit) item.input_unit = input.dataset.inputUnit;
       if (forceSend) item.force = true;
       results.push(item);
     });
@@ -145,6 +149,11 @@ window.initSystemCalibrationModal = async function(modalEl) {
         const status = String(result.status || "").toLowerCase();
 
         if (status === "success" || status === "ok") {
+          for (const item of offsets) {
+            const input = Array.from(devCalRows).map(row => row.querySelector("input.devCalInput"))
+              .find(input => input?.dataset.key === item.key);
+            if (input && Number(input.value) === item.value) input.dataset.initial = input.value;
+          }
           const msg = result.message || "Device calibration updated.";
           setCalibrationStatus(devCalStatus, msg, "ok", true);
         } else {
@@ -348,8 +357,8 @@ window.initSystemCalibrationModal = async function(modalEl) {
       const sid = row.sensor_id || "?";
 
       const tempPart =
-        `Temp: ${scFormatVal(row.raw_temp, 2)} → ${scFormatVal(row.adj_temp, 2)} ` +
-        `(Δ ${scFormatVal(row.temp_offset, 3)}, σ ${scFormatVal(row.temp_sigma, 3)})`;
+        `Temp (${temperatureUnit}): ${scFormatVal(displayTemperature(row.raw_temp), 2)} → ${scFormatVal(displayTemperature(row.adj_temp), 2)} ` +
+        `(Δ ${scFormatVal(displayTemperature(row.temp_offset, true), 3)}, σ ${scFormatVal(displayTemperature(row.temp_sigma, true), 3)})`;
 
       const rhPart =
         `RH: ${scFormatVal(row.raw_rh, 2)} → ${scFormatVal(row.adj_rh, 2)} ` +
@@ -384,7 +393,7 @@ window.initSystemCalibrationModal = async function(modalEl) {
         if (tdRh)   tdRh.textContent   = "–";
         return;
       }
-      if (tdTemp) tdTemp.textContent = scFormatVal(res.temp_offset, 3);
+      if (tdTemp) tdTemp.textContent = scFormatVal(displayTemperature(res.temp_offset, true), 3);
       if (tdRh)   tdRh.textContent   = scFormatVal(res.rh_offset, 3);
     });
   }

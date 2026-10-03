@@ -77,6 +77,23 @@ Advanced rules can express:
 - Revert behavior through `revert_action`.
 - Optional delayed action application through `delay_s`.
 
+Temperature conditions display thresholds and hysteresis in the selected
+Metric/Imperial units. A threshold is an absolute temperature (77°F = 25°C), while
+hysteresis is a difference (1.8°F = 1°C). Saving converts edited fields to the
+selected metric's native units; `Temperature` stays Celsius and legacy
+`Temperature_F` stays Fahrenheit. Unedited numeric fields retain their original
+precision. Changing the display preference never rewrites rules or changes their
+trigger points. Notification temperature values and thresholds use the preferred
+units as well.
+
+Existing rules and API requests without unit annotations retain their native
+metric interpretation. The editor submits optional `value_unit` and `hyst_unit`
+annotations, which the server validates and removes before storing `script_json`.
+Unknown metrics are labelled as native units; no temperature conversion is guessed.
+Non-temperature conditions continue to use native units. Sensorius evaluates its
+own rules, including those controlling remote switches; Nodus device-native rules
+and their metric storage are unchanged.
+
 Time window behavior:
 
 - `00:00` to `00:00` is all day.
