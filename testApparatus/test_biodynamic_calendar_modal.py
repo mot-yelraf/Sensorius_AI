@@ -139,7 +139,7 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "const buildBiodynamicWindowText = (payload, currentIso, current) => {" in text
     assert "if (reason === 'warming') return '';" in text
     assert "Biodynamic calendar is warming in the background." not in text
-    assert "const extrasWarming = !!window.__dashboardExtrasWarming;" in text
+    assert "const extrasWarming = !!window.__dashboardExtrasWarming || isDashboardWarmingPayload(astroData) || isDashboardWarmingPayload(biodynamicData);" in text
     assert "const wantExtras = !lastExtrasRefreshAt || ((now - lastExtrasRefreshAt) >= dashboardExtrasRefreshMs) || (extrasWarming && (!lastExtrasWarmAt || ((now - lastExtrasWarmAt) >= dashboardExtrasWarmRetryMs)));" in text
     assert "const astroWarming = data && data.astro && isDashboardWarmingPayload(data.astro);" in text
     assert "const biodynamicWarming = data && data.biodynamic && isDashboardWarmingPayload(data.biodynamic);" in text
