@@ -83,6 +83,23 @@ Required fields:
 `payload` is required for calibration writes and optional for `status` and
 `start`.
 
+## Sensorius input units
+
+Sensorius may display and accept temperature corrections in °F and altitude in
+feet. It converts these to canonical values before publishing: temperature
+corrections are Celsius differences (°F × 5/9, with no 32-degree shift), and
+`Calibration.Device.ALTITUDE_METERS` is meters (feet × 0.3048). Nodus firmware,
+retained metadata, settings shadows, and the MQTT payload shapes below are
+unchanged. General Settings is the source for the calibration altitude.
+
+The Sensorius HTTP `/calibration/device/apply` endpoint accepts optional
+`input_unit` on recognized temperature-offset and altitude items. Missing units
+retain the historical interpretation (Celsius for temperature offsets and meters
+for altitude). Unsupported unit/key combinations and non-finite values are
+rejected before any writes. `input_unit` is consumed at the HTTP boundary and
+never included in `calibration/set`. Automatic system and plant calibration
+continue computing and applying canonical values.
+
 ## Action: Apply Calibration Values
 
 Use this to write calibration values into the active sensor TOML and hot-reload them.

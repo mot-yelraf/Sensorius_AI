@@ -71,6 +71,15 @@ from .saiUtils import (
     mdns_hostname,
 )
 from .saiSettings import saiSettings
+from .saiInputUnits import (
+    altitude_input_value,
+    calibration_input_offsets,
+    calibration_presentation,
+    input_descriptor,
+    native_input_value,
+    normalize_condition_inputs,
+    set_notification_unit_system,
+)
 from .saiDisplayUnits import (
     DISPLAY_UNIT_SYSTEMS,
     apply_display_units_to_gauge_config,
@@ -670,6 +679,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     if not str(getattr(app.state, "ui_runtime_instance_id", "") or "").strip():
         app.state.ui_runtime_instance_id = uuid4().hex
     router = APIRouter()
+    set_notification_unit_system(settings.get_setting("Display", "unit_system", "Imperial"))
     theme_manager = getattr(app.state, "theme_manager", None)
     if not isinstance(theme_manager, ThemeManager):
         theme_manager = ThemeManager(resolve_runtime_base_dir(getattr(saiSettings, "DEFAULT_BASE_DIR", "system_settings")).parent)
@@ -845,6 +855,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 fresh_settings.get_setting("Display", "unit_system", "Imperial"),
             ),
         }
+        set_notification_unit_system(str(payload["unit_system"]))
         _DASHBOARD_DISPLAY_SETTINGS_CACHE = (
             now_mono + _DASHBOARD_DISPLAY_SETTINGS_CACHE_TTL_SEC,
             dict(payload),
@@ -4636,7 +4647,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             weather_forecast_sensor_id=weather_forecast_sensor_id,
             astral_lat=astral_lat,
             astral_lon=astral_lon,
-            astral_altitude=astral_altitude,
+            astral_altitude=altitude_input_value(astral_altitude, unit_system),
+            astral_altitude_unit="ft" if unit_system == "Imperial" else "m",
             astral_location_name=astral_location_name,
             astral_sunrise=astral_sunrise,
             astral_sunset=astral_sunset,
@@ -9655,12 +9667,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if "astral_altitude" in form:
             if raw_altitude:
                 try:
-                    altitude_val = float(raw_altitude)
+                    altitude_val = native_input_value(raw_altitude, form.get("astral_altitude_unit"), "m")
                 except Exception:
-                    return _modal_error_response(request, "Altitude must be a numeric value in meters.", status_code=400)
+                    return _modal_error_response(request, "Altitude must be a finite number with units of m or ft.", status_code=400)
                 if not (-500.0 <= altitude_val <= 10000.0):
                     return _modal_error_response(request, "Altitude must be between -500 and 10000 meters.", status_code=400)
-                altitude_to_store = f"{altitude_val:.2f}"
+                current_altitude = str(settings.get_setting("Astral", "ALTITUDE", "") or "")
+                try:
+                    unchanged = abs(float(current_altitude) - altitude_val) < 1e-9
+                except ValueError:
+                    unchanged = False
+                altitude_to_store = current_altitude if unchanged else f"{altitude_val:.2f}"
             else:
                 altitude_to_store = ""
         if astral_form_present and not raw_lat and not raw_lon:
@@ -9724,6 +9741,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             settings.replace_setting("Display", "display_style", display_style)
         if "unit_system" in form:
             settings.replace_setting("Display", "unit_system", unit_system)
+            set_notification_unit_system(unit_system)
         if "metric_set" in form:
             settings.replace_setting("Display", "metric_set", metric_set)
         if "dashboard_background_theme" in form:
@@ -10549,12 +10567,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return JSONResponse(items)
 
     @router.get("/sensor-metrics", response_class=JSONResponse)
-    async def get_metrics(sensor_id: str = Query(...)):
+    async def get_metrics(sensor_id: str = Query(...), input_units: bool = False):
+        """List native metric identities, optionally with unit metadata for editing."""
+        def metric_response(names):
+            unit_system = saiSettings(apply_live=False).get_setting("Display", "unit_system", "Imperial")
+            return JSONResponse({name: input_descriptor(name, unit_system) if input_units else None for name in names})
         # Try 1: names seen in DB (distinct metrics for this sensor)
         try:
             names = data_logger.get_available_metrics(sensor_id) or []
             if names:
-                return JSONResponse({name: None for name in names})
+                return metric_response(names)
         except Exception:
             pass
 
@@ -10585,7 +10607,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     names = [m.get("name") for m in meas if isinstance(m, dict) and m.get("name")]
                     names = [n for n in names if isinstance(n, str)]
                     if names:
-                        return JSONResponse({name: None for name in names})
+                        return metric_response(names)
         except Exception:
             pass
 
@@ -11589,7 +11611,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 device_label=device_label,
                 is_apvpd=is_apvpd,
                 is_soil=(device_kind == "soil"),
-                ambient_temp_offset=ambient_temp_offset,
+                **calibration_presentation(device_offsets, ambient_temp_offset,
+                    saiSettings(apply_live=False).get_setting("Display", "unit_system", "Imperial")),
                 ambient_rh_offset=ambient_rh_offset,
                 nodus_firmware_version=nodus_firmware_version,
                 nodus_board_type=nodus_board_type,
@@ -12525,12 +12548,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 status_code=400,
             )
 
+        try:
+            offsets = calibration_input_offsets(offsets)
+        except (ValueError, TypeError, AttributeError) as exc:
+            return JSONResponse({"status": "error", "message": str(exc)}, status_code=400)
+
         mgr = SensorSettingsManager("sensor_settings")
         try:
             doc = _load_sensor_settings_with_direct_local_repair(mgr, sensor_id)
         except FileNotFoundError:
             doc = {}
-
         offsets = _filter_changed_device_offsets(doc, device_kind, offsets)
         if not offsets:
             return JSONResponse(
@@ -12880,7 +12907,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "device_label": device_label,
             "is_apvpd": is_apvpd,
             "is_soil": (device_kind == "soil"),
-            "ambient_temp_offset": ambient_temp_offset,
+            **calibration_presentation(device_offsets, ambient_temp_offset,
+                saiSettings(apply_live=False).get_setting("Display", "unit_system", "Imperial")),
             "ambient_rh_offset": ambient_rh_offset,
             "soil_ph_offset": soil_ph_offset,
             "device_offsets": device_offsets,
@@ -14377,6 +14405,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             save_anchor_epoch = int(time.time())
             for c in parsed.get("conditions", []) or []:
                 cond_type = str(c.get("type", "")).strip().lower()
+                if cond_type == "sensor":
+                    try:
+                        c = normalize_condition_inputs(c)
+                    except (ValueError, TypeError) as exc:
+                        return error_response(str(exc), status_code=400)
 
                 # normalize days-of-week for time-of-day conditions (0–6 = Mon–Sun)
                 raw_days = c.get("days") or []
@@ -14545,6 +14578,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             compact_script = json.dumps(compact_payload, separators=(",", ":"))
             printDM(f"[{MODULE}] Parsed Advanced script: {compact_script}", location=MODULE)
         except Exception as e:
+            if '"value_unit"' in script_json_raw or '"hyst_unit"' in script_json_raw:
+                return error_response(f"Invalid unit-aware automation: {e}", status_code=400)
             printDM(f"[{MODULE}] Advanced script JSON parse failed; storing raw. Error: {e}", location=MODULE)
 
         # ---------- verify/adjust channel against settings ----------

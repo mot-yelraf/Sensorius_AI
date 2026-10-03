@@ -366,6 +366,57 @@ test('refreshes warming Sun and Moon data while a dashboard image is still loadi
   }
 });
 
+for (const initialResponse of ['warming', 'failed', 'missing', 'stalled']) {
+  test(`recovers Sun and Moon data after ${initialResponse} extras without a reload`, async ({ page }) => {
+    const warming = { ok: false, reason: 'warming', cache_status: 'warming' };
+    let extrasRequests = 0;
+    let pageRequests = 0;
+    let releaseStalled;
+    const stalledGate = new Promise(resolve => { releaseStalled = resolve; });
+    await page.route('**/*', async route => {
+      const url = new URL(route.request().url());
+      if (url.pathname !== '/') return route.fallback();
+      if (url.searchParams.get('json_only') === 'true') {
+        if (url.searchParams.get('include_extras') !== 'true') return route.fallback();
+        extrasRequests += 1;
+        if (extrasRequests === 1) {
+          if (initialResponse === 'failed') return route.fulfill({ status: 503, body: 'Unavailable' });
+          if (initialResponse === 'missing') return route.fulfill({ json: { statuses: {} } });
+          if (initialResponse === 'stalled') {
+            await stalledGate;
+            return route.fulfill({ json: { astro: warming, biodynamic: warming } }).catch(() => {});
+          }
+        }
+        return route.fulfill({ json: {
+          statuses: {},
+          astro: extrasRequests < 3 ? warming : {
+            ok: true, moon_phase_value: 25.23, moon_lit_pct: 9,
+            moon_phase_label: 'Waning Crescent', sun_points: [], moon_points: [], position_29d: [],
+          },
+          biodynamic: { ok: false },
+        } });
+      }
+      pageRequests += 1;
+      const response = await route.fetch();
+      const html = (await response.text())
+        .replace(/const astroData = .*?;/, `const astroData = ${JSON.stringify(warming)};`)
+        .replace('const dashboardFetchTimeoutMs = 12000;', 'const dashboardFetchTimeoutMs = 500;');
+      await route.fulfill({ response, body: html });
+    });
+    try {
+      await page.goto('/', { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('#moonBox')).toHaveAttribute('aria-busy', 'true');
+      await expect(page.locator('#moonBox')).toHaveAttribute('aria-busy', 'false', { timeout: 20000 });
+      await expect(page.locator('#sunBox')).toHaveAttribute('aria-busy', 'false');
+      await expect(page.locator('#moonBox')).not.toContainText('Moon data unavailable');
+      expect(extrasRequests).toBe(3);
+      expect(pageRequests).toBe(1);
+    } finally {
+      releaseStalled();
+    }
+  });
+}
+
 test('forecast synopsis stays readable without enlarging the dashboard tile', async ({ page }) => {
   let synopsis = 'Sunny.';
   await page.route(url => url.pathname === '/api/weather-forecast', route => route.fulfill({ json: {

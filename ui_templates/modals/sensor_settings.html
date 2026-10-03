@@ -6,6 +6,7 @@
     id="sensorSettingsModal"
     data-sensor-id="{{ sensor_id }}"
     data-device-kind="{{ device_kind | default('') }}"
+    data-temperature-unit="{{ temperature_input_unit | default('°C') }}"
     data-is-apvpd="{{ 'true' if is_apvpd else 'false' }}"
   >
     <div class="modal-header settings-modal-header">
@@ -188,12 +189,13 @@
                     <tbody>
                       <tr data-dev-cal-row="1">
                         <td style="padding:0.25rem 0.5rem;">
-                          Ambient Temperature Offset (°C)
+                          Ambient Temperature Offset ({{ temperature_input_unit | default('°C') }})
                         </td>
                         <td style="padding:0.25rem 0.5rem; text-align:right;">
                           <input type="number"
                                  step="any"
                                  data-key="ambient_temp_offset"
+                                 data-input-unit="{{ temperature_input_unit | default('°C') }}"
                                  class="devCalInput"
                                  style="width:100%; text-align:right;"
                                  value="{{ ambient_temp_offset | default(0) }}">
@@ -229,6 +231,7 @@
                           <input type="number"
                                  step="any"
                                  data-key="{{ off.key }}"
+                                 {% if off.input_unit %}data-input-unit="{{ off.input_unit }}"{% endif %}
                                  data-initial="{{ off.value | default(0) }}"
                                  {% if off.force_send %}data-force-send="1"{% endif %}
                                  class="devCalInput"
@@ -281,6 +284,7 @@
                           <input type="number"
                                  step="any"
                                  data-key="{{ off.key }}"
+                                 {% if off.input_unit %}data-input-unit="{{ off.input_unit }}"{% endif %}
                                  data-initial="{{ off.value | default(0) }}"
                                  {% if off.force_send %}data-force-send="1"{% endif %}
                                  class="devCalInput"
@@ -309,6 +313,7 @@
                           <input type="number"
                                  step="any"
                                  data-key="{{ off.key }}"
+                                 {% if off.input_unit %}data-input-unit="{{ off.input_unit }}"{% endif %}
                                  data-initial="{{ off.value | default(0) }}"
                                  {% if off.force_send %}data-force-send="1"{% endif %}
                                  class="devCalInput"
@@ -385,7 +390,7 @@
                     <tr>
                       <th style="text-align:left; padding:0.25rem 0.5rem;">Use</th>
                       <th style="text-align:left; padding:0.25rem 0.5rem;">Sensor ID</th>
-                      <th style="text-align:right; padding:0.25rem 0.5rem;">ΔTemp (°C)</th>
+                      <th style="text-align:right; padding:0.25rem 0.5rem;">ΔTemp ({{ temperature_input_unit | default('°C') }})</th>
                       <th style="text-align:right; padding:0.25rem 0.5rem;">ΔRH (%)</th>
                     </tr>
                   </thead>

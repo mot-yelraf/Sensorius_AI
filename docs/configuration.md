@@ -573,3 +573,16 @@ An open dashboard receives updated calibration context with its regular JSON
 refresh and updates gauge limits, tick labels, and color bands without a page
 reload. The calibration form's "System Altitude" comes from General Settings;
 it is not confirmation that the remote device's altitude has been mirrored.
+
+### Units at configuration input boundaries
+
+The Units preference controls temperature calibration and automation editing, and
+altitude presentation in General Settings. `[Astral].ALTITUDE` and device
+`ALTITUDE_METERS` remain meters; calibration temperature offsets remain Celsius
+differences. Legacy automation thresholds retain the unit of their metric,
+including Fahrenheit for `Temperature_F`. Existing TOML needs no migration.
+
+HTTP forms bind the units displayed when opened to each submission. The altitude
+form sends `astral_altitude_unit` (`m` or `ft`); requests without this field retain
+meter semantics. An unchanged altitude preserves its stored representation.
+See the user guide and automation documentation for threshold versus delta rules.
