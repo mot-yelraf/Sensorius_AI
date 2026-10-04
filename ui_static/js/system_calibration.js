@@ -35,6 +35,14 @@ window.initSystemCalibrationModal = async function(modalEl) {
   const soilPhCalStatus  = modalEl.querySelector("#soilPhCalStatus");
   const soilPhOffsetInput = modalEl.querySelector("#soilPhOffsetInput");
 
+  devCalRows.forEach((row) => {
+    const input = row.querySelector("input.devCalInput");
+    if (!input) return;
+    const value = Number(input.value);
+    if (input.value !== "" && Number.isFinite(value)) input.value = value.toFixed(1);
+    input.step = "0.1";
+  });
+
   // ---- APVPD plant calibration controls ----
   const plantCalBtn     = modalEl.querySelector("#plantCalBtn");
   const plantCalStatus  = modalEl.querySelector("#plantCalStatus");
@@ -106,7 +114,7 @@ window.initSystemCalibrationModal = async function(modalEl) {
       if (!Number.isFinite(value)) return;
       const forceSend = ["1", "true", "yes"].includes(String(input.dataset.forceSend || "").toLowerCase());
       const initialRaw = Object.prototype.hasOwnProperty.call(input.dataset, "initial") ? input.dataset.initial : input.defaultValue;
-      const initial = initialRaw === "" ? 0 : Number(initialRaw);
+      const initial = initialRaw === "" ? 0 : Number(Number(initialRaw).toFixed(1));
       if (!forceSend && Number.isFinite(initial) && Math.abs(value - initial) < 1e-9) return;
       const item = { key, value };
       if (input.dataset.inputUnit) item.input_unit = input.dataset.inputUnit;
@@ -197,7 +205,7 @@ window.initSystemCalibrationModal = async function(modalEl) {
       }
 
       if (soilPhOffsetInput && Number.isFinite(Number(result.soil_ph_offset))) {
-        soilPhOffsetInput.value = String(result.soil_ph_offset);
+        soilPhOffsetInput.value = Number(result.soil_ph_offset).toFixed(1);
       }
       if (devCalStatus && Number.isFinite(Number(result.soil_ph_offset))) {
         devCalStatus.textContent = `Soil pH offset set to ${Number(result.soil_ph_offset).toFixed(4)}.`;

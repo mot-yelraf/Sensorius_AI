@@ -1274,6 +1274,7 @@ canvas{
 
 label{ font-size:.80rem; color:var(--muted); margin-bottom:.2rem; display:block } 
 .modal input[type="number"]{ width:auto; min-width:8ch; max-width:10ch; text-align:right; min-height:0; }
+.modal input.devCalInput{ min-width:9ch; max-width:11ch; }
 .inline{ display:flex; align-items:center; gap:.5rem; }
 
 .section{ border:1px dashed var(--line); border-radius:12px; padding:.8rem; background:#fff; }
