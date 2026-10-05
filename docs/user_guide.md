@@ -999,6 +999,12 @@ When WeeWX runs on the same host and `/etc/weewx/weewx.conf` or
 model in the WeeWX station sensor settings. The Sensor Settings **Sensor Info**
 pane shows it as `Station: <model>`.
 
+The WeeWX station title also shows outdoor sensor battery status when WeeWX
+supplies `outTempBatteryStatus`: green means OK, red means low, and gray means
+unknown or offline. This is a status flag, not a remaining battery percentage.
+Sensorius accepts the flag in MQTT JSON packets or individual field topics,
+and from the local WeeWX archive when archive ingest is enabled.
+
 If the MQTT topic changes, Sensorius applies the subscription update live when
 MQTT ingest is running. If MQTT ingest is not running, the saved setting applies
 when MQTT ingest starts.

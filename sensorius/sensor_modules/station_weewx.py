@@ -22,6 +22,7 @@ INHG_TO_HPA = 33.8638866667
 KPH_TO_MPH = 0.6213711922
 CM_TO_IN = 0.3937007874
 WEEWX_RAIN_24H_METRIC = "Rain Last 24h"
+WEEWX_BATTERY_METRIC = "Battery Status"
 
 WEEWX_DISPLAY_METRICS = [
     "Temperature_F",
@@ -109,6 +110,7 @@ WEEWX_FIELD_MAP = {
     "rain": "Rain",
     "rainRate": "Rain Rate",
     "dewpoint": "Dew Point_F",
+    "outTempBatteryStatus": WEEWX_BATTERY_METRIC,
 }
 
 WEEWX_METRIC_PRECISION = {
@@ -256,7 +258,11 @@ def normalize_weewx_values(data: dict[str, Any]) -> dict[str, float]:
         val = _to_float(_lookup_case_insensitive(data, source_name))
         if val is None:
             val = _to_float(_lookup_case_insensitive(data, metric_name))
-        if val is not None:
+        if metric_name == WEEWX_BATTERY_METRIC:
+            # Preserve explicit invalid/null flags as unknown; absent fields are incremental.
+            if any(str(key).lower() in {source_name.lower(), metric_name.lower()} for key in data):
+                values[metric_name] = val if val in (0, 1) else -1.0
+        elif val is not None:
             values[metric_name] = round(val, WEEWX_METRIC_PRECISION.get(metric_name, 2))
 
     metric_transforms = {
@@ -286,6 +292,12 @@ def normalize_weewx_values(data: dict[str, Any]) -> dict[str, float]:
             values["Baro-Pressure"] = round(pressure, WEEWX_METRIC_PRECISION["Baro-Pressure"])
 
     return values
+
+
+def weewx_battery_status(values: dict[str, Any]) -> str:
+    """Return the outdoor array battery flag as OK, LOW, or UNKNOWN."""
+    value = _to_float(values.get(WEEWX_BATTERY_METRIC))
+    return "OK" if value == 0 else "LOW" if value == 1 else "UNKNOWN"
 
 
 def normalize_weewx_mqtt_payload(topic: str, payload_text: str, *, base_topic: str = "") -> WeeWXReading | None:
@@ -329,6 +341,9 @@ def normalize_weewx_mqtt_payload(topic: str, payload_text: str, *, base_topic: s
     values = normalize_weewx_values(data)
     if not values:
         return None
+    if isinstance(obj, dict):
+        # A complete packet without a flag must clear a previous known battery state.
+        values.setdefault(WEEWX_BATTERY_METRIC, -1.0)
     if timestamp is None:
         timestamp = _lookup_case_insensitive(data, "dateTime")
     return WeeWXReading(timestamp=timestamp, values=values)
