@@ -2134,7 +2134,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             f"             border-radius:50%;vertical-align:middle;margin-right:6px;"
             f"             background:{_dot_color};border:1px solid #666;'></span>"
         )
-        if sid.startswith("ecowitt-"):
+        if sid.startswith(("ecowitt-", "weewx")) or sid in (battery_statuses or {}):
             battery_status = (battery_statuses or {}).get(sid, "UNKNOWN")
             if battery_status not in {"OK", "LOW", "UNKNOWN"}:
                 battery_status = "UNKNOWN"
@@ -8023,7 +8023,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  Object.entries(statuses).forEach(([sid,st]) => {"
     yield "    const dot = document.getElementById(`${sid}_statusdot`);"
     yield "    if (!dot) return;"
-    yield "    if (sid.startsWith('ecowitt-')) {"
+    yield "    if (sid.startsWith('ecowitt-') || sid.startsWith('weewx') || Object.hasOwn(data.battery_statuses || {}, sid)) {"
     yield "      let icon = document.getElementById(`${sid}_battery`);"
     yield "      if (!icon) { icon = document.createElement('img'); icon.id = `${sid}_battery`; icon.className = 'sensor-battery-icon'; icon.width = 26; icon.height = 18; icon.style.cssText = 'vertical-align:middle;margin-right:6px'; dot.after(icon); }"
     yield "      const raw = data.battery_statuses?.[sid];"

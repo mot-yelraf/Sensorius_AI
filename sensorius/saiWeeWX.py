@@ -20,6 +20,7 @@ from .sensor_modules.station_weewx import (
     DEFAULT_POLL_INTERVAL_SEC,
     DEFAULT_SENSOR_ID,
     WEEWX_FIELD_MAP,
+    WEEWX_BATTERY_METRIC,
     normalize_weewx_values,
 )
 from .saiUtils import debug_enabled, printDM
@@ -126,6 +127,7 @@ class WeeWXArchiveIngest:
 
         if not values:
             return None
+        values.setdefault(WEEWX_BATTERY_METRIC, -1.0)
         return WeeWXArchiveReading(date_time=int(row["dateTime"]), values=values)
 
     def _sensorius_latest_epoch(self) -> float | None:

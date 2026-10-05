@@ -156,6 +156,21 @@ derive rolling `Rain Last 24h` from interval `Rain` readings. WeeWX MQTT
 single-field replays are treated as incremental updates so repeated station
 fields do not multiply interval rainfall totals.
 
+WeeWX archive and MQTT ingest preserve `outTempBatteryStatus` as the numeric
+`Battery Status` metric: `0` means OK, `1` means low, and `-1` means unknown.
+The station title uses the same battery icons as Ecowitt: green for OK, red for
+low, and gray for unknown or an offline station. Missing or invalid flags in a
+complete MQTT packet clear the previous battery state; individual weather-field
+updates preserve it. The flag describes outdoor sensor battery health, not a
+remaining percentage or console voltage.
+
+For the WeeWX MQTT extension, the default `obs_to_upload = all` includes the
+battery observation when supplied by the driver. With `obs_to_upload = none`,
+include `outTempBatteryStatus` in the extension's `inputs` section in
+`/etc/weewx/weewx.conf`, preserving that published field name. Sensorius accepts
+both JSON packets and individual `weather/outTempBatteryStatus` topics under
+the configured WeeWX MQTT topic filter.
+
 ## Supported Local Sensor Modules
 
 `AQISensor`:

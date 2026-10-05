@@ -114,6 +114,7 @@ from .sensor_modules.station_weewx import (
     WEEWX_DISPLAY_METRICS,
     WEEWX_DISPLAY_STYLES,
     apply_weewx_station_metadata,
+    weewx_battery_status,
 )
 from .saiFastStats import FastStats
 from .saiSensorSettingsManager import SensorSettingsManager, infer_direct_local_device, is_direct_local_sensor_id
@@ -3496,6 +3497,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             return "unknown"
          
+        battery_statuses = {}
+        for sid in available:
+            if sid.startswith("ecowitt-"):
+                battery_statuses[sid] = ecowitt_sensor_health(data_logger, sid)["battery_status"]
+            elif _is_weewx_dashboard_sensor(sid):
+                battery_statuses[sid] = (
+                    weewx_battery_status(all_values.get(sid) or {})
+                    if _resolve_meas_status_for_sid(sid) == "online"
+                    else "UNKNOWN"
+                )
+
         if json_only:
             timestamps = await asyncio.to_thread(
                 lambda: {
@@ -3557,7 +3569,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "renderable_switches": renderable_switches,
                 "renderable_switches_view": renderable_switches_view,
                 "statuses": statuses,
-                "battery_statuses": {sid: ecowitt_sensor_health(data_logger, sid)["battery_status"] for sid in available if sid.startswith("ecowitt-")},
+                "battery_statuses": battery_statuses,
             }
 
             if include_extras:
@@ -3620,7 +3632,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 sensor_locations = sensor_locations,
                 gauge_config=gauge_config, 
                 gauge_size = gaugeSize,
-                battery_statuses = {sid: ecowitt_sensor_health(data_logger, sid)["battery_status"] for sid in available if sid.startswith("ecowitt-")},
+                battery_statuses = battery_statuses,
                 pressure_altitude=display_settings.get("pressure_altitude"),
                 pressure_sensor_context=pressure_sensor_context,
                 expected_gauge_map = expected_gauge_map,

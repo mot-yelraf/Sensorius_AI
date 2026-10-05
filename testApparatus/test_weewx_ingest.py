@@ -16,7 +16,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from sensorius.saiWeeWX import WeeWXArchiveIngest
 from sensorius.saiMQTTIngest import saiMQTTIngest
-from sensorius.sensor_modules.station_weewx import INHG_TO_HPA, normalize_weewx_mqtt_payload
+from sensorius.sensor_modules.station_weewx import (
+    INHG_TO_HPA, WEEWX_BATTERY_METRIC, normalize_weewx_mqtt_payload, weewx_battery_status,
+)
 
 
 class _Settings:
@@ -174,6 +176,7 @@ def test_weewx_mqtt_json_payload_maps_to_sensorius_metrics():
     assert reading is not None
     assert reading.timestamp == 1777908000
     assert reading.values == {
+        WEEWX_BATTERY_METRIC: -1.0,
         "Temperature_F": 48.7,
         "Rel-Humidity": 65.6,
         "Baro-Pressure": pytest.approx(round(30.1655675484948 * INHG_TO_HPA, 1)),
@@ -203,6 +206,7 @@ def test_weewx_mqtt_metric_loop_payload_maps_to_sensorius_units():
     assert reading is not None
     assert reading.timestamp == "1777943700.0"
     assert reading.values == {
+        WEEWX_BATTERY_METRIC: -1.0,
         "Temperature_F": 68.0,
         "Rel-Humidity": 26.9,
         "Wind Speed": 7.0,
@@ -331,3 +335,66 @@ def test_weewx_live_reconfigure_subscribes_runtime_client():
     assert "weather/#" in ingest.registered_topics
     assert ingest.client.unsubscribed == ["weewx/#"]
     assert ingest.client.subscribed == ["weather/#"]
+
+
+@pytest.mark.parametrize("raw, expected, status", [
+    (0, 0.0, "OK"), ("0.0", 0.0, "OK"), (1, 1.0, "LOW"),
+    ("1.0", 1.0, "LOW"), (None, -1.0, "UNKNOWN"),
+    (2, -1.0, "UNKNOWN"), ("bad", -1.0, "UNKNOWN"),
+    ("nan", -1.0, "UNKNOWN"),
+])
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_weewx_mqtt_battery_flag(raw, expected, status, wrapped):
+    import json
+
+    payload = {"outTempBatteryStatus": raw}
+    if wrapped:
+        payload = {"dateTime": 1777908000, "values": payload}
+    reading = normalize_weewx_mqtt_payload("weather/loop", json.dumps(payload))
+    assert reading.values == {WEEWX_BATTERY_METRIC: expected}
+    assert weewx_battery_status(reading.values) == status
+    reading = normalize_weewx_mqtt_payload("weather/outTempBatteryStatus", json.dumps(raw), base_topic="weather")
+    # Individual publisher values are unquoted numeric strings.
+    if isinstance(raw, str):
+        reading = normalize_weewx_mqtt_payload("weather/outTempBatteryStatus", raw, base_topic="weather")
+    assert reading.values == {WEEWX_BATTERY_METRIC: expected}
+
+
+def test_weewx_missing_flag_and_incremental_weather_update():
+    packet = normalize_weewx_mqtt_payload("weather/loop", '{"outTemp":70}')
+    assert weewx_battery_status(packet.values) == "UNKNOWN"
+    assert packet.values[WEEWX_BATTERY_METRIC] == -1.0
+    field = normalize_weewx_mqtt_payload("weather/outTemp", "70", base_topic="weather")
+    assert WEEWX_BATTERY_METRIC not in field.values
+    assert weewx_battery_status({}) == "UNKNOWN"
+
+
+@pytest.mark.parametrize("raw, status", [(0, "OK"), (1, "LOW"), (None, "UNKNOWN"), (2, "UNKNOWN")])
+def test_weewx_archive_battery_flag(tmp_path, raw, status):
+    db_path = tmp_path / "weewx.sdb"
+    _make_weewx_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("ALTER TABLE archive ADD COLUMN outTempBatteryStatus REAL")
+        conn.execute("UPDATE archive SET outTempBatteryStatus = ?", (raw,))
+    logger = _Logger()
+    ingest = WeeWXArchiveIngest(settings=_Settings(db_path), data_logger=logger)
+    assert ingest.import_latest_once()
+    assert weewx_battery_status(logger.rows[0][2]) == status
+
+
+@pytest.mark.parametrize("raw, expected", [("0.0", 0.0), ("1.0", 1.0), ("null", -1.0)])
+def test_weewx_mqtt_ingest_persists_battery_without_creating_a_gauge(raw, expected):
+    ingest = saiMQTTIngest.__new__(saiMQTTIngest)
+    ingest.weewx_mqtt_enabled = True
+    ingest.weewx_mqtt_topic = "weather/#"
+    ingest.weewx_sensor_id = "custom-weather-station"
+    ingest.weewx_update_period_sec = 300
+    ingest.data_logger = _Logger()
+    ingest.expected_gauge_map = {}
+    ingest.device_type = {}
+    ingest.device_location = {}
+    ingest.last_mqtt_seen = {}
+    ingest._mark_host_status = lambda *_args, **_kwargs: None
+    assert ingest._maybe_handle_weewx_mqtt("weather/outTempBatteryStatus", raw)
+    assert ingest.data_logger.rows[0][2] == {WEEWX_BATTERY_METRIC: expected}
+    assert WEEWX_BATTERY_METRIC not in ingest.expected_gauge_map[ingest.weewx_sensor_id]
