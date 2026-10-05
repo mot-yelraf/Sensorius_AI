@@ -639,3 +639,15 @@ Sun/Moon and sensor-status refresh starts when the dashboard markup is ready,
 without waiting for images to finish loading. This lets a warming astronomy
 payload recover even while a Moon texture request is delayed, including in
 the desktop webview.
+
+### Blinka GPIO chip numbering on Bookworm
+
+The pinned Adafruit-Blinka 8.58.1 selects only the final digit of GPIO chip
+numbers, so `/dev/gpiochip15` is incorrectly opened as `/dev/gpiochip5`.
+Bookworm setup and apply-mode deployment backport the upstream full-suffix
+parsing fix before dependency verification (and again after any installation).
+Other Blinka versions and dry-run deployments are left unchanged.
+The repair retains the original as `lgpio_pin.py.sensorius-gpio-backup` beside
+the installed file, for example
+`/home/<user>/py311/lib/python3.11/site-packages/adafruit_blinka/microcontroller/generic_linux/lgpio_pin.py.sensorius-gpio-backup`.
+It does not renumber devices, alter GPIO permissions, or change pin states.

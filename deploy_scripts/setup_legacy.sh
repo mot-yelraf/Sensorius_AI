@@ -166,6 +166,7 @@ echo "Installing Python packages from requirements.txt..."
 REQ_FILE="$HOME/saiSensorius/setup_reqs.txt"
 if [[ -f "$REQ_FILE" ]]; then
   pip install -r "$REQ_FILE"
+  python "${SCRIPT_DIR}/repair_blinka_gpio.py"
   python -m pip install --no-deps --editable "${PROJECT_DIR}"
   python -c "import sensorius; import webview; import gi; gi.require_version('Gtk','3.0'); gi.require_version('WebKit2','4.1'); print('pywebview GTK import check passed')"
 else

@@ -34,6 +34,7 @@ from .saiSensorSettingsManager import SensorSettingsManager
 from .saiWeatherAstronomy import astronomy_context
 from .saiWeatherForecast import forecast_condition, get_weather_forecast_payload
 from .saiThemeManager import ThemeManager, normalize_theme_selection
+from .saiEcowitt import ecowitt_sensor_health
 from .sensor_modules.station_ecowitt import DEFAULT_POLL_INTERVAL_SEC as ECOWITT_DEFAULT_POLL_INTERVAL_SEC
 from .sensor_modules.station_weewx import DEFAULT_UPDATE_PERIOD_SEC as WEEWX_DEFAULT_UPDATE_PERIOD_SEC
 
@@ -619,6 +620,9 @@ class WeatherForecastAppService:
             configured_metrics,
             self.settings.get_setting("Display", "unit_system", "Imperial"),
         )
+        payload["is_ecowitt"] = sensor_id.startswith("ecowitt-")
+        if payload["is_ecowitt"]:
+            payload.update(ecowitt_sensor_health(self.data_logger, sensor_id))
         payload["location"] = sensor_location
         payload["refresh_interval_sec"] = self.current_readings_refresh_interval(sensor_id)
         return payload

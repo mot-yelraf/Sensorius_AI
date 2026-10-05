@@ -314,3 +314,69 @@ async def test_poll_once_logs_normalized_values_and_first_rain_checkpoint(monkey
     assert logger.rows[0][2]["Rain Day"] == 1.5
     assert logger.rows[0][2]["Rain Last 24h"] == 2.3
     assert "Rain" not in logger.rows[0][2]
+
+
+@pytest.mark.parametrize("raw,expected", [(0, "OK"), ("0", "OK"), (1, "LOW"), ("1", "LOW"), (None, "UNKNOWN"), ("9", "UNKNOWN"), ("", "UNKNOWN")])
+def test_array_battery_flags_preserve_zero_and_reject_unknown(raw, expected):
+    from sensorius.sensor_modules.station_ecowitt import normalize_sensor_inventory, weather_array_battery_status
+    row = {"type": "0", "img": "wh69", "id": "E8", "signal": "3", "batt": raw}
+    assert weather_array_battery_status(normalize_sensor_inventory([[row]])) == expected
+    for overrides in ({"signal": "0"}, {"idst": "0"}, {"id": "FFFFFFFF"}, {"type": "48"}):
+        assert weather_array_battery_status(normalize_sensor_inventory([[dict(row, **overrides)]])) == "UNKNOWN"
+
+
+@pytest.mark.parametrize("network,url,expected", [
+    ({"wifi_ip": "192.0.2.10", "wifi_pwd": "private"}, "http://gw1200.local", "192.0.2.10"),
+    ({"wifi_ip": "0.0.0.0", "ethIP": "192.0.2.11"}, "http://gw.local", "192.0.2.11"),
+    ({}, "http://192.0.2.12:8080", "192.0.2.12"),
+    ({"wifi_gateway": "192.0.2.1"}, "http://gw.local", "Unknown"),
+])
+def test_gateway_ip_is_device_address(network, url, expected):
+    from sensorius.saiEcowitt import gateway_ip_address
+    assert gateway_ip_address(network, url) == expected
+
+
+@pytest.mark.asyncio
+async def test_battery_health_refresh_failure_and_expiry(monkeypatch):
+    from sensorius.saiEcowitt import ecowitt_sensor_health
+    settings = _Settings()
+    sid = "ecowitt-e8db840f1543"
+    settings.values.update({("Ecowitt", "ENABLED"): True, ("Ecowitt", "GATEWAY_URL"): "http://gw1200.local", ("Ecowitt", "SENSOR_ID"): sid})
+    logger = _Logger()
+    service = EcowittGatewayIngest(settings=settings, data_logger=logger)
+    _Client.responses = {
+        "get_livedata_info": {"common_list": [{"id": "0x02", "val": "20", "unit": "C"}]},
+        "get_rain_totals": {},
+        "get_network_info": {"wifi_ip": "192.0.2.10", "wifi_pwd": "secret"},
+        ("get_sensors_info", 1): [{"type": "0", "id": "E8", "signal": "3", "batt": "0"}],
+    }
+    monkeypatch.setattr("sensorius.saiEcowitt.httpx.AsyncClient", _Client)
+    assert ecowitt_sensor_health(logger, sid)["battery_status"] == "UNKNOWN"
+    for raw, expected in [("0", "OK"), ("1", "LOW"), ("9", "UNKNOWN")]:
+        _Client.responses[("get_sensors_info", 1)][0]["batt"] = raw
+        await service.poll_once()
+        assert ecowitt_sensor_health(logger, sid) == {"battery_status": expected, "gateway_ip": "192.0.2.10"}
+        assert set(logger.rows[-1][2]) == {"Temperature", "Temperature_F"}
+    _Client.responses[("get_sensors_info", 1)][0]["batt"] = "0"
+    await service.poll_once()
+    service._health_checked_mono -= 181
+    assert service.status()["battery_status"] == "UNKNOWN"
+    await service.poll_once()
+    service._status["state"] = "offline"
+    assert service.status()["battery_status"] == "UNKNOWN"
+    await service.poll_once()
+    assert ecowitt_sensor_health(logger, "ecowitt-other")["battery_status"] == "UNKNOWN"
+    service.disable()
+    assert service.status()["battery_status"] == "UNKNOWN"
+    settings.values[("Ecowitt", "ENABLED")] = True
+    original = service._get_json
+
+    async def unavailable_inventory(client, url, endpoint, **params):
+        if endpoint == "get_sensors_info":
+            raise EcowittError("Unavailable")
+        return await original(client, url, endpoint, **params)
+
+    monkeypatch.setattr(service, "_get_json", unavailable_inventory)
+    await service.poll_once()
+    assert service.status()["battery_status"] == "UNKNOWN"
+    assert service.status()["state"] == "online"

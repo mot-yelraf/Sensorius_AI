@@ -78,6 +78,19 @@ See the Ecowitt section in the [user guide](user_guide.md#ecowitt-gateway).
   expander. **Pick 6** initially shows the configured six-card summary, while
   **All** initially expands both standard weather metrics and supported
   channel-numbered metrics without requiring a Nodus metric schema.
+- Shows **Battery Status** (`OK`, `LOW`, or `UNKNOWN`) for WS69 and Ambient
+  WS-2000/WH65 arrays received through a GW1100/GW1200-compatible gateway.
+  The gateway's `get_sensors_info` type-0 battery flag is `0 = OK`, `1 = LOW`.
+  Status is refreshed at the configured Ecowitt polling interval; missing,
+  invalid, unregistered, no-signal, disabled, offline, or stale reports show
+  `UNKNOWN`. This is a low-battery flag, not remaining capacity or voltage.
+- Displays battery status in Sensor Info Statistics, beside the dashboard
+  Online indicator, and on the right of the Caelus Current Readings footer
+  when that station is selected. Battery SVGs are green (OK), red (LOW), and
+  gray (UNKNOWN), with accessible status labels. Battery health is runtime
+  metadata and is not stored as a weather measurement.
+- Sensor Info uses the gateway IP address, including the reported Wi-Fi IP
+  when the gateway is configured by hostname.
 - Reports dashboard connection state from the supervised Ecowitt poller, with
   recent stored readings as a fallback when service state is unavailable.
 - Treats the GW1200/WH65B metric mapping as provisional until verified against
