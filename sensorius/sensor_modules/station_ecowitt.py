@@ -415,7 +415,7 @@ def normalize_sensor_inventory(page_payloads: list[Any]) -> list[dict[str, Any]]
                 continue
             if normalized_id == "0" and signal <= 0:
                 continue
-            sensor_type = str(item.get("type", "") or "").strip()
+            sensor_type = str(item.get("type") if item.get("type") is not None else "").strip()
             key = (sensor_type, normalized_id)
             if key in seen:
                 continue
@@ -425,12 +425,23 @@ def normalize_sensor_inventory(page_payloads: list[Any]) -> list[dict[str, Any]]
                 "type": sensor_type,
                 "family": str(item.get("img", "") or "").strip(),
                 "name": str(item.get("name", "") or "").strip() or "Ecowitt sensor",
-                "battery": str(item.get("batt", "") or "").strip(),
+                "battery": str(item.get("batt") if item.get("batt") is not None else "").strip(),
                 "signal": signal,
                 "registered": True,
                 "firmware": str(item.get("version", "") or "").strip(),
             })
     return result
+
+
+def weather_array_battery_status(inventory: list[dict[str, Any]]) -> str:
+    """Decode the WS69/WH65 (including Ambient WS-2000) low-voltage flag."""
+    for sensor in inventory:
+        if sensor.get("type") != "0":
+            continue
+        if not sensor.get("registered") or sensor.get("signal", 0) <= 0:
+            return "UNKNOWN"
+        return {"0": "OK", "1": "LOW"}.get(sensor.get("battery"), "UNKNOWN")
+    return "UNKNOWN"
 
 
 def rain_source_from_totals(payload: dict[str, Any] | None) -> str:

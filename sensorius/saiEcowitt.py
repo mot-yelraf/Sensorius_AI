@@ -7,6 +7,7 @@ the shared data logger while remaining restartable by the task supervisor.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import time
 from collections import OrderedDict
@@ -29,6 +30,7 @@ from .sensor_modules.station_ecowitt import (
     normalized_gateway_sensor_id,
     rain_reset_hour_from_totals,
     rain_source_from_totals,
+    weather_array_battery_status,
 )
 
 MODULE = "saiEcowitt"
@@ -37,6 +39,31 @@ TASK_NAME = "Ecowitt Gateway Ingest"
 HEARTBEAT_INTERVAL_SEC = 20.0
 REQUEST_TIMEOUT_SEC = 5.0
 MAX_RESPONSE_BYTES = 512 * 1024
+
+
+def gateway_ip_address(network: Any, base_url: str) -> str:
+    """Extract only the gateway IP, never network credentials or router IP."""
+    network = network if isinstance(network, dict) else {}
+    for candidate in (urlsplit(base_url).hostname, network.get("wifi_ip"), network.get("ethIP")):
+        try:
+            address = ipaddress.ip_address(candidate or "")
+            if not address.is_unspecified:
+                return str(address)
+        except ValueError:
+            continue
+    return "Unknown"
+
+
+def ecowitt_sensor_health(data_logger: Any, sensor_id: str) -> dict[str, str]:
+    """Return current array health for the configured gateway-backed station."""
+    result = {"battery_status": "UNKNOWN", "gateway_ip": "Unknown"}
+    service = getattr(data_logger, "ecowitt_service", None)
+    if service is None or sensor_id != service.sensor_id:
+        return result
+    snapshot = service.status()
+    result["battery_status"] = snapshot["battery_status"]
+    result["gateway_ip"] = snapshot["gateway_ip"]
+    return result
 
 
 class EcowittError(RuntimeError):
@@ -153,6 +180,7 @@ class EcowittGatewayIngest:
     def __init__(self, *, settings, data_logger, supervisor=None):
         self.settings = settings
         self.data_logger = data_logger
+        self.data_logger.ecowitt_service = self
         self.supervisor = supervisor
         self.switch_controllers = {}
         self._request_lock = asyncio.Lock()
@@ -174,6 +202,8 @@ class EcowittGatewayIngest:
         }
         self._last_error_log_mono = 0.0
         self._migrated_sensor_id = ""
+        self._health_checked_mono = 0.0
+        self._health_gateway_url = ""
 
     def _feed_watchdog(self, *, error: bool = False) -> None:
         if self.supervisor and hasattr(self.supervisor, "feedthedogs"):
@@ -253,6 +283,7 @@ class EcowittGatewayIngest:
             raise EcowittError("The device does not identify itself as an Ecowitt gateway.")
         sensor_id = normalized_gateway_sensor_id(network.get("mac"))
         inventory = normalize_sensor_inventory([page1, page2])
+        self._record_health(inventory, network, base_url)
         source = rain_source_from_totals(rain_totals if isinstance(rain_totals, dict) else {})
         reset_hour = rain_reset_hour_from_totals(rain_totals if isinstance(rain_totals, dict) else {})
         self._rain_source = source
@@ -376,7 +407,24 @@ class EcowittGatewayIngest:
                 pass
         if not result["enabled"]:
             result.update({"state": "disabled", "label": "Ecowitt integration disabled"})
+        same_gateway = self._health_gateway_url == self.gateway_url.rstrip("/")
+        fresh = (
+            self._health_checked_mono > 0
+            and time.monotonic() - self._health_checked_mono <= max(180, self.poll_interval_sec * 3)
+        )
+        if not same_gateway or not fresh or result["state"] != "online":
+            result["battery_status"] = "UNKNOWN"
+        result.setdefault("battery_status", "UNKNOWN")
+        result["gateway_ip"] = (result.get("gateway_ip") if same_gateway else None) or gateway_ip_address({}, self.gateway_url)
         return result
+
+    def _record_health(self, inventory: list[dict], network: Any, base_url: str) -> None:
+        self._status.update(
+            battery_status=weather_array_battery_status(inventory),
+            gateway_ip=gateway_ip_address(network, base_url),
+        )
+        self._health_checked_mono = time.monotonic()
+        self._health_gateway_url = base_url
 
     def _restore_rain_checkpoint(self, sensor_id: str) -> None:
         if self._rain_sensor_id == sensor_id:
@@ -433,6 +481,23 @@ class EcowittGatewayIngest:
         async with self._request_lock:
             async with httpx.AsyncClient(timeout=httpx.Timeout(REQUEST_TIMEOUT_SEC), follow_redirects=False) as client:
                 live = await self._get_json(client, base_url, "get_livedata_info")
+                self._status["battery_status"] = "UNKNOWN"
+                try:
+                    page1 = await self._get_json(client, base_url, "get_sensors_info", page=1)
+                    page2 = await self._get_json(client, base_url, "get_sensors_info", page=2)
+                    inventory = normalize_sensor_inventory([page1, page2])
+                    live_sections = {key for key, value in live.items() if isinstance(value, list) and value} if isinstance(live, dict) else set()
+                    for sensor in inventory:
+                        sensor["reporting"] = self._sensor_reporting(sensor, live_sections)
+                    self._record_health(inventory, {}, base_url)
+                    self._status["inventory"] = inventory
+                except EcowittError:
+                    pass  # Optional health metadata must not interrupt weather readings.
+                try:
+                    network = await self._get_json(client, base_url, "get_network_info")
+                    self._status["gateway_ip"] = gateway_ip_address(network, base_url)
+                except EcowittError:
+                    self._status["gateway_ip"] = gateway_ip_address({}, base_url)
                 refresh_rain_config = (
                     self._rain_source not in {"none", "traditional", "piezo"}
                     or time.monotonic() - self._last_rain_config_refresh_mono >= 86400.0

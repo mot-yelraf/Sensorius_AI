@@ -85,7 +85,7 @@ from .saiDisplayUnits import (
     apply_display_units_to_gauge_config,
     normalize_display_unit_system,
 )
-from .saiEcowitt import EcowittError, EcowittGatewayIngest
+from .saiEcowitt import EcowittError, EcowittGatewayIngest, ecowitt_sensor_health
 from .sensor_modules.station_ecowitt import DEFAULT_POLL_INTERVAL_SEC as ECOWITT_DEFAULT_POLL_INTERVAL_SEC
 from .saiRuntimePaths import resolve_runtime_base_dir
 from .saiOnboardingStore import OnboardingSessionStore, OnboardingStates
@@ -3557,6 +3557,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "renderable_switches": renderable_switches,
                 "renderable_switches_view": renderable_switches_view,
                 "statuses": statuses,
+                "battery_statuses": {sid: ecowitt_sensor_health(data_logger, sid)["battery_status"] for sid in available if sid.startswith("ecowitt-")},
             }
 
             if include_extras:
@@ -3619,6 +3620,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 sensor_locations = sensor_locations,
                 gauge_config=gauge_config, 
                 gauge_size = gaugeSize,
+                battery_statuses = {sid: ecowitt_sensor_health(data_logger, sid)["battery_status"] for sid in available if sid.startswith("ecowitt-")},
                 pressure_altitude=display_settings.get("pressure_altitude"),
                 pressure_sensor_context=pressure_sensor_context,
                 expected_gauge_map = expected_gauge_map,
@@ -7084,6 +7086,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             host_base=host_base,
             ingest=ingest,
         )
+
+        if device_type == "sensor" and sid.startswith("ecowitt-"):
+            ip_address = ecowitt_sensor_health(data_logger, sid)["gateway_ip"]
 
         return {
             "ip_address": ip_address or "Unknown",
@@ -11311,6 +11316,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             last_packet_epoch = None
 
         return {
+            "is_ecowitt": normalized_id.startswith("ecowitt-"),
+            **ecowitt_sensor_health(data_logger, normalized_id),
             "offline_events_24h": offline_events_24h,
             "last_offline_epoch": last_offline_epoch,
             "uptime_since_last_offline_label": _format_stats_duration(

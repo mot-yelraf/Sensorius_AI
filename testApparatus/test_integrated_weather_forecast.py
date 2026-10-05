@@ -928,3 +928,28 @@ def test_hourly_glyph_solar_fallback_handles_polar_day_and_night(timestamp, lati
         {'symbol': 'Clear', 'time': timestamp},
         {'latitude': latitude, 'longitude': 0, 'timezone': 'UTC'},
     ) == expected
+
+
+def test_caelus_current_readings_include_only_selected_ecowitt_health():
+    from types import SimpleNamespace
+    from sensorius.saiEcowitt import EcowittGatewayIngest
+    from testApparatus.test_ecowitt_ingest import _Settings as GatewaySettings, _Logger as GatewayLogger
+
+    sid = "ecowitt-aabbccddeeff"
+    settings = GatewaySettings()
+    settings.values.update({
+        ("WeatherForecast", "CURRENT_SENSOR_ID"): sid,
+        ("Ecowitt", "SENSOR_ID"): sid,
+        ("Ecowitt", "GATEWAY_URL"): "http://gw.local",
+        ("Ecowitt", "ENABLED"): True,
+    })
+    logger = GatewayLogger({"Temperature": 20.0})
+    gateway = EcowittGatewayIngest(settings=settings, data_logger=logger)
+    gateway._record_health([{"type": "0", "battery": "1", "registered": True, "signal": 3}], {"wifi_ip": "192.0.2.10"}, "http://gw.local")
+    gateway._status["state"] = "online"
+    service = weather_app.WeatherForecastAppService(settings=settings, data_logger=logger,
+        sensor_settings_manager=SimpleNamespace(get_display_metrics=lambda sid: ["Temperature"], get_setting=lambda *args: ""))
+    assert service.current_readings()["battery_status"] == "LOW"
+    settings.values[("WeatherForecast", "CURRENT_SENSOR_ID")] = "aht-local"
+    assert service.current_readings()["is_ecowitt"] is False
+    assert "battery_status" not in service.current_readings()

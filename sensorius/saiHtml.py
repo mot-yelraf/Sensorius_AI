@@ -191,7 +191,7 @@ def normalize_dashboard_metric_set(value: object) -> str:
     return "All" if compact in {"all", "showall"} else "Pick 6"
 
 
-def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6", dashboard_custom_theme_style="", pressure_altitude=None, pressure_sensor_context=None):
+def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6", dashboard_custom_theme_style="", pressure_altitude=None, pressure_sensor_context=None, battery_statuses=None):
     """Yield the complete Sensorius dashboard HTML document."""
 
     import json
@@ -2133,8 +2133,13 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             f"      style='display:inline-block;width:15px;height:15px;"
             f"             border-radius:50%;vertical-align:middle;margin-right:6px;"
             f"             background:{_dot_color};border:1px solid #666;'></span>"
-            f" {sidUpper} "
-        )        
+        )
+        if sid.startswith("ecowitt-"):
+            battery_status = (battery_statuses or {}).get(sid, "UNKNOWN")
+            if battery_status not in {"OK", "LOW", "UNKNOWN"}:
+                battery_status = "UNKNOWN"
+            yield f"<img class='sensor-battery-icon' id='{sid}_battery' src='/ui_static/icons/battery-{battery_status.lower()}.svg' alt='Battery Status: {battery_status}' title='Battery Status: {battery_status}' width='26' height='18' style='vertical-align:middle;margin-right:6px'>"
+        yield f" {sidUpper} "
         yield f"  <a href='#' onclick=\"window.editSensorSettings && window.editSensorSettings('{sidLower}'); return false;\" title='Open {sid} Settings' style='margin-left:2px; margin-right:8px; text-decoration:none; font-size:0.8em; vertical-align:middle;'>"
         yield from _settings_gear_svg_lines(indent="    ")
         yield "  </a>"
@@ -8018,6 +8023,14 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "  Object.entries(statuses).forEach(([sid,st]) => {"
     yield "    const dot = document.getElementById(`${sid}_statusdot`);"
     yield "    if (!dot) return;"
+    yield "    if (sid.startsWith('ecowitt-')) {"
+    yield "      let icon = document.getElementById(`${sid}_battery`);"
+    yield "      if (!icon) { icon = document.createElement('img'); icon.id = `${sid}_battery`; icon.className = 'sensor-battery-icon'; icon.width = 26; icon.height = 18; icon.style.cssText = 'vertical-align:middle;margin-right:6px'; dot.after(icon); }"
+    yield "      const raw = data.battery_statuses?.[sid];"
+    yield "      const battery = ['OK', 'LOW'].includes(raw) ? raw : 'UNKNOWN';"
+    yield "      icon.src = `/ui_static/icons/battery-${battery.toLowerCase()}.svg`;"
+    yield "      icon.alt = icon.title = `Battery Status: ${battery}`;"
+    yield "    }"
     yield "    const s = (st||'unknown').toLowerCase();"
     yield "    const color = SENSOR_STATUS_COLORS[s] || SENSOR_STATUS_COLORS.unknown;"
     yield "    dot.style.background = color;"

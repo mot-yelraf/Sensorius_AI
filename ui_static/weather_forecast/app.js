@@ -176,6 +176,12 @@
     footer.classList.toggle("is-live", Boolean(payload.ok));
     footer.classList.toggle("is-waiting", !payload.ok);
     panel.querySelector("[data-readings-status]").textContent = payload.ok ? "Station reporting" : "Sensor standing by";
+    const battery = panel.querySelector('[data-readings-battery]');
+    battery.hidden = !payload.is_ecowitt;
+    const batteryStatus = ['OK', 'LOW'].includes(payload.battery_status) ? payload.battery_status : 'UNKNOWN';
+    const batteryIcon = battery.querySelector('[data-battery-icon]');
+    batteryIcon.src = `/ui_static/icons/battery-${batteryStatus.toLowerCase()}.svg`;
+    batteryIcon.alt = batteryIcon.title = `Battery Status: ${batteryStatus}`;
     panel.dataset.refreshIntervalSec = String(payload.refresh_interval_sec || 60);
     const subtitle = document.getElementById("stationSubtitle");
     if (subtitle && payload.ok) {

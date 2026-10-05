@@ -50,7 +50,7 @@
         <div class="current-reading-list" data-readings-list>
           {% for metric in display_metrics[1:] %}<div><span>{{ metric.name }}</span><strong>{{ reading(metric.value, (' ' ~ metric.unit) if metric.unit else '') }}</strong></div>{% endfor %}
         </div>
-        <footer class="station-state readings-footer {{ 'is-live' if latest.ok else 'is-waiting' }}" data-readings-footer><span class="status-dot"></span><span data-readings-status>{{ 'Station reporting' if latest.ok else 'Sensor standing by' }}</span></footer>
+        <footer class="station-state readings-footer {{ 'is-live' if latest.ok else 'is-waiting' }}" data-readings-footer><span class="status-dot"></span><span data-readings-status>{{ 'Station reporting' if latest.ok else 'Sensor standing by' }}</span><span class="readings-battery" data-readings-battery{% if not latest.is_ecowitt %} hidden{% endif %}>Battery Status <img data-battery-icon src="/ui_static/icons/battery-{{ (latest.battery_status | default('UNKNOWN')).lower() }}.svg" alt="Battery Status: {{ latest.battery_status | default('UNKNOWN') }}" title="Battery Status: {{ latest.battery_status | default('UNKNOWN') }}" width="26" height="18"></span></footer>
       </article>
 
       {% set severe = forecast.severe_weather | default({}) %}

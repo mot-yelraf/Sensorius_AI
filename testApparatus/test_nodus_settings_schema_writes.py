@@ -6804,3 +6804,34 @@ async def test_weather_alert_api_replays_and_persists_dismissal(tmp_path, monkey
         assert (await client.post('/api/weather-alerts/unknown/dismiss')).status_code == 404
     saved = saiWebRoutes.data_logger.load_weather_alert_state()
     assert saved['event-1']['alerts'][alert_id]['dismissed']
+
+
+@pytest.mark.asyncio
+async def test_ecowitt_sensor_info_uses_gateway_ip_and_live_battery(tmp_path, monkeypatch):
+    monkeypatch.setenv("SAI_WEB_API_KEY", "test-key")
+    from sensorius.saiEcowitt import EcowittGatewayIngest
+    from testApparatus.test_ecowitt_ingest import _Settings as GatewaySettings
+
+    app, _ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    app.state.templates = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
+    sid = "ecowitt-aabbccddeeff"
+    _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root)).save(sid, {
+        "Sensor": {"TYPE": "station", "DEVICE": "ecowitt", "SENSOR_ID": sid},
+        "Display": {"METRIC_1": "Temperature"},
+    })
+    settings = GatewaySettings()
+    settings.values.update({("Ecowitt", "ENABLED"): True, ("Ecowitt", "GATEWAY_URL"): "http://gw.local", ("Ecowitt", "SENSOR_ID"): sid})
+    gateway = EcowittGatewayIngest(settings=settings, data_logger=saiWebRoutes.data_logger)
+    gateway._record_health([{"type": "0", "battery": "1", "registered": True, "signal": 3}], {"wifi_ip": "192.0.2.10"}, "http://gw.local")
+    gateway._status["state"] = "online"
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers={"x-api-key": "test-key"}) as client:
+        response = await client.get("/edit-sensor", params={"sensor_id": sid, "embed": "1"})
+        assert response.status_code == 200
+        assert 'data-stat-value="gateway-ip">192.0.2.10</strong>' in response.text
+        assert 'data-stat-value="battery-status">LOW</strong>' in response.text
+        response = await client.get("/sensor-settings/statistics", params={"sensor_id": sid})
+        assert response.status_code == 200
+        assert response.json()["battery_status"] == "LOW"
+        gateway.disable()
+        response = await client.get("/sensor-settings/statistics", params={"sensor_id": sid})
+        assert response.json()["battery_status"] == "UNKNOWN"

@@ -96,6 +96,9 @@ setup_python_env() {
   run_with_heartbeat "Install Python dependencies with uv" \
     uv pip install -r "${REQ_FILE}" --python "${venv_python}"
 
+  run_with_heartbeat "Repair pinned Blinka GPIO chip selection" \
+    "${venv_python}" "${SCRIPT_DIR}/repair_blinka_gpio.py"
+
   run_with_heartbeat "Install Sensorius package" \
     uv pip install --no-deps --editable "${PROJECT_DIR}" --python "${venv_python}"
 

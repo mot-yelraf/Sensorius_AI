@@ -490,6 +490,12 @@ fi
 REMOTE_I2C
 }
 
+repair_remote_blinka_gpio() {
+  local host="$1"
+  local python_path="$2"
+  ssh "${host}" "${python_path}" - < "${SCRIPT_DIR}/repair_blinka_gpio.py"
+}
+
 reconcile_remote_dependencies() {
   local host="$1"
   local target="$2"
@@ -518,6 +524,9 @@ reconcile_remote_dependencies() {
   payload="$(requirements_payload "${requirements_file}")"
 
   echo "Dependencies -> ${host}: profile=${profile} python=${python_path} source=${python_source}"
+  if [[ "${profile}" == pi* && "${DRY_RUN}" -eq 0 ]]; then
+    repair_remote_blinka_gpio "${host}" "${python_path}" || return 1
+  fi
   set +e
   check_output="$(check_remote_dependencies \
     "${host}" "${target}" "${python_path}" "${profile}" "${payload}" 2>&1)"
@@ -533,6 +542,9 @@ reconcile_remote_dependencies() {
     echo "Installing missing or outdated dependencies -> ${host}"
     if ! install_remote_dependencies "${host}" "${python_path}" "${payload}"; then
       return 1
+    fi
+    if [[ "${profile}" == pi* ]]; then
+      repair_remote_blinka_gpio "${host}" "${python_path}" || return 1
     fi
     if ! check_remote_dependencies \
       "${host}" "${target}" "${python_path}" "${profile}" "${payload}"; then

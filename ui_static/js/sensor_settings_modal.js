@@ -112,6 +112,10 @@ window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
 
   function applyStatsPayload(panel, data) {
     if (!panel || !data || data.ok === false) return;
+    const gatewayIp = panel.querySelector('[data-stat-value="gateway-ip"]');
+    if (gatewayIp && data.is_ecowitt) gatewayIp.textContent = data.gateway_ip || "Unknown";
+    const battery = panel.querySelector('[data-stat-value="battery-status"]');
+    if (battery) battery.textContent = ['OK', 'LOW'].includes(data.battery_status) ? data.battery_status : 'UNKNOWN';
     if (Object.prototype.hasOwnProperty.call(data, "offline_events_24h")) {
       panel.dataset.offlineEvents24h = String(data.offline_events_24h || 0);
     }

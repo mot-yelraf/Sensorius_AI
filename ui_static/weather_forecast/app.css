@@ -801,3 +801,7 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
   max-height: 18rem;
   overflow-y: auto;
 }
+
+.readings-footer { flex-wrap: wrap; }
+.readings-battery { display: inline-flex; align-items: center; gap: 0.4rem; margin-left: auto; }
+.readings-battery[hidden] { display: none; }

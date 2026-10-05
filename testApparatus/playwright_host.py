@@ -49,9 +49,9 @@ async def switch_updates(websocket: WebSocket) -> None:
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard() -> HTMLResponse:
+def dashboard(battery: str = "") -> HTMLResponse:
     """Render a deterministic dashboard with enough metrics to test interaction."""
-    sensor_id = "aht-pr-check"
+    sensor_id = "ecowitt-pr-check" if battery else "aht-pr-check"
     metrics = {
         "Temperature": 72.4,
         "Temperature_F": 72.4,
@@ -70,6 +70,7 @@ def dashboard() -> HTMLResponse:
             {sensor_id: metrics},
             {},
             SimpleNamespace(expected_gauge_map={}),
+            battery_statuses={sensor_id: battery},
             gauge_config=get_gauge_config(),
             expected_gauge_map={sensor_id: list(metrics)},
             expected_display_style_map={sensor_id: {}},
@@ -110,7 +111,7 @@ def system_settings() -> HTMLResponse:
 
 
 @app.get("/edit-sensor", response_class=HTMLResponse)
-def sensor_settings() -> HTMLResponse:
+def sensor_settings(sensor_id: str = "aht-pr-check") -> HTMLResponse:
     """Render a sensor's real settings and calibration panes for mobile checks."""
     from sensorius.saiInputUnits import calibration_presentation
     offsets = [{"key": "Calibration.Device.TEMP_OFFSET", "label": "Temperature", "unit": "°C", "value": 1.0}]
@@ -118,7 +119,8 @@ def sensor_settings() -> HTMLResponse:
     return HTMLResponse(templates.get_template("modals/sensor_settings.html").render(
         device_kind="aht", device_offsets=offsets, **presentation,
         candidate_sensors=["aht-pr-check", "reference"],
-        sensor_id="aht-pr-check", current_metrics=["Temperature"] + [""] * 5,
+        sensor_id=sensor_id, is_ecowitt=sensor_id.startswith("ecowitt-"),
+        battery_status="OK", network_info={"ip_address": "192.0.2.10"}, current_metrics=["Temperature"] + [""] * 5,
         metric_options=["", "Temperature"], settings={}, location="Greenhouse",
     ))
 
@@ -139,7 +141,7 @@ def weather_alerts():
 
 
 @app.get("/weather-forecast", response_class=HTMLResponse)
-def weather_forecast(request: Request, units: str = "Metric", native: bool = False):
+def weather_forecast(request: Request, units: str = "Metric", native: bool = False, battery: str = ""):
     """Render the real Caelus page with a complete, deterministic six-day outlook."""
     from sensorius.saiWeatherForecastApp import build_weather_display_forecast
 
@@ -166,7 +168,7 @@ def weather_forecast(request: Request, units: str = "Metric", native: bool = Fal
     return templates.TemplateResponse(request, "weather_forecast/index.html", {
         "settings": {"theme": "pollinator", "theme_class": "pollinator"},
         "location": {"name": "Greenhouse", "latitude": 39.7, "longitude": -104.9},
-        "latest": {}, "moon": {"updated_at": start.isoformat()},
+        "latest": {"is_ecowitt": True, "battery_status": battery if battery in {"OK", "LOW"} else "UNKNOWN", "sensor_id": "ecowitt-pr-check", "location": "Weather Station", "ok": True} if battery else {}, "moon": {"updated_at": start.isoformat()},
         "forecast": forecast, "app_version": "playwright",
     })
 
