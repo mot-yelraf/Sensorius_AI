@@ -1290,7 +1290,7 @@ Select **6 Day Forecast** on the dashboard forecast tile to open the integrated
 Caelus full-screen weather display at
 `http://<sensorius-host>:8000/weather-forecast`. Select the circled **×** in the
 upper-right to close the forecast and return to the Sensorius dashboard.
-Select **Theme** beside the **Caelus Weather Forecast** title to hide the
+Select **Theme** beside the **Living Weather** heading to hide the
 forecast tiles and preview the five scenery choices from the bottom toolbar.
 Select **Return to Forecast** to restore the saved Caelus theme.
 
@@ -1349,10 +1349,11 @@ be temporary. Closing Caelus, reloading the page, or selecting **× Close
 forecast** can return the map to Windy's default current/history view. If that
 happens, activate the map and select the future portion of the timeline again.
 
-The lunar panel keeps the live Moon and its current illumination, lunar age,
-altitude, and local orientation in the center. The four most recent phase
-milestones appear chronologically on the left, and the next four appear on the
-right, with each phase's local date below its name. Every disk is oriented for
+The lunar panel shows the live Moon and its current illumination, lunar age,
+altitude, and local orientation above the phase milestones. Below it, the four
+most recent phase milestones appear chronologically on the left, and the next
+four appear on the right, with each phase's local date below its name. The
+phase groups stack on narrow screens. Every disk is oriented for
 the configured Astral location near the Moon's highest point on that date.
 Full-moon milestones use familiar traditional names such as **Harvest Moon**.
 Below the phases, a shared timeline runs from today's sunrise to the next
@@ -1407,19 +1408,22 @@ Integrated calendar fields and controls:
 - **Calendar day cells**: select a day. The selected day drives the Daily Summary, selected facts, notes, and planting context.
 - **Twelve-Month Overview**: shows a longer planning range assembled from the shared background cache.
 - **Daily Summary**: explains the selected day, including biodynamic focus and relevant timing.
-- **Plant**: crop or plant name, such as Tomato.
-- **Variety**: cultivar or variety name.
-- **Focus**: biodynamic plant focus. Options are Auto, Root, Leaf, Flower, and Fruit. Auto lets the app infer the focus from crop information when possible.
-- **Start**: start method. Options are Seed and Transplant.
-- **Start Date**: planned or actual seeding/transplant date.
-- **Harvest**: expected harvest date.
-- **Days to Maturity**: optional number from 1 to 730 days.
-- **Location**: bed, greenhouse, field, tray, or other practical planting location.
-- **Plant Type**: descriptive crop class, such as fruiting vegetable.
-- **Attributes**: free-form notes for spacing, succession, hardening, trellis, harvest window, or other crop details.
-- **Save Planting**: stores or updates the planting record.
-- **Clear**: clears the planting form.
-- **Edit / Delete** in the planting list: updates or removes an existing planting record.
+- **Plantings**:
+
+  - **Plant**: crop or plant name, such as Tomato.
+  - **Variety**: cultivar or variety name.
+  - **Focus**: biodynamic plant focus. Options are Auto, Root, Leaf, Flower, and Fruit. Auto lets the app infer the focus from crop information when possible.
+  - **Start**: start method. Options are Seed and Transplant.
+  - **Start Date**: planned or actual seeding/transplant date.
+  - **Harvest**: expected harvest date.
+  - **Days to Maturity**: optional number from 1 to 730 days.
+  - **Location**: bed, greenhouse, field, tray, or other practical planting location.
+  - **Plant Type**: descriptive crop class, such as fruiting vegetable.
+  - **Attributes**: free-form notes for spacing, succession, hardening, trellis, harvest window, or other crop details.
+  - **Save Planting**: stores or updates the planting record.
+  - **Clear**: clears the planting form.
+  - **Edit / Delete** in the planting list: updates or removes an existing planting record.
+
 - **Your Notes**: free-form note for the selected day.
 - **Save Note**: stores the note for that date.
 - **Print**: prints the selected calendar/report view.
