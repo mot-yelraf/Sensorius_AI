@@ -426,6 +426,8 @@ Suggest service restart steps only when they are actually needed.
   switch identity, and persistence as compatibility-sensitive.
 - Major concurrency, architecture, or storage refactors should be surfaced
   clearly to the user before implementation.
+- Unless authorized, do not deploy updates to systems. I am typically the one deploying and 
+  verifying on the systems I am using for verification; if I authorize you can deploy and verify
 
 ## Versioning Rule
 
