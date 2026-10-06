@@ -209,7 +209,7 @@ if [ -z "${python_path}" ] && [ "${os_name}" = "Linux" ] && [ -d /proc ]; then
     [ -r "${proc_dir}/cmdline" ] || continue
     command_line=$(tr '\000' ' ' < "${proc_dir}/cmdline" 2>/dev/null || true)
     case "${command_line}" in
-      *Sensorius.py*|*sensorius.saiGuiLauncher*|*sensorius.app*)
+      *Sensorius.py*|*sensorius.saiGuiLauncher*|*sensorius.saiAppLauncher*|*sensorius.app*)
         ;;
       *)
         continue
@@ -561,6 +561,28 @@ reconcile_remote_dependencies() {
   fi
 }
 
+refresh_remote_app_launcher() {
+  local host="$1" target="$2" configured_python="${3:-}"
+  local runtime_info profile python_path python_source
+  runtime_info="$(detect_remote_runtime "${host}" "${target}" "${configured_python}")" || return 1
+  IFS='|' read -r profile python_path python_source <<< "${runtime_info}"
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    echo "DRY RUN: app launcher would be refreshed -> ${host}: profile=${profile}"
+    return 0
+  fi
+  echo "App launcher -> ${host}: profile=${profile} python=${python_path}"
+  ssh "${host}" sh -s -- "${target}" "${python_path}" "${SENSORIUS_CODESIGN_IDENTITY:--}" <<'REMOTE_LAUNCHER'
+set -eu
+target="$1"
+python_path="$2"
+signing_identity="$3"
+cd "$target"
+PYTHONPATH="$target" SENSORIUS_PROJECT_ROOT="$target" "$python_path" \
+  -m sensorius.saiAppLauncher "$target" --python "$python_path" \
+  --signing-identity "$signing_identity"
+REMOTE_LAUNCHER
+}
+
 # Keep deployment source selection explicit. The final exclude makes newly
 # added repository tooling opt-in instead of silently copying it to every hub.
 # Excluded destination paths are also protected from rsync --delete.
@@ -697,6 +719,12 @@ while IFS= read -r raw_line || [[ -n "${raw_line}" ]]; do
 
   if ! reconcile_remote_dependencies "${host}" "${target}" "${runtime_python}"; then
     echo "Dependency reconciliation failed for ${host}" >&2
+    FAILURES=$((FAILURES + 1))
+    continue
+  fi
+
+  if ! refresh_remote_app_launcher "${host}" "${target}" "${runtime_python}"; then
+    echo "App launcher refresh failed for ${host}" >&2
     FAILURES=$((FAILURES + 1))
     continue
   fi

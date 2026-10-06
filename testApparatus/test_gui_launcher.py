@@ -72,6 +72,10 @@ def test_linux_identity_installs_matching_desktop_entry(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "gi.repository", fake_repository)
     monkeypatch.setattr(saiWebServer.sys, "platform", "linux")
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    venv_python = tmp_path / "venv" / "bin" / "python"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.symlink_to(sys.executable)
+    monkeypatch.setattr(saiWebServer.sys, "executable", str(venv_python))
 
     desktop_path = saiWebServer.configure_linux_app_identity()
 
@@ -86,6 +90,12 @@ def test_linux_identity_installs_matching_desktop_entry(monkeypatch, tmp_path):
     assert "Name=Sensorius\n" in desktop_text
     assert f"Icon={saiWebServer.DESKTOP_ICON_PATH}\n" in desktop_text
     assert "StartupWMClass=ai.sensorius.Sensorius\n" in desktop_text
+    assert f'"{venv_python}"' in desktop_text
+    assert '"sensorius.saiAppLauncher" "--launch"' in desktop_text
+    assert '"SENSORIUS_GUI=1"' in desktop_text
+    assert f'"SENSORIUS_RUNTIME_ROOT={saiWebServer.PROJECT_ROOT}"' in desktop_text
+    assert f'"SENSORIUS_ENV_FILE={saiWebServer.PROJECT_ROOT / ".env"}"' in desktop_text
+    assert "Categories=Utility;\n" in desktop_text
     assert (
         tmp_path
         / "icons"
@@ -405,6 +415,7 @@ def test_icns_resource_is_in_built_wheel(tmp_path):
     wheel = next(wheel_dir.glob("sensorius-*.whl"))
     with zipfile.ZipFile(wheel) as archive:
         assert "sensorius/resources/Sensorius.icns" in archive.namelist()
+        assert "sensorius/resources/sensorius-macos-launcher" in archive.namelist()
         metadata_name = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
         metadata = archive.read(metadata_name).decode("utf-8")
         assert f"Version: {saiWebServer.__version__.removeprefix('v')}" in metadata

@@ -285,11 +285,26 @@ The GUI identifies itself as `ai.sensorius.Sensorius` and installs the matching
 desktop entry and hicolor application icon below `/home/<user>/.local/share/`.
 This identity match lets labwc and the Raspberry Pi application bar display the
 Sensorius S instead of resolving the Python launcher to a fallback icon.
+The application-menu entry uses the installed virtualenv without resolving its
+Python symlink to system Python. Selecting it starts the hub and desktop when
+the hub is stopped, or opens a desktop against a running hub. Closing a desktop
+that started its own hub stops that hub; closing an attached desktop leaves the
+existing hub running. This supports manually launched installations as well as
+service-backed installations.
 
 On Trixie, do not force `DISPLAY=:0` or clear `WAYLAND_DISPLAY` in
 `sensorius.service` to make pywebview appear. Let the labwc autostart entry
 inherit the graphical session display, use `GDK_BACKEND=wayland,x11`, and keep
 `SENSORIUS_GUI_Y=48` so the GTK window decorations stay reachable.
+
+On Raspberry Pi/Trixie, every native GUI entrypoint defaults
+`WEBKIT_SKIA_ENABLE_CPU_RENDERING=1` and `WEBKIT_DISABLE_DMABUF_RENDERER=1`
+before importing pywebview. This avoids scrambled colors and stripes observed
+with WebKitGTK 2.54 and Mesa 26.2 on Pi 4 and Pi 5. The existing compositing
+default alone does not prevent this corruption. Software painting can increase
+CPU usage during redraws. Explicit environment or installation `.env` values
+override these defaults; Bookworm and other platforms retain their rendering
+behavior.
 
 ## macOS
 
@@ -317,8 +332,53 @@ Notes:
 - Nodus onboarding uses a manual macOS Wi-Fi join and verifies the setup AP by
   its local address and HTTP metadata endpoint.
 - GUI is optional. Set `SENSORIUS_GUI=0` to force headless mode.
+- Both macOS installers create `/Users/<user>/Applications/Sensorius.app`.
+  Double-click it in Finder or drag it to the Dock. It targets the selected
+  installation and virtualenv, opens the desktop against an existing healthy
+  hub, or starts the hub and desktop together. Closing a desktop attached to an
+  existing hub leaves that hub running; closing the desktop's own hub stops it.
+  The launch icon explicitly enables the GUI even if the installation's `.env`
+  defaults to headless operation.
+  The launcher sets `SENSORIUS_PROJECT_ROOT`, `SENSORIUS_RUNTIME_ROOT`, and
+  `SENSORIUS_ENV_FILE` to the selected installation and its `.env`, and uses
+  that installation as the working directory for SQLite. A custom installation
+  therefore reads its own settings and historical data instead of defaulting
+  to `/Users/<user>/Sensorius`. Deployment refreshes these paths from the
+  target directory in the inventory; setup uses the user-selected directory.
+- Allow **Sensorius** when macOS requests Local Network access for MQTT, Nodus
+  and other configured LAN services. If access was denied, enable Sensorius in
+  **System Settings → Privacy & Security → Local Network**, then quit and reopen
+  the app. Consent cannot be granted by the installer. The app has a native
+  responsible parent and `NSLocalNetworkUsageDescription`, following
+  [Apple's local network privacy guidance](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy).
+- The bundle is signed locally with an ad-hoc identity by default. For reliable
+  permission identity tracking across updates, Apple recommends an Apple-issued
+  signing identity. Set `SENSORIUS_CODESIGN_IDENTITY` to an installed signing
+  identity before running either installer to use it. Local signing does not
+  notarize downloaded software or grant network consent.
+- The launcher is not App Sandbox enabled; sandbox network entitlements are
+  unnecessary. Incoming HTTP access to the hub and incoming MQTT access to the
+  separately running Mosquitto broker may also require permission in
+  **System Settings → Network → Firewall → Options**. Allow the application or
+  service identified by macOS when you need LAN clients to reach it; Mosquitto
+  has its own process and permission identity. See
+  [Apple's firewall settings](https://support.apple.com/guide/mac-help/change-firewall-settings-on-mac-mh11783/mac).
+- Startup failures display an alert and append details to
+  `/Users/<user>/Library/Logs/Sensorius/desktop-launch.log`. The runtime needs
+  to remain readable and writable by the logged-in user. Protected installation
+  locations may require Files and Folders consent for that location.
+- To refresh only the Finder launcher for an existing installation, run:
+
+  ```bash
+  /Users/<user>/Sensorius/.venv/bin/python -m sensorius.saiAppLauncher /Users/<user>/Sensorius --python /Users/<user>/Sensorius/.venv/bin/python
+  ```
+
+  Run this from `/Users/<user>/Sensorius` and substitute the actual installation
+  and virtualenv paths. Maintainers can rebuild the packaged universal native
+  launcher with `bash /Users/<user>/Projects/Sensorius_AI/scripts/build_macos_launcher.sh`
+  on macOS with Command Line Tools; end-user installation needs no compiler.
 - Source-run macOS GUI launches use a lightweight named application bundle under
-  `/Users/<user>/Library/Application Support/Sensorius/Launcher/Sensorius.app`
+  `/Users/<user>/Library/Application Support/Sensorius/Sensorius.app`
   so Dock, app-switcher, and Force Quit surfaces identify the process as Sensorius.
 - If `pywebview` is unavailable, Sensorius continues headless.
 

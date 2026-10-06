@@ -549,6 +549,10 @@ install_pi_gui_desktop_entry() {
   local gui_exec="$3"
   local user_group user_home applications_dir desktop_file icons_dir icon_file tmp_file
 
+  # Menu launches can start the hub; login autostart still attaches to the service.
+  gui_exec="${gui_exec/sensorius.saiGuiLauncher/sensorius.saiAppLauncher --launch}"
+  gui_exec="env SENSORIUS_GUI=1 SENSORIUS_PROJECT_ROOT=${project_dir} SENSORIUS_RUNTIME_ROOT=${project_dir} SENSORIUS_ENV_FILE=${project_dir}/.env ${gui_exec}"
+
   user_group="$(id -gn "${username}" 2>/dev/null || printf '%s' "${username}")"
   user_home="$(getent passwd "${username}" 2>/dev/null | cut -d: -f6 || true)"
   if [[ -z "${user_home}" ]]; then
@@ -574,6 +578,7 @@ Path=${project_dir}
 Icon=${project_dir}/ui_static/sensorius-icon.png
 Terminal=false
 StartupNotify=true
+Categories=Utility;
 StartupWMClass=ai.sensorius.Sensorius
 EOF
   sudo install -m 0644 -o "${username}" -g "${user_group}" "${tmp_file}" "${desktop_file}"

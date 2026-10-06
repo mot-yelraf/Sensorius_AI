@@ -566,6 +566,11 @@ a damaged live DB in place when `.recover` cannot produce a valid replacement.
    service, including virtual environments outside the deployment directory.
    If it reports missing system-level I2C access or tooling, use `install.sh`
    or the appropriate platform setup script for repair.
+   Apply mode also refreshes the per-user application launcher using that
+   runtime interpreter: `/Users/<user>/Applications/Sensorius.app` on macOS,
+   or `/home/<user>/.local/share/applications/ai.sensorius.Sensorius.desktop`
+   on Linux. This step creates the icon without starting the application and
+   still runs with `--skip-deps`. Dry-run mode only reports the planned refresh.
 6. Start or restart manually managed instances. Service-managed instances are
    restarted only when the deployment inventory entry has a post-deploy
    restart command.

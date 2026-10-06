@@ -71,6 +71,10 @@ if printf '%s' "$script" | grep -q 'sensorius-requirements.XXXXXX'; then
   : > "$FAKE_DEPENDENCY_STATE"
   exit 0
 fi
+if printf '%s' "$script" | grep -q 'sensorius.saiAppLauncher'; then
+  printf '%s\\n' "$script" > "$FAKE_LAUNCHER_SCRIPT"
+  exit "${FAKE_LAUNCHER_EXIT:-0}"
+fi
 exit 0
 """,
         encoding="utf-8",
@@ -80,6 +84,7 @@ exit 0
     env = os.environ.copy()
     env["PATH"] = "{}:{}".format(fake_bin, env.get("PATH", ""))
     env["FAKE_DEPENDENCY_STATE"] = str(tmp_path / "dependencies-installed")
+    env["FAKE_LAUNCHER_SCRIPT"] = str(tmp_path / "launcher-script")
     return source, hosts, fake_rsync, env
 
 
@@ -311,6 +316,8 @@ def test_deploy_dry_run_reports_required_dependency_install(tmp_path):
     assert "source=inventory" in result.stdout
     assert "adafruit-circuitpython-sgp41: missing" in result.stdout
     assert "DRY RUN: dependency installation would run" in result.stdout
+    assert "DRY RUN: app launcher would be refreshed" in result.stdout
+    assert not (tmp_path / "launcher-script").exists()
 
 
 def test_deploy_apply_installs_and_rechecks_dependencies(tmp_path):
@@ -320,6 +327,21 @@ def test_deploy_apply_installs_and_rechecks_dependencies(tmp_path):
     assert "Installing missing or outdated dependencies" in result.stdout
     assert "Dependencies satisfy the pi-trixie runtime profile" in result.stdout
     assert "Deploy completed successfully" in result.stdout
+    launcher_script = (tmp_path / "launcher-script").read_text()
+    assert '-m sensorius.saiAppLauncher "$target" --python "$python_path"' in launcher_script
+
+
+def test_deploy_reports_launcher_failure_with_dependencies_skipped(tmp_path):
+    source, hosts, fake_rsync, env = _deploy_fixture(tmp_path)
+    env["FAKE_LAUNCHER_EXIT"] = "1"
+    result = subprocess.run(
+        ["bash", str(DEPLOY_SAI), "--apply", "--skip-deps", "--hosts", str(hosts),
+         "--source", str(source), "--rsync-bin", str(fake_rsync)],
+        capture_output=True, text=True, check=False, env=env,
+    )
+    assert result.returncode != 0
+    assert "App launcher refresh failed" in result.stderr
+    assert (tmp_path / "launcher-script").exists()
 
 
 def test_deploy_inventory_runtime_python_remains_optional(tmp_path):

@@ -16,4 +16,4 @@ where = ["."]
 include = ["sensorius*"]
 
 [tool.setuptools.package-data]
-sensorius = ["resources/*.icns"]
+sensorius = ["resources/*.icns", "resources/sensorius-macos-launcher"]

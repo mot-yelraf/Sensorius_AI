@@ -18,6 +18,7 @@ from .saiWebServer import (
     configure_linux_app_identity,
     set_macos_app_icon,
 )
+from .saiGuiEnvironment import configure_gui_environment
 
 DEFAULT_WINDOW_X = 0
 DEFAULT_WINDOW_Y = 48
@@ -71,10 +72,9 @@ def _wait_for_health(base_url: str) -> bool:
 def main() -> int:
     """Launch the platform webview for the configured Sensorius endpoint."""
     base_url = _base_url()
-    os.environ.setdefault("WEBKIT_DISABLE_COMPOSITING_MODE", "1")
+    configure_gui_environment()
 
     if sys.platform.startswith("linux"):
-        os.environ.setdefault("GDK_BACKEND", "wayland,x11")
         if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
             print("Sensorius GUI not started: no DISPLAY or WAYLAND_DISPLAY is set.")
             return 1
