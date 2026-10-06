@@ -48,8 +48,8 @@ def _desktop_exec_arg(value: str) -> str:
     return f'"{escaped}"'
 
 
-def configure_linux_app_identity() -> Path | None:
-    """Match the GTK/Wayland app ID to an icon-bearing desktop entry."""
+def configure_linux_app_identity(*, python_executable: Path | None = None) -> Path | None:
+    """Set the GTK app identity and install a virtualenv-backed menu launcher."""
     if not sys.platform.startswith("linux"):
         return None
 
@@ -71,16 +71,22 @@ def configure_linux_app_identity() -> Path | None:
     icons_dir = data_root / "icons" / "hicolor" / "512x512" / "apps"
     desktop_path = applications_dir / f"{LINUX_APP_ID}.desktop"
     themed_icon_path = icons_dir / f"{LINUX_APP_ID}.png"
-    python_path = str(Path(sys.executable).resolve())
+    # Resolving the venv symlink selects system Python and loses GUI packages.
+    python_path = str(Path(python_executable or sys.executable).absolute())
     exec_args = (
         "/usr/bin/env",
         f"PYTHONPATH={PROJECT_ROOT}",
+        f"SENSORIUS_PROJECT_ROOT={PROJECT_ROOT}",
+        f"SENSORIUS_RUNTIME_ROOT={PROJECT_ROOT}",
+        f"SENSORIUS_ENV_FILE={PROJECT_ROOT / '.env'}",
         "WEBKIT_DISABLE_COMPOSITING_MODE=1",
         "GDK_BACKEND=wayland,x11",
         "SENSORIUS_GUI_Y=48",
+        "SENSORIUS_GUI=1",
         python_path,
         "-m",
-        "sensorius.saiGuiLauncher",
+        "sensorius.saiAppLauncher",
+        "--launch",
     )
     desktop_text = "\n".join(
         (
@@ -93,6 +99,7 @@ def configure_linux_app_identity() -> Path | None:
             f"Icon={DESKTOP_ICON_PATH}",
             "Terminal=false",
             "StartupNotify=true",
+            "Categories=Utility;",
             f"StartupWMClass={LINUX_APP_ID}",
             "",
         )
@@ -180,6 +187,10 @@ def relaunch_as_named_macos_app(
         "CFBundleVersion": app_version,
         "LSUIElement": False,
         "NSHighResolutionCapable": True,
+        "NSLocalNetworkUsageDescription": (
+            "Sensorius connects to MQTT brokers, Nodus sensors and switches, "
+            "and other configured services on your local network."
+        ),
     }
 
     try:
@@ -390,6 +401,8 @@ class WebServerController:
 async def launch_webview(url: str = "http://127.0.0.1:8000", retries: int = 10, delay: float = 1.0):
     """Launch an optional native webview after the local server is reachable."""
     import traceback, httpx
+    from .saiGuiEnvironment import configure_gui_environment
+    configure_gui_environment()
     if sys.platform.startswith("linux"):
         configure_linux_app_identity()
     try:
@@ -401,8 +414,6 @@ async def launch_webview(url: str = "http://127.0.0.1:8000", retries: int = 10, 
     from .saiUtils import printDM
 
     if sys.platform.startswith("linux"):
-        # Keep caller-provided values; only provide conservative defaults.
-        os.environ.setdefault("GDK_BACKEND", "wayland,x11")
         if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
             printDM("DISPLAY/WAYLAND_DISPLAY not set; skipping GUI.", location="saiWebServer")
             return None

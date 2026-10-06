@@ -894,8 +894,8 @@ def _request_shutdown_after_webview_exit(shutdown_requested: Event) -> None:
     shutdown_requested.set()
 
 
-def run_application():
-    """Start the Sensorius backend and optional desktop webview."""
+def run_application(*, require_gui: bool = False):
+    """Start the hub and webview, optionally failing if the desktop cannot open."""
     import os
     import signal
     import sys
@@ -920,6 +920,8 @@ def run_application():
             http_port = 8000
         instance_lock = SensoriusInstanceLock(http_port)
         if not instance_lock.acquire():
+            if require_gui:
+                raise RuntimeError(f"Sensorius is already starting or running for HTTP port {http_port}.")
             printDM(
                 f"Sensorius is already running for HTTP port {http_port}. "
                 "Stop the existing instance before starting another one.",
@@ -966,7 +968,10 @@ def run_application():
 
         if want_gui:
             try:
-                window = asyncio.run(launch_webview(url="http://127.0.0.1:8000/", retries=10, delay=7.0))
+                window = asyncio.run(launch_webview(
+                    url=os.environ.get("SENSORIUS_GUI_URL") or f"http://127.0.0.1:{http_port}/",
+                    retries=10, delay=7.0,
+                ))
                 if window:
                     try:
                         import webview
@@ -981,12 +986,20 @@ def run_application():
                             webview.start()
                         _request_shutdown_after_webview_exit(shutdown_requested)
                     except Exception as e:
+                        if require_gui:
+                            raise
                         printDM(f"webview.start failed: {e} — continuing headless", location=f"{MODULE}:__main__")
                 else:
+                    if require_gui:
+                        raise RuntimeError("No Sensorius desktop window could be created.")
                     printDM("No webview window created — continuing headless", location=f"{MODULE}:__main__")
             except Exception as e:
+                if require_gui:
+                    raise
                 printDM(f"Webview launch failed: {e} — continuing headless", location=f"{MODULE}:__main__")
         else:
+            if require_gui:
+                raise RuntimeError("Sensorius desktop requires an active graphical session.")
             printDM("DISPLAY not set; running headless (no GUI).", location=f"{MODULE}:__main__")
 
         main_thread.join()
@@ -996,6 +1009,8 @@ def run_application():
         _close_window_for_shutdown(window, is_linux=sys.platform.startswith("linux"))
         printDM("Keyboard interrupt received. Exiting.", location=f"{MODULE}:__main__")
     except Exception as e:
+        if require_gui:
+            raise
         printDM(f"Fatal error in __main__: {e}", location=f"{MODULE}:__main__")
     finally:
         shutdown_requested.set()

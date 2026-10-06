@@ -359,6 +359,9 @@ main() {
   install_uv_and_python
   install_requirements
   verify_runtime_imports
+  PYTHONPATH="${PROJECT_DIR}" "${VENV_PATH}/bin/python" -m sensorius.saiAppLauncher \
+    "${PROJECT_DIR}" --python "${VENV_PATH}/bin/python" \
+    --signing-identity "${SENSORIUS_CODESIGN_IDENTITY:--}"
   install_mosquitto
   configure_boot_start
 
