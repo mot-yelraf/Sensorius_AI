@@ -1598,19 +1598,73 @@ Keep the terminal process running for manual starts.
 
 ### Keep Sensorius On A Trusted Network
 
-Sensorius is built for a trusted private LAN. It does not provide a complete
+Sensorius is built for a trusted private LAN: a network where you control
+which people and devices can reach the hub, MQTT broker, and Nodus devices.
+Being on home Wi-Fi alone does not make every connected device trustworthy;
+restrict access from guest networks and untrusted devices. Authenticated VPN
+clients can extend this private access to your phone, tablet, or computer
+while you are away from home.
+
+Sensorius does not provide a complete
 login/session boundary around every settings, onboarding, calibration, switch,
 or maintenance action. The optional web API key protects selected operations,
 not the whole UI.
 
-Do not expose the Sensorius HTTP or MQTT ports directly to the Internet or use
-router port forwarding. Keep the hub and devices behind a firewall, use an
-isolated IoT VLAN where appropriate, and use a VPN or a trusted remote-access
-application such as RustDesk for remote access. On a Raspberry Pi, you can use
-either RustDesk or Raspberry Pi Connect. If only the host computer needs the
-UI, set `SENSORIUS_HTTP_HOST=127.0.0.1` in `.env` and restart Sensorius. Treat
-`.env`, runtime settings, backups, and diagnostic exports as sensitive because
-stored secrets are not protected by strong encryption.
+Do not expose the Sensorius HTTP or MQTT ports directly to the Internet,
+including through router port forwarding. Keep the hub and devices behind a
+firewall and use an isolated IoT VLAN where appropriate.
+
+#### Remote Access With PiVPN And WireGuard
+
+For access away from home, use a Raspberry Pi on your home network as a VPN
+gateway with **PiVPN and WireGuard**. The gateway can serve Sensorius hubs on
+Raspberry Pi, macOS, Windows, or Linux; each hub does not need its own VPN
+server. Follow the official [PiVPN installation guide](https://docs.pivpn.io/install/)
+and [WireGuard client guide](https://docs.pivpn.io/wireguard/) for setup,
+mobile QR-code import, and client management.
+
+1. Give the VPN Raspberry Pi a stable LAN address, such as a router DHCP
+   reservation. Choose WireGuard during PiVPN setup and configure a reachable
+   public endpoint; use dynamic DNS if your public IP changes.
+2. Forward only the configured WireGuard UDP port (normally `51820`) from
+   your router to the VPN Pi. Keep Sensorius HTTP and MQTT ports private.
+   This requires an inbound-reachable Internet connection; carrier-grade NAT
+   may require an ISP-provided public address or another VPN access method.
+3. Choose **Quad9** for VPN-client DNS, or enter `9.9.9.9` and
+   `149.112.112.112` as custom DNS servers. An existing WireGuard client
+   profile can use `DNS = 9.9.9.9, 149.112.112.112` in its `[Interface]`
+   section. Quad9's [secure DNS service](https://docs.quad9.net/services/)
+   blocks known malicious domains. Public DNS does not resolve your private
+   LAN device names; use known LAN IP addresses, or use a local DNS resolver
+   that forwards public queries to Quad9. `.local` discovery generally does
+   not cross a routed VPN.
+4. Create a separate client profile for each phone or tablet with `pivpn add`.
+   Display its QR code with `pivpn -qr`, import it into the
+   [WireGuard app](https://www.wireguard.com/install/), and activate the tunnel.
+   Keep profiles and QR codes private; revoke a lost device with `pivpn remove`.
+5. Ensure VPN routes include the target LAN or IoT subnet and firewall rules
+   permit the intended web access. Test from cellular data or another network,
+   then open `http://<sensorius-lan-ip>:8000` in the phone or tablet browser
+   (use your configured HTTP port if different).
+
+Opening the web UI directly in your mobile browser uses its phone or tablet
+layout. You can reach any Sensorius system, and an `xesp32s3` Nodus running
+the `nodusweb` profile, by its known LAN IP and configured web port when VPN
+routing and firewall rules allow it. The Nodus web UI likewise uses its mobile
+layouts. Reserve device addresses or keep an address list so they are easy to
+find while away.
+
+RustDesk or Raspberry Pi Connect can also provide remote desktop access.
+Their desktop sessions display the host's browser layout, which can require
+scaling, zooming, or panning on a phone or tablet. Prefer WireGuard plus the
+device's own browser for routine mobile web UI access.
+
+If only the host computer needs the UI, set `SENSORIUS_HTTP_HOST=127.0.0.1`
+in the installation's `.env` (for example,
+`/home/<user>/Sensorius/.env`) and restart Sensorius. This host-only bind
+prevents direct access from other LAN or VPN devices. Treat `.env`, runtime
+settings, backups, and diagnostic exports as sensitive because stored secrets
+are not protected by strong encryption.
 
 ## Where Sensorius Gets Its Information
 
