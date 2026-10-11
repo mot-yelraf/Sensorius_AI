@@ -41,6 +41,9 @@ Before first use:
   VLAN and restrict access with network and host firewalls.
 - Use `SENSORIUS_HTTP_HOST=127.0.0.1` in `.env` for host-only access.
 - Use a VPN or equivalent authenticated private network for remote access.
+  See [Keep Sensorius On A Trusted Network](user_guide.md#keep-sensorius-on-a-trusted-network)
+  for PiVPN/WireGuard setup links, Quad9 DNS guidance, and direct mobile web
+  UI access. Forward only the VPN's configured port; keep HTTP and MQTT private.
 - Configure broker authentication and TLS when MQTT crosses a trusted boundary.
 - Set a strong `SAI_WEB_API_KEY` for the selected routes it protects, but do
   not treat that key as full-site authentication.
