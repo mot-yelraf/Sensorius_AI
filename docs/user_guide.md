@@ -1630,14 +1630,13 @@ mobile QR-code import, and client management.
    your router to the VPN Pi. Keep Sensorius HTTP and MQTT ports private.
    This requires an inbound-reachable Internet connection; carrier-grade NAT
    may require an ISP-provided public address or another VPN access method.
-3. Choose **Quad9** for VPN-client DNS, or enter `9.9.9.9` and
-   `149.112.112.112` as custom DNS servers. An existing WireGuard client
+3. For access by IP address, choose **Quad9** for VPN-client DNS, or enter
+   `9.9.9.9` and `149.112.112.112` as custom DNS servers. An existing WireGuard client
    profile can use `DNS = 9.9.9.9, 149.112.112.112` in its `[Interface]`
    section. Quad9's [secure DNS service](https://docs.quad9.net/services/)
    blocks known malicious domains. Public DNS does not resolve your private
-   LAN device names; use known LAN IP addresses, or use a local DNS resolver
-   that forwards public queries to Quad9. `.local` discovery generally does
-   not cross a routed VPN.
+   LAN device names. For access by hostname as well as IP, use a local DNS
+   resolver that forwards public queries to Quad9, as described below.
 4. Create a separate client profile for each phone or tablet with `pivpn add`.
    Display its QR code with `pivpn -qr`, import it into the
    [WireGuard app](https://www.wireguard.com/install/), and activate the tunnel.
@@ -1653,6 +1652,73 @@ the `nodusweb` profile, by its known LAN IP and configured web port when VPN
 routing and firewall rules allow it. The Nodus web UI likewise uses its mobile
 layouts. Reserve device addresses or keep an address list so they are easy to
 find while away.
+
+##### Use LAN Hostnames And IP Addresses Through The VPN
+
+PiVPN provides network access; it does not automatically turn device names
+advertised through mDNS into DNS records. To use names while away, configure
+your router's local DNS service or a separate resolver such as Pi-hole to
+answer for your devices. The following example uses resolver `192.168.1.1`,
+Sensorius `192.168.1.50`, and Nodus `192.168.1.60`; substitute your actual
+addresses and configured web ports.
+
+1. Reserve the devices' LAN IP addresses in DHCP. In the local resolver,
+   create address records mapping `sensorius.home.arpa` to `192.168.1.50`
+   and `nodus-greenhouse.home.arpa` to `192.168.1.60`. Some routers create
+   DNS records from DHCP reservations, but verify this rather than assuming
+   a device's hostname or display name is registered. If your router cannot
+   serve local records, use a resolver that can. Configure its public-query
+   upstreams to Quad9 (`9.9.9.9` and `149.112.112.112`).
+2. During PiVPN installation, choose the local resolver's IP as the custom
+   client DNS server. For an existing installation, edit
+   `/etc/pivpn/wireguard/setupVars.conf` with `sudo nano` and set
+   `pivpnDNS1=192.168.1.1`. Remove any `pivpnDNS2` entry pointing to public
+   DNS. These settings apply to newly generated profiles.
+3. Update each existing tunnel's DNS setting in the WireGuard app, or change
+   its imported profile's `[Interface]` section to `DNS = 192.168.1.1` and
+   reimport it. Reconnect the tunnel after changing it. Do not add Quad9 as a
+   second client DNS server: clients may send private-name queries there
+   instead of to your local resolver. Keep Quad9 upstream of the resolver.
+4. Ensure the client's `AllowedIPs` includes both the resolver's address and
+   the device subnets. A full tunnel includes these routes; a split tunnel
+   needs them explicitly. Permit DNS traffic (UDP and TCP port `53`) from
+   VPN clients to the resolver, and web traffic to the intended devices.
+   The resolver must accept queries arriving through the VPN. Keep DNS
+   private; do not forward port `53` from the Internet.
+
+See PiVPN's [local-hostname guidance](https://docs.pivpn.io/wireguard/#resolving-local-hostnames)
+and [local-resolver integration](https://docs.pivpn.io/wireguard/#pi-hole-with-pivpn)
+for additional configuration details.
+
+Use fully qualified DNS names in bookmarks. `home.arpa` is
+[reserved for home-network DNS](https://www.rfc-editor.org/info/rfc8375/);
+these examples require records in your resolver and are not automatic
+Sensorius or Nodus defaults. If your router uses another domain, use the
+names it actually serves. A short name such as `sensorius` may work only
+when the client has the matching DNS search suffix, so prefer
+`sensorius.home.arpa` across phones, tablets, and computers.
+
+| Address example | How it is resolved | Access through a routed VPN |
+| --- | --- | --- |
+| `http://192.168.1.50:8000` | No DNS lookup | Works when routing and firewalls permit it. |
+| `http://sensorius.home.arpa:8000` | Your local DNS resolver | Works with the local record and VPN DNS settings above. |
+| `http://nodus-greenhouse.home.arpa:<web-port>` | Your local DNS resolver | Works for a reachable `nodusweb` device with its own DNS record. Replace `<web-port>`. |
+| `http://sensorius.local:8000` | mDNS on the local network link | Normally works only on the same link when the host advertises that name; ordinary PiVPN routing does not carry mDNS discovery. |
+
+The `.local` suffix has [special mDNS behavior](https://www.rfc-editor.org/info/rfc6762/).
+Adding a `.local` record to ordinary DNS is not a reliable VPN workaround;
+use a separate DNS name such as `sensorius.home.arpa` for the same IP.
+This does not require changing the device's existing mDNS hostname.
+
+Test with home Wi-Fi disabled and the VPN connected: first open the IP URL,
+then the DNS URL. If the IP works but the DNS name fails, check the record,
+client DNS setting, resolver access, and any browser secure-DNS setting that
+bypasses local DNS. From a VPN-connected computer with `nslookup`,
+`nslookup sensorius.home.arpa 192.168.1.1` should return `192.168.1.50`;
+then run `nslookup sensorius.home.arpa` to check the client's default resolver.
+If neither URL works, check tunnel routing, firewall rules, the web server's
+bind address, and overlapping home/remote LAN subnets before troubleshooting
+DNS.
 
 RustDesk or Raspberry Pi Connect can also provide remote desktop access.
 Their desktop sessions display the host's browser layout, which can require
