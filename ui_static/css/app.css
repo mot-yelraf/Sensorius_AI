@@ -20,6 +20,7 @@ body{
 }
 
 body.dashboard-page{
+  --dashboard-header-width:230px;
   --dashboard-card-bg:#c4dcf8;
   --dashboard-card-border:#78a9b8;
   --dashboard-card-text:#132f38;
@@ -84,10 +85,13 @@ body.dashboard-page .sensor-group-header{
 }
 
 body.dashboard-page .dashboard-content > #update_time{
-  width:fit-content;
+  width:var(--dashboard-header-width);
   max-width:calc(100% - 10px);
   margin:5px auto;
-  padding:.4rem .85rem;
+  padding:.4rem .5rem;
+  font-size:.9rem;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
 }
 
 body.dashboard-page .modal,
@@ -371,8 +375,7 @@ body.dashboard-page #sensor_header{
 
 .dashboard-brand-image{
   display:block;
-  width:261px;
-  max-width:calc(100vw - 168px);
+  width:var(--dashboard-header-width);
   height:auto;
   border-radius:12px;
 }
@@ -393,6 +396,14 @@ body.dashboard-page #sensor_header{
 }
 .dashboard-header-action:hover{filter:brightness(.95)}
 .dashboard-header-action:focus-visible{outline:2px solid currentColor;outline-offset:3px}
+
+@media (max-width:760px){
+  /* Match the moon card's 206px content, padding, and border. */
+  body.dashboard-page{--dashboard-header-width:calc(206px + 1.1rem + 2px)}
+  body.dashboard-page #moonBox{width:var(--dashboard-header-width);margin-inline:auto}
+  body.dashboard-page #sensor_header{gap:8px}
+  .dashboard-header-action{flex-shrink:1;min-width:32px}
+}
 
 /* Each sensor’s row of metrics */
 .sensor-row{

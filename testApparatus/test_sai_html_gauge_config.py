@@ -490,7 +490,8 @@ def test_dashboard_renders_overview_graphic_in_header():
     assert f"src='/ui_static/01-sensorius-overview-v5.png?v={APP_VERSION}'" in header
     assert header.count("class='dashboard-header-action'") == 2
     assert 'dashboard-overview-footer' not in html
-    assert 'width:261px;' in css
+    assert '--dashboard-header-width:230px;' in css
+    assert 'width:var(--dashboard-header-width);' in css
 
 
 def test_sensor_reordering_preserves_dashboard_content_parent():
