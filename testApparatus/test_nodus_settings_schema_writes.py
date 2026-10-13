@@ -5835,7 +5835,8 @@ async def test_remove_device_list_allows_same_origin_browser_request_without_api
 
 
 @pytest.mark.asyncio
-async def test_remove_device_expands_nodus_switch_suffix_cleanup(tmp_path, monkeypatch):
+@pytest.mark.parametrize("release_persisted", [True, False])
+async def test_remove_device_expands_nodus_switch_suffix_cleanup(tmp_path, monkeypatch, release_persisted):
     app, ingest, system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
@@ -5876,12 +5877,22 @@ async def test_remove_device_expands_nodus_switch_suffix_cleanup(tmp_path, monke
     }
     app.state.switch_controllers = dict(saiWebRoutes.switch_controllers)
 
+    if not release_persisted:
+        monkeypatch.setattr(ingest, "allow_nodus_devices", lambda *_args, **_kwargs: {"removed": [], "persisted": False})
+
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
         headers={"x-api-key": "test-key"},
     ) as client:
         res = await client.post("/remove-device", json={"device_ids": ["switch-zbcalz"]})
+
+    if not release_persisted:
+        assert res.status_code == 500
+        assert res.json()["error"] == "removed_device_suppression_clear_failed"
+        assert "avpd-zbcalz" in ingest._removed_nodus_ids
+        assert "switch-zbcalz" in ingest._removed_nodus_ids
+        return
 
     assert res.status_code == 200
     assert not (sensor_root / "avpd-zbcalz").exists()
@@ -5890,9 +5901,9 @@ async def test_remove_device_expands_nodus_switch_suffix_cleanup(tmp_path, monke
     assert "nodus/avpd-zbcalz/meta" in cleared_topics
     assert "nodus/switch-zbcalz/meta" in cleared_topics
     assert "nodus/S1-zbcalz/state" in cleared_topics
-    assert "avpd-zbcalz" in ingest._removed_nodus_ids
-    assert "switch-zbcalz" in ingest._removed_nodus_ids
-    assert "s1-zbcalz" in ingest._removed_nodus_ids
+    assert "avpd-zbcalz" not in ingest._removed_nodus_ids
+    assert "switch-zbcalz" not in ingest._removed_nodus_ids
+    assert "s1-zbcalz" not in ingest._removed_nodus_ids
     assert "switch-zbcalz" not in ingest._switch_state_cache
     assert saiWebRoutes.switch_controllers == {}
     assert app.state.switch_controllers == {}
@@ -5953,9 +5964,9 @@ async def test_remove_device_expands_nodus_sensor_suffix_cleanup(tmp_path, monke
     assert "nodus/S1-x943fm/state" in cleared_topics
     assert "nodus/S1-x943fm/availability" in cleared_topics
     assert "nodus/S1-x943fm/config/ack" in cleared_topics
-    assert "aqi-x943fm" in ingest._removed_nodus_ids
-    assert "switch-x943fm" in ingest._removed_nodus_ids
-    assert "s1-x943fm" in ingest._removed_nodus_ids
+    assert "aqi-x943fm" not in ingest._removed_nodus_ids
+    assert "switch-x943fm" not in ingest._removed_nodus_ids
+    assert "s1-x943fm" not in ingest._removed_nodus_ids
 
 
 @pytest.mark.asyncio
@@ -5966,7 +5977,7 @@ async def test_remove_device_expands_nodus_sensor_suffix_cleanup(tmp_path, monke
         (["switch-1jm5s1", "aht-1jm5s1"], "switch-1jm5s1"),
     ],
 )
-async def test_remove_device_groups_selected_sensor_and_switch_and_suppresses_replay(
+async def test_remove_device_groups_selected_sensor_and_switch_and_releases_suppression(
     tmp_path,
     monkeypatch,
     selected_ids,
@@ -6019,11 +6030,13 @@ async def test_remove_device_groups_selected_sensor_and_switch_and_suppresses_re
     assert body["ok"] is True
     assert not (sensor_root / "aht-1jm5s1").exists()
     assert not (switch_root / "switch-1jm5s1").exists()
-    assert "aht-1jm5s1" in ingest._removed_nodus_ids
-    assert "switch-1jm5s1" in ingest._removed_nodus_ids
+    assert "aht-1jm5s1" not in ingest._removed_nodus_ids
+    assert "switch-1jm5s1" not in ingest._removed_nodus_ids
     assert body["results"]["aht-1jm5s1"] == body["results"]["switch-1jm5s1"]
     assert body["results"]["aht-1jm5s1"]["cleanup_targets"] == [cleanup_target]
     assert body["results"]["aht-1jm5s1"]["remaining_ids"] == []
+    assert body["results"]["aht-1jm5s1"]["suppression_release"]["persisted"] is True
+    assert body["results"]["aht-1jm5s1"]["suppression"]["active"] is False
 
 
 @pytest.mark.asyncio

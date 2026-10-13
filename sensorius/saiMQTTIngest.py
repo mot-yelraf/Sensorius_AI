@@ -688,30 +688,19 @@ class saiMQTTIngest:
         return suffix if re.fullmatch(r"[a-z0-9]{5,32}", suffix) else ""
 
     def _load_removed_nodus_ids(self) -> set[str]:
-        removed: set[str] = set()
+        """Clear saved removal blocks when a new ingest runtime starts."""
         try:
             raw = self.settings.get_setting(
-                "SensorNetwork",
-                _REMOVED_NODUS_IDS_SETTING,
-                [],
+                "SensorNetwork", _REMOVED_NODUS_IDS_SETTING, []
             ) if self.settings else []
-            if isinstance(raw, str):
-                text = raw.strip()
-                if text.startswith("["):
-                    try:
-                        raw = json.loads(text)
-                    except Exception:
-                        raw = [text]
-                else:
-                    raw = [part.strip() for part in text.split(",")]
-            if isinstance(raw, (list, tuple, set)):
-                for item in raw:
-                    value = normalize_hostname_base(str(item or ""))
-                    if value:
-                        removed.add(value.lower())
-        except Exception:
-            pass
-        return removed
+            if raw:
+                writer = getattr(self.settings, "replace_setting", None)
+                if not callable(writer):
+                    raise RuntimeError("settings writer unavailable")
+                writer("SensorNetwork", _REMOVED_NODUS_IDS_SETTING, [])
+        except Exception as exc:
+            printDM(f"[removed-nodus] failed to clear startup suppression list: {exc}", location=MODULE)
+        return set()
 
     def _persist_removed_nodus_ids(self) -> bool:
         if not self.settings:
@@ -766,7 +755,7 @@ class saiMQTTIngest:
         }
 
     def allow_nodus_devices(self, device_ids, *, persist: bool = True) -> dict:
-        """Allow an explicitly re-onboarded Nodus identity family to be discovered again."""
+        """Release a Nodus family after removal cleanup or explicit onboarding."""
         requested = {
             value.lower()
             for value in (normalize_hostname_base(str(item or "")) for item in (device_ids or []))
@@ -781,6 +770,9 @@ class saiMQTTIngest:
                     self._removed_nodus_ids.discard(existing)
                     removed.append(existing)
             persisted = self._persist_removed_nodus_ids() if persist else False
+            if persist and not persisted:
+                self._removed_nodus_ids.update(removed)
+                removed.clear()
         return {"removed": sorted(removed), "persisted": persisted}
 
     def refresh_nodus_retained_metadata(self, device_id: str = "") -> dict:

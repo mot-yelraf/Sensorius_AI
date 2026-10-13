@@ -516,11 +516,46 @@ def test_valid_reonboarding_family_can_be_allowed_again(monkeypatch):
     }
     ingest = _build_ingest(monkeypatch, values=values)
 
+    ingest.suppress_nodus_devices(["aht-1jm5s1", "switch-1jm5s1", "s1-1jm5s1"])
     result = ingest.allow_nodus_devices(["aht-1jm5s1"], persist=True)
 
     assert sorted(result["removed"]) == ["aht-1jm5s1", "s1-1jm5s1", "switch-1jm5s1"]
     assert ingest.is_nodus_device_removed("switch-1jm5s1") is False
     assert ingest.settings.get_setting("SensorNetwork", "REMOVED_NODUS_IDS") == []
+
+
+@pytest.mark.parametrize("saved", [["avpd-va41ka", "s1-va41ka"], '["avpd-va41ka"]', "avpd-va41ka"])
+def test_startup_clears_legacy_removal_blocks(monkeypatch, saved):
+    ingest = _build_ingest(monkeypatch, values={("SensorNetwork", "REMOVED_NODUS_IDS"): saved})
+    assert ingest.settings.get_setting("SensorNetwork", "REMOVED_NODUS_IDS") == []
+    assert ingest.is_nodus_device_removed("avpd-va41ka") is False
+    assert ingest.is_nodus_device_removed("S1-va41ka") is False
+
+
+def test_removal_release_accepts_later_family_messages_and_survives_restart(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.suppress_nodus_devices(["avpd-va41ka", "switch-va41ka", "s1-va41ka"])
+    accepted = []
+    monkeypatch.setattr(ingest, "_on_message_unlocked", lambda _c, _u, msg: accepted.append(msg.topic))
+    message = _Msg("nodus/avpd-va41ka/meta", "{}", retain=True)
+    ingest._on_message(ingest.client, None, message)
+    assert accepted == []
+
+    result = ingest.allow_nodus_devices(["avpd-va41ka"])
+    assert result["persisted"] is True
+    ingest._on_message(ingest.client, None, message)
+    ingest._on_message(ingest.client, None, _Msg("nodus/S1-va41ka/state", "OFF"))
+    assert accepted == ["nodus/avpd-va41ka/meta", "nodus/S1-va41ka/state"]
+    assert ingest.settings.get_setting("SensorNetwork", "REMOVED_NODUS_IDS") == []
+
+
+def test_removal_release_keeps_block_when_persistence_fails(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest.suppress_nodus_devices(["avpd-va41ka"])
+    monkeypatch.setattr(ingest, "_persist_removed_nodus_ids", lambda: False)
+    result = ingest.allow_nodus_devices(["avpd-va41ka"])
+    assert result == {"removed": [], "persisted": False}
+    assert ingest.is_nodus_device_removed("S1-va41ka") is True
 
 
 def test_reonboarding_refresh_renews_retained_metadata_subscriptions(monkeypatch):

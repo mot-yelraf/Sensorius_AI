@@ -926,11 +926,16 @@ Fields and controls:
 - **Device checkbox list**: removable devices known from settings, discovery, and runtime state.
 - **Device detail**: may show URL or last-seen age when known.
 - **I understand this deletes settings and data**: required confirmation checkbox.
-- **Remove Selected**: treats a selected sensor, switch, or both entries from the same Nodus as one physical-device removal. It deletes the complete sensor-and-switch identity family, settings, and related local data; clears runtime caches and retained MQTT/Home Assistant topics; suppresses retained replay for every related identity; and verifies that the device no longer appears.
+- **Remove Selected**: treats a selected sensor, switch, or both entries from the same Nodus as one physical-device removal. It deletes the complete sensor-and-switch identity family, settings, and related local data; clears runtime caches and retained MQTT/Home Assistant topics; suppresses MQTT replay during cleanup; and verifies that the device no longer appears.
 
-Removed Nodus identities remain ignored if retained or newly arriving MQTT
-messages are received later. Run Add Device onboarding again to intentionally
-allow and rediscover a removed Nodus device.
+After successful cleanup and verification, Sensorius clears the removal block
+for that Nodus identity family. A device configured manually to use the hub's
+broker can be discovered again through MQTT metadata and readings, or you can
+run the existing Add Device onboarding flow. A device still publishing to the
+broker may reappear after removal; disconnect it or change its profile/broker
+if it should remain absent. Failed or interrupted cleanup retains its block
+for the current runtime. Sensorius also clears saved removal blocks at startup,
+so restarting allows previously removed devices to be discovered again.
 
 Before removing a device, update any automations, Home Assistant dashboards, farmOS expectations, or written operating procedures that depend on it.
 
