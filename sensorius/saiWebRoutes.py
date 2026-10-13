@@ -9466,6 +9466,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 status_code=409,
             )
 
+        if remote_remove and mqtt_ingest:
+            allow = getattr(mqtt_ingest, "allow_nodus_devices", None)
+            if callable(allow):
+                released = await asyncio.to_thread(allow, related_ids, persist=True)
+                result["suppression_release"] = released
+                if suppression.get("persistence_supported") and not released.get("persisted"):
+                    return JSONResponse(
+                        {"error": "removed_device_suppression_clear_failed", "results": results},
+                        status_code=500,
+                    )
+                suppression["active"] = False
+
         overall = f"Removed {len(requested_ids)} device(s)."
         return JSONResponse({"ok": True, "results": results, "summary": overall})
 

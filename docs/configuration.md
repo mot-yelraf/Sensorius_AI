@@ -292,9 +292,12 @@ unit_system = "Imperial"
 ```
 
 `SensorNetwork.REMOVED_NODUS_IDS` is maintained by the Remove Device workflow.
-It prevents retained or newly arriving MQTT packets from recreating a removed
-Nodus sensor/switch family. Do not edit it during normal operation; successfully
-onboarding that device again removes its identity family from the list.
+It prevents retained or newly arriving MQTT packets from recreating a Nodus
+sensor/switch family while removal cleanup is running. Successful removal
+clears that family's IDs so later MQTT discovery works normally. Failed or
+interrupted removal retains the block for the current runtime; completing
+removal or successfully onboarding the device clears it. Startup clears all
+saved removal blocks, including those left by earlier versions.
 
 Runtime notes:
 
