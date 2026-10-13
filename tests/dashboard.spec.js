@@ -111,13 +111,29 @@ test('keeps the header image above sensors after moving the bottom sensor up', a
   await expect(image).toBeVisible();
   await expect(page.locator('#dashboard-overview-footer')).toHaveCount(0);
   const imageBox = await image.boundingBox();
-  expect(imageBox.width).toBeCloseTo(261, 0);
+  expect(imageBox.width).toBeCloseTo(230, 0);
   const sensorTop = await page.locator('.sensor-group[data-sensor-id]').evaluateAll((elements) =>
     Math.min(...elements.map((element) => element.getBoundingClientRect().top)),
   );
   expect(imageBox.y + imageBox.height).toBeLessThanOrEqual(sensorTop);
   for (const width of [1280, 375]) {
     await page.setViewportSize({ width, height: 900 });
+    const brandBox = await image.boundingBox();
+    const moonBox = await page.locator('#moonBox').boundingBox();
+    expect(brandBox.width).toBeCloseTo(moonBox.width, 1);
+    const clock = page.locator('#update_time');
+    for (const text of ['Tue 2026-10-13 01:11:11 AM', 'Wed 2026-12-30 08:58:58 PM']) {
+      await clock.evaluate((element, value) => { element.textContent = value; }, text);
+      expect((await clock.boundingBox()).width).toBeCloseTo(brandBox.width, 1);
+      const textFits = await clock.evaluate((element) => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const text = range.getBoundingClientRect();
+        const pill = element.getBoundingClientRect();
+        return text.left >= pill.left && text.right <= pill.right;
+      });
+      expect(textFits).toBe(true);
+    }
     await expect.poll(() => page.locator('#sensor_header').evaluate((header) => {
       const brand = header.querySelector('.dashboard-brand-image').getBoundingClientRect();
       return Array.from(header.querySelectorAll('.dashboard-header-action')).map((button) => {
@@ -126,6 +142,7 @@ test('keeps the header image above sensors after moving the bottom sensor up', a
       });
     })).toEqual([0, 0]);
     await page.locator('#sensor_header').screenshot({ path: test.info().outputPath(`header-${width}.png`) });
+    await page.screenshot({ path: test.info().outputPath(`dashboard-${width}.png`) });
   }
 
 });
