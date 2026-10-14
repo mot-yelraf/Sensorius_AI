@@ -819,3 +819,34 @@ These shapes are deprecated and should not be treated as canonical:
 - switch-control docs centered on plain `ON` and `OFF`
 - docs that imply ordinary runtime config writes trigger a full retained `meta`
   refresh
+
+
+## Standalone device halt
+
+Both cPyNodus II and III advertise halt support in retained
+`nodus/<device_id>/meta` with `capabilities.halt = true`. Sensorius lists only
+explicit boolean true capabilities in **Halt Device(s)** and rechecks support
+before publishing. A physical device is listed once, independently of its
+sensor and switch children.
+
+After user acknowledgement, Sensorius publishes non-retained, QoS 1 to
+`nodus/<device_id>/config/set`:
+
+```json
+{"message_id":"halt-001","payload":{},"halt":true}
+```
+
+`halt-001` is an example correlation ID, not an operation name. Sensorius uses
+a fresh `halt-<uuid>` for each request to preserve Nodus message deduplication.
+Halt carries no settings updates or restart fields. Existing device token
+validation still applies. `config/ack` confirms acceptance only; Sensorius
+requires a correlated `config/result` from the target device with
+`applied = true`, `halt = true`, `phase = "halted"`, and no error before
+reporting ready to unplug. `relays = "held"` describes unchanged relay outputs.
+
+A missing result leaves completion unconfirmed even if the device goes offline.
+`filesystem_sync_failed` is reported as a failure. Commands are not retried
+automatically. Successful halt stops application writes and syncs the device
+filesystem; host USB writes are outside this contract. Power cycle or reset
+resumes the device. Halting does not remove Sensorius settings, history,
+retained discovery, or Home Assistant entities.

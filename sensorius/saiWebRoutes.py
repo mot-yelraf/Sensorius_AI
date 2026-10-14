@@ -9274,6 +9274,44 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             locations[sid] = loc or "Unknown"
         return locations
 
+    @router.get("/halt-device-list")
+    async def halt_device_list(request: Request):
+        """List physical devices with explicit MQTT halt capability."""
+        _require_protected_access(request, require_csrf=True)
+        from .saiNodusHalt import halt_device_ids
+        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        devices = [device for device in halt_device_ids(ingest) if _is_valid_device_id(device)]
+        return JSONResponse({"devices": devices}, headers={"Cache-Control": "no-store"})
+
+    @router.post("/halt-device")
+    async def halt_device_post(request: Request):
+        """Halt acknowledged selections without removing their settings or data."""
+        _require_protected_access(request, require_csrf=True)
+        from .saiNodusHalt import halt_device_ids, halt_device
+        try:
+            body = await request.json()
+        except (ValueError, UnicodeDecodeError):
+            return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+        if not isinstance(body, dict) or body.get("acknowledged") is not True:
+            return JSONResponse({"error": "Halt acknowledgement required"}, status_code=400)
+        ids = body.get("device_ids")
+        if not isinstance(ids, list) or not ids or any(not isinstance(d, str) or not _is_valid_device_id(d) for d in ids):
+            return JSONResponse({"error": "Invalid device_ids"}, status_code=400)
+        ids = list(dict.fromkeys(ids))
+        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        supported = set(halt_device_ids(ingest))
+        if any(d not in supported for d in ids):
+            return JSONResponse({"error": "Device does not advertise halt support"}, status_code=400)
+        if not all(callable(getattr(ingest, name, None)) for name in ("publish_nodus_halt", "wait_for_config_result")):
+            return JSONResponse({"error": "MQTT halt unavailable"}, status_code=503)
+        results = []
+        for device in ids:
+            try:
+                results.append(await halt_device(ingest, device))
+            except Exception:
+                results.append({"device_id": device, "halted": False, "error": "Halt failed; device state is unconfirmed"})
+        return JSONResponse({"results": results})
+
     #remove device routes
     @router.get("/remove-device-list")
     async def remove_device_list(request: Request):
@@ -9289,7 +9327,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         We just return a tiny page that instructs to use the modal button.
         """
         _require_protected_access(request, require_csrf=True)
-        return HTMLResponse("<html><body><p>Use the Remove Device button to open the modal.</p></body></html>")
+        return HTMLResponse("<html><body><p>Use the Halt or Remove Device button to open the modal.</p></body></html>")
 
     @router.post("/remove-device")
     async def remove_device_post(request: Request):
