@@ -140,7 +140,7 @@ def test_all_system_accordions_default_closed_and_use_process_scoped_state():
         line for line in template.splitlines()
         if "<details" in line and "data-runtime-section" in line
     ]
-    assert len(runtime_sections) == 12
+    assert len(runtime_sections) == 14
     assert not any(
         " open>" in line
         for line in template.splitlines()
