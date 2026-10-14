@@ -1437,7 +1437,19 @@ class SwitchController:
                 period = int(cond.get("freq_hours", 1) or 1) * 60
             return f"[{status}] Timer active {duration} min every {int(period)} min"
 
-        if ctype == "bd_transitions":
+        if ctype == "calendar" and cond.get("calendar_kind") in {"date_time", "season"}:
+            event = cond.get("_calendar_event") or {}
+            when = self._format_biodynamic_transition_time(event.get("transition_at") or cond.get("calendar_at"))
+            name = event.get("name") or "Sensorius Calendar Event"
+            return f"[{status}] {name} at {when}\n{event.get('context') or event.get('description', '')}"
+
+        if ctype == "calendar" and cond.get("calendar_kind") == "lunar_events":
+            event = cond.get("_lunar_event") or {}
+            name = str(event.get("phase") or cond.get("calendar_event", "all")).replace("_", " ").title()
+            when = self._format_biodynamic_transition_time(event.get("transition_at"))
+            return f"[{status}] Lunar Event: {name} at {when}\n{event.get('context', '')}"
+
+        if ctype in {"bd_transitions", "calendar"}:
             transition = cond.get("_bd_transition")
             if isinstance(transition, dict):
                 from_text = self._biodynamic_segment_text(transition.get("from"))
@@ -1510,6 +1522,12 @@ class SwitchController:
             if DEBUG:
                 printDM(f"[advanced] biodynamic transition unavailable: {exc}", location=MODULE)
             return {}
+
+    def _get_calendar_snapshot(self) -> dict:
+        """Read cached lunar and seasonal events without ephemeris work."""
+        from .saiCalendarAutomation import calendar_events
+
+        return calendar_events.snapshot()
 
     def _broadcast_biodynamic_transition(self, transition: dict) -> None:
         """Publish a biodynamic transition to connected dashboard clients."""
@@ -1784,6 +1802,22 @@ class SwitchController:
                 f"Sensorius BD Transition: {from_text} to {to_text} "
                 f"at {transition_at}"
             )
+        if triggered:
+            for group in evaluated_groups:
+                for cond, result in group.get("conditions", []):
+                    event = cond.get("_lunar_event") if result else None
+                    if event:
+                        name = str(event.get("phase", "")).replace("_", " ").title()
+                        when = self._format_biodynamic_transition_time(event.get("transition_at"))
+                        subject = f"Sensorius Lunar Event: {name} at {when}"
+                        break
+        if triggered:
+            calendar_event = next((cond.get("_calendar_event") for group in evaluated_groups
+                                   if group.get("result") for cond, ok in group.get("conditions", [])
+                                   if ok and cond.get("_calendar_event")), None)
+            if calendar_event:
+                when = self._format_biodynamic_transition_time(calendar_event.get("transition_at"))
+                subject = f"Sensorius Calendar: {calendar_event.get('name', 'Calendar Event')} at {when}"
         metric_summaries = self._automation_subject_metrics(
             evaluated_groups,
             current_values_map,
@@ -1850,9 +1884,9 @@ class SwitchController:
                         either period_min (minutes) or legacy freq_hours.
                         Hour-based rules still align to on-the-hour periods.
                         Minute-based rules may use anchor_epoch to start at save time.
-            * "bd_transitions": true for one evaluation pass when the current
-                        biodynamic calendar segment changes. The condition also
-                        publishes a persistent dashboard toast.
+            * "calendar": one-pass BD, lunar, seasonal, or scheduled date/time
+                        event, with an optional event filter and no time offsets.
+            * "bd_transitions": legacy unfiltered BD segment event and toast.
             * "sensor": uses hysteresis around `value` to decide if the channel
                         should be ON, based on the *current state* of the target
                         switch channel.
@@ -1898,7 +1932,7 @@ class SwitchController:
         seconds_since_midnight = (
             now_tm.tm_hour * 3600 + now_tm.tm_min * 60 + now_tm.tm_sec
         )
-        bd_condition_results: dict[str, bool] = {}
+        bd_condition_results: dict[tuple, tuple[bool, dict]] = {}
         weather_service = getattr(getattr(self, "data_logger", None), "weather_alert_service", None)
         weather_events = weather_service.snapshot()["events"] if weather_service else []
 
@@ -2020,56 +2054,92 @@ class SwitchController:
                     phase = seconds_since_midnight % period_sec
                 return phase < duration_sec
 
-            # --- BIODYNAMIC TRANSITION CONDITION -----------------------------
-            if ctype == "bd_transitions":
+            # --- CALENDAR EVENT CONDITIONS -----------------------------------
+            if ctype in {"bd_transitions", "calendar"}:
                 executor_sid = str(cond.get("executor_switch_id", "") or "").strip()
                 own_sid = str(getattr(self, "switch_id", "") or "").strip()
-                if executor_sid and executor_sid.lower() != own_sid.lower():
+                if ctype == "bd_transitions" and executor_sid and executor_sid.lower() != own_sid.lower():
                     return False
-
-                state_key = str(rule_id or "bd_transitions")
+                kind = cond.get("calendar_kind", "bd_transitions") if ctype == "calendar" else "bd_transitions"
+                selected = str(cond.get("calendar_event", "all"))
+                state_key = (str(rule_id or "calendar"), ctype, kind, selected, str(cond.get("calendar_at", "")))
+                event_field = "_lunar_event" if kind == "lunar_events" else "_calendar_event" if kind in {"season", "date_time"} else "_bd_transition"
                 if state_key in bd_condition_results:
-                    return bd_condition_results[state_key]
-
-                transition = self._get_current_biodynamic_transition()
+                    result, event = bd_condition_results[state_key]
+                    if event:
+                        cond[event_field] = event
+                    return result
+                if kind == "date_time":
+                    try:
+                        target = datetime.fromisoformat(str(cond.get("calendar_at", "")))
+                        if target.tzinfo is None:
+                            return False
+                    except (TypeError, ValueError):
+                        return False
+                    due = time.time() >= target.timestamp()
+                    seen = getattr(self, "_advanced_calendar_datetime_seen", None)
+                    if not isinstance(seen, dict):
+                        seen = self._advanced_calendar_datetime_seen = {}
+                    was_due = seen.get(state_key, due)
+                    seen[state_key] = bool(was_due or due)
+                    triggered = due and not was_due
+                    event = {"transition_at": target.isoformat(), "event_key": "date_time:" + target.isoformat(),
+                             "name": "Sensorius Calendar Event", "description": "Scheduled calendar event.",
+                             "context": "Scheduled Sensorius calendar event; " + str(cond.get("calendar_timezone", ""))}
+                    bd_condition_results[state_key] = (triggered, event if triggered else {})
+                    if triggered:
+                        cond[event_field] = event
+                    return triggered
+                if kind not in {"lunar_events", "season", "bd_transitions"}:
+                    return False
+                snapshot = self._get_calendar_snapshot() if kind in {"lunar_events", "season"} else {}
+                if kind == "lunar_events":
+                    transition = snapshot.get("lunar_event") or {}
+                elif kind == "season":
+                    transition = snapshot.get("season_event") or {}
+                else:
+                    transition = self._get_current_biodynamic_transition()
                 transition_key = str(transition.get("transition_at") or "").strip()
+                if kind in {"lunar_events", "season"} and transition_key:
+                    # Searches with a new daily window can differ by fractions
+                    # of a second; the same phase must keep a stable identity.
+                    transition_key = str(transition.get("event_key") or transition_key)
                 transition_keys = getattr(self, "_advanced_bd_transition_keys", None)
                 if not isinstance(transition_keys, dict):
-                    transition_keys = {}
-                    self._advanced_bd_transition_keys = transition_keys
-                transition_segments = getattr(
-                    self,
-                    "_advanced_bd_transition_segments",
-                    None,
-                )
+                    transition_keys = self._advanced_bd_transition_keys = {}
+                transition_segments = getattr(self, "_advanced_bd_transition_segments", None)
                 if not isinstance(transition_segments, dict):
-                    transition_segments = {}
-                    self._advanced_bd_transition_segments = transition_segments
-                previous_key = str(transition_keys.get(state_key) or "").strip()
+                    transition_segments = self._advanced_bd_transition_segments = {}
+                previous_key = transition_keys.get(state_key)
                 previous_segment = transition_segments.get(state_key)
-                triggered = bool(
-                    transition_key
-                    and previous_key
-                    and transition_key != previous_key
-                )
+                triggered = bool(transition_key and previous_key and transition_key != previous_key)
                 if transition_key:
                     transition_keys[state_key] = transition_key
                     transition_segments[state_key] = {
-                        "sign": str(transition.get("sign") or ""),
-                        "element": str(transition.get("element") or ""),
-                        "plant_part": str(transition.get("plant_part") or ""),
-                        "color": str(transition.get("color") or ""),
-                        "accent": str(transition.get("accent") or ""),
+                        key: str(transition.get(key) or "")
+                        for key in ("sign", "element", "plant_part", "color", "accent")
                     }
-                bd_condition_results[state_key] = triggered
-                if triggered:
-                    transition_event = {
-                        "transition_at": transition_key,
-                        "from": dict(previous_segment or {}),
-                        "to": dict(transition_segments[state_key]),
-                    }
-                    cond["_bd_transition"] = transition_event
-                    self._broadcast_biodynamic_transition(transition_event)
+                event = {}
+                if kind in {"lunar_events", "season"}:
+                    triggered = triggered and selected in {"all", transition.get("phase" if kind == "lunar_events" else "season")}
+                    if triggered:
+                        event = dict(transition)
+                        cond[event_field] = event
+                elif kind == "bd_transitions":
+                    if ctype == "calendar":
+                        # Midnight splits a day's rendering; it is not a new BD event.
+                        changed = any((previous_segment or {}).get(key) != transition.get(key)
+                                      for key in ("sign", "element", "plant_part"))
+                        triggered = triggered and changed and selected in {"all", str(transition.get("element", "")).lower()}
+                    if triggered:
+                        event = {"transition_at": transition_key, "from": dict(previous_segment or {}),
+                                 "to": dict(transition_segments[state_key])}
+                        cond["_bd_transition"] = event
+                        if ctype == "bd_transitions":
+                            self._broadcast_biodynamic_transition(event)
+                else:
+                    triggered = False
+                bd_condition_results[state_key] = (triggered, event)
                 return triggered
 
             # --- SENSOR CONDITION ---------------------------------------------
@@ -2220,6 +2290,7 @@ class SwitchController:
                         for group in groups
                         for cond in group
                     )
+                    has_calendar = any(cond.get("type") == "calendar" for group in groups for cond in group)
                     if (
                         action_type == "switch"
                         and not str(act.get("switch_key", "") or "").strip()
@@ -2290,12 +2361,18 @@ class SwitchController:
                             webui_states[notification_key] = rule_ok
                             continue
                         if rule_ok and not was_active and not has_bd_transition:
-                            self._broadcast_automation_notification(
-                                rule_id=str(_rule_id),
-                                rule_name=str(script.get("name", "") or _rule_id),
-                                evaluated_groups=evaluated_groups,
-                                current_values_map=current_values_map,
-                            )
+                            bd_event = next((cond.get("_bd_transition") for group in evaluated_groups
+                                             if group.get("result") for cond, ok in group["conditions"]
+                                             if ok and cond.get("_bd_transition")), None)
+                            if bd_event:
+                                self._broadcast_biodynamic_transition(bd_event)
+                            else:
+                                self._broadcast_automation_notification(
+                                    rule_id=str(_rule_id),
+                                    rule_name=str(script.get("name", "") or _rule_id),
+                                    evaluated_groups=evaluated_groups,
+                                    current_values_map=current_values_map,
+                                )
                         webui_states[notification_key] = rule_ok
                         continue
                     if action_type == "notify":
@@ -2309,7 +2386,7 @@ class SwitchController:
                         recipient = str(act.get("to", "") or "").strip()
                         notify_key = (str(_rule_id), recipient)
                         delivery_service = getattr(self, "email_delivery_service", None)
-                        if delivery_service is not None:
+                        if delivery_service is not None and not has_calendar:
                             was_active = bool(
                                 delivery_service.persisted_automation_state(
                                     str(_rule_id),
@@ -2364,7 +2441,7 @@ class SwitchController:
                         should_notify = (
                             rule_ok != was_active
                             and recipient
-                            and (rule_ok or not (has_bd_transition or has_weather))
+                            and (rule_ok or not (has_bd_transition or has_calendar or has_weather))
                         )
                         if should_notify:
                             rule_name = str(script.get("name", "") or _rule_id).strip()
@@ -2384,7 +2461,19 @@ class SwitchController:
                                     level="warning",
                                 )
                             else:
+                                lunar_event = next((cond.get("_lunar_event") for group in evaluated_groups
+                                                    if group.get("result") for cond, ok in group["conditions"]
+                                                    if ok and cond.get("_lunar_event")), None)
+                                graphic_args = {"lunar_calendar": lunar_event.get("graphic")} if lunar_event else {}
+                                if has_calendar:
+                                    event = next((cond.get("_lunar_event") or cond.get("_bd_transition") or cond.get("_calendar_event")
+                                                  for group in evaluated_groups if group.get("result")
+                                                  for cond, ok in group["conditions"] if ok and
+                                                  (cond.get("_lunar_event") or cond.get("_bd_transition") or cond.get("_calendar_event"))), {})
+                                    revision_args["revision"] = str(revision_args.get("revision", "")) + ":" + str(event.get("event_key") or event.get("transition_at", ""))
+                                    delivery_service.persisted_automation_state(str(_rule_id), recipient, **revision_args)
                                 delivery_service.enqueue_automation_transition(
+                                    **graphic_args,
                                     rule_id=str(_rule_id),
                                     triggered=rule_ok,
                                     recipient=recipient,
@@ -2392,7 +2481,7 @@ class SwitchController:
                                     body=body,
                                     **revision_args,
                                 )
-                        elif delivery_service is None:
+                        if delivery_service is None or has_calendar:
                             notify_states[notify_key] = rule_ok
                         continue
 

@@ -1784,6 +1784,7 @@ def test_biodynamic_transition_email_has_from_to_subject_and_body():
     ctrl = _make_controller()
     transition = {
         "transition_at": "2026-07-28T10:30:00-06:00",
+        "context": "Illumination 50%; Moonrise: 11:30 AM; Sunrise: 07:09 AM",
         "from": {
             "sign": "Aries",
             "element": "Fire",
@@ -1817,6 +1818,10 @@ def test_biodynamic_transition_email_has_from_to_subject_and_body():
     assert "Aries / Fire / Fruit to Taurus / Earth / Root" in subject
     assert "Jul 28, 2026 10:30 AM" in subject
     assert "From Aries / Fire / Fruit; To Taurus / Earth / Root" in body
+
+    assert "Illumination" not in body
+    assert "Moonrise" not in body
+    assert "Sunrise" not in body
 
 
 def test_biodynamic_notify_sends_transition_without_cleared_followup(
@@ -2131,3 +2136,173 @@ def imperial_units(monkeypatch):
     """Pin notification presentation independently of host settings."""
     from sensorius import saiInputUnits
     monkeypatch.setattr(saiInputUnits, "_NOTIFICATION_UNIT_SYSTEM", "Imperial")
+
+
+def _calendar_rule_controller(condition, actions=None):
+    ctrl = _make_controller()
+    script = {
+        "enabled": True, "name": "Calendar notice", "conditions": [condition],
+        "actions": actions or [{"type": "none", "executor_switch_id": "sw1"}],
+    }
+    ctrl._load_triggers_dict = lambda: {"Advanced": {"calendar": {"enabled": True, "script_json": script}}}
+    ctrl.set_state = lambda *_args, **_kwargs: pytest.fail("Calendar Alert must not change a relay")
+    return ctrl
+
+
+@pytest.mark.parametrize("element,expected", [("all", 1), ("earth", 1), ("water", 0), ("air", 0), ("fire", 0)])
+def test_calendar_bd_filters_incoming_element_and_skips_midnight(monkeypatch, element, expected):
+    ctrl = _calendar_rule_controller({"type": "calendar", "calendar_kind": "bd_transitions", "calendar_event": element})
+    current = {"transition_at": "2026-10-13T16:00:00-06:00", "sign": "Aries", "element": "Fire", "plant_part": "Fruit"}
+    monkeypatch.setattr(ctrl, "_get_current_biodynamic_transition", lambda: dict(current))
+    monkeypatch.setattr(ctrl, "_get_calendar_snapshot", lambda: {"context": "Moonrise: 11:30 AM; Sunrise: 07:09 AM"})
+    broadcasts = []
+    monkeypatch.setattr(ctrl, "_broadcast_biodynamic_transition", broadcasts.append)
+    ctrl._evaluate_and_apply_advanced({})  # baseline
+    current["transition_at"] = "2026-10-14T00:00:00-06:00"
+    ctrl._evaluate_and_apply_advanced({})  # same segment on the next date
+    assert not broadcasts
+    current.update(transition_at="2026-10-14T08:30:00-06:00", sign="Taurus", element="Earth", plant_part="Root")
+    ctrl._evaluate_and_apply_advanced({})
+    ctrl._evaluate_and_apply_advanced({})
+    assert len(broadcasts) == expected
+    if expected:
+        assert broadcasts[0]["from"]["element"] == "Fire"
+        assert "context" not in broadcasts[0]
+
+
+@pytest.mark.parametrize("selected,expected", [("all", 1), ("full_moon", 1), ("new_moon", 0)])
+def test_calendar_lunar_phase_is_one_pulse_and_filters(monkeypatch, selected, expected):
+    ctrl = _calendar_rule_controller({"type": "calendar", "calendar_kind": "lunar_events", "calendar_event": selected})
+    current = {"transition_at": "2026-10-22T09:20:00-06:00", "phase": "waxing_gibbous", "context": "Sunrise: 07:09 AM"}
+    monkeypatch.setattr(ctrl, "_get_calendar_snapshot", lambda: {"lunar_event": dict(current)})
+    broadcasts = []
+    monkeypatch.setattr(ctrl, "_broadcast_automation_notification", lambda **payload: broadcasts.append(payload))
+    ctrl._evaluate_and_apply_advanced({})
+    assert not broadcasts
+    current.update(transition_at="2026-10-25T22:11:00-06:00", phase="full_moon")
+    ctrl._evaluate_and_apply_advanced({})
+    ctrl._evaluate_and_apply_advanced({})
+    assert len(broadcasts) == expected
+    if expected:
+        report = ctrl._automation_condition_report(broadcasts[0]["evaluated_groups"][0]["conditions"][0][0], True, {})
+        assert "Full Moon" in report and "Sunrise" in report
+
+
+def test_calendar_notify_rearms_per_event_and_includes_graphic_without_clear_email(monkeypatch):
+    ctrl = _calendar_rule_controller(
+        {"type": "calendar", "calendar_kind": "lunar_events", "calendar_event": "all"},
+        [{"type": "notify", "executor_switch_id": "sw1", "to": "grower@example.com"}],
+    )
+    class Delivery:
+        def __init__(self):
+            self.sent = []
+        def persisted_automation_state(self, *_args, **_kwargs):
+            return True
+        def enqueue_automation_transition(self, **payload):
+            self.sent.append(payload)
+            return True
+    ctrl.email_delivery_service = Delivery()
+    current = {"transition_at": "2026-10-10T09:50:00-06:00", "phase": "new_moon", "context": "Moonrise: 11:30 AM\nSunrise: 07:09 AM", "graphic": {"phase": "new_moon"}}
+    monkeypatch.setattr(ctrl, "_get_calendar_snapshot", lambda: {"lunar_event": dict(current)})
+    ctrl._evaluate_and_apply_advanced({})
+    current.update(transition_at="2026-10-14T07:14:00-06:00", phase="waxing_crescent")
+    ctrl._evaluate_and_apply_advanced({})
+    ctrl._evaluate_and_apply_advanced({})
+    current.update(transition_at="2026-10-18T10:12:00-06:00", phase="first_quarter")
+    ctrl._evaluate_and_apply_advanced({})
+    ctrl._evaluate_and_apply_advanced({})
+    sent = ctrl.email_delivery_service.sent
+    assert len(sent) == 2
+    assert all(item["triggered"] is True for item in sent)
+    assert "Waxing Crescent" in sent[0]["subject"]
+    assert "Moonrise" in sent[0]["body"] and "Sunrise" in sent[0]["body"]
+    assert sent[0]["lunar_calendar"] == current["graphic"]
+    assert sent[0]["revision"] != sent[1]["revision"]
+
+
+def test_calendar_switch_actor_can_target_remote_controller(monkeypatch):
+    ctrl = _calendar_rule_controller(
+        {"type": "calendar", "calendar_kind": "lunar_events", "calendar_event": "all", "executor_switch_id": "__system__"},
+        [{"type": "switch", "switch_key": "sw1::Fan", "set": True, "revert_action": "do_nothing"}],
+    )
+    current = {"transition_at": "2026-10-10T09:50:00-06:00", "phase": "new_moon"}
+    monkeypatch.setattr(ctrl, "_get_calendar_snapshot", lambda: {"lunar_event": dict(current)})
+    ctrl.get_state = lambda _label: False
+    calls = []
+    ctrl.set_state = lambda label, state, **_kwargs: calls.append((label, state))
+    ctrl._evaluate_and_apply_advanced({})
+    current.update(transition_at="2026-10-14T07:14:00-06:00", phase="waxing_crescent")
+    ctrl._evaluate_and_apply_advanced({})
+    assert calls == [("Fan", True)]
+
+
+def test_calendar_lunar_schedule_refresh_keeps_same_event_identity(monkeypatch):
+    ctrl = _calendar_rule_controller({"type": "calendar", "calendar_kind": "lunar_events", "calendar_event": "all"})
+    current = {"transition_at": "2026-10-10T09:50:00.100000-06:00", "phase": "new_moon", "event_key": "new_moon:2026-10-10"}
+    monkeypatch.setattr(ctrl, "_get_calendar_snapshot", lambda: {"lunar_event": dict(current)})
+    broadcasts = []
+    monkeypatch.setattr(ctrl, "_broadcast_automation_notification", lambda **payload: broadcasts.append(payload))
+    ctrl._evaluate_and_apply_advanced({})
+    current["transition_at"] = "2026-10-10T09:50:00.100900-06:00"
+    ctrl._evaluate_and_apply_advanced({})
+    assert not broadcasts
+
+
+@pytest.mark.parametrize("action_type", ["none", "notify"])
+def test_calendar_datetime_triggers_once_with_generic_content(monkeypatch, action_type):
+    target = datetime.fromisoformat("2026-10-14T15:30:00-06:00")
+    actions = [{"type": action_type, "executor_switch_id": "sw1", "to": "grower@example.com"}]
+    ctrl = _calendar_rule_controller({"type": "calendar", "calendar_kind": "date_time",
+        "calendar_at": target.isoformat(), "calendar_timezone": "America/Denver"}, actions)
+    clock = {"now": target.timestamp() - 5}
+    monkeypatch.setattr(saiSwitch.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(ctrl, "_get_calendar_snapshot", lambda: pytest.fail("Date/Time needs no ephemeris"))
+    broadcasts, emails = [], []
+    monkeypatch.setattr(ctrl, "_broadcast_automation_notification", lambda **payload: broadcasts.append(payload))
+    ctrl.email_delivery_service = types.SimpleNamespace(
+        persisted_automation_state=lambda *_args, **_kwargs: False,
+        enqueue_automation_transition=lambda **payload: emails.append(payload),
+    )
+    ctrl._evaluate_and_apply_advanced({})
+    assert not broadcasts and not emails
+    clock["now"] = target.timestamp()
+    ctrl._evaluate_and_apply_advanced({})
+    clock["now"] += 5
+    ctrl._evaluate_and_apply_advanced({})
+    assert len(broadcasts if action_type == "none" else emails) == 1
+    if action_type == "notify":
+        assert "Calendar" in emails[0]["subject"]
+        assert "Scheduled Sensorius calendar event" in emails[0]["body"]
+        assert "Sunrise" not in emails[0]["body"]
+        assert emails[0]["triggered"] is True
+        assert "lunar_calendar" not in emails[0]
+
+
+def test_calendar_datetime_does_not_replay_past_event_or_clock_rollback(monkeypatch):
+    target = datetime.fromisoformat("2026-10-14T15:30:00-06:00")
+    ctrl = _calendar_rule_controller({"type": "calendar", "calendar_kind": "date_time", "calendar_at": target.isoformat()})
+    clock = {"now": target.timestamp() + 60}
+    monkeypatch.setattr(saiSwitch.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(ctrl, "_broadcast_automation_notification", lambda **_payload: pytest.fail("Past event must not replay"))
+    ctrl._evaluate_and_apply_advanced({})
+    clock["now"] = target.timestamp() - 60
+    ctrl._evaluate_and_apply_advanced({})
+    clock["now"] = target.timestamp() + 60
+    ctrl._evaluate_and_apply_advanced({})
+
+
+@pytest.mark.parametrize("selected,expected", [("all", 1), ("samhain", 1), ("imbolc", 0)])
+def test_calendar_season_filter_and_one_shot_notification(monkeypatch, selected, expected):
+    ctrl = _calendar_rule_controller({"type": "calendar", "calendar_kind": "season", "calendar_event": selected})
+    current = {"transition_at": "2026-09-25T06:50:00-06:00", "season": "autumn_equilux", "name": "Autumn Equilux"}
+    monkeypatch.setattr(ctrl, "_get_calendar_snapshot", lambda: {"season_event": dict(current)})
+    broadcasts = []
+    monkeypatch.setattr(ctrl, "_broadcast_automation_notification", lambda **payload: broadcasts.append(payload))
+    ctrl._evaluate_and_apply_advanced({})
+    current.update(transition_at="2026-10-31T00:00:00-06:00", season="samhain", name="Samhain", context="Traditional calendar observance")
+    ctrl._evaluate_and_apply_advanced({})
+    ctrl._evaluate_and_apply_advanced({})
+    assert len(broadcasts) == expected
+    if expected:
+        cond = broadcasts[0]["evaluated_groups"][0]["conditions"][0][0]
+        assert "Samhain" in ctrl._automation_condition_report(cond, True, {})

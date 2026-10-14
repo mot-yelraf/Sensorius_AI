@@ -30,15 +30,16 @@ def test_web_routes_binds_the_runtime_app_for_background_broadcasts():
     assert 'globals()["app"] = app' in routes_text
 
 
-def test_bd_transition_condition_is_optionless_and_serialized():
+def test_calendar_condition_serializes_selectors_and_loads_legacy_bd_rules():
     repo_root = Path(__file__).resolve().parents[1]
     js_text = (
         repo_root / "ui_static" / "js" / "advanced_automation.js"
     ).read_text(encoding="utf-8")
 
-    assert '<option value="bd_transitions">BD Transitions</option>' in js_text
-    assert 'row.append(typeWrap, rem);' in js_text
-    assert 'return { type:"bd_transitions", executor_switch_id: currentSwitchId };' in js_text
+    assert '<option value="calendar">Calendar</option>' in js_text
+    assert 'row.append(typeWrap, calendarKindWrap, calendarKind.value === "date_time" ? calendarDateWrap : calendarEventWrap, rem);' in js_text
+    assert 'return { type:"calendar", calendar_kind:' in js_text
+    assert 'cond?.type === "bd_transitions" ? "calendar"' in js_text
     assert 'opt.value = "none";' in js_text
     assert 'opt.textContent = "Alert";' in js_text
     assert 'type: "none"' in js_text

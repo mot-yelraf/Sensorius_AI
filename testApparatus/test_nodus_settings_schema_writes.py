@@ -6848,3 +6848,66 @@ async def test_ecowitt_sensor_info_uses_gateway_ip_and_live_battery(tmp_path, mo
         gateway.disable()
         response = await client.get("/sensor-settings/statistics", params={"sensor_id": sid})
         assert response.json()["battery_status"] == "UNKNOWN"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind,event,expected_status", [
+    ("bd_transitions", "earth", 200), ("bd_transitions", "all", 200),
+    ("lunar_events", "full_moon", 200), ("lunar_events", "all", 200),
+    ("lunar_events", "earth", 400), ("bd_transitions", "full_moon", 400),
+    ("unknown", "all", 400), ("season", "all", 200), ("season", "samhain", 200),
+    ("season", "spring_equilux", 200), ("season", "full_moon", 400),
+])
+async def test_calendar_condition_save_validates_filters_and_removes_offset(tmp_path, monkeypatch, kind, event, expected_status):
+    app, _ingest, _system_root, _sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    import sensorius.saiAutomationManager as module
+    real_manager = module.AutomationManager
+    class Manager(real_manager):
+        def __init__(self, _base_dir="switch_settings"):
+            super().__init__(str(switch_root))
+    monkeypatch.setattr(module, "AutomationManager", Manager)
+    payload = {"switch_id": "sensoria-hub-0", "rule_id": "calendar", "enabled": "true", "script_json": json.dumps({
+        "name": "Calendar", "enabled": True,
+        "conditions": [{"type": "calendar", "calendar_kind": kind, "calendar_event": event, "offset_min": 120}],
+        "actions": [{"type": "none", "executor_switch_id": "sensoria-hub-0"}],
+    })}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/submit-advanced-trigger", json=payload)
+    assert response.status_code == expected_status
+    if expected_status == 200:
+        script = json.loads(Manager().load("sensoria-hub-0")["Advanced"]["calendar"]["script_json"])
+        condition = script["conditions"][0]
+        assert condition["calendar_kind"] == kind
+        assert condition["calendar_event"] == event
+        assert condition["offset_min"] == 0
+        assert condition["executor_switch_id"] == "sensoria-hub-0"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("local,expected_status", [
+    ("2026-10-31T15:30", 200), ("2026-03-08T02:30", 400),
+    ("2026-11-01T01:30", 400), ("", 400), ("2026-10-31", 400),
+])
+async def test_calendar_datetime_save_resolves_timezone_and_validates_dst(tmp_path, monkeypatch, local, expected_status):
+    app, _ingest, _system_root, _sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    import sensorius.saiAutomationManager as module
+    real_manager = module.AutomationManager
+    class Manager(real_manager):
+        def __init__(self, _base_dir="switch_settings"):
+            super().__init__(str(switch_root))
+    monkeypatch.setattr(module, "AutomationManager", Manager)
+    payload = {"switch_id": "sensoria-hub-0", "rule_id": "scheduled", "enabled": "true", "script_json": json.dumps({
+        "name": "Scheduled event", "enabled": True,
+        "conditions": [{"type": "calendar", "calendar_kind": "date_time", "calendar_local": local,
+                        "calendar_timezone": "America/Denver", "calendar_at": "2000-01-01T00:00:00+00:00", "offset_min": 60}],
+        "actions": [{"type": "none", "executor_switch_id": "sensoria-hub-0"}],
+    })}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/submit-advanced-trigger", json=payload)
+    assert response.status_code == expected_status
+    if expected_status == 200:
+        condition = json.loads(Manager().load("sensoria-hub-0")["Advanced"]["scheduled"]["script_json"])["conditions"][0]
+        assert condition["calendar_at"] == "2026-10-31T15:30:00-06:00"
+        assert condition["calendar_local"] == local
+        assert condition["calendar_timezone"] == "America/Denver"
+        assert condition["offset_min"] == 0

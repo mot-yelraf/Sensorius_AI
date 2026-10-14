@@ -231,7 +231,9 @@ class SMTPEmailSender:
         require_enabled: bool = True,
         config: EmailConfig | None = None,
         to_addresses: tuple[str, ...] | None = None,
+        lunar_calendar: dict | None = None,
     ) -> None:
+        """Send the text report and optional inline Lunar Calendar PNG."""
         config = config or EmailConfig.from_environment()
         if to_addresses is not None:
             config = replace(config, to_addresses=tuple(to_addresses))
@@ -244,6 +246,24 @@ class SMTPEmailSender:
         message["From"] = config.from_address
         message["To"] = ", ".join(config.to_addresses)
         message.set_content(body)
+        if lunar_calendar:
+            try:
+                from html import escape
+                from .saiLunarCalendarGraphic import render_lunar_calendar
+
+                graphic = render_lunar_calendar(lunar_calendar)
+                message.add_alternative(
+                    '<html><body><img src="cid:lunar-calendar" alt="Lunar Calendar event snapshot" '
+                    'style="width:100%;max-width:1200px;height:auto">'
+                    '<pre style="white-space:pre-wrap;font-family: sans-serif">'
+                    + escape(body) + '</pre></body></html>', subtype="html",
+                )
+                message.get_payload()[-1].add_related(
+                    graphic, maintype="image", subtype="png", cid="<lunar-calendar>",
+                    filename="lunar-calendar.png", disposition="inline",
+                )
+            except Exception as exc:
+                printDM(f"Lunar Calendar email graphic unavailable: {exc}", location=MODULE, level="warning")
 
         if config.security == "ssl":
             with smtplib.SMTP_SSL(config.smtp_host, config.port, timeout=15) as smtp:
@@ -484,6 +504,7 @@ class EmailNotificationService:
         subject: str,
         body: str,
         revision: str = "",
+        lunar_calendar: dict | None = None,
     ) -> bool:
         """Queue one automation edge for guarded, persisted SMTP delivery."""
         rid = str(rule_id or "").strip()
@@ -514,6 +535,7 @@ class EmailNotificationService:
                 "subject": str(subject or ""),
                 "body": str(body or ""),
                 "to_addresses": (to_address,),
+                "lunar_calendar": lunar_calendar,
                 "attempts": 0,
             })
         return True
@@ -590,6 +612,8 @@ class EmailNotificationService:
             send_kwargs = {}
             if item.get("to_addresses"):
                 send_kwargs["to_addresses"] = tuple(item["to_addresses"])
+            if item.get("lunar_calendar"):
+                send_kwargs["lunar_calendar"] = item["lunar_calendar"]
             await asyncio.to_thread(
                 self.sender.send,
                 item["subject"],

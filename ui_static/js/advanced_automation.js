@@ -15,6 +15,7 @@ let switchChannelIds = {};
 let switchChannels = 1;
 let actorDirectory = [];
 let emailActorEnabled = false;
+let calendarTimezone = "hub timezone";
 let astralStatus = { ok: false, message: "" };
 
 // ----- API helpers -----
@@ -135,7 +136,7 @@ function getActionOptionEntries(modal) {
 
 function hasBdTransitionCondition(modal) {
   return [...(modal?.querySelectorAll?.("#conditionsContainer .cond-group") || [])]
-    .some(group => String(group.querySelector("select")?.value || "").trim().toLowerCase() === "bd_transitions");
+    .some(group => String(group.querySelector("select")?.value || "").trim().toLowerCase() === "calendar");
 }
 
 function fillActionSwitchOptions(selectEl, modal, preferredValue = "") {
@@ -215,7 +216,7 @@ function updateAstralDependencyWarning(modal) {
   const box = q(modal, "#astralDependencyWarning");
   if (!box) return;
   const hasAstral = [...modal.querySelectorAll("#conditionsContainer .cond-group select")]
-    .some(sel => String(sel?.value || "").trim().toLowerCase() === "astral");
+    .some(sel => String(sel?.value || "").trim().toLowerCase() === "astral" || (String(sel?.value || "").trim().toLowerCase() === "calendar" && sel.closest(".cond-group")?.querySelector(".calendar-kind")?.value !== "date_time"));
   if (!hasAstral || astralStatus?.ok) {
     box.hidden = true;
     box.textContent = "";
@@ -366,7 +367,7 @@ function readAutomationTimePicker(group, className) {
 // ----- Conditions builder -----
 function addCondition(modal, cond) {
   const container = q(modal, "#conditionsContainer");
-  const initialType = (cond?.type || "sensor");
+  const initialType = cond?.type === "bd_transitions" ? "calendar" : (cond?.type || "sensor");
   const group = create("div", "cond-group");
 
   // Type
@@ -375,13 +376,13 @@ function addCondition(modal, cond) {
   typeLab.textContent = "Type";
   const typeSel = create("select");
   typeSel.innerHTML = `
-    <option value="sensor">sensor</option>
-    <option value="time">time of day</option>
-    <option value="astral">astral</option>
-    <option value="timer">timer</option>
-    <option value="bd_transitions">BD Transitions</option>
+    <option value="sensor">Sensor</option>
+    <option value="time">Time of Day</option>
+    <option value="timer">Timer</option>
+    <option value="astral">Astral</option>
+    <option value="calendar">Calendar</option>
     <option value="severe_weather">Severe Weather</option>
-    <option value="or">or</option>`;
+    <option value="or">Or</option>`;
   typeSel.value = initialType;
   typeSel.style.width = "8rem";
   typeWrap.append(typeLab, typeSel);
@@ -678,10 +679,58 @@ function renderAsTime() {
     group.appendChild(row);
   }
 
-  function renderAsBdTransitions(){
+  const calendarKindWrap = create("div");
+  const calendarKindLabel = create("label");
+  calendarKindLabel.textContent = "Calendar";
+  const calendarKind = create("select", "calendar-kind");
+  calendarKind.setAttribute("aria-label", "Calendar event type");
+  calendarKind.innerHTML = '<option value="date_time">Date/Time</option><option value="bd_transitions">BD Transitions</option><option value="lunar_events">Lunar Events</option><option value="season">Season</option>';
+  calendarKind.value = ["lunar_events", "date_time", "season"].includes(cond?.calendar_kind) ? cond.calendar_kind : "bd_transitions";
+  calendarKindWrap.append(calendarKindLabel, calendarKind);
+  const calendarEventWrap = create("div");
+  const calendarEventLabel = create("label");
+  calendarEventLabel.textContent = "Event";
+  const calendarEvent = create("select", "calendar-event");
+  calendarEvent.setAttribute("aria-label", "Calendar event");
+  calendarEventWrap.append(calendarEventLabel, calendarEvent);
+  const calendarDateWrap = create("div");
+  const calendarDateLabel = create("label");
+  calendarDateLabel.textContent = `Date / Time (${cond?.calendar_timezone || calendarTimezone})`;
+  const calendarDate = create("input", "calendar-datetime");
+  calendarDate.type = "datetime-local";
+  calendarDate.step = "60";
+  calendarDate.dataset.timezone = cond?.calendar_timezone || calendarTimezone;
+  calendarDate.setAttribute("aria-label", "Calendar date and time");
+  calendarDate.value = String(cond?.calendar_local || "");
+  calendarDateWrap.append(calendarDateLabel, calendarDate);
+  function fillCalendarEvents(preferred = "all") {
+    const seasons = [["all", "All"], ["imbolc", "Imbolc"],
+      ["spring_equinox", "Spring Equinox / Ostara"], ["spring_equilux", "Spring Equilux"],
+      ["beltane", "Beltane"], ["summer_solstice", "Summer Solstice / Litha"],
+      ["lughnasadh", "Lughnasadh / Lammas"], ["autumn_equilux", "Autumn Equilux"],
+      ["autumn_equinox", "Autumn Equinox / Mabon"], ["samhain", "Samhain"],
+      ["winter_solstice", "Winter Solstice / Yule"]];
+    const choices = calendarKind.value === "season" ? seasons : calendarKind.value === "lunar_events"
+      ? [["all", "All"], ["new_moon", "New Moon"], ["waxing_crescent", "Waxing Crescent"],
+         ["first_quarter", "First Quarter"], ["waxing_gibbous", "Waxing Gibbous"],
+         ["full_moon", "Full Moon"], ["waning_gibbous", "Waning Gibbous"],
+         ["last_quarter", "Last Quarter"], ["waning_crescent", "Waning Crescent"]]
+      : [["all", "All"], ["earth", "Earth/Root"], ["water", "Water/Leaf"],
+         ["air", "Air/Flower"], ["fire", "Fire/Fruit"]];
+    calendarEvent.replaceChildren(...choices.map(([value, label]) => new Option(label, value)));
+    calendarEvent.value = choices.some(([value]) => value === preferred) ? preferred : "all";
+  }
+  fillCalendarEvents(cond?.calendar_event || "all");
+  calendarKind.addEventListener("change", () => {
+    fillCalendarEvents();
+    renderAsCalendar();
+    updateAstralDependencyWarning(modal);
+  });
+
+  function renderAsCalendar(){
     group.innerHTML = "";
-    const row = create("div", "cond bd-transitions");
-    row.append(typeWrap, rem);
+    const row = create("div", "cond calendar");
+    row.append(typeWrap, calendarKindWrap, calendarKind.value === "date_time" ? calendarDateWrap : calendarEventWrap, rem);
     group.appendChild(row);
   }
 
@@ -712,7 +761,7 @@ function renderAsTime() {
   if (initialType === "time")         renderAsTime();
   else if (initialType === "astral")  renderAsAstral();
   else if (initialType === "timer")   renderAsTimer();
-  else if (initialType === "bd_transitions") renderAsBdTransitions();
+  else if (initialType === "calendar") renderAsCalendar();
   else if (initialType === "severe_weather") renderAsSevereWeather();
   else if (initialType === "or")      renderAsOr();
   else                                renderAsSensor();
@@ -722,7 +771,7 @@ function renderAsTime() {
     if (typeSel.value === "time")         renderAsTime();
     else if (typeSel.value === "astral")  renderAsAstral();
     else if (typeSel.value === "timer")   renderAsTimer();
-    else if (typeSel.value === "bd_transitions") renderAsBdTransitions();
+    else if (typeSel.value === "calendar") renderAsCalendar();
     else if (typeSel.value === "severe_weather") renderAsSevereWeather();
     else if (typeSel.value === "or")      renderAsOr();
     else                                  renderAsSensor();
@@ -930,8 +979,18 @@ function serializeForm(modal){
       return condition;
     } else if (typeVal === "severe_weather") {
       return { type:"severe_weather" };
-    } else if (typeVal === "bd_transitions") {
-      return { type:"bd_transitions", executor_switch_id: currentSwitchId };
+    } else if (typeVal === "calendar") {
+      const kind = group.querySelector(".calendar-kind").value;
+      if (kind === "date_time") {
+        const input = group.querySelector(".calendar-datetime");
+        if (!input?.value || !input.checkValidity()) throw new Error("Select a valid Calendar date and time.");
+        const condition = {type: "calendar", calendar_kind: kind, calendar_local: input.value, executor_switch_id: currentSwitchId};
+        const tz = String(input.dataset.timezone || "");
+        if (tz && tz !== "hub timezone") condition.calendar_timezone = tz;
+        return condition;
+      }
+      return { type:"calendar", calendar_kind: kind,
+        calendar_event: group.querySelector(".calendar-event").value, executor_switch_id: currentSwitchId };
     } else if (typeVal === "or"){
       return { type:"or" };
     } else {
@@ -1026,6 +1085,7 @@ async function loadSwitchInfoInto(rootLike) {
     });
     actorDirectory = Array.isArray(context.actors) ? context.actors : [];
     emailActorEnabled = !!context.email_enabled;
+    calendarTimezone = String(context.calendar_timezone || "hub timezone");
     currentSwitchId = String(context.executor_switch_id || "").trim();
     if (!currentSwitchId && actorDirectory.length) {
       currentSwitchId = String(actorDirectory[0]?.switch_id || "").trim();

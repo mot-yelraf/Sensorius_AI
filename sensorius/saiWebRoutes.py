@@ -14209,6 +14209,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "actors": actors,
             "email_enabled": email_enabled,
             "executor_switch_id": "__system__",
+            "calendar_timezone": str(settings.get_setting("Astral", "TIMEZONE", "") or settings.get_setting("Time", "TZ", "UTC") or "UTC"),
         }
 
     def _resolve_automation_target(switch_id: str, switch_key: str) -> tuple[str, str, int | None]:
@@ -14496,7 +14497,31 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     "period_min":   period_min,
                     "anchor_epoch": anchor_epoch,
                 }
-                if cond_type == "bd_transitions":
+                if cond_type == "calendar":
+                    from .saiCalendarAutomation import LUNAR_PHASES, normalize_calendar_datetime
+                    from .saiSeasonCalendar import SEASON_EVENTS
+
+                    kind = str(c.get("calendar_kind", "bd_transitions")).strip().lower()
+                    event = str(c.get("calendar_event", "all")).strip().lower()
+                    choices = {"bd_transitions": {"all", "earth", "water", "air", "fire"},
+                               "lunar_events": {"all", *LUNAR_PHASES},
+                               "season": {"all", *SEASON_EVENTS}, "date_time": {"all"}}
+                    if kind not in choices or event not in choices[kind]:
+                        return error_response("Invalid Calendar event selection.", status_code=400)
+                    if kind == "date_time":
+                        tz_name = str(c.get("calendar_timezone") or settings.get_setting("Astral", "TIMEZONE", "")
+                                      or settings.get_setting("Time", "TZ", "UTC") or "UTC")
+                        try:
+                            target = normalize_calendar_datetime(c.get("calendar_local", ""), tz_name)
+                        except (ValueError, KeyError, TypeError) as exc:
+                            return error_response(str(exc), status_code=400)
+                        normalized_condition["calendar_local"] = str(c.get("calendar_local"))
+                        normalized_condition["calendar_timezone"] = tz_name
+                        normalized_condition["calendar_at"] = target
+                    normalized_condition["calendar_kind"] = kind
+                    normalized_condition["calendar_event"] = event
+                    normalized_condition["offset_min"] = 0
+                if cond_type in {"bd_transitions", "calendar"}:
                     normalized_condition["executor_switch_id"] = norm_switch_id(
                         str(c.get("executor_switch_id", switch_id) or switch_id)
                     )
