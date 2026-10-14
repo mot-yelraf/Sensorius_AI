@@ -37,6 +37,12 @@ def healthz() -> str:
     return "ok"
 
 
+@app.get("/documentation-capture")
+def documentation_capture() -> dict:
+    """Identify this isolated capture host without reading machine settings."""
+    return {"capture_id": os.environ.get("SENSORIUS_DOCS_CAPTURE_ID", "")}
+
+
 @app.websocket("/ws/switch-updates")
 async def switch_updates(websocket: WebSocket) -> None:
     """Keep the dashboard's normal switch-status socket open during the check."""
@@ -49,7 +55,7 @@ async def switch_updates(websocket: WebSocket) -> None:
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(battery: str = "", station: str = "") -> HTMLResponse:
+def dashboard(battery: str = "", station: str = "", documentation: bool = False) -> HTMLResponse:
     """Render a deterministic dashboard with enough metrics to test interaction."""
     sensor_id = station or ("ecowitt-pr-check" if battery else "aht-pr-check")
     metrics = {
@@ -75,6 +81,9 @@ def dashboard(battery: str = "", station: str = "") -> HTMLResponse:
             expected_gauge_map={sensor_id: list(metrics)},
             expected_display_style_map={sensor_id: {}},
             display_style="Gauge",
+            dashboard_background_theme="fruit" if documentation else "leaf",
+            astro_payload={"ok": False, "reason": "documentation_fixture"} if documentation else None,
+            biodynamic_payload={"ok": False, "reason": "documentation_fixture"} if documentation else None,
         )
     )
     return HTMLResponse(html)
@@ -101,36 +110,66 @@ def biodynamic_calendar(request: Request):
 
 
 @app.get("/edit-system", response_class=HTMLResponse)
-def system_settings() -> HTMLResponse:
+def system_settings(documentation: bool = False) -> HTMLResponse:
     """Render the actual settings dialog without production settings or hardware."""
+    from sensorius import __version__
+
+    example = {
+        "hostname": "hub.example.com", "httpport": 8000,
+        "broker": "mqtt.example.com", "mqttport": 1883, "tz": "UTC",
+        "astral_location_name": "Example Garden", "email_smtp_host": "smtp.example.com",
+        "email_username": "operator@example.com", "email_from": "sensorius@example.com",
+        "email_to": "gardener@example.com", "email_enabled": True,
+        "email_security": "ssl", "email_password_configured": True,
+    } if documentation else {}
     return HTMLResponse(templates.get_template("modals/system_settings.html").render(
-        app_name_long="Sensorius AI", app_version="playwright", custom_themes={},
+        app_name_long="Sensorius Automatio Instrumentorum" if documentation else "Sensorius AI",
+        app_version=__version__ if documentation else "playwright", custom_themes={},
         display_style="Gauge", metric_set="Pick 6", gauge_size="Small",
         unit_system="Imperial", astral_altitude=1000, astral_altitude_unit="ft",
+        **example,
     ))
 
 
 @app.get("/edit-sensor", response_class=HTMLResponse)
-def sensor_settings(sensor_id: str = "aht-pr-check") -> HTMLResponse:
+def sensor_settings(sensor_id: str = "aht-pr-check", documentation: bool = False) -> HTMLResponse:
     """Render a sensor's real settings and calibration panes for mobile checks."""
     from sensorius.saiInputUnits import calibration_presentation
     offsets = [{"key": "Calibration.Device.TEMP_OFFSET", "label": "Temperature", "unit": "°C", "value": 1.0}]
     presentation = calibration_presentation(offsets, 0.0, "Imperial")
+    example = {
+        "nodus_board_type": "xesp32s3", "nodus_sensor_hardware": "BME280",
+        "offline_events_24h": 1, "last_offline_epoch": 1791977400,
+        "last_offline_event_label": "2026-10-14 11:30:00 UTC",
+        "last_packet_epoch": 1791979195, "data_packets_received": 1200,
+    } if documentation else {}
     return HTMLResponse(templates.get_template("modals/sensor_settings.html").render(
         device_kind="aht", device_offsets=offsets, **presentation,
         candidate_sensors=["aht-pr-check", "reference"],
         sensor_id=sensor_id, is_ecowitt=sensor_id.startswith("ecowitt-"),
-        battery_status="OK", network_info={"ip_address": "192.0.2.10"}, current_metrics=["Temperature"] + [""] * 5,
+        battery_status="OK", network_info={"ip_address": "192.0.2.20", "broker": "mqtt.example.com", "broker_status": "Connected"}
+        if documentation else {"ip_address": "192.0.2.10"}, current_metrics=["Temperature"] + [""] * 5,
         metric_options=["", "Temperature"], settings={}, location="Greenhouse",
+        **example,
     ))
 
 
 @app.get("/edit-switch", response_class=HTMLResponse)
-def switch_settings() -> HTMLResponse:
+def switch_settings(documentation: bool = False) -> HTMLResponse:
     """Render a remote switch dialog without contacting a device."""
+    example = {
+        "nodus_board_type": "xesp32s3",
+        "network_info": {"ip_address": "192.0.2.30", "broker": "mqtt.example.com", "broker_status": "Connected"},
+        "offline_events_24h": 0, "switch_last_packet_epoch": 1791979195,
+        "switch_channel_state_stats": [
+            {"channel_id": "s1-demo", "row_label": "S1 current state, age:", "state": "Off", "state_epoch": 1791977400},
+            {"channel_id": "s2-demo", "row_label": "S2 current state, age:", "state": "On", "state_epoch": 1791978600},
+        ],
+    } if documentation else {}
     return HTMLResponse(templates.get_template("modals/switch_settings.html").render(
-        switch_id="switch-pr-check", settings={"Switch": {"SWITCH_LOCATION": "Greenhouse"}},
+        switch_id="switch-demo" if documentation else "switch-pr-check", settings={"Switch": {"SWITCH_LOCATION": "Greenhouse"}},
         channels=[{"index": 0, "label": "Pump"}], channel_indices=[0],
+        **example,
     ))
 
 

@@ -160,6 +160,15 @@ Record its result in the pull request. Maintainers should run it from a trusted
 checkout before merging an untrusted contribution; do not expose local runtime
 settings, broker credentials, or other secrets to contributor-controlled code.
 
+## User Guide Screenshots
+
+Run `npm run docs:screenshots` to recapture the seven settings and device-info
+images from the isolated documentation fixture. The capture uses synthetic
+`example.com` identities and documentation-only `192.0.2.x` addresses, checks
+visible fields, and blocks runtime writes. Do not capture these guide images
+from a live hub. Use `-- --output-dir /absolute/staging/directory` to review them
+before replacement, then run `npm run docs:pdf` to refresh the embedded images.
+
 ## Pull Request Guidelines
 
 Pull requests should:

@@ -564,6 +564,18 @@ select.op-select{ max-width:80px; width:100%; }
   grid-template-columns:minmax(180px, 260px) minmax(180px, 260px) minmax(120px, 165px) 44px;
   justify-content:space-between;
 }
+.cond.calendar{
+  display:grid; align-items:end; gap:.75rem;
+  grid-template-columns:minmax(120px, .7fr) minmax(150px, 1fr) minmax(155px, 1fr) 44px;
+}
+#setupPiModal .cond.calendar > div{min-width:0;}
+#setupPiModal .cond.calendar select,
+#setupPiModal .cond.calendar input{width:100% !important; min-width:0; box-sizing:border-box;}
+@media(max-width:600px){
+  .cond.calendar{grid-template-columns:minmax(0, 1fr) 44px;}
+  .cond.calendar > div{grid-column:1;}
+  .cond.calendar > .remove{grid-column:2; grid-row:1;}
+}
 .cond.bd-transitions,
 .cond.severe-weather{
   display:grid; align-items:end; gap:.75rem;

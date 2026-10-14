@@ -94,6 +94,16 @@
     overflow:visible;
   }
   #setupPiModal.mobile-settings .system-settings-content { padding:.5rem; }
+  #setupPiModal.mobile-settings #pane-automations,
+  #setupPiModal.mobile-settings #automationEditorWrap {
+    height:auto;
+    flex:0 0 auto;
+    overflow:visible;
+  }
+  #setupPiModal.mobile-settings #automationEditorWrap > form {
+    flex:0 0 auto;
+    overflow:visible;
+  }
   #setupPiModal.mobile-settings .integrations-list,
   #setupPiModal.mobile-settings .advanced-sections { overflow:visible; }
   .mobile-settings .mobile-settings-current > summary { display:none !important; }

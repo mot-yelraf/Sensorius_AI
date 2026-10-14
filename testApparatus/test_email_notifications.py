@@ -620,3 +620,51 @@ def test_automation_stylesheet_is_versioned_for_layout_updates():
 
     assert "/ui_static/css/app.css?v={APP_VERSION}" in html_source
     assert "/ui_static/css/app.css?v={APP_VERSION}" in routes_source
+
+
+def test_lunar_email_contains_inline_png_and_plain_text(monkeypatch):
+    import io
+    from PIL import Image
+    monkeypatch.setenv("SENSORIUS_EMAIL_ENABLED", "true")
+    monkeypatch.setenv("SENSORIUS_EMAIL_SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SENSORIUS_EMAIL_SECURITY", "ssl")
+    monkeypatch.setenv("SENSORIUS_EMAIL_USERNAME", "sender@example.com")
+    monkeypatch.setenv("SENSORIUS_EMAIL_APP_PASSWORD", "example-password")
+    monkeypatch.setenv("SENSORIUS_EMAIL_FROM", "sender@example.com")
+    monkeypatch.setenv("SENSORIUS_EMAIL_TO", "grower@example.com")
+    messages = []
+    class SMTP:
+        def __init__(self, *_args, **_kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *_args): pass
+        def login(self, *_args): pass
+        def send_message(self, message): messages.append(message)
+    monkeypatch.setattr("sensorius.saiEmailNotifications.smtplib.SMTP_SSL", SMTP)
+    graphic = {"phase": "full_moon", "index": 4, "transition_at": "2026-10-25T22:11:00-06:00",
+               "illumination": 100, "bright_limb_angle": 120, "disk_rotation": 30,
+               "context": "Moonrise: 06:30 PM\nMoonset: 07:30 AM\nSunrise: 07:20 AM\nSunset: 06:00 PM"}
+    SMTPEmailSender().send("Full Moon", "Full Moon <event>\nSunrise: 07:20 AM", lunar_calendar=graphic)
+    message = messages[0]
+    assert "Full Moon <event>" in message.get_body(preferencelist=("plain",)).get_content()
+    html = message.get_body(preferencelist=("html",)).get_content()
+    assert 'src="cid:lunar-calendar"' in html
+    assert "&lt;event&gt;" in html
+    attachment = next(part for part in message.walk() if part.get_content_type() == "image/png")
+    assert attachment["Content-ID"] == "<lunar-calendar>"
+    assert attachment.get_filename() == "lunar-calendar.png"
+    with Image.open(io.BytesIO(attachment.get_payload(decode=True))) as image:
+        assert image.size == (1200, 560)
+
+
+def test_lunar_graphic_survives_guarded_queue_delivery(monkeypatch):
+    monkeypatch.setenv("SENSORIUS_EMAIL_ENABLED", "true")
+    sent = []
+    class Sender:
+        def send(self, subject, body, **kwargs):
+            sent.append((subject, body, kwargs))
+    service = EmailNotificationService(settings=FakeSettings([]), data_logger=FakeLogger(), sender=Sender())
+    graphic = {"phase": "full_moon", "index": 4}
+    assert service.enqueue_automation_transition(rule_id="lunar", triggered=True, recipient="grower@example.com",
+        subject="Full Moon", body="Moonrise: 06:30 PM", lunar_calendar=graphic)
+    asyncio.run(service._deliver_item(service._pop()))
+    assert sent == [("Full Moon", "Moonrise: 06:30 PM", {"to_addresses": ("grower@example.com",), "lunar_calendar": graphic})]

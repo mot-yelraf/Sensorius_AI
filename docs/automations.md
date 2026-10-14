@@ -65,6 +65,7 @@ Advanced rules can express:
 - Day-of-week schedules.
 - Sunrise and sunset schedules through Astral settings.
 - Timer windows through `duration_min`, `period_min`, and legacy `freq_hours`.
+- Calendar events for filtered biodynamic transitions and the eight lunar phases.
 - **Severe Weather**: active NWS weather warnings and watches at the Astral location.
 - Multi-action rules.
 - Email Notify actors with a per-action recipient when email is enabled.
@@ -108,36 +109,84 @@ Timer behavior:
 - Minute-based intervals can use `anchor_epoch` so a newly saved rule starts
   from save time.
 
-BD Transitions behavior:
+Calendar behavior:
 
-- `BD Transitions` has no configuration options.
-- The condition becomes true for one automation evaluation when the
-  biodynamic calendar enters a new segment.
-- A transition publishes a dashboard toast containing the local transition
-  date and time plus the outgoing and incoming zodiac sign, element, and plant
-  part. The toast uses two lines: `BD Transition @ <date time>`, then the
-  `From ... → To ...` transition description.
-- The toast background uses the incoming element's established biodynamic
-  color, with automatically contrasting text.
-- The actor list always includes `Alert`.
-  Selecting it evaluates the transition and publishes the automatic toast
-  without sending email or changing a relay.
-- Rules saved with the initial `None` implementation are accepted through a
-  compatibility path that treats an empty switch action as `None` for BD
-  transition rules.
-- The toast remains visible until it is clicked.
-- Toast events are delivered to connected dashboard clients through the live
-  dashboard WebSocket.
-- The first evaluation after service startup establishes the current segment
-  without producing a stale transition toast.
-- A Notify actor sends one transition email rather than a subsequent
-  transition-cleared email. Its subject summarizes the transition time and
-  From/To segments; its body includes the full condition details.
-- Operators can exercise the live dashboard delivery path without changing
-  calendar or automation state by sending a POST request to
-  `/advanced/automations/test-bd-transition`. The resulting persistent toast
-  uses the standard BD Transition format and is broadcast to every connected
-  dashboard.
+- The Type menu lists Sensor, Time of Day, Timer, Astral, Calendar, Severe Weather,
+  and Or, in that order. Calendar adds a category selector and event selector (or date/time field) to the right.
+- **Calendar → BD Transitions** offers **All**, **Earth/Root**, **Water/Leaf**,
+  **Air/Flower**, and **Fire/Fruit**. The filter matches the incoming element.
+  A new sign/element/plant-part segment produces one evaluation pulse; a daily
+  rendering boundary at midnight does not itself create an event.
+- **Calendar → Lunar Events** offers **All** and **New Moon**, **Waxing Crescent**,
+  **First Quarter**, **Waxing Gibbous**, **Full Moon**, **Waning Gibbous**,
+  **Last Quarter**, and **Waning Crescent**. These are timed apparent geocentric
+  Sun–Moon elongation crossings at 0°, 45°, 90°, 135°, 180°, 225°, 270°, and 315°.
+  Crescent/gibbous entries represent the phase milestones, rather than an
+  entire multiday phase window or the approximate dates shown in the dashboard.
+- **Calendar → Date/Time** presents a date/time field to the right. It is a
+  one-time Sensorius Calendar event using the displayed IANA timezone, initially
+  the hub's Astral timezone (or Time.TZ, default UTC). Save stores the local
+  selection, timezone, and resolved offset-aware instant as `calendar_local`,
+  `calendar_timezone`, and `calendar_at`; later timezone changes do not shift it.
+  Nonexistent or ambiguous daylight-saving wall times are rejected with a clear
+  error. It needs no location or ephemeris data. A past event is not replayed on
+  startup, and a clock rollback cannot fire an already observed event twice.
+- **Calendar → Season** offers **All**, **Imbolc**, **Spring Equinox / Ostara**,
+  **Spring Equilux**, **Beltane**, **Summer Solstice / Litha**, **Lughnasadh /
+  Lammas**, **Autumn Equilux**, **Autumn Equinox / Mabon**, **Samhain**, and
+  **Winter Solstice / Yule**. The four solar turning points use calculated
+  instants. Traditional northern-hemisphere cross-quarter observances start at
+  local midnight on February 1, May 1, August 1, and October 31, respectively.
+  Southern-hemisphere seasonal names follow the local seasons; Imbolc is
+  August 1, Beltane November 1, Lughnasadh February 1, and Samhain April 30.
+  These conventions reflect the [eightfold Wheel of the Year](https://druidry.org/druid-way/teaching-and-practice/druid-festivals);
+  individual traditions may observe different dates.
+- Equilux is separate from equinox: it depends on latitude and measured
+  sunrise-to-sunset daylight. Sensorius finds each annual twelve-hour crossing,
+  selects the neighboring local date closest to twelve hours, and triggers at
+  that date's sunrise. The message states the convention, daylight duration,
+  and local sunrise/sunset times. If there is no crossing (for example, near
+  the equator), no equilux event is invented. See the
+  [equilux definition](https://www.timeanddate.com/astronomy/equilux.html).
+  Fixed observances and equilux calculations remain available without local
+  ephemeris data; solstices and equinoxes require it.
+- Date/Time and Season use the standard generic persistent Alert style and
+  guarded Notify queue, including one event email with no CLEARED follow-up.
+  Seasonal reports include the celebration name, meaning, timezone and local
+  event time. Lunar imagery and phase details belong to Lunar Events.
+- There are no condition time offsets. The condition pulses at the first
+  automation evaluation at or after the calculated event (normally within the
+  switch monitor interval). A switch actor's own Delay Action and Restore Action
+  settings continue to apply. A one-pass event is not a sustained time window.
+- The first valid evaluation after startup establishes a baseline, without
+  replaying an old event. Local ephemeris data and resolved Astral coordinates
+  and timezone are required for lunar events. Calculations warm in a worker;
+  unavailable data does not trigger an event.
+- An **Alert** actor shows a persistent, click-to-dismiss dashboard toast through
+  the live WebSocket. BD alerts retain the incoming element's established color
+  and From/To sign, element, and plant-part description. Lunar alerts retain the
+  standard automation alert style. BD alerts and Notify condition reports show
+  the transition time and From/To descriptions, without lunar sky details. Lunar
+  alerts and Notify bodies include the Moon phase description, illumination,
+  local date/time and location, moonrise/moonset, and sunrise/sunset. Missing rise/set events are identified
+  explicitly, including polar conditions.
+- A **Notify** actor sends one event email, without a subsequent CLEARED email.
+  Each event rearms delivery independently. The guarded queue, retries, and
+  rolling delivery limits still apply. The subject identifies the event and time.
+- Lunar event email includes an inline PNG **Lunar Calendar** snapshot using the
+  dashboard Moon texture, the event phase, four previous/upcoming phase dates,
+  and local Sun/Moon times. It uses **Local View**, with the illuminated edge and
+  lunar surface oriented for the configured observer at each phase's event time.
+  The email also contains the full plain-text report.
+  If image rendering fails, the text report is sent and an operator warning is
+  logged. Image creation runs in the SMTP worker and needs no browser.
+- Existing `type: "bd_transitions"` rules remain valid. The editor loads them as
+  Calendar → BD Transitions → All; saving writes `type: "calendar"` with
+  `calendar_kind`, `calendar_event`, and `executor_switch_id`. Legacy unsaved
+  rules retain their automatic BD toast behavior, including compatibility for
+  the initial empty switch/None actor representation.
+- Operators can exercise the existing BD toast delivery path by sending a POST
+  request to `/advanced/automations/test-bd-transition`, without changing state.
 
 Notify behavior:
 

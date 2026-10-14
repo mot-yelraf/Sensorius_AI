@@ -644,11 +644,13 @@ Top-level fields:
 
 Condition **Type** options:
 
-- **sensor**: compares a sensor metric to a threshold.
-- **time of day**: active only inside a daily time window.
-- **astral**: uses sunrise or sunset timing from Astral location.
-- **timer**: active for a repeated duration, such as 5 minutes every hour.
-- **or**: separates groups of conditions. Conditions within a group are AND; groups separated by OR are OR.
+- **Sensor**: compares a sensor metric to a threshold.
+- **Time of Day**: active only inside a daily time window.
+- **Timer**: active for a repeated duration, such as 5 minutes every hour.
+- **Astral**: uses sunrise or sunset timing from Astral location.
+- **Calendar**: triggers at a biodynamic, lunar, seasonal, or selected date/time event.
+- **Severe Weather**: active NWS warnings and watches at the Astral location.
+- **Or**: separates groups of conditions. Conditions within a group are AND; groups separated by OR are OR.
 
 ##### Sensor Conditions
 
@@ -674,6 +676,52 @@ Condition **Type** options:
 
 - **Every**: repeat interval. Options are 5 minutes, 15 minutes, 30 minutes, 1 hour, 3 hours, 6 hours, 12 hours, and 24 hours.
 - **Duration**: active duration in minutes, from 1 to 60. Duration must be less than the Every interval.
+
+##### Calendar Conditions
+
+Select **Calendar**, then choose **Date/Time**, **BD Transitions**,
+**Lunar Events**, or **Season** in the selector to its right.
+A third control selects the event or scheduled date/time:
+
+- **Date/Time**: select a one-time date and time in the timezone shown above
+  the field. This produces a generic Sensorius Calendar alert or event email.
+  It needs no sensor, location, or ephemeris data. Nonexistent or repeated
+  daylight-saving times are rejected; choose another time. A past event is not
+  replayed when Sensorius starts.
+- **BD Transitions**: **All**, **Earth/Root**, **Water/Leaf**, **Air/Flower**, or
+  **Fire/Fruit**. The selection refers to the incoming element and plant part.
+- **Lunar Events**: **All** or one of **New Moon**, **Waxing Crescent**,
+  **First Quarter**, **Waxing Gibbous**, **Full Moon**, **Waning Gibbous**,
+  **Last Quarter**, or **Waning Crescent**.
+
+- **Season**: **All**, **Imbolc**, **Spring Equinox / Ostara**, **Spring Equilux**,
+  **Beltane**, **Summer Solstice / Litha**, **Lughnasadh / Lammas**,
+  **Autumn Equilux**, **Autumn Equinox / Mabon**, **Samhain**, or
+  **Winter Solstice / Yule**. Solstices/equinoxes fire at their calculated times;
+  traditional cross-quarter festivals fire at local midnight on their observed
+  dates. Names and festival dates follow the configured hemisphere. Equilux
+  fires at sunrise on the local date closest to twelve hours of daylight; it is
+  omitted where no twelve-hour crossing occurs. See [Calendar behavior](automations.md)
+  for exact dates and conventions.
+
+Calendar conditions have no offsets. They trigger once when the event occurs,
+at the next automation evaluation. Lunar events use calculated phase milestone
+instants; crescent and gibbous milestones are halfway between the main quarter
+phases. Resolve the Astral location/timezone and enable local calendar ephemeris
+data first. Startup establishes a baseline without replaying old events.
+
+Choose **Alert** for the existing persistent dashboard notification style, or
+**Notify** for an event email. BD messages show the transition time and From/To
+descriptions; BD alerts retain their established colors. Lunar event messages
+also include phase details, illumination, local location and time,
+moonrise/moonset, and sunrise/sunset. Calendar Notify sends one event email with no
+CLEARED follow-up. Lunar emails also embed a Lunar Calendar PNG showing the
+phase, surrounding phase dates, and local Sun/Moon times. The graphic uses
+**Local View**, orienting the illuminated edge and lunar surface for your configured
+location at each phase's event time. The full report remains available as plain
+text. Older BD Transitions rules open as Calendar →
+BD Transitions → All. See [Calendar behavior](automations.md) for timing and
+compatibility details.
 
 ##### Actions
 
@@ -1793,25 +1841,3 @@ If the Biodynamic Calendar is unavailable:
   the timezone in **General Settings > Network Settings**.
 - Confirm the normal Sensorius `/healthz` endpoint responds and that Sensorius can write to its SQLite database.
 - If the calendar is still warming, leave Sensorius running for several minutes and verify the Astral location is complete.
-
-## Related Documentation
-
-- Setup: `docs/setup.md`
-- Operations: `docs/operations.md`
-- Architecture: `docs/architecture.md`
-- Configuration: `docs/configuration.md`
-- Sensors and metrics: `docs/sensors.md`
-- Switch automations: `docs/automations.md`
-- MQTT: `docs/mqtt.md`
-- Home Assistant: `docs/homeassistant.md`
-- farmOS: `docs/farmos.md`
-- Hardware: `docs/hardware.md`
-- Integrated Biodynamic Calendar and companion migration: `docs/biodynamic_calendar_companion.md`
-- Security policy and deployment boundary: `SECURITY.md`
-- Third-party and binary notices: `THIRD_PARTY_NOTICES.md`
-
-## iPhone Home Screen icon
-
-Safari Home Screen shortcuts use the Sensorius favicon artwork through a
-180 × 180 PNG Apple touch icon. After installing this update, remove and re-add
-an existing shortcut in Safari if it still displays a plain S.

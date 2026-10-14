@@ -8,6 +8,7 @@
   },
   "scripts": {
     "docs:pdf": "node scripts/build_user_guide_pdf.mjs",
+    "docs:screenshots": "node scripts/capture_user_guide_screenshots.mjs",
     "test:playwright": "playwright test",
     "validate:pr": "npm run test:playwright"
   },
