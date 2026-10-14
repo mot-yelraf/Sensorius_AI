@@ -963,11 +963,24 @@ three attempts per file and stops one device update after 30 minutes. If OTA
 mode does not start or those limits are exhausted, Sensorius requests OTA abort
 and reports a concise recovery message.
 
-### Remove Device Pane
+### Halt or Remove Device Pane
 
 ![Remove Device pane](<../assets/screenshots/system-settings-remove-device.png>)
 
-Use Remove Device when a sensor or switch should no longer appear in Sensorius.
+The **Halt or Remove Device** menu contains two collapsible sections. Each
+section keeps its acknowledgement checkbox and action button at the bottom
+of the expanded section. Select at least one device and acknowledge the action
+to enable its button.
+
+**Halt Device(s)** lists only physical Nodus devices whose retained MQTT metadata
+explicitly advertises `capabilities.halt = true`. **Halt Selected** stops the
+application and syncs its filesystem while holding current relay outputs. Wait
+for each device's confirmed halt before unplugging it. Acceptance alone, offline
+status, a timeout, or a filesystem sync failure does not confirm safe completion.
+Halt preserves Sensorius settings and history. Power cycle or reset the Nodus
+to resume operation.
+
+Use **Remove Device(s)** when a sensor or switch should no longer appear in Sensorius.
 
 Fields and controls:
 

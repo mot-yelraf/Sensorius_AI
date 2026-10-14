@@ -1026,7 +1026,7 @@
           <button type="button" class="system-menu-btn" data-target="pane-locations">Edit Locations</button>
           <button type="button" class="system-menu-btn" data-target="pane-add">Add Device</button>
           <button type="button" class="system-menu-btn" data-target="pane-update">Update Device</button>
-          <button type="button" class="system-menu-btn" data-target="pane-remove">Remove Device</button>
+          <button type="button" class="system-menu-btn" data-target="pane-remove">Halt or Remove Device</button>
           <button type="button" class="system-menu-btn" data-target="pane-integrations">Integrations</button>
           <button type="button" class="system-menu-btn" data-target="pane-advanced">Advanced</button>
           <img class="system-menu-brand" src="/ui_static/icons/peace-hill-studios-512.png?v={{ app_version }}" alt="Peace Hill Studios" width="160" height="160">
@@ -1758,17 +1758,39 @@
           </div>
 
           <div class="settings-pane" id="pane-remove" hidden>
-            <h3 class="pane-title">Remove Device</h3>
-            <div class="status-text sai-live-status" id="remove-device-status" aria-live="polite"></div>
-            <div id="remove-device-list" class="remove-scroll">
-              <div class="detail">Select this pane to load removable devices.</div>
-            </div>
-            <label style="font-size:.9rem;color:#333; margin-top:.65rem;">
-              <input type="checkbox" id="remove-device-confirm">
-              I understand this deletes settings and data
-            </label>
-            <div class="pane-footer pane-footer-actions-right">
-              <button id="remove-device-run" disabled class="button red">Remove Selected</button>
+            <h3 class="pane-title">Halt or Remove Device</h3>
+            <div class="integrations-list">
+              <details class="integration-block" data-runtime-section="device-halt">
+                <summary>Halt Device(s)</summary>
+                <div class="integration-block-content">
+                  <p class="detail">Stop application writes and sync the device before unplugging. Relay outputs stay at their current levels. Power cycle or reset to resume.</p>
+                  <div class="status-text sai-live-status" id="halt-device-status" aria-live="polite"></div>
+                  <div id="halt-device-list" class="remove-scroll"></div>
+                  <label style="display:block; margin-top:.65rem;">
+                    <input type="checkbox" id="halt-device-confirm">
+                    I understand this halts the selected devices and holds their current relay outputs
+                  </label>
+                  <div class="pane-footer pane-footer-actions-right">
+                    <button type="button" id="halt-device-run" disabled class="button red">Halt Selected</button>
+                  </div>
+                </div>
+              </details>
+              <details class="integration-block" data-runtime-section="device-remove">
+                <summary>Remove Device(s)</summary>
+                <div class="integration-block-content">
+                  <div class="status-text sai-live-status" id="remove-device-status" aria-live="polite"></div>
+                  <div id="remove-device-list" class="remove-scroll">
+                    <div class="detail">Select this pane to load removable devices.</div>
+                  </div>
+                  <label style="display:block; margin-top:.65rem;">
+                    <input type="checkbox" id="remove-device-confirm">
+                    I understand this deletes settings and data
+                  </label>
+                  <div class="pane-footer pane-footer-actions-right">
+                    <button type="button" id="remove-device-run" disabled class="button red">Remove Selected</button>
+                  </div>
+                </div>
+              </details>
             </div>
           </div>
 
@@ -2285,7 +2307,7 @@
       loadFarmStatus();
     }
     if (paneId === "pane-locations" && !locationsLoaded) loadLocations();
-    if (paneId === "pane-remove") loadRemovableDevices();
+    if (paneId === "pane-remove") { loadRemovableDevices(); loadHaltDevices(); }
     if (paneId === "pane-update" && !otaDevicesLoaded) {
       loadOTADevices();
       loadOTAJobs();
@@ -4349,6 +4371,71 @@
     }
   }
 
+  let haltBusy = false;
+
+  function toggleHaltEnable() {
+    const selected = document.querySelector('#halt-device-list input:checked:not(:disabled)');
+    document.getElementById("halt-device-run").disabled = haltBusy || !selected || !document.getElementById("halt-device-confirm").checked;
+  }
+
+  async function loadHaltDevices() {
+    const list = document.getElementById("halt-device-list");
+    document.getElementById("halt-device-confirm").checked = false;
+    list.textContent = "Loading...";
+    try {
+      const response = await fetch("/halt-device-list");
+      if (!response.ok) throw new Error("Failed to load halt-capable devices");
+      const data = await response.json();
+      list.textContent = data.devices.length ? "" : "No devices advertise halt support.";
+      data.devices.forEach(id => {
+        const row = document.createElement("label");
+        row.className = "remove-item";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.value = id;
+        checkbox.onchange = toggleHaltEnable;
+        row.append(checkbox, document.createTextNode(id));
+        list.append(row);
+      });
+    } catch (error) {
+      list.textContent = error.message;
+    }
+    toggleHaltEnable();
+  }
+
+  async function submitHaltDevices() {
+    if (haltBusy || !document.getElementById("halt-device-confirm").checked) return;
+    const selected = [...document.querySelectorAll('#halt-device-list input:checked:not(:disabled)')];
+    if (!selected.length) return;
+    haltBusy = true;
+    toggleHaltEnable();
+    setStatus("halt-device-status", "Waiting for devices to confirm halt...");
+    try {
+      const response = await fetch("/halt-device", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ device_ids: selected.map(x => x.value), acknowledged: true })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Halt request failed");
+      const messages = data.results.map(result => {
+        if (result.halted) {
+          const checkbox = selected.find(x => x.value === result.device_id);
+          if (checkbox) { checkbox.checked = false; checkbox.disabled = true; }
+          return `${result.device_id}: halt confirmed; ready to unplug. Relay outputs held.`;
+        }
+        return `${result.device_id}: ${result.error}`;
+      });
+      setStatus("halt-device-status", messages.join(" "));
+    } catch (error) {
+      setStatus("halt-device-status", `${error.message}. Halt is unconfirmed.`);
+    } finally {
+      haltBusy = false;
+      document.getElementById("halt-device-confirm").checked = false;
+      toggleHaltEnable();
+    }
+  }
+
   function toggleRemoveEnable() {
     const anySel = [...document.querySelectorAll('#remove-device-list input[type="checkbox"]')]
       .some((x) => x.checked);
@@ -4362,6 +4449,7 @@
     if (!listEl) return;
 
     showRemoveDeviceNotice("", "", false);
+    document.getElementById("remove-device-confirm").checked = false;
     listEl.innerHTML = '<div class="detail">Loading...</div>';
 
     try {
@@ -4412,7 +4500,7 @@
   async function submitRemoveDevices() {
     const checked = document.querySelectorAll('#remove-device-list input[type="checkbox"]:checked');
     const ids = [...checked].map((x) => x.value);
-    if (!ids.length) return;
+    if (!ids.length || !document.getElementById("remove-device-confirm")?.checked) return;
 
     const targetLabel = formatRemoveDeviceIds(ids);
     showRemoveDeviceNotice(`Removing ${targetLabel}...`, "", false);
@@ -4966,6 +5054,7 @@
     if (ev.target && ev.target.id === "btn-ota-cancel") {
       cancelOTAJob();
     }
+    if (ev.target && ev.target.id === "halt-device-run") submitHaltDevices();
     if (ev.target && ev.target.id === "remove-device-run") {
       submitRemoveDevices();
     }
@@ -4996,6 +5085,7 @@
     if (ev?.target?.id === "adv-file-log") {
       updateAdvancedLogPathVisibility();
     }
+    if (ev?.target?.id === "halt-device-confirm") toggleHaltEnable();
     if (ev?.target?.id === "remove-device-confirm") {
       toggleRemoveEnable();
     }

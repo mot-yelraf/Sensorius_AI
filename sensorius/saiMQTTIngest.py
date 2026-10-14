@@ -1731,6 +1731,20 @@ class saiMQTTIngest:
                 self.config_message_device[message_id] = device
         return {"ok": ok, "message_id": message_id, "topic": topic, "payload": envelope}
 
+    def publish_nodus_halt(self, device_id: str, *, message_id: str | None = None) -> dict:
+        """Publish a standalone, non-retained halt request with a unique ID."""
+        device = str(device_id or "").strip()
+        if not device:
+            return {"ok": False, "message_id": "", "topic": ""}
+        message_id = message_id or f"halt-{uuid.uuid4().hex}"
+        envelope = {"message_id": message_id, "payload": {}, "halt": True}
+        topic = f"nodus/{device}/config/set"
+        ok = bool(self.publish_json(topic, envelope, qos=1, retain=False, use_ha_client=False))
+        if ok:
+            with self._config_lock:
+                self.config_message_device[message_id] = device
+        return {"ok": ok, "message_id": message_id, "topic": topic}
+
     async def wait_for_config_ack(self, message_id: str, timeout: float = 3.0) -> dict | None:
         deadline = time.time() + max(float(timeout), 0.0)
         while time.time() < deadline:
@@ -1897,6 +1911,10 @@ class saiMQTTIngest:
                             "name": str(payload.get("name") or "").strip(),
                             "applied": bool(payload.get("applied", False)),
                             "updated": payload.get("updated"),
+                            "halt": payload.get("halt"),
+                            "phase": payload.get("phase"),
+                            "relays": payload.get("relays"),
+                            "duplicate": bool(payload.get("duplicate", False)),
                             "error": str(payload.get("error") or "").strip(),
                             "topic": topic,
                             "received_at": now,
