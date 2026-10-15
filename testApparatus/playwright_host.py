@@ -113,9 +113,13 @@ def biodynamic_calendar(request: Request):
 def system_settings(documentation: bool = False) -> HTMLResponse:
     """Render the actual settings dialog without production settings or hardware."""
     from sensorius import __version__
+    from sensorius.saiThemeManager import ThemeManager
 
     example = {
         "hostname": "hub.example.com", "httpport": 8000,
+        "astral_lat": 39.7, "astral_lon": -104.9,
+        "dashboard_background_theme": "fruit", "weather_forecast_theme": "desert",
+        "biodynamic_calendar_theme": "spring", "theme_palettes": ThemeManager.palettes(),
         "broker": "mqtt.example.com", "mqttport": 1883, "tz": "UTC",
         "astral_location_name": "Example Garden", "email_smtp_host": "smtp.example.com",
         "email_username": "operator@example.com", "email_from": "sensorius@example.com",
