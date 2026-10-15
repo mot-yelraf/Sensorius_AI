@@ -18,10 +18,9 @@ The dashboard is the main operating view. It is where you check current conditio
 ![Samhain dashboard using the selected Fruit theme](<../assets/screenshots/dashboard-overview.png>)
 <!-- pdf-keep-together:end -->
 
-This example and the dashboard dialogs shown throughout this guide were
-captured from the live **Samhain** Sensorius installation with its saved
-**Fruit** dashboard theme selected. The greenhouse background and warm
-peach-and-brown palette therefore continue behind and through the dialog views. Sensor
+The dashboard example was captured from the **Samhain** Sensorius installation
+with its saved **Fruit** dashboard theme selected. Settings screenshots use
+example devices and locations with the same warm peach-and-brown palette. Sensor
 names, locations, metrics, switch channels, forecast source, selected theme,
 and live values will vary by installation.
 
@@ -315,7 +314,7 @@ moon, biodynamic, weather, and location-aware automation calculations:
 
 #### Display
 
-![Display section open on Samhain with Fruit, Desert Bloom, and Spring themes selected](<../assets/screenshots/system-settings-display.png>)
+![Display section open with Fruit, Desert Bloom, and Spring themes selected](<../assets/screenshots/system-settings-display.png>)
 
 The **Display** section supplies system-wide presentation defaults. The controls
 appear in the order **Units**, **Metric Set**, and **Display Style**. **Gauge
@@ -381,13 +380,13 @@ collapsed without moving the section's **Save** button.
   Built-in themes remain read-only; custom collections can be deleted from their
   theme section.
 
-  ![Custom Theme creator on Samhain with one named image and the Pale Fruit palette](<../assets/screenshots/system-settings-custom-theme.png>)
+  ![Custom Theme creator with one named image and the Pale Fruit palette](<../assets/screenshots/system-settings-custom-theme.png>)
 
   Select **Add Image** to append another image editor. The Add Image action
   follows the final row, while every removable row keeps **Remove Image** at
   the right edge.
 
-  ![Custom Theme creator on Samhain with two named images and different pale palettes](<../assets/screenshots/system-settings-custom-theme-images.png>)
+  ![Custom Theme creator with two named images and different pale palettes](<../assets/screenshots/system-settings-custom-theme-images.png>)
 - **Save**: writes the display defaults. Reload the dashboard to see changes
   that are not applied immediately.
 
@@ -947,7 +946,7 @@ Fields and controls:
 - **Package Path**: absolute path to a package on the Sensorius host.
 - **Inspect Package**: reads package metadata and validates that Sensorius can use it.
 - **Concurrent Updates**: number of devices to update at once. Options are numeric values from 1 to 4.
-- **Device list**: Nodus devices available for update. Data comes from known Nodus metadata and OTA endpoints.
+- **Device list**: Nodus devices available for update.
 - **Refresh Devices**: reloads the device list.
 - **Job panel**: active update status and progress.
 - **Job history**: recent update result information.
@@ -965,38 +964,35 @@ and reports a concise recovery message.
 
 ### Halt or Remove Device Pane
 
-![Remove Device pane](<../assets/screenshots/system-settings-remove-device.png>)
+![Halt Device(s) expanded in the Halt or Remove Device pane](<../assets/screenshots/system-settings-halt-device.png>)
 
 The **Halt or Remove Device** menu contains two collapsible sections. Each
 section keeps its acknowledgement checkbox and action button at the bottom
 of the expanded section. Select at least one device and acknowledge the action
 to enable its button.
 
-**Halt Device(s)** lists only physical Nodus devices whose retained MQTT metadata
-explicitly advertises `capabilities.halt = true`. **Halt Selected** stops the
+**Halt Device(s)** lists Nodus devices that support halting. **Halt Selected** stops the
 application and syncs its filesystem while holding current relay outputs. Wait
-for each device's confirmed halt before unplugging it. Acceptance alone, offline
-status, a timeout, or a filesystem sync failure does not confirm safe completion.
+for each device to confirm it has halted before unplugging it. If a device goes
+offline, times out, or reports an error, do not assume the halt completed.
 Halt preserves Sensorius settings and history. Power cycle or reset the Nodus
 to resume operation.
 
+![Remove Device(s) expanded in the Halt or Remove Device pane](<../assets/screenshots/system-settings-remove-device.png>)
+
 Use **Remove Device(s)** when a sensor or switch should no longer appear in Sensorius.
 
-Fields and controls:
+1. Expand **Remove Device(s)** and select the devices to remove. Device details
+   may include a link to the device and the time since it was last seen.
+2. Check **I understand this deletes settings and data**.
+3. Click **Remove Selected** and wait for the result. Removing a Nodus device
+   removes its sensors and switches together, including their settings and
+   related history in Sensorius.
 
-- **Device checkbox list**: removable devices known from settings, discovery, and runtime state.
-- **Device detail**: may show URL or last-seen age when known.
-- **I understand this deletes settings and data**: required confirmation checkbox.
-- **Remove Selected**: treats a selected sensor, switch, or both entries from the same Nodus as one physical-device removal. It deletes the complete sensor-and-switch identity family, settings, and related local data; clears runtime caches and retained MQTT/Home Assistant topics; suppresses MQTT replay during cleanup; and verifies that the device no longer appears.
-
-After successful cleanup and verification, Sensorius clears the removal block
-for that Nodus identity family. A device configured manually to use the hub's
-broker can be discovered again through MQTT metadata and readings, or you can
-run the existing Add Device onboarding flow. A device still publishing to the
-broker may reappear after removal; disconnect it or change its profile/broker
-if it should remain absent. Failed or interrupted cleanup retains its block
-for the current runtime. Sensorius also clears saved removal blocks at startup,
-so restarting allows previously removed devices to be discovered again.
+A device that remains connected may reappear after removal. Disconnect it or
+change its connection settings if it should remain absent. To use it again,
+reconnect it or follow **Add Device**. If removal fails, review the result before
+trying again; restarting Sensorius also allows removed devices to appear again.
 
 Before removing a device, update any automations, Home Assistant dashboards, farmOS expectations, or written operating procedures that depend on it.
 

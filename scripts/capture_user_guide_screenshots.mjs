@@ -33,6 +33,13 @@ const payloads = {
   '/ecowitt/status': ecowitt,
   '/api/nodus-ota/devices': {ok: true, devices},
   '/api/nodus-ota/jobs': {ok: true, jobs: []},
+  '/device-locations': [
+    {type: 'sensor', id: 'avpd-demo02', location: 'Greenhouse'},
+    {type: 'sensor', id: 'lux-demo01', location: 'Garden Beds'},
+    {type: 'switch', id: 'switch-demo', location: 'Greenhouse'},
+  ],
+  '/halt-device-list': {devices: ['avpd-demo02', 'lux-demo01', 'switch-demo']},
+  '/scan-nodus-setup': {platform: 'Linux', found: true, ssids: ['Nodus_Setup'], message: 'Nodus setup network found'},
   '/remove-device-list': {
     devices: ['avpd-demo02', 'ecowitt-demo', 'lux-demo01', 'switch-demo'],
     device_details: Object.fromEntries([
@@ -47,6 +54,8 @@ const payloads = {
       {channel_id: 's1-demo', row_label: 'S1 current state, age:', state: 'Off', state_epoch: epoch - 1800},
       {channel_id: 's2-demo', row_label: 'S2 current state, age:', state: 'On', state_epoch: epoch - 600},
     ]},
+  '/advanced/automations': {items: [{rule_id: 'greenhouse-cooling', switch_id: '__system__', enabled: true,
+    script_json: JSON.stringify({name: 'Greenhouse cooling', enabled: true, conditions: [], actions: [{type: 'none'}]})}]},
   '/sensor-directory': [], '/notifications/rules': {rules: []},
   '/timezone-options': {options: ['UTC']},
 };
@@ -72,6 +81,7 @@ try {
   assert(ready, 'The isolated documentation fixture did not become ready');
   browser = await chromium.launch({headless: true});
   const context = await browser.newContext({viewport: {width: 1200, height: 1200}, timezoneId: 'UTC', locale: 'en-US', serviceWorkers: 'block'});
+  context.setDefaultTimeout(15000);
   let blockedWrites = 0;
   await context.route('**/*', async route => {
     const url = new URL(route.request().url());
@@ -121,20 +131,24 @@ try {
     console.log(`Captured and checked ${filename}`);
   }
 
-  async function systemCapture(filename, pane, section) {
+  async function systemCapture(filename, pane, section, prepare) {
+    console.log(`Preparing ${filename}`);
     const page = await pageWithDashboard();
+    page.on('pageerror', error => console.error(error.message));
     await page.getByRole('link', {name: 'Open General Settings'}).click();
     const modal = page.locator('#setupPiModal');
+    await modal.getByRole('button', {name: 'Halt or Remove Device', exact: true}).waitFor({state: 'visible'});
     if (pane) await modal.getByRole('button', {name: pane, exact: true}).click();
     if (section) {
       await modal.locator('details').evaluateAll(details => details.forEach(detail => { detail.open = false; }));
-      await modal.locator('summary').filter({hasText: new RegExp(`^${section}$`)}).click();
+      await modal.getByText(section, {exact: true}).filter({visible: true}).click();
     }
     assert.equal(await modal.locator('#hostname').inputValue(), 'hub.example.com');
     assert.equal(await modal.locator('#email_username').inputValue(), 'operator@example.com');
     if (pane === 'Update Device') await page.waitForFunction(() => document.querySelector('#ota-device-list')?.textContent.includes('avpd-demo02'));
-    if (pane === 'Remove Device') await page.waitForFunction(() => document.querySelectorAll('#remove-device-list input').length === 4);
+    if (pane === 'Halt or Remove Device') await page.waitForFunction(() => document.querySelectorAll('#remove-device-list input').length === 4);
     if (pane === 'Add Device') await page.waitForFunction(() => document.querySelector('#ecowitt-sensor-list')?.textContent.includes('DEMO-ARRAY'));
+    if (prepare) await prepare(page, modal);
     if (section) {
       // Give expanded sections enough space for their Save controls in the guide.
       await modal.locator('.system-settings-shell').evaluate(shell => {
@@ -145,9 +159,9 @@ try {
       });
     }
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    if (section) {
+    if (section && !filename.includes('custom-theme')) {
       const complete = await modal.locator('details[open]').first().evaluate(detail => {
-        const scroll = detail.closest('.integrations-list');
+        const scroll = detail.closest('.integrations-list, .advanced-sections');
         return detail.getBoundingClientRect().bottom <= scroll.getBoundingClientRect().bottom + 1;
       });
       assert(complete, `${filename}: expanded section would be clipped`);
@@ -160,7 +174,56 @@ try {
   await systemCapture('system-settings-notifications.png', null, 'Notifications');
   await systemCapture('system-settings-add-device-ecowitt.png', 'Add Device', 'Ecowitt Gateway');
   await systemCapture('system-settings-update-device.png', 'Update Device');
-  await systemCapture('system-settings-remove-device.png', 'Remove Device');
+  await systemCapture('system-settings-halt-device.png', 'Halt or Remove Device', 'Halt Device(s)', async page => {
+    await page.waitForFunction(() => document.querySelectorAll('#halt-device-list input').length === 3);
+  });
+  await systemCapture('system-settings-remove-device.png', 'Halt or Remove Device', 'Remove Device(s)');
+  for (const [filename, section] of [
+    ['astral', 'Astral'], ['display', 'Display'], ['nodus-wifi-update', 'Nodus Wifi Update'],
+    ['weather-forecast', 'Weather Forecast'],
+  ]) await systemCapture(`system-settings-${filename}.png`, null, section, section === 'Display' ? async (page, modal) => {
+    await modal.locator('.theme-section > summary').evaluateAll(items => items.forEach(item => item.click()));
+  } : null);
+  for (const integration of ['FarmOS', 'Home Assistant', 'WeeWX']) {
+    const filename = integration.toLowerCase().replaceAll(' ', '-');
+    await systemCapture(`system-integrations-${filename}.png`, 'Integrations', integration);
+  }
+  for (const count of [1, 2]) {
+    await systemCapture(`system-settings-custom-theme${count === 2 ? '-images' : ''}.png`, null, 'Display', async (page, modal) => {
+      await modal.getByText('Sensorius Dashboard Theme', {exact: true}).filter({visible: true}).click();
+      await modal.locator('.open-custom-theme[data-theme-section="sensorius"]').click();
+      await modal.locator('#custom-theme-name').fill('High Desert Garden');
+      for (let index = 0; index < count; index++) {
+        if (index) await modal.locator('#custom-theme-add-image').click();
+        const row = modal.locator('.custom-theme-image-row').nth(index);
+        await row.locator('input[type="file"]').setInputFiles(path.join(root, `ui_static/backgrounds/${index ? 'leaf' : 'fruit'}-greenhouse.webp`));
+        await row.locator('.custom-theme-image-name').fill(index ? 'Garden Beds' : 'Tomato House');
+        await row.locator('.custom-theme-palette').selectOption(index ? 'pale_sage' : 'pale_fruit');
+      }
+    });
+  }
+  await systemCapture('system-settings-edit-locations.png', 'Edit Locations', null, async page => {
+    await page.waitForFunction(() => document.querySelectorAll('#locations-list .location-input').length === 3);
+  });
+  await systemCapture('system-settings-advanced.png', 'Advanced', 'Database');
+  await systemCapture('system-automations-list.png', 'Automations');
+  await systemCapture('system-automation-definition.png', 'Automations', null, async (page, modal) => {
+    await modal.locator('#btnNewFromList').click();
+    await modal.locator('#autoName').fill('Greenhouse cooling');
+  });
+  for (const [platform, filename] of [['Linux', 'linux-rpi'], ['Darwin', 'macos']]) {
+    payloads['/scan-nodus-setup'] = {platform, found: platform === 'Linux', ssids: ['Nodus_Setup'],
+      manual_join_required: platform === 'Darwin', current_ssid: 'Example Garden',
+      message: platform === 'Darwin' ? 'Join a Nodus setup network in macOS Wi-Fi, then click Add.' : 'Nodus setup network found'};
+    await systemCapture(`system-settings-add-device-${filename}.png`, 'Add Device', 'Nodus Device(s)', async page => {
+      await page.waitForFunction(() => !document.querySelector('#btn-onboard-add').disabled);
+    });
+  }
+  const mobile = await pageWithDashboard();
+  await mobile.setViewportSize({width: 390, height: 844});
+  await mobile.getByRole('link', {name: 'Open General Settings'}).click();
+  await auditAndCapture(mobile, mobile.locator('#setupPiModal .system-settings-shell'), 'sai_mobile_settings_1.png');
+  await mobile.close();
   for (const [kind, id, filename] of [
     ['sensor', 'avpd-demo02', 'sensor-settings-device-info.png'],
     ['switch', 'switch-demo', 'switch-settings-device-info.png'],
@@ -174,7 +237,7 @@ try {
     await page.close();
   }
   assert.equal(blockedWrites, 0, 'A documentation capture attempted to mutate runtime state');
-  console.log('Seven screenshots recaptured from isolated, read-only example data.');
+  console.log('Documentation screenshots recaptured from isolated, read-only example data.');
 } finally {
   await browser?.close();
   host.kill('SIGTERM');
