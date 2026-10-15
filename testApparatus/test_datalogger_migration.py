@@ -660,3 +660,46 @@ def test_calibration_manager_uses_bulk_metrics_lookup_for_calibratable_sensors()
     assert manager.get_calibratable_sensors() == ["co2-ykdvea"]
     assert logger.bulk_calls == 1
     assert logger.per_sensor_calls == 0
+
+
+def test_readings_report_failed_and_recovered_persistence(tmp_path, monkeypatch):
+    logger = saiDataLogger(str(tmp_path / 'write-outcome.db'))
+    try:
+        assert logger.log_readings(None, 'test', {'Temperature': 20.0}) is True
+        prior = logger.get_latest_timestamp('test')
+
+        def fail():
+            raise sqlite3.OperationalError('disk I/O error')
+
+        with monkeypatch.context() as patch:
+            patch.setattr(logger, '_ensure_writer', fail)
+            patch.setattr(logger, 'recover_after_db_error', lambda *a, **k: False)
+            assert logger.log_readings(None, 'test', {'Temperature': 21.0}) is False
+        assert logger.get_latest_timestamp('test') == prior
+        assert logger.get_latest_values('test')['Temperature'] == 20.0
+        assert logger.log_readings(None, 'test', {'Temperature': 22.0}) is True
+        assert logger.get_latest_values('test')['Temperature'] == 22.0
+        assert logger.log_readings(None, 'test', {'Temperature': object()}) is False
+    finally:
+        logger.close()
+
+
+def test_readings_success_signal_survives_internal_write_retry(tmp_path, monkeypatch):
+    logger = saiDataLogger(str(tmp_path / 'write-retry.db'))
+    ensure_writer = logger._ensure_writer
+    attempts = []
+
+    def fail_once():
+        attempts.append(True)
+        if len(attempts) == 1:
+            raise sqlite3.OperationalError('temporary write failure')
+        ensure_writer()
+
+    try:
+        monkeypatch.setattr(logger, '_ensure_writer', fail_once)
+        monkeypatch.setattr(logger, 'recover_after_db_error', lambda *a, **k: True)
+        assert logger.log_readings(None, 'test', {'Temperature': 20.0}) is True
+        assert len(attempts) == 2
+        assert logger.get_latest_values('test')['Temperature'] == 20.0
+    finally:
+        logger.close()

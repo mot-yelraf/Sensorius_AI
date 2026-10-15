@@ -1447,8 +1447,8 @@ class saiDataLogger:
         
     # ------------------------------- SENSOR API -------------------
 
-    def log_readings(self, timestamp, sensor_id, values: dict):
-        """Persist readings and preserve Ecowitt's gateway-supplied rain total."""
+    def log_readings(self, timestamp, sensor_id, values: dict) -> bool:
+        """Persist readings, returning whether the write succeeded after recovery."""
         timestamp, ts_epoch = _normalize_timestamp_input(
             timestamp, getattr(self, "local_tz", LOCAL_TIMEZONE)
         )
@@ -1465,7 +1465,7 @@ class saiDataLogger:
             for value in raw_values.values()
         ):
             printDM(f"Error writing sensor data: unsupported metric value for {sensor_id}", location=MODULE)
-            return
+            return False
 
         for attempt in range(2):
             t0 = time.monotonic()
@@ -1537,12 +1537,12 @@ class saiDataLogger:
 
                 if DEBUG:
                     printDM(f"Logged {len(logged_values)} values for {sensor_id}", location=MODULE)
-                return
+                return True
             except Exception as e:
                 if attempt == 0 and self.recover_after_db_error(e, source="log_readings"):
                     continue
                 printDM(f"Error writing sensor data: {e}", location=MODULE)
-                return
+                return False
 
     def add_readings_listener(self, listener) -> None:
         """

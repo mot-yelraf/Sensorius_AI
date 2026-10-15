@@ -124,6 +124,25 @@ successful HTTP response proves gateway reachability; a listed sensor may still
 be temporarily absent from live data. Disable stops polling but intentionally
 retains the `ecowitt-<gateway_mac>` settings and SQLite history.
 
+Polling automatically retries connection and storage failures. After three
+consecutive connection failures for an individual read endpoint (including its
+query parameters), Sensorius also tries a fresh Python worker, with an
+eight-second deadline and a 512 KiB response limit. Each poll still attempts the
+direct connection and returns to it when it succeeds. HTTP error responses and
+invalid payloads use normal poll retries. The worker never sends smart-plug
+commands; a physical outage or denied LAN permission still requires correction.
+Frozen executables without a Python runtime cannot use this fallback.
+
+`/ecowitt/status` exposes `recovery_active`, the underlying `connection_error`,
+and `rain_config_error`. A recovered gateway can report online while using the
+worker. Rain metadata refresh failures retain the last known source/reset hour
+and retry on the next poll without blocking other weather values. If no rain
+source is known, rain metrics are omitted until configuration can be read.
+`last_gateway_success` tracks valid gateway data; `last_accepted_reading` advances
+only after a successful database write. The interval-rain checkpoint also
+advances only after persistence, so temporary write failures do not consume
+rainfall increments.
+
 The official `get_livedata_info` request returns the complete live JSON object;
 it does not document query parameters for requesting individual sections. To
 profile response latency, size, and selected sections without starting the Web

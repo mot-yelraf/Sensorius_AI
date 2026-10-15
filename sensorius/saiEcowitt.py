@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import subprocess
 import time
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
@@ -18,6 +19,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from .saiSensorSettingsManager import SensorSettingsManager
+from .saiEcowittRecovery import request_in_fresh_process
 from .saiUtils import debug_enabled, printDM
 from .sensor_modules.station_ecowitt import (
     DEFAULT_POLL_INTERVAL_SEC,
@@ -39,6 +41,7 @@ TASK_NAME = "Ecowitt Gateway Ingest"
 HEARTBEAT_INTERVAL_SEC = 20.0
 REQUEST_TIMEOUT_SEC = 5.0
 MAX_RESPONSE_BYTES = 512 * 1024
+RECOVERY_FAILURE_THRESHOLD = 3
 
 
 def gateway_ip_address(network: Any, base_url: str) -> str:
@@ -190,12 +193,15 @@ class EcowittGatewayIngest:
         self._rain_source = ""
         self._rain_reset_hour = 0
         self._last_rain_config_refresh_mono = 0.0
+        self._rain_config_identity = None
+        self._rain_settings = None
         self._status: dict[str, Any] = {
             "state": "disabled",
             "label": "Ecowitt integration disabled",
             "last_gateway_success": "",
             "last_accepted_reading": "",
             "last_error": "",
+            "rain_config_error": "",
             "inventory": [],
             "gateway_model": "",
             "sensor_id": "",
@@ -204,6 +210,9 @@ class EcowittGatewayIngest:
         self._migrated_sensor_id = ""
         self._health_checked_mono = 0.0
         self._health_gateway_url = ""
+        self._connection_failures: dict[tuple, int] = {}
+        self._connection_errors: dict[tuple, str] = {}
+        self._recovery_endpoints: set[tuple] = set()
 
     def _feed_watchdog(self, *, error: bool = False) -> None:
         if self.supervisor and hasattr(self.supervisor, "feedthedogs"):
@@ -240,23 +249,49 @@ class EcowittGatewayIngest:
         return max(MIN_POLL_INTERVAL_SEC, min(MAX_POLL_INTERVAL_SEC, value))
 
     async def _get_json(self, client: httpx.AsyncClient, base_url: str, endpoint: str, **params) -> Any:
+        # Forget failures from former gateway addresses instead of growing state.
+        for old_key in tuple(self._connection_failures):
+            if old_key[0] != base_url:
+                self._connection_failures.pop(old_key, None)
+                self._connection_errors.pop(old_key, None)
+                self._recovery_endpoints.discard(old_key)
+        key = (base_url, endpoint, tuple(sorted(params.items())))
         try:
             response = await client.get(f"{base_url}/{endpoint}", params=params or None)
             response.raise_for_status()
-        except httpx.TimeoutException as exc:
-            raise EcowittError(f"Gateway timed out while requesting {endpoint}.") from exc
-        except httpx.ConnectError as exc:
-            raise EcowittError("Could not connect to the Ecowitt gateway.") from exc
+        except (httpx.TimeoutException, httpx.ConnectError) as exc:
+            failures = self._connection_failures.get(key, 0) + 1
+            self._connection_failures[key] = failures
+            detail = f"Gateway request failed for {endpoint}: {type(exc).__name__}: {exc}"
+            self._connection_errors[key] = detail
+            if failures < RECOVERY_FAILURE_THRESHOLD:
+                raise EcowittError(detail) from exc
+            if key not in self._recovery_endpoints:
+                printDM(f"{detail}; trying fresh-process recovery", location=MODULE, level="warning")
+                self._recovery_endpoints.add(key)
+            try:
+                return await asyncio.to_thread(request_in_fresh_process, base_url, endpoint, params)
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as recovery_exc:
+                raise EcowittError(f"{detail}; fresh-process recovery failed: {recovery_exc}") from recovery_exc
         except httpx.HTTPStatusError as exc:
+            self._clear_connection_failure(key)
             raise EcowittError(f"Gateway returned HTTP {exc.response.status_code} for {endpoint}.") from exc
         except httpx.HTTPError as exc:
             raise EcowittError(f"Gateway request failed for {endpoint}.") from exc
+        self._clear_connection_failure(key)
         if len(response.content) > MAX_RESPONSE_BYTES:
             raise EcowittError(f"Gateway response for {endpoint} was unexpectedly large.")
         try:
             return response.json()
         except ValueError as exc:
             raise EcowittError(f"Gateway returned invalid JSON for {endpoint}.") from exc
+
+    def _clear_connection_failure(self, key: tuple) -> None:
+        self._connection_failures.pop(key, None)
+        self._connection_errors.pop(key, None)
+        if key in self._recovery_endpoints:
+            self._recovery_endpoints.discard(key)
+            printDM(f"Gateway direct connection restored for {key[1]}", location=MODULE)
 
     async def discover(self, gateway_url: Any) -> dict[str, Any]:
         """Validate a gateway and return identity, inventory, and live-data metadata."""
@@ -396,6 +431,13 @@ class EcowittGatewayIngest:
             "smart_plug_interval_sec": self.smart_plug_interval_sec,
             "smart_plugs": self.smart_plug_status(),
             "sensor_id": self.sensor_id or result.get("sensor_id", ""),
+            "recovery_active": self.enabled and any(
+                key[0] == self.gateway_url.rstrip("/") for key in self._recovery_endpoints
+            ),
+            "connection_error": "; ".join(
+                detail for key, detail in self._connection_errors.items()
+                if key[0] == self.gateway_url.rstrip("/")
+            ),
         })
         if not result.get("inventory"):
             try:
@@ -440,7 +482,8 @@ class EcowittGatewayIngest:
         except Exception:
             pass
 
-    def _add_interval_rain(self, values: dict[str, float], sensor_id: str) -> None:
+    def _add_interval_rain(self, values: dict[str, float], sensor_id: str) -> str | None:
+        """Calculate interval rain against persisted data and return the proposed timestamp."""
         current = values.get("Rain Day")
         if current is None:
             return
@@ -449,10 +492,8 @@ class EcowittGatewayIngest:
         now = datetime.now(local_tz)
         previous = self._last_rain_day
         previous_timestamp = self._last_rain_timestamp
-        self._last_rain_day = float(current)
-        self._last_rain_timestamp = now.isoformat()
         if previous is None:
-            return
+            return now.isoformat()
         crossed_reset = False
         try:
             prior_dt = datetime.fromisoformat(previous_timestamp)
@@ -471,6 +512,7 @@ class EcowittGatewayIngest:
             values["Rain"] = round(float(current) - previous, 3)
         else:
             values["Rain"] = 0.0
+        return now.isoformat()
 
     async def poll_once(self) -> bool:
         """Fetch and store one live reading from the configured gateway."""
@@ -478,6 +520,19 @@ class EcowittGatewayIngest:
         sensor_id = self.sensor_id
         if not sensor_id:
             raise EcowittError("Ecowitt gateway must be discovered before polling.")
+        identity = (base_url, sensor_id)
+        source = str(self.settings.get_setting("Ecowitt", "RAIN_SOURCE", "", reload_if_changed=True) or "")
+        reset_hour = self.settings.get_setting("Ecowitt", "RAIN_RESET_HOUR", 0, reload_if_changed=True)
+        rain_settings = (source, reset_hour)
+        if identity != self._rain_config_identity or rain_settings != self._rain_settings:
+            self._rain_config_identity = identity
+            self._rain_settings = rain_settings
+            self._rain_source = source if source in {"none", "traditional", "piezo"} else ""
+            try:
+                self._rain_reset_hour = max(0, min(23, int(reset_hour or 0)))
+            except (TypeError, ValueError):
+                self._rain_reset_hour = 0
+            self._last_rain_config_refresh_mono = 0.0
         async with self._request_lock:
             async with httpx.AsyncClient(timeout=httpx.Timeout(REQUEST_TIMEOUT_SEC), follow_redirects=False) as client:
                 live = await self._get_json(client, base_url, "get_livedata_info")
@@ -503,22 +558,36 @@ class EcowittGatewayIngest:
                     or time.monotonic() - self._last_rain_config_refresh_mono >= 86400.0
                 )
                 if refresh_rain_config:
-                    rain_totals = await self._get_json(client, base_url, "get_rain_totals")
-                    self._rain_source = rain_source_from_totals(rain_totals)
-                    self._rain_reset_hour = rain_reset_hour_from_totals(rain_totals)
-                    self._last_rain_config_refresh_mono = time.monotonic()
+                    try:
+                        rain_totals = await self._get_json(client, base_url, "get_rain_totals")
+                        if not isinstance(rain_totals, dict):
+                            raise EcowittError("Gateway rain configuration schema is not supported.")
+                        self._rain_source = rain_source_from_totals(rain_totals)
+                        self._rain_reset_hour = rain_reset_hour_from_totals(rain_totals)
+                        self._last_rain_config_refresh_mono = time.monotonic()
+                        self._status["rain_config_error"] = ""
+                    except EcowittError as exc:
+                        self._status["rain_config_error"] = str(exc)
         if not isinstance(live, dict):
             raise EcowittError("Gateway live-data response schema is not supported.")
-        values = normalize_ecowitt_livedata(live, rain_source=self._rain_source)
+        # Unknown source must not select the wrong rain array during an outage.
+        values = normalize_ecowitt_livedata(
+            live, rain_source=self._rain_source or "none"
+        )
         if not values:
             raise EcowittError("Gateway returned no supported live sensor values.")
-        self._add_interval_rain(values, sensor_id)
-        await asyncio.to_thread(self.data_logger.log_readings, None, sensor_id, values)
+        self._status["last_gateway_success"] = datetime.now(timezone.utc).isoformat()
+        rain_timestamp = self._add_interval_rain(values, sensor_id)
+        written = await asyncio.to_thread(self.data_logger.log_readings, None, sensor_id, values)
+        if written is not True:
+            raise EcowittError("Ecowitt readings could not be saved to the database.")
+        if rain_timestamp is not None:
+            self._last_rain_day = float(values["Rain Day"])
+            self._last_rain_timestamp = rain_timestamp
         now = datetime.now(timezone.utc).isoformat()
         self._status.update({
             "state": "online",
             "label": "Receiving Ecowitt weather data",
-            "last_gateway_success": now,
             "last_accepted_reading": now,
             "last_error": "",
             "sensor_id": sensor_id,
@@ -541,18 +610,6 @@ class EcowittGatewayIngest:
                 if sensor_id and self._migrated_sensor_id != sensor_id:
                     await asyncio.to_thread(migrate_ecowitt_display_defaults, sensor_id)
                     self._migrated_sensor_id = sensor_id
-                configured_source = str(self._status.get("rain_source", "") or "")
-                if configured_source not in {"none", "traditional", "piezo"}:
-                    configured_source = str(
-                        self.settings.get_setting("Ecowitt", "RAIN_SOURCE", "", reload_if_changed=True) or ""
-                    )
-                self._rain_source = configured_source if configured_source in {"none", "traditional", "piezo"} else ""
-                try:
-                    self._rain_reset_hour = max(0, min(23, int(
-                        self.settings.get_setting("Ecowitt", "RAIN_RESET_HOUR", 0, reload_if_changed=True) or 0
-                    )))
-                except Exception:
-                    self._rain_reset_hour = 0
                 await self.poll_once()
                 self._feed_watchdog()
             except Exception as exc:

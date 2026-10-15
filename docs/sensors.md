@@ -93,6 +93,11 @@ See the Ecowitt section in the [user guide](user_guide.md#ecowitt-gateway).
   when the gateway is configured by hostname.
 - Reports dashboard connection state from the supervised Ecowitt poller, with
   recent stored readings as a fallback when service state is unavailable.
+- Retries outages automatically, with a bounded fresh-process fallback after
+  repeated connection failures. Rain configuration refresh errors retain known
+  configuration without blocking other measurements; interval-rain checkpoints
+  and accepted-reading timestamps advance only after successful persistence.
+  See [recovery diagnostics](operations.md) for status fields and limitations.
 - Treats the GW1200/WH65B metric mapping as provisional until verified against
   physical Ambient Weather hardware. Expected fields are outdoor temperature
   and relative humidity, wind speed/direction/gust, traditional rain, solar
