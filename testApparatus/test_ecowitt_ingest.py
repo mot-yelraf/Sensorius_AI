@@ -421,6 +421,9 @@ async def test_failed_write_preserves_rain_checkpoint_and_accepted_timestamp(mon
 @pytest.mark.asyncio
 @pytest.mark.parametrize('saved_source', ['', 'piezo'])
 async def test_rain_metadata_failure_preserves_weather_and_retries(monkeypatch, saved_source):
+    from types import SimpleNamespace
+    # A newly booted host must refresh even when saved configuration exists.
+    monkeypatch.setattr('sensorius.saiEcowitt.time', SimpleNamespace(monotonic=lambda: 1000.0))
     settings = _Settings()
     settings.values.update({('Ecowitt', 'ENABLED'): True,
                             ('Ecowitt', 'GATEWAY_URL'): 'http://gw.local',

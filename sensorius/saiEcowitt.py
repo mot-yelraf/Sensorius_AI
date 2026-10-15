@@ -555,6 +555,7 @@ class EcowittGatewayIngest:
                     self._status["gateway_ip"] = gateway_ip_address({}, base_url)
                 refresh_rain_config = (
                     self._rain_source not in {"none", "traditional", "piezo"}
+                    or self._last_rain_config_refresh_mono <= 0.0
                     or time.monotonic() - self._last_rain_config_refresh_mono >= 86400.0
                 )
                 if refresh_rain_config:
