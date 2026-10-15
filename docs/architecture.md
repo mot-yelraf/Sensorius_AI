@@ -189,6 +189,10 @@ Ecowitt:
 
 - One always-registered supervised service polls the configured gateway only
   while `[Ecowitt].ENABLED` is true.
+- Repeated read-endpoint connection failures can use a bounded fresh Python
+  worker, while each poll continues trying the direct connection. Smart-plug
+  commands remain on their existing controller path. Optional rain metadata
+  failures retain known configuration and do not stop other measurements.
 - Discovery reads both inventory pages, uses the gateway MAC for stable station
   identity, and materializes a `TYPE = "station"`, `DEVICE = "ecowitt"` sensor.
 - The parser supports the main weather array, indoor gateway readings, both

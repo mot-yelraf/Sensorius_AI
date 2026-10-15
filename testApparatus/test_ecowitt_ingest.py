@@ -62,6 +62,7 @@ class _Logger:
 
     def log_readings(self, timestamp, sensor_id, values):
         self.rows.append((timestamp, sensor_id, dict(values)))
+        return True
 
 
 class _Response:
@@ -380,3 +381,228 @@ async def test_battery_health_refresh_failure_and_expiry(monkeypatch):
     await service.poll_once()
     assert service.status()["battery_status"] == "UNKNOWN"
     assert service.status()["state"] == "online"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('write_failure', ['false', 'exception'])
+async def test_failed_write_preserves_rain_checkpoint_and_accepted_timestamp(monkeypatch, write_failure):
+    settings = _Settings()
+    settings.values.update({('Ecowitt', 'GATEWAY_URL'): 'http://gw.local',
+                            ('Ecowitt', 'SENSOR_ID'): 'ecowitt-e8db840f1543'})
+    logger = _Logger()
+    service = EcowittGatewayIngest(settings=settings, data_logger=logger)
+    _Client.responses = {'get_livedata_info': {'rain': [{'id': '0x10', 'val': '1.0 in'}]},
+                         'get_rain_totals': {'rainFallPriority': '1'}}
+    monkeypatch.setattr('sensorius.saiEcowitt.httpx.AsyncClient', _Client)
+    await service.poll_once()
+    accepted = service.status()['last_accepted_reading']
+    checkpoint = service._last_rain_timestamp
+    service._rain_reset_hour = (datetime.now(timezone.utc).hour + 1) % 24
+    original = logger.log_readings
+
+    def fail(*args):
+        if write_failure == 'exception':
+            raise OSError('temporary write error')
+        return False
+
+    monkeypatch.setattr(logger, 'log_readings', fail)
+    _Client.responses['get_livedata_info']['rain'][0]['val'] = '1.5 in'
+    with pytest.raises((EcowittError, OSError)):
+        await service.poll_once()
+    assert service._last_rain_day == 1.0
+    assert service._last_rain_timestamp == checkpoint
+    assert service.status()['last_accepted_reading'] == accepted
+    monkeypatch.setattr(logger, 'log_readings', original)
+    _Client.responses['get_livedata_info']['rain'][0]['val'] = '1.75 in'
+    await service.poll_once()
+    assert logger.rows[-1][2]['Rain'] == 0.75
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('saved_source', ['', 'piezo'])
+async def test_rain_metadata_failure_preserves_weather_and_retries(monkeypatch, saved_source):
+    from types import SimpleNamespace
+    # A newly booted host must refresh even when saved configuration exists.
+    monkeypatch.setattr('sensorius.saiEcowitt.time', SimpleNamespace(monotonic=lambda: 1000.0))
+    settings = _Settings()
+    settings.values.update({('Ecowitt', 'ENABLED'): True,
+                            ('Ecowitt', 'GATEWAY_URL'): 'http://gw.local',
+                            ('Ecowitt', 'SENSOR_ID'): 'ecowitt-e8db840f1543',
+                            ('Ecowitt', 'RAIN_SOURCE'): saved_source,
+                            ('Ecowitt', 'RAIN_RESET_HOUR'): 7})
+    logger = _Logger()
+    service = EcowittGatewayIngest(settings=settings, data_logger=logger)
+    _Client.responses = {
+        'get_livedata_info': {'common_list': [{'id': '0x02', 'val': '20', 'unit': 'C'}],
+                             'rain': [{'id': '0x10', 'val': '1 in'}],
+                             'piezoRain': [{'id': '0x10', 'val': '2 in'}]},
+        'get_rain_totals': {'rainFallPriority': '2', 'rstRainDay': '9'},
+    }
+    monkeypatch.setattr('sensorius.saiEcowitt.httpx.AsyncClient', _Client)
+    original = service._get_json
+    failures = True
+
+    async def get(client, base, endpoint, **params):
+        if failures and endpoint == 'get_rain_totals':
+            raise EcowittError('rain metadata unavailable')
+        return await original(client, base, endpoint, **params)
+
+    monkeypatch.setattr(service, '_get_json', get)
+    for _ in range(2):
+        await service.poll_once()
+        assert logger.rows[-1][2]['Temperature_F'] == 68.0
+        assert ('Rain Day' in logger.rows[-1][2]) == bool(saved_source)
+        assert service.status()['state'] == 'online'
+        assert service.status()['rain_config_error']
+        assert service._rain_reset_hour == 7
+    failures = False
+    await service.poll_once()
+    assert service.status()['rain_config_error'] == ''
+    assert service._rain_reset_hour == 9
+    # Failed daily refresh retains the last successful runtime configuration.
+    failures = True
+    service._last_rain_config_refresh_mono = 0
+    await service.poll_once()
+    assert service._rain_source == 'piezo'
+    assert service._rain_reset_hour == 9
+
+
+@pytest.mark.asyncio
+async def test_direct_connection_recovers_through_worker_then_returns_to_direct(monkeypatch):
+    import httpx
+    import sensorius.saiEcowitt as module
+    settings = _Settings()
+    settings.values.update({('Ecowitt', 'ENABLED'): True, ('Ecowitt', 'GATEWAY_URL'): 'http://gw.local'})
+    service = EcowittGatewayIngest(settings=settings, data_logger=_Logger())
+    recovered = []
+
+    class Client:
+        broken = True
+
+        async def get(self, *args, **kwargs):
+            if self.broken:
+                raise httpx.ConnectError('No route to host')
+            return _Response({'direct': True})
+
+    def recover(base, endpoint, params):
+        recovered.append((endpoint, params))
+        return {'worker': True}
+
+    monkeypatch.setattr(module, 'request_in_fresh_process', recover)
+    client = Client()
+    for _ in range(2):
+        with pytest.raises(EcowittError, match='No route to host'):
+            await service._get_json(client, 'http://gw.local', 'get_livedata_info')
+    for _ in range(2):
+        assert await service._get_json(client, 'http://gw.local', 'get_livedata_info') == {'worker': True}
+    assert len(recovered) == 2
+    assert service.status()['recovery_active']
+    assert 'No route to host' in service.status()['connection_error']
+    # Page counters are independent.
+    with pytest.raises(EcowittError):
+        await service._get_json(client, 'http://gw.local', 'get_sensors_info', page=2)
+    client.broken = False
+    assert await service._get_json(client, 'http://gw.local', 'get_livedata_info') == {'direct': True}
+    assert not service.status()['recovery_active']
+    settings.values[('Ecowitt', 'GATEWAY_URL')] = 'http://other.local'
+    assert service.status()['connection_error'] == ''
+
+
+@pytest.mark.asyncio
+async def test_worker_failure_is_retried_and_http_response_resets_failures(monkeypatch):
+    import httpx
+    import subprocess
+    import sensorius.saiEcowitt as module
+    service = EcowittGatewayIngest(settings=_Settings(), data_logger=_Logger())
+    error = httpx.TimeoutException('timeout')
+    calls = []
+
+    class Client:
+        async def get(self, *args, **kwargs):
+            raise error
+
+    def recover(*args):
+        calls.append(True)
+        raise subprocess.TimeoutExpired('worker', 8)
+
+    monkeypatch.setattr(module, 'request_in_fresh_process', recover)
+    for i in range(4):
+        with pytest.raises(EcowittError, match='fresh-process recovery failed' if i >= 2 else 'timeout'):
+            await service._get_json(Client(), 'http://gw.local', 'get_livedata_info')
+    assert len(calls) == 2
+    response = httpx.Response(503, request=httpx.Request('GET', 'http://gw.local/get_livedata_info'))
+    error = httpx.HTTPStatusError('503', request=response.request, response=response)
+    with pytest.raises(EcowittError, match='HTTP 503'):
+        await service._get_json(Client(), 'http://gw.local', 'get_livedata_info')
+    error = httpx.ConnectError('offline again')
+    with pytest.raises(EcowittError):
+        await service._get_json(Client(), 'http://gw.local', 'get_livedata_info')
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_worker_recovery_reaches_normal_persistence(monkeypatch):
+    import httpx
+    import sensorius.saiEcowitt as module
+    settings = _Settings()
+    settings.values.update({('Ecowitt', 'ENABLED'): True,
+                            ('Ecowitt', 'GATEWAY_URL'): 'http://gw.local',
+                            ('Ecowitt', 'SENSOR_ID'): 'ecowitt-e8db840f1543'})
+    logger = _Logger()
+    service = EcowittGatewayIngest(settings=settings, data_logger=logger)
+
+    class Client(_Client):
+        async def get(self, url, **kwargs):
+            if url.endswith('get_livedata_info'):
+                raise httpx.ConnectError('process lost LAN access')
+            return _Response({})
+
+    def recover(base, endpoint, params):
+        assert endpoint == 'get_livedata_info'
+        return {'common_list': [{'id': '0x02', 'val': '20', 'unit': 'C'}]}
+
+    monkeypatch.setattr(module.httpx, 'AsyncClient', Client)
+    monkeypatch.setattr(module, 'request_in_fresh_process', recover)
+    for _ in range(2):
+        with pytest.raises(EcowittError):
+            await service.poll_once()
+    assert not logger.rows
+    assert await service.poll_once()
+    assert logger.rows[-1][2]['Temperature_F'] == 68.0
+    assert service.status()['state'] == 'online'
+    assert service.status()['recovery_active']
+    assert service.status()['last_accepted_reading']
+
+
+@pytest.mark.asyncio
+async def test_run_retries_connection_and_storage_failures(monkeypatch):
+    import asyncio
+    settings = _Settings()
+    settings.values.update({('Ecowitt', 'ENABLED'): True,
+                            ('Ecowitt', 'GATEWAY_URL'): 'http://gw.local',
+                            ('Ecowitt', 'SENSOR_ID'): 'ecowitt-e8db840f1543'})
+    service = EcowittGatewayIngest(settings=settings, data_logger=_Logger())
+    service._migrated_sensor_id = service.sensor_id
+    calls = 0
+    states = []
+
+    async def poll():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise EcowittError('gateway unavailable')
+        if calls == 2:
+            raise OSError('database temporarily unavailable')
+        service._status.update(state='online', last_error='')
+
+    async def sleep(seconds):
+        states.append(service.status()['state'])
+        if calls == 3:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(service, 'poll_once', poll)
+    monkeypatch.setattr(service, '_sleep_with_heartbeat', sleep)
+    with pytest.raises(asyncio.CancelledError):
+        await service.run()
+    assert calls == 3
+    assert states == ['offline', 'offline', 'online']
