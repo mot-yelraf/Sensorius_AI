@@ -117,6 +117,12 @@ Command topics are not state topics.
 
 - Ordinary device config uses `nodus/<device_id>/config/set`.
 - Switch config/control uses `nodus/<channel_id>/config/set`.
+- Switch command envelopes include top-level `reason: "manual"` for user
+  actions or `reason: "auto"` for automation actions. Missing reasons remain
+  unknown; repeated state reports preserve the recorded transition's reason
+  and last-change timestamp in the Sensorius dashboard.
+  Named automations also send top-level `rule_name` so receivers can display
+  `auto - <rule name>` while keeping `reason` equal to `auto`.
 - Calibration uses `nodus/<device_id>/calibration/set`.
 - Sensorius keeps at most one live switch `config/set` in flight per channel.
   Duplicate requests for the same desired state are coalesced until the
@@ -138,16 +144,24 @@ credentials.
 
 ## Switch State Ownership
 
-Remote switch commands should use the shared controller path:
+Nodus owns its logical switch state and the device's `/switch.toml`. Sensorius
+mirrors device reports; publishing a command or receiving an acknowledgment does
+not establish a new state. The dashboard keeps the last confirmed state while a
+request is pending, and shows rejection or timeout separately.
 
-1. UI, Home Assistant, or automation calls `set_state(...)`.
-2. `RemoteSwitchController` resolves the label and channel ID.
-3. `sensorius.saiMQTTIngest.set_switch(...)` publishes one channel-scoped Nodus command.
-4. Authoritative Nodus state or event topics update ingest caches.
-5. `sensorius.saiDataLogger.log_switch_event` records transitions in `sw_events`.
+Manual actions from either web UI must converge on device-file persistence,
+synchronized runtime configuration, and consistent channel state/event plus
+`meta/patch` reports. Live canonical events and explicit state patches update
+Sensorius without an echoed command. Discovery state fields only bootstrap
+unknown channels; later metadata cannot replace a device runtime report with an
+older cached value. Retained/legacy history events do not roll the current UI
+backward.
 
-Do not write switch state directly to the database or publish ad hoc switch
-topics from route handlers.
+See `docs/sensorius_contract.md`, **Switch state ownership and synchronization
+between UIs**, for the complete flow and Nodus firmware implementation checklist.
+Switch history remains written through
+`sensorius.saiDataLogger.log_switch_event`; no synthetic sensor readings or
+optimistic UI transitions are created from outbound requests.
 
 ## Liveness
 

@@ -275,7 +275,7 @@ class _FakeIngest:
         self.calibration_commands.append(message)
         return {"ok": True, "message_id": message["message_id"], "topic": f"nodus/{device_id}/calibration/set"}
 
-    def set_switch_by_channel_id(self, switch_id: str, channel_id: str, new_state: bool, qos: int = 0, retain: bool = False):
+    def set_switch_by_channel_id(self, switch_id: str, channel_id: str, new_state: bool, qos: int = 0, retain: bool = False, *, reason=None, rule_name=None):
         self.switch_commands.append(
             {
                 "switch_id": switch_id,
@@ -283,6 +283,8 @@ class _FakeIngest:
                 "new_state": bool(new_state),
                 "qos": qos,
                 "retain": retain,
+                "reason": reason,
+                "rule_name": rule_name,
             }
         )
         return bool(self.next_switch_command_ok)
@@ -6095,12 +6097,15 @@ async def test_remove_direct_i2c_sensor_purges_active_database_rows(tmp_path, mo
 
 
 @pytest.mark.asyncio
-async def test_switch_status_update_prefers_pending_remote_state_over_stale_cache(tmp_path, monkeypatch):
+async def test_switch_status_keeps_confirmed_state_and_exposes_pending_request(tmp_path, monkeypatch):
     app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     saiWebRoutes._switch_status_cache_payload = None
     saiWebRoutes._switch_status_cache_until = 0.0
     saiWebRoutes.switch_controllers = {}
 
+    ingest.config_result_by_message = {}
+    ingest.config_ack_by_message = {}
+    ingest.get_switch_command_status = lambda sid, label, channel: saiMQTTIngest.saiMQTTIngest.get_switch_command_status(ingest, sid, label, channel)
     ingest._switch_state_cache = {"switch-ykdvea": {"S1-ykdvea": "off"}}
     ingest._pending_set = {
         ("switch-ykdvea", "Fan"): {
@@ -6131,7 +6136,9 @@ async def test_switch_status_update_prefers_pending_remote_state_over_stale_cach
 
     assert res.status_code == 200
     body = res.json()
-    assert body["switch-ykdvea::Fan"]["state"] is True
+    assert body["switch-ykdvea::Fan"]["state"] is False
+    assert body["switch-ykdvea::Fan"]["pending"] is True
+    assert body["switch-ykdvea::Fan"]["requested_state"] is True
 
 
 @pytest.mark.asyncio
@@ -6229,6 +6236,7 @@ async def test_switch_toggle_channel_fallback_returns_requested_state(tmp_path, 
     assert ingest.switch_commands[-1]["switch_id"] == "switch-ykdvea"
     assert ingest.switch_commands[-1]["channel_id"] == "S1-ykdvea"
     assert ingest.switch_commands[-1]["new_state"] is False
+    assert ingest.switch_commands[-1]["reason"] == "manual"
     assert body["state"] is False
 
 
@@ -6288,8 +6296,10 @@ async def test_switch_toggle_remote_controller_prefers_live_state_over_stale_db(
     assert ingest.switch_commands[-1]["switch_id"] == "switch-ykdvea"
     assert ingest.switch_commands[-1]["channel_label"] == "Fan"
     assert ingest.switch_commands[-1]["new_state"] is False
-    assert body["state"] is False
-    assert ctrl.last_state["Fan"] is False
+    assert body["state"] is True
+    assert body["pending"] is True
+    assert body["requested_state"] is False
+    assert ctrl.last_state["Fan"] is True
 
 
 @pytest.mark.asyncio

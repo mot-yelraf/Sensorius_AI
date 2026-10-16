@@ -1,10 +1,24 @@
 # Sensorius Contract
 
 This document is the canonical forward-only contract between current
-`cPyNodus_II` firmware and current Sensorius.
+`cPyNodus_II` / `cPyNodus_III` firmware and current Sensorius.
 
-The two projects move together. Old topic names and compatibility shims do not
-define the contract. When other docs drift, this document wins.
+Sensorius and the supported Nodus projects move together. Old topic names and
+compatibility shims do not define the contract. When other docs drift, this
+document wins.
+
+## Cross-project contract maintenance
+
+The `docs/sensorius_contract.md` files in Sensorius_AI, cPyNodus_II, and
+cPyNodus_III describe the same app/device interfaces. Changes to shared topic
+names, field names, accepted values, correlation, retention, state ownership,
+or user-visible command annotations must be reflected in all three copies.
+Keep board/profile-specific behavior explicit rather than copying one
+firmware's implementation claims into another project's contract.
+
+Required behavior and current implementation support are distinct. An
+implementation gap must remain documented until the corresponding code and
+verification exist; updating a contract does not establish deployed support.
 
 ## Principles
 
@@ -570,6 +584,126 @@ results, errors, or diagnostic logging. Sensorius discards `network.ssid`,
 `network.password`, `Network.SSID`, and `Network.PASSWORD` if older firmware
 echoes them in metadata.
 
+## Switch state ownership and synchronization between UIs
+
+This section defines the required behavior for Sensorius and Nodus implementations.
+Firmware agents should review their implementation against the checklist below;
+this clarification does not claim that every existing firmware version already
+implements the complete flow.
+
+### Device-owned source of truth
+
+- Nodus owns the logical channel state and its `SWITCH_<n>_LAST_STATE` values in
+  the device's `/switch.toml`. Sensorius settings files are local shadows, not
+  an alternative owner of the Nodus configuration.
+- Both MQTT commands and local Nodus web controls must use the same switch
+  application/persistence rules. After a durable successful change, the device
+  file, in-memory runtime configuration, logical output state, and subsequent
+  MQTT reports must agree. Hardware pin readback alone is not independent proof
+  of the attached relay/contact state.
+- Preserve the existing volatile-operation fallback when the filesystem cannot
+  be written, but report `persistence_mode = "volatile"` and the persistence
+  failure in the command/HTTP result. A volatile applied change must not be
+  described as saved to `/switch.toml`. Missing persistence metadata on older
+  firmware means durability is unknown, not proven.
+- In-memory configuration must be updated after an accepted MQTT switch change;
+  writing the file without updating the runtime copy is insufficient. Retained
+  metadata refreshes must use a current device snapshot, not a stale cached
+  `last_state` value.
+
+### Manual change from the Sensorius UI
+
+1. Sensorius resolves the stable channel ID and sends one non-retained,
+   correlated channel `config/set` command using the existing envelope.
+2. Publication or `config/ack` means requested/accepted, not a confirmed state
+   change. Sensorius keeps the last device-confirmed state visible and exposes
+   the requested state separately as pending. It does not synthesize a switch
+   transition, update its shadow as though the request succeeded, or start the
+   manual auto-off countdown merely because MQTT publication succeeded.
+3. Nodus applies the logical output, synchronizes runtime configuration, attempts
+   the device-file write, and emits the existing correlated `config/result`,
+   JSON `event`, retained `state`, and non-retained device `meta/patch` reports.
+   Their values must describe the same applied state. Report persistence status
+   separately from output application success.
+4. Sensorius confirms the state from a matching channel state report, a live
+   canonical switch event, or an explicit state patch; a successful result with
+   no state report does not by itself replace the displayed state. Matching
+   confirmation clears pending and records the actual transition once through
+   `log_switch_event`. Rejects and confirmation timeouts remain visible without
+   changing the last confirmed state. Repeated same-state requests must not
+   restart the confirmation deadline.
+
+### Manual change from the Nodus UI
+
+1. Nodus applies and persists through the same device-owned path and synchronizes
+   the in-memory runtime configuration. The local HTTP result reports application
+   and persistence outcomes.
+2. When MQTT is available, Nodus publishes a JSON channel `event`, retained
+   channel `state`, and non-retained device `meta/patch` for the change. Use a
+   fresh action `message_id` shared by these correlated JSON reports and
+   `source = "manual/web"` on the event and patch. No Sensorius-issued command
+   or MQTT command acknowledgment is required for a local web action.
+3. Sensorius accepts these unsolicited live reports, updates its confirmed-state
+   cache and shadow, records the transition once, and updates the dashboard.
+   It must not echo the received state back as another switch command.
+4. If MQTT was unavailable, a later reconnect must publish a current retained
+   channel state and current metadata. Missed intermediate local events must not
+   be invented as historical transitions.
+
+### Snapshot and live-report precedence
+
+- Retained `meta` and `meta/switch` remain authoritative for discovery, identity,
+  channel labels, and topic wiring. Their state fields bootstrap an unknown
+  channel but must not overwrite a channel state already learned from device
+  runtime reports during the ingest session. This protects against older
+  firmware publishing stale cached configuration snapshots; it does not transfer
+  ownership of state to Sensorius.
+- Channel `state` reports accept existing plain `ON`/`OFF` and JSON shapes. Live,
+  non-retained `nodus-switch-event/v1` events may also confirm a state change.
+  Retained/replayed events and legacy event-only history payloads may update
+  history but must not roll the current display backward.
+- An explicit non-retained `meta/patch` update to
+  `Switch.SWITCH_<n>_LAST_STATE` is a device runtime confirmation. Replaying a
+  discovery snapshot is not an explicit state patch.
+- A report of the previous state while a different state is requested must not
+  silently mark that request confirmed. Reports with distinct channel IDs must
+  never affect each other's pending state, labels, or history.
+- Refreshing metadata, receiving events, and rendering either UI must not send
+  a new switch command. Startup metadata replay must not create synthetic switch
+  events. Keep the existing topic and payload compatibility paths.
+
+### Firmware implementation review checklist
+
+For each supported Nodus firmware, check the local web state handler, MQTT switch
+command handler, runtime configuration update, persistence result, and deferred
+metadata publisher together. In particular:
+
+Implementation review entry points (under `cpynodus_ii/` or `cpynodus_iii/`):
+`features/command_handlers.py::process_switch_command_message`,
+`features/web_handlers.py::handle_switch_state_request`,
+`features/web_config.py::apply_web_switch_override`, the local
+`/set-switch-state` handler in `features/web_runtime.py`,
+`features/publish_cycle.py::publish_metadata_refresh_cycle`, and its call site
+in `app.py`. Reuse the existing state/event publication helpers while preserving
+lazy imports and the shallow command stacks. The cPyNodus III v0.26.288.2 review
+found the local web action requesting only metadata refresh, the deferred
+refresh call omitting a live switch snapshot, and the MQTT switch handler not
+propagating updated runtime configuration. Review cPyNodus II for the same gaps
+rather than assuming identical behavior.
+
+- Return/propagate updated runtime configuration after MQTT channel commands.
+- Supply a fresh switch snapshot when deferred metadata is constructed.
+- Queue state/event/patch publication after a local web change; a full metadata
+  refresh alone is not the runtime synchronization flow.
+- Preserve constrained heap/pystack behavior, lazy command imports, non-retained
+  commands, and existing filesystem fallback semantics.
+- Add host tests for both UI origins, stale metadata after a live state change,
+  repeated metadata refresh, failed persistence, disconnected/reconnect behavior,
+  two channels with opposite states, and duplicate state/event/patch delivery.
+- Verify on hardware with broker-visible captures. Check the device file,
+  runtime/device UI, physical output, and Sensorius UI separately; host tests
+  alone do not establish GPIO correctness or broker delivery.
+
 ## Switch `config/set`
 
 Canonical topic:
@@ -581,6 +715,7 @@ Canonical switch-control envelope:
 ```json
 {
   "message_id": "cfg-123",
+  "reason": "manual",
   "payload": {
     "updates": [
       {
@@ -598,6 +733,7 @@ Canonical switch-control envelope:
 Forward-only rule:
 
 - JSON `config/set` is the canonical switch-control contract.
+- Switch reason/name annotations follow the shared requirements below.
 - Plain `ON` and `OFF` payloads may still be tolerated by firmware, but they
   are not the documented forward contract.
 
@@ -626,6 +762,80 @@ Implemented behavior:
   `persistence_mode = "volatile"` in serial logging.
 - Nodus does not clear `nodus/<channel_id>/config/set`; Sensorius owns retained
   command cleanup for commands it publishes retained.
+
+### Switch reasons and rule names (shared app/device requirements)
+
+These requirements apply to both Nodus generations and Sensorius. The support
+matrix below records current source support, not a claim about deployed devices.
+
+- `reason` is a top-level command-envelope string, outside `payload.updates`.
+  Sensorius user toggles send `"manual"`; automation actions send `"auto"`.
+  Local Nodus web controls and local automations must supply the same distinction
+  to device history. Transport (`mqtt`) and operation (`switch_set`) are separate
+  from the action reason; automation ownership alone does not establish cause.
+- Named automation commands also carry top-level `rule_name`, containing the
+  rule's display name. Preserve the complete name, including colons. Omit this
+  field for manual commands or when no rule name is known. It is annotation,
+  not a configuration update or an instruction to evaluate a rule on Nodus.
+- Keep `reason` exactly `"auto"`; never send `"auto - Cooling"` in that field.
+  Both UIs should render a known name as `auto - Cooling`, falling back to
+  `auto` when only the reason is known, and `manual` for a manual action.
+- Missing or unsupported reasons remain unknown. Do not infer a reason from
+  the current automation owner, a matching On/Off value, or the transport.
+  Existing unknown historical transitions cannot be classified retroactively.
+  A missing rule name must not invalidate a valid automatic action.
+- Required receiver behavior is to preserve the reason and available rule name
+  with the actual applied transition. A queued publish or ACK is not a
+  transition. Match action metadata by channel and `message_id` when available;
+  do not transfer annotations between channels or unrelated command IDs.
+- Repeated reports of the same recorded transition must preserve its known
+  reason, name, and last-change timestamp. Generic state refreshes must not
+  create new unknown-origin events. A later opposite transition without a known
+  cause remains unknown; it must not inherit the previous action's reason.
+- Existing plain `ON`/`OFF` state reports remain valid and carry no reason or
+  action ID. Do not require a JSON state conversion or extra publications for
+  this annotation. JSON reports that carry action annotations use the same
+  top-level `reason` and `rule_name` names alongside existing identity and
+  correlation fields. Their absence is not a protocol error or proof of cause.
+- The annotation does not change command topics, QoS, retain rules, ACK/result
+  semantics, physical channel identity, or persistence-success reporting.
+
+Named automation command example on `nodus/<channel_id>/config/set`:
+
+```json
+{
+  "message_id": "cfg-auto-123",
+  "reason": "auto",
+  "rule_name": "Cooling",
+  "payload": {
+    "updates": [
+      {
+        "section": "Switch",
+        "key": "SWITCH_1_LAST_STATE",
+        "value": true,
+        "name": "switch.toml"
+      }
+    ]
+  },
+  "restart": false
+}
+```
+
+Current source support reviewed 2026-10-16:
+
+| Project | Implemented | Remaining work |
+| --- | --- | --- |
+| Sensorius | Sends `reason` and known `rule_name`; accepts these fields in JSON channel state/event reports; preserves its recorded transition annotation and timestamp on repeated reports; displays `auto - <rule name>`. | Verify the app/device flow on deployed firmware. |
+| cPyNodus II | Existing state command handling accepts the envelope but does not read `reason` or `rule_name`. | Implement reason/name handling and corresponding history/display support where available; verify on-device. |
+| cPyNodus III | Reads `reason: "manual"` / `"auto"` from channel commands and records it in local history. Local web controls and automations supply their reasons. | Read and preserve `rule_name` for named history/display. Current MQTT reports do not echo these annotations; reason/name report support must be implemented before relying on it. Verify on-device. |
+
+Shared acceptance checks: manual toggles from either UI, named automation
+commands, unnamed automatic commands, omitted/invalid reasons, rule names with
+colons, duplicate state/event/patch delivery after temporary command metadata
+expires, mismatched command IDs/channels, and a later unannotated opposite
+transition. Validate stored history and both UI labels as well as switch state.
+Host tests do not establish physical output behavior or broker delivery.
+
 
 ## `calibration/set`
 

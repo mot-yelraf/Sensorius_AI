@@ -43,6 +43,12 @@ def documentation_capture() -> dict:
     return {"capture_id": os.environ.get("SENSORIUS_DOCS_CAPTURE_ID", "")}
 
 
+@app.get("/switch/history")
+def switch_history() -> dict:
+    """Provide empty switch history without reading a production database."""
+    return {"events": []}
+
+
 @app.websocket("/ws/switch-updates")
 async def switch_updates(websocket: WebSocket) -> None:
     """Keep the dashboard's normal switch-status socket open during the check."""

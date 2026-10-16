@@ -3290,6 +3290,33 @@ class saiDataLogger:
 
         return candidates
 
+    def get_switch_history(self, switch_key: str, since_epoch: float, until_epoch: float) -> list[dict]:
+        """Read every stored switch event in a bounded time window.
+
+        Resolve legacy and UI keys through the identity registry. Null epoch
+        values from older databases use their ISO timestamp as a fallback.
+        """
+        candidates = self._switch_key_alias_candidates(switch_key)
+        if not candidates:
+            return []
+        placeholders = ",".join("?" for _ in candidates)
+        with self._open_conn() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT timestamp, state, source,
+                       COALESCE(ts_epoch, CAST(strftime('%s', timestamp) AS REAL)) AS epoch
+                FROM sw_events
+                WHERE switch_key COLLATE NOCASE IN ({placeholders})
+                  AND (ts_epoch BETWEEN ? AND ? OR
+                       (ts_epoch IS NULL AND julianday(timestamp) BETWEEN julianday(?, 'unixepoch') AND julianday(?, 'unixepoch')))
+                ORDER BY epoch ASC
+                """,
+                (*candidates, since_epoch, until_epoch, since_epoch, until_epoch),
+            ).fetchall()
+        return [{"ts": ts, "state": str(state).lower() in ("1", "true", "on"),
+                 "source": source or "", "epoch": float(epoch)}
+                for ts, state, source, epoch in rows if epoch is not None]
+
     def get_last_switch_events(
         self,
         switch_key: str,
