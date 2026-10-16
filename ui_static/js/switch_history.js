@@ -86,7 +86,8 @@
       const tick = document.createElement('span');
       const date = document.createElement('span');
       const time = document.createElement('span');
-      date.textContent = new Date(at).toLocaleDateString([], { month: '2-digit', day: '2-digit' });
+      const tickDate = new Date(at);
+      date.textContent = tickDate.toLocaleDateString('en-US', { month: 'short' }) + String(tickDate.getDate()).padStart(2, '0');
       time.textContent = new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
       tick.title = timestamp(at);
       tick.append(date, time);
