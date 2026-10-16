@@ -994,6 +994,17 @@ class SwitchController:
         event_origin: str = "manual",
         event_label: str = "",
     ) -> bool:
+        # Nodus commands must use the correlated channel config/set contract.
+        if bool(getattr(self, "is_remote", False)):
+            ing = getattr(self, "mqtt_ingest", None)
+            if ing is None:
+                from .saiMQTTIngest import get_current_ingest
+                ing = get_current_ingest()
+            return bool(ing and ing.set_switch(
+                self.switch_id, name, on,
+                event_origin=event_origin, event_label=event_label,
+            ))
+
         # 1) Try device backend first
         if hasattr(self, "switch") and hasattr(self.switch, "set_state"):
             if bool(self.switch.set_state(name, on)):
@@ -1021,6 +1032,7 @@ class SwitchController:
 
 
     def set_state(self, name, on: bool, *, force: bool = False, event_source: str = "manual/ui"):
+        """Request a state change, retaining device-confirmed state for remote switches."""
         now = time.monotonic()
         prev_on = self.get_state(name)
         event_source_text = str(event_source or "").strip()
@@ -1031,6 +1043,8 @@ class SwitchController:
         if self.override_script.get(name, False):
             printDM(f"Override active: {name} forced to {on}", location=MODULE)
             ok = self._set_switch_state(name, on, event_origin=event_origin, event_label=event_label)
+            if bool(getattr(self, "is_remote", False)):
+                return bool(ok)
             if ok:
                 self.last_state[name] = on                     # <-- keep RAM state in sync
                 self._log(name, on, source=event_source)
@@ -1051,6 +1065,8 @@ class SwitchController:
 
         printDM(f"Setting {name} to {'ON' if on else 'OFF'} (override: {self.override_script.get(name, False)})", location=MODULE)
         ok = self._set_switch_state(name, on, event_origin=event_origin, event_label=event_label)
+        if bool(getattr(self, "is_remote", False)):
+            return bool(ok)
         if ok:
             self.last_state[name] = on                         # <-- keep RAM state in sync
             self._log(name, on, source=event_source)
@@ -2985,33 +3001,6 @@ class RemoteSwitchController(SwitchController):
         except Exception:
             return
 
-    def _pending_state_from_ingest(self, ing, sid: str, label: str, channel_id: str) -> bool | None:
-        try:
-            pending_map = getattr(ing, "_pending_set", {}) or {}
-            now_ts = time.time()
-            pending_ttl_s = 15.0
-
-            pending = pending_map.get((str(sid or ""), str(label or "")))
-            if pending is None and channel_id:
-                for (psid, _plabel), meta in pending_map.items():
-                    if str(psid or "").strip() != str(sid or "").strip():
-                        continue
-                    meta_channel = str((meta or {}).get("channel_id") or "").strip()
-                    if meta_channel and meta_channel == channel_id:
-                        pending = meta
-                        break
-            if not isinstance(pending, dict):
-                return None
-
-            pending_ts = float(pending.get("ts") or 0.0)
-            if pending_ts <= 0.0 or (now_ts - pending_ts) > pending_ttl_s:
-                return None
-            if "state" not in pending:
-                return None
-            return bool(pending.get("state"))
-        except Exception:
-            return None
-
     def _refresh_state_from_ingest(self) -> None:
         try:
             ing = self.mqtt_ingest
@@ -3031,30 +3020,34 @@ class RemoteSwitchController(SwitchController):
 
             for label in (self.get_switch_names() or []):
                 channel_id = str((self.channel_id_for_label or {}).get(label, "") or "").strip()
-                pending_state = self._pending_state_from_ingest(ing, sid, str(label or ""), channel_id)
-                if pending_state is not None:
-                    new_state = bool(pending_state)
-                else:
-                    raw = None
-                    if channel_id:
-                        raw = ch_map.get(channel_id)
-                        if raw is None:
-                            raw = ch_map.get(channel_id.lower())
+                raw = None
+                if channel_id:
+                    raw = ch_map.get(channel_id)
                     if raw is None:
-                        raw = ch_map.get(label)
-                    if raw is None:
-                        raw = ch_map.get(str(label).lower())
-                    if raw is None:
-                        continue
-                    new_state = str(raw).strip().lower() in ("on", "true", "1")
+                        raw = ch_map.get(channel_id.lower())
+                if raw is None:
+                    raw = ch_map.get(label)
+                if raw is None:
+                    raw = ch_map.get(str(label).lower())
+                if raw is None:
+                    continue
+                new_state = str(raw).strip().lower() in ("on", "true", "1")
                 prev_state = bool(self.last_state.get(label, False))
                 self.last_state[label] = new_state
                 if new_state != prev_state:
+                    origin = (getattr(ing, "_recent_switch_origin", {}) or {}).get((sid, label), {})
+                    manual_confirmation = (bool(origin.get("confirmed_at"))
+                                           and float(origin.get("expires_at") or 0) >= time.time()
+                                           and origin.get("event_origin") == "manual"
+                                           and bool(origin.get("state")) == new_state)
+                    last_times = getattr(self, "last_set_time", None)
+                    if isinstance(last_times, dict):
+                        last_times[label] = time.monotonic()
                     self._sync_auto_off_state(
                         label,
                         new_state,
                         restart=False,
-                        allow_create_if_missing=False,
+                        allow_create_if_missing=manual_confirmation,
                     )
         except Exception:
             return
@@ -3069,6 +3062,7 @@ class RemoteSwitchController(SwitchController):
         return super().get_switch_names()
 
     def set_state(self, name, on: bool, *, force: bool = False, event_source: str = "manual/ui"):
+        """Refresh the channel definition and request a device-owned state change."""
         self._refresh_definition_from_settings()
         return super().set_state(name, on, force=force, event_source=event_source)
 

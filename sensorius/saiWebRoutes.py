@@ -3277,7 +3277,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 pass
             return keys
 
-        def _db_recent_events_for_key(switch_key: str, limit: int = 5) -> list[str]:
+        def _db_recent_events_for_key(switch_key: str, limit: int = 10) -> list[str]:
             """
             Read last N events from sw_events for this switch_key.
             Return formatted lines like: 'On 2025-09-20 11:25:34-06:00'
@@ -3312,7 +3312,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
               {
                 "sensoria-hub-0::Fan": {
                   "state": <bool>,
-                  "time": ["On 2025-09-20 11:25:34-06:00", ...]  # up to 5 events, oldest → newest
+                  "time": ["On 2025-09-20 11:25:34-06:00", ...]  # up to 10 events, oldest → newest
                 },
                 ...
               }
@@ -3342,7 +3342,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         seen_db_keys.add(db_key)
 
                         current_state = bool(last_state_map.get(label, False))
-                        events = _db_recent_events_for_key(db_key, limit=5)
+                        events = _db_recent_events_for_key(db_key, limit=10)
                         states[ui_key] = {"state": current_state, "time": events}
 
             # B) Remote Pico / Nodus switches via MQTT cache
@@ -3362,7 +3362,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     if ui_key in states:
                         continue  # don't override local
 
-                    events = _db_recent_events_for_key(db_key, limit=5)
+                    events = _db_recent_events_for_key(db_key, limit=10)
                     is_on = str(human_state).lower() == "on"
                     states[ui_key] = {"state": is_on, "time": events}
 
@@ -3371,7 +3371,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if not db_key or db_key in seen_db_keys:
                     continue
 
-                events = _db_recent_events_for_key(db_key, limit=5)
+                events = _db_recent_events_for_key(db_key, limit=10)
                 if events:
                     last_line = events[-1]
                     is_on = last_line.strip().lower().startswith("on ")
@@ -14971,6 +14971,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return JSONResponse({"ok": True, "switch_id": switch_id, "rule_id": final_rule_id})
         return RedirectResponse(url="/", status_code=303)
 
+    @router.get("/switch/history")
+    def switch_history_api(switch_key: str = Query(..., min_length=1), hours: int = Query(24)):
+        """Return all stored transitions for a short switch-history window."""
+        if hours not in (1, 6, 24):
+            raise HTTPException(status_code=422, detail="History window must be 1, 6, or 24 hours.")
+        until = time.time()
+        since = until - hours * 3600
+        events = data_logger.get_switch_history(switch_key, since, until)
+        return {"events": events, "start_epoch": since, "end_epoch": until}
+
     @router.get("/switch-status-update")
     async def switch_status_api():
         """
@@ -14978,7 +14988,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
           {
             "sensoria-hub-0::Light": {
               "state": <bool>,
-              "time": ["On 2025-08-11 12:34:56", ...]  # up to 5, chronological
+              "time": ["On 2025-08-11 12:34:56", ...]  # up to 10, chronological
             },
             "switch-4oz31s::Fan": { ... }
           }
@@ -15019,8 +15029,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             identity_rows: list[dict[str, object]],
         ) -> dict[str, dict]:
             states: dict[str, dict] = {}
-            pending_set = copy.deepcopy(getattr(mqtt_ingest, "_pending_set", {}) or {})
-            pending_ttl_s = 15.0
 
             def _event_origin_tag(source: object) -> str:
                 raw = str(source or "").strip()
@@ -15043,7 +15051,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     return "auto"
                 return ""
 
-            def _format_events(switch_key: str, sensor_id: str | None, limit: int = 5) -> list[str]:
+            def _format_events(switch_key: str, sensor_id: str | None, limit: int = 10) -> list[str]:
                 evs = data_logger.get_last_switch_events(
                     switch_key,
                     sensor_id=sensor_id,
@@ -15058,7 +15066,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     out.append(f"{label} {ts}{suffix}")
                 return out
 
-            def _format_events_remote(switch_key: str, limit: int = 5) -> list[str]:
+            def _format_events_remote(switch_key: str, limit: int = 10) -> list[str]:
                 return _format_events(switch_key, None, limit=limit)
 
             known_channel_ids_by_sid: dict[str, set[str]] = {}
@@ -15105,30 +15113,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     pass
                 return None
 
-            def _pending_state_for(sid: str, label: str, db_key: str) -> bool | None:
-                try:
-                    now_ts = time.time()
-                    pending = pending_set.get((str(sid or ""), str(label or "")))
-                    if pending is None:
-                        channel_id = _resolve_channel_id_from_label(sid, label) or ""
-                        for (psid, plabel), meta in pending_set.items():
-                            if str(psid or "").strip() != str(sid or "").strip():
-                                continue
-                            meta_channel = str((meta or {}).get("channel_id") or "").strip()
-                            if meta_channel and meta_channel == channel_id:
-                                pending = meta
-                                break
-                    if not isinstance(pending, dict):
-                        return None
-                    pending_ts = float(pending.get("ts") or 0.0)
-                    if pending_ts <= 0.0 or (now_ts - pending_ts) > pending_ttl_s:
-                        return None
-                    if "state" not in pending:
-                        return None
-                    return bool(pending.get("state"))
-                except Exception:
-                    return None
-
             def _remote_liveness_payload(sid: str) -> dict:
                 try:
                     sid_text = str(sid or "").strip()
@@ -15166,7 +15150,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 db_key = str(entry.get("db_key", "") or "").strip() or ui_key
                 sensor_lineage = str(entry.get("sensor_lineage", "") or "").strip() or None
                 live_bool = bool(entry.get("live_bool", False))
-                events = _format_events(db_key, sensor_lineage, limit=5)
+                events = _format_events(db_key, sensor_lineage, limit=10)
                 payload = {"state": live_bool, "time": events}
                 if DEBUG and switch_id.lower() == "sensoria-hub-0" and label.lower() == "fan":
                     printDM(
@@ -15186,17 +15170,17 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     continue
                 ui_key = f"{sid}::{label}"
                 cached_bool = _cache_state_for(sid, label, db_key)
-                pending_bool = _pending_state_for(sid, label, db_key)
-                if pending_bool is not None:
-                    latest_bool = pending_bool
-                elif cached_bool is not None:
+                if cached_bool is not None:
                     latest_bool = cached_bool
                 else:
                     latest = data_logger.get_latest_switch_state(db_key)
                     latest_bool = (latest == "On") if latest is not None else False
-                events = _format_events_remote(db_key, limit=5) or _format_events(db_key, None, limit=5)
+                events = _format_events_remote(db_key, limit=10) or _format_events(db_key, None, limit=10)
                 payload = {"state": latest_bool, "time": events}
                 payload.update(_remote_liveness_payload(sid))
+                command_status = getattr(mqtt_ingest, "get_switch_command_status", None)
+                if callable(command_status):
+                    payload.update(command_status(sid, label, _switch_channel_id_from_identity_row(row)))
                 states[db_key] = dict(payload)
                 states[ui_key] = dict(payload)
                 seen_ui_keys.add(ui_key)
@@ -15217,17 +15201,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         continue
                     db_key = _db_key_for_label(remote_switch_id, channel_label)
                     cached_bool = _cache_state_for(remote_switch_id, channel_label, db_key)
-                    pending_bool = _pending_state_for(remote_switch_id, channel_label, db_key)
-                    if pending_bool is not None:
-                        latest_bool = pending_bool
-                    elif cached_bool is not None:
+                    if cached_bool is not None:
                         latest_bool = cached_bool
                     else:
                         latest = data_logger.get_latest_switch_state(db_key)
                         latest_bool = (latest == "On") if latest is not None else (str(human_state).lower() == "on")
-                    events = _format_events_remote(db_key, limit=5) or _format_events(db_key, None, limit=5)
+                    events = _format_events_remote(db_key, limit=10) or _format_events(db_key, None, limit=10)
                     payload = {"state": latest_bool, "time": events}
                     payload.update(_remote_liveness_payload(remote_switch_id))
+                    command_status = getattr(mqtt_ingest, "get_switch_command_status", None)
+                    if callable(command_status):
+                        channel = _resolve_channel_id_from_label(remote_switch_id, channel_label) or ""
+                        payload.update(command_status(remote_switch_id, channel_label, channel))
                     if db_key:
                         states[db_key] = dict(payload)
                     states[ui_key] = payload
@@ -15637,7 +15622,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         blocked = _remote_liveness_block_response(resolved_sid or "", channel_id=channel_id)
                         if blocked is not None:
                             return blocked
-                        ok = bool(mqtt_ingest.set_switch_by_channel_id(resolved_sid or "", channel_id, new_state))
+                        ok = bool(mqtt_ingest.set_switch_by_channel_id(resolved_sid or "", channel_id, new_state, reason="manual"))
                         if ok:
                             ts = time.time()
                             # Remote fallback path: do not persist UI-originated events.
@@ -15751,7 +15736,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     return "auto"
                 return ""
 
-            def _recent_events_payload(limit: int = 5) -> list[str]:
+            def _recent_events_payload(limit: int = 10) -> list[str]:
                 if remote or not sid:
                     return []
                 try:
@@ -15790,6 +15775,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         payload.update(dict(getter(matched_label) or {}))
                 except Exception:
                     pass
+                if remote:
+                    status_getter = getattr(mqtt_ingest, "get_switch_command_status", None)
+                    channel = str((getattr(ctrl, "channel_id_for_label", {}) or {}).get(matched_label, "") or "")
+                    if callable(status_getter):
+                        payload.update(status_getter(sid or "", matched_label, channel))
+                    else:
+                        payload.update(pending=True, requested_state=bool(new_state))
                 if note:
                     payload["note"] = note
                 return payload
@@ -15831,15 +15823,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     except Exception as e:
                         printDM(f"[toggle_switch] ingest.set_switch error: {e}", location=MODULE)
                 if ok:
-                    try:
-                        sync_toggle = getattr(ctrl, "sync_manual_toggle_result", None)
-                        if callable(sync_toggle):
-                            sync_toggle(matched_label, bool(new_state), previous_state=bool(current))
-                        else:
-                            ctrl.last_state[matched_label] = bool(new_state)
-                    except Exception as e:
-                        printDM(f"[toggle_switch] remote timer sync failed: {e}", location=MODULE)
-                    response_state = bool(new_state)
+                    # Publication is a request, not a device state confirmation.
+                    response_state = bool(ctrl.get_state(matched_label))
 
             # ...after we've tried to set the state (ok = ctrl.set_state(...) or MQTT path)...
             if not ok:

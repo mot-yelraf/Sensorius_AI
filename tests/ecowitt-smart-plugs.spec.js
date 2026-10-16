@@ -53,7 +53,7 @@ test('AC1100 uses switch card, canonical toggle key, and event list', async ({ p
   await expect(toggle).toHaveText('On');
   expect(toggleUrl.searchParams.get('switch_key')).toBe(`${sid}-1::Plug`);
   await expect(page.locator('.switch-events-list li')).toHaveAttribute('data-raw-event', 'On 2026-09-10 12:00:00 (manual)');
-  await expect(page.locator('.switch-events-list li')).toBeVisible();
+  await expect(page.locator('.switch-history-plot canvas')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('ac1100-switch.png'), fullPage: true });
   offline = true;
   await expect(page.locator('.ecowitt-plug-status')).toHaveText('Offline');

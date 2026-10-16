@@ -1078,6 +1078,7 @@ def test_set_switch_leaves_remote_cache_unchanged_until_confirmation(monkeypatch
         "channel_id": "S1-sw1",
         "event_origin": "manual",
         "event_label": "",
+        "message_id": json.loads(ingest.client.pubs[-1][1])["message_id"],
     }
     assert ingest._switch_state_cache == {}
 
@@ -2106,6 +2107,7 @@ def test_set_switch_does_not_optimistically_mutate_remote_state_cache(monkeypatc
         "channel_id": "S1-test123",
         "event_origin": "manual",
         "event_label": "",
+        "message_id": json.loads(ingest.client.pubs[-1][1])["message_id"],
     }
     assert ingest._switch_state_cache == {}
 
@@ -4098,3 +4100,238 @@ def test_cpynodus_ii_saved_display_companion_and_incremental_slots(
     receive("meta", compact)
     receive("meta/config", companion)
     assert mgr.load(sid)["Display"]["METRIC_1"] == "dewVPD Risk"
+
+
+def _state_sync_meta():
+    return {
+        "schema": "nodus-meta/v1", "device_id": "avpd-test123",
+        "switch": {"device_id": "switch-test123", "channels": [
+            {"index": 1, "channel_id": "S1-test123", "label": "Fan", "state": False,
+             "state_topic": "nodus/S1-test123/state", "event_topic": "nodus/S1-test123/event"},
+            {"index": 2, "channel_id": "S2-test123", "label": "Light", "state": True,
+             "state_topic": "nodus/S2-test123/state", "event_topic": "nodus/S2-test123/event"},
+        ]},
+    }
+
+
+@pytest.mark.parametrize("report_kind", ["state", "event"])
+@pytest.mark.parametrize("retained_meta", [True, False])
+def test_runtime_switch_reports_survive_conflicting_discovery_and_shadow_refresh(monkeypatch, report_kind, retained_meta):
+    ingest = _build_ingest(monkeypatch)
+    shadows = []
+    ingest._ensure_settings_from_itaot = lambda _info, _host, _sensors, switches: shadows.extend(switches)
+    ingest._broadcast_switch_event = lambda **_kw: None
+    ingest._broadcast_dashboard_inventory_changed = lambda **_kw: None
+    meta = _state_sync_meta()
+    ingest._parse_and_subscribe_from_nodus_meta(meta, retain=True)
+    assert ingest._switch_state_cache['switch-test123']['Fan'] == 'off'
+    for channel, label, state in [('S1-test123', 'Fan', True), ('S2-test123', 'Light', False)]:
+        payload = ('ON' if state else 'OFF') if report_kind == 'state' else json.dumps({
+            'schema': 'nodus-switch-event/v1', 'channel_id': channel,
+            'label': label, 'state': 'ON' if state else 'OFF', 'source': 'manual/web',
+        })
+        ingest.handle_nodus_switch_topic(f'nodus/{channel}/{report_kind}', payload)
+    count = len(ingest.data_logger.switch_events)
+    # Replay both opposite states, while still accepting changed discovery labels.
+    meta['switch']['channels'][0]['label'] = 'Exhaust'
+    ingest._parse_and_subscribe_from_nodus_meta(meta, retain=retained_meta)
+    cache = ingest._switch_state_cache['switch-test123']
+    assert cache['S1-test123'] == cache['Exhaust'] == 'on'
+    assert cache['S2-test123'] == cache['Light'] == 'off'
+    assert shadows[-1]['switch_payload']['SWITCH_1_LAST_STATE'] is True
+    assert shadows[-1]['switch_payload']['SWITCH_2_LAST_STATE'] is False
+    assert len(ingest.data_logger.switch_events) == count
+    assert ingest.client.pubs == []
+
+
+def test_explicit_device_state_patch_updates_confirmed_state_after_runtime_report(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    shadows = []
+    ingest._ensure_settings_from_itaot = lambda _info, _host, _sensors, switches: shadows.extend(switches)
+    ingest._broadcast_switch_event = lambda **_kw: None
+    ingest._broadcast_dashboard_inventory_changed = lambda **_kw: None
+    ingest._parse_and_subscribe_from_nodus_meta(_state_sync_meta(), retain=True)
+    ingest.handle_nodus_switch_topic('nodus/S2-test123/state', 'OFF')
+    patch = {'schema': 'nodus-meta-patch/v1', 'device_id': 'avpd-test123',
+             'message_id': 'web-state-change', 'source': 'manual/web', 'updates': [
+                 {'section': 'Switch', 'key': 'SWITCH_2_LAST_STATE', 'value': True},
+             ]}
+    ingest._on_message(ingest.client, None, _Msg('nodus/avpd-test123/meta/patch', json.dumps(patch)))
+    assert ingest._switch_state_cache['switch-test123']['Light'] == 'on'
+    assert shadows[-1]['switch_payload']['SWITCH_2_LAST_STATE'] is True
+    assert ingest._switch_state_cache['switch-test123']['Fan'] == 'off'
+    assert ingest.client.pubs == []
+
+
+def test_queued_switch_command_waits_for_matching_device_report_and_never_extends_deadline(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest._ensure_settings_from_itaot = lambda *_a, **_k: None
+    ingest._broadcast_switch_event = lambda **_kw: None
+    ingest._broadcast_dashboard_inventory_changed = lambda **_kw: None
+    ingest._parse_and_subscribe_from_nodus_meta(_state_sync_meta(), retain=True)
+    _mark_nodus_online(ingest, peers=['avpd-test123', 'switch-test123'])
+    ingest.handle_nodus_switch_topic('nodus/S1-test123/state', 'OFF')
+    assert ingest.set_switch('switch-test123', 'Fan', True, event_origin='manual')
+    first = ingest.get_switch_command_status('switch-test123', 'Fan', 'S1-test123')
+    assert first['pending'] and first['requested_state']
+    mid = first['command_message_id']
+    ingest._on_message(ingest.client, None, _Msg('nodus/S1-test123/config/result', json.dumps({'message_id': mid, 'applied': True})))
+    assert ingest.get_switch_command_status('switch-test123', 'Fan')['pending']
+    assert ingest._switch_state_cache['switch-test123']['Fan'] == 'off'
+    assert ingest.set_switch('switch-test123', 'Fan', True, event_origin='manual')
+    assert len(ingest.client.pubs) == 1
+    assert ingest.get_switch_command_status('switch-test123', 'Fan')['pending_until'] == first['pending_until']
+    ingest.handle_nodus_switch_topic('nodus/S1-test123/state', 'OFF')
+    assert ingest.get_switch_command_status('switch-test123', 'Fan')['pending']
+    ingest.handle_nodus_switch_topic('nodus/S2-test123/state', 'ON')
+    assert ingest.get_switch_command_status('switch-test123', 'Fan')['pending']
+    ingest.handle_nodus_switch_topic('nodus/S1-test123/state', 'ON')
+    assert not ingest.get_switch_command_status('switch-test123', 'Fan')['pending']
+    assert ingest._switch_state_cache['switch-test123']['Fan'] == 'on'
+    assert len(ingest.data_logger.switch_events) == 3
+
+
+@pytest.mark.parametrize('failure', ['ack', 'result', 'timeout'])
+def test_switch_request_failure_does_not_become_confirmed_state(monkeypatch, failure):
+    ingest = _build_ingest(monkeypatch)
+    ingest._ensure_settings_from_itaot = lambda *_a, **_k: None
+    ingest._broadcast_switch_event = lambda **_kw: None
+    ingest._broadcast_dashboard_inventory_changed = lambda **_kw: None
+    ingest._parse_and_subscribe_from_nodus_meta(_state_sync_meta(), retain=True)
+    _mark_nodus_online(ingest, peers=['avpd-test123', 'switch-test123'])
+    assert ingest.set_switch('switch-test123', 'Fan', True, event_origin='manual')
+    status = ingest.get_switch_command_status('switch-test123', 'Fan')
+    if failure == 'timeout':
+        monkeypatch.setattr(ingest_mod.time, 'time', lambda: status['pending_until'] + 1)
+    else:
+        payload = {'message_id': status['command_message_id'], 'accepted': False, 'applied': False, 'error': 'Rejected'}
+        ingest._on_message(ingest.client, None, _Msg(f'nodus/S1-test123/config/{failure}', json.dumps(payload)))
+    status = ingest.get_switch_command_status('switch-test123', 'Fan')
+    assert not status['pending']
+    assert status['command_error']
+    assert ingest._switch_state_cache['switch-test123']['Fan'] == 'off'
+    assert ingest.data_logger.switch_events == []
+
+
+def test_volatile_result_is_reported_without_claiming_durable_state(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    ingest._ensure_settings_from_itaot = lambda *_a, **_k: None
+    ingest._broadcast_switch_event = lambda **_kw: None
+    ingest._broadcast_dashboard_inventory_changed = lambda **_kw: None
+    ingest._parse_and_subscribe_from_nodus_meta(_state_sync_meta(), retain=True)
+    _mark_nodus_online(ingest, peers=['avpd-test123', 'switch-test123'])
+    assert ingest.set_switch('switch-test123', 'Fan', True, event_origin='manual')
+    mid = ingest.get_switch_command_status('switch-test123', 'Fan')['command_message_id']
+    ingest._on_message(ingest.client, None, _Msg('nodus/S1-test123/config/result', json.dumps({
+        'message_id': mid, 'applied': True, 'persistence_mode': 'volatile',
+    })))
+    status = ingest.get_switch_command_status('switch-test123', 'Fan')
+    assert status['pending']
+    assert 'not saved' in status['command_warning']
+    assert ingest._switch_state_cache['switch-test123']['Fan'] == 'off'
+    ingest.handle_nodus_switch_topic('nodus/S1-test123/state', 'ON')
+    status = ingest.get_switch_command_status('switch-test123', 'Fan')
+    assert not status['pending']
+    assert not status['command_error']
+    assert 'not saved' in status['command_warning']
+
+
+@pytest.mark.parametrize('origin', ['manual', 'auto', None, 'unknown'])
+def test_switch_command_sends_supported_reason_at_envelope_level(monkeypatch, origin):
+    ingest = _build_ingest(monkeypatch)
+    ingest.nodus_label_to_channel[('switch-test123', 'fan')] = 'S1-test123'
+    _mark_nodus_online(ingest, peers=['switch-test123'])
+
+    assert ingest.set_switch('switch-test123', 'Fan', True, event_origin=origin, event_label='Cooling: daytime')
+    topic, text, qos, retain = ingest.client.pubs[-1]
+    command = json.loads(text)
+    assert topic == 'nodus/S1-test123/config/set'
+    assert qos == 1 and retain is False
+    assert command['payload']['updates'][0]['value'] is True
+    if origin in ('manual', 'auto'):
+        assert command['reason'] == origin
+        if origin == 'auto':
+            assert command['rule_name'] == 'Cooling: daytime'
+    else:
+        assert 'reason' not in command
+    if origin != 'auto':
+        assert 'rule_name' not in command
+
+
+@pytest.mark.parametrize('reason,rule_name,source', [
+    ('manual', 'Ignored', 'mqtt-manual'), ('auto', '', 'mqtt-auto'),
+    ('auto', 'Cooling: daytime', 'mqtt-auto:Cooling: daytime'), ('unknown', 'Ignored', 'mqtt-nodus-state'),
+])
+def test_nodus_report_reason_is_normalized_without_pending_command(monkeypatch, reason, rule_name, source):
+    ingest = _build_ingest(monkeypatch)
+    ingest.nodus_switch_topic_map['nodus/S1-test123/state'] = {
+        'switch_id': 'switch-test123', 'channel_id': 'S1-test123', 'label': 'Fan', 'kind': 'state',
+    }
+    ingest.handle_nodus_switch_topic('nodus/S1-test123/state', json.dumps({'state': 'ON', 'reason': reason, 'rule_name': rule_name}))
+    assert ingest.data_logger.switch_events[-1]['source'] == source
+
+
+@pytest.mark.parametrize('origin,label', [('manual', ''), ('auto', 'Cooling')])
+@pytest.mark.parametrize('report_kind', ['state', 'event'])
+def test_repeated_reports_keep_recorded_transition_after_origin_expires(tmp_path, monkeypatch, origin, label, report_kind):
+    from sensorius.saiDataLogger import saiDataLogger
+
+    ingest = _build_ingest(monkeypatch)
+    logger = saiDataLogger(str(tmp_path / 'switch-reason.db'))
+    ingest.data_logger = logger
+    logger.upsert_switch_identity(switch_key='switch-test123::S1-test123', switch_id='switch-test123', label='Fan')
+    ingest.nodus_switch_topic_map['nodus/S1-test123/state'] = {
+        'switch_id': 'switch-test123', 'channel_id': 'S1-test123', 'label': 'Fan', 'kind': 'state',
+    }
+    ingest._pending_set[('switch-test123', 'Fan')] = {
+        'ts': time.time(), 'state': True, 'channel_id': 'S1-test123',
+        'event_origin': origin, 'event_label': label,
+    }
+    pushed = []
+
+    async def broadcast(payload):
+        pushed.append(payload)
+
+    _install_routes_stub(monkeypatch, broadcast)
+    ingest._schedule_coro = lambda coro: asyncio.run(coro)
+    try:
+        ingest.handle_nodus_switch_topic('nodus/S1-test123/state', 'ON')
+        first = pushed[-1]
+        expected_source = 'mqtt-manual' if origin == 'manual' else 'mqtt-auto:Cooling'
+        assert first['source'] == expected_source
+        expiry = ingest._recent_switch_origin[('switch-test123', 'Fan')]['expires_at']
+        monkeypatch.setattr(ingest_mod.time, 'time', lambda: expiry + 10)
+        ingest.nodus_switch_topic_map['nodus/S1-test123/event'] = {
+            'switch_id': 'switch-test123', 'channel_id': 'S1-test123', 'label': 'Fan', 'kind': 'event',
+        }
+        repeated = 'ON' if report_kind == 'state' else json.dumps({'event': {'SWITCH_1': 'on'}, 'source': 'mqtt'})
+        ingest.handle_nodus_switch_topic(f'nodus/S1-test123/{report_kind}', repeated)
+        assert pushed[-1]['source'] == expected_source
+        assert pushed[-1]['timestamp'] == first['timestamp']
+        assert len(logger.get_last_switch_events('switch-test123::S1-test123')) == 1
+        # An unannotated opposite transition must not inherit the old reason.
+        ingest.handle_nodus_switch_topic('nodus/S1-test123/state', 'OFF')
+        assert pushed[-1]['source'] == 'mqtt-nodus-state'
+        assert len(logger.get_last_switch_events('switch-test123::S1-test123')) == 2
+    finally:
+        logger.close()
+
+
+@pytest.mark.parametrize('matching_message', [True, False])
+def test_switch_patch_preserves_only_correlated_command_reason(monkeypatch, matching_message):
+    ingest = _build_ingest(monkeypatch)
+    ingest._ensure_settings_from_itaot = lambda *_a, **_k: None
+    ingest._broadcast_switch_event = lambda **_kw: None
+    ingest._broadcast_dashboard_inventory_changed = lambda **_kw: None
+    ingest._parse_and_subscribe_from_nodus_meta(_state_sync_meta(), retain=True)
+    ingest._pending_set[('switch-test123', 'Fan')] = {
+        'ts': time.time(), 'state': True, 'channel_id': 'S1-test123',
+        'event_origin': 'auto', 'event_label': 'Cooling', 'message_id': 'cfg-test',
+    }
+    patch = {'schema': 'nodus-meta-patch/v1', 'device_id': 'avpd-test123',
+             'message_id': 'cfg-test' if matching_message else 'another-command',
+             'source': 'switch_set', 'updates': [
+                 {'section': 'Switch', 'key': 'SWITCH_1_LAST_STATE', 'value': True},
+             ]}
+    ingest._on_message(ingest.client, None, _Msg('nodus/avpd-test123/meta/patch', json.dumps(patch)))
+    assert ingest.data_logger.switch_events[-1]['source'] == ('mqtt-auto:Cooling' if matching_message else 'switch_set')

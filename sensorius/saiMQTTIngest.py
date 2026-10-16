@@ -442,6 +442,7 @@ class saiMQTTIngest:
 
         self._known_switch_ids: set[str] = set()
         self._switch_state_cache: dict[str, dict] = {}  # switch_id -> {channel: "on"/"off"}
+        self._reported_switch_states: dict[tuple[str, str], bool] = {}
         self._last_persisted_switch_state: dict[tuple[str, str], str] = {}  # (switch_id, channel_id) -> "on"/"off"
 
         self.switch_channel_map: dict[tuple[str, str], str] = {}  # (switch_id, "SWITCH_n") -> label
@@ -1361,6 +1362,7 @@ class saiMQTTIngest:
         is_on: bool,
         source: str | None,
         timestamp: str | None = None,
+        state_confirmed: bool = True,
     ) -> None:
         """Push a live switch update to the dashboard using both host and channel keys."""
         try:
@@ -1380,6 +1382,15 @@ class saiMQTTIngest:
                 else f"{switch_id_text}::{label_text}"
             )
 
+            # A repeated state report is still the same recorded transition.
+            # Reuse its timestamp and origin instead of inventing a new event.
+            if channel_id_text and timestamp is None:
+                getter = getattr(self.data_logger, "get_switch_last_event_for_channel", None)
+                latest = getter(channel_id_text) if callable(getter) else None
+                if latest and bool(latest.get("state")) == bool(is_on):
+                    timestamp = latest.get("timestamp")
+                    source = latest.get("source")
+
             payload = {
                 "type": "switch_event",
                 "key": canonical_key,
@@ -1387,6 +1398,7 @@ class saiMQTTIngest:
                 "state": bool(is_on),
                 "timestamp": timestamp or get_timestamp(),
                 "source": source,
+                "state_confirmed": bool(state_confirmed),
             }
             if channel_id_text:
                 payload["legacy_ui_key"] = f"{channel_id_text}::{label_text}"
@@ -1901,6 +1913,8 @@ class saiMQTTIngest:
                             "topic": topic,
                             "received_at": now,
                         }
+                        if not payload.get("accepted", False):
+                            self._clear_switch_config_command_by_message(message_id)
                 elif family == "config" and leaf == "result":
                     message_id = str(payload.get("message_id") or "").strip()
                     if message_id:
@@ -1910,6 +1924,7 @@ class saiMQTTIngest:
                             "sensor_id": str(payload.get("sensor_id") or "").strip(),
                             "name": str(payload.get("name") or "").strip(),
                             "applied": bool(payload.get("applied", False)),
+                            "persistence_mode": str(payload.get("persistence_mode") or ""),
                             "updated": payload.get("updated"),
                             "halt": payload.get("halt"),
                             "phase": payload.get("phase"),
@@ -3484,7 +3499,7 @@ class saiMQTTIngest:
                         channel_index = max(int(match.group(1)), 1)
                     except Exception:
                         channel_index = 0
-                    if channel_index > 0:
+                    if channel_index > 0 and not retain:
                         live_switch_state_updates.append(
                             {
                                 "channel_index": channel_index,
@@ -3516,6 +3531,20 @@ class saiMQTTIngest:
             with self._meta_patch_lock:
                 self.meta_patch_by_message[message_id] = dict(patch)
 
+        # Explicit state patches are device reports, unlike startup snapshots.
+        switch_meta = patched_meta.get("switch") if isinstance(patched_meta.get("switch"), dict) else {}
+        patch_switch_id = str(switch_meta.get("device_id") or switch_meta.get("switch_device_id") or "").strip()
+        patch_channels = switch_meta.get("channels") if isinstance(switch_meta.get("channels"), list) else []
+        for item in live_switch_state_updates:
+            index = int(item["channel_index"]) - 1
+            if patch_switch_id and 0 <= index < len(patch_channels):
+                if not isinstance(patch_channels[index], dict):
+                    continue
+                channel_id = str(patch_channels[index].get("channel_id") or "").strip()
+                value = item.get("state")
+                text = str(value).strip().lower()
+                if channel_id and text in {"true", "false", "1", "0", "on", "off", "yes", "no"}:
+                    self._reported_switch_states[(patch_switch_id, channel_id)] = text in {"true", "1", "on", "yes"}
         self.discovery_cache[cache_key] = patched_meta
         ok_meta, subscribed = self._parse_and_subscribe_from_nodus_meta(
             patched_meta,
@@ -3597,6 +3626,16 @@ class saiMQTTIngest:
                                 continue
                             is_on = state_text in {"1", "true", "yes", "on"}
                         source = patch_source or "mqtt-meta-patch"
+                        pending_meta = self._pending_switch_meta(switch_id, channel_id=channel_id, label=label)
+                        if (patch_source == "switch_set" and message_id and pending_meta
+                                and pending_meta.get("message_id") == message_id
+                                and bool(pending_meta.get("state")) == is_on):
+                            origin = pending_meta.get("event_origin")
+                            detail = str(pending_meta.get("event_label") or "").strip()
+                            if origin == "manual":
+                                source = "mqtt-manual"
+                            elif origin == "auto":
+                                source = f"mqtt-auto:{detail}" if detail else "mqtt-auto"
                         self._maybe_persist_switch_event(
                             switch_id=switch_id,
                             channel_id=channel_id,
@@ -3610,7 +3649,7 @@ class saiMQTTIngest:
                         cache[channel_id] = state_txt
                         if label:
                             cache[label] = state_txt
-                        self.clear_pending_switch_set(switch_id, channel_id=channel_id, label=label)
+                        self.clear_pending_switch_set(switch_id, channel_id=channel_id, label=label, observed_state=is_on)
                         self._known_switch_ids.add(switch_id)
                         self._broadcast_switch_event(
                             switch_id=switch_id,
@@ -4253,6 +4292,9 @@ class saiMQTTIngest:
                 switch_payload[f"SWITCH_{idx}_PIN"] = pin
 
                 state_bool = _coerce_switch_state(row.get("state"))
+                # A discovery snapshot may contain cached LAST_STATE values.
+                # Preserve device runtime reports while still refreshing identity/settings.
+                state_bool = self._reported_switch_states.get((switch_id, channel_id), state_bool)
                 if state_bool is not None:
                     switch_payload[f"SWITCH_{idx}_LAST_STATE"] = state_bool
                     cache = self._switch_state_cache.setdefault(switch_id, {})
@@ -4859,10 +4901,10 @@ class saiMQTTIngest:
             if key:
                 self._switch_config_command_inflight.pop(key, None)
 
-    def set_switch_by_channel_id(self, switch_id: str, channel_id: str, new_state: bool, qos: int = 0, retain: bool = False) -> bool:
+    def set_switch_by_channel_id(self, switch_id: str, channel_id: str, new_state: bool, qos: int = 0, retain: bool = False, *, reason: str | None = None, rule_name: str | None = None) -> bool:
         """
         Publish remote switch changes via Nodus config/set by updating
-        Switch.SWITCH_n_LAST_STATE in switch.toml.
+        Switch.SWITCH_n_LAST_STATE in switch.toml, with an optional manual/auto reason.
         """
         try:
             switch_id_text = str(switch_id or "").strip()
@@ -4917,6 +4959,10 @@ class saiMQTTIngest:
                         "payload": payload,
                         "restart": False,
                     }
+                    if reason in ("manual", "auto"):
+                        envelope["reason"] = reason
+                    if reason == "auto" and str(rule_name or "").strip():
+                        envelope["rule_name"] = str(rule_name).strip()
                     ok = bool(self.publish_json(
                         command_topic,
                         envelope,
@@ -5549,7 +5595,8 @@ class saiMQTTIngest:
                     ch = str(ch_id or "").strip()
                     if not ch or ch not in seeded:
                         continue
-                    st_txt = "on" if seeded[ch] else "off"
+                    state = self._reported_switch_states.get((str(switch_id), ch), seeded[ch])
+                    st_txt = "on" if state else "off"
                     cache[ch] = st_txt
                     lbl = str(label or "").strip()
                     if lbl:
@@ -6506,6 +6553,8 @@ class saiMQTTIngest:
             if not sid:
                 return None
             for key, meta in list((self._pending_set or {}).items()):
+                if time.time() - float((meta or {}).get("ts") or 0.0) > NODUS_SWITCH_COMMAND_INFLIGHT_TTL_S:
+                    continue
                 key_sid = str((key or ("", ""))[0] or "").strip()
                 key_label = str((key or ("", ""))[1] or "").strip().lower()
                 if key_sid != sid:
@@ -6584,16 +6633,28 @@ class saiMQTTIngest:
                 printDM(f"[set_switch] No channel_id for {switch_id}::{channel_label}", location=MODULE)
                 return False
 
+            pending = self.get_switch_command_status(str(switch_id), str(channel_label), str(channel_id))
+            if pending.get("pending"):
+                return bool(pending.get("requested_state")) == bool(new_state)
+
             ok = self.set_switch_by_channel_id(
                 str(switch_id or "").strip(),
                 str(channel_id or "").strip(),
                 bool(new_state),
                 qos=qos,
                 retain=retain,
+                reason=str(event_origin or "").strip().lower(),
+                rule_name=event_label,
             )
             if ok:
-                self._pending_set[(str(switch_id), str(channel_label))] = {
-                    "ts": time.time(),
+                pending_key = (str(switch_id), str(channel_label))
+                command_key = self._switch_config_command_key(switch_id, channel_id)
+                command = self._switch_config_command_inflight.get(command_key) or {}
+                message_id = str(command.get("message_id") or "")
+                prior = self._pending_set.get(pending_key) or {}
+                self._pending_set[pending_key] = {
+                    "ts": prior["ts"] if prior.get("message_id") == message_id and message_id else time.time(),
+                    "message_id": message_id,
                     "state": bool(new_state),
                     "channel_id": str(channel_id or "").strip(),
                     "event_origin": str(event_origin or "").strip().lower(),
@@ -6609,9 +6670,40 @@ class saiMQTTIngest:
             printDM(f"[set_switch] error: {e}", location=MODULE)
             return False
 
-    def clear_pending_switch_set(self, switch_id: str, channel_id: str | None = None, label: str | None = None) -> None:
+    def get_switch_command_status(self, switch_id: str, label: str = "", channel_id: str = "") -> dict:
+        """Describe an outbound request without treating it as device state."""
+        for (sid, pending_label), meta in list(self._pending_set.items()):
+            if str(sid) != str(switch_id):
+                continue
+            if pending_label != label and (not channel_id or str(meta.get("channel_id")) != channel_id):
+                continue
+            until = float(meta.get("ts") or 0) + NODUS_SWITCH_COMMAND_INFLIGHT_TTL_S
+            mid = str(meta.get("message_id") or "")
+            result = self.config_result_by_message.get(mid) or {}
+            ack = self.config_ack_by_message.get(mid) or {}
+            error = ""
+            if result and not result.get("applied"):
+                error = str(result.get("error") or "Device rejected the switch command.")
+            elif ack and not ack.get("accepted"):
+                error = str(ack.get("error") or "Device rejected the switch command.")
+            elif time.time() >= until:
+                error = "Device did not confirm the switch change."
+            return {"pending": not bool(error), "requested_state": bool(meta.get("state")),
+                    "pending_until": until, "command_message_id": mid, "command_error": error,
+                    "command_warning": "Device applied the change temporarily; settings were not saved." if result.get("persistence_mode") == "volatile" else ""}
+        for (sid, recent_label), meta in list(self._recent_switch_origin.items()):
+            if str(sid) != str(switch_id) or float(meta.get("expires_at") or 0) <= time.time():
+                continue
+            if recent_label != label and (not channel_id or str(meta.get("channel_id")) != channel_id):
+                continue
+            result = self.config_result_by_message.get(str(meta.get("message_id") or "")) or {}
+            if result.get("persistence_mode") == "volatile":
+                return {"pending": False, "command_error": "", "command_warning": "Device applied the change temporarily; settings were not saved."}
+        return {"pending": False, "command_error": ""}
+
+    def clear_pending_switch_set(self, switch_id: str, channel_id: str | None = None, label: str | None = None, *, observed_state: bool | None = None) -> None:
         """
-        Drop optimistic remote command markers once authoritative MQTT state arrives.
+        Clear a request after a matching device state report, preserving its origin.
         """
         try:
             sid = str(switch_id or "").strip()
@@ -6626,6 +6718,8 @@ class saiMQTTIngest:
                 key_label = str((key or ("", ""))[1] or "").strip().lower()
                 if key_sid != sid:
                     continue
+                if observed_state is not None and bool((meta or {}).get("state")) != observed_state:
+                    continue
                 meta_channel = str((meta or {}).get("channel_id") or "").strip().lower()
                 if lbl and key_label == lbl:
                     keys_to_remove.append(key)
@@ -6639,11 +6733,12 @@ class saiMQTTIngest:
                     self._recent_switch_origin[key] = {
                         **dict(meta),
                         "expires_at": time.time() + 8.0,
+                        "confirmed_at": time.time(),
                     }
                     meta_channel = str(meta.get("channel_id") or "").strip()
                     if meta_channel:
                         self._clear_switch_config_command(sid, meta_channel)
-            if ch:
+            if ch and (observed_state is None or keys_to_remove):
                 self._clear_switch_config_command(sid, ch)
         except Exception:
             pass
@@ -6839,10 +6934,11 @@ class saiMQTTIngest:
                 label = None
 
             cache = self._switch_state_cache.setdefault(switch_id, {})
+            self._reported_switch_states[(switch_id, channel_id)] = bool(is_on)
             cache[channel_id] = "on" if is_on else "off"
             if label:
                 cache[label] = "on" if is_on else "off"
-            self.clear_pending_switch_set(switch_id, channel_id=channel_id, label=label)
+            self.clear_pending_switch_set(switch_id, channel_id=channel_id, label=label, observed_state=is_on)
             self._known_switch_ids.add(switch_id)
             try:
                 self.last_mqtt_seen[switch_id] = time.time()
@@ -6907,12 +7003,13 @@ class saiMQTTIngest:
 
             def _cache_channel_state(sid: str, ch_id: str, state_on: bool, hint: str | None = None) -> list[str]:
                 cache = self._switch_state_cache.setdefault(sid, {})
+                self._reported_switch_states[(sid, ch_id)] = bool(state_on)
                 state_txt = "on" if state_on else "off"
                 cache[ch_id] = state_txt
                 labels = _labels_for_channel(sid, ch_id, hint=hint)
                 for lbl in labels:
                     cache[lbl] = state_txt
-                self.clear_pending_switch_set(sid, channel_id=ch_id, label=(labels[0] if labels else hint))
+                self.clear_pending_switch_set(sid, channel_id=ch_id, label=(labels[0] if labels else hint), observed_state=state_on)
                 self._known_switch_ids.add(sid)
                 return labels
 
@@ -7042,6 +7139,18 @@ class saiMQTTIngest:
             if is_on is None:
                 is_on = payload_text.upper() == "ON"
 
+            if pending_meta and bool(pending_meta.get("state")) != bool(is_on):
+                source = str((payload_obj or {}).get("source") or "mqtt-nodus")
+
+            reported_reason = (payload_obj or {}).get("reason")
+            if reported_reason == "manual":
+                source = "mqtt-manual"
+            elif reported_reason == "auto":
+                detail = str((payload_obj or {}).get("rule_name") or "").strip()
+                if not detail and pending_origin == "auto" and bool((pending_meta or {}).get("state")) == bool(is_on):
+                    detail = pending_label
+                source = f"mqtt-auto:{detail}" if detail else "mqtt-auto"
+
             if kind == "state":
                 # Persist state transitions too; dedupe prevents retained-state spam.
                 force_write = False
@@ -7077,7 +7186,7 @@ class saiMQTTIngest:
                     ts_iso=ts_iso,
                     source=(
                         source
-                        if str(source or "").strip().lower().startswith(("mqtt-auto:", "mqtt-manual"))
+                        if str(source or "").strip().lower().startswith(("mqtt-auto", "mqtt-manual"))
                         else f"{source}-state"
                     ),
                     sensor_lineage=f"Switch_{switch_id}",
@@ -7099,6 +7208,9 @@ class saiMQTTIngest:
                     source=source,
                 )
             elif kind == "event":
+                live_event = (not retain and isinstance(payload_obj, dict)
+                              and payload_obj.get("schema") == "nodus-switch-event/v1"
+                              and payload_obj.get("state") is not None)
                 self._maybe_persist_switch_event(
                     switch_id=switch_id,
                     channel_id=channel_id,
@@ -7109,7 +7221,8 @@ class saiMQTTIngest:
                     update_cache=False,
                     label_hint=payload_label,
                 )
-                labels = _labels_for_channel(switch_id, channel_id, hint=(payload_label or label))
+                labels = (_cache_channel_state(switch_id, channel_id, is_on, hint=(payload_label or label))
+                          if live_event else _labels_for_channel(switch_id, channel_id, hint=(payload_label or label)))
                 self._known_switch_ids.add(switch_id)
                 try:
                     if host:
@@ -7124,6 +7237,7 @@ class saiMQTTIngest:
                     label=ui_label,
                     is_on=bool(is_on),
                     source=source,
+                    state_confirmed=live_event,
                 )
 
         except Exception as e:

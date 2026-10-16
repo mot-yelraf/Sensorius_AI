@@ -663,6 +663,44 @@ body.dashboard-page #sensor_header{
 .switch-state-cell > .button{
   margin:0;
 }
+.switch-state-cell > .switch-state-slider{
+  position:relative;
+  box-sizing:border-box;
+  width:96px;
+  height:39px;
+  padding:0 9px 0 34px;
+  border-radius:22px;
+  text-align:right;
+}
+.switch-state-slider::before{
+  content:"";
+  position:absolute;
+  width:23px;
+  height:23px;
+  left:6px;
+  top:50%;
+  transform:translateY(-50%);
+  border-radius:50%;
+  background:#fff;
+  box-shadow:0 1px 3px rgba(0,0,0,.3);
+  transition:left 160ms ease;
+}
+.switch-state-slider[data-state="on"]{
+  padding:0 34px 0 9px;
+  text-align:left;
+}
+.switch-state-slider[data-state="on"]::before{ left:calc(100% - 29px); }
+.switch-state-slider:focus-visible{ outline:3px solid var(--accent); outline-offset:3px; }
+.switch-state-slider[aria-disabled="true"]{ cursor:not-allowed; }
+.switch-state-slider.switch-pending{ cursor:wait; opacity:.7; }
+.switch-command-status{ max-width:140px; font-size:.65rem; line-height:1.2; margin-top:.2rem; }
+.switch-command-status:empty{ display:none; }
+.switch-command-status.switch-command-error{ color:#8a1515; }
+.switch-state-cell > .switch-state-slider.switch-unconfirmed{ padding:0 4px; text-align:center; }
+.switch-state-slider.switch-unconfirmed::before{ display:none; }
+@media (prefers-reduced-motion:reduce){
+  .switch-state-slider::before{ transition:none; }
+}
 
 .switch-timer-panel{
   width:auto; max-width:none; display:flex; flex-direction:column; align-items:center; gap:.08rem;
@@ -747,20 +785,31 @@ body.dashboard-page #sensor_header{
 .switch-state{ font-weight:bold; margin-left:.5rem; color:#006600; }
 .switch-override{ transform:scale(1.2); cursor:pointer; background-color:#ffffe0; }
 
-/* Time/event list */
+/* Switch history: green On and black Off transition markers. */
 .switch-time{ font-size:.85rem; color:#444; font-style:italic; }
 .switch-time-summary{ white-space:nowrap; display:block; }
 
 .switch-events{
-  font-size:.50rem; background-color:#ffffe0; border:1px solid #ccc; border-radius:6px;
-  padding:.25rem .5rem; margin-top:.25rem; height:4.5rem;
-  white-space:nowrap; overflow-x:auto; overflow-y:auto; min-width:26ch; max-width:100%;
+  font-size:.58rem; background-color:#ffffe0; color:#222; border:1px solid #ccc; border-radius:6px;
+  padding:.25rem .4rem; margin:0;
+  width:100%; min-width:180px; box-sizing:border-box; text-align:left; cursor:pointer;
 }
 .switch-events.hidden{ display:none; }
-.switch-events-list{ list-style:none; padding:0; margin:0; text-align:left; }
-.switch-events-list li{ padding:.15rem 0; text-align:left; }
-.switch-events-list li.switch-event-on { color:green; }
-.switch-events-list li.switch-event-off{ color:#000; }
+.switch-history-axis{ display:flex; justify-content:space-between; gap:.3rem; margin-bottom:.3rem; }
+.switch-history-start{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.switch-events-list[hidden]{ display:none; }
+.switch-history-chart{ display:flex; gap:3px; }
+.switch-history-states{ width:19px; flex:0 0 19px; display:flex; flex-direction:column; justify-content:space-between; line-height:1; }
+.switch-history-states span:first-child{ color:#16742c; }
+.switch-history-states span:last-child{ color:#000; }
+.switch-history-plot{ flex:1; min-width:0; height:24px; position:relative; cursor:pointer; border-bottom:1px solid #73776c; }
+.switch-history-plot:focus-visible{ outline:2px solid #1648c7; outline-offset:2px; }
+.switch-history-plot canvas{ width:100%; height:100%; margin:0; display:block; }
+.switch-history-ticks{ display:flex; justify-content:space-between; margin:.15rem 0 0 22px; font-size:.52rem; line-height:1.15; }
+.switch-history-ticks > span{ display:flex; flex-direction:column; align-items:center; white-space:nowrap; }
+.switch-history-ticks > span:first-child{ align-items:flex-start; }
+.switch-history-ticks > span:last-child{ align-items:flex-end; }
+.switch-history-detail{ margin-top:.2rem; min-height:2.4em; line-height:1.2; overflow-wrap:anywhere; }
 
 /* Canvas sizing via CSS vars (numbers only; unit added in rule) */
 canvas{

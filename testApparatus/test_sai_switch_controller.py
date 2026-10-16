@@ -257,7 +257,7 @@ def test_remote_ingest_on_refresh_does_not_create_new_deadline_after_expiry(monk
     assert ctrl.auto_off_deadline["Fan"] is None
 
 
-def test_remote_ingest_prefers_pending_on_over_stale_cached_off(monkeypatch: pytest.MonkeyPatch):
+def test_remote_ingest_uses_confirmed_off_despite_pending_on(monkeypatch: pytest.MonkeyPatch):
     ctrl = RemoteSwitchController.__new__(RemoteSwitchController)
     ctrl.mqtt_ingest = types.SimpleNamespace(
         _switch_state_cache={"sw1": {"CH1": "off"}},
@@ -274,11 +274,11 @@ def test_remote_ingest_prefers_pending_on_over_stale_cached_off(monkeypatch: pyt
 
     RemoteSwitchController._refresh_state_from_ingest(ctrl)
 
-    assert ctrl.last_state["Fan"] is True
-    assert ctrl.auto_off_deadline["Fan"] == pytest.approx(160.0)
+    assert ctrl.last_state["Fan"] is False
+    assert ctrl.auto_off_deadline["Fan"] is None
 
 
-def test_remote_ingest_uses_pending_state_without_cached_topic_state(monkeypatch: pytest.MonkeyPatch):
+def test_remote_ingest_preserves_prior_state_without_device_confirmation(monkeypatch: pytest.MonkeyPatch):
     ctrl = RemoteSwitchController.__new__(RemoteSwitchController)
     ctrl.mqtt_ingest = types.SimpleNamespace(
         _switch_state_cache={},
@@ -295,8 +295,8 @@ def test_remote_ingest_uses_pending_state_without_cached_topic_state(monkeypatch
 
     RemoteSwitchController._refresh_state_from_ingest(ctrl)
 
-    assert ctrl.last_state["Fan"] is False
-    assert ctrl.auto_off_deadline["Fan"] is None
+    assert ctrl.last_state["Fan"] is True
+    assert ctrl.auto_off_deadline["Fan"] == pytest.approx(160.0)
 
 
 def test_remote_ingest_stale_cached_off_clears_deadline_without_pending(monkeypatch: pytest.MonkeyPatch):
@@ -2306,3 +2306,37 @@ def test_calendar_season_filter_and_one_shot_notification(monkeypatch, selected,
     if expected:
         cond = broadcasts[0]["evaluated_groups"][0]["conditions"][0][0]
         assert "Samhain" in ctrl._automation_condition_report(cond, True, {})
+
+
+def test_remote_command_acceptance_does_not_start_timer_or_change_confirmed_state(monkeypatch):
+    ctrl = _make_controller()
+    ctrl.is_remote = True
+    ctrl.switch_id = 'sw1'
+    ctrl.channel_id_for_label = {'Fan': 'CH1'}
+    ctrl.last_state = {'Fan': False}
+    ctrl.last_set_time = {'Fan': 0.0}
+    ctrl.override_script = {'Fan': False}
+    ctrl.auto_off_seconds = {'Fan': 60}
+    ctrl.auto_off_deadline = {'Fan': None}
+    ctrl.min_on_time = ctrl.min_off_time = 0
+    ctrl.get_state = lambda _name: ctrl.last_state['Fan']
+    ctrl.get_switch_names = lambda: ['Fan']
+    requests = []
+    ctrl.mqtt_ingest = types.SimpleNamespace(
+        set_switch=lambda *args, **kwargs: requests.append((args, kwargs)) or True,
+        _switch_state_cache={'sw1': {'CH1': 'off'}}, _recent_switch_origin={},
+    )
+    assert ctrl.set_state('Fan', True, force=True, event_source='manual/ui')
+    assert requests[0][0] == ('sw1', 'Fan', True)
+    assert requests[0][1]['event_origin'] == 'manual'
+    assert ctrl.last_state['Fan'] is False
+    assert ctrl.auto_off_deadline['Fan'] is None
+    ctrl.mqtt_ingest._switch_state_cache['sw1']['CH1'] = 'on'
+    ctrl.mqtt_ingest._recent_switch_origin[('sw1', 'Fan')] = {
+        'state': True, 'event_origin': 'manual', 'confirmed_at': 100.0, 'expires_at': 108.0,
+    }
+    monkeypatch.setattr(saiSwitch.time, 'time', lambda: 101.0)
+    monkeypatch.setattr(saiSwitch.time, 'monotonic', lambda: 50.0)
+    RemoteSwitchController._refresh_state_from_ingest(ctrl)
+    assert ctrl.last_state['Fan'] is True
+    assert ctrl.auto_off_deadline['Fan'] == pytest.approx(161.0)
