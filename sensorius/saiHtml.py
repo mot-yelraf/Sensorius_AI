@@ -191,7 +191,7 @@ def normalize_dashboard_metric_set(value: object) -> str:
     return "All" if compact in {"all", "showall"} else "Pick 6"
 
 
-def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6", dashboard_custom_theme_style="", pressure_altitude=None, pressure_sensor_context=None, battery_statuses=None):
+def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6", dashboard_custom_theme_style="", pressure_altitude=None, pressure_sensor_context=None, battery_statuses=None, dashboard_row_order=None):
     """Yield the complete Sensorius dashboard HTML document."""
 
     import json
@@ -2133,7 +2133,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
 
         default_expanded = normalize_dashboard_metric_set(dashboard_metric_set) == "All"
         expanded_text = "true" if default_expanded else "false"
-        yield f"<div class='sensor-group' id='group_{sid}' data-sensor-id='{sid}' data-sensor-expanded='{expanded_text}' style='width:100%; flex:0 0 100%; display:block;'>"
+        yield f"<div class='sensor-group' id='group_{sid}' data-dashboard-row-id='{sid}' data-sensor-id='{sid}' data-sensor-expanded='{expanded_text}' style='width:100%; flex:0 0 100%; display:block;'>"
         yield "<div class='sensor-group-header'>"
         yield f"<h3 id='{sid}_header' class='sensor-group-title'>"      
         yield (
@@ -2324,9 +2324,20 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                 selected_switch_locations.append((loc_norm, disp))
 
     if selected_switch_locations:
-        yield "<div class='sensor-group switch-group' id='group_switches' style='width:100%; flex:0 0 100%; display:block;'>"
+        yield "<div class='sensor-group switch-group' id='group_switches' data-dashboard-row-id='__switches__' style='width:100%; flex:0 0 100%; display:block;'>"
         yield "<div class='sensor-group-header'>"
         yield "<h3 id='switches_header' class='sensor-group-title'>SWITCHES</h3>"
+        yield (
+            "<div class='sensor-order-wrap' data-sensor-order='__switches__'>"
+            "  <button type='button' class='sensor-order-btn' data-row-id='__switches__' aria-haspopup='true' aria-expanded='false' title='Reorder Switches row' aria-label='Reorder Switches row'>"
+            "    <span class='sensor-order-bars' aria-hidden='true'><span></span><span></span><span></span></span>"
+            "  </button>"
+            "  <div class='sensor-order-menu' role='menu' aria-label='Reorder Switches row'>"
+            "    <button type='button' class='sensor-order-item' data-move='up' data-row-id='__switches__' title='Move Switches row up'>Move up</button>"
+            "    <button type='button' class='sensor-order-item' data-move='down' data-row-id='__switches__' title='Move Switches row down'>Move down</button>"
+            "  </div>"
+            "</div>"
+        )
         yield "</div>"
         yield "<div class='sensor-row switches-row' id='row_switches'>"
         for loc_norm, disp in selected_switch_locations:
@@ -6768,31 +6779,31 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "};"
     yield "window.applySensorGroupOrder = function(order){"
     yield "  if (!Array.isArray(order) || !order.length) return;"
-    yield "  const firstSensorGroup = document.querySelector('.sensor-group[data-sensor-id]');"
+    yield "  const firstSensorGroup = document.querySelector('.sensor-group[data-dashboard-row-id]');"
     yield "  const dashboardContent = (firstSensorGroup && firstSensorGroup.parentElement) || document.querySelector('.dashboard-content');"
     yield "  if (!dashboardContent) return;"
     yield "  const groups = new Map();"
-    yield "  dashboardContent.querySelectorAll('.sensor-group[data-sensor-id]').forEach((el) => {"
-    yield "    groups.set(el.getAttribute('data-sensor-id') || '', el);"
+    yield "  dashboardContent.querySelectorAll('.sensor-group[data-dashboard-row-id]').forEach((el) => {"
+    yield "    groups.set(el.getAttribute('data-dashboard-row-id') || '', el);"
     yield "  });"
-    yield "  order.forEach((sid) => {"
+    yield "  const completeOrder = [...order, ...Array.from(groups.keys()).filter((id) => !order.includes(id))];"
+    yield "  completeOrder.forEach((sid) => {"
     yield "    const el = groups.get(String(sid || ''));"
     yield "    if (el) dashboardContent.appendChild(el);"
     yield "  });"
-    yield "  const switchGroup = document.getElementById('group_switches');"
-    yield "  if (switchGroup) dashboardContent.appendChild(switchGroup);"
     yield "};"
+    yield f"window.applySensorGroupOrder({json.dumps(dashboard_row_order or [])});"
     yield "window.reorderSensorGroup = async function(sensorId, direction){"
     yield "  const sid = String(sensorId || '').trim();"
     yield "  const move = String(direction || '').trim().toLowerCase();"
     yield "  if (!sid || !['up','down'].includes(move)) return;"
-    yield "  const group = document.querySelector(`.sensor-group[data-sensor-id=\"${CSS.escape(sid)}\"]`);"
+    yield "  const group = document.querySelector(`.sensor-group[data-dashboard-row-id=\"${CSS.escape(sid)}\"]`);"
     yield "  if (group) group.classList.add('moving');"
     yield "  try {"
     yield "    const res = await fetch('/dashboard/metric-position', {"
     yield "      method: 'POST',"
     yield "      headers: { 'Content-Type': 'application/json' },"
-    yield "      body: JSON.stringify({ sensor_id: sid, direction: move })"
+    yield "      body: JSON.stringify({ sensor_id: sid, direction: move, include_switches: !!document.getElementById('group_switches') })"
     yield "    });"
     yield "    const js = await res.json().catch(() => ({}));"
     yield "    if (!res.ok) throw new Error(String(js.error || js.detail || ('HTTP ' + res.status)));"
@@ -6830,7 +6841,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    if (moveBtn) {"
     yield "      ev.preventDefault();"
     yield "      ev.stopPropagation();"
-    yield "      window.reorderSensorGroup(moveBtn.getAttribute('data-sensor-id'), moveBtn.getAttribute('data-move'));"
+    yield "      window.reorderSensorGroup(moveBtn.getAttribute('data-row-id') || moveBtn.getAttribute('data-sensor-id'), moveBtn.getAttribute('data-move'));"
     yield "      return;"
     yield "    }"
     yield "    if (!ev.target.closest('.sensor-order-wrap')) window.closeSensorOrderMenus();"

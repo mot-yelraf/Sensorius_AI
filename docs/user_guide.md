@@ -54,8 +54,10 @@ interface:
 - Sensorius Graphum uses **+** to expand a sensor or switch selector and **−**
   to collapse it. Collapsing a selector does not clear its checked items.
 
-The **three horizontal bars** beside a Sensor Group heading open its **Move up**
-and **Move down** commands. Expand and collapse controls change only what is
+The **three horizontal bars** beside a Sensor Group or **Switches** heading open its
+**Move up** and **Move down** commands. The Switches row starts below the sensor
+groups and can be moved among them. Row positions are saved in the hub’s system
+settings and restored when the dashboard is reloaded. Expand and collapse controls change only what is
 visible; they do not change sensor settings, switch state, or saved selections.
 Reordering sensor groups does not move the Sensorius AI graphic from the
 top of the dashboard. Tap or click that graphic to refresh the app, including

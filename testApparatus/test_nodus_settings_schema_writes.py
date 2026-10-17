@@ -4702,6 +4702,38 @@ async def test_dashboard_metric_position_reorder_preserves_hidden_sensor_slots(t
 
 
 @pytest.mark.asyncio
+async def test_dashboard_switch_row_position_is_persisted(tmp_path, monkeypatch):
+    app, ingest, *_ = await _build_app(tmp_path, monkeypatch)
+    app.state.sensor_map = []
+    saiWebRoutes.sensor_map = []
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["aqi-a"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: datetime.now().isoformat())
+    ingest.mqtt_clients = []
+    _PersistentFakeSaiSettings.STORED_SETTINGS = {
+        "MetricPosition": {"aqi-a": 1, "offline-sensor": 2},
+    }
+    monkeypatch.setattr(saiWebRoutes, "saiSettings", _PersistentFakeSaiSettings)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/dashboard/metric-position", json={
+            "sensor_id": "__switches__", "direction": "up", "include_switches": True,
+        })
+        assert res.status_code == 200
+        assert res.json()["order"] == ["__switches__", "aqi-a"]
+        assert _PersistentFakeSaiSettings.STORED_SETTINGS["MetricPosition"] == {
+            "__switches__": 1, "offline-sensor": 2, "aqi-a": 3,
+        }
+        top = await client.post("/dashboard/metric-position", json={
+            "sensor_id": "__switches__", "direction": "up", "include_switches": True,
+        })
+        assert top.json()["moved"] is False
+        down = await client.post("/dashboard/metric-position", json={
+            "sensor_id": "aqi-a", "direction": "up", "include_switches": True,
+        })
+        assert down.json()["order"] == ["aqi-a", "__switches__"]
+        assert _PersistentFakeSaiSettings.STORED_SETTINGS["MetricPosition"]["__switches__"] == 3
+
+
+@pytest.mark.asyncio
 async def test_dashboard_merges_switch_cards_for_same_location(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
     saiWebRoutes._SENSOR_LOCATION_CACHE.clear()
@@ -4809,8 +4841,20 @@ async def test_dashboard_merges_switch_cards_for_same_location(tmp_path, monkeyp
         "nodus/S1-zbcalz/state": "OfficeDesk",
     }
 
+    _PersistentFakeSaiSettings.STORED_SETTINGS = {}
+    monkeypatch.setattr(saiWebRoutes, "saiSettings", _PersistentFakeSaiSettings)
+    monkeypatch.setattr(saiSettingsModule, "saiSettings", _PersistentFakeSaiSettings)
+
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.get("/")
+        moved = await client.post("/dashboard/metric-position", json={
+            "sensor_id": "__switches__", "direction": "up", "include_switches": True,
+        })
+        assert moved.status_code == 200
+        assert moved.json()["order"] == ["__switches__", "co2-ykdvea"]
+        restored = await client.get("/")
+        assert 'window.applySensorGroupOrder(["__switches__", "co2-ykdvea"]);' in restored.text
+        assert "aria-label='Reorder Switches row'" in restored.text
 
     assert res.status_code == 200
     assert res.headers["cache-control"] == "no-store, max-age=0"

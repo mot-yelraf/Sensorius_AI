@@ -61,7 +61,7 @@ async def switch_updates(websocket: WebSocket) -> None:
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(battery: str = "", station: str = "", documentation: bool = False) -> HTMLResponse:
+def dashboard(battery: str = "", station: str = "", documentation: bool = False, switches: bool = False, switches_first: bool = False) -> HTMLResponse:
     """Render a deterministic dashboard with enough metrics to test interaction."""
     sensor_id = station or ("ecowitt-pr-check" if battery else "aht-pr-check")
     metrics = {
@@ -82,6 +82,12 @@ def dashboard(battery: str = "", station: str = "", documentation: bool = False)
             {sensor_id: metrics},
             {},
             SimpleNamespace(expected_gauge_map={}),
+            switch_controllers={"switch-pr-check": SimpleNamespace(
+                is_present=True, switch_id="switch-pr-check", location="Test room",
+                switches=["Fan"], last_state={"Fan": False},
+                channel_id_for_label={"Fan": "S1-pr-check"},
+            )} if switches else None,
+            dashboard_row_order=["__switches__", sensor_id] if switches_first else None,
             battery_statuses={sensor_id: battery} if battery or station else {},
             gauge_config=get_gauge_config(),
             expected_gauge_map={sensor_id: list(metrics)},

@@ -83,6 +83,7 @@ test('keeps the header image above sensors after moving the bottom sensor up', a
     const ecowitt = source.cloneNode(true);
     ecowitt.id = 'group_ecowitt-bottom-test';
     ecowitt.dataset.sensorId = 'ecowitt-bottom-test';
+    ecowitt.dataset.dashboardRowId = 'ecowitt-bottom-test';
     ecowitt.querySelectorAll('[data-sensor-id]').forEach((element) => {
       element.setAttribute('data-sensor-id', 'ecowitt-bottom-test');
     });
@@ -454,4 +455,32 @@ test('forecast synopsis stays readable without enlarging the dashboard tile', as
   await page.locator('#forecastOverall').focus();
   await page.keyboard.press('End');
   await expect.poll(() => page.locator('#forecastOverall').evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+});
+
+
+test('moves the Switches row with the heading menu and restores saved order', async ({ page }) => {
+  await page.goto('/?switches=true', { waitUntil: 'domcontentloaded' });
+  const rows = page.locator('.sensor-group[data-dashboard-row-id]');
+  const switchRow = page.locator('#group_switches');
+  await expect(rows.last()).toHaveAttribute('id', 'group_switches');
+  await page.route('**/dashboard/metric-position', async (route) => {
+    const body = route.request().postDataJSON();
+    expect(body.sensor_id).toBe('__switches__');
+    expect(body.include_switches).toBe(true);
+    const order = body.direction === 'up'
+      ? ['__switches__', 'aht-pr-check'] : ['aht-pr-check', '__switches__'];
+    await route.fulfill({ json: { moved: true, order } });
+  });
+  await switchRow.getByRole('button', { name: 'Reorder Switches row', exact: true }).click();
+  await expect(switchRow.locator('.sensor-order-btn')).toHaveAttribute('aria-expanded', 'true');
+  await switchRow.getByRole('button', { name: 'Move up', exact: true }).click();
+  await expect(rows.first()).toHaveAttribute('id', 'group_switches');
+  await expect(switchRow.locator('.sensor-order-btn')).toHaveAttribute('aria-expanded', 'false');
+  await switchRow.locator('.sensor-order-btn').click();
+  await switchRow.getByRole('button', { name: 'Move down', exact: true }).click();
+  await expect(rows.last()).toHaveAttribute('id', 'group_switches');
+  await page.goto('/?switches=true&switches_first=true', { waitUntil: 'domcontentloaded' });
+  await expect(rows.first()).toHaveAttribute('id', 'group_switches');
+  await page.reload();
+  await expect(rows.first()).toHaveAttribute('id', 'group_switches');
 });
