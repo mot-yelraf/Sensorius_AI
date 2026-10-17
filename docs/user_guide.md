@@ -332,6 +332,20 @@ Size** is shown only while **Gauge** is selected. Each of the three theme areas
 has its own disclosure marker so its thumbnail choices can be expanded or
 collapsed without moving the section's **Save** button.
 
+**Sensorius Dashboard Order**, above the theme sections, controls sensor and
+switch ordering independently. Both default to **Location, then device name
+(A–Z)**. Select **Keep existing order** to use saved positions instead, then
+select **Save** to apply the sorting choice.
+
+![Sensorius Dashboard Order with sensor rows and switch cards ready to arrange](<../assets/screenshots/system-settings-display-order.png>)
+
+Use **Move up** and **Move down** in this dialog to arrange dashboard rows,
+including the combined Switches row, or the location-grouped switch cards.
+Manual moves save immediately and select **Keep existing order** for that row
+type. On the dashboard, use the sensor or Switches heading's reorder menu for
+vertical rows, or the **left/right arrows** in a switch tile's title for switch
+cards. Available arrows are blue; unavailable directions are dimmed and disabled.
+
 - **Units**: chooses **Imperial** or **Metric** presentation throughout the
   dashboard, historical graphs, and Caelus weather forecast. Sensorius converts
   temperatures, pressure, speed, rainfall, rain rate, and distance when the

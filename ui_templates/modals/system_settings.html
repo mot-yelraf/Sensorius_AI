@@ -1094,6 +1094,29 @@
                   </select>
                 </div>
               </div>
+              <details class="theme-section dashboard-order-section">
+                <summary>Sensorius Dashboard Order</summary>
+                <div class="theme-section-content">
+                  <div class="field-grid">
+                    {% for field, label in [('sensor_row_order', 'Sensor Row'), ('switch_row_order', 'Switch Row')] %}
+                    {% set selected_order = sensor_row_order if field == 'sensor_row_order' else switch_row_order %}
+                    <div class="field-stack">
+                      <label for="{{ field }}">{{ label }}</label>
+                      <select name="{{ field }}" id="{{ field }}">
+                        <option value="location_device" {% if selected_order | default('location_device', true) == 'location_device' %}selected{% endif %}>Location, then device name (A–Z)</option>
+                        <option value="existing" {% if selected_order == 'existing' %}selected{% endif %}>Keep existing order</option>
+                      </select>
+                    </div>
+                    {% endfor %}
+                  </div>
+                  <p>Sort alphabetically by location, then device name, or use the controls below to arrange rows manually. Manual moves apply immediately and select Keep existing order.</p>
+                  <h4>Dashboard Rows</h4>
+                  <div id="dashboard-row-order-list" class="dashboard-order-list" role="list" aria-label="Dashboard row order"></div>
+                  <h4>Switch Cards</h4>
+                  <div id="dashboard-switch-order-list" class="dashboard-order-list" role="list" aria-label="Switch card order"></div>
+                  <p id="dashboard-row-order-status" role="status" aria-live="polite"></p>
+                </div>
+              </details>
               {% set selected_dashboard_background_theme = dashboard_background_theme | default('leaf') %}
               <details class="theme-section">
                 <summary>Sensorius Dashboard Theme</summary>

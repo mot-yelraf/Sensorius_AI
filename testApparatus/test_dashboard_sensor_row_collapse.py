@@ -64,3 +64,52 @@ def test_dashboard_sensor_rows_use_spaced_theme_tiles_without_glow():
     assert "width:calc(100% - 10px)" in css
     assert "text-shadow:0 1px 3px" not in css
     assert "drop-shadow(0 0 5px" not in css
+
+
+def test_alphabetical_sensor_order_preserves_switch_slot_and_handles_missing_locations():
+    from sensorius.saiHtml import order_dashboard_sensor_rows
+
+    assert order_dashboard_sensor_rows(
+        ["z", "__switches__", "b", "a", "unknown"],
+        {"z": " attic ", "b": "Attic", "a": "Garden", "unknown": " "},
+    ) == ["b", "__switches__", "z", "a", "unknown"]
+
+
+def test_switch_devices_sort_within_location_and_preserve_channel_order(monkeypatch):
+    from sensorius import saiSwitchSettingsManager
+
+    class EmptySwitchSettings:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def list_switches(self):
+            return []
+
+        def load(self, switch_id):
+            return {}
+
+    monkeypatch.setattr(saiSwitchSettingsManager, "SwitchSettingsManager", EmptySwitchSettings)
+    controllers = {
+        sid: SimpleNamespace(
+            switch_id=sid, location=location, is_present=True,
+            switches=["Pump", "Fan"], last_state={}, channel_id_for_label={},
+        )
+        for sid, location in [("switch-z", "Attic"), ("switch-b", "Attic"), ("switch-a", "Garden")]
+    }
+
+    def render(mode, card_order=None):
+        return "".join(render_dashboard(
+            "All", None, [], {}, {}, SimpleNamespace(expected_gauge_map={}),
+            switch_controllers=controllers, switch_row_order=mode, switch_card_order=card_order, expected_gauge_map={},
+        ))
+
+    alphabetical = render("location_device")
+    existing = render("existing")
+    assert "data-switch-ids='switch-b,switch-z'" in alphabetical
+    assert "data-switch-ids='switch-z,switch-b'" in existing
+    assert alphabetical.index("data-switch-ids='switch-b,switch-z'") < alphabetical.index("data-switch-ids='switch-a'")
+    switch_cards = alphabetical[alphabetical.index("data-switch-ids='switch-b,switch-z'"):]
+    assert switch_cards.index(">Pump<") < switch_cards.index(">Fan<")
+
+    manual = render("existing", ["garden", "attic"])
+    assert manual.index("data-switch-ids='switch-a'") < manual.index("data-switch-ids='switch-z,switch-b'")

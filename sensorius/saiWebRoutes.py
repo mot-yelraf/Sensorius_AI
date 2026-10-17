@@ -105,6 +105,7 @@ from .saiHtml import (
     normalize_dashboard_background_theme,
     normalize_dashboard_metric_set,
     render_dashboard,
+    order_dashboard_sensor_rows,
 )
 from .sensor_modules.station_weewx import (
     DEFAULT_DB_PATH as WEEWX_DEFAULT_DB_PATH,
@@ -831,6 +832,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "unit_system": normalize_display_unit_system(
                 fresh_settings.get_setting("Display", "unit_system", "Imperial")
             ),
+            "sensor_row_order": fresh_settings.get_setting("Display", "sensor_row_order", "location_device"),
+            "switch_row_order": fresh_settings.get_setting("Display", "switch_row_order", "location_device"),
+            "switch_card_order": fresh_settings.get_setting("Display", "switch_card_order", []),
             "metric_set": normalize_dashboard_metric_set(
                 fresh_settings.get_setting("Display", "metric_set", "Pick 6")
             ),
@@ -1390,6 +1394,25 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         with_saved.sort(key=lambda sid: (stored.get(sid, 10**9), sid.lower()))
         new_ids = [sid for sid in deduped if sid not in stored]
         return with_saved + new_ids
+
+    def _effective_dashboard_row_order(row_ids, locations=None):
+        ordered = _order_sensor_ids_by_metric_position(row_ids)
+        if _get_cached_display_settings().get("sensor_row_order") == "existing":
+            return ordered
+        if locations is None:
+            mgr = _get_sensor_settings_manager()
+            locations = {}
+            for sid in ordered:
+                if sid == "__switches__":
+                    continue
+                try:
+                    locations[sid] = mgr.get_setting(sid, "Sensor.LOCATION", "Unknown") if mgr else "Unknown"
+                except FileNotFoundError:
+                    locations[sid] = "Unknown"
+                cached = _SENSOR_LOCATION_CACHE.get(sid)
+                if cached:
+                    locations[sid] = cached[1]
+        return order_dashboard_sensor_rows(ordered, locations)
 
     def _traditional_full_moon_name(phase_date) -> str:
         names_by_month = {
@@ -2938,7 +2961,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     if (loc or "").strip().lower() == selected_location
                 ]
 
-            available = _order_sensor_ids_by_metric_position(available)
+            available = _effective_dashboard_row_order(available, sensor_locations_map)
 
             if DEBUG:
                 now_mono = time.monotonic()
@@ -3555,6 +3578,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             payload: dict[str, object] = {
                 "available": available,
+                "dashboard_row_order": _effective_dashboard_row_order(available + ["__switches__"], sensor_locations),
                 "values": all_values,
                 "stats": all_stats,
                 "timestamps": timestamps,
@@ -3633,7 +3657,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 gauge_config=gauge_config, 
                 gauge_size = gaugeSize,
                 battery_statuses = battery_statuses,
-                dashboard_row_order = _order_sensor_ids_by_metric_position(available + ["__switches__"]),
+                dashboard_row_order = _effective_dashboard_row_order(available + ["__switches__"], sensor_locations),
+                switch_row_order = display_settings.get("switch_row_order", "location_device"),
+                switch_card_order = display_settings.get("switch_card_order", []),
                 pressure_altitude=display_settings.get("pressure_altitude"),
                 pressure_sensor_context=pressure_sensor_context,
                 expected_gauge_map = expected_gauge_map,
@@ -3697,7 +3723,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             row_ids = await asyncio.to_thread(_current_dashboard_sensor_ids)
             if body.get("include_switches") is True or sensor_id == "__switches__":
                 row_ids.append("__switches__")
-            ordered = await asyncio.to_thread(_order_sensor_ids_by_metric_position, row_ids)
+            ordered = await asyncio.to_thread(_effective_dashboard_row_order, row_ids)
             if sensor_id not in ordered:
                 return JSONResponse({"error": "sensor_not_found"}, status_code=404)
 
@@ -3713,7 +3739,40 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             ordered[idx], ordered[swap_idx] = ordered[swap_idx], ordered[idx]
             await asyncio.to_thread(_persist_visible_metric_order, ordered)
+            fresh_settings = saiSettings(apply_live=False)
+            await asyncio.to_thread(fresh_settings.replace_setting, "Display", "sensor_row_order", "existing")
+            _invalidate_dashboard_caches()
             return JSONResponse({"status": "ok", "sensor_id": sensor_id, "moved": True, "order": ordered})
+
+    @router.post("/dashboard/switch-order")
+    async def dashboard_switch_order(request: Request):
+        """Persist a manual order for location-grouped dashboard switch cards."""
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid_order"}, status_code=400)
+        order = body.get("order") if isinstance(body, dict) else None
+        if (not isinstance(order, list) or not order or len(order) > 256
+                or any(not isinstance(key, str) or not key.strip() or len(key) > 256 for key in order)):
+            return JSONResponse({"error": "invalid_order"}, status_code=400)
+        order = list(dict.fromkeys(key.strip().lower() for key in order))
+
+        def save_order():
+            fresh_settings = saiSettings(apply_live=False)
+            previous = fresh_settings.get_setting("Display", "switch_card_order", [])
+            # Keep positions for temporarily hidden/offline locations after visible cards.
+            if isinstance(previous, list):
+                order.extend(key for key in previous if isinstance(key, str) and key not in order)
+            fresh_settings.set_many_in_memory([
+                ("Display", "switch_card_order", order),
+                ("Display", "switch_row_order", "existing"),
+            ])
+            fresh_settings.save_settings()
+
+        async with _dashboard_metric_position_lock:
+            await asyncio.to_thread(save_order)
+            _invalidate_dashboard_caches()
+        return JSONResponse({"status": "ok", "order": order})
 
     # graph data for the full-screen selector or the small single-axis gauge overlay
     @router.get("/graph-data", response_class=JSONResponse)
@@ -4654,6 +4713,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             gauge_size=gauge_size,
             display_style=display_style,
             unit_system=unit_system,
+            sensor_row_order=settings.get_setting("Display", "sensor_row_order", "location_device"),
+            switch_row_order=settings.get_setting("Display", "switch_row_order", "location_device"),
             metric_set=metric_set,
             dashboard_background_theme=dashboard_background_theme,
             biodynamic_calendar_theme=biodynamic_calendar_theme,
@@ -9570,6 +9631,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if "unit_system" in form and raw_unit_system not in DISPLAY_UNIT_SYSTEMS:
             return _modal_error_response(request, "Display unit system is not supported.", status_code=400)
         unit_system = normalize_display_unit_system(raw_unit_system)
+        dashboard_orders = {}
+        for field in ("sensor_row_order", "switch_row_order"):
+            value = str(form.get(field, settings.get_setting("Display", field, "location_device")) or "").strip()
+            if field in form and value not in {"location_device", "existing"}:
+                return _modal_error_response(request, "Dashboard row order is not supported.", status_code=400)
+            dashboard_orders[field] = value
         raw_metric_set = str(
             form.get("metric_set", settings.get_setting("Display", "metric_set", "Pick 6")) or ""
         ).strip()
@@ -9816,6 +9883,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if "unit_system" in form:
             settings.replace_setting("Display", "unit_system", unit_system)
             set_notification_unit_system(unit_system)
+        for field, value in dashboard_orders.items():
+            if field in form:
+                settings.replace_setting("Display", field, value)
         if "metric_set" in form:
             settings.replace_setting("Display", "metric_set", metric_set)
         if "dashboard_background_theme" in form:

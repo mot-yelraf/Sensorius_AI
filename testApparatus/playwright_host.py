@@ -74,23 +74,43 @@ def dashboard(battery: str = "", station: str = "", documentation: bool = False,
         "Gas": 104.0,
         "Baro-Pressure": 1013.2,
     }
+    if documentation:
+        sensor_id = "avpd-demo02"
+    available = ["lux-demo01", sensor_id] if documentation else [sensor_id]
+    values = {sid: dict(metrics) for sid in available}
+    controllers = {
+        "switch-pr-check": SimpleNamespace(
+            is_present=True, switch_id="switch-pr-check", location="Test room",
+            switches=["Fan"], last_state={"Fan": False},
+            channel_id_for_label={"Fan": "S1-pr-check"},
+        ),
+    } if switches else {}
+    if documentation:
+        controllers = {
+            sid: SimpleNamespace(
+                is_present=True, switch_id=sid, location=location,
+                switches=["Fan"], last_state={"Fan": False},
+                channel_id_for_label={"Fan": channel},
+            )
+            for sid, location, channel in [
+                ("switch-demo01", "Garden Beds", "s1-demo01"),
+                ("switch-demo02", "Greenhouse", "s1-demo02"),
+            ]
+        }
     html = "".join(
         render_dashboard(
             "All",
             None,
-            [sensor_id],
-            {sensor_id: metrics},
+            available,
+            values,
             {},
             SimpleNamespace(expected_gauge_map={}),
-            switch_controllers={"switch-pr-check": SimpleNamespace(
-                is_present=True, switch_id="switch-pr-check", location="Test room",
-                switches=["Fan"], last_state={"Fan": False},
-                channel_id_for_label={"Fan": "S1-pr-check"},
-            )} if switches else None,
+            switch_controllers=controllers,
+            sensor_locations={"lux-demo01": "Garden Beds", "avpd-demo02": "Greenhouse"} if documentation else None,
             dashboard_row_order=["__switches__", sensor_id] if switches_first else None,
             battery_statuses={sensor_id: battery} if battery or station else {},
             gauge_config=get_gauge_config(),
-            expected_gauge_map={sensor_id: list(metrics)},
+            expected_gauge_map={sid: list(metrics) for sid in available},
             expected_display_style_map={sensor_id: {}},
             display_style="Gauge",
             dashboard_background_theme="fruit" if documentation else "leaf",

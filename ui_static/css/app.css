@@ -1555,3 +1555,15 @@ select.op-select{ max-width:80px; width:100%; }
     grid-template-columns: 1fr;
   }
 }
+
+.dashboard-order-list{display:flex;flex-direction:column;gap:.4rem}
+.dashboard-order-item{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;padding:.4rem;border:1px solid var(--dashboard-card-border,#c9d7cf);border-radius:6px}
+.dashboard-order-item > span{flex:1 1 12rem;overflow-wrap:anywhere}
+.dashboard-order-item > button{flex:0 0 auto}
+
+.switch-card-title-row{display:flex;align-items:center;justify-content:center;gap:.35rem;width:100%;margin-top:-.5rem;text-align:center}
+.switch-card-title-row > .switch-device-title{margin:.25rem 0;min-width:0;overflow-wrap:anywhere}
+.switch-card-order-arrow{flex:0 0 28px;width:28px;height:32px;padding:0;border:0;background:transparent;color:#2259f2;font-size:1.5rem;font-weight:bold;line-height:1;cursor:pointer}
+.switch-card-order-arrow:enabled:hover{color:#103ab7;background:rgba(34,89,242,.1);border-radius:4px}
+.switch-card-order-arrow:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+.switch-card-order-arrow:disabled{color:var(--dashboard-card-text);opacity:.25;cursor:default}

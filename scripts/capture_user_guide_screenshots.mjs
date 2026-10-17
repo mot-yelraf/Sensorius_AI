@@ -1,5 +1,6 @@
 /** Recapture documentation UI with synthetic data, never a running hub.
  * Usage: npm run docs:screenshots -- --output-dir /absolute/staging/directory
+ * Optionally pass --only filename.png,another.png to refresh selected captures.
  * Reserved example.com names and 192.0.2.0/24 addresses are intentional.
  */
 import assert from 'node:assert/strict';
@@ -14,6 +15,9 @@ import {chromium} from 'playwright';
 const root = path.resolve(import.meta.dirname, '..');
 const outputIndex = process.argv.indexOf('--output-dir');
 const output = outputIndex < 0 ? path.join(root, 'assets/screenshots') : path.resolve(process.argv[outputIndex + 1]);
+const onlyIndex = process.argv.indexOf('--only');
+const selected = onlyIndex < 0 ? null : new Set(process.argv[onlyIndex + 1].split(','));
+const shouldCapture = filename => !selected || selected.has(filename);
 const runtime = await mkdtemp(path.join(os.tmpdir(), 'sensorius-docs-'));
 const captureId = randomUUID();
 const origin = 'http://127.0.0.1:18772';
@@ -132,6 +136,7 @@ try {
   }
 
   async function systemCapture(filename, pane, section, prepare) {
+    if (!shouldCapture(filename)) return;
     console.log(`Preparing ${filename}`);
     const page = await pageWithDashboard();
     page.on('pageerror', error => console.error(error.message));
@@ -182,8 +187,14 @@ try {
     ['astral', 'Astral'], ['display', 'Display'], ['nodus-wifi-update', 'Nodus Wifi Update'],
     ['weather-forecast', 'Weather Forecast'],
   ]) await systemCapture(`system-settings-${filename}.png`, null, section, section === 'Display' ? async (page, modal) => {
-    await modal.locator('.theme-section > summary').evaluateAll(items => items.forEach(item => item.click()));
+    await modal.locator('.theme-section:not(.dashboard-order-section) > summary').evaluateAll(items => items.forEach(item => item.click()));
   } : null);
+  await systemCapture('system-settings-display-order.png', null, 'Display', async (page, modal) => {
+    await page.setViewportSize({width: 1200, height: 1600});
+    await modal.locator('.dashboard-order-section > summary').click();
+    await modal.locator('#dashboard-row-order-list [role="listitem"]').nth(2).waitFor();
+    await modal.locator('#dashboard-switch-order-list [role="listitem"]').nth(1).waitFor();
+  });
   for (const integration of ['FarmOS', 'Home Assistant', 'WeeWX']) {
     const filename = integration.toLowerCase().replaceAll(' ', '-');
     await systemCapture(`system-integrations-${filename}.png`, 'Integrations', integration);
@@ -219,15 +230,18 @@ try {
       await page.waitForFunction(() => !document.querySelector('#btn-onboard-add').disabled);
     });
   }
-  const mobile = await pageWithDashboard();
-  await mobile.setViewportSize({width: 390, height: 844});
-  await mobile.getByRole('link', {name: 'Open General Settings'}).click();
-  await auditAndCapture(mobile, mobile.locator('#setupPiModal .system-settings-shell'), 'sai_mobile_settings_1.png');
-  await mobile.close();
+  if (shouldCapture('sai_mobile_settings_1.png')) {
+    const mobile = await pageWithDashboard();
+    await mobile.setViewportSize({width: 390, height: 844});
+    await mobile.getByRole('link', {name: 'Open General Settings'}).click();
+    await auditAndCapture(mobile, mobile.locator('#setupPiModal .system-settings-shell'), 'sai_mobile_settings_1.png');
+    await mobile.close();
+  }
   for (const [kind, id, filename] of [
     ['sensor', 'avpd-demo02', 'sensor-settings-device-info.png'],
     ['switch', 'switch-demo', 'switch-settings-device-info.png'],
   ]) {
+    if (!shouldCapture(filename)) continue;
     const page = await pageWithDashboard();
     await page.evaluate(({kind, id}) => kind === 'sensor' ? window.editSensorSettings(id) : window.editSwitchSettings(id), {kind, id});
     const modal = page.locator(`#${kind}SettingsModal`);
