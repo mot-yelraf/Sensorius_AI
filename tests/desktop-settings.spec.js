@@ -25,6 +25,15 @@ for (const screenWidth of [1, 600]) {
       const display = general.locator('[data-runtime-section="system-display"]');
       await display.locator(':scope > summary').click();
       await expect(display.locator('#metric_set')).toBeVisible();
+      const order = display.locator('details').filter({ has: page.locator('summary', { hasText: /^Sensorius Dashboard Order$/ }) });
+      await order.locator('summary').click();
+      await expect(order.locator('#sensor_row_order')).toHaveValue('location_device');
+      await expect(order.locator('#switch_row_order')).toHaveValue('location_device');
+      await order.locator('#sensor_row_order').selectOption('existing');
+      await expect(order.locator('#sensor_row_order')).toHaveValue('existing');
+      await expect(order.locator('#switch_row_order')).toHaveValue('location_device');
+      const sections = await display.locator('details > summary').allTextContents();
+      expect(sections.indexOf('Sensorius Dashboard Order')).toBeLessThan(sections.indexOf('Sensorius Dashboard Theme'));
       await general.getByRole('button', { name: 'Close General Settings' }).click();
       for (const kind of ['Sensor', 'Switch']) {
         await page.evaluate(kind => kind === 'Sensor'

@@ -85,6 +85,8 @@ REQUEST_TIMEOUT_SEC = 10.0
 RULES_JSON = "[]"
 
 [Display]
+sensor_row_order = "location_device"
+switch_row_order = "location_device"
 gauge_size = "Small"
 display_style = "Gauge"
 unit_system = "Imperial"

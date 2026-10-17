@@ -25,6 +25,16 @@ APP_NAME_SHORT = f"{APP_TITLE} AI"
 APP_NAME_LONG = f"{APP_TITLE} Automatio Instrumentorum"
 
 
+def order_dashboard_sensor_rows(row_ids, locations):
+    """Sort sensor rows by location and device ID, preserving the switch row slot."""
+    sensors = sorted(
+        (sid for sid in row_ids if sid != "__switches__"),
+        key=lambda sid: ((str(locations.get(sid) or "").strip() or "Unknown").casefold(), sid.casefold(), sid),
+    )
+    ordered = iter(sensors)
+    return [sid if sid == "__switches__" else next(ordered) for sid in row_ids]
+
+
 def _settings_gear_svg_lines(*, indent: str = "", aria_label: str | None = "Settings", aria_hidden: bool = False):
     attrs = [
         "xmlns='http://www.w3.org/2000/svg'",
@@ -191,7 +201,7 @@ def normalize_dashboard_metric_set(value: object) -> str:
     return "All" if compact in {"all", "showall"} else "Pick 6"
 
 
-def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6", dashboard_custom_theme_style="", pressure_altitude=None, pressure_sensor_context=None, battery_statuses=None, dashboard_row_order=None):
+def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6", dashboard_custom_theme_style="", pressure_altitude=None, pressure_sensor_context=None, battery_statuses=None, dashboard_row_order=None, switch_row_order="location_device", switch_card_order=None):
     """Yield the complete Sensorius dashboard HTML document."""
 
     import json
@@ -1211,6 +1221,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield f"<link rel='stylesheet' href='/ui_static/css/app.css?v={APP_VERSION}'>"
     yield f"<link rel='stylesheet' href='/ui_static/css/mobile_settings.css?v={APP_VERSION}'>"
     yield f"<script src='/ui_static/js/mobile_settings.js?v={APP_VERSION}'></script>"
+    yield f"<script src='/ui_static/js/dashboard_order.js?v={APP_VERSION}' defer></script>"
     yield f"<script src='/ui_static/js/switch_history.js?v={APP_VERSION}'></script>"
     yield f"<script src='/ui_static/js/switch_commands.js?v={APP_VERSION}'></script>"
     yield f"<script src='/ui_static/weather_forecast/moon.js?v={APP_VERSION}' defer></script>"
@@ -1301,6 +1312,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         rendered_swids_here: set[str] = set()
         switch_rows: list[dict] = []
         switch_ids_here: list[str] = []
+
+        if switch_row_order == "location_device":
+            matched_switches = sorted(matched_switches, key=lambda ctrl: str(getattr(ctrl, "switch_id", "") or "").strip().casefold())
 
         for switch_ctrl in matched_switches:
             sw_id: str = (getattr(switch_ctrl, "switch_id", "") or "").strip()
@@ -1414,8 +1428,9 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         switch_ids_attr = ",".join(switch_ids_here)
         multi_switch_card = len(switch_ids_here) > 1
         header_id = _safe(f"{'_'.join(switch_ids_here) if switch_ids_here else location}_header")
-        yield f"<div class='switch-metric-container' data-switch-ids='{switch_ids_attr}'>"
-        yield "<div style='text-align:center; width:100%; margin-top:-1.5rem; margin-bottom:-1.0rem;'>"
+        yield f"<div class='switch-metric-container' data-switch-ids='{switch_ids_attr}' data-switch-location='{html_escape(_norm_loc(location))}'>"
+        yield "<div class='switch-card-title-row'>"
+        yield f"<button type='button' class='switch-card-order-arrow' data-switch-card-move='up' aria-label='Move {html_escape(location)} switch card left' title='Move left' disabled><span aria-hidden='true'>←</span></button>"
         if switch_ids_here:
             header_sw_id = switch_ids_here[0]
             yield f"<h3 id='{header_id}' class='switch-device-title'>{header_sw_id.upper()} "
@@ -1425,6 +1440,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             yield f"{location}</h3>"
         else:
             yield f"<h3 id='{header_id}'>SWITCHES {location}</h3>"
+        yield f"<button type='button' class='switch-card-order-arrow' data-switch-card-move='down' aria-label='Move {html_escape(location)} switch card right' title='Move right' disabled><span aria-hidden='true'>→</span></button>"
         yield "</div>"
 
         yield "<div class='switch-container'>"
@@ -2322,6 +2338,12 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         for loc_norm, disp in known_items:
             if switches_by_loc.get(loc_norm):
                 selected_switch_locations.append((loc_norm, disp))
+
+    if switch_row_order == "location_device":
+        selected_switch_locations.sort(key=lambda item: item[1].strip().casefold())
+    elif isinstance(switch_card_order, list):
+        saved_positions = {key: index for index, key in enumerate(switch_card_order)}
+        selected_switch_locations.sort(key=lambda item: saved_positions.get(item[0], len(saved_positions)))
 
     if selected_switch_locations:
         yield "<div class='sensor-group switch-group' id='group_switches' data-dashboard-row-id='__switches__' style='width:100%; flex:0 0 100%; display:block;'>"
@@ -5433,6 +5455,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      console.warn('updateGauges: sensor UI sync failed', sid, e);"
     yield "    }"
     yield "  }"  # close for sid of available
+    yield "  if (Array.isArray(d.dashboard_row_order)) window.applySensorGroupOrder(d.dashboard_row_order);"
     yield ""
     yield "  const values     = d.values      || {}; "
     yield "  const stats      = d.stats       || {}; "
@@ -6788,7 +6811,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    groups.set(el.getAttribute('data-dashboard-row-id') || '', el);"
     yield "  });"
     yield "  const completeOrder = [...order, ...Array.from(groups.keys()).filter((id) => !order.includes(id))];"
-    yield "  completeOrder.forEach((sid) => {"
+    yield "  const visibleOrder = completeOrder.filter((id) => groups.has(id));"
+    yield "  const currentOrder = Array.from(groups.keys());"
+    yield "  if (visibleOrder.every((id, index) => id === currentOrder[index])) return;"
+    yield "  visibleOrder.forEach((sid) => {"
     yield "    const el = groups.get(String(sid || ''));"
     yield "    if (el) dashboardContent.appendChild(el);"
     yield "  });"
@@ -6810,10 +6836,13 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    if (!res.ok) throw new Error(String(js.error || js.detail || ('HTTP ' + res.status)));"
     yield "    if (Array.isArray(js.order)) window.applySensorGroupOrder(js.order);"
     yield "    if (js.moved) {"
-    yield "      if (group) group.scrollIntoView({ block: 'nearest', behavior: 'smooth' });"
+    yield "      const select = document.getElementById('sensor_row_order');"
+    yield "      if (select) select.value = 'existing';"
+    yield "      if (group && !document.querySelector('.dashboard-order-section[open]')) group.scrollIntoView({ block: 'nearest', behavior: 'smooth' });"
     yield "    } else if (typeof window.showToast === 'function') {"
     yield "      window.showToast(move === 'up' ? 'Row is already at the top' : 'Row is already at the bottom');"
     yield "    }"
+    yield "    return js;"
     yield "  } catch (e) {"
     yield "    console.error('Failed to reorder sensor group', e);"
     yield "    if (typeof window.showToast === 'function') window.showToast('Failed to save dashboard order', 'error');"

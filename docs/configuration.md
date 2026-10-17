@@ -345,6 +345,23 @@ Runtime notes:
   cards with high-contrast pale elemental palettes: Earth, Water, Air, and
   Fire, respectively. Custom dashboard selections use the same
   `custom:<theme_collection_id>:<image_id>` form.
+- General Settings > Display > Sensorius Dashboard Order controls sensor and
+  switch ordering independently. `[Display].sensor_row_order` and
+  `[Display].switch_row_order` default to `location_device`: case-insensitive
+  A–Z by location, then displayed device name (the sensor or switch device ID).
+  Missing locations sort as `Unknown`. Switch devices remain grouped by location;
+  their channel order is preserved. `existing` keeps saved sensor positions or
+  the existing switch inventory order within location groups. The order dialog
+  provides Move up / Move down controls for vertical dashboard rows (including
+  the combined Switches row) and location-grouped switch cards. The same moves
+  are available on the dashboard: switch card titles use left/right arrows,
+  with available directions highlighted and unavailable directions dimmed.
+  Manual moves save immediately and select
+  `existing` for the relevant ordering control; use Display's Save button for
+  changes to automatic sorting. Manual switch card positions are stored as
+  normalized location names in `[Display].switch_card_order`; temporarily hidden
+  locations are retained after the visible cards. Alphabetical sensor ordering
+  preserves the saved position of the combined Switches row.
 - `[Display].metric_set` controls the initial dashboard row state globally.
   Both modes preserve each sensor's saved `METRIC_1` through `METRIC_6` slots
   and append every other known, renderable metric. `Pick 6` initially hides the

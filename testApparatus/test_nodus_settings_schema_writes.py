@@ -416,6 +416,17 @@ class _PersistentFakeSaiSettings(_FakeSaiSettings):
             for section, values in self.__class__.STORED_SETTINGS.items()
         }
 
+    def get_setting(self, section, key, default=None):
+        return self.settings.get(section, {}).get(key, default)
+
+    def set_many_in_memory(self, updates):
+        for section, key, value in updates:
+            self.settings.setdefault(section, {})[key] = value
+
+    def replace_setting(self, section, key, value):
+        self.settings.setdefault(section, {})[key] = value
+        self.save_settings()
+
     def get_section(self, section, reload_if_changed=False):
         data = self.settings.get(section, {})
         if isinstance(data, dict):
@@ -823,7 +834,7 @@ def test_system_settings_display_has_conditional_gauge_size_and_theme_thumbnails
     assert '<summary>Biodynamic Calendar Theme</summary>' in display_section
     assert '<legend class="theme-selector-legend">Biodynamic Calendar Theme</legend>' in display_section
     assert display_section.count('<details class="theme-section">') == 3
-    assert display_section.count('<div class="theme-section-content">') == 3
+    assert display_section.count('<div class="theme-section-content">') == 4
     assert '#setupPiModal .theme-section > summary {' in text
     assert '#setupPiModal .theme-section > summary::before {' in text
     assert '#setupPiModal .theme-section[open] > summary::before' in text
@@ -6965,3 +6976,96 @@ async def test_calendar_datetime_save_resolves_timezone_and_validates_dst(tmp_pa
         assert condition["calendar_local"] == local
         assert condition["calendar_timezone"] == "America/Denver"
         assert condition["offset_min"] == 0
+
+
+@pytest.mark.asyncio
+async def test_dashboard_order_settings_persist_independently_and_reject_invalid(tmp_path, monkeypatch):
+    app = await _build_route_app_with_settings(tmp_path, monkeypatch, {})
+    headers = {"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/submit-pi-setup", data={
+            "sensor_row_order": "existing", "switch_row_order": "location_device",
+        }, headers=headers)
+        assert response.status_code == 200
+        assert _RouteFakeSaiSettings.STORED_SETTINGS["Display"] == {
+            "sensor_row_order": "existing", "switch_row_order": "location_device",
+        }
+        response = await client.post("/submit-pi-setup", data={
+            "switch_row_order": "existing",
+        }, headers=headers)
+        assert response.status_code == 200
+        assert _RouteFakeSaiSettings.STORED_SETTINGS["Display"]["sensor_row_order"] == "existing"
+        assert _RouteFakeSaiSettings.STORED_SETTINGS["Display"]["switch_row_order"] == "existing"
+        response = await client.post("/submit-pi-setup", data={
+            "sensor_row_order": "unsupported",
+        }, headers=headers)
+        assert response.status_code == 400
+        assert _RouteFakeSaiSettings.STORED_SETTINGS["Display"]["sensor_row_order"] == "existing"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["location_device", "existing"])
+async def test_dashboard_sensor_order_matches_json_and_manual_movement(tmp_path, monkeypatch, mode):
+    app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    locations = {"aqi-a": "Zulu", "aqi-z": "attic", "aqi-b": "Attic"}
+    for sid, location in locations.items():
+        sensor_mgr.save(sid, {
+            "Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": sid, "LOCATION": location},
+            "Display": {"METRIC_1": "Temperature"},
+        })
+    _PersistentFakeSaiSettings.STORED_SETTINGS = {
+        "Display": {"sensor_row_order": mode},
+        "MetricPosition": {"aqi-z": 1, "__switches__": 2, "aqi-a": 3, "aqi-b": 4},
+    }
+    monkeypatch.setattr(saiWebRoutes, "saiSettings", _PersistentFakeSaiSettings)
+    app.state.sensor_map = []
+    saiWebRoutes.sensor_map = []
+    now_iso = datetime.now().isoformat()
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: list(locations))
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso)
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_values_and_timestamps", lambda ids: (
+        {sid: {"Temperature": 20} for sid in ids}, {sid: now_iso for sid in ids},
+    ))
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_metrics", lambda sid: ["Temperature"])
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
+    monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {})
+    saiWebRoutes._SENSOR_LOCATION_CACHE.clear()
+    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    saiWebRoutes._DASHBOARD_DISPLAY_SETTINGS_CACHE = None
+    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    ingest.mqtt_clients = []
+    expected = ["aqi-b", "__switches__", "aqi-z", "aqi-a"] if mode == "location_device" else ["aqi-z", "__switches__", "aqi-a", "aqi-b"]
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/", params={"json_only": 1})
+        assert response.status_code == 200
+        assert response.json()["dashboard_row_order"] == expected
+        assert response.json()["available"] == [sid for sid in expected if sid != "__switches__"]
+        response = await client.post("/dashboard/metric-position", json={
+            "sensor_id": expected[-1], "direction": "up", "include_switches": True,
+        })
+        expected[-1], expected[-2] = expected[-2], expected[-1]
+        assert response.status_code == 200
+        assert response.json()["order"] == expected
+        assert _PersistentFakeSaiSettings.STORED_SETTINGS["Display"]["sensor_row_order"] == "existing"
+        response = await client.get("/", params={"json_only": 1})
+        assert response.json()["dashboard_row_order"] == expected
+
+
+@pytest.mark.asyncio
+async def test_manual_switch_card_order_persists_and_preserves_hidden_locations(tmp_path, monkeypatch):
+    app = await _build_route_app_with_settings(tmp_path, monkeypatch, {
+        "Display": {"switch_card_order": ["attic", "offline", "garden"], "sensor_row_order": "location_device"},
+    })
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/dashboard/switch-order", json={"order": ["garden", "attic"]})
+        assert response.status_code == 200
+        assert response.json()["order"] == ["garden", "attic", "offline"]
+        assert _RouteFakeSaiSettings.STORED_SETTINGS["Display"] == {
+            "switch_card_order": ["garden", "attic", "offline"],
+            "switch_row_order": "existing", "sensor_row_order": "location_device",
+        }
+        for body in ({}, {"order": "bad"}, {"order": [None]}, {"order": [""]}, []):
+            response = await client.post("/dashboard/switch-order", json=body)
+            assert response.status_code == 400
+        assert _RouteFakeSaiSettings.STORED_SETTINGS["Display"]["switch_card_order"] == ["garden", "attic", "offline"]
