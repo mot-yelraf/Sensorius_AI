@@ -512,13 +512,16 @@ def test_sensor_reordering_preserves_dashboard_content_parent():
     end = html.index("window.reorderSensorGroup = async function", start)
     reorder_block = html[start:end]
     assert "(firstSensorGroup && firstSensorGroup.parentElement)" in reorder_block
-    assert "if (switchGroup) dashboardContent.appendChild(switchGroup);" in reorder_block
+    assert ".sensor-group[data-dashboard-row-id]" in reorder_block
+    assert "completeOrder.forEach" in reorder_block
+    assert "if (switchGroup) dashboardContent.appendChild(switchGroup);" not in reorder_block
     assert 'overviewFooter' not in html
     ensure_start = html.index("function ensureSensorUI(sid, metricList, locationText)")
     ensure_end = html.index("window.DISPLAY_STYLES", ensure_start)
     ensure_block = html[ensure_start:ensure_end]
     assert "document.querySelector('.dashboard-content')" in ensure_block
     assert "parent.insertBefore(group, switchGroup)" in ensure_block
+    assert "group.dataset.dashboardRowId = sid;" in ensure_block
 
 
 def test_dashboard_metric_cards_render_and_refresh_trend_arrows():

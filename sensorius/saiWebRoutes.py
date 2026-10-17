@@ -3633,6 +3633,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 gauge_config=gauge_config, 
                 gauge_size = gaugeSize,
                 battery_statuses = battery_statuses,
+                dashboard_row_order = _order_sensor_ids_by_metric_position(available + ["__switches__"]),
                 pressure_altitude=display_settings.get("pressure_altitude"),
                 pressure_sensor_context=pressure_sensor_context,
                 expected_gauge_map = expected_gauge_map,
@@ -3676,6 +3677,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
         )
 
+    _dashboard_metric_position_lock = asyncio.Lock()
+
     @router.post("/dashboard/metric-position")
     async def dashboard_metric_position(request: Request):
         try:
@@ -3690,23 +3693,27 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if direction not in {"up", "down"}:
             return JSONResponse({"error": "invalid_direction"}, status_code=400)
 
-        ordered = _order_sensor_ids_by_metric_position(_current_dashboard_sensor_ids())
-        if sensor_id not in ordered:
-            return JSONResponse({"error": "sensor_not_found"}, status_code=404)
+        async with _dashboard_metric_position_lock:
+            row_ids = await asyncio.to_thread(_current_dashboard_sensor_ids)
+            if body.get("include_switches") is True or sensor_id == "__switches__":
+                row_ids.append("__switches__")
+            ordered = await asyncio.to_thread(_order_sensor_ids_by_metric_position, row_ids)
+            if sensor_id not in ordered:
+                return JSONResponse({"error": "sensor_not_found"}, status_code=404)
 
-        idx = ordered.index(sensor_id)
-        if direction == "up":
-            if idx <= 0:
-                return JSONResponse({"status": "ok", "sensor_id": sensor_id, "moved": False, "order": ordered})
-            swap_idx = idx - 1
-        else:
-            if idx >= (len(ordered) - 1):
-                return JSONResponse({"status": "ok", "sensor_id": sensor_id, "moved": False, "order": ordered})
-            swap_idx = idx + 1
+            idx = ordered.index(sensor_id)
+            if direction == "up":
+                if idx <= 0:
+                    return JSONResponse({"status": "ok", "sensor_id": sensor_id, "moved": False, "order": ordered})
+                swap_idx = idx - 1
+            else:
+                if idx >= (len(ordered) - 1):
+                    return JSONResponse({"status": "ok", "sensor_id": sensor_id, "moved": False, "order": ordered})
+                swap_idx = idx + 1
 
-        ordered[idx], ordered[swap_idx] = ordered[swap_idx], ordered[idx]
-        _persist_visible_metric_order(ordered)
-        return JSONResponse({"status": "ok", "sensor_id": sensor_id, "moved": True, "order": ordered})
+            ordered[idx], ordered[swap_idx] = ordered[swap_idx], ordered[idx]
+            await asyncio.to_thread(_persist_visible_metric_order, ordered)
+            return JSONResponse({"status": "ok", "sensor_id": sensor_id, "moved": True, "order": ordered})
 
     # graph data for the full-screen selector or the small single-axis gauge overlay
     @router.get("/graph-data", response_class=JSONResponse)
