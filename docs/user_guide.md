@@ -72,6 +72,10 @@ Dashboard data comes from the latest values in the live runtime cache and from t
 
 1. The **Caelus Weather Forecast Tile**.
 
+   The observer-local date appears beneath **24 Hour Forecast**. The Live or
+   Cached provider status is centered in the bottom row of the forecast panel,
+   below the precipitation details.
+
    The **Caelus Weather Forecast Tile** keeps its day-wide forecast summary,
    while its details include the maximum forecast precipitation chance,
    labeled as rain or snow from the forecast conditions. Its background
@@ -93,6 +97,9 @@ Dashboard data comes from the latest values in the live runtime cache and from t
    and reports.
 
 3. The **Lunar Calendar Tile**.
+
+   The date beneath **Moon Phase** shows the current day at the configured
+   Astral location.
 
    When an eclipse visible from the configured Astral location overlaps the
    next 24 hours, the Moon Phase tile adds an eclipse line with the eclipse
@@ -120,7 +127,8 @@ Dashboard data comes from the latest values in the live runtime cache and from t
 4. The **Sun/Moon Position Tile**.
 
    This tile plots the Sun and Moon across the current observer-local day. It
-   shows the Sun's rise, noon, and set times and the Moon's rise and set times.
+   shows the observer-local date below **Sun Position**, followed by the Sun's
+   rise, noon, and set times and the Moon's rise and set times.
    Select the tile to open the separate 29-day Sun/Moon position and Moon-phase
    graph. Close that expanded graph with its **×** button, by selecting the
    graph, or by pressing Escape.
@@ -351,7 +359,7 @@ collapsed without moving the section's **Save** button.
   pattern or the greenhouse **Root**, **Leaf**, **Flower**, and **Fruit** scenes.
   The four greenhouse themes use matching pale Earth, Water, Air, and Fire
   colors for metric and switch cards while retaining dark, high-contrast text.
-  The **Theme** button at the bottom of **Show Device by Location** hides the
+  The **Theme** button at the bottom of **Display Device By** hides the
   dashboard tiles for an unobstructed temporary preview. Choose a theme from
   the bottom toolbar, then select **Return to Dashboard**; saved settings are
   not changed by previewing. Select **Custom Theme** to create a named local
@@ -1543,7 +1551,7 @@ The dashboard is the starting point for readings, settings, and history.
   Tap the **gear to the right** to open General Settings. A gear beside a sensor
   or switch opens settings for that device.
 - Swipe up to see sensor groups and switch tiles farther down the dashboard.
-  Use **Show Device by Location** to narrow the display, or choose
+  Use **Display Device By** to narrow the display, or choose
   **All Locations** to restore the complete view.
 - Tap a sensor group's **disclosure triangle** to reveal or hide its additional
   metrics. Tap a Sensor Tile to cycle its available graph and gauge views;
