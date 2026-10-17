@@ -4441,6 +4441,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "    group.id = groupId;"
     yield "    group.className = 'sensor-group';"
     yield "    group.dataset.sensorId = sid;"
+    yield "    group.dataset.dashboardRowId = sid;"
     yield "    group.dataset.sensorExpanded = dashboardMetricSet === 'All' ? 'true' : 'false';"
     yield "    group.style.width = '100%';"
     yield "    group.style.flex = '0 0 100%';"
