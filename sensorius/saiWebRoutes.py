@@ -25,6 +25,7 @@ from .project_paths import PROJECT_ROOT
 from typing import Dict, Any, Set
 from uuid import uuid4
 import json
+from html import escape
 import socket
 import asyncio
 from .saiAutomationActivation import AutomationActivationError, activate_with_baselines
@@ -14451,10 +14452,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 await _broadcast_automation_states(request.app, mgr, switch_id, switch_keys)
             return {"ok": bool(ok)}
         except AutomationActivationError as exc:
-            return JSONResponse({"ok": False, "error": str(exc)}, status_code=409)
+            return JSONResponse({"ok": False, "error": exc.public_message}, status_code=409)
         except Exception as exc:
             printDM(f"/advanced/automations/enable error: {exc}", location="saiWebRoutes")
-            return JSONResponse({"error": str(exc)}, status_code=500)
+            return JSONResponse({"error": "Failed to update automation enablement."}, status_code=500)
 
     @router.post("/advanced/automations/delete", response_class=JSONResponse)
     async def api_delete_advanced_automation(
@@ -14520,7 +14521,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         def error_response(message: str, status_code: int = 400):
             if request.headers.get("content-type", "").startswith("application/json"):
                 return JSONResponse({"ok": False, "error": message}, status_code=status_code)
-            return HTMLResponse(f"<h3>{message}</h3><a href='/'>Return</a>", status_code=status_code)
+            return HTMLResponse(f"<h3>{escape(message)}</h3><a href='/'>Return</a>", status_code=status_code)
 
         async def read_payload():
             ctype = request.headers.get("content-type", "")
@@ -15072,11 +15073,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             except Exception:
                 pass
         except AutomationActivationError as e:
-            return error_response(str(e), status_code=409)
+            return error_response(e.public_message, status_code=409)
         except Exception as e:
             printDM(f"[{MODULE}] ⚠️ Failed to save Advanced trigger {rule_id} for {switch_id}: {e}", location=MODULE)
             if is_json_request:
-                return JSONResponse({"ok": False, "error": str(e) or "Failed saving Advanced trigger."}, status_code=500)
+                return JSONResponse({"ok": False, "error": "Failed saving Advanced trigger."}, status_code=500)
             return HTMLResponse("<h3>Failed saving Advanced trigger.</h3><a href='/'>Return</a>", status_code=500)
 
         # Success response (JSON for JSON requests; redirect for browser form posts)
@@ -16303,7 +16304,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 _switch_status_cache_until = 0.0
 
             except AutomationActivationError as e:
-                return JSONResponse({"error": str(e)}, status_code=409)
+                return JSONResponse({"error": e.public_message}, status_code=409)
             except Exception as e:
                 printDM(f"[override_switch] persist failed for '{matched_label}': {e}", location=MODULE)
                 return JSONResponse({"error": "persist_failed"}, status_code=500)

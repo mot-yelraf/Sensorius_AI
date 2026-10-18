@@ -195,7 +195,8 @@ async def test_preflight_failures_send_no_commands(tmp_path, failure):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("operation", ["save_on", "save_off", "save_disabled", "enable", "override", "failure"])
+@pytest.mark.parametrize("operation", ["save_on", "save_off", "save_disabled", "enable", "override", "failure",
+                                        "save_error", "enable_error", "override_error"])
 async def test_http_activation_paths(tmp_path, monkeypatch, operation):
     from httpx import ASGITransport, AsyncClient
     import sensorius.saiAutomationManager as automation_module
@@ -222,24 +223,33 @@ async def test_http_activation_paths(tmp_path, monkeypatch, operation):
     monkeypatch.setattr(routes, "switch_controllers", app.state.switch_controllers, raising=False)
     app.state.supervisor = SimpleNamespace(_task_names={"switch-test Controladora Monitor"})
     doc = script(operation != "save_off")
-    if operation in {"enable", "override", "failure"}:
+    if operation in {"enable", "override", "failure", "enable_error", "override_error"}:
         Manager().upsert_advanced_rule("__system__", "fan", enabled=False, script={**doc, "enabled": False})
     if operation == "failure":
         ctrl.set_state = lambda *a, **kw: False
+    if operation.endswith("_error"):
+        def unexpected_failure(*args, **kwargs):
+            raise RuntimeError("private-database-path-and-internal-details")
+        method = "upsert_advanced_rule" if operation == "save_error" else "set_rule_enabled"
+        monkeypatch.setattr(Manager, method, unexpected_failure)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test",
                            headers={"sec-fetch-site": "same-origin"}) as client:
-        if operation in {"enable", "failure"}:
+        if operation in {"enable", "failure", "enable_error"}:
             response = await client.post("/advanced/automations/enable", data={
                 "switch_id": "__system__", "rule_id": "fan", "enabled": "true"})
-        elif operation == "override":
+        elif operation in {"override", "override_error"}:
             response = await client.post("/switch/override", params={
                 "switch_id": ctrl.switch_id, "switch_name": "Fan"}, json={"enabled": True})
         else:
             response = await client.post("/submit-advanced-trigger", json={
                 "switch_id": "__system__", "rule_id": "fan",
                 "enabled": operation != "save_disabled", "script_json": json.dumps(doc)})
-    if operation == "failure":
+    if operation.endswith("_error"):
+        assert response.status_code == 500, response.text
+        assert "private-database-path-and-internal-details" not in response.text
+        assert "error" in response.json()
+    elif operation == "failure":
         assert response.status_code == 409, response.text
         assert "remains disabled" in response.json()["error"]
         assert not Manager().load("__system__")["Advanced"]["fan"]["enabled"]

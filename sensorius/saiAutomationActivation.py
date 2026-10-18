@@ -13,6 +13,10 @@ import time
 class AutomationActivationError(ValueError):
     """Report a switch baseline that could not be prepared."""
 
+    def __init__(self, public_message: str):
+        super().__init__(public_message)
+        self.public_message = public_message
+
 
 def _script(rule):
     raw = rule.get("script_json", {})
