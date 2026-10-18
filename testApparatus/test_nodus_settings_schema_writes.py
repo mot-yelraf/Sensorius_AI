@@ -4865,7 +4865,8 @@ async def test_dashboard_merges_switch_cards_for_same_location(tmp_path, monkeyp
         assert moved.json()["order"] == ["__switches__", "co2-ykdvea"]
         restored = await client.get("/")
         assert 'window.applySensorGroupOrder(["__switches__", "co2-ykdvea"]);' in restored.text
-        assert "aria-label='Reorder Switches row'" in restored.text
+        assert "aria-label='Move Switches row up'" in restored.text
+        assert "aria-label='Move Switches row down'" in restored.text
 
     assert res.status_code == 200
     assert res.headers["cache-control"] == "no-store, max-age=0"
