@@ -354,8 +354,9 @@ Runtime notes:
   the existing switch inventory order within location groups. The order dialog
   provides Move up / Move down controls for vertical dashboard rows (including
   the combined Switches row) and location-grouped switch cards. The same moves
-  are available on the dashboard: switch card titles use left/right arrows,
-  with available directions highlighted and unavailable directions dimmed.
+  are available on the dashboard: row headings use up/down arrows and switch
+  card titles use left/right arrows, with available directions highlighted blue
+  and unavailable directions dimmed and disabled.
   Manual moves save immediately and select
   `existing` for the relevant ordering control; use Display's Save button for
   changes to automatic sorting. Manual switch card positions are stored as
