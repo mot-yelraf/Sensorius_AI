@@ -6450,6 +6450,12 @@ async def test_system_automation_save_reloads_action_target_controller(tmp_path,
         def _evaluate_and_apply_advanced(self, current_values_map):
             self.evaluations.append(current_values_map)
 
+        def get_switch_names(self):
+            return ["Water"]
+
+        def get_state(self, label):
+            return False
+
     target_ctrl = _TargetController()
     controllers = {"switch-8y47n1": target_ctrl}
     saiWebRoutes.switch_controllers = controllers

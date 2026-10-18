@@ -224,6 +224,20 @@ Revert behavior:
 - Runtime ownership needed for `previous_state` is persisted in the switch
   settings runtime block.
 - Actions set absolute states. They are not toggle or invert commands.
+- Saving an enabled rule or enabling a disabled rule prepares every
+  `previous_state` switch action with the opposite baseline: an On action starts
+  from Off, and an Off action starts from On. Disabled saves, notifications, and
+  `do_nothing` actions do not change switch state during save.
+- Baseline preparation uses the shared controller path and waits up to 15
+  seconds per channel for device confirmation. Existing rules being prepared
+  are disabled first; a rejected or unconfirmed command leaves them disabled.
+  Some channels may already have changed when another channel fails. Resolve
+  the device error and retry save or enable. Missing/offline channels and
+  channels owned by another enabled rule are rejected before preparation.
+- Once enabled, conditions are evaluated normally. If they already match, the
+  action may run immediately after baseline preparation; saving does not defer
+  an active timer window until the next hour. Runtime startup does not reset
+  baselines.
 - `previous_state` is captured when an action actually changes a channel. If
   the channel is already at the requested state, the action is skipped and
   there is no new previous-state value for that action to restore.
@@ -237,19 +251,19 @@ state.
 To run Green normally on and Yellow normally off, then flip them for 8 minutes
 every 15 minutes:
 
-1. Disable the automation so manual control is allowed.
-2. Set the baseline state manually: Green on, Yellow off.
-3. Edit the automation condition to `timer`, Every `15 minutes`, Duration `8`.
-4. Set the action rows to the active-window state: Green off, Yellow on.
-5. Set **Restore Action** to `To previous state` for both action rows.
-6. Save and enable the automation.
+1. Set the automation condition to `timer`, Every `15 minutes`, Duration `8`.
+2. Set the action rows to the active-window state: Green off, Yellow on.
+3. Set **Restore Action** to `To previous state` for both action rows.
+4. Save with Enable set to Yes. Sensorius prepares Green on and Yellow off
+   before enabling the rule.
 
 During the timer window Sensorius applies the action states. When the window
 ends, `To previous state` restores the baseline state that existed before the
 actions changed the channels.
 
 Do not encode the baseline as the action state. If the action rows are Green on
-and Yellow off, the timer window enforces Green on and Yellow off. Also note
+and Yellow off, saving the enabled rule prepares Green off and Yellow on, then
+the timer window enforces Green on and Yellow off. Also note
 that all action rows in a rule share the same condition groups; adding a second
 condition row does not bind one condition to one action and another condition
 to another action.

@@ -7911,7 +7911,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     yield "      body: JSON.stringify({ enabled: nextEnabled })"  # enabled = RULE enabled
     yield "    });"
     yield "    if (!res.ok) {"
-    yield "      console.error('Override update failed', await res.text());"
+    yield "      const info = await res.json().catch(() => ({}));"
+    yield "      alert(info.error || 'Failed to update automation.');"
     yield "      btn.disabled = false;"
     yield "      return;"
     yield "    }"

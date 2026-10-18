@@ -958,6 +958,8 @@ class SwitchController:
         )
 
     def _process_auto_off_timers(self) -> None:
+        if getattr(self, "_automation_preparing", False):
+            return
         for name, seconds in list((self.auto_off_seconds or {}).items()):
             try:
                 seconds = int(seconds or 0)
@@ -1917,6 +1919,8 @@ class SwitchController:
 
         Only targets actions whose switch_key belongs to this controller.
         """
+        if getattr(self, "_automation_preparing", False):
+            return
         debug_cycle_verbose = False
         if DEBUG:
             debug_now = time.monotonic()
