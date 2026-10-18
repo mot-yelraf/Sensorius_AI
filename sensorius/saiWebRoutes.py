@@ -27,6 +27,7 @@ from uuid import uuid4
 import json
 import socket
 import asyncio
+from .saiAutomationActivation import AutomationActivationError, activate_with_baselines
 import subprocess
 import time
 import threading
@@ -14369,6 +14370,24 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "enabled": bool(state.get("enabled_any", False)),
             })
 
+    async def _activate_automation_rules(request, manager, hostname, rules, commit):
+        """Serialize UI activation and prepare switch baselines before persistence."""
+        if not hasattr(request.app.state, "automation_activation_lock"):
+            request.app.state.automation_activation_lock = asyncio.Lock()
+        controllers = getattr(request.app.state, "switch_controllers", None)
+        if not isinstance(controllers, dict):
+            controllers = globals().get("switch_controllers") or {}
+        try:
+            return await activate_with_baselines(
+                manager, hostname, rules, controllers, commit,
+                lock=request.app.state.automation_activation_lock,
+                mqtt_ingest=mqtt_ingest,
+            )
+        finally:
+            global _switch_status_cache_payload, _switch_status_cache_until
+            _switch_status_cache_payload = None
+            _switch_status_cache_until = 0.0
+
     @router.post("/advanced/automations/enable", response_class=JSONResponse)
     async def api_enable_advanced_automation(
         request: Request,
@@ -14380,7 +14399,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         try:
             truthy = str(enabled).strip().lower() in {"1", "true", "on", "yes"}
             mgr = AutomationManager("automation_settings")
-            ok = mgr.set_rule_enabled(switch_id, section="Advanced", rule_id=rule_id, enabled=truthy)
+            previous = (mgr.load(switch_id).get("Advanced") or {}).get(rule_id)
+            rules = {rule_id: previous} if truthy and previous and not previous.get("enabled", True) else {}
+            ok = await _activate_automation_rules(
+                request, mgr, switch_id, rules,
+                lambda: mgr.set_rule_enabled(switch_id, section="Advanced", rule_id=rule_id, enabled=truthy),
+            )
             if ok:
                 data = mgr.load(switch_id) or {}
                 adv = (data.get("Advanced") or {})
@@ -14426,6 +14450,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
                 await _broadcast_automation_states(request.app, mgr, switch_id, switch_keys)
             return {"ok": bool(ok)}
+        except AutomationActivationError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=409)
         except Exception as exc:
             printDM(f"/advanced/automations/enable error: {exc}", location="saiWebRoutes")
             return JSONResponse({"error": str(exc)}, status_code=500)
@@ -14808,11 +14834,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if isinstance(existing_advanced, dict)
                 else None
             )
-            trig_mgr.upsert_advanced_rule(
-                hostname=switch_id,
-                rule_id=final_rule_id,
-                enabled=enabled,
-                script=compact_script,
+            await _activate_automation_rules(
+                request, trig_mgr, switch_id,
+                {final_rule_id: {"script_json": compact_script}}
+                if enabled and json.loads(compact_script).get("enabled", True) else {},
+                lambda: trig_mgr.upsert_advanced_rule(
+                    hostname=switch_id,
+                    rule_id=final_rule_id,
+                    enabled=enabled,
+                    script=compact_script,
+                ),
             )
 
             printDM(f"[{MODULE}] Saved Advanced trigger {rule_id} -> {final_rule_id} for {switch_id}", location=MODULE)
@@ -15040,6 +15071,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 await _broadcast_automation_states(app, mgr, switch_id, switch_keys)
             except Exception:
                 pass
+        except AutomationActivationError as e:
+            return error_response(str(e), status_code=409)
         except Exception as e:
             printDM(f"[{MODULE}] ⚠️ Failed to save Advanced trigger {rule_id} for {switch_id}: {e}", location=MODULE)
             if is_json_request:
@@ -15740,6 +15773,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             # Target resolved
             ctrl, matched_label = matches[0]
+            if getattr(ctrl, "_automation_preparing", False):
+                return JSONResponse(
+                    {"error": "automation_preparing", "message": "Wait for automation baseline preparation to finish."},
+                    status_code=423,
+                )
             # Use the controller-resolved id for command publish. The incoming
             # switch_id can be an alias (e.g. channel_id) used only for matching.
             sid = _ctrl_switch_id(ctrl) or switch_id_raw or getattr(ctrl, "switch_id", None)
@@ -16158,6 +16196,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             ctrl, matched_label = matches[0]
 
+            if getattr(ctrl, "_automation_preparing", False):
+                return JSONResponse(
+                    {"error": "automation_preparing", "message": "Wait for automation baseline preparation to finish."},
+                    status_code=423,
+                )
+
             # Resolve channel index for SWITCH_{n}_OVERRIDE_SCRIPT
             try:
                 switch_mgr = SwitchSettingsManager("switch_settings")
@@ -16223,7 +16267,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     switch_key_full = f"{sid}::{matched_label}" if sid else f"::{matched_label}"
 
                 # 1) Update Advanced rule enabled flag
-                updated = am.set_advanced_enabled_for_switch_key(sid, switch_key_full, desired_rule_enabled)
+                before = am.get_advanced_state_for_switch_key(sid, switch_key_full)
+                stored_rules = (am.load(sid).get("Advanced") or {})
+                rules = {
+                    rid: stored_rules[rid] for rid in before.get("rule_ids", [])
+                    if rid in stored_rules and not stored_rules[rid].get("enabled", True)
+                } if desired_rule_enabled else {}
+                updated = await _activate_automation_rules(
+                    request, am, sid, rules,
+                    lambda: am.set_advanced_enabled_for_switch_key(sid, switch_key_full, desired_rule_enabled),
+                )
                 if not updated:
                     # No matching Advanced rule for this switch_key -> report to client
                     return JSONResponse({"error": "automation_rule_not_found"}, status_code=404)
@@ -16249,6 +16302,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 _switch_status_cache_payload = None
                 _switch_status_cache_until = 0.0
 
+            except AutomationActivationError as e:
+                return JSONResponse({"error": str(e)}, status_code=409)
             except Exception as e:
                 printDM(f"[override_switch] persist failed for '{matched_label}': {e}", location=MODULE)
                 return JSONResponse({"error": "persist_failed"}, status_code=500)
