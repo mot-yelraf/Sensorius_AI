@@ -14586,7 +14586,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     try:
                         c = normalize_condition_inputs(c)
                     except (ValueError, TypeError) as exc:
-                        return error_response(str(exc), status_code=400)
+                        printDM(f"Invalid automation sensor condition: {exc}", location=MODULE)
+                        return error_response("Invalid sensor condition. Check the value, hysteresis, and units.", status_code=400)
 
                 # normalize days-of-week for time-of-day conditions (0–6 = Mon–Sun)
                 raw_days = c.get("days") or []
@@ -14659,7 +14660,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         try:
                             target = normalize_calendar_datetime(c.get("calendar_local", ""), tz_name)
                         except (ValueError, KeyError, TypeError) as exc:
-                            return error_response(str(exc), status_code=400)
+                            printDM(f"Invalid automation calendar target: {exc}", location=MODULE)
+                            return error_response("Invalid Calendar date/time or timezone.", status_code=400)
                         normalized_condition["calendar_local"] = str(c.get("calendar_local"))
                         normalized_condition["calendar_timezone"] = tz_name
                         normalized_condition["calendar_at"] = target
@@ -14780,7 +14782,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             printDM(f"[{MODULE}] Parsed Advanced script: {compact_script}", location=MODULE)
         except Exception as e:
             if '"value_unit"' in script_json_raw or '"hyst_unit"' in script_json_raw:
-                return error_response(f"Invalid unit-aware automation: {e}", status_code=400)
+                printDM(f"Invalid unit-aware automation: {e}", location=MODULE)
+                return error_response("Invalid unit-aware automation. Check the condition values and units.", status_code=400)
             printDM(f"[{MODULE}] Advanced script JSON parse failed; storing raw. Error: {e}", location=MODULE)
 
         # ---------- verify/adjust channel against settings ----------

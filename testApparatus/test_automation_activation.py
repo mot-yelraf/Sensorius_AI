@@ -329,3 +329,39 @@ async def test_prepared_timer_applies_and_restores_opposite_baseline(tmp_path, m
     monkeypatch.setattr(switch_module.time, "localtime", lambda: time.struct_time((2026, 10, 18, 12, 15, 1, 6, 291, -1)))
     ctrl._evaluate_and_apply_advanced({})
     assert commands == [not desired, desired, not desired]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["sensor", "calendar", "unit_parse"])
+@pytest.mark.parametrize("form", [False, True])
+async def test_validation_errors_do_not_expose_exception_text(tmp_path, monkeypatch, kind, form):
+    from httpx import ASGITransport, AsyncClient
+    import sensorius.saiWebRoutes as routes
+    import sensorius.saiCalendarAutomation as calendar
+    from testApparatus.test_nodus_settings_schema_writes import _build_app
+
+    app, *_ = await _build_app(tmp_path, monkeypatch)
+
+    def invalid(*args, **kwargs):
+        raise ValueError("private-validation-internals")
+
+    doc = {"actions": [{"type": "none"}], "conditions": [{"type": kind}]}
+    if kind == "sensor":
+        monkeypatch.setattr(routes, "normalize_condition_inputs", invalid)
+        expected = "Invalid sensor condition. Check the value, hysteresis, and units."
+    elif kind == "calendar":
+        doc["conditions"][0].update(calendar_kind="date_time", calendar_timezone="UTC")
+        monkeypatch.setattr(calendar, "normalize_calendar_datetime", invalid)
+        expected = "Invalid Calendar date/time or timezone."
+    else:
+        doc.update(conditions=5, value_unit="°F")
+        expected = "Invalid unit-aware automation. Check the condition values and units."
+    payload = {"switch_id": "__system__", "rule_id": "invalid", "script_json": json.dumps(doc)}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/submit-advanced-trigger", **({"data": payload} if form else {"json": payload}))
+    assert response.status_code == 400
+    assert "private-validation-internals" not in response.text
+    if form:
+        assert f"<h3>{expected}</h3>" in response.text
+    else:
+        assert response.json()["error"] == expected
