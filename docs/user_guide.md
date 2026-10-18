@@ -54,8 +54,9 @@ interface:
 - Sensorius Graphum uses **+** to expand a sensor or switch selector and **−**
   to collapse it. Collapsing a selector does not clear its checked items.
 
-The **three horizontal bars** beside a Sensor Group or **Switches** heading open its
-**Move up** and **Move down** commands. The Switches row starts below the sensor
+The side-by-side **up/down arrows** beside a Sensor Group or **Switches** heading
+move that row up or down. Available arrows are blue; unavailable directions are
+dimmed and disabled. The Switches row starts below the sensor
 groups and can be moved among them. Row positions are saved in the hub’s system
 settings and restored when the dashboard is reloaded. Expand and collapse controls change only what is
 visible; they do not change sensor settings, switch state, or saved selections.
@@ -342,7 +343,7 @@ select **Save** to apply the sorting choice.
 Use **Move up** and **Move down** in this dialog to arrange dashboard rows,
 including the combined Switches row, or the location-grouped switch cards.
 Manual moves save immediately and select **Keep existing order** for that row
-type. On the dashboard, use the sensor or Switches heading's reorder menu for
+type. On the dashboard, use the sensor or Switches heading's **up/down arrows** for
 vertical rows, or the **left/right arrows** in a switch tile's title for switch
 cards. Available arrows are blue; unavailable directions are dimmed and disabled.
 

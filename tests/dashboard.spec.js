@@ -88,6 +88,7 @@ test('keeps the header image above sensors after moving the bottom sensor up', a
       element.setAttribute('data-sensor-id', 'ecowitt-bottom-test');
     });
     dashboardContent.appendChild(ecowitt);
+    window.updateSensorOrderButtons();
   });
 
   let reordered = false;
@@ -105,7 +106,6 @@ test('keeps the header image above sensors after moving the bottom sensor up', a
   });
 
   const ecowitt = page.locator(".sensor-group[data-sensor-id='ecowitt-bottom-test']");
-  await ecowitt.locator('.sensor-order-btn').click();
   await ecowitt.locator(".sensor-order-item[data-move='up']").click();
   await expect.poll(() => reordered).toBe(true);
   const image = page.locator('#sensor_header .dashboard-brand-image');
@@ -458,7 +458,7 @@ test('forecast synopsis stays readable without enlarging the dashboard tile', as
 });
 
 
-test('moves the Switches row with the heading menu and restores saved order', async ({ page }) => {
+test('moves the Switches row with the heading arrows and restores saved order', async ({ page }) => {
   await page.goto('/?switches=true', { waitUntil: 'domcontentloaded' });
   const rows = page.locator('.sensor-group[data-dashboard-row-id]');
   const switchRow = page.locator('#group_switches');
@@ -471,13 +471,9 @@ test('moves the Switches row with the heading menu and restores saved order', as
       ? ['__switches__', 'aht-pr-check'] : ['aht-pr-check', '__switches__'];
     await route.fulfill({ json: { moved: true, order } });
   });
-  await switchRow.getByRole('button', { name: 'Reorder Switches row', exact: true }).click();
-  await expect(switchRow.locator('.sensor-order-btn')).toHaveAttribute('aria-expanded', 'true');
-  await switchRow.getByRole('button', { name: 'Move up', exact: true }).click();
+  await switchRow.getByRole('button', { name: 'Move Switches row up', exact: true }).click();
   await expect(rows.first()).toHaveAttribute('id', 'group_switches');
-  await expect(switchRow.locator('.sensor-order-btn')).toHaveAttribute('aria-expanded', 'false');
-  await switchRow.locator('.sensor-order-btn').click();
-  await switchRow.getByRole('button', { name: 'Move down', exact: true }).click();
+  await switchRow.getByRole('button', { name: 'Move Switches row down', exact: true }).click();
   await expect(rows.last()).toHaveAttribute('id', 'group_switches');
   await page.goto('/?switches=true&switches_first=true', { waitUntil: 'domcontentloaded' });
   await expect(rows.first()).toHaveAttribute('id', 'group_switches');

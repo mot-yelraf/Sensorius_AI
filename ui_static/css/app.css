@@ -499,84 +499,43 @@ body.dashboard-page #sensor_header{
 }
 
 .sensor-order-wrap{
-  position:relative;
   display:flex;
   align-items:center;
-}
-
-.sensor-order-btn{
-  width:32px;
-  height:32px;
-  border:0;
-  border-radius:8px;
-  background:transparent;
-  color:#334155;
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  cursor:pointer;
-  padding:0;
-  outline:none;
-  box-shadow:none;
-}
-
-.sensor-order-btn:hover,
-.sensor-order-wrap.open .sensor-order-btn{
-  background:#eef4ff;
-}
-
-.sensor-order-btn:focus,
-.sensor-order-btn:focus-visible{
-  outline:none;
-  box-shadow:none;
-}
-
-.sensor-order-bars{
-  display:inline-flex;
-  flex-direction:column;
-  gap:3px;
-}
-
-.sensor-order-bars span{
-  display:block;
-  width:14px;
-  height:2px;
-  border-radius:999px;
-  background:currentColor;
-}
-
-.sensor-order-menu{
-  position:absolute;
-  top:calc(100% + 6px);
-  right:0;
-  display:none;
-  flex-direction:column;
-  min-width:120px;
-  padding:6px;
-  border:1px solid #cbd5e1;
-  border-radius:10px;
-  background:#fff;
-  box-shadow:0 10px 24px rgba(15, 23, 42, 0.16);
-  z-index:25;
-}
-
-.sensor-order-wrap.open .sensor-order-menu{
-  display:flex;
+  gap:0;
 }
 
 .sensor-order-item{
+  flex:0 0 17px;
+  width:17px;
+  height:32px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:0;
   border:0;
+  border-radius:4px;
   background:transparent;
-  color:#111827;
-  padding:.45rem .55rem;
-  border-radius:8px;
-  text-align:left;
+  color:#2259f2;
+  font-size:1.5rem;
+  font-weight:bold;
+  line-height:1;
   cursor:pointer;
-  font:inherit;
 }
 
-.sensor-order-item:hover{
-  background:#eef4ff;
+.sensor-order-item:enabled:hover{
+  color:#103ab7;
+  background:rgba(34,89,242,.1);
+}
+
+.sensor-order-item:focus-visible{
+  outline:2px solid currentColor;
+  outline-offset:2px;
+}
+
+.sensor-order-item:disabled{
+  color:var(--dashboard-card-text);
+  opacity:.25;
+  cursor:default;
 }
 
 /* Metric card */
