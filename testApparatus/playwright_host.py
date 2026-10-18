@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from fastapi.templating import Jinja2Templates  # noqa: E402
 
 from sensorius.saiHtml import get_gauge_config, render_dashboard  # noqa: E402
+from sensorius.saiDisplayUnits import apply_display_units_to_gauge_config  # noqa: E402
 
 
 app = FastAPI()
@@ -61,7 +62,7 @@ async def switch_updates(websocket: WebSocket) -> None:
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(battery: str = "", station: str = "", documentation: bool = False, switches: bool = False, switches_first: bool = False) -> HTMLResponse:
+def dashboard(battery: str = "", station: str = "", documentation: bool = False, switches: bool = False, switches_first: bool = False, soil: bool = False, legacy: bool = False, unit_system: str = "Imperial") -> HTMLResponse:
     """Render a deterministic dashboard with enough metrics to test interaction."""
     sensor_id = station or ("ecowitt-pr-check" if battery else "aht-pr-check")
     metrics = {
@@ -76,6 +77,15 @@ def dashboard(battery: str = "", station: str = "", documentation: bool = False,
     }
     if documentation:
         sensor_id = "avpd-demo02"
+    if soil:
+        sensor_id = "soil-pr-check"
+        metrics = {"Soil Temperature": 14.8, "Soil Moisture": 49.0}
+    selected_metrics = ["Soil Temp_C", "Soil Moisture"] if soil else list(metrics)
+    if legacy:
+        sensor_id = "legacy-pr-check"
+        metrics = {name: 20.0 for name in ("Temperature", "Dew Point", "Plant Temperature", "Plant Dew Point", "Soil Temperature")}
+        metrics.update({"Soil Moisture Deficit": 12, "Soil Stress Index": 30, "Baro-Pressure": 1013.2})
+        selected_metrics = ["Temperature_F", "Dew Point_F", "Plant Temperature_F", "Plant Dew Point_F", "Soil-Temp_F", "SMD", "SSI", "Bar-Pressure"]
     available = ["lux-demo01", sensor_id] if documentation else [sensor_id]
     values = {sid: dict(metrics) for sid in available}
     controllers = {
@@ -109,8 +119,8 @@ def dashboard(battery: str = "", station: str = "", documentation: bool = False,
             sensor_locations={"lux-demo01": "Garden Beds", "avpd-demo02": "Greenhouse"} if documentation else None,
             dashboard_row_order=["__switches__", sensor_id] if switches_first else None,
             battery_statuses={sensor_id: battery} if battery or station else {},
-            gauge_config=get_gauge_config(),
-            expected_gauge_map={sid: list(metrics) for sid in available},
+            gauge_config=apply_display_units_to_gauge_config(get_gauge_config(), unit_system) if soil or legacy else get_gauge_config(),
+            expected_gauge_map={sid: selected_metrics for sid in available},
             expected_display_style_map={sensor_id: {}},
             display_style="Gauge",
             dashboard_background_theme="fruit" if documentation else "leaf",

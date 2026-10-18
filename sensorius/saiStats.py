@@ -249,7 +249,8 @@ class saiStats:
                             PARTITION BY metric
                             ORDER BY value DESC, ts DESC, timestamp DESC
                         ) AS rn_max,
-                        AVG(value) OVER (PARTITION BY metric) AS avg_value
+                        AVG(value) OVER (PARTITION BY metric) AS avg_value,
+                        COUNT(*) OVER (PARTITION BY metric) AS sample_count
                     FROM filtered
                 )
                 SELECT
@@ -258,19 +259,21 @@ class saiStats:
                     MAX(CASE WHEN rn_min = 1 THEN timestamp END) AS min_ts,
                     MAX(avg_value) AS avg_val,
                     MAX(CASE WHEN rn_max = 1 THEN value END) AS max_val,
-                    MAX(CASE WHEN rn_max = 1 THEN timestamp END) AS max_ts
+                    MAX(CASE WHEN rn_max = 1 THEN timestamp END) AS max_ts,
+                    MAX(sample_count) AS sample_count
                 FROM ranked
                 GROUP BY metric
                 """,
                 (sensor_id, float(start_epoch), float(end_epoch)),
             )
-            for metric, min_val, min_ts, avg_val, max_val, max_ts in cursor.fetchall():
+            for metric, min_val, min_ts, avg_val, max_val, max_ts, sample_count in cursor.fetchall():
                 results[metric] = {
                     "min": min_val,
                     "min_ts": min_ts,
                     "avg": avg_val,
                     "max": max_val,
                     "max_ts": max_ts,
+                    "samples": sample_count,
                 }
             self._apply_circular_direction_averages(
                 conn,
@@ -342,7 +345,8 @@ class saiStats:
                         metric,
                         MIN(value) AS min_val,
                         AVG(value) AS avg_val,
-                        MAX(value) AS max_val
+                        MAX(value) AS max_val,
+                        COUNT(*) AS sample_count
                     FROM filtered
                     GROUP BY sensor_id, metric
                 )
@@ -369,12 +373,13 @@ class saiStats:
                           AND max_row.value = aggregates.max_val
                         ORDER BY max_row.ts DESC, max_row.timestamp DESC
                         LIMIT 1
-                    ) AS max_ts
+                    ) AS max_ts,
+                    sample_count
                 FROM aggregates
                 """,
                 (since_epoch,),
             )
-            for sensor_id, metric, min_val, min_ts, avg_val, max_val, max_ts in cursor.fetchall():
+            for sensor_id, metric, min_val, min_ts, avg_val, max_val, max_ts, sample_count in cursor.fetchall():
                 sensor_stats = results.setdefault(sensor_id, {})
                 sensor_stats[metric] = {
                     "min": min_val,
@@ -382,6 +387,7 @@ class saiStats:
                     "avg": avg_val,
                     "max": max_val,
                     "max_ts": max_ts,
+                    "samples": sample_count,
                 }
             for sensor_id, sensor_stats in results.items():
                 self._apply_circular_direction_averages(

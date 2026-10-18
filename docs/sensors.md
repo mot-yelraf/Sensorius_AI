@@ -140,12 +140,25 @@ such as `Temperature_F`, `Dew Point_F`, and their plant variants remain
 accepted so existing devices, history, display selections, and automations
 continue to work.
 
+Current Nodus `Soil Temperature` and legacy `Soil Temp_C` both contain Celsius
+readings. The dashboard resolves saved `Soil Temp_C` selections to `Soil Temperature`
+and graphs and card statistics include history under either name. The selected
+Imperial or Metric display units apply to both. Saved Fahrenheit selections
+(`Temperature_F`, `Dew Point_F`, their plant variants, `Soil Temp_F`,
+`Wind Chill_F`, and `Heat Index_F`) also
+read equivalent current Celsius measurements. Conversely, current selections
+can read older Fahrenheit packets. Graphs and card statistics convert mixed
+history into the selected metric's native unit before display conversion;
+temperature trend rates use scaling without the absolute-temperature offset.
+Stored telemetry, MQTT payloads, automation identities and thresholds remain
+unchanged. Distinct station channel metrics remain separate.
+
 Soil metrics:
 
 - `Soil Moisture` - corrected volumetric moisture percent.
 - `Soil Moisture Deficit` - soil moisture deficit percent.
 - `Soil Stress Index` - soil stress index percent.
-- `Soil Temp_C` - degrees C.
+- `Soil Temperature` (legacy `Soil Temp_C` or `Soil-Temp`) - degrees C.
 - `Soil pH` - pH.
 - `Soil EC` - mS/cm.
 - `Soil Nitrogen`, `Soil Phosphorus`, and `Soil Potassium` - mg/kg readings

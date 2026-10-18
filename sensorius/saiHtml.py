@@ -7,12 +7,14 @@ presentation utilities reused by routes and templates.
 """
 import os
 import re
+from copy import deepcopy
 from .saiUtils import printDM, debug_enabled, html_escape, normalize_hostname_base, mdns_hostname
 from .saiBiodynamics import get_biodynamic_payload, get_skyfield_runtime_if_installed
 from .sensor_modules.station_weewx import DEFAULT_SENSOR_ID as WEEWX_DEFAULT_SENSOR_ID, WEEWX_GAUGE_CONFIG
 from .sensor_modules.station_ecowitt import ECOWITT_GAUGE_CONFIG, ecowitt_gauge_config_for_metric
 from .saiRainClimate import style_rain_gauges
 from .saiDisplayUnits import convert_display_value
+from .saiMetricNames import METRIC_FAMILIES, native_metric_name, normalize_metric_keys, normalize_metric_stats
 from collections import defaultdict
 from pathlib import Path
 from . import __version__ as APP_VERSION
@@ -81,6 +83,7 @@ def canonicalize_metric_name(metric: str, gauge_config: dict | None = None) -> s
     if not name:
         return ""
 
+    name = native_metric_name(name)
     cfg = gauge_config or get_gauge_config()
     if name in cfg:
         return name
@@ -101,7 +104,7 @@ def canonicalize_metric_name(metric: str, gauge_config: dict | None = None) -> s
     target = _norm(name)
     for key in cfg.keys():
         if _norm(key) == target:
-            return key
+            return native_metric_name(key)
 
     return name
 
@@ -151,8 +154,15 @@ def get_gauge_config():
         "Estimated PPFD": {"unit": "µmol·m⁻²·s⁻¹", "min": 0, "max": 2000, "ticks": [0, 400, 800, 1200, 1600, 2000], "zones": [{"strokeStyle": "#ffff00", "min": 0, "max": 2000}]},
         "Visible Light Intensity": {"unit": "mol·m⁻²·day⁻¹", "min": 0, "max": 70, "ticks": [0, 10, 20, 30, 40, 50, 60, 70], "zones": [{"strokeStyle": "#ffff00", "min": 0, "max": 70}]},
     }
+    gauge_config["Soil Temperature"] = deepcopy(gauge_config["Soil Temp_C"])
     gauge_config.update(WEEWX_GAUGE_CONFIG)
     gauge_config.update(ECOWITT_GAUGE_CONFIG)
+    # Full-screen graph selectors retain the native names stored in history.
+    for family in METRIC_FAMILIES:
+        for name in family:
+            native = native_metric_name(name)
+            if name not in gauge_config and native in gauge_config:
+                gauge_config[name] = deepcopy(gauge_config[native])
     return style_rain_gauges(gauge_config)
 
 
@@ -203,6 +213,10 @@ def normalize_dashboard_metric_set(value: object) -> str:
 
 def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6", dashboard_custom_theme_style="", pressure_altitude=None, pressure_sensor_context=None, battery_statuses=None, dashboard_row_order=None, switch_row_order="location_device", switch_card_order=None):
     """Yield the complete Sensorius dashboard HTML document."""
+
+    requested = expected_gauge_map if expected_gauge_map is not None else getattr(mqtt_ingest, "expected_gauge_map", {})
+    all_values = {sid: normalize_metric_keys(metrics, requested.get(sid, ())) for sid, metrics in all_values.items()}
+    all_stats = {sid: normalize_metric_stats(metrics, requested.get(sid, ())) for sid, metrics in all_stats.items()}
 
     import json
     import os
