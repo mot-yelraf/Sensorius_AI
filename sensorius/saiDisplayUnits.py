@@ -11,6 +11,7 @@ import copy
 import math
 import re
 from typing import Any
+from .saiMetricNames import native_metric_name
 
 
 DISPLAY_UNIT_SYSTEMS = ("Imperial", "Metric")
@@ -28,7 +29,7 @@ def _normalized_unit(value: object) -> str:
 
 
 def _temperature_is_delta(metric_name: object) -> bool:
-    text = re.sub(r"[^a-z0-9]+", " ", str(metric_name or "").lower())
+    text = re.sub(r"[^a-z0-9]+", " ", str(native_metric_name(metric_name) or "").lower())
     return " deficit " in f" {text} " or " delta " in f" {text} " or "difference" in text
 
 

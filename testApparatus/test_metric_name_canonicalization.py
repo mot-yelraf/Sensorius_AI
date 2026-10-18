@@ -29,3 +29,11 @@ def test_canonicalize_dewpoint_aliases():
     cfg = get_gauge_config()
     assert canonicalize_metric_name("Dewpoint Deficit", cfg) == "Dew Point Deficit"
     assert canonicalize_metric_name("dewVPD Risk", cfg) == "DewVPD Risk"
+
+
+def test_soil_temperature_aliases_keep_fahrenheit_distinct():
+    cfg = get_gauge_config()
+    assert canonicalize_metric_name("Soil Temp_C", cfg) == "Soil Temperature"
+    assert canonicalize_metric_name("soil temperature", cfg) == "Soil Temperature"
+    assert canonicalize_metric_name("soil-temp_c", cfg) == "Soil Temperature"
+    assert canonicalize_metric_name("Soil Temp_F", cfg) == "Soil Temp_F"

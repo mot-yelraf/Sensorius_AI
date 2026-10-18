@@ -28,6 +28,22 @@ def test_downsample_graph_points_leaves_short_series_unchanged():
     assert _downsample_graph_points(timestamps, values) == (timestamps, values)
 
 
+def test_soil_graph_resolves_saved_legacy_selection_and_merges_history(tmp_path, monkeypatch):
+    from sensorius.saiDataLogger import saiDataLogger
+    from sensorius.saiGraphData import fetch_graph_series
+    monkeypatch.setenv("SENSORIUS_DB_RETENTION_DAYS", "0")
+    with saiDataLogger(str(tmp_path / "soil.db")) as logger:
+        logger.log_readings("2026-10-18T00:00:00+00:00", "soil", {"Soil Temp_C": 10})
+        logger.log_readings("2026-10-18T00:01:00+00:00", "soil", {"Soil Temperature": 14.8})
+        logger.log_readings("2026-10-18T00:02:00+00:00", "soil", {"Soil Temp_F": 60})
+        for name in ("Soil Temp_C", "Soil Temperature"):
+            ts, values = fetch_graph_series(logger._writer_conn, "soil", name,
+                "2026-10-18T00:00:00+00:00", "2026-10-18T00:03:00+00:00")
+            assert len(ts) == 3
+            assert values == [10, 14.8, (60 - 32) * 5 / 9]
+        assert set(logger.get_available_metrics("soil")) == {"Soil Temp_C", "Soil Temperature", "Soil Temp_F"}
+
+
 
 def test_streaming_samples_match_existing_bucket_semantics():
     import random

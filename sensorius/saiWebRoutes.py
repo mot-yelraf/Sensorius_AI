@@ -3576,6 +3576,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 - phase_ms.get("timestamps", 0.0)
             )
 
+            from .saiMetricNames import normalize_metric_keys, normalize_metric_stats
+            all_values = {sid: normalize_metric_keys(metrics, expected_gauge_map.get(sid, ())) for sid, metrics in all_values.items()}
+            all_stats = {sid: normalize_metric_stats(metrics, expected_gauge_map.get(sid, ())) for sid, metrics in all_stats.items()}
             payload: dict[str, object] = {
                 "available": available,
                 "dashboard_row_order": _effective_dashboard_row_order(available + ["__switches__"], sensor_locations),
