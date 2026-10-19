@@ -15,11 +15,12 @@ Sensorius can also run on macOS, Windows, or Linux as a hub for Wi-Fi Nodus sens
 
 The dashboard is the main operating view. It is where you check current conditions, see switch state, open settings, and review quick trends.
 
-![Samhain dashboard using the selected Fruit theme](<../assets/screenshots/dashboard-overview.png>)
+![Samhain dashboard with live metric graphs and gauges using the selected Fruit theme](<../assets/screenshots/dashboard-overview.png>)
 <!-- pdf-keep-together:end -->
 
-The dashboard example was captured from the **Samhain** Sensorius installation
-with its saved **Fruit** dashboard theme selected. Settings screenshots use
+The dashboard example was captured from the running **Samhain** Sensorius
+installation with live metric graphs and gauges and its saved **Fruit**
+dashboard theme selected. Settings screenshots use
 example devices and locations with the same warm peach-and-brown palette. Sensor
 names, locations, metrics, switch channels, forecast source, selected theme,
 and live values will vary by installation.
@@ -1492,7 +1493,7 @@ Integrated calendar fields and controls:
 
 - **Location**: comes from the Astral and Time sections in Sensorius General Settings. Change it there to invalidate and rebuild calendar data.
 - **Previous / Next month arrows**: move the main month calendar.
-- **Calendar day cells**: select a day. The selected day drives the Daily Summary, selected facts, notes, and planting context.
+- **Calendar day cells**: taller cells show centered botanical icons matching the standalone Biodynamic Calendar: garlic for Root, kale for Leaf, sunflower for Flower, grapes for Fruit, and sleeping Zs for Rest. Select a day. The selected day drives the Daily Summary, selected facts, notes, and planting context.
 - **Twelve-Month Overview**: shows a longer planning range assembled from the shared background cache.
 - **Daily Summary**: explains the selected day, including biodynamic focus and relevant timing.
 - **Plantings**:

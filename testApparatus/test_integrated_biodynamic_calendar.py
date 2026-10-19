@@ -185,7 +185,7 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     assert "border-radius: 50%;" in stylesheet
     assert '<footer class="bd-site-footer">' not in template
     assert "Created by Peace Hill Studios" in template
-    assert "Created by Peace Hill Studios</textPath>" in calendar_icon
+    assert "Created by Peace Hill Studios.</desc>" in calendar_icon
     assert "body {\n  min-height: 100vh;\n  margin: 0;\n  font-family:" in stylesheet
     for theme, color, asset in (
         ("spring", "#e7f3df", "valley-spring.webp"),
@@ -230,14 +230,14 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
     assert '<h2 id="cosmicAttributesTitle">Moon Attributes</h2>' in template
     assert '<h2 id="planetaryAspectsTitle">Planetary Aspects</h2>' in template
     assert 'class="hero-calendar-mark"' in template
-    assert '/ui_static/biodynamic_calendar/bd-calendar-icon-512.svg' in template
+    assert '/ui_static/biodynamic_calendar/bd-calendar-icon-512.png' in template
     assert "--top-middle-col: 214px;" in stylesheet
     assert "grid-template-columns: var(--top-left-col) var(--top-middle-col) var(--top-right-col);" in stylesheet
     assert "border-radius: 50%;" in stylesheet
     assert "object-fit: contain;" in stylesheet
     assert "transform: scale(1.24);" not in stylesheet
-    assert 'viewBox="61 61 390 390"' in calendar_icon
-    assert '<circle cx="256" cy="256" r="182" fill="none" stroke="#173f35" stroke-width="26"/>' in calendar_icon
+    assert 'viewBox="0 0 1254 1254"' in calendar_icon
+    assert (root / "ui_static/biodynamic_calendar/bd-calendar-icon-512.png").read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
     for plant_part in ("root", "leaf", "flower", "fruit", "rest"):
         assert f'id="legend-icon-{plant_part}"' in template
         assert template.count(f'href="#legend-icon-{plant_part}"') == 2
@@ -393,7 +393,7 @@ async def test_integrated_calendar_page_and_month_api_render(monkeypatch):
     assert '<body class="sensorius-launch biodynamic-theme-winter"' in page.text
     assert 'data-theme-preference="winter"' in page.text
     assert '<span class="dashboard-close-icon" aria-hidden="true">&times;</span>' in page.text
-    assert '/ui_static/biodynamic_calendar/bd-calendar-icon-512.svg' in page.text
+    assert '/ui_static/biodynamic_calendar/bd-calendar-icon-512.png' in page.text
     assert "Back to Sensorius" not in page.text
     assert "/ui_static/biodynamic_calendar/app.js" in page.text
     assert payload.status_code == 200
