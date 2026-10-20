@@ -1105,10 +1105,15 @@ Advanced settings affect startup, logging, and stored data. Change them only whe
 
 #### Database
 
-- **Maximum Days of Data (30-365)**: database retention window. Valid range is 30 to 365 days. This affects how much history graphs can show.
-- **Archive Database**: creates a SQLite database snapshot under `database_archives/` next to the active database and downloads the snapshot.
+The top row contains Archive, Restore, Renew, and the day selector, with their
+top edges aligned. The retention label appears below the selector, and Save is
+at the bottom right. On narrow screens, these controls stack in the same order.
+
+- **Archive Database**: creates a consistent SQLite snapshot next to the active database (for example, `/home/<user>/Sensorius/database_archives/` when the database is in `/home/<user>/Sensorius/`) and downloads the `.sqlite3` file to the computer running the browser. The browser's download settings determine where the file is saved. This archive contains database data; it does not include TOML settings.
+- **Restore Database**: currently disabled; restoring an archive through the web UI is not yet available.
 - **Renew Database**: archives the current SQLite database, deletes the active database files, and creates a new empty database. This is an intentionally drastic recovery action.
-- **Save**: writes only the Database section.
+- **Maximum Days of Data (30-365)**: database retention window, shown in the rightmost column. Valid range is 30 to 365 days. This affects how much history graphs can show.
+- **Save**: saves the Database retention setting. Archive and Renew run separately from Save.
 
 #### Debug
 
