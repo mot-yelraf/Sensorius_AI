@@ -520,6 +520,9 @@
 #setupPiModal .adv-center {
   align-items: center;
 }
+#setupPiModal #adv-section-database .advanced-section-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
 #setupPiModal .adv-center input[type="checkbox"] {
   width: auto;
 }
@@ -529,6 +532,13 @@
 }
 #setupPiModal .adv-action-cell .button {
   width: 100%;
+}
+#setupPiModal #adv-section-database .adv-action-cell {
+  min-height: 0;
+  justify-content: flex-start;
+}
+#setupPiModal #adv-section-database .adv-action-cell .button {
+  margin-top: 0;
 }
 #setupPiModal .adv-log-path {
   margin-top: .42rem;
@@ -964,6 +974,9 @@
   #setupPiModal .advanced-section-grid {
     grid-template-columns: 1fr;
     max-width: 100%;
+  }
+  #setupPiModal #adv-section-database .advanced-section-grid {
+    grid-template-columns: 1fr;
   }
   #setupPiModal .email-grid-two,
   #setupPiModal .email-port-security-grid,
@@ -1824,17 +1837,20 @@
               <details class="advanced-section" id="adv-section-database" data-runtime-section="advanced-database">
                 <summary>Database</summary>
                 <div class="advanced-section-content advanced-section-grid">
-                  <div class="field-stack">
-                    <label for="adv-db-retention">Maximum Days of Data (30-365)</label>
-                    <input type="number" id="adv-db-retention" min="30" max="365" step="1" value="90">
-                  </div>
-
                   <div class="field-stack adv-action-cell">
                     <button type="button" class="button neutral" id="btn-archive-db">Archive Database</button>
                   </div>
 
                   <div class="field-stack adv-action-cell">
+                    <button type="button" class="button neutral" id="btn-restore-db" disabled title="Database restore is not available yet.">Restore Database</button>
+                  </div>
+
+                  <div class="field-stack adv-action-cell">
                     <button type="button" class="button red" id="btn-renew-db">Renew Database</button>
+                  </div>
+                  <div class="field-stack">
+                    <input type="number" id="adv-db-retention" min="30" max="365" step="1" value="90">
+                    <label for="adv-db-retention">Maximum Days of Data (30-365)</label>
                   </div>
                   <div class="pane-footer section-action-footer">
                     <button type="button" class="button blue btn-advanced-save">Save</button>
