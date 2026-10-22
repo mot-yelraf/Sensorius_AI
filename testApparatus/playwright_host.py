@@ -226,7 +226,7 @@ def weather_alerts():
 
 
 @app.get("/weather-forecast", response_class=HTMLResponse)
-def weather_forecast(request: Request, units: str = "Metric", native: bool = False, battery: str = ""):
+def weather_forecast(request: Request, units: str = "Metric", native: bool = False, battery: str = "", station: str = "ecowitt-pr-check"):
     """Render the real Caelus page with a complete, deterministic six-day outlook."""
     from sensorius.saiWeatherForecastApp import build_weather_display_forecast
 
@@ -253,7 +253,7 @@ def weather_forecast(request: Request, units: str = "Metric", native: bool = Fal
     return templates.TemplateResponse(request, "weather_forecast/index.html", {
         "settings": {"theme": "pollinator", "theme_class": "pollinator"},
         "location": {"name": "Greenhouse", "latitude": 39.7, "longitude": -104.9},
-        "latest": {"is_ecowitt": True, "battery_status": battery if battery in {"OK", "LOW"} else "UNKNOWN", "sensor_id": "ecowitt-pr-check", "location": "Weather Station", "ok": True} if battery else {}, "moon": {"updated_at": start.isoformat()},
+        "latest": {"is_ecowitt": station.startswith("ecowitt-"), "is_weewx": station in {"weewx-station", "custom-weather-station"}, "battery_status": battery if battery in {"OK", "LOW"} else "UNKNOWN", "sensor_id": station, "location": "Weather Station", "ok": True} if battery else {}, "moon": {"updated_at": start.isoformat()},
         "forecast": forecast, "app_version": "playwright",
     })
 

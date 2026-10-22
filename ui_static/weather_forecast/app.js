@@ -177,7 +177,7 @@
     footer.classList.toggle("is-waiting", !payload.ok);
     panel.querySelector("[data-readings-status]").textContent = payload.ok ? "Station reporting" : "Sensor standing by";
     const battery = panel.querySelector('[data-readings-battery]');
-    battery.hidden = !payload.is_ecowitt;
+    battery.hidden = !(payload.is_ecowitt || payload.is_weewx);
     const batteryStatus = ['OK', 'LOW'].includes(payload.battery_status) ? payload.battery_status : 'UNKNOWN';
     const batteryIcon = battery.querySelector('[data-battery-icon]');
     batteryIcon.src = `/ui_static/icons/battery-${batteryStatus.toLowerCase()}.svg`;

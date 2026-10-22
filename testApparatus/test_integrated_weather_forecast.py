@@ -953,3 +953,38 @@ def test_caelus_current_readings_include_only_selected_ecowitt_health():
     settings.values[("WeatherForecast", "CURRENT_SENSOR_ID")] = "aht-local"
     assert service.current_readings()["is_ecowitt"] is False
     assert "battery_status" not in service.current_readings()
+
+
+@pytest.mark.parametrize("sensor_id", ["weewx-station", "weewx-secondary", "custom-weather-station"])
+@pytest.mark.parametrize("values,expected", [
+    ({"Battery Status": 0}, "OK"),
+    ({"Battery Status": 1}, "LOW"),
+    ({"Battery Status": 2}, "UNKNOWN"),
+    ({}, "UNKNOWN"),
+])
+def test_caelus_current_readings_include_selected_weewx_battery(sensor_id, values, expected):
+    from types import SimpleNamespace
+
+    settings = _Settings()
+    settings.values = {
+        ("WeatherForecast", "CURRENT_SENSOR_ID"): sensor_id,
+        ("WeeWX", "SENSOR_ID"): "custom-weather-station",
+    }
+    service = weather_app.WeatherForecastAppService(
+        settings=settings,
+        data_logger=SimpleNamespace(
+            get_latest_values=lambda sid: {"Temperature": 20.0, **values},
+            get_latest_timestamp=lambda sid: "2026-10-22T12:00:00-06:00",
+        ),
+        sensor_settings_manager=SimpleNamespace(
+            get_display_metrics=lambda sid: ["Temperature"],
+            get_setting=lambda *args: "",
+        ),
+    )
+    payload = service.current_readings()
+    assert payload["is_weewx"] is True
+    assert payload["is_ecowitt"] is False
+    assert payload["battery_status"] == expected
+    settings.values[("WeatherForecast", "CURRENT_SENSOR_ID")] = "aht-local"
+    assert service.current_readings()["is_weewx"] is False
+    assert "battery_status" not in service.current_readings()

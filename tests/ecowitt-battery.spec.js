@@ -30,28 +30,32 @@ test('array battery updates beside Online and in Sensor Info', async ({ page }, 
   await page.screenshot({ path: testInfo.outputPath('battery-sensor-info.png') });
 });
 
-for (const width of [1440, 390]) {
-  test(`Caelus battery footer displays all states at ${width}px`, async ({ page }, testInfo) => {
-    await page.setViewportSize({ width, height: 1000 });
-    let payload = {};
-    await page.route('**/api/weather-forecast-app/current-readings', route => route.fulfill({ json: payload }));
-    for (const state of ['OK', 'LOW', 'UNKNOWN']) {
-      payload = { ok: true, is_ecowitt: true, sensor_id: sid, location: 'Weather Station', battery_status: state, display_metrics: [{ name: 'Temperature', value: 9.89, unit: '°C' }] };
-      await page.goto(`/weather-forecast?battery=${state}`);
-      await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-      await expect(page.locator("[data-readings-primary-value]")).toHaveText("9.89");
-      const footer = page.locator('[data-readings-footer]');
-      const battery = footer.locator('[data-readings-battery]');
-      await expect(battery).toBeVisible();
-      await expect(battery.locator('img')).toHaveAttribute('alt', `Battery Status: ${state}`);
-      const bounds = await footer.boundingBox();
-      const icon = await battery.boundingBox();
-      expect(icon.x + icon.width).toBeLessThanOrEqual(bounds.x + bounds.width + 1);
-      expect(await battery.locator('img').evaluate(el => el.complete && el.naturalWidth > 0)).toBe(true);
-      await page.screenshot({ path: testInfo.outputPath(`battery-${state.toLowerCase()}-${width}.png`), fullPage: true });
-    }
-    payload = { ok: true, sensor_id: 'aht-pr-check', display_metrics: [] };
-    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-    await expect(page.locator('[data-readings-battery]')).toBeHidden();
-  });
+for (const station of [sid, 'weewx-station', 'custom-weather-station']) {
+  for (const width of [1440, 390]) {
+    test(`Caelus ${station} battery footer displays all states at ${width}px`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 1000 });
+      let payload = {};
+      await page.route('**/api/weather-forecast-app/current-readings', route => route.fulfill({ json: payload }));
+      for (const state of ['OK', 'LOW', 'UNKNOWN']) {
+        payload = { ok: true, is_ecowitt: station === sid, is_weewx: station !== sid, sensor_id: station, location: 'Weather Station', battery_status: state, display_metrics: [{ name: 'Temperature', value: 9.89, unit: '°C' }] };
+        await page.goto(`/weather-forecast?battery=${state}&station=${station}`);
+        await expect(page.locator('[data-readings-battery]')).toBeVisible();
+        await expect(page.locator('[data-battery-icon]')).toHaveAttribute('alt', `Battery Status: ${state}`);
+        await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+        await expect(page.locator("[data-readings-primary-value]")).toHaveText("9.89");
+        const footer = page.locator('[data-readings-footer]');
+        const battery = footer.locator('[data-readings-battery]');
+        await expect(battery).toBeVisible();
+        await expect(battery.locator('img')).toHaveAttribute('alt', `Battery Status: ${state}`);
+        const bounds = await footer.boundingBox();
+        const icon = await battery.boundingBox();
+        expect(icon.x + icon.width).toBeLessThanOrEqual(bounds.x + bounds.width + 1);
+        expect(await battery.locator('img').evaluate(el => el.complete && el.naturalWidth > 0)).toBe(true);
+        await page.screenshot({ path: testInfo.outputPath(`battery-${state.toLowerCase()}-${width}.png`), fullPage: true });
+      }
+      payload = { ok: true, sensor_id: 'aht-pr-check', display_metrics: [] };
+      await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      await expect(page.locator('[data-readings-battery]')).toBeHidden();
+    });
+  }
 }
