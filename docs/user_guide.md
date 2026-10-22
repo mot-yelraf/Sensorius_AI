@@ -1460,7 +1460,9 @@ in their saved order, including their standard Sensorius units, and identifies
 the source by its configured sensor **Location**. This allows a
 weather station, a Nodus environmental sensor, or a WeeWX station with fewer
 metrics to use the same full-screen view without requiring weather-only metric
-names. While Caelus remains open, Current Readings follows the selected sensor's
+names. For Ecowitt and WeeWX stations, the bottom-right footer shows Battery
+Status using the same OK, low, or unknown indicator as the dashboard.
+While Caelus remains open, Current Readings follows the selected sensor's
 collection interval (normally 60 seconds for Nodus and the configured polling
 interval, 300 seconds by default, for Ecowitt). Today's Forecast refreshes at
 the top of each hour, while Sunlight Today continues to refresh every 300 seconds.

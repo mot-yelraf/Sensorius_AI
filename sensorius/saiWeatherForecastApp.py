@@ -36,7 +36,10 @@ from .saiWeatherForecast import forecast_condition, get_weather_forecast_payload
 from .saiThemeManager import ThemeManager, normalize_theme_selection
 from .saiEcowitt import ecowitt_sensor_health
 from .sensor_modules.station_ecowitt import DEFAULT_POLL_INTERVAL_SEC as ECOWITT_DEFAULT_POLL_INTERVAL_SEC
-from .sensor_modules.station_weewx import DEFAULT_UPDATE_PERIOD_SEC as WEEWX_DEFAULT_UPDATE_PERIOD_SEC
+from .sensor_modules.station_weewx import (
+    DEFAULT_UPDATE_PERIOD_SEC as WEEWX_DEFAULT_UPDATE_PERIOD_SEC,
+    weewx_battery_status,
+)
 
 
 WEATHER_THEMES = {"pollinator", "garden", "island", "river", "desert"}
@@ -595,6 +598,7 @@ class WeatherForecastAppService:
         return payload
 
     def current_readings(self) -> dict[str, Any]:
+        """Return the selected sensor's readings and station battery health."""
         sensor_id = self.integration_settings()["sensor_id"]
         if not sensor_id:
             payload = normalize_current_weather_readings("", {}, "")
@@ -621,8 +625,12 @@ class WeatherForecastAppService:
             self.settings.get_setting("Display", "unit_system", "Imperial"),
         )
         payload["is_ecowitt"] = sensor_id.startswith("ecowitt-")
+        configured_weewx_id = str(self.settings.get_setting("WeeWX", "SENSOR_ID", "weewx-station") or "").strip().lower()
+        payload["is_weewx"] = sensor_id.lower().startswith("weewx") or sensor_id.lower() == configured_weewx_id
         if payload["is_ecowitt"]:
             payload.update(ecowitt_sensor_health(self.data_logger, sensor_id))
+        elif payload["is_weewx"]:
+            payload["battery_status"] = weewx_battery_status(values)
         payload["location"] = sensor_location
         payload["refresh_interval_sec"] = self.current_readings_refresh_interval(sensor_id)
         return payload
