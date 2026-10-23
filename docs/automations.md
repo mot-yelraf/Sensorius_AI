@@ -104,7 +104,7 @@ Time window behavior:
 Timer behavior:
 
 - `duration_min` controls how long a timer window stays active.
-- `duration_min` must be less than the repeat interval.
+- `duration_min` ranges from 1 minute to the repeat interval minus 1 minute; the editor updates the maximum when **Every** changes.
 - Hour-based intervals keep on-the-hour alignment.
 - Minute-based intervals can use `anchor_epoch` so a newly saved rule starts
   from save time.

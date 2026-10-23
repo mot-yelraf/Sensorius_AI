@@ -480,7 +480,6 @@ function addCondition(modal, cond) {
   const timerDurIn   = create("input");
   timerDurIn.type = "number";
   timerDurIn.min  = "1";
-  timerDurIn.max  = "60";
   timerDurIn.step = "1";
   timerDurIn.value = cond?.duration_min ?? 5;
   timerDurIn.classList.add("timer-duration");
@@ -510,6 +509,11 @@ function addCondition(modal, cond) {
   const timerPeriodMin = Number.parseInt(String(cond?.period_min ?? ((cond?.freq_hours || 1) * 60)), 10);
   timerFreqSel.value = String(Number.isFinite(timerPeriodMin) && timerPeriodMin > 0 ? timerPeriodMin : 60);
   timerFreqSel.style.width = "7rem";
+  const updateTimerDurationMax = () => {
+    timerDurIn.max = String(Number.parseInt(timerFreqSel.value, 10) - 1);
+  };
+  timerFreqSel.addEventListener("change", updateTimerDurationMax);
+  updateTimerDurationMax();
 
   timerFreqWrap.append(timerFreqLab, timerFreqSel);
 
@@ -964,7 +968,6 @@ function serializeForm(modal){
 
       let duration = parseInt(durInput?.value || "1", 10);
       if (!Number.isFinite(duration) || duration < 1) duration = 1;
-      if (duration > 60) duration = 60;
 
       let periodMin = parseInt(freqSel?.value || "60", 10);
       if (!Number.isFinite(periodMin) || periodMin <= 0) periodMin = 60;

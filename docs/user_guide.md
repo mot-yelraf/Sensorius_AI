@@ -700,7 +700,7 @@ Condition **Type** options:
 ##### Timer Conditions
 
 - **Every**: repeat interval. Options are 5 minutes, 15 minutes, 30 minutes, 1 hour, 3 hours, 6 hours, 12 hours, and 24 hours.
-- **Duration**: active duration in minutes, from 1 to 60. Duration must be less than the Every interval.
+- **Duration**: active duration in minutes, from 1 to the selected Every interval minus 1 minute.
 
 ##### Calendar Conditions
 
