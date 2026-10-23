@@ -675,7 +675,7 @@ function renderAsTime() {
     group.innerHTML = "";
 
     const row = create("div", "cond timer");
-    row.append(typeWrap, timerFreqWrap, timerDurWrap, rem);
+    row.append(typeWrap, timerDurWrap, timerFreqWrap, rem);
     group.appendChild(row);
   }
 
