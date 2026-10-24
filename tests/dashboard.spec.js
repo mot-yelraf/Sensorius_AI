@@ -250,7 +250,7 @@ test('opens the 29 day Sun/Moon graph from an aligned tile button', async ({ pag
   await expect(graphButton).toHaveText('29 Day Graph');
 
   const chartBox = await page.locator('#sunPathCanvas').boundingBox();
-  expect(chartBox?.height).toBeLessThanOrEqual(72);
+  expect(chartBox?.height).toBeCloseTo(86.4, 1);
 
   const graphButtonBox = await graphButton.boundingBox();
   const lunarButtonBox = await lunarButton.boundingBox();
