@@ -162,8 +162,14 @@
       <section class="details">
         <section class="panel day-inspector">
           <div class="inspector-head">
-            <span class="eyebrow">Selected Day</span>
-          <div id="selectedDate" class="date-label">Select a day</div>
+            <div class="inspector-date">
+              <span class="eyebrow">Selected Day</span>
+              <div id="selectedDate" class="date-label">Select a day</div>
+            </div>
+            <div class="inspector-daylight" aria-live="polite">
+              <div id="selectedSunTimes">Sunrise: -- / Sunset: --</div>
+              <div id="selectedDaylight">Hours of Daylight: --</div>
+            </div>
           </div>
           <details class="inspector-section" data-runtime-section="calendar-summary">
             <summary>Summary</summary>

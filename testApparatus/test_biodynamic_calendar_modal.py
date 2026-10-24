@@ -107,12 +107,12 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert ".astro-box.card-loading .dashboard-card-spinner{display:inline-block;}" in text
     assert "<span class='spinner dashboard-card-spinner' aria-hidden='true'></span>" in text
     assert "<div class='bio-main' id='bioCurrentPanel'>" in text
-    assert "<div class='bio-daylight' id='bioDaylightLine'>Hours of Daylight: --</div>" in text
+    assert "<div class='bio-daylight' id='bioDaylightLine'></div>" in text
     assert "<button type='button' class='bio-open-btn' id='bioOpenBtn' aria-label='Open biodynamic calendar' title='View Calendar'>" in text
     assert "<div class='moon-view-toggle' role='group' aria-label='Moon view mode' title='Local sky view or Reference moon diagram'>" in text
     assert "<button type='button' class='moon-view-btn active' id='moonViewLocal' data-moon-view='local' aria-pressed='true' title='Local sky view or Reference moon diagram'>Local</button>" in text
     assert "<button type='button' class='moon-view-btn' id='moonViewReference' data-moon-view='reference' aria-pressed='false' title='Local sky view or Reference moon diagram'>Ref</button>" in text
-    assert text.index("<div class='astro-title'>Biodynamic Calendar</div>") < text.index("<div class='bio-window' id='bioDateLine'>Loading biodynamic date...</div>") < text.index("<div class='bio-daylight' id='bioDaylightLine'>Hours of Daylight: --</div>") < text.index("<div class='bio-main' id='bioCurrentPanel'>")
+    assert text.index("<div class='astro-title'>Biodynamic Calendar</div>") < text.index("<div class='bio-window' id='bioDateLine'>Loading biodynamic date...</div>") < text.index("<div class='bio-daylight' id='bioDaylightLine'></div>") < text.index("<div class='bio-main' id='bioCurrentPanel'>")
     assert text.index("<div class='astro-box' id='moonBox' aria-live='polite'>") < text.index("<div class='astro-box' id='sunBox' aria-live='polite' role='button'")
     assert "id='moonCalendarBtn' aria-label='Open Lunar Calendar'" in text
     assert "#bioCurrentBadge" not in text
@@ -155,9 +155,7 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "windowEl.textContent = buildBiodynamicWindowText(data, cur.timestamp, cur);" in text
     assert "const daylightEl = document.getElementById('bioDaylightLine');" in text
     assert "const findBiodynamicDay = (payload, currentIso) => {" in text
-    assert "return `${Math.floor(total / 60)} Hrs ${total % 60} Mins`;" in text
-    assert "return `Hours of Daylight: ${label || '--'}`;" in text
-    assert "daylightEl.textContent = buildDaylightText(data, cur.timestamp);" in text
+    assert "daylightEl.textContent = '';" in text
     assert "dateEl.textContent = `Current date: ${fmtIsoDate(cur.timestamp)}`;" not in text
     assert "windowEl.textContent = `Current window: ${fmtIsoHm(cur.window_start)} to ${fmtIsoHm(cur.window_end)}`;" not in text
     assert "function renderBiodynamicPrintView(){" in text
