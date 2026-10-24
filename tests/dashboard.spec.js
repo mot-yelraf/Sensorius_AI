@@ -16,6 +16,10 @@ function successfulBiodynamicMonth(monthKey = '2026-09') {
       weekday: current.toLocaleString('en-US', { weekday: 'short', timeZone: 'UTC' }),
       in_month: current.getUTCMonth() === month - 1,
       is_today: day === `${monthKey}-15`,
+      sunrise: current.getUTCDate() === 17 ? '' : (current.getUTCDate() === 16 ? '06:46' : '06:45'),
+      sunset: current.getUTCDate() === 17 ? '' : (current.getUTCDate() === 16 ? '19:08' : '19:10'),
+      daylight_minutes: current.getUTCDate() === 17 ? null : (current.getUTCDate() === 16 ? 742 : 745),
+      daylight_label: current.getUTCDate() === 15 ? '12 Hrs 25 Mins' : '',
       dominant_sign: 'Taurus',
       dominant_sign_abbr: 'Tau',
       dominant_element: 'Earth',
@@ -300,6 +304,24 @@ test('renders the integrated Biodynamic Calendar and exercises its user workflow
   await expect(page.locator('#monthLabel')).toHaveText('September 2026');
   await page.locator('#calendar [data-date="2026-09-15"]').click();
   await expect(page.locator('#dailySummary')).toContainText('tend roots');
+  await expect(page.locator('#selectedSunTimes')).toHaveText('Sunrise: 6:45 AM / Sunset: 7:10 PM');
+  await expect(page.locator('#selectedDaylight')).toHaveText('Hours of Daylight: 12 Hrs 25 Mins');
+  await page.locator('#calendar [data-date="2026-09-16"]').click();
+  await expect(page.locator('#selectedSunTimes')).toHaveText('Sunrise: 6:46 AM / Sunset: 7:08 PM');
+  await expect(page.locator('#selectedDaylight')).toHaveText('Hours of Daylight: 12 Hrs 22 Mins');
+  await page.locator('#calendar [data-date="2026-09-17"]').click();
+  await expect(page.locator('#selectedSunTimes')).toHaveText('Sunrise: -- / Sunset: --');
+  await expect(page.locator('#selectedDaylight')).toHaveText('Hours of Daylight: --');
+  await page.locator('#calendar [data-date="2026-09-15"]').click();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    const dateBox = await page.locator('.inspector-date').boundingBox();
+    const daylightBox = await page.locator('.inspector-daylight').boundingBox();
+    expect(daylightBox.x).toBeGreaterThanOrEqual(dateBox.x + dateBox.width);
+    expect(daylightBox.x + daylightBox.width).toBeLessThanOrEqual(width);
+    await page.locator('.inspector-head').screenshot({ path: test.info().outputPath(`selected-day-${width}.png`) });
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
 
   await page.locator('.inspector-section').filter({ hasText: 'Note' }).locator(':scope > summary').click();
   await page.locator('#noteInput').fill('Watered the root bed.');

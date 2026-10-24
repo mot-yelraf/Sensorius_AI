@@ -1114,6 +1114,12 @@ async function selectDay(dayIso, options = {}) {
     el.classList.toggle("selected", el.dataset.date === dayIso);
   });
   document.getElementById("selectedDate").textContent = day ? new Date(`${day.date}T00:00:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "Select a day";
+  document.getElementById("selectedSunTimes").textContent = `Sunrise: ${formatTime(day?.sunrise)} / Sunset: ${formatTime(day?.sunset)}`;
+  const daylightMinutes = day?.daylight_minutes;
+  const daylightLabel = String(day?.daylight_label || "").trim()
+    || (Number.isFinite(daylightMinutes) && daylightMinutes >= 0
+      ? `${Math.floor(daylightMinutes / 60)} Hrs ${Math.floor(daylightMinutes % 60)} Mins` : "--");
+  document.getElementById("selectedDaylight").textContent = `Hours of Daylight: ${daylightLabel}`;
   document.getElementById("selectedMeta").textContent = day ? `${day.dominant_sign || "--"} / ${day.dominant_plant_part || "--"}` : "";
   renderSelectedFacts(day);
   const noteInput = document.getElementById("noteInput");

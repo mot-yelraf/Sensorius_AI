@@ -95,7 +95,7 @@ Dashboard data comes from the latest values in the live runtime cache and from t
 2. The **Maria Thun-inspired Biodynamic Calendar Tile**.
 
    This tile summarizes the current observer-local biodynamic period. It shows
-   the date, hours of daylight, Moon zodiac sign, associated element and plant
+   the date, Moon zodiac sign, associated element and plant
    part, and the current sign's time window. Select **Calendar** to open the
    full Biodynamic Calendar for month planning, day summaries, guidance, notes,
    and reports.
@@ -1479,7 +1479,7 @@ units. These details fit within the existing forecast card.
 
 ## Biodynamic Calendar Features
 
-![Current Biodynamic Calendar overview using the selected Spring theme](<../assets/screenshots/biodynamic-calendar-overview.png>)
+![Current Biodynamic Calendar overview using the Autumn theme](<../assets/screenshots/biodynamic-calendar-overview.png>)
 
 The integrated application provides:
 
@@ -1502,6 +1502,7 @@ Integrated calendar fields and controls:
 - **Previous / Next month arrows**: move the main month calendar.
 - **Calendar day cells**: taller cells show centered botanical icons matching the standalone Biodynamic Calendar: garlic for Root, kale for Leaf, sunflower for Flower, grapes for Fruit, and sleeping Zs for Rest. Select a day. The selected day drives the Daily Summary, selected facts, notes, and planting context.
 - **Twelve-Month Overview**: shows a longer planning range assembled from the shared background cache.
+- **Selected Day header**: shows the selected date with its local sunrise and sunset times on the right, followed by its hours of daylight.
 - **Daily Summary**: explains the selected day, including biodynamic focus and relevant timing.
 - **Plantings**:
 
