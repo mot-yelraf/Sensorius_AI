@@ -188,8 +188,7 @@ class EcowittSwitchController(SwitchController):
             await asyncio.to_thread(self.data_logger.log_switch_event,
                                     switch_key=self._switch_key(label), is_on=on,
                                     timestamp=timestamp, source=source, sensor_id=f"Switch_{self.switch_id}")
-            from . import saiWebRoutes as routes
-            broadcast = getattr(getattr(getattr(routes, "app", None), "state", None), "switch_broadcast", None)
+            broadcast = self.dashboard_broadcast
             if broadcast:
                 await broadcast({"type": "switch_event", "key": self._switch_key(label),
                                  "ui_key": f"{self.switch_id}::{label}", "state": on,

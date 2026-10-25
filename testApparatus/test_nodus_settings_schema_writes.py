@@ -567,7 +567,7 @@ def _write_system_settings(root: Path, device_id: str, hostname: str, *, broker:
     (target / "settings.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-async def _build_app(tmp_path, monkeypatch, hub_settings=None, ota_service=None):
+async def _build_app(tmp_path, monkeypatch, hub_settings=None, ota_service=None, data_logger=None):
     system_root = tmp_path / "system_settings"
     sensor_root = tmp_path / "sensor_settings"
     switch_root = tmp_path / "switch_settings"
@@ -587,6 +587,9 @@ async def _build_app(tmp_path, monkeypatch, hub_settings=None, ota_service=None)
     monkeypatch.setattr(saiWebRoutes, "SwitchSettingsManager", lambda *_a, **_k: _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root)))
     monkeypatch.setattr(saiSwitchSettingsManager, "SwitchSettingsManager", lambda *_a, **_k: _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root)))
     app = FastAPI()
+    if data_logger is not None:
+        app.state.data_logger = data_logger
+        monkeypatch.setattr(saiWebRoutes, "data_logger", data_logger)
     if ota_service is not None:
         app.state.nodus_ota_service = ota_service
     ingest = _FakeIngest()
@@ -6232,7 +6235,7 @@ async def test_switch_toggle_returns_recent_events_for_immediate_ui_refresh(tmp_
                 "timer_remaining_s": 0,
             }
 
-    saiWebRoutes.switch_controllers = {"desk-hub": _Ctrl()}
+    monkeypatch.setitem(app.state.runtime_services.switch_controllers, "desk-hub", _Ctrl())
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_switch_state", lambda _switch_key: "Off")
     monkeypatch.setattr(
@@ -6333,8 +6336,7 @@ async def test_switch_toggle_remote_controller_prefers_live_state_over_stale_db(
             }
 
     ctrl = _RemoteCtrl()
-    saiWebRoutes.switch_controllers = {"switch-ykdvea": ctrl}
-    app.state.switch_controllers = dict(saiWebRoutes.switch_controllers)
+    monkeypatch.setitem(app.state.runtime_services.switch_controllers, "switch-ykdvea", ctrl)
     ingest.nodus_liveness["switch-ykdvea"] = {"state": "online"}
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_switch_state", lambda _switch_key: "Off")
@@ -6869,17 +6871,16 @@ async def test_severe_weather_condition_round_trip_and_cached_api(tmp_path, monk
 
 @pytest.mark.asyncio
 async def test_weather_alert_api_replays_and_persists_dismissal(tmp_path, monkeypatch, request):
-    app, *_ = await _build_app(tmp_path, monkeypatch)
-    from testApparatus.test_weather_alerts import Settings, feature
     logger = saiDataLoggerModule.saiDataLogger(tmp_path / "weather-api.db")
     request.addfinalizer(logger.close)
-    monkeypatch.setattr(saiWebRoutes, "data_logger", logger)
+    app, *_ = await _build_app(tmp_path, monkeypatch, data_logger=logger)
+    from testApparatus.test_weather_alerts import Settings, feature
     from sensorius.saiWeatherAlerts import WeatherAlertService
-    service = WeatherAlertService(settings=Settings(), data_logger=saiWebRoutes.data_logger)
+    service = WeatherAlertService(settings=Settings(), data_logger=logger)
     service._location = (39.7, -104.9)
     service.ingest({'features': [feature()]})
     service.queue_alert({'weather_event_ids': ['event-1'], 'type': 'automation_notification'}, 'actor-a')
-    monkeypatch.setattr(saiWebRoutes.data_logger, 'weather_alert_service', service, raising=False)
+    monkeypatch.setattr(app.state.runtime_services.data_logger, "weather_alert_service", service, raising=False)
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as client:
         response = await client.get('/api/weather-alerts')
         alert_id = response.json()['pending_alerts'][0]['weather_alert_id']
@@ -6887,7 +6888,7 @@ async def test_weather_alert_api_replays_and_persists_dismissal(tmp_path, monkey
         assert response.status_code == 200
         assert (await client.get('/api/weather-alerts')).json()['pending_alerts'] == []
         assert (await client.post('/api/weather-alerts/unknown/dismiss')).status_code == 404
-    saved = saiWebRoutes.data_logger.load_weather_alert_state()
+    saved = logger.load_weather_alert_state()
     assert saved['event-1']['alerts'][alert_id]['dismissed']
 
 

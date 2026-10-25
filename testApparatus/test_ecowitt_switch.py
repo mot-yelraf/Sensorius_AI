@@ -94,6 +94,10 @@ def test_factory_and_rediscovery_preserve_user_settings(plug):
 @pytest.mark.asyncio
 async def test_poll_events_only_on_observed_changes_and_label_rename(plug, monkeypatch):
     ctrl, manager, logger = plug
+    broadcasts = []
+    async def broadcast(payload):
+        broadcasts.append(payload)
+    ctrl.dashboard_broadcast = broadcast
     state = 1
     async def request(command):
         assert command == {"cmd": "read_device"}
@@ -110,6 +114,8 @@ async def test_poll_events_only_on_observed_changes_and_label_rename(plug, monke
     assert await ctrl.poll_status() is False
     assert logger.get_latest_switch_state(ctrl._switch_key("Heater")) == "Off"
     assert manager.load(SID)["Switch"]["SWITCH_1_LAST_STATE"] is False
+    assert [event["state"] for event in broadcasts] == [True, False]
+    assert all(event["type"] == "switch_event" for event in broadcasts)
 
 
 @pytest.mark.asyncio

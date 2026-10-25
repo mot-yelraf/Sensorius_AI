@@ -287,13 +287,15 @@ class SensoriusStaticFiles(StaticFiles):
 class WebServerController:
     """Configure and run the FastAPI server and optional desktop webview."""
 
-    def __init__(self, settings, net_mgr, supervisor, gc_mgr, mqtt_ingest):
+    def __init__(self, settings, net_mgr, supervisor, gc_mgr, mqtt_ingest, *, runtime_services=None):
         self.settings = settings
         self.net_mgr = net_mgr
         self.supervisor = supervisor
         self.gc_mgr = gc_mgr
         self.mqtt_ingest = mqtt_ingest
         self.app = FastAPI()
+        if runtime_services is not None:
+            runtime_services.attach(self.app)
         self.session_active = False
         self.host = str(os.environ.get("SENSORIUS_HTTP_HOST") or self.settings.get_setting("Network", "HTTPHOST", "0.0.0.0"))
         try:
@@ -340,7 +342,9 @@ class WebServerController:
     async def _prewarm(self):
         """Warm DB pages & compute a first set of values/stats to avoid cold-start latency."""
         try:
-            from .saiWebRoutes import data_logger as routes_logger, statter as routes_statter
+            services = self.app.state.runtime_services
+            routes_logger = services.data_logger
+            routes_statter = services.statter
 
             available = await asyncio.to_thread(routes_logger.get_available_sensors)
             available = available or []
@@ -364,8 +368,8 @@ class WebServerController:
         from .saiWebRoutes import register_routes
 
         await register_routes(self.app, self.settings, self.net_mgr, self.gc_mgr, self.mqtt_ingest)
-        # Make ingest accessible to routes that use request.app.state.mqtt_ingest.
-        self.app.state.mqtt_ingest = self.mqtt_ingest
+        # Route registration also supports legacy callers without a supplied context.
+        self.mqtt_ingest = self.app.state.runtime_services.mqtt_ingest
         app = self.app
         @app.get("/favicon.ico")
         async def favicon_root():
