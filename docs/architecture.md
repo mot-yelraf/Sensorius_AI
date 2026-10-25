@@ -72,6 +72,14 @@ macOS, Windows, and non-Pi Linux hub:
 - `sensorius/saiSwitch.py`, `sensorius/saiSwitchFactory.py`, and
   `sensorius/saiAutomationManager.py`: local and remote switch control plus
   Advanced automations.
+- `sensorius/saiAutomationEvaluation.py`: per-pass condition evaluation with
+  explicit reading, clock, astronomy, and calendar providers. Calendar edge
+  tracking shares the controller's existing in-memory maps. Switch AND groups
+  retain short-circuit evaluation, while notification actors retain complete
+  condition reports. Legacy BD toast requests are delivered by the controller.
+  The controller separately applies evaluated switch actions, including delays,
+  failed-command retries, ownership, previous-state reverts, and persistence.
+  Rule storage, switch command paths, and Nodus MQTT payloads remain unchanged.
 - `sensorius/saiMQTTClient.py`: outbound publisher for local sensors when
   publishing to a non-local broker.
 - `sensorius/saiMQTTIngest.py`: MQTT discovery, Nodus topic registration,

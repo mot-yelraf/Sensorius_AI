@@ -2326,3 +2326,62 @@ def test_remote_command_acceptance_does_not_start_timer_or_change_confirmed_stat
     RemoteSwitchController._refresh_state_from_ingest(ctrl)
     assert ctrl.last_state['Fan'] is True
     assert ctrl.auto_off_deadline['Fan'] == pytest.approx(161.0)
+
+
+def test_action_execution_retries_failed_delayed_commands_and_removed_rule_reverts(monkeypatch):
+    """The execution phase preserves pending work until commands are accepted."""
+    ctrl = _make_controller()
+    clock = {"now": 100.0}
+    monkeypatch.setattr(saiSwitch.time, "monotonic", lambda: clock["now"])
+    state = {"Fan": False}
+    calls = []
+    persisted = []
+    outcomes = iter([False, True, False, True])
+    ctrl.get_state = lambda label: state[label]
+
+    def set_state(label, desired, force=False, event_source="manual/ui"):
+        accepted = next(outcomes)
+        calls.append((label, desired, force, event_source, accepted))
+        if accepted:
+            state[label] = desired
+        return accepted
+
+    ctrl.set_state = set_state
+    ctrl._persist_advanced_runtime_state = lambda: persisted.append(dict(ctrl._advanced_active_actions))
+    key = ("r", "Fan", "sw1::CH1", True)
+    actions = {key: {"rule_id": "r", "rule_name": "Cooling", "target_label": "Fan",
+                     "switch_key": "sw1::CH1", "desired": True, "rule_ok": True,
+                     "revert_action": "previous_state", "delay_s": 3}}
+
+    def apply(at, evaluated):
+        clock["now"] = at
+        ctrl._apply_advanced_action_evaluations(
+            evaluated, now_mono=at, pending_actions=ctrl._advanced_delay_due,
+            active_actions=ctrl._advanced_active_actions, weather_service=None,
+            debug_cycle_verbose=False,
+        )
+
+    apply(100.0, actions)
+    assert calls == [] and ctrl._advanced_delay_due[key]["due_at"] == 103.0
+    apply(103.0, actions)
+    assert not state["Fan"] and not ctrl._advanced_active_actions
+    assert ctrl._advanced_delay_due[key]["due_at"] == 104.0
+    assert not persisted
+    apply(103.5, actions)
+    assert len(calls) == 1
+    apply(104.0, actions)
+    assert state["Fan"] and not ctrl._advanced_delay_due
+    assert ctrl._advanced_active_actions[key]["revert_to"] is False
+    assert len(persisted) == 1
+    # Removing ownership must retry a failed revert instead of forgetting it.
+    apply(105.0, {})
+    assert state["Fan"] and key in ctrl._advanced_active_actions
+    apply(106.0, {})
+    assert not state["Fan"] and not ctrl._advanced_active_actions
+    assert len(persisted) == 2
+    assert calls == [
+        ("Fan", True, False, "auto/rule:Cooling", False),
+        ("Fan", True, False, "auto/rule:Cooling", True),
+        ("Fan", False, True, "auto/rule:Cooling", False),
+        ("Fan", False, True, "auto/rule:Cooling", True),
+    ]
