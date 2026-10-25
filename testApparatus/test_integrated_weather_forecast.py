@@ -721,7 +721,7 @@ def test_dashboard_reuses_detailed_forecast_moon_surface_and_selectable_backgrou
     assert "#moonPhaseCanvas{width:88px;height:88px;border:0;border-radius:50%;background:transparent;}" in html_source
     assert "ctx.strokeStyle = 'rgba(255, 240, 198, 0.28)'" not in html_source
     assert "dashboard-theme-{dashboard_background_class}" in html_source
-    assert ".dash-loc-form{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:.45rem;background:#654080;color:#fff" in html_source
+    assert ".dash-loc-form{position:relative;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:.45rem;background:#654080;color:#fff" in html_source
     assert ".astro-box{display:flex;align-items:flex-start;justify-content:center;background:#ffffe0" in html_source
     assert 'background-image:url("/ui_static/leaf-pattern.svg")' in dashboard_css
     assert "dashboard-theme-leaf{background-color:#dff5e8" in dashboard_css
