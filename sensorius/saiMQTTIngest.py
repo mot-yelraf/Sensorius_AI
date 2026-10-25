@@ -28,6 +28,11 @@ from zoneinfo import ZoneInfo
 from .saiUtils import printDM, debug_enabled, get_timestamp, normalize_hostname_base, mdns_hostname
 from .saiDataLogger import SENSOR_EVENT_STATE_OFFLINE, SENSOR_EVENT_TYPE_LIVENESS, saiDataLogger, build_switch_key
 from .saiRuntimePaths import resolve_runtime_base_dir
+from . import saiNodusMeta as nodus_meta
+from .saiNodusMeta import (
+    extract_board_type as _extract_nodus_board_type,
+    extract_sensor_hardware as _extract_nodus_sensor_hardware,
+)
 from .saiNodusLiveness import (
     NodusLiveness,
     DEFAULT_HEARTBEAT_INTERVAL_S,
@@ -138,33 +143,6 @@ def _extract_runtime_ipv4addr(payload: dict | None) -> str | None:
             if ip:
                 return ip
     return None
-
-def _extract_nodus_board_type(payload: dict | None) -> str:
-    if not isinstance(payload, dict):
-        return ""
-    for key in ("mcu", "MCU", "board_type", "BOARD_TYPE", "boardtype", "BOARDTYPE", "board", "BOARD"):
-        value = str(payload.get(key) or "").strip()
-        if value:
-            return value
-    legacy_type = str(payload.get("type") or payload.get("TYPE") or "").strip()
-    if legacy_type and legacy_type.lower() not in {"nodus", "remote", "mqtt"}:
-        return legacy_type
-    return "pico2w"
-
-def _extract_nodus_sensor_hardware(payload: dict | None) -> str:
-    if not isinstance(payload, dict):
-        return ""
-    containers: list[dict] = []
-    sensor_blob = payload.get("sensor")
-    if isinstance(sensor_blob, dict):
-        containers.append(sensor_blob)
-    containers.append(payload)
-    for container in containers:
-        for key in ("hardware", "HARDWARE", "sensor_hardware", "SENSOR_HARDWARE"):
-            value = str(container.get(key) or "").strip()
-            if value:
-                return value
-    return ""
 
 def _local_epoch_seconds(settings=None, now_epoch: float | None = None) -> int:
     """Return local-naive epoch seconds for MQTT command identifiers."""
@@ -2723,63 +2701,10 @@ class saiMQTTIngest:
         return out or None
 
     def _normalize_display_metrics(self, raw_metrics, *, preserve_slots=False) -> list[str]:
-        """
-        Normalize metric hints; preserve positional slots when writing settings.
-        """
-        if isinstance(raw_metrics, dict):
-            values = [raw_metrics.get(f"METRIC_{idx}", "") for idx in range(1, 7)]
-        elif isinstance(raw_metrics, (list, tuple)):
-            values = list(raw_metrics)
-        else:
-            return []
-
-        if preserve_slots:
-            return [str(value or "").strip() for value in values[:6]]
-
-        ordered: list[str] = []
-        seen: set[str] = set()
-        for raw in values:
-            metric = str(raw or "").strip()
-            if not metric or metric in seen:
-                continue
-            seen.add(metric)
-            ordered.append(metric)
-            if len(ordered) >= 6:
-                break
-        return ordered
+        return nodus_meta.normalize_display_metrics(raw_metrics, preserve_slots=preserve_slots)
 
     def _normalize_display_styles(self, raw_styles, default_style: str = "Graph24hr") -> list[str]:
-        """
-        Normalize per-metric display style hints into an ordered six-slot list.
-        Returns [] when the payload does not contain any usable style hints.
-        """
-        if isinstance(raw_styles, dict):
-            values = [raw_styles.get(f"METRIC_{idx}", "") for idx in range(1, 7)]
-        elif isinstance(raw_styles, (list, tuple)):
-            values = list(raw_styles)
-        else:
-            return []
-
-        def _canonical_style(raw_value) -> str:
-            style = str(raw_value or "").strip().lower()
-            if not style:
-                return default_style
-            if style == "gauge":
-                return "Gauge"
-            if style in {"graph", "graph24", "graph24hr", "24h", "24hr"}:
-                return "Graph24hr"
-            if style in {"graph6", "graph6hr", "6h", "6hr"}:
-                return "Graph6hr"
-            return default_style
-
-        if not any(str(item or "").strip() for item in values):
-            return []
-
-        ordered: list[str] = []
-        for idx in range(6):
-            raw_value = values[idx] if idx < len(values) else default_style
-            ordered.append(_canonical_style(raw_value))
-        return ordered
+        return nodus_meta.normalize_display_styles(raw_styles, default_style=default_style)
 
     def _ensure_shadow_for_live_nodus_sensor_data(
         self,
@@ -2878,20 +2803,7 @@ class saiMQTTIngest:
 
     @staticmethod
     def _meta_metric_slot_map(raw_values) -> OrderedDict[str, str]:
-        slots: OrderedDict[str, str] = OrderedDict(
-            (f"METRIC_{idx}", "") for idx in range(1, 7)
-        )
-        if isinstance(raw_values, dict):
-            for idx in range(1, 7):
-                key = f"METRIC_{idx}"
-                value = raw_values.get(key)
-                if value is not None:
-                    slots[key] = str(value)
-            return slots
-        if isinstance(raw_values, (list, tuple)):
-            for idx, value in enumerate(list(raw_values)[:6], start=1):
-                slots[f"METRIC_{idx}"] = "" if value is None else str(value)
-        return slots
+        return nodus_meta.metric_slot_map(raw_values)
 
     def _find_nodus_meta_cache_key(
         self,
@@ -3509,40 +3421,10 @@ class saiMQTTIngest:
         return ok_meta, subscribed
 
     def _infer_sensor_device_name(self, raw_device, sensor_id: str | None = None) -> str:
-        """
-        Prefer an explicit device name; otherwise infer from <device>-<serial> sensor IDs.
-        """
-        device = str(raw_device or "").strip()
-        if device:
-            return device
-        sid = str(sensor_id or "").strip().lower()
-        if "-" in sid:
-            prefix = sid.split("-", 1)[0].strip()
-            if prefix and prefix not in {"sensor", "nodus", "remote", "mqtt"}:
-                return prefix
-        return ""
+        return nodus_meta.infer_sensor_device_name(raw_device, sensor_id)
 
     def _extract_sensor_serial(self, sensor_blob: dict | None, payload: dict | None) -> str:
-        """
-        Accept serial from sensor-level metadata first, then top-level metadata.
-        """
-        if isinstance(sensor_blob, dict):
-            serial = str(
-                sensor_blob.get("serial")
-                or sensor_blob.get("SERIAL_NUM")
-                or sensor_blob.get("device_serial_num")
-                or ""
-            ).strip()
-            if serial:
-                return serial
-        if isinstance(payload, dict):
-            return str(
-                payload.get("serial")
-                or payload.get("SERIAL_NUM")
-                or payload.get("device_serial_num")
-                or ""
-            ).strip()
-        return ""
+        return nodus_meta.extract_sensor_serial(sensor_blob, payload)
 
     def _get_nodus_availability(self, host_like: str | None) -> str | None:
         return self._get_liveness().get_availability(host_like)
@@ -3631,50 +3513,10 @@ class saiMQTTIngest:
             self._retained_avail_probe_inflight.discard(base)
 
     def _safe_get_switch_block(self, info: dict) -> dict:
-        """
-        Return the Switch block from the /itaot 'info' structure.
-        Accepts several shapes defensively: top-level 'Switch' dict or nested 'switch_settings' -> 'Switch'.
-        """
-        if not isinstance(info, dict):
-            return {}
-
-        # common shapes
-        if "Switch" in info and isinstance(info["Switch"], dict):
-            return info["Switch"]
-
-        # some /itaot payloads may nest this
-        maybe = info.get("switch_settings") or info.get("nodus") or {}
-        if isinstance(maybe, dict) and isinstance(maybe.get("Switch"), dict):
-            return maybe["Switch"]
-
-        return {}
+        return nodus_meta.switch_settings_block(info)
 
     def _extract_switch_channels(self, info: dict) -> list[tuple[str, str]]:
-        """
-        Return list of (label, channel_id) from either a Switch block or top-level SWITCH_n_LABEL keys.
-        """
-        channels: list[tuple[str, str]] = []
-
-        def _scan_block(block: dict) -> None:
-            for key, val in block.items():
-                m = re.fullmatch(r"SWITCH_(\d+)_LABEL", str(key))
-                if not m:
-                    continue
-                label = (val or "").strip()
-                if not label:
-                    continue
-                idx = int(m.group(1))
-                ch_id = str(block.get(f"SWITCH_{idx}_CHANNEL_ID", "") or "").strip()
-                if ch_id:
-                    channels.append((label, ch_id))
-
-        switch_blk = self._safe_get_switch_block(info)
-        if isinstance(switch_blk, dict) and switch_blk:
-            _scan_block(switch_blk)
-        elif isinstance(info, dict):
-            _scan_block(info)
-
-        return channels
+        return nodus_meta.extract_switch_channels(info)
 
     def _channel_id_from_topic(self, topic: str) -> str | None:
         try:
@@ -3799,58 +3641,12 @@ class saiMQTTIngest:
         Parse retained MQTT-first metadata from "nodus/<device_id>/meta".
         Returns (meta_valid, any_new_subscriptions).
         """
-        if not isinstance(meta, dict):
-            return False, False
-
-        # Wi-Fi credentials are operational inputs, not discovery metadata.
-        # Keep received values out of the long-lived discovery cache and
-        # Nodus shadow settings even when older firmware includes it in meta.
-        meta = copy.deepcopy(meta)
-        network_for_redaction = meta.get("network")
-        if isinstance(network_for_redaction, dict):
-            network_for_redaction.pop("ssid", None)
-            network_for_redaction.pop("SSID", None)
-            network_for_redaction.pop("password", None)
-            network_for_redaction.pop("PASSWORD", None)
-
-        schema = str(meta.get("schema") or "").strip().lower()
-        if schema and schema != "nodus-meta/v1":
+        meta = nodus_meta.prepare_nodus_meta(meta)
+        if meta is None:
             return False, False
 
         def _meta_topic(raw_topic: str | None) -> str:
-            t = str(raw_topic or "").strip()
-            if not t:
-                return ""
-            if t.startswith("nodus/"):
-                return t
-            if self.base_topic and t.startswith(f"{self.base_topic}/nodus/"):
-                return t
-            return ""
-
-        def _is_unknown_loc(val: str | None) -> bool:
-            v = (val or "").strip().lower()
-            return v in ("", "unknown", "n/a", "na", "none", "-")
-
-        def _pick_location(*vals: str) -> str:
-            for raw in vals:
-                loc = str(raw or "").strip()
-                if loc and not _is_unknown_loc(loc):
-                    return loc
-            return "Unknown"
-
-        def _canonical_location(value: str | None) -> str:
-            loc = str(value or "").strip()
-            return loc if loc and not _is_unknown_loc(loc) else "Unknown"
-
-        def _coerce_switch_state(raw_state) -> bool | None:
-            if isinstance(raw_state, bool):
-                return raw_state
-            txt = str(raw_state or "").strip().lower()
-            if txt in ("on", "1", "true", "t", "yes", "y"):
-                return True
-            if txt in ("off", "0", "false", "f", "no", "n"):
-                return False
-            return None
+            return nodus_meta.metadata_topic(raw_topic, self.base_topic)
 
         device_id = str(meta.get("device_id") or topic_device_id or "").strip()
         if not device_id:
@@ -3871,44 +3667,7 @@ class saiMQTTIngest:
                     if field not in incoming_sensor and field in previous_sensor:
                         incoming_sensor[field] = copy.deepcopy(previous_sensor[field])
 
-        primary_sensor_blob = dict(meta.get("sensor")) if isinstance(meta.get("sensor"), dict) else {}
-        if not primary_sensor_blob:
-            top_sensor_id = str(meta.get("sensor_id") or meta.get("SENSOR_ID") or "").strip()
-            top_data_topic = str(meta.get("data_topic") or meta.get("mqtt_sensor_topic") or "").strip()
-            top_has_sensor = bool(
-                top_sensor_id
-                or top_data_topic
-                or meta.get("display_metrics")
-                or meta.get("metrics")
-            )
-            if top_has_sensor:
-                primary_sensor_blob = {
-                    "sensor_id": top_sensor_id or device_id,
-                    "device": meta.get("device") or meta.get("DEVICE") or meta.get("SENSOR_DEVICE") or "",
-                    "type": meta.get("type") or meta.get("TYPE") or "nodus",
-                    "location": meta.get("location") or meta.get("LOCATION") or "",
-                    "serial": meta.get("serial") or meta.get("SERIAL_NUM") or "",
-                    "data_topic": top_data_topic,
-                    "availability_topic": meta.get("availability_topic") or meta.get("mqtt_availability_topic") or "",
-                    "event_topic": meta.get("event_topic") or meta.get("mqtt_event_topic") or "",
-                    "hardware": (
-                        meta.get("hardware")
-                        or meta.get("HARDWARE")
-                        or meta.get("sensor_hardware")
-                        or meta.get("SENSOR_HARDWARE")
-                        or ""
-                    ),
-                    "display_metrics": meta.get("display_metrics") or meta.get("metrics") or meta.get("Display") or [],
-                    "display_styles": meta.get("display_styles") or meta.get("styles") or [],
-                }
-        sensor_blobs: list[dict] = []
-        raw_sensors = meta.get("sensors")
-        if isinstance(raw_sensors, list):
-            for item in raw_sensors:
-                if isinstance(item, dict):
-                    sensor_blobs.append(dict(item))
-        if not sensor_blobs and primary_sensor_blob:
-            sensor_blobs.append(primary_sensor_blob)
+        primary_sensor_blob, sensor_blobs = nodus_meta.sensor_metadata_blocks(meta, device_id)
 
         switch_blob = meta.get("switch") if isinstance(meta.get("switch"), dict) else {}
         network_meta = meta.get("network") if isinstance(meta.get("network"), dict) else {}
@@ -3926,7 +3685,7 @@ class saiMQTTIngest:
             or ""
         ).strip()
         switch_location = str(switch_blob.get("location") or "").strip()
-        resolved_location = _pick_location(
+        resolved_location = nodus_meta.pick_location(
             group_location,
             switch_location,
             primary_sensor_location,
@@ -4026,7 +3785,7 @@ class saiMQTTIngest:
                 or sensor_blob.get("LOCATION")
                 or ""
             ).strip()
-            sensor_loc = _pick_location(sensor_location, resolved_location)
+            sensor_loc = nodus_meta.pick_location(sensor_location, resolved_location)
 
             if data_topic:
                 self.nodus_sensor_topics[sensor_id] = data_topic
@@ -4069,7 +3828,7 @@ class saiMQTTIngest:
                 self.nodus_firmware_versions[switch_id] = firmware_version
             self._record_nodus_board_type(board_type, switch_id)
 
-            switch_loc = _pick_location(switch_location, resolved_location)
+            switch_loc = nodus_meta.pick_location(switch_location, resolved_location)
             self.device_type[switch_id] = "nodus"
             self._known_switch_ids.add(switch_id)
             self._record_mqtt_seen(switch_id, ts=now_t, retain=retain, report=False)
@@ -4133,7 +3892,7 @@ class saiMQTTIngest:
                 switch_payload[f"SWITCH_{idx}_ENABLE_PIN"] = enable_pin
                 switch_payload[f"SWITCH_{idx}_PIN"] = pin
 
-                state_bool = _coerce_switch_state(row.get("state"))
+                state_bool = nodus_meta.coerce_switch_state(row.get("state"))
                 # A discovery snapshot may contain cached LAST_STATE values.
                 # Preserve device runtime reports while still refreshing identity/settings.
                 state_bool = self._reported_switch_states.get((switch_id, channel_id), state_bool)
@@ -4283,20 +4042,9 @@ class saiMQTTIngest:
         if device_id != topic_device_id:
             return False, False
         base = self._normalize_host_key(device_id) or device_id
-        meta = copy.deepcopy(self.discovery_cache.get(base) or {})
-        meta.update(schema="nodus-meta/v1", device_id=device_id)
-        sensor = payload.get("sensor")
-        if isinstance(sensor, dict):
-            existing = meta.get("sensor") or {}
-            if existing.get("sensor_id") != sensor.get("sensor_id"):
-                existing = {}
-            meta["sensor"] = {**existing, **copy.deepcopy(sensor)}
-            for child in meta.get("sensors", []):
-                if isinstance(child, dict) and child.get("sensor_id") == sensor.get("sensor_id"):
-                    child.update(copy.deepcopy(sensor))
-        for field in ("time", "homeassistant"):
-            if isinstance(payload.get(field), dict):
-                meta[field] = copy.deepcopy(payload[field])
+        meta = nodus_meta.merge_config_meta(
+            payload, self.discovery_cache.get(base), device_id=device_id,
+        )
         result = self._parse_and_subscribe_from_nodus_meta(
             meta, topic_device_id=device_id, retain=retain,
         )
@@ -4334,44 +4082,9 @@ class saiMQTTIngest:
             return False, False
 
         base = self._normalize_host_key(device_id) or device_id
-        compact = copy.deepcopy(self.discovery_cache.get(base) or {})
-        if not isinstance(compact, dict):
-            compact = {}
-
-        compact["schema"] = "nodus-meta/v1"
-        compact["device_id"] = str(compact.get("device_id") or device_id).strip() or device_id
-        compact.setdefault("location_group", {})
-        if not isinstance(compact.get("location_group"), dict):
-            compact["location_group"] = {}
-
-        old_switch = compact.get("switch") if isinstance(compact.get("switch"), dict) else {}
-        switch_id = str(
-            payload.get("switch_device_id")
-            or old_switch.get("switch_device_id")
-            or old_switch.get("device_id")
-            or ""
-        ).strip()
-        location = str(payload.get("location") or old_switch.get("location") or "").strip()
-
-        switch_blob = dict(old_switch)
-        if switch_id:
-            switch_blob["switch_device_id"] = switch_id
-            switch_blob.setdefault("device_id", switch_id)
-        if location:
-            switch_blob["location"] = location
-        switch_blob["channel_count"] = payload.get("channel_count", len(channels))
-        switch_blob["channels"] = channels
-        compact["switch"] = switch_blob
-
-        members = compact["location_group"].get("members")
-        if not isinstance(members, list):
-            members = []
-        for member in (device_id, switch_id):
-            if member and member not in members:
-                members.append(member)
-        compact["location_group"]["members"] = members
-        if location and not str(compact["location_group"].get("location") or "").strip():
-            compact["location_group"]["location"] = location
+        compact = nodus_meta.merge_switch_meta(
+            payload, self.discovery_cache.get(base), device_id=device_id,
+        )
 
         return self._parse_and_subscribe_from_nodus_meta(
             compact,
@@ -4380,84 +4093,8 @@ class saiMQTTIngest:
         )
 
     def _normalize_itaot_meta_to_nodus_meta(self, payload: dict, *, topic_device_id: str | None = None) -> dict:
-        """
-        Convert /itaot-meta payload (schema: itaot-meta/v1) to nodus-meta/v1 shape.
-        """
-        if not isinstance(payload, dict):
-            return {}
-
-        sensor_blob = payload.get("sensor") if isinstance(payload.get("sensor"), dict) else {}
-        switch_blob = payload.get("switch") if isinstance(payload.get("switch"), dict) else {}
-        group_blob = payload.get("location_group") if isinstance(payload.get("location_group"), dict) else {}
-
-        device_id = str(payload.get("device_id") or topic_device_id or "").strip()
-        sensor_id = str(sensor_blob.get("sensor_id") or device_id).strip()
-        switch_id = str(
-            switch_blob.get("switch_device_id")
-            or switch_blob.get("device_id")
-            or ""
-        ).strip()
-        location = str(
-            group_blob.get("location")
-            or switch_blob.get("location")
-            or sensor_blob.get("location")
-            or ""
-        ).strip()
-
-        channels_out = []
-        raw_channels = switch_blob.get("channels")
-        if isinstance(raw_channels, list):
-            for idx, row in enumerate(raw_channels, start=1):
-                if not isinstance(row, dict):
-                    continue
-                channel_id = str(row.get("channel_id") or "").strip()
-                if not channel_id:
-                    continue
-                try:
-                    channel_idx = int(row.get("index"))
-                except Exception:
-                    channel_idx = idx
-                channels_out.append({
-                    "index": channel_idx,
-                    "label": str(row.get("label") or channel_id).strip() or channel_id,
-                    "channel_id": channel_id,
-                    "state": row.get("state"),
-                    "event_topic": f"nodus/{channel_id}/event",
-                    "state_topic": f"nodus/{channel_id}/state",
-                    "set_topic": f"nodus/{channel_id}/config/set",
-                    "availability_topic": f"nodus/{channel_id}/availability",
-                })
-
-        return {
-            "schema": "nodus-meta/v1",
-            "device_id": device_id,
-            "mcu": _extract_nodus_board_type(payload),
-            "sensor": {
-                "sensor_id": sensor_id,
-                "device": self._infer_sensor_device_name(sensor_blob.get("device"), sensor_id),
-                "serial": self._extract_sensor_serial(sensor_blob, payload),
-                "hardware": _extract_nodus_sensor_hardware(payload),
-                "location": str(sensor_blob.get("location") or location).strip(),
-                "data_topic": f"nodus/{sensor_id}/data" if sensor_id else "",
-                "event_topic": f"nodus/{sensor_id}/event" if sensor_id else "",
-                "availability_topic": f"nodus/{sensor_id}/availability" if sensor_id else "",
-                "display_metrics": self._normalize_display_metrics(
-                    sensor_blob.get("display_metrics") or sensor_blob.get("metrics")
-                ),
-                "display_styles": self._normalize_display_styles(
-                    sensor_blob.get("display_styles") or sensor_blob.get("styles")
-                ),
-            },
-            "switch": {
-                "switch_device_id": switch_id,
-                "location": str(switch_blob.get("location") or location).strip(),
-                "channels": channels_out,
-            },
-            "location_group": {
-                "location": location,
-                "members": group_blob.get("members") if isinstance(group_blob.get("members"), list) else [],
-            },
-        }
+        """Normalize legacy bootstrap metadata through the shared field converters."""
+        return nodus_meta.normalize_itaot_meta(payload, topic_device_id=topic_device_id)
 
     def _parse_and_subscribe_from_http_meta(self, payload: dict, hostname: str) -> tuple[bool, bool]:
         """

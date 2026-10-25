@@ -81,6 +81,13 @@ macOS, Windows, and non-Pi Linux hub:
   Broker connection setup is moved off the asyncio event loop. Inbound callback
   timing and contention counters are exposed through Advanced status without
   recording payload contents.
+- `sensorius/saiNodusMeta.py`: stateless metadata field normalization, primary and
+  child sensor selection, legacy bootstrap conversion, and config/switch companion
+  snapshot merging. Ingest retains schema/identity guards for companions, cache
+  lookup and update order, subscriptions, runtime state, correlated patch
+  application, and settings shadow writes. Existing ingest helper entry points
+  remain compatible. This extraction changes no wire payloads and adds no Nodus
+  processing, call-depth requirements, subscriptions, or polling.
 - `sensorius/saiNodusLiveness.py`: shared MQTT receipt and heartbeat state,
   availability normalization, and online/degraded/offline timing decisions.
   Ingest retains identity resolution, callback serialization, offline-event
