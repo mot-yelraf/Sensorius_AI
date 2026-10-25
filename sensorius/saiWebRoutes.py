@@ -97,7 +97,7 @@ try:
     from .saiDataLogger import build_switch_key as _build_switch_key
 except Exception:
     _build_switch_key = None
-from .saiStats import saiStats
+from .saiRuntimeServices import RuntimeServices
 from .saiHtml import (
     DASHBOARD_BACKGROUND_THEMES,
     DASHBOARD_METRIC_SETS,
@@ -199,11 +199,12 @@ def _downsample_graph_points(timestamps, values, max_points: int = GRAPH_MAX_POI
 
 MODULE = "saiWebRoutes"
 DEBUG = debug_enabled(MODULE)
-# Bound by register_routes so background runtime modules can reach app.state
-# without importing saiWebServer and creating an import cycle.
+# Compatibility aliases populated during route registration, without import-time I/O.
 app = None
-data_logger = saiDataLogger()
-statter = saiStats()
+data_logger = None
+statter = None
+sensor_map = {}
+switch_controllers = {}
 _ALL_IANA_TIMEZONES: tuple[str, ...] = tuple(sorted(available_timezones()))
 _DB_RETENTION_MIN_DAYS = 30
 _DB_RETENTION_MAX_DAYS = 365
@@ -678,6 +679,34 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     """Register Sensorius UI, API, integration, and diagnostics routes."""
     # Retain the app binding for integrations that still use the web runtime.
     globals()["app"] = app
+    services = getattr(app.state, "runtime_services", None)
+    if services is None:
+        # Support standalone route registration and older integrations.
+        logger = getattr(app.state, "data_logger", None)
+        if logger is None:
+            logger = globals().get("data_logger")
+        if logger is None:
+            logger = saiDataLogger()
+        services = RuntimeServices(
+            data_logger=logger,
+            statter=getattr(app.state, "statter", None),
+            sensor_map=getattr(app.state, "sensor_map", globals().get("sensor_map", {})),
+            switch_controllers=getattr(app.state, "switch_controllers", globals().get("switch_controllers", {})),
+            mqtt_ingest=mqtt_ingest,
+            supervisor=getattr(app.state, "supervisor", None),
+            farmos_bridge=getattr(app.state, "farmos_bridge", None),
+            ecowitt_service=getattr(app.state, "ecowitt_service", None),
+            email_notifications=getattr(app.state, "email_notifications", None),
+            automation_notifications=getattr(app.state, "automation_notifications", None),
+        )
+    services.attach(app)
+    data_logger = services.data_logger
+    statter = services.statter
+    sensor_map = services.sensor_map
+    switch_controllers = services.switch_controllers
+    mqtt_ingest = services.mqtt_ingest
+    globals().update(data_logger=data_logger, statter=statter,
+                     sensor_map=sensor_map, switch_controllers=switch_controllers)
     if not str(getattr(app.state, "ui_runtime_instance_id", "") or "").strip():
         app.state.ui_runtime_instance_id = uuid4().hex
     router = APIRouter()
@@ -7959,9 +7988,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             if DEBUG:
                 printDM(f"[save_device_locations] system hostname index: {sys_host_index}", location=MODULE)
                 
-            # shared handles established at startup by Sensorius
-            global switch_controllers
-
+            # Shared controller map supplied by the runtime context.
             def _find_switch_ctrl_by_id(switch_id: str):
                 """Return the live SwitchController with matching switch_id, or None."""
                 try:
@@ -10114,6 +10141,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             service.switch_controllers = controllers if isinstance(controllers, dict) else {}
             globals()["switch_controllers"] = service.switch_controllers
             request.app.state.switch_controllers = service.switch_controllers
+            services.switch_controllers = service.switch_controllers
             await service.activate_smart_plugs()
             _invalidate_dashboard_caches()
             return JSONResponse({"ok": True, **discovery, "poll_interval_sec": service.poll_interval_sec,
@@ -14089,16 +14117,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     # Keep the async route API while injecting notifications into runtime services.
     app.state.switch_broadcast = _switch_broadcast
-    if mqtt_ingest is not None:
-        mqtt_ingest.dashboard_broadcast = _switch_broadcast
-    dashboard_controllers = getattr(app.state, "switch_controllers", None)
-    if dashboard_controllers is None:
-        dashboard_controllers = globals().get("switch_controllers") or {}
-    for controller in dashboard_controllers.values():
-        controller.dashboard_broadcast = _switch_broadcast
-    ecowitt_service = getattr(app.state, "ecowitt_service", None)
-    if ecowitt_service is not None:
-        ecowitt_service.dashboard_broadcast = _switch_broadcast
+    services.bind_dashboard_broadcast(_switch_broadcast)
 
     @router.get("/switch-chooser", response_class=HTMLResponse)
     async def switch_chooser(request: Request):
@@ -14902,6 +14921,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     sc = {}
                 globals()["switch_controllers"] = sc
                 request.app.state.switch_controllers = sc
+                services.switch_controllers = sc
 
                 eval_controllers: list[object] = []
                 switch_mgr = SwitchSettingsManager("switch_settings")

@@ -290,12 +290,14 @@ class EmailNotificationService:
         supervisor=None,
         sender=None,
         evaluate_readings: bool = True,
+        dashboard_broadcast=None,
     ):
         self.settings = settings
         self.data_logger = data_logger
         self.supervisor = supervisor
         self.sender = sender or SMTPEmailSender()
         self.evaluate_readings = bool(evaluate_readings)
+        self.dashboard_broadcast = dashboard_broadcast
         self._queue: deque[dict[str, Any]] = deque()
         self._queue_lock = threading.RLock()
         self._listener_registered = False
@@ -657,13 +659,7 @@ class EmailNotificationService:
     ) -> None:
         """Publish an exhausted email delivery failure to dashboard clients."""
         try:
-            from . import saiWebRoutes as routes
-
-            broadcaster = getattr(
-                getattr(getattr(routes, "app", None), "state", object()),
-                "switch_broadcast",
-                None,
-            )
+            broadcaster = self.dashboard_broadcast
             if not callable(broadcaster):
                 return
             recipients = tuple(item.get("to_addresses") or ())

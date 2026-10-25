@@ -7,7 +7,6 @@ temporary SQLite databases isolate persisted cooldown and rate-limit state.
 import asyncio
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 from sensorius.saiEmailNotifications import (
     EmailConfig,
@@ -397,20 +396,12 @@ def test_failed_automation_delivery_does_not_set_sent_state(monkeypatch):
 
 
 def test_exhausted_email_delivery_broadcasts_persistent_toast(monkeypatch):
-    from sensorius import saiWebRoutes
-
     monkeypatch.setenv("SENSORIUS_EMAIL_ENABLED", "true")
     monkeypatch.setenv("SENSORIUS_EMAIL_RETRY_LIMIT", "0")
     broadcasts = []
 
     async def broadcast(payload):
         broadcasts.append(payload)
-
-    monkeypatch.setattr(
-        saiWebRoutes,
-        "app",
-        SimpleNamespace(state=SimpleNamespace(switch_broadcast=broadcast)),
-    )
 
     class FailedSender:
         def send(self, _subject, _body, **_kwargs):
@@ -421,6 +412,7 @@ def test_exhausted_email_delivery_broadcasts_persistent_toast(monkeypatch):
         settings=FakeSettings([]),
         data_logger=logger,
         sender=FailedSender(),
+        dashboard_broadcast=broadcast,
     )
     service.enqueue_automation_transition(
         rule_id="high-temperature",
@@ -668,3 +660,14 @@ def test_lunar_graphic_survives_guarded_queue_delivery(monkeypatch):
         subject="Full Moon", body="Moonrise: 06:30 PM", lunar_calendar=graphic)
     asyncio.run(service._deliver_item(service._pop()))
     assert sent == [("Full Moon", "Moonrise: 06:30 PM", {"to_addresses": ("grower@example.com",), "lunar_calendar": graphic})]
+
+
+def test_failure_callback_is_optional_and_broadcast_errors_are_contained():
+    service = EmailNotificationService(settings=FakeSettings([]), data_logger=FakeLogger())
+    asyncio.run(service._broadcast_delivery_failure({}, OSError("smtp failed"), 1))
+
+    def failed_broadcast(_payload):
+        raise RuntimeError("dashboard unavailable")
+
+    service.dashboard_broadcast = failed_broadcast
+    asyncio.run(service._broadcast_delivery_failure({}, OSError("smtp failed"), 1))

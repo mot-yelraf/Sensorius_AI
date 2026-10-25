@@ -34,6 +34,8 @@ macOS, Windows, and non-Pi Linux hub:
 - `Sensorius.py`: stable repository-root launcher and compatibility import
   alias.
 - `sensorius/app.py`: application entrypoint and runtime wiring.
+- `sensorius/saiRuntimeServices.py`: shared web-runtime service context and
+  dashboard callback wiring, without task or storage initialization.
 - `sensorius/saiTaskSupervisor.py`: supervised background task runner.
 - `sensorius/saiWatchdog.py`: task heartbeat monitor and process-exit safety
   net.
@@ -141,16 +143,19 @@ macOS, Windows, and non-Pi Linux hub:
    when relay hardware is detected. Each switch is built through
    `build_switch_controller(...)`, which returns either `SwitchController` or
    `RemoteSwitchController`.
-6. Runtime objects are attached to `sensorius.saiWebRoutes` globals and `app.state` so the
-   UI and APIs share the same controller, database, and ingest instances.
-   Route registration injects the async dashboard broadcast callback into MQTT
-   ingest and existing switch controllers. Controllers created later by automation
-   routes or Ecowitt smart-plug activation receive the same callback. MQTT ingest
-   and switch controllers no longer import the web routes module to publish these
-   events. MQTT callbacks continue scheduling delivery on the ingest event loop.
-   Startup also
-   binds the callback to the system-owned automation notification controller,
-   including when that controller was created before route registration.
+6. Startup supplies a `RuntimeServices` context to the web server. Routes,
+   daily summaries, FastStats, and startup prewarm share its database, statistics,
+   controller, and ingest instances. Statistics use the logger's database path.
+   `app.state` service attributes and route-module aliases remain for compatibility;
+   importing routes no longer constructs a database logger. Standalone route
+   registration can create a context when none is supplied.
+   Route registration injects the async dashboard callback into MQTT ingest,
+   existing switch controllers, Ecowitt, SMTP failure notifications, and the
+   system automation notification service (including an already-created actor).
+   Controllers created later by automation routes or Ecowitt smart-plug activation
+   receive the same callback. These event producers do not import web routes to
+   publish notifications. MQTT callbacks still schedule delivery on the ingest
+   event loop. The context does not start tasks or change shutdown ownership.
 7. Local MQTT publisher tasks are created only for local sensors and only when
    `SensorNetwork.BROKER` is configured as a non-local broker. If the broker is
    unset, `localhost`, or this host, local publisher tasks are skipped.

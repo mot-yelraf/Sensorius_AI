@@ -24,6 +24,7 @@ from .saiWebServer import (
     relaunch_as_named_macos_app,
     set_macos_app_icon,
 )
+from .saiRuntimeServices import RuntimeServices
 from .saiWatchdog import WatchdogMonitor
 from .saiMQTTIngest import saiMQTTIngest
 from .saiFarmOSBridge import saiFarmOSBridge
@@ -582,22 +583,6 @@ async def main(shutdown_requested: Event | None = None):
     except Exception:
         pass
 
-    from . import saiWebRoutes
-     
-
-    # make them available to the routes module
-    saiWebRoutes.sensor_map = sensor_map
-    saiWebRoutes.switch_controllers = switch_controllers
-    saiWebRoutes.data_logger = data_logger
-
-    # (optional but nice) also put them on the FastAPI app for future-proof access
-    try:
-        from .saiWebRoutes import app  # if your app lives there
-        app.state.sensor_map = sensor_map
-        app.state.switch_controllers = switch_controllers
-    except Exception:
-        pass
-
     # Configure MQTT publishers only for locally connected sensors (optional)
     broker = settings.get_setting("SensorNetwork", "BROKER") or ""
     publish_to_mqtt = bool(broker) and not is_self_broker(broker)
@@ -790,21 +775,26 @@ async def main(shutdown_requested: Event | None = None):
     supervisor_task = asyncio.create_task(supervisor.start())
 
     # Web server can run with zero local sensors; it will still show MQTT-discovered devices via ingest
-    web_server = WebServerController(settings, net_mgr, supervisor, gc_mgr, mqtt_ingest_clients)
-    # make ingest available to request.app.state for /retry-discovery
-    web_server.app.state.mqtt_ingest = mqtt_ingest_clients
-    web_server.app.state.farmos_bridge = farmos_bridge
-    web_server.app.state.ecowitt_service = ecowitt_ingest
-    web_server.app.state.supervisor = supervisor
-    web_server.app.state.data_logger = data_logger
-    web_server.app.state.sensor_map = sensor_map
-    web_server.app.state.switch_controllers = switch_controllers
-    
+    runtime_services = RuntimeServices(
+        data_logger=data_logger,
+        sensor_map=sensor_map,
+        switch_controllers=switch_controllers,
+        mqtt_ingest=mqtt_ingest_clients,
+        supervisor=supervisor,
+        farmos_bridge=farmos_bridge,
+        ecowitt_service=ecowitt_ingest,
+        email_notifications=email_notifications,
+        automation_notifications=automation_notifications,
+    )
+    web_server = WebServerController(
+        settings, net_mgr, supervisor, gc_mgr, mqtt_ingest_clients,
+        runtime_services=runtime_services,
+    )
+
     server_task = None
     shutdown_task = None
     try:
         await web_server.initialize_server()
-        automation_notifications.set_dashboard_broadcast(web_server.app.state.switch_broadcast)
         server_task = asyncio.create_task(web_server.run_async())
         if shutdown_requested is None:
             await server_task
