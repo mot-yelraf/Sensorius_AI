@@ -16,6 +16,15 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from .saiInputUnits import display_automation_values
+from .saiAutomationEvaluation import (
+    AutomationConditionEvaluator,
+    CalendarEvaluationState,
+    evaluate_condition_groups,
+    evaluate_switch_groups,
+    time_in_window,
+    compare_with_hysteresis,
+    split_condition_groups,
+)
 from .saiUtils import printDM, debug_enabled, get_timestamp
 from .saiSwitchFactory import create_switch
 from .saiMQTTClient import get_mqtt_client
@@ -635,16 +644,8 @@ class SwitchController:
         return []
 
     def _time_in_window(self, start: str, end: str, now_str: str) -> bool:
-        # Inclusive start, exclusive end: [start, end)
-        if not start and not end:
-            return True
-        s = (start or "00:00")
-        e = (end or "24:00")
-        if s == "00:00" and e == "00:00":
-            # Treat midnight-to-midnight as an explicit all-day window.
-            return True
-        # handle wrap-around (e.g., 22:00–06:00)
-        return (s <= now_str < e) if s <= e else (now_str >= s) or (now_str < e)
+        """Delegate the established time in window policy."""
+        return time_in_window(start, end, now_str)
 
     def _ip_geolocate(self, timeout_s: float = 2.5) -> dict | None:
         """
@@ -1162,25 +1163,8 @@ class SwitchController:
             return {"Advanced": {}}
 
     def _compare_with_hysteresis(self, op: str, actual: float, threshold: float, hyst: float, current_state: bool) -> bool:
-        """
-        Return the desired state (True/False) using hysteresis around threshold.
-        For op ">", turns ON above (threshold+hyst), turns OFF below (threshold-hyst).
-        For op "<", turns ON below (threshold-hyst), turns OFF above (threshold+hyst).
-        """
-        op = (op or ">").strip()
-        hi = threshold + hyst
-        lo = threshold - hyst
-
-        if op == ">":
-            return (actual > hi) if not current_state else (actual > lo)
-        elif op == "<":
-            return (actual < lo) if not current_state else (actual < hi)
-        elif op == "==":
-            return (actual == threshold)
-        elif op == "!=":
-            return (actual != threshold)
-        # default (unknown op) → do nothing (keep current)
-        return current_state
+        """Delegate the established compare with hysteresis policy."""
+        return compare_with_hysteresis(op, actual, threshold, hyst, current_state)
 
     def _get_values_for_sensor(self, sensor_id: str, current_values_map: dict) -> dict:
         """
@@ -1865,6 +1849,21 @@ class SwitchController:
 
         return subject, "\n".join(body_lines)
 
+    def _calendar_evaluation_state(self) -> CalendarEvaluationState:
+        """Bind existing calendar tracking maps without copying their contents."""
+        fields = {}
+        for field_name, attribute in (
+            ("transition_keys", "_advanced_bd_transition_keys"),
+            ("transition_segments", "_advanced_bd_transition_segments"),
+            ("datetime_seen", "_advanced_calendar_datetime_seen"),
+        ):
+            value = getattr(self, attribute, None)
+            if not isinstance(value, dict):
+                value = {}
+                setattr(self, attribute, value)
+            fields[field_name] = value
+        return CalendarEvaluationState(**fields)
+
     def _evaluate_and_apply_advanced(self, current_values_map: dict):
         """
         Evaluate [Advanced] rules from automations.toml.
@@ -1937,7 +1936,6 @@ class SwitchController:
         seconds_since_midnight = (
             now_tm.tm_hour * 3600 + now_tm.tm_min * 60 + now_tm.tm_sec
         )
-        bd_condition_results: dict[tuple, tuple[bool, dict]] = {}
         weather_service = getattr(getattr(self, "data_logger", None), "weather_alert_service", None)
         weather_events = weather_service.snapshot()["events"] if weather_service else []
 
@@ -1958,271 +1956,30 @@ class SwitchController:
                 for cond, result in group.get("conditions", [])
             ]) for group in evaluated_groups]
 
-        def _split_condition_groups(conditions: list[dict]) -> list[list[dict]]:
-            """
-            Convert a flat list of conditions (with type:'or' rows as separators)
-            into a list of groups. Each group is a list of non-OR conditions.
-            """
-            groups: list[list[dict]] = []
-            current: list[dict] = []
-            for c in conditions:
-                ctype = str(c.get("type", "") or "").strip().lower()
-                if ctype == "or":
-                    if current:
-                        groups.append(current)
-                        current = []
-                    continue
-                current.append(c)
-            if current:
-                groups.append(current)
-            return groups
+        evaluator = AutomationConditionEvaluator(
+            switch_id=str(getattr(self, "switch_id", "") or ""),
+            now_str=now_str, now_wday=now_wday,
+            seconds_since_midnight=seconds_since_midnight,
+            epoch=lambda: time.time(),
+            values_for_sensor=lambda sensor_id: self._get_values_for_sensor(sensor_id, current_values_map),
+            state_for_label=self.get_state,
+            time_in_window=self._time_in_window,
+            compare_with_hysteresis=self._compare_with_hysteresis,
+            astral_condition=self._eval_astral_condition,
+            calendar_snapshot=self._get_calendar_snapshot,
+            biodynamic_transition=self._get_current_biodynamic_transition,
+            calendar_state=self._calendar_evaluation_state(),
+            weather_events=weather_events, debug=DEBUG, log=printDM,
+        )
 
-        def _eval_single_condition(
-            cond: dict,
-            target_label: str,
-            current_action_state: bool | None = None,
-            rule_id: str = "",
-        ) -> bool:
-            """
-            Evaluate a single condition for a specific target switch label.
-            Uses current_values_map + hysteresis around cond.value where applicable.
-            """
-            ctype = str(cond.get("type", "") or "").strip().lower()
-
-            if ctype == "severe_weather":
-                cond["_weather_events"] = weather_events
-                return bool(weather_events)
-
-            # --- TIME-OF-DAY CONDITION ---------------------------------------
-            # type == "time"
-            if ctype == "time":
-                start = cond.get("start") or "00:00"
-                end   = cond.get("end")   or "24:00"
-
-                # Optional: restrict to specific weekdays (0=Mon..6=Sun)
-                # If 'days' is missing or empty, treat as "all days".
-                raw_days = cond.get("days") or []
-                allowed_days: list[int] = []
-                for d in raw_days:
-                    try:
-                        n = int(d)
-                    except Exception:
-                        continue
-                    if 0 <= n <= 6:
-                        allowed_days.append(n)
-
-                if allowed_days and (now_wday not in allowed_days):
-                    return False
-
-                return self._time_in_window(start, end, now_str)
-
-            # --- ASTRAL CONDITION --------------------------------------------
-            # type == "astral"
-            if ctype == "astral":
-                return self._eval_astral_condition(cond)
-
-            # --- TIMER CONDITION ----------------------------------------------
-            # type == "timer"
-            if ctype == "timer":
-                # duration_min: active window length in minutes
-                # period_min:   repeat period in minutes
-                # freq_hours:   legacy hourly repeat period
-                try:
-                    duration_min = int(cond.get("duration_min") or 0)
-                except Exception:
-                    duration_min = 0
-                try:
-                    freq_hours = int(cond.get("freq_hours") or 0)
-                except Exception:
-                    freq_hours = 0
-                try:
-                    period_min = int(cond.get("period_min") or 0)
-                except Exception:
-                    period_min = 0
-                if period_min <= 0 and freq_hours > 0:
-                    period_min = freq_hours * 60
-                try:
-                    anchor_epoch = int(cond.get("anchor_epoch") or 0)
-                except Exception:
-                    anchor_epoch = 0
-
-                if duration_min <= 0 or period_min <= 0 or duration_min >= period_min:
-                    return False
-
-                period_sec = max(period_min, 1) * 60
-                duration_sec = max(1, min(duration_min * 60, period_sec - 1))
-
-                if anchor_epoch > 0:
-                    phase = max(0, int(time.time()) - anchor_epoch) % period_sec
-                else:
-                    # Preserve legacy on-the-hour alignment for hourly timers.
-                    phase = seconds_since_midnight % period_sec
-                return phase < duration_sec
-
-            # --- CALENDAR EVENT CONDITIONS -----------------------------------
-            if ctype in {"bd_transitions", "calendar"}:
-                executor_sid = str(cond.get("executor_switch_id", "") or "").strip()
-                own_sid = str(getattr(self, "switch_id", "") or "").strip()
-                if ctype == "bd_transitions" and executor_sid and executor_sid.lower() != own_sid.lower():
-                    return False
-                kind = cond.get("calendar_kind", "bd_transitions") if ctype == "calendar" else "bd_transitions"
-                selected = str(cond.get("calendar_event", "all"))
-                state_key = (str(rule_id or "calendar"), ctype, kind, selected, str(cond.get("calendar_at", "")))
-                event_field = "_lunar_event" if kind == "lunar_events" else "_calendar_event" if kind in {"season", "date_time"} else "_bd_transition"
-                if state_key in bd_condition_results:
-                    result, event = bd_condition_results[state_key]
-                    if event:
-                        cond[event_field] = event
-                    return result
-                if kind == "date_time":
-                    try:
-                        target = datetime.fromisoformat(str(cond.get("calendar_at", "")))
-                        if target.tzinfo is None:
-                            return False
-                    except (TypeError, ValueError):
-                        return False
-                    due = time.time() >= target.timestamp()
-                    seen = getattr(self, "_advanced_calendar_datetime_seen", None)
-                    if not isinstance(seen, dict):
-                        seen = self._advanced_calendar_datetime_seen = {}
-                    was_due = seen.get(state_key, due)
-                    seen[state_key] = bool(was_due or due)
-                    triggered = due and not was_due
-                    event = {"transition_at": target.isoformat(), "event_key": "date_time:" + target.isoformat(),
-                             "name": "Sensorius Calendar Event", "description": "Scheduled calendar event.",
-                             "context": "Scheduled Sensorius calendar event; " + str(cond.get("calendar_timezone", ""))}
-                    bd_condition_results[state_key] = (triggered, event if triggered else {})
-                    if triggered:
-                        cond[event_field] = event
-                    return triggered
-                if kind not in {"lunar_events", "season", "bd_transitions"}:
-                    return False
-                snapshot = self._get_calendar_snapshot() if kind in {"lunar_events", "season"} else {}
-                if kind == "lunar_events":
-                    transition = snapshot.get("lunar_event") or {}
-                elif kind == "season":
-                    transition = snapshot.get("season_event") or {}
-                else:
-                    transition = self._get_current_biodynamic_transition()
-                transition_key = str(transition.get("transition_at") or "").strip()
-                if kind in {"lunar_events", "season"} and transition_key:
-                    # Searches with a new daily window can differ by fractions
-                    # of a second; the same phase must keep a stable identity.
-                    transition_key = str(transition.get("event_key") or transition_key)
-                transition_keys = getattr(self, "_advanced_bd_transition_keys", None)
-                if not isinstance(transition_keys, dict):
-                    transition_keys = self._advanced_bd_transition_keys = {}
-                transition_segments = getattr(self, "_advanced_bd_transition_segments", None)
-                if not isinstance(transition_segments, dict):
-                    transition_segments = self._advanced_bd_transition_segments = {}
-                previous_key = transition_keys.get(state_key)
-                previous_segment = transition_segments.get(state_key)
-                triggered = bool(transition_key and previous_key and transition_key != previous_key)
-                if transition_key:
-                    transition_keys[state_key] = transition_key
-                    transition_segments[state_key] = {
-                        key: str(transition.get(key) or "")
-                        for key in ("sign", "element", "plant_part", "color", "accent")
-                    }
-                event = {}
-                if kind in {"lunar_events", "season"}:
-                    triggered = triggered and selected in {"all", transition.get("phase" if kind == "lunar_events" else "season")}
-                    if triggered:
-                        event = dict(transition)
-                        cond[event_field] = event
-                elif kind == "bd_transitions":
-                    if ctype == "calendar":
-                        # Midnight splits a day's rendering; it is not a new BD event.
-                        changed = any((previous_segment or {}).get(key) != transition.get(key)
-                                      for key in ("sign", "element", "plant_part"))
-                        triggered = triggered and changed and selected in {"all", str(transition.get("element", "")).lower()}
-                    if triggered:
-                        event = {"transition_at": transition_key, "from": dict(previous_segment or {}),
-                                 "to": dict(transition_segments[state_key])}
-                        cond["_bd_transition"] = event
-                        if ctype == "bd_transitions":
-                            self._broadcast_biodynamic_transition(event)
-                else:
-                    triggered = False
-                bd_condition_results[state_key] = (triggered, event)
-                return triggered
-
-            # --- SENSOR CONDITION ---------------------------------------------
-            if ctype == "sensor":
-                sensor_id = str(cond.get("sensor", "") or "").strip()
-                metric    = str(cond.get("metric", "") or "").strip()
-                if not sensor_id or not metric:
-                    return False
-
-                # Pull latest values for that sensor (live → cache → DB)
-                vals = self._get_values_for_sensor(sensor_id, current_values_map)
-                if not vals:
-                    if DEBUG:
-                        printDM(
-                            f"[advanced] {self.switch_id}: no values for sensor '{sensor_id}'",
-                            location=MODULE,
-                        )
-                    return False
-
-                # Try exact metric first, then a lenient normalized match
-                actual = None
-                if metric in vals:
-                    actual = vals[metric]
-                else:
-                    key_norm = (
-                        metric.lower()
-                        .replace("-", "")
-                        .replace("_", "")
-                        .replace(" ", "")
-                    )
-                    for k, v in vals.items():
-                        if not k:
-                            continue
-                        if (
-                            k.lower()
-                            .replace("-", "")
-                            .replace("_", "")
-                            .replace(" ", "")
-                            == key_norm
-                        ):
-                            actual = v
-                            break
-                if actual is None:
-                    if DEBUG:
-                        printDM(
-                            f"[advanced] {self.switch_id}: metric '{metric}' not found; "
-                            f"keys={list(vals.keys())[:8]}",
-                            location=MODULE,
-                        )
-                    return False
-
-                try:
-                    actual_f   = float(actual)
-                    threshold  = float(cond.get("value"))
-                except Exception:
-                    return False
-
-                try:
-                    hyst = float(cond.get("hyst", 0) or 0)
-                except Exception:
-                    hyst = 0.0
-
-                op = str(cond.get("op", ">") or ">").strip()
-                curr_state = (
-                    bool(current_action_state)
-                    if current_action_state is not None
-                    else bool(self.get_state(target_label))
-                )
-
-                # Interpret "condition truth" as "this condition alone wants the
-                # channel to be ON" using hysteresis around the threshold.
-                desired_for_cond = self._compare_with_hysteresis(
-                    op, actual_f, threshold, hyst, curr_state
-                )
-                return bool(desired_for_cond)
-
-            # Unknown condition type → treat as False (safe default)
-            return False
+        def _eval_single_condition(cond, target_label, current_action_state=None, rule_id=""):
+            matched = evaluator.evaluate(cond, target_label, current_action_state, rule_id)
+            # Legacy BD conditions request a toast at the same point in the
+            # condition traversal; only the controller delivers that effect.
+            notifications = evaluator.biodynamic_notifications
+            while notifications:
+                self._broadcast_biodynamic_transition(notifications.pop(0))
+            return matched
 
         now_mono = time.monotonic()
         pending_actions = getattr(self, "_advanced_delay_due", None)
@@ -2243,7 +2000,6 @@ class SwitchController:
         if not isinstance(webui_states, dict):
             webui_states = {}
             self._advanced_webui_states = webui_states
-        persist_active_actions = False
 
         action_evals: dict[tuple[str, str, str, bool], dict] = {}
 
@@ -2282,7 +2038,7 @@ class SwitchController:
                 has_weather = any(str(cond.get("type", "")).lower() == "severe_weather" for cond in conditions)
 
                 # Build AND groups separated by OR markers
-                groups = _split_condition_groups(conditions)
+                groups = split_condition_groups(conditions)
                 if not groups:
                     continue
 
@@ -2329,26 +2085,10 @@ class SwitchController:
                             continue
                         notification_key = (str(_rule_id), executor_sid or own_sid)
                         was_active = bool(webui_states.get(notification_key, False))
-                        evaluated_groups = []
-                        for group in groups:
-                            evaluated_conditions = []
-                            group_ok = True
-                            for cond in group:
-                                condition_ok = bool(
-                                    _eval_single_condition(
-                                        cond,
-                                        "",
-                                        current_action_state=was_active,
-                                        rule_id=str(_rule_id),
-                                    )
-                                )
-                                evaluated_conditions.append((cond, condition_ok))
-                                if not condition_ok:
-                                    group_ok = False
-                            evaluated_groups.append({
-                                "result": group_ok,
-                                "conditions": evaluated_conditions,
-                            })
+                        evaluated_groups = evaluate_condition_groups(
+                            groups, _eval_single_condition, target_label="",
+                            current_action_state=was_active, rule_id=str(_rule_id),
+                        )
                         rule_ok = any(
                             bool(group.get("result", False))
                             for group in evaluated_groups
@@ -2401,28 +2141,10 @@ class SwitchController:
                             )
                         else:
                             was_active = bool(notify_states.get(notify_key, False))
-                        evaluated_groups = []
-                        for group in groups:
-                            evaluated_conditions = []
-                            group_ok = True
-                            for cond in group:
-                                condition_ok = bool(
-                                    _eval_single_condition(
-                                        cond,
-                                        "",
-                                        current_action_state=was_active,
-                                        rule_id=str(_rule_id),
-                                    )
-                                )
-                                evaluated_conditions.append((cond, condition_ok))
-                                if not condition_ok:
-                                    group_ok = False
-                            evaluated_groups.append(
-                                {
-                                    "result": group_ok,
-                                    "conditions": evaluated_conditions,
-                                }
-                            )
+                        evaluated_groups = evaluate_condition_groups(
+                            groups, _eval_single_condition, target_label="",
+                            current_action_state=was_active, rule_id=str(_rule_id),
+                        )
                         rule_ok = any(
                             bool(group.get("result", False))
                             for group in evaluated_groups
@@ -2555,18 +2277,10 @@ class SwitchController:
                         continue
 
                     # AND inside group, OR across groups
-                    group_results = []
-                    for group in groups:
-                        grp_ok = True
-                        for cond in group:
-                            if not _eval_single_condition(
-                                cond,
-                                target_label,
-                                rule_id=str(_rule_id),
-                            ):
-                                grp_ok = False
-                                break
-                        group_results.append(grp_ok)
+                    group_results = evaluate_switch_groups(
+                        groups, _eval_single_condition, target_label=target_label,
+                        rule_id=str(_rule_id),
+                    )
 
                     rule_ok = any(group_results)
                     desired = bool(act.get("set", True))
@@ -2598,6 +2312,19 @@ class SwitchController:
 
             except Exception as e:
                 printDM(f"[advanced] rule error: {e}", location=MODULE)
+
+        self._apply_advanced_action_evaluations(
+            action_evals, now_mono=now_mono, pending_actions=pending_actions,
+            active_actions=active_actions, weather_service=weather_service,
+            debug_cycle_verbose=debug_cycle_verbose,
+        )
+
+    def _apply_advanced_action_evaluations(
+        self, action_evals: dict, *, now_mono: float, pending_actions: dict,
+        active_actions: dict, weather_service, debug_cycle_verbose: bool,
+    ) -> None:
+        """Apply evaluated switch actions, delays, and previous-state reverts."""
+        persist_active_actions = False
 
         def _revert_active_action(action_key: tuple[str, str, str, bool], active: dict) -> bool:
             nonlocal persist_active_actions
