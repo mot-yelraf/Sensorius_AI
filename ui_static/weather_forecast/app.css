@@ -518,6 +518,13 @@ body.caelus-theme-preview-mode .dashboard-return { opacity: 0; pointer-events: n
 .reading-hero .temperature-number { font-size: clamp(3.25rem, 15cqw, 6.5rem); }
 .reading-hero p { margin: 0.65rem 0 0; color: var(--muted); font-size: 0.72rem; }
 .reading-primary p { white-space: normal; }
+.current-thermal { display: flex; flex-wrap: wrap; gap: 0.5rem 1.2rem; margin: 0.8rem 0; white-space: normal; }
+.current-thermal[hidden] { display: none; }
+.current-thermal span, .current-thermal strong { display: block; }
+.current-thermal span { color: var(--muted); font-size: 0.62rem; }
+.current-thermal strong { margin-top: 0.15rem; font-size: 0.9rem; }
+.thermal-legend { margin: 0.4rem 1.4rem 0; text-align: right; color: var(--muted); font-size: 0.5rem; }
+.thermal-legend + .hourly-carousel { margin-top: 0.35rem; }
 .weather-symbol.compact-symbol { position: relative; top: auto; left: auto; width: 8rem; height: 7rem; transform: none; }
 .compact-symbol .symbol-sun { width: 5rem; height: 5rem; }
 .compact-symbol .symbol-cloud { width: 6.5rem; height: 2.4rem; bottom: 0.6rem; }

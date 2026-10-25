@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
-// Heights measured on the existing card before adding the RH and wind rows.
-const cardBudgets = [{ width: 1440, height: 546 }, { width: 1024, height: 580 }, { width: 390, height: 779 }];
+// Allow the added FL/WC rows and legend while keeping all forecast content bounded.
+const cardBudgets = [{ width: 1440, height: 546 }, { width: 1024, height: 620 }, { width: 390, height: 810 }];
 for (const budget of cardBudgets) {
   test(`Caelus daily ranges fit the existing card at ${budget.width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: budget.width, height: 1000 });
@@ -83,4 +83,51 @@ test('historical averages load asynchronously and show missing values without ch
   await expect(row).toHaveAttribute('data-status', 'unavailable', { timeout: 10000 });
   await expect(row.locator('[data-history-value]')).toHaveText(Array(4).fill('Min —Max —Avg —'));
   expect((await page.locator('.forecast-panel').boundingBox()).height).toBe(height);
+});
+
+
+for (const width of [1440, 390]) {
+  test(`thermal readings and hourly estimates render at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.route('**/*', route => ['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname) ? route.continue() : route.abort());
+    for (const station of ['ecowitt-pr-check', 'weewx-station', 'custom-weather-station', 'aht-local']) {
+      for (const units of ['Imperial', 'Metric']) {
+        await page.goto(`/weather-forecast?thermal=true&station=${station}&units=${units}`);
+        const current = page.locator('[data-readings-thermal]');
+        if (station === 'aht-local') {
+          await expect(current).toBeHidden();
+        } else {
+          await expect(current).toBeVisible();
+          await expect(current).toContainText(units === 'Imperial' ? 'Feels Like5.9 °FWind Chill6.2 °F' : 'Feels Like-14.5 °CWind Chill-14.3 °C');
+          expect(await current.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+        }
+        const hour = page.locator('.forecast-hour:visible').first();
+        await expect(hour.locator('[aria-label="Feels Like"]')).toContainText(units === 'Imperial' ? 'FL 87.6°F' : 'FL 30.9°C');
+        await expect(hour.locator('[aria-label="Wind Chill"]')).toHaveText('WC —');
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        if (station === 'ecowitt-pr-check') {
+          await page.locator('.conditions-row').screenshot({ path: testInfo.outputPath(`thermal-${width}-${units}.png`) });
+        }
+      }
+    }
+  });
+}
+
+
+test('thermal current readings refresh and clear when the selection changes', async ({ page }) => {
+  await page.clock.install();
+  let thermal = [{ key: 'feels_like', name: 'Feels Like', value: 37.3, unit: '°F' }, { key: 'wind_chill', name: 'Wind Chill', value: null, unit: '°F' }];
+  await page.route('**/api/weather-forecast-app/current-readings', route => route.fulfill({ json: {
+    ok: true, sensor_id: 'weewx-station', is_weewx: true,
+    display_metrics: [{ name: 'Temperature_F', value: 39.9, unit: '°F' }],
+    thermal_metrics: thermal, refresh_interval_sec: 60,
+  } }));
+  await page.goto('/weather-forecast?thermal=true');
+  const current = page.locator('[data-readings-thermal]');
+  await page.clock.fastForward(61000);
+  await expect(current).toHaveText('Feels Like37.3 °FWind Chill—');
+  thermal = [];
+  await page.clock.fastForward(61000);
+  await expect(current).toBeHidden();
+  await expect(current).toBeEmpty();
 });

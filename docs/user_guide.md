@@ -1416,6 +1416,17 @@ cycle. These tiles stack on narrow screens. The display also provides
 theme-matched six-day details. It reuses the Sensorius forecast and does not
 maintain a separate settings file or readings database.
 
+For an Ecowitt or WeeWX station with outdoor temperature readings, **Feels Like**
+and **Wind Chill** appear beneath the primary current reading. Hourly forecasts
+also show **FL** and **WC** beneath each temperature. Values follow Metric or
+Imperial display units. Feels Like uses the Steadman shade approximation with
+outdoor temperature, RH from 0–100%, and nonnegative station wind speed; it does
+not account for direct sunlight or adjust wind for sensor height. Wind Chill
+uses the NWS formula only at temperatures at or below 50°F (10°C) with wind
+above 3 mph (4.83 km/h). Missing or invalid inputs and inapplicable Wind Chill
+show **—**. Gateway and indoor temperature readings do not qualify. These
+estimates are calculated for the Caelus display without adding stored readings.
+
 Today's forecast includes a compact **Historical Min, Max, Avg** section
 beneath its expected ranges, with temperature, RH, wind, and rain in the same
 column order. These are statistics for the same calendar date at the hub's
