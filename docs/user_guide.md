@@ -1531,6 +1531,7 @@ Integrated calendar fields and controls:
 - **Twelve-Month Overview**: shows a longer planning range assembled from the shared background cache.
 - **Selected Day header**: shows the selected date with its local sunrise and sunset times on the right, followed by its hours of daylight.
 - **Daily Summary**: explains the selected day, including biodynamic focus and relevant timing.
+- **Midnight rollover**: on the next automatic refresh (normally within one minute), the calendar returns to the current month and selects the new current day in the configured calendar timezone, even if another day was selected. The selected facts, Daily Summary, notes, and planting context update together. Sleeping devices or suspended tabs update when refreshes resume.
 - **Plantings**:
 
   - **Plant**: crop or plant name, such as Tomato.
