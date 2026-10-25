@@ -724,6 +724,13 @@ class AutomationNotificationService:
         self.supervisor = supervisor
         self.interval_sec = max(1.0, float(interval_sec))
         self._controller = None
+        self.dashboard_broadcast = None
+
+    def set_dashboard_broadcast(self, broadcaster) -> None:
+        """Bind dashboard delivery for both existing and future system actors."""
+        self.dashboard_broadcast = broadcaster
+        if self._controller is not None:
+            self._controller.dashboard_broadcast = broadcaster
 
     def _get_controller(self):
         if self._controller is not None:
@@ -734,6 +741,7 @@ class AutomationNotificationService:
         from .saiSwitch import SwitchController
 
         controller = SwitchController.__new__(SwitchController)
+        controller.dashboard_broadcast = self.dashboard_broadcast
         controller.supervisor = self.supervisor
         controller.sensor = None
         controller.settings = {}

@@ -804,6 +804,7 @@ async def main(shutdown_requested: Event | None = None):
     shutdown_task = None
     try:
         await web_server.initialize_server()
+        automation_notifications.set_dashboard_broadcast(web_server.app.state.switch_broadcast)
         server_task = asyncio.create_task(web_server.run_async())
         if shutdown_requested is None:
             await server_task

@@ -16,7 +16,6 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-import sensorius
 
 if "paho" not in sys.modules:
     paho_mod = types.ModuleType("paho")
@@ -34,15 +33,6 @@ import sensorius.saiSensorSettingsManager as saiSensorSettingsManager
 import sensorius.saiSettings as saiSettings
 import sensorius.saiSwitchSettingsManager as saiSwitchSettingsManager
 
-
-def _install_routes_stub(monkeypatch, switch_broadcast):
-    routes_stub = types.SimpleNamespace(
-        app=types.SimpleNamespace(
-            state=types.SimpleNamespace(switch_broadcast=switch_broadcast)
-        )
-    )
-    monkeypatch.setitem(sys.modules, "sensorius.saiWebRoutes", routes_stub)
-    monkeypatch.setattr(sensorius, "saiWebRoutes", routes_stub, raising=False)
 
 
 def _fake_topic_filter_matches(topic_filter: str, topic: str) -> bool:
@@ -1245,7 +1235,7 @@ def test_confirmed_nodus_state_broadcasts_live_switch_event(monkeypatch):
     async def _fake_broadcast(payload):
         pushed.append(payload)
 
-    _install_routes_stub(monkeypatch, _fake_broadcast)
+    ingest.dashboard_broadcast = _fake_broadcast
     ingest._schedule_coro = lambda coro: asyncio.run(coro)
 
     ingest.handle_nodus_switch_topic("nodus/S1-sw1/state", "OFF")
@@ -3246,7 +3236,7 @@ def test_nodus_meta_patch_last_state_broadcasts_live_switch_update(tmp_path, mon
     async def _fake_broadcast(payload):
         pushed.append(payload)
 
-    _install_routes_stub(monkeypatch, _fake_broadcast)
+    ingest.dashboard_broadcast = _fake_broadcast
     ingest._schedule_coro = lambda coro: asyncio.run(coro)
 
     meta_payload = json.dumps(
@@ -3338,7 +3328,7 @@ def test_device_event_broadcast_includes_channel_ui_key(monkeypatch):
     async def _fake_broadcast(payload):
         pushed.append(payload)
 
-    _install_routes_stub(monkeypatch, _fake_broadcast)
+    ingest.dashboard_broadcast = _fake_broadcast
 
     ingest.handle_switch_event_device(
         "switch/switch-oqs3lr-GP28/event",
@@ -4292,7 +4282,7 @@ def test_repeated_reports_keep_recorded_transition_after_origin_expires(tmp_path
     async def broadcast(payload):
         pushed.append(payload)
 
-    _install_routes_stub(monkeypatch, broadcast)
+    ingest.dashboard_broadcast = broadcast
     ingest._schedule_coro = lambda coro: asyncio.run(coro)
     try:
         ingest.handle_nodus_switch_topic('nodus/S1-test123/state', 'ON')
@@ -4335,3 +4325,41 @@ def test_switch_patch_preserves_only_correlated_command_reason(monkeypatch, matc
              ]}
     ingest._on_message(ingest.client, None, _Msg('nodus/avpd-test123/meta/patch', json.dumps(patch)))
     assert ingest.data_logger.switch_events[-1]['source'] == ('mqtt-auto:Cooling' if matching_message else 'switch_set')
+
+
+def test_liveness_extraction_preserves_state_maps_and_passive_recovery(monkeypatch):
+    ingest = _build_ingest(monkeypatch)
+    host = "aht-test123"
+    now = 1000.0
+    monkeypatch.setattr(ingest_mod.time, "time", lambda: now)
+    updates = []
+    ingest.register_liveness_callback(lambda base, status, snapshot: updates.append((base, status)))
+    pubs_before = list(ingest.client.pubs)
+    subs_before = list(ingest.client.subs)
+    def receive_heartbeat():
+        ingest._on_message(ingest.client, None, _Msg(
+            f"nodus/{host}/status/heartbeat",
+            json.dumps({"timestamp": now, "heartbeat_interval_s": 30, "status": "online"}),
+        ))
+
+    receive_heartbeat()
+    assert ingest.get_nodus_liveness(host)["state"] == "online"
+    # Advance time without traffic, then apply the same passive status update
+    # used by the discovery loop. A new live receipt restores online status.
+    for elapsed, expected in [(61, "degraded"), (90, "offline")]:
+        now = 1000.0 + elapsed
+        state = ingest.get_nodus_liveness(host)["state"]
+        assert state == expected
+        ingest._mark_host_status(host, state)
+    now = 1100.0
+    receive_heartbeat()
+    assert ingest.get_nodus_liveness(host)["state"] == "online"
+    assert updates == [(host, state) for state in ("unknown", "online", "degraded", "offline", "online")]
+    assert ingest.client.pubs == pubs_before
+    assert ingest.client.subs == subs_before
+    assert ingest.device_status is ingest._get_liveness().device_status
+    replacement = {host: now}
+    ingest.last_mqtt_seen = replacement
+    assert ingest._get_liveness().last_mqtt_seen is replacement
+    ingest.last_mqtt_seen.pop(host)
+    assert host not in ingest._get_liveness().last_mqtt_seen

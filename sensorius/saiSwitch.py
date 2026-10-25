@@ -66,7 +66,9 @@ def is_remote_switch_settings(switch_settings) -> bool:
 class SwitchController:
     """Control local switch channels through the shared switch contract."""
 
-    def __init__(self, switch_settings=None, supervisor=None, sensor=None, data_logger=None):
+    def __init__(self, switch_settings=None, supervisor=None, sensor=None, data_logger=None, dashboard_broadcast=None):
+        """Initialize switch control with an optional async dashboard callback."""
+        self.dashboard_broadcast = dashboard_broadcast
         self.supervisor = supervisor
         self.sensor = sensor
         self.settings = switch_settings or {}
@@ -828,11 +830,7 @@ class SwitchController:
             sensor_id=sensor_lineage
         )
         try:
-            # late import, then get the live FastAPI app via routes
-            from . import saiWebRoutes as routes
-            bcast = getattr(routes, "app", None)
-            # when register_routes ran we stashed the coroutine on app.state
-            switch_broadcast = getattr(getattr(bcast, "state", object()), "switch_broadcast", None)
+            switch_broadcast = getattr(self, "dashboard_broadcast", None)
             if switch_broadcast:
                 # fire and forget
                 import asyncio
@@ -1550,14 +1548,7 @@ class SwitchController:
     def _broadcast_biodynamic_transition(self, transition: dict) -> None:
         """Publish a biodynamic transition to connected dashboard clients."""
         try:
-            from . import saiWebRoutes as routes
-
-            bcast = getattr(routes, "app", None)
-            switch_broadcast = getattr(
-                getattr(bcast, "state", object()),
-                "switch_broadcast",
-                None,
-            )
+            switch_broadcast = getattr(self, "dashboard_broadcast", None)
             if not switch_broadcast:
                 printDM(
                     "[advanced] BD transition toast unavailable: dashboard broadcaster is not registered",
@@ -1590,13 +1581,7 @@ class SwitchController:
     ) -> bool:
         """Publish a no-switch automation activation to dashboard clients."""
         try:
-            from . import saiWebRoutes as routes
-
-            broadcaster = getattr(
-                getattr(getattr(routes, "app", None), "state", object()),
-                "switch_broadcast",
-                None,
-            )
+            broadcaster = getattr(self, "dashboard_broadcast", None)
             if not callable(broadcaster) and weather_actor_key is None:
                 printDM(
                     "[advanced] Web UI notification unavailable: dashboard broadcaster is not registered",
@@ -2931,11 +2916,12 @@ class SwitchController:
 class RemoteSwitchController(SwitchController):
     """MQTT-backed switch controller for remote Nodus/Pico devices."""
 
-    def __init__(self, switch_settings=None, supervisor=None, sensor=None, mqtt_ingest=None, data_logger=None):
+    def __init__(self, switch_settings=None, supervisor=None, sensor=None, mqtt_ingest=None, data_logger=None, dashboard_broadcast=None):
+        """Initialize MQTT switch control with optional dashboard notifications."""
         self.is_remote = True
         self.mqtt_ingest = mqtt_ingest
         self._settings_signature = None
-        super().__init__(switch_settings=switch_settings, supervisor=supervisor, sensor=sensor, data_logger=data_logger)
+        super().__init__(switch_settings=switch_settings, supervisor=supervisor, sensor=sensor, data_logger=data_logger, dashboard_broadcast=dashboard_broadcast)
 
     def _capture_settings_signature(self, sw_block: dict) -> tuple:
         sig: list[tuple[str, object]] = []
@@ -3071,12 +3057,13 @@ class RemoteSwitchController(SwitchController):
         return super().set_state(name, on, force=force, event_source=event_source)
 
 
-def build_switch_controller(*, switch_settings=None, supervisor=None, sensor=None, mqtt_ingest=None, data_logger=None):
-    """Build the appropriate local or remote shared switch controller."""
+def build_switch_controller(*, switch_settings=None, supervisor=None, sensor=None, mqtt_ingest=None, data_logger=None, dashboard_broadcast=None):
+    """Build a shared controller, optionally supplying its async dashboard callback."""
     if _switch_type_from_settings(switch_settings) == "ecowitt":
         from .saiEcowittSwitch import EcowittSwitchController
         return EcowittSwitchController(
-            switch_settings=switch_settings, supervisor=supervisor, sensor=sensor, data_logger=data_logger,
+            switch_settings=switch_settings, supervisor=supervisor, sensor=sensor,
+            data_logger=data_logger, dashboard_broadcast=dashboard_broadcast,
         )
     if is_remote_switch_settings(switch_settings):
         return RemoteSwitchController(
@@ -3085,10 +3072,12 @@ def build_switch_controller(*, switch_settings=None, supervisor=None, sensor=Non
             sensor=sensor,
             mqtt_ingest=mqtt_ingest,
             data_logger=data_logger,
+            dashboard_broadcast=dashboard_broadcast,
         )
     return SwitchController(
         switch_settings=switch_settings,
         supervisor=supervisor,
         sensor=sensor,
         data_logger=data_logger,
+        dashboard_broadcast=dashboard_broadcast,
     )

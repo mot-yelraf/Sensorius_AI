@@ -28,6 +28,13 @@ from zoneinfo import ZoneInfo
 from .saiUtils import printDM, debug_enabled, get_timestamp, normalize_hostname_base, mdns_hostname
 from .saiDataLogger import SENSOR_EVENT_STATE_OFFLINE, SENSOR_EVENT_TYPE_LIVENESS, saiDataLogger, build_switch_key
 from .saiRuntimePaths import resolve_runtime_base_dir
+from .saiNodusLiveness import (
+    NodusLiveness,
+    DEFAULT_HEARTBEAT_INTERVAL_S,
+    MIN_HEARTBEAT_INTERVAL_S,
+    HEARTBEAT_STALE_AFTER_S,
+    HEARTBEAT_CLOCK_SKEW_TOLERANCE_S,
+)
 from .sensor_modules.station_weewx import (
     DEFAULT_MQTT_TOPIC as WEEWX_DEFAULT_MQTT_TOPIC,
     DEFAULT_SENSOR_ID as WEEWX_DEFAULT_SENSOR_ID,
@@ -47,10 +54,6 @@ _NODUS_FAMILY_PREFIXES = {
 
 MODULE = "saiMQTTIngest"
 DEBUG = debug_enabled(MODULE)
-DEFAULT_HEARTBEAT_INTERVAL_S = 30.0
-MIN_HEARTBEAT_INTERVAL_S = 10.0
-HEARTBEAT_STALE_AFTER_S = 90.0
-HEARTBEAT_CLOCK_SKEW_TOLERANCE_S = 15.0
 LEGACY_POLLER_SUNSET_DATE = "2026-06-30"
 NODUS_SWITCH_COMMAND_INFLIGHT_TTL_S = 45.0
 NODUS_SWITCH_COMMAND_FAILED_COOLDOWN_S = 5.0
@@ -295,7 +298,9 @@ def get_current_ingest():
 class saiMQTTIngest:
     """Ingest MQTT discovery, readings, commands, and Nodus state shadows."""
 
-    def __init__(self, broker="localhost", client_id="rpi_ingest", mqtt_clients=None, supervisor=None, settings=None, data_logger=None):
+    def __init__(self, broker="localhost", client_id="rpi_ingest", mqtt_clients=None, supervisor=None, settings=None, data_logger=None, dashboard_broadcast=None):
+        """Initialize MQTT ingest with an optional async dashboard callback."""
+        self.dashboard_broadcast = dashboard_broadcast
         self._started = False
         self._ha_subscriptions = {}
         self.ha_connection_generation = 0
@@ -350,22 +355,15 @@ class saiMQTTIngest:
         self._host_ip_cache: dict[str, str] = {}
         self._host_ipv4addr: dict[str, str] = {}
         self.discovery_failures = {}  # track failures by hostname, time.monotonic()
-        self.device_status = {}       # track device status by hostname → "online"/"degraded"/"offline"/"unknown"
+        self._liveness = NodusLiveness(clock=lambda: time.time())
         self.device_offline_count = defaultdict(int)  # track device offline by hostname 
         self.discovery_cache: dict[str, dict] = {} # cache of last /itaot per host (optional but handy)
         self.host_to_peer_ids: dict[str, list[str]] = {}  # map host -> [peer_ids] (already guarded in loop, but ensure exists early)
-        self.last_mqtt_seen: dict[str, float] = {}  # last mqtt seen map (guarded elsewhere; set here for safety)
-        self.nodus_availability: dict[str, str] = {}  # host -> "online"|"offline" (from MQTT /availability)
-        self.last_heartbeat_ts: dict[str, float] = {}  # host -> unix epoch seconds from heartbeat payload
         self.last_heartbeat_payload: dict[str, dict] = {}  # host -> last heartbeat payload object
-        self.last_nodus_report_seen: dict[str, float] = {}  # host/peer -> last live heartbeat/data/state/event report
-        self.retained_mqtt_seen: dict[str, float] = {}  # host/peer -> retained broker replay receipt time
         self.nodus_firmware_versions: dict[str, str] = {}  # host/peer id -> firmware version from nodus meta
         self.nodus_board_types: dict[str, str] = {}  # host/peer id -> MCU/board target from nodus meta
         self.nodus_sensor_hardware: dict[str, str] = {}  # host/peer id -> concrete sensor hardware from nodus meta
         self.fwupdate_result_by_device: dict[str, dict] = {}  # device_id/host -> last OTA result payload
-        self.heartbeat_interval_s_by_host: dict[str, float] = {}  # host -> advertised interval
-        self.heartbeat_stale: dict[str, bool] = {}  # host -> heartbeat freshness diagnostic
         self._liveness_status_callbacks: list = []
         # Retained startup replays can include stale hosts. Track repeated retained traffic and
         # only promote to discovery after we see sustained retained data from the same host.
@@ -907,14 +905,87 @@ class saiMQTTIngest:
         """
         return False
 
+    def _get_liveness(self) -> NodusLiveness:
+        # Support compatibility callers that construct an unstarted ingest shell.
+        if not hasattr(self, "_liveness"):
+            self._liveness = NodusLiveness(clock=lambda: time.time())
+        return self._liveness
+
+    @property
+    def device_status(self):
+        """Expose the shared device_status map for compatibility."""
+        return self._get_liveness().device_status
+
+    @device_status.setter
+    def device_status(self, value):
+        self._get_liveness().device_status = value
+
+    @property
+    def last_mqtt_seen(self):
+        """Expose the shared last_mqtt_seen map for compatibility."""
+        return self._get_liveness().last_mqtt_seen
+
+    @last_mqtt_seen.setter
+    def last_mqtt_seen(self, value):
+        self._get_liveness().last_mqtt_seen = value
+
+    @property
+    def retained_mqtt_seen(self):
+        """Expose the shared retained_mqtt_seen map for compatibility."""
+        return self._get_liveness().retained_mqtt_seen
+
+    @retained_mqtt_seen.setter
+    def retained_mqtt_seen(self, value):
+        self._get_liveness().retained_mqtt_seen = value
+
+    @property
+    def last_nodus_report_seen(self):
+        """Expose the shared last_nodus_report_seen map for compatibility."""
+        return self._get_liveness().last_nodus_report_seen
+
+    @last_nodus_report_seen.setter
+    def last_nodus_report_seen(self, value):
+        self._get_liveness().last_nodus_report_seen = value
+
+    @property
+    def nodus_availability(self):
+        """Expose the shared nodus_availability map for compatibility."""
+        return self._get_liveness().nodus_availability
+
+    @nodus_availability.setter
+    def nodus_availability(self, value):
+        self._get_liveness().nodus_availability = value
+
+    @property
+    def last_heartbeat_ts(self):
+        """Expose the shared last_heartbeat_ts map for compatibility."""
+        return self._get_liveness().last_heartbeat_ts
+
+    @last_heartbeat_ts.setter
+    def last_heartbeat_ts(self, value):
+        self._get_liveness().last_heartbeat_ts = value
+
+    @property
+    def heartbeat_interval_s_by_host(self):
+        """Expose the shared heartbeat_interval_s_by_host map for compatibility."""
+        return self._get_liveness().heartbeat_interval_s_by_host
+
+    @heartbeat_interval_s_by_host.setter
+    def heartbeat_interval_s_by_host(self, value):
+        self._get_liveness().heartbeat_interval_s_by_host = value
+
+    @property
+    def heartbeat_stale(self):
+        """Expose the shared heartbeat_stale map for compatibility."""
+        return self._get_liveness().heartbeat_stale
+
+    @heartbeat_stale.setter
+    def heartbeat_stale(self, value):
+        self._get_liveness().heartbeat_stale = value
+
     @staticmethod
     def _normalize_liveness_state(status: str | None) -> str:
-        s = str(status or "").strip().lower()
-        if s in {"online", "degraded", "offline", "unknown", "pending", "migration_required"}:
-            if s == "pending":
-                return "unknown"
-            return s
-        return "unknown"
+        return NodusLiveness.normalize_state(status)
 
     def register_liveness_callback(self, callback) -> None:
         """Register a best-effort callback for Nodus liveness state changes."""
@@ -923,22 +994,9 @@ class saiMQTTIngest:
         if callback not in self._liveness_status_callbacks:
             self._liveness_status_callbacks.append(callback)
 
-    def _record_mqtt_seen(
-        self,
-        key: str | None,
-        *,
-        ts: float | None = None,
-        retain: bool = False,
-        report: bool = False,
-    ) -> None:
-        key_text = str(key or "").strip()
-        if not key_text:
-            return
-        now_v = float(ts if ts is not None else time.time())
-        target = self.retained_mqtt_seen if retain else self.last_mqtt_seen
-        target[key_text] = now_v
-        if not retain and report:
-            self.last_nodus_report_seen[key_text] = now_v
+    def _record_mqtt_seen(self, key: str | None, *, ts: float | None = None,
+                          retain: bool = False, report: bool = False) -> None:
+        self._get_liveness().record_seen(key, ts=ts, retain=retain, report=report)
 
     def _record_host_seen(
         self,
@@ -955,14 +1013,7 @@ class saiMQTTIngest:
         self._record_mqtt_seen(f"{base}.local", ts=ts, retain=retain, report=report)
 
     def _latest_seen(self, keys, source: dict[str, float] | None = None) -> float:
-        source = source or {}
-        latest = 0.0
-        for key in keys or []:
-            try:
-                latest = max(latest, float(source.get(str(key or "").strip(), 0.0) or 0.0))
-            except Exception:
-                continue
-        return latest
+        return self._get_liveness().latest_seen(keys, source)
 
     def _switch_id_for_channel_id(self, channel_id: str | None) -> str:
         ch = str(channel_id or "").strip()
@@ -1065,13 +1116,7 @@ class saiMQTTIngest:
         device_type: str | None = None,
         now_ts: float | None = None,
     ) -> dict:
-        """
-        Return the canonical Nodus liveness snapshot for UI, HA, and commands.
-
-        Availability "offline" is authoritative. Availability "online" is only
-        a hint; fresh heartbeat or fresh data/state/event traffic is required
-        before the device is considered online.
-        """
+        """Return canonical Nodus liveness after resolving discovery identities."""
         dev = str(device_id or "").strip()
         base = self._resolve_liveness_base(dev, device_type=device_type)
         keys = self._liveness_keys_for(dev or base, device_type=device_type)
@@ -1079,122 +1124,26 @@ class saiMQTTIngest:
             for item in (base, f"{base}.local"):
                 if item not in keys:
                     keys.append(item)
-
-        now_v = float(now_ts if now_ts is not None else time.time())
-        state = "unknown"
-        reason = "no_recent_mqtt"
-        availability = None
+        availability_keys = keys
         try:
-            availability_keys = keys
-            if (
-                base in self.nodus_host_sensors
-                and (self._normalize_host_key(dev) or dev) == base
-            ):
+            if base in self.nodus_host_sensors and (self._normalize_host_key(dev) or dev) == base:
                 availability_keys = [base, f"{base}.local"]
-            for key in availability_keys:
-                availability = self._get_nodus_availability(key)
-                if availability:
-                    break
         except Exception:
-            availability = None
-
-        interval = DEFAULT_HEARTBEAT_INTERVAL_S
-        try:
-            interval = float(self.heartbeat_interval_s_by_host.get(base, DEFAULT_HEARTBEAT_INTERVAL_S) or DEFAULT_HEARTBEAT_INTERVAL_S)
-        except Exception:
-            interval = DEFAULT_HEARTBEAT_INTERVAL_S
-        if interval < MIN_HEARTBEAT_INTERVAL_S:
-            interval = MIN_HEARTBEAT_INTERVAL_S
-
-        last_seen = self._latest_seen(keys, self.last_mqtt_seen)
-        retained_seen = self._latest_seen(keys, self.retained_mqtt_seen)
-        report_seen = self._latest_seen(keys, self.last_nodus_report_seen)
-        heartbeat_seen = self._latest_seen(keys, self.last_heartbeat_ts)
-        heartbeat_age_s = (now_v - heartbeat_seen) if heartbeat_seen > 0.0 else None
-        report_age_s = (now_v - report_seen) if report_seen > 0.0 else None
-        last_seen_s = (now_v - last_seen) if last_seen > 0.0 else None
-
-        if availability == "offline":
-            state = "offline"
-            reason = "availability_offline"
-        elif report_seen > 0.0 and (heartbeat_seen <= 0.0 or report_seen >= heartbeat_seen):
-            missed = max(0.0, now_v - report_seen)
-            if missed <= (2.0 * interval):
-                state = "online"
-                reason = "report_recent"
-            elif missed < (3.0 * interval):
-                state = "degraded"
-                reason = "report_stale"
-            else:
-                state = "offline"
-                reason = "report_timeout"
-        elif heartbeat_seen > 0.0:
-            state = self._apply_heartbeat_timeout_state(base or dev, now_ts=now_v)
-            reason = f"heartbeat_{state}"
-            if self.heartbeat_stale.get(base) and state == "online":
-                state = "degraded"
-                reason = "heartbeat_stale"
-        elif availability == "online" and last_seen > 0.0:
-            missed = max(0.0, now_v - last_seen)
-            if missed < (3.0 * interval):
-                state = "degraded"
-                reason = "availability_only"
-            else:
-                state = "offline"
-                reason = "availability_timeout"
-        else:
-            stored = self._normalize_liveness_state(
-                self.device_status.get(base)
-                or self.device_status.get(f"{base}.local")
-                or self.device_status.get(dev)
-            )
-            if stored in {"offline", "degraded"}:
-                state = stored
-                reason = "stored_status"
-
-        peers = []
+            availability_keys = []
         try:
             peers = list((self.host_to_peer_ids or {}).get(base, []) or [])
         except Exception:
             peers = []
-        if dev and dev not in peers:
-            peers.append(dev)
+        return self._get_liveness().snapshot(
+            dev, base=base, keys=keys, availability_keys=availability_keys,
+            peer_ids=peers, now_ts=now_ts,
+        )
 
-        return {
-            "device_id": dev or base,
-            "host": base,
-            "state": self._normalize_liveness_state(state),
-            "reason": reason,
-            "availability": availability,
-            "last_seen_s": round(max(last_seen_s, 0.0), 1) if last_seen_s is not None else None,
-            "last_report_s": round(max(report_age_s, 0.0), 1) if report_age_s is not None else None,
-            "last_heartbeat_s": round(max(heartbeat_age_s, 0.0), 1) if heartbeat_age_s is not None else None,
-            "retained_seen_s": round(max(now_v - retained_seen, 0.0), 1) if retained_seen > 0.0 else None,
-            "heartbeat_stale": bool(self.heartbeat_stale.get(base) or self.heartbeat_stale.get(f"{base}.local")),
-            "heartbeat_interval_s": interval,
-            "peer_ids": peers,
-        }
-
-    def _heartbeat_liveness_timestamp(
-        self,
-        hb_ts: float | None,
-        *,
-        retain: bool,
-        now_ts: float,
-        interval_s: float,
-    ) -> float:
-        if hb_ts is None:
-            return now_ts
-        try:
-            payload_ts = float(hb_ts)
-        except Exception:
-            return now_ts
-        if retain:
-            return payload_ts
-        max_past_drift = max(HEARTBEAT_STALE_AFTER_S, float(interval_s or DEFAULT_HEARTBEAT_INTERVAL_S) * 3.0)
-        if payload_ts < (now_ts - max_past_drift):
-            return now_ts
-        return payload_ts
+    def _heartbeat_liveness_timestamp(self, hb_ts: float | None, *, retain: bool,
+                                      now_ts: float, interval_s: float) -> float:
+        return self._get_liveness().heartbeat_liveness_timestamp(
+            hb_ts, retain=retain, now_ts=now_ts, interval_s=interval_s,
+        )
 
     def _notify_liveness_status_change(self, base: str, status: str) -> None:
         callbacks = list(getattr(self, "_liveness_status_callbacks", []) or [])
@@ -1212,82 +1161,17 @@ class saiMQTTIngest:
                     printDM(f"[liveness] callback failed for {base}: {exc}", location=MODULE)
 
     def _derive_heartbeat_interval_s(self, data: dict | None) -> float:
-        interval = DEFAULT_HEARTBEAT_INTERVAL_S
-        try:
-            if isinstance(data, dict):
-                raw = data.get("heartbeat_interval_s", DEFAULT_HEARTBEAT_INTERVAL_S)
-                interval = float(raw or DEFAULT_HEARTBEAT_INTERVAL_S)
-        except Exception:
-            interval = DEFAULT_HEARTBEAT_INTERVAL_S
-        if interval < MIN_HEARTBEAT_INTERVAL_S:
-            interval = MIN_HEARTBEAT_INTERVAL_S
-        return interval
+        return self._get_liveness().derive_heartbeat_interval_s(data)
 
     def _extract_heartbeat_timestamp(self, data: dict | None) -> float | None:
-        if not isinstance(data, dict):
-            return None
-        raw_ts = data.get("timestamp", None)
-        if raw_ts is None:
-            return None
-        try:
-            return float(raw_ts)
-        except Exception:
-            return None
+        return self._get_liveness().extract_heartbeat_timestamp(data)
 
-    def _heartbeat_is_stale(self, ts_epoch: float | None, *, retain: bool, now_ts: float | None = None) -> bool:
-        """
-        Freshness rule:
-        - retained heartbeat older than HEARTBEAT_STALE_AFTER_S is stale
-        - heartbeat timestamp beyond skew tolerance into the future is stale
-        """
-        if ts_epoch is None:
-            return bool(retain)
-        now_v = float(now_ts if now_ts is not None else time.time())
-        if ts_epoch > (now_v + HEARTBEAT_CLOCK_SKEW_TOLERANCE_S):
-            return True
-        if retain and (now_v - ts_epoch) > HEARTBEAT_STALE_AFTER_S:
-            return True
-        return False
+    def _heartbeat_is_stale(self, ts_epoch: float | None, *, retain: bool,
+                            now_ts: float | None = None) -> bool:
+        return self._get_liveness().heartbeat_is_stale(ts_epoch, retain=retain, now_ts=now_ts)
 
     def _apply_heartbeat_timeout_state(self, base: str, now_ts: float | None = None) -> str:
-        """
-        Derive online/degraded/offline from last heartbeat timing:
-          online   <= 2 intervals
-          degraded > 2 and < 3 intervals
-          offline  >= 3 intervals
-        """
-        base = self._normalize_host_key(base) or ""
-        if not base:
-            return "unknown"
-        now_v = float(now_ts if now_ts is not None else time.time())
-        interval = float(self.heartbeat_interval_s_by_host.get(base, DEFAULT_HEARTBEAT_INTERVAL_S) or DEFAULT_HEARTBEAT_INTERVAL_S)
-        if interval < MIN_HEARTBEAT_INTERVAL_S:
-            interval = MIN_HEARTBEAT_INTERVAL_S
-
-        hb_ts = self.last_heartbeat_ts.get(base)
-        if hb_ts:
-            missed = max(0.0, now_v - float(hb_ts))
-        else:
-            # No heartbeat yet: derive liveness from live Nodus reports
-            # (data/state/event), not from retained broker replays or bare
-            # availability=online hints.
-            last_seen = float(
-                self.last_nodus_report_seen.get(base)
-                or self.last_nodus_report_seen.get(f"{base}.local")
-                or 0.0
-            )
-            if last_seen <= 0.0:
-                stored = self._normalize_liveness_state(self.device_status.get(base))
-                return stored if stored in {"offline", "degraded"} else "unknown"
-            if self._get_nodus_availability(base) == "offline":
-                return "offline"
-            missed = max(0.0, now_v - last_seen)
-
-        if missed <= (2.0 * interval):
-            return "online"
-        if missed < (3.0 * interval):
-            return "degraded"
-        return "offline"
+        return self._get_liveness().heartbeat_timeout_state(base, now_ts=now_ts)
 
     def _feed_watchdog(self, name: str = "MQTT Discovery Loop") -> None:
         """Best-effort watchdog feed; safe if supervisor is missing."""
@@ -1330,8 +1214,7 @@ class saiMQTTIngest:
     ) -> None:
         """Tell dashboard clients to re-check sensor/switch inventory."""
         try:
-            from . import saiWebRoutes as routes
-            switch_broadcast = getattr(getattr(routes, "app", object()), "state", object()).switch_broadcast
+            switch_broadcast = getattr(self, "dashboard_broadcast", None)
             if not switch_broadcast:
                 return
 
@@ -1366,8 +1249,7 @@ class saiMQTTIngest:
     ) -> None:
         """Push a live switch update to the dashboard using both host and channel keys."""
         try:
-            from . import saiWebRoutes as routes
-            switch_broadcast = getattr(getattr(routes, "app", object()), "state", object()).switch_broadcast
+            switch_broadcast = getattr(self, "dashboard_broadcast", None)
             if not switch_broadcast:
                 return
 
@@ -2639,24 +2521,8 @@ class saiMQTTIngest:
                         if host:
                             self._record_host_seen(host, ts=now_t, retain=retain, report=(not retain))
                     except Exception:
-                        pass   
-                """
-                try:
-                    from . import saiWebRoutes as routes
-                    switch_broadcast = getattr(getattr(routes, "app", object()), "state", object()).switch_broadcast
-                    if switch_broadcast:
-                        import asyncio
-                        asyncio.create_task(switch_broadcast({
-                            "type": "switch_event",
-                            "key": f"{switch_id}::{label}",   # resolve label the same way you log sw_events
-                            "state": is_on_bool,
-                            "timestamp": iso_ts,
-                            "source": "mqtt",
-                        }))
-                except Exception:
-                    pass
-                """
-                
+                        pass
+
                 try:
                     host = self._host_from_topic_or_sid(None, base_id)
                     if host:
@@ -2815,28 +2681,7 @@ class saiMQTTIngest:
         return self._host_from_sid_base(sid)
 
     def _parse_availability_payload(self, payload_text: str, data: dict | None) -> str | None:
-        """
-        Normalize availability payloads to "online" or "offline".
-        Accepts raw text or common JSON shapes.
-        """
-        raw = None
-        if isinstance(data, dict):
-            for key in ("status", "state", "availability"):
-                if key in data:
-                    raw = data.get(key)
-                    break
-        if raw is None:
-            raw = payload_text
-
-        if isinstance(raw, bool):
-            return "online" if raw else "offline"
-
-        s = str(raw or "").strip().lower()
-        if s in {"online", "up", "ready", "ok", "1", "true"}:
-            return "online"
-        if s in {"offline", "down", "dead", "0", "false"}:
-            return "offline"
-        return None
+        return self._get_liveness().parse_availability_payload(payload_text, data)
 
     def _parse_nodus_values_payload(self, payload_text: str, data: dict | None) -> dict | None:
         """
@@ -3700,10 +3545,7 @@ class saiMQTTIngest:
         return ""
 
     def _get_nodus_availability(self, host_like: str | None) -> str | None:
-        base = self._normalize_host_key(host_like)
-        if not base:
-            return None
-        return self.nodus_availability.get(base) or self.nodus_availability.get(f"{base}.local")
+        return self._get_liveness().get_availability(host_like)
 
     def _mark_host_status(self, host_like: str, status: str) -> None:
         """

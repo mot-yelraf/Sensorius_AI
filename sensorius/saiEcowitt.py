@@ -186,6 +186,7 @@ class EcowittGatewayIngest:
         self.data_logger.ecowitt_service = self
         self.supervisor = supervisor
         self.switch_controllers = {}
+        self.dashboard_broadcast = None
         self._request_lock = asyncio.Lock()
         self._last_rain_day: float | None = None
         self._last_rain_timestamp: str = ""
@@ -670,7 +671,8 @@ class EcowittGatewayIngest:
             ctrl = self.switch_controllers.get(sid)
             if ctrl is None:
                 ctrl = build_switch_controller(switch_settings=doc, supervisor=self.supervisor,
-                                               data_logger=self.data_logger)
+                                               data_logger=self.data_logger,
+                                               dashboard_broadcast=self.dashboard_broadcast)
                 self.switch_controllers[sid] = ctrl
                 if self.supervisor:
                     self.supervisor.add(ctrl.run_controladora_monitor, ctrl.sensor,

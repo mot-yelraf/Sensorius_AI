@@ -81,6 +81,13 @@ macOS, Windows, and non-Pi Linux hub:
   Broker connection setup is moved off the asyncio event loop. Inbound callback
   timing and contention counters are exposed through Advanced status without
   recording payload contents.
+- `sensorius/saiNodusLiveness.py`: shared MQTT receipt and heartbeat state,
+  availability normalization, and online/degraded/offline timing decisions.
+  Ingest retains identity resolution, callback serialization, offline-event
+  persistence, and notification delivery. Existing ingest state maps and helper
+  entry points delegate to this component. This is a Sensorius-only boundary:
+  it adds no Nodus firmware call depth, messages, subscriptions, or polling, and
+  preserves heartbeat intervals and retained-message freshness rules.
 - `sensorius/saiHomeAssistantMqtt.py`: Home Assistant discovery, state
   publishing,
   availability, and command routing.
@@ -121,6 +128,14 @@ macOS, Windows, and non-Pi Linux hub:
    `RemoteSwitchController`.
 6. Runtime objects are attached to `sensorius.saiWebRoutes` globals and `app.state` so the
    UI and APIs share the same controller, database, and ingest instances.
+   Route registration injects the async dashboard broadcast callback into MQTT
+   ingest and existing switch controllers. Controllers created later by automation
+   routes or Ecowitt smart-plug activation receive the same callback. MQTT ingest
+   and switch controllers no longer import the web routes module to publish these
+   events. MQTT callbacks continue scheduling delivery on the ingest event loop.
+   Startup also
+   binds the callback to the system-owned automation notification controller,
+   including when that controller was created before route registration.
 7. Local MQTT publisher tasks are created only for local sensors and only when
    `SensorNetwork.BROKER` is configured as a non-local broker. If the broker is
    unset, `localhost`, or this host, local publisher tasks are skipped.

@@ -71,7 +71,7 @@ async def ecowitt_client(monkeypatch):
     monkeypatch.setattr(saiWebRoutes, "FastStats", _FastStats)
     app = FastAPI()
     app.state.ecowitt_service = _Service()
-    await saiWebRoutes.register_routes(app, _Settings(), object(), object(), object())
+    await saiWebRoutes.register_routes(app, _Settings(), object(), object(), None)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         yield client, app.state.ecowitt_service
 

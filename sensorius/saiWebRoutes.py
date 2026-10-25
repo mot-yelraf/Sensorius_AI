@@ -676,9 +676,7 @@ def _is_unknown_location_value(value: object) -> bool:
 
 async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     """Register Sensorius UI, API, integration, and diagnostics routes."""
-    # Several background services publish dashboard events through
-    # saiWebRoutes.app.state.switch_broadcast. Keep that compatibility binding
-    # pointed at the actual FastAPI instance created by saiWebServer.
+    # Retain the app binding for integrations that still use the web runtime.
     globals()["app"] = app
     if not str(getattr(app.state, "ui_runtime_instance_id", "") or "").strip():
         app.state.ui_runtime_instance_id = uuid4().hex
@@ -10112,6 +10110,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             controllers = getattr(request.app.state, "switch_controllers", None)
             if not isinstance(controllers, dict):
                 controllers = globals().get("switch_controllers")
+            service.dashboard_broadcast = _switch_broadcast
             service.switch_controllers = controllers if isinstance(controllers, dict) else {}
             globals()["switch_controllers"] = service.switch_controllers
             request.app.state.switch_controllers = service.switch_controllers
@@ -14088,8 +14087,18 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             if DEBUG:
                 printDM(f"[switch-ws] client disconnected total={len(_SWITCH_SOCKETS)}", location=MODULE)
 
-    # expose for other modules without import cycles
+    # Keep the async route API while injecting notifications into runtime services.
     app.state.switch_broadcast = _switch_broadcast
+    if mqtt_ingest is not None:
+        mqtt_ingest.dashboard_broadcast = _switch_broadcast
+    dashboard_controllers = getattr(app.state, "switch_controllers", None)
+    if dashboard_controllers is None:
+        dashboard_controllers = globals().get("switch_controllers") or {}
+    for controller in dashboard_controllers.values():
+        controller.dashboard_broadcast = _switch_broadcast
+    ecowitt_service = getattr(app.state, "ecowitt_service", None)
+    if ecowitt_service is not None:
+        ecowitt_service.dashboard_broadcast = _switch_broadcast
 
     @router.get("/switch-chooser", response_class=HTMLResponse)
     async def switch_chooser(request: Request):
@@ -14946,6 +14955,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                                 supervisor=None,
                                 sensor=sensor_match,
                                 data_logger=data_logger,
+                                dashboard_broadcast=_switch_broadcast,
                             )
                             if bool(getattr(candidate_ctrl, "is_present", False)):
                                 sc[target_switch_id] = candidate_ctrl
