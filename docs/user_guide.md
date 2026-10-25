@@ -15,12 +15,11 @@ Sensorius can also run on macOS, Windows, or Linux as a hub for Wi-Fi Nodus sens
 
 The dashboard is the main operating view. It is where you check current conditions, see switch state, open settings, and review quick trends.
 
-![Samhain dashboard with live metric graphs and gauges using the selected Fruit theme](<../assets/screenshots/dashboard-overview.png>)
+![Sensorius dashboard with At a Glance arrangement arrows and live sensor graphs and gauges](<../assets/screenshots/dashboard-overview.png>)
 <!-- pdf-keep-together:end -->
 
-The dashboard example was captured from the running **Samhain** Sensorius
-installation with live metric graphs and gauges and its saved **Fruit**
-dashboard theme selected. Settings screenshots use
+The dashboard example was captured from the running Sensorius app with live
+metric graphs and gauges and the **Fruit** dashboard theme selected. Settings screenshots use
 example devices and locations with the same warm peach-and-brown palette. Sensor
 names, locations, metrics, switch channels, forecast source, selected theme,
 and live values will vary by installation.
@@ -72,27 +71,27 @@ Dashboard data comes from the latest values in the live runtime cache and from t
 - A **Sensor Group** for each sensor, containing that sensor's **Sensor Tiles**.
 - **Switch Tiles** with live channel state and recent events.
 
-### Top Row Tiles
+### At a Glance Tiles
 
-1. The **Caelus Weather Forecast Tile**.
+The default left-to-right order is **Biodynamic Calendar**, **Moon Phase**,
+**Display Device By**, **Sun Position**, and **Weather Forecast**.
 
-   The observer-local date appears beneath **24 Hour Forecast**. The Live or
-   Cached provider status is centered in the bottom row of the forecast panel,
-   below the precipitation details.
+Use the small stacked arrows beside each tile’s title to arrange these tiles:
 
-   The **Caelus Weather Forecast Tile** keeps its day-wide forecast summary,
-   while its details include the maximum forecast precipitation chance,
-   labeled as rain or snow from the forecast conditions. Its background
-   reflects the current three-hour forecast window. Clear conditions use a
-   sunny daytime sky or a starry night; cloudy conditions use gray daytime or
-   nighttime skies; and precipitation adds rain streaks to the corresponding
-   gray sky. This tile appearance is independent of the theme selected for the
-   full-screen Caelus display. Day artwork begins 30 minutes before the
-   configured Astral sunrise to represent daybreak; night artwork begins 30
-   minutes after sunset to include dusk. The station timezone is used, and the
-   boundary is checked once per minute.
+- The upper **left arrow (←)** moves the tile one position to the left.
+- The lower **right arrow (→)** moves the tile one position to the right.
+- Each click swaps the tile with its neighbor immediately, without reloading
+  the dashboard. At either end, the unavailable direction is dimmed and disabled.
 
-2. The **Maria Thun-inspired Biodynamic Calendar Tile**.
+The arrows use contrasting colors to remain visible as tile backgrounds change.
+Your arrangement is remembered in the current browser for this hub and restored
+when you reload the dashboard. Other browsers keep their own arrangement. On a
+narrow screen, the same order runs from top to bottom.
+
+The refresh symbol overlays the top center of the Sensorius AI graphic;
+click anywhere on that graphic to reload the current dashboard view.
+
+1. The **Maria Thun-inspired Biodynamic Calendar Tile**.
 
    This tile summarizes the current observer-local biodynamic period. It shows
    the date, Moon zodiac sign, associated element and plant
@@ -100,7 +99,7 @@ Dashboard data comes from the latest values in the live runtime cache and from t
    full Biodynamic Calendar for month planning, day summaries, guidance, notes,
    and reports.
 
-3. The **Lunar Calendar Tile**.
+2. The **Lunar Calendar Tile**.
 
    The date beneath **Moon Phase** shows the current day at the configured
    Astral location.
@@ -128,6 +127,12 @@ Dashboard data comes from the latest values in the live runtime cache and from t
    calculations finish. The dashboard automatically retries warming or failed
    requests; refreshing the page is normally unnecessary.
 
+3. The **Location Tile**.
+
+   Use this tile to filter the dashboard's Sensor Groups and Switch Tiles by
+   their saved location. Select **All Locations** to show every device, or
+   select one location to show only devices assigned there.
+
 4. The **Sun/Moon Position Tile**.
 
    This tile plots the Sun and Moon across the current observer-local day. It
@@ -137,12 +142,23 @@ Dashboard data comes from the latest values in the live runtime cache and from t
    graph. Close that expanded graph with its **×** button, by selecting the
    graph, or by pressing Escape.
 
-5. The **Location Tile**.
+5. The **Caelus Weather Forecast Tile**.
 
-   Use this tile to filter the dashboard's Sensor Groups and Switch Tiles by
-   their saved location. Select **All Locations** to show every device, or
-   select one location to show only devices assigned there. The refresh icon
-   reloads the current dashboard view.
+   The observer-local date appears beneath **24 Hour Forecast**. The Live or
+   Cached provider status is centered in the bottom row of the forecast panel,
+   below the precipitation details.
+
+   The **Caelus Weather Forecast Tile** keeps its day-wide forecast summary,
+   while its details include the maximum forecast precipitation chance,
+   labeled as rain or snow from the forecast conditions. Its background
+   reflects the current three-hour forecast window. Clear conditions use a
+   sunny daytime sky or a starry night; cloudy conditions use gray daytime or
+   nighttime skies; and precipitation adds rain streaks to the corresponding
+   gray sky. This tile appearance is independent of the theme selected for the
+   full-screen Caelus display. Day artwork begins 30 minutes before the
+   configured Astral sunrise to represent daybreak; night artwork begins 30
+   minutes after sunset to include dusk. The station timezone is used, and the
+   boundary is checked once per minute.
 
 ### Sensor Groups And Sensor Tiles
 

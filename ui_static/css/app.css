@@ -363,6 +363,7 @@ body.dashboard-page #sensor_header{
 }
 
 .dashboard-brand-refresh{
+  position:relative;
   display:block;
   padding:0;
   border:0;
@@ -1526,3 +1527,24 @@ select.op-select{ max-width:80px; width:100%; }
 .switch-card-order-arrow:enabled:hover{color:#103ab7;background:rgba(34,89,242,.1);border-radius:4px}
 .switch-card-order-arrow:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 .switch-card-order-arrow:disabled{color:var(--dashboard-card-text);opacity:.25;cursor:default}
+
+
+.dashboard-brand-refresh-icon{
+  position:absolute;top:3px;left:50%;transform:translateX(-50%);
+  color:#fff;background:rgba(0,0,0,.45);border-radius:50%;
+  width:22px;height:22px;font-size:20px;line-height:22px;pointer-events:none;
+}
+.at-a-glance-order-controls{
+  position:absolute;top:8px;right:3px;z-index:3;
+  display:flex;flex-direction:column;gap:1px;
+}
+.at-a-glance-order-controls button{
+  display:flex;align-items:center;justify-content:center;
+  width:16px;height:7px;padding:0;margin:0;border:0;
+  background:transparent;color:var(--at-a-glance-arrow-color, currentColor);font-size:17px;line-height:1;cursor:pointer;
+}
+.at-a-glance-order-controls button:disabled{cursor:default;opacity:.35;}
+.at-a-glance-order-controls button:focus-visible{outline:2px solid currentColor;outline-offset:1px;}
+#moonBox,#sunBox{--at-a-glance-arrow-color:#27313a;}
+.dash-top-row .astro-box .dashboard-card-spinner{right:1.5rem;}
+.dash-top-row .moon-view-toggle{margin-right:12px;}
