@@ -183,11 +183,15 @@ async def test_activation_is_idempotent_and_disable_blocks_commands(plug):
     ctrl, _, _ = plug
     service = ctrl.service
     service.switch_controllers.clear()
+    async def broadcast(payload):
+        pass
+    service.dashboard_broadcast = broadcast
     registered = []
     service.supervisor = SimpleNamespace(add=lambda *args, **kw: registered.append(kw["name"]))
     await service.activate_smart_plugs()
     await service.activate_smart_plugs()
     assert len(service.switch_controllers) == 1
+    assert service.switch_controllers[SID].dashboard_broadcast is broadcast
     assert len(registered) == 1
     service.disable()
     ctrl.online = ctrl.confirmed = True

@@ -1887,21 +1887,14 @@ def test_biodynamic_notify_sends_transition_without_cleared_followup(
     assert delivery.sent[0][2]["to_addresses"] == ("grower@example.com",)
 
 
-def test_biodynamic_transition_broadcast_reaches_runtime_app(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    from sensorius import saiWebRoutes
-
+def test_biodynamic_transition_broadcast_uses_injected_callback():
     ctrl = _make_controller()
     received = []
 
     async def fake_broadcast(payload):
         received.append(payload)
 
-    runtime_app = types.SimpleNamespace(
-        state=types.SimpleNamespace(switch_broadcast=fake_broadcast)
-    )
-    monkeypatch.setattr(saiWebRoutes, "app", runtime_app)
+    ctrl.dashboard_broadcast = fake_broadcast
     transition = {
         "transition_at": "2026-07-28T10:30:00-06:00",
         "from": {
@@ -1928,21 +1921,14 @@ def test_biodynamic_transition_broadcast_reaches_runtime_app(
     }]
 
 
-def test_alert_broadcast_uses_sensor_value_without_rule_details(
-    monkeypatch: pytest.MonkeyPatch, imperial_units,
-):
-    from sensorius import saiWebRoutes
-
+def test_alert_broadcast_uses_sensor_value_without_rule_details(imperial_units):
     ctrl = _make_controller()
     received = []
 
     async def fake_broadcast(payload):
         received.append(payload)
 
-    runtime_app = types.SimpleNamespace(
-        state=types.SimpleNamespace(switch_broadcast=fake_broadcast)
-    )
-    monkeypatch.setattr(saiWebRoutes, "app", runtime_app)
+    ctrl.dashboard_broadcast = fake_broadcast
     evaluated_groups = [{
         "result": True,
         "conditions": [({
