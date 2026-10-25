@@ -40,6 +40,7 @@ const state = {
   rangePayload: null,
   plantings: Array.isArray(initialPlantings) ? initialPlantings : [],
   selectedDate: "",
+  currentDate: "",
   followCurrentMonth: true,
   selectionPinned: false,
   rangeCache: Object.create(null),
@@ -978,6 +979,9 @@ async function loadCalendar(monthKey = "", preferredDate = "", options = {}) {
     if (requestId !== state.calendarRequestId) return;
     const previousMonth = state.month;
     state.payload = payload;
+    if (payload.ok && (!state.currentDate || options.currentDate)) {
+      state.currentDate = options.currentDate || dateKeyInTimezone(new Date(), payload.astro?.tz || "");
+    }
     if (Array.isArray(payload.plantings)) state.plantings = payload.plantings;
     state.month = monthKeyForPayload(payload) || requestMonth || currentMonthKey();
     if (preferredDate) state.selectedDate = preferredDate;
@@ -1036,6 +1040,7 @@ async function loadDailySummary(dayIso) {
     return;
   }
   const requestId = ++state.summaryRequestId;
+  summaryEl.textContent = "";
   setSummaryBusy(true);
   const summary = await fetchDailySummary(dayIso);
   if (requestId !== state.summaryRequestId || state.selectedDate !== dayIso) return;
@@ -1732,14 +1737,22 @@ if (dashboardReturn) {
 }
 
 async function refreshCurrentStatus() {
+  const currentDate = dateKeyInTimezone(new Date(), state.payload?.astro?.tz || "");
+  const dayChanged = Boolean(state.currentDate && state.currentDate !== currentDate);
+  if (dayChanged) {
+    state.followCurrentMonth = true;
+    state.selectionPinned = false;
+    clearPerformanceCaches();
+  }
   const nextMonth = state.followCurrentMonth ? currentMonthKey() : (state.month || currentMonthKey());
   const monthChanged = Boolean(state.month && nextMonth && state.month !== nextMonth);
   const preferredDate = state.selectionPinned ? state.selectedDate : "";
   if (!state.selectionPinned) state.selectedDate = "";
   await loadCalendar(nextMonth, preferredDate, {
-    refreshRange: monthChanged,
+    currentDate,
+    refreshRange: dayChanged || monthChanged,
     preserveNoteDraft: true,
-    refreshSummary: false,
+    refreshSummary: dayChanged,
     showLoading: false,
   });
 }

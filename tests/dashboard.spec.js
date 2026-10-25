@@ -502,3 +502,65 @@ test('moves the Switches row with the heading arrows and restores saved order', 
   await page.reload();
   await expect(rows.first()).toHaveAttribute('id', 'group_switches');
 });
+
+for (const scenario of [
+  {name: 'automatic selection', before: '2026-09-15', after: '2026-09-16', selection: ''},
+  {name: 'clicked current day', before: '2026-09-15', after: '2026-09-16', selection: '2026-09-15'},
+  {name: 'cached next day', before: '2026-09-15', after: '2026-09-16', selection: '2026-09-16'},
+  {name: 'another day at month end', before: '2026-10-31', after: '2026-11-01', selection: '2026-10-20'},
+  {name: 'another month at year end', before: '2026-12-31', after: '2027-01-01', selection: '2026-11-20'},
+]) {
+  test(`BD calendar rollover updates ${scenario.name} in the calendar timezone`, async ({page}) => {
+    // Browser midnight is earlier than Denver midnight, including winter standard time.
+    const session = await page.context().newCDPSession(page);
+    await session.send('Emulation.setTimezoneOverride', {timezoneId: 'UTC'});
+    const offset = scenario.before === '2026-12-31' ? '-07:00' : '-06:00';
+    await page.clock.install({time: new Date(`${scenario.before}T23:58:30${offset}`)});
+    let today = scenario.before;
+    const summaryDays = [];
+    const calendarPayload = (month) => {
+      const payload = successfulBiodynamicMonth(month);
+      payload.astro.tz = 'America/Denver';
+      payload.calendar.forEach(day => { day.is_today = day.date === today; });
+      payload.notes = {[today]: `Note for ${today}`};
+      return payload;
+    };
+    await page.route('**/api/biodynamic-calendar-app/**', async route => {
+      const url = new URL(route.request().url());
+      if (url.pathname.endsWith('/calendar')) {
+        return route.fulfill({json: calendarPayload(url.searchParams.get('month') || today.slice(0, 7))});
+      }
+      if (url.pathname.endsWith('/calendar-range')) {
+        return route.fulfill({json: {ok: true, months: [calendarPayload(url.searchParams.get('start'))]}});
+      }
+      if (url.pathname.endsWith('/daily-summary')) {
+        const day = url.searchParams.get('day');
+        summaryDays.push(day);
+        return route.fulfill({json: {ok: true, summary: `Suggestion: Guidance for ${day}, generated ${today}`}});
+      }
+      return route.continue();
+    });
+    await page.goto('/calendar');
+    await expect(page.locator('#dailySummary')).toContainText(`Guidance for ${today}`);
+    if (scenario.selection) {
+      if (scenario.selection.slice(0, 7) !== today.slice(0, 7)) {
+        await page.locator('#prevBtn').click();
+      }
+      await page.locator(`#calendar [data-date="${scenario.selection}"]`).click();
+      await expect(page.locator('#dailySummary')).toContainText(`Guidance for ${scenario.selection}`);
+    }
+    const selectedBefore = scenario.selection || today;
+    const requestCount = summaryDays.length;
+    await page.clock.runFor(60_000);
+    await expect(page.locator('#calendar .selected')).toHaveAttribute('data-date', selectedBefore);
+    expect(summaryDays).toHaveLength(requestCount);
+    today = scenario.after;
+    await page.clock.runFor(60_000);
+    await expect(page.locator('#calendar .selected')).toHaveAttribute('data-date', today);
+    await expect(page.locator('#calendar .today')).toHaveAttribute('data-date', today);
+    await expect(page.locator('#dailySummary')).toContainText(`Guidance for ${today}, generated ${today}`);
+    await expect(page.locator('#noteInput')).toHaveAttribute('data-date', today);
+    await expect(page.locator('#noteInput')).toHaveValue(`Note for ${today}`);
+    expect(summaryDays.at(-1)).toBe(today);
+  });
+}
