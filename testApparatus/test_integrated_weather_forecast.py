@@ -988,3 +988,48 @@ def test_caelus_current_readings_include_selected_weewx_battery(sensor_id, value
     settings.values[("WeatherForecast", "CURRENT_SENSOR_ID")] = "aht-local"
     assert service.current_readings()["is_weewx"] is False
     assert "battery_status" not in service.current_readings()
+
+
+@pytest.mark.parametrize("units,expected,unit", [("Imperial", [5.9, 6.2], "°F"), ("Metric", [-14.5, -14.3], "°C")])
+@pytest.mark.parametrize("sensor_id", ["ecowitt-station", "weewx-station", "custom-weather-station", "aht-local"])
+def test_current_thermal_metrics_use_selected_outdoor_station(sensor_id, units, expected, unit):
+    from types import SimpleNamespace
+
+    settings = _Settings()
+    settings.values = {
+        ("WeatherForecast", "CURRENT_SENSOR_ID"): sensor_id,
+        ("WeeWX", "SENSOR_ID"): "custom-weather-station",
+        ("Display", "unit_system"): units,
+    }
+    values = {"Temperature_F": 20, "Rel-Humidity": 70, "Wind Speed": 15}
+    service = weather_app.WeatherForecastAppService(
+        settings=settings,
+        data_logger=SimpleNamespace(get_latest_values=lambda sid: values, get_latest_timestamp=lambda sid: ""),
+        sensor_settings_manager=SimpleNamespace(get_display_metrics=lambda sid: ["Temperature_F"], get_setting=lambda *args: ""),
+    )
+    metrics = service.current_readings()["thermal_metrics"]
+    if sensor_id == "aht-local":
+        assert metrics == []
+        return
+    assert [metric["value"] for metric in metrics] == expected
+    assert all(metric["unit"] == unit for metric in metrics)
+    values.clear()
+    values.update({"Gateway Temperature": 20, "Gateway Rel-Humidity": 70, "Wind Speed": 15})
+    assert service.current_readings()["thermal_metrics"] == []
+    values.update({"Temperature_F": 50.04, "Rel-Humidity": 70})
+    assert service.current_readings()["thermal_metrics"][1]["value"] is None
+    values.update({"Temperature_F": 20, "Rel-Humidity": 101})
+    metrics = service.current_readings()["thermal_metrics"]
+    assert metrics[0]["value"] is None
+    assert metrics[1]["value"] is not None
+
+
+@pytest.mark.parametrize("units,expected", [("Imperial", [5.9, 6.2]), ("Metric", [-14.5, -14.3])])
+def test_hourly_thermal_metrics_use_unrounded_forecast_inputs(units, expected):
+    payload = _forecast_payload()
+    payload["hourly"] = [{**payload["hourly"][0], "temp_c": (20 - 32) / 1.8, "rh": 70, "wind_mps": 15 * 0.44704}]
+    metrics = weather_app.build_weather_display_forecast(payload, units)["hours"][0]["thermal_metrics"]
+    assert [metric["value"] for metric in metrics] == expected
+    payload["hourly"][0]["wind_mps"] = None
+    metrics = weather_app.build_weather_display_forecast(payload, units)["hours"][0]["thermal_metrics"]
+    assert [metric["value"] for metric in metrics] == [None, None]

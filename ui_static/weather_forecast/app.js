@@ -161,6 +161,19 @@
     panel.querySelector("[data-readings-primary-value]").textContent = displayReading(primary?.value);
     panel.querySelector("[data-readings-primary-unit]").textContent = primary?.unit || "";
     panel.querySelector("[data-readings-primary-name]").textContent = primary?.name || "No Display Metrics configured";
+    const thermal = panel.querySelector("[data-readings-thermal]");
+    const thermalMetrics = Array.isArray(payload.thermal_metrics) ? payload.thermal_metrics : [];
+    thermal.hidden = thermalMetrics.length === 0;
+    thermal.replaceChildren();
+    thermalMetrics.forEach((metric) => {
+      const row = document.createElement("div");
+      const name = document.createElement("span");
+      const value = document.createElement("strong");
+      name.textContent = metric.name;
+      value.textContent = `${displayReading(metric.value)}${metric.value == null ? "" : ` ${metric.unit}`}`;
+      row.append(name, value);
+      thermal.append(row);
+    });
     const list = panel.querySelector("[data-readings-list]");
     list.replaceChildren();
     metrics.slice(1).forEach((metric) => {

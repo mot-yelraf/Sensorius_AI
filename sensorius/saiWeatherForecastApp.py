@@ -31,6 +31,7 @@ from .saiDisplayUnits import (
     normalize_display_unit_system,
 )
 from .saiSensorSettingsManager import SensorSettingsManager
+from .saiWeatherThermal import calculate_feels_like, calculate_wind_chill
 from .saiWeatherAstronomy import astronomy_context
 from .saiWeatherForecast import forecast_condition, get_weather_forecast_payload
 from .saiThemeManager import ThemeManager, normalize_theme_selection
@@ -244,6 +245,25 @@ def _forecast_display_value(
     return converted, str(conversion["unit"])
 
 
+def _thermal_display_metrics(
+    temperature_f: object, humidity: object, wind_mph: object, unit_system: object,
+) -> list[dict[str, Any]]:
+    """Format paired outdoor thermal estimates in the selected display units."""
+    metrics = []
+    for key, name, value in (
+        ("feels_like", "Feels Like", calculate_feels_like(temperature_f, humidity, wind_mph)),
+        ("wind_chill", "Wind Chill", calculate_wind_chill(temperature_f, wind_mph)),
+    ):
+        converted, unit = _forecast_display_value(value, "Temperature_F", "°F", unit_system)
+        metrics.append({
+            "key": key,
+            "name": name,
+            "value": round(converted, 1) if converted is not None else None,
+            "unit": unit,
+        })
+    return metrics
+
+
 def _forecast_temperature_range(value: object, unit_system: object) -> str:
     """Select the requested side of a canonical dual-unit temperature range."""
     text = str(value or "").strip()
@@ -381,6 +401,11 @@ def build_weather_display_forecast(
         hours.append(
             {
                 "label": label,
+                "thermal_metrics": _thermal_display_metrics(
+                    temp_f, raw.get("rh"),
+                    wind_mps / 0.44704 if (wind_mps := _safe_float(raw.get("wind_mps"))) is not None else None,
+                    display_unit_system,
+                ),
                 "condition": condition,
                 "humidity": round(rh) if (rh := _safe_float(raw.get("rh"))) is not None else None,
                 "wind_speed": round(wind) if (wind := _forecast_display_value(raw.get("wind_mps"), "Wind Speed", "m/s", display_unit_system)[0]) is not None else None,
@@ -598,7 +623,7 @@ class WeatherForecastAppService:
         return payload
 
     def current_readings(self) -> dict[str, Any]:
-        """Return the selected sensor's readings and station battery health."""
+        """Return selected readings, outdoor thermal estimates, and battery health."""
         sensor_id = self.integration_settings()["sensor_id"]
         if not sensor_id:
             payload = normalize_current_weather_readings("", {}, "")
@@ -627,6 +652,17 @@ class WeatherForecastAppService:
         payload["is_ecowitt"] = sensor_id.startswith("ecowitt-")
         configured_weewx_id = str(self.settings.get_setting("WeeWX", "SENSOR_ID", "weewx-station") or "").strip().lower()
         payload["is_weewx"] = sensor_id.lower().startswith("weewx") or sensor_id.lower() == configured_weewx_id
+        payload["thermal_metrics"] = []
+        if payload["is_ecowitt"] or payload["is_weewx"]:
+            # Only outdoor aliases qualify; gateway/indoor temperatures are excluded.
+            outdoor_f = _find_metric(values, "Temperature_F", "Outdoor Temperature_F", "Air Temperature_F")
+            outdoor_c = _find_metric(values, "Temperature", "Temperature_C", "Outdoor Temperature", "Air Temperature")
+            temperature_f = outdoor_f[1] if outdoor_f else outdoor_c[1] * 1.8 + 32 if outdoor_c else None
+            if temperature_f is not None:
+                payload["thermal_metrics"] = _thermal_display_metrics(
+                    temperature_f, payload["humidity"], payload["wind_speed_mph"],
+                    self.settings.get_setting("Display", "unit_system", "Imperial"),
+                )
         if payload["is_ecowitt"]:
             payload.update(ecowitt_sensor_health(self.data_logger, sensor_id))
         elif payload["is_weewx"]:

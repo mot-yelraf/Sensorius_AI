@@ -226,7 +226,7 @@ def weather_alerts():
 
 
 @app.get("/weather-forecast", response_class=HTMLResponse)
-def weather_forecast(request: Request, units: str = "Metric", native: bool = False, battery: str = "", station: str = "ecowitt-pr-check"):
+def weather_forecast(request: Request, units: str = "Metric", native: bool = False, battery: str = "", station: str = "ecowitt-pr-check", thermal: bool = False):
     """Render the real Caelus page with a complete, deterministic six-day outlook."""
     from sensorius.saiWeatherForecastApp import build_weather_display_forecast
 
@@ -250,10 +250,25 @@ def weather_forecast(request: Request, units: str = "Metric", native: bool = Fal
             "precip_probability": 59,
         } for day in range(1, 7)],
     }, units)
+    latest = {"is_ecowitt": station.startswith("ecowitt-"), "is_weewx": station in {"weewx-station", "custom-weather-station"}, "battery_status": battery if battery in {"OK", "LOW"} else "UNKNOWN", "sensor_id": station, "location": "Weather Station", "ok": True} if battery else {}
+    if thermal:
+        from sensorius.saiWeatherForecastApp import WeatherForecastAppService
+
+        values = {"Temperature_F": 20, "Rel-Humidity": 70, "Wind Speed": 15}
+        fixture_settings = {
+            ("WeatherForecast", "CURRENT_SENSOR_ID"): station,
+            ("WeeWX", "SENSOR_ID"): "custom-weather-station",
+            ("Display", "unit_system"): units,
+        }
+        latest = WeatherForecastAppService(
+            settings=SimpleNamespace(get_setting=lambda section, key, default=None: fixture_settings.get((section, key), default)),
+            data_logger=SimpleNamespace(get_latest_values=lambda sid: values, get_latest_timestamp=lambda sid: start.isoformat()),
+            sensor_settings_manager=SimpleNamespace(get_display_metrics=lambda sid: list(values), get_setting=lambda *args: ""),
+        ).current_readings()
     return templates.TemplateResponse(request, "weather_forecast/index.html", {
         "settings": {"theme": "pollinator", "theme_class": "pollinator"},
         "location": {"name": "Greenhouse", "latitude": 39.7, "longitude": -104.9},
-        "latest": {"is_ecowitt": station.startswith("ecowitt-"), "is_weewx": station in {"weewx-station", "custom-weather-station"}, "battery_status": battery if battery in {"OK", "LOW"} else "UNKNOWN", "sensor_id": station, "location": "Weather Station", "ok": True} if battery else {}, "moon": {"updated_at": start.isoformat()},
+        "latest": latest, "moon": {"updated_at": start.isoformat()},
         "forecast": forecast, "app_version": "playwright",
     })
 
