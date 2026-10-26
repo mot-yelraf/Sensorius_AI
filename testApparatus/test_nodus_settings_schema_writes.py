@@ -575,7 +575,6 @@ async def _build_app(tmp_path, monkeypatch, hub_settings=None, ota_service=None,
     sensor_root.mkdir()
     switch_root.mkdir()
 
-    saiWebRoutes._DASHBOARD_DISPLAY_SETTINGS_CACHE = None
 
     _FakeSaiSettings.DEFAULT_BASE_DIR = str(system_root)
 
@@ -1566,7 +1565,7 @@ async def test_submit_sensor_settings_ajax_returns_json_success(tmp_path, monkey
             "Display": {"METRIC_1": "Temperature"},
         },
     )
-    saiWebRoutes._SENSOR_LOCATION_CACHE["apvpd-test123"] = (float("inf"), "Old Room")
+    app.state.route_state.sensor_locations["apvpd-test123"] = (float("inf"), "Old Room")
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
@@ -1583,7 +1582,7 @@ async def test_submit_sensor_settings_ajax_returns_json_success(tmp_path, monkey
     saved = sensor_mgr.load("apvpd-test123")
     assert saved["Sensor"]["LOCATION"] == "Grow Tent"
     assert saved["Display"]["METRIC_1"] == "Temperature"
-    assert "apvpd-test123" not in saiWebRoutes._SENSOR_LOCATION_CACHE
+    assert "apvpd-test123" not in app.state.route_state.sensor_locations
 
 
 @pytest.mark.asyncio
@@ -2187,8 +2186,8 @@ async def test_sensor_directory_keeps_local_pi_sensor_before_first_logged_readin
     app, _ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_id = "co2-i2c-1-sensorius-hub-2"
     app.state.sensor_map = app.state.runtime_services.sensor_map = [SimpleNamespace(sensor_id=sensor_id)]
-    saiWebRoutes._sensor_ids_cache_payload = None
-    saiWebRoutes._sensor_ids_cache_until = 0.0
+    app.state.route_state.sensor_ids_payload = None
+    app.state.route_state.sensor_ids_until = 0.0
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: [])
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda _sid: "")
 
@@ -2589,7 +2588,7 @@ async def test_restart_sensor_device_publishes_soft_restart_to_nodus_config_set(
 async def test_restart_switch_device_publishes_soft_restart_to_nodus_config_set(tmp_path, monkeypatch):
     app, ingest, system_root, _sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
     restart_logs: list[tuple[str, str, str]] = []
-    monkeypatch.setattr(saiWebRoutes, "printDM", lambda msg, location="", level="debug": restart_logs.append((str(msg), str(location), str(level))))
+    monkeypatch.setattr("sensorius.saiWebSwitches.printDM", lambda msg, location="", level="debug": restart_logs.append((str(msg), str(location), str(level))))
     switch_mgr = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
     switch_mgr.save(
         "switch-test123",
@@ -4084,19 +4083,19 @@ async def test_submit_switch_settings_remote_last_state_uses_previous_label_mapp
 @pytest.mark.asyncio
 async def test_companion_return_reuses_last_dashboard_shell(tmp_path, monkeypatch):
     app, _ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
-    monkeypatch.setattr(saiWebRoutes, "_DASHBOARD_INVENTORY_CACHE", None)
-    monkeypatch.setattr(saiWebRoutes, "_DASHBOARD_DISPLAY_SETTINGS_CACHE", None)
+    monkeypatch.setattr(app.state.route_state, "dashboard_inventory", None)
+    monkeypatch.setattr(app.state.route_state, "dashboard_display_settings", None)
     monkeypatch.setattr(
-        saiWebRoutes,
-        "_ASTRO_PAYLOAD_CACHE",
+        app.state.route_state,
+        "astro_payload",
         (time.monotonic() + 60.0, {"ok": True, "moon_phase_value": 12.0}),
     )
     month_key = datetime.now().date().replace(day=1).isoformat()
-    saiWebRoutes._BIODYNAMIC_PAYLOAD_CACHE[month_key] = (
+    app.state.route_state.biodynamic_payloads[month_key] = (
         time.monotonic() + 60.0,
         {"ok": True, "calendar": []},
     )
-    saiWebRoutes._DASHBOARD_HTML_CACHE.clear()
+    app.state.route_state.dashboard_html.clear()
     render_calls = []
 
     def _render_dashboard(*_args, **_kwargs):
@@ -4127,8 +4126,8 @@ async def test_companion_return_reuses_last_dashboard_shell(tmp_path, monkeypatc
 @pytest.mark.asyncio
 async def test_dashboard_json_cache_skips_queries_and_expires_after_completion(tmp_path, monkeypatch):
     app, _ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
-    monkeypatch.setattr(saiWebRoutes, "_DASHBOARD_INVENTORY_CACHE", None)
-    monkeypatch.setattr(saiWebRoutes, "_DASHBOARD_JSON_CACHE", {})
+    monkeypatch.setattr(app.state.route_state, "dashboard_inventory", None)
+    monkeypatch.setattr(app.state.route_state, "dashboard_json", {})
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: [])
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
     monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {})
@@ -4164,8 +4163,8 @@ def test_dashboard_warming_payloads_are_not_stable_shell_content():
 @pytest.mark.asyncio
 async def test_dashboard_sensor_locations_ignore_unknown_live_cache_and_use_toml(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
-    saiWebRoutes._SENSOR_LOCATION_CACHE.clear()
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    app.state.route_state.sensor_locations.clear()
+    app.state.route_state.dashboard_json.clear()
     app.state.sensor_map = app.state.runtime_services.sensor_map = [SimpleNamespace(sensor_id="apvpd-test123", location="Grow Tent")]
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
@@ -4220,9 +4219,9 @@ async def test_dashboard_include_extras_astro_payload_is_single_flight_and_nonbl
             "Time": {"TZ": "America/Denver"},
         },
     )
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
-    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
-    saiWebRoutes._ASTRO_PAYLOAD_CACHE = None
+    app.state.route_state.dashboard_json.clear()
+    app.state.route_state.dashboard_inventory = None
+    app.state.route_state.astro_payload = None
 
     build_calls = []
 
@@ -4300,8 +4299,8 @@ async def test_dashboard_include_extras_astro_payload_is_single_flight_and_nonbl
 @pytest.mark.asyncio
 async def test_dashboard_weewx_status_uses_recent_station_data_when_ingest_unknown(tmp_path, monkeypatch):
     app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
-    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    app.state.route_state.dashboard_json.clear()
+    app.state.route_state.dashboard_inventory = None
     ingest.get_measure_status = lambda _sid: "unknown"
 
     now_iso = datetime.now().isoformat()
@@ -4329,8 +4328,8 @@ async def test_dashboard_weewx_status_uses_recent_station_data_when_ingest_unkno
 @pytest.mark.asyncio
 async def test_dashboard_ecowitt_status_uses_ingest_service_state(tmp_path, monkeypatch):
     app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
-    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    app.state.route_state.dashboard_json.clear()
+    app.state.route_state.dashboard_inventory = None
     ingest.get_measure_status = lambda _sid: "unknown"
 
     sensor_id = "ecowitt-e8db840f1543"
@@ -4382,9 +4381,9 @@ async def test_dashboard_weewx_all_metric_mode_is_not_limited_to_station_default
         },
     )
 
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
-    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
-    saiWebRoutes._DASHBOARD_DISPLAY_SETTINGS_CACHE = None
+    app.state.route_state.dashboard_json.clear()
+    app.state.route_state.dashboard_inventory = None
+    app.state.route_state.dashboard_display_settings = None
     now_iso = datetime.now().isoformat()
     station_values = {
         "Temperature_F": 72.1,
@@ -4465,9 +4464,9 @@ async def test_dashboard_global_pick6_keeps_summary_then_appends_known_metrics(t
         },
     )
 
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
-    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
-    saiWebRoutes._DASHBOARD_DISPLAY_SETTINGS_CACHE = None
+    app.state.route_state.dashboard_json.clear()
+    app.state.route_state.dashboard_inventory = None
+    app.state.route_state.dashboard_display_settings = None
     now_iso = datetime.now().isoformat()
     station_values = {
         "Temperature_F": 72.1,
@@ -4510,8 +4509,8 @@ async def test_dashboard_global_pick6_keeps_summary_then_appends_known_metrics(t
 @pytest.mark.asyncio
 async def test_dashboard_read_does_not_rewrite_metric_positions_for_offline_sensors(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
-    saiWebRoutes._SENSOR_LOCATION_CACHE.clear()
-    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    app.state.route_state.sensor_locations.clear()
+    app.state.route_state.dashboard_inventory = None
     app.state.sensor_map = app.state.runtime_services.sensor_map = []
     saiWebRoutes.sensor_map = []
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
@@ -4530,7 +4529,7 @@ async def test_dashboard_read_does_not_rewrite_metric_positions_for_offline_sens
     monkeypatch.setattr(saiWebRoutes, "saiSettings", _PersistentFakeSaiSettings)
     monkeypatch.setattr(saiSettingsModule, "saiSettings", _PersistentFakeSaiSettings)
 
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    app.state.route_state.dashboard_json.clear()
     now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["aqi-a", "aqi-c"])
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso if sid in {"aqi-a", "aqi-c"} else "")
@@ -4563,8 +4562,8 @@ async def test_dashboard_read_does_not_rewrite_metric_positions_for_offline_sens
 @pytest.mark.asyncio
 async def test_dashboard_json_sanitizes_sideways_sensor_and_keeps_other_values(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
-    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    app.state.route_state.dashboard_json.clear()
+    app.state.route_state.dashboard_inventory = None
     app.state.sensor_map = app.state.runtime_services.sensor_map = []
     saiWebRoutes.sensor_map = []
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
@@ -4612,8 +4611,8 @@ async def test_dashboard_json_sanitizes_sideways_sensor_and_keeps_other_values(t
 @pytest.mark.asyncio
 async def test_dashboard_json_falls_back_per_sensor_when_bulk_latest_values_fail(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
-    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    app.state.route_state.dashboard_json.clear()
+    app.state.route_state.dashboard_inventory = None
     app.state.sensor_map = app.state.runtime_services.sensor_map = []
     saiWebRoutes.sensor_map = []
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
@@ -4665,8 +4664,8 @@ async def test_dashboard_json_falls_back_per_sensor_when_bulk_latest_values_fail
 @pytest.mark.asyncio
 async def test_dashboard_metric_position_reorder_preserves_hidden_sensor_slots(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
-    saiWebRoutes._SENSOR_LOCATION_CACHE.clear()
-    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    app.state.route_state.sensor_locations.clear()
+    app.state.route_state.dashboard_inventory = None
     app.state.sensor_map = app.state.runtime_services.sensor_map = []
     saiWebRoutes.sensor_map = []
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
@@ -4685,7 +4684,7 @@ async def test_dashboard_metric_position_reorder_preserves_hidden_sensor_slots(t
     monkeypatch.setattr(saiWebRoutes, "saiSettings", _PersistentFakeSaiSettings)
     monkeypatch.setattr(saiSettingsModule, "saiSettings", _PersistentFakeSaiSettings)
 
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    app.state.route_state.dashboard_json.clear()
     now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["aqi-a", "aqi-c"])
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso if sid in {"aqi-a", "aqi-c"} else "")
@@ -4750,9 +4749,9 @@ async def test_dashboard_switch_row_position_is_persisted(tmp_path, monkeypatch)
 @pytest.mark.asyncio
 async def test_dashboard_merges_switch_cards_for_same_location(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
-    saiWebRoutes._SENSOR_LOCATION_CACHE.clear()
-    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    app.state.route_state.sensor_locations.clear()
+    app.state.route_state.dashboard_inventory = None
+    app.state.route_state.dashboard_json.clear()
     app.state.sensor_map = app.state.runtime_services.sensor_map = []
     saiWebRoutes.sensor_map = []
     saiWebRoutes.switch_controllers = {}
@@ -4909,9 +4908,9 @@ async def test_dashboard_json_ignores_stale_switch_settings_without_channels(tmp
         },
     )
 
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
-    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
-    saiWebRoutes._DASHBOARD_DISPLAY_SETTINGS_CACHE = None
+    app.state.route_state.dashboard_json.clear()
+    app.state.route_state.dashboard_inventory = None
+    app.state.route_state.dashboard_display_settings = None
     now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["aqi-i2c-1-ff-sensorius"])
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso if sid == "aqi-i2c-1-ff-sensorius" else "")
@@ -4949,8 +4948,8 @@ async def test_dashboard_json_ignores_stale_switch_settings_without_channels(tmp
 async def test_dashboard_json_reports_switch_only_nodus_discovery_for_layout_refresh(tmp_path, monkeypatch):
     app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
 
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
-    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    app.state.route_state.dashboard_json.clear()
+    app.state.route_state.dashboard_inventory = None
     saiWebRoutes.switch_controllers = {}
     app.state.switch_controllers = app.state.runtime_services.switch_controllers = {}
 
@@ -5000,10 +4999,10 @@ async def test_dashboard_json_reports_live_nodus_shadow_without_db_rows(tmp_path
         },
     )
 
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
-    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
-    saiWebRoutes._sensor_ids_cache_payload = None
-    saiWebRoutes._sensor_ids_cache_until = 0.0
+    app.state.route_state.dashboard_json.clear()
+    app.state.route_state.dashboard_inventory = None
+    app.state.route_state.sensor_ids_payload = None
+    app.state.route_state.sensor_ids_until = 0.0
     ingest.nodus_liveness["co2-pmoopn"] = {
         "state": "degraded",
         "last_seen_s": 1.0,
@@ -5046,10 +5045,10 @@ async def test_dashboard_json_hides_retained_only_nodus_shadow_without_db_rows(t
         },
     )
 
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
-    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
-    saiWebRoutes._sensor_ids_cache_payload = None
-    saiWebRoutes._sensor_ids_cache_until = 0.0
+    app.state.route_state.dashboard_json.clear()
+    app.state.route_state.dashboard_inventory = None
+    app.state.route_state.sensor_ids_payload = None
+    app.state.route_state.sensor_ids_until = 0.0
     ingest.nodus_liveness["co2-stale"] = {
         "state": "unknown",
         "retained_seen_s": 1.0,
@@ -5075,8 +5074,8 @@ async def test_dashboard_json_hides_retained_only_nodus_shadow_without_db_rows(t
 async def test_dashboard_json_ignores_incomplete_switch_identity_without_channel_id(tmp_path, monkeypatch):
     app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
 
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
-    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    app.state.route_state.dashboard_json.clear()
+    app.state.route_state.dashboard_inventory = None
     saiWebRoutes.switch_controllers = {}
     app.state.switch_controllers = app.state.runtime_services.switch_controllers = {}
 
@@ -5134,8 +5133,8 @@ async def test_dashboard_display_style_prefers_sensor_settings_over_global_defau
     monkeypatch.setattr(saiWebRoutes, "saiSettings", _PersistentFakeSaiSettings)
     monkeypatch.setattr(saiSettingsModule, "saiSettings", _PersistentFakeSaiSettings)
 
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
-    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    app.state.route_state.dashboard_json.clear()
+    app.state.route_state.dashboard_inventory = None
     now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["apvpd-test123"])
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso)
@@ -5574,9 +5573,9 @@ async def test_dashboard_global_all_mode_uses_system_style_for_extra_metrics(tmp
     )
     saved_sensor_settings = sensor_mgr.load("co2-ykdvea")
 
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
-    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
-    saiWebRoutes._DASHBOARD_DISPLAY_SETTINGS_CACHE = None
+    app.state.route_state.dashboard_json.clear()
+    app.state.route_state.dashboard_inventory = None
+    app.state.route_state.dashboard_display_settings = None
     now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
     all_values = {
         "CO2": 718.0,
@@ -5657,8 +5656,8 @@ async def test_dashboard_display_metrics_prefer_sensor_settings_over_ingest_expe
         "Plant Temperature_F",
     ]
 
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
-    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
+    app.state.route_state.dashboard_json.clear()
+    app.state.route_state.dashboard_inventory = None
     now_iso = (datetime.now() - timedelta(minutes=1)).isoformat()
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["apvpd-test123"])
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: now_iso)
@@ -6158,8 +6157,8 @@ async def test_remove_direct_i2c_sensor_purges_active_database_rows(tmp_path, mo
 @pytest.mark.asyncio
 async def test_switch_status_keeps_confirmed_state_and_exposes_pending_request(tmp_path, monkeypatch):
     app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
-    saiWebRoutes._switch_status_cache_payload = None
-    saiWebRoutes._switch_status_cache_until = 0.0
+    app.state.route_state.switch_status_payload = None
+    app.state.route_state.switch_status_until = 0.0
     saiWebRoutes.switch_controllers = {}
 
     commands = saiMQTTIngest.MQTTCommandLifecycle()
@@ -6204,8 +6203,8 @@ async def test_switch_status_keeps_confirmed_state_and_exposes_pending_request(t
 @pytest.mark.asyncio
 async def test_switch_toggle_returns_recent_events_for_immediate_ui_refresh(tmp_path, monkeypatch):
     app, _ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
-    saiWebRoutes._switch_status_cache_payload = None
-    saiWebRoutes._switch_status_cache_until = 0.0
+    app.state.route_state.switch_status_payload = None
+    app.state.route_state.switch_status_until = 0.0
 
     class _Ctrl:
         switch_id = "desk-hub"
@@ -6262,8 +6261,8 @@ async def test_switch_toggle_returns_recent_events_for_immediate_ui_refresh(tmp_
 @pytest.mark.asyncio
 async def test_switch_toggle_channel_fallback_returns_requested_state(tmp_path, monkeypatch):
     app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
-    saiWebRoutes._switch_status_cache_payload = None
-    saiWebRoutes._switch_status_cache_until = 0.0
+    app.state.route_state.switch_status_payload = None
+    app.state.route_state.switch_status_until = 0.0
     saiWebRoutes.switch_controllers = {}
     app.state.switch_controllers = app.state.runtime_services.switch_controllers = {}
 
@@ -6303,8 +6302,8 @@ async def test_switch_toggle_channel_fallback_returns_requested_state(tmp_path, 
 @pytest.mark.asyncio
 async def test_switch_toggle_remote_controller_prefers_live_state_over_stale_db(tmp_path, monkeypatch):
     app, ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
-    saiWebRoutes._switch_status_cache_payload = None
-    saiWebRoutes._switch_status_cache_until = 0.0
+    app.state.route_state.switch_status_payload = None
+    app.state.route_state.switch_status_until = 0.0
 
     class _RemoteCtrl:
         switch_id = "switch-ykdvea"
@@ -6808,9 +6807,9 @@ def test_wifi_credential_helpers_do_not_log_plaintext_passwords():
 @pytest.mark.asyncio
 async def test_dashboard_json_refreshes_pressure_calibration_context(tmp_path, monkeypatch):
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
-    monkeypatch.setattr(saiWebRoutes, "_DASHBOARD_JSON_CACHE", {})
+    monkeypatch.setattr(app.state.route_state, "dashboard_json", {})
     monkeypatch.setattr(saiWebRoutes, "_DASHBOARD_JSON_CACHE_TTL_SEC", 0)
-    monkeypatch.setattr(saiWebRoutes, "_DASHBOARD_INVENTORY_CACHE", None)
+    monkeypatch.setattr(app.state.route_state, "dashboard_inventory", None)
     sid = "avpd-test123"
     ingest.mqtt_clients = [sid]
     mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
@@ -7039,10 +7038,10 @@ async def test_dashboard_sensor_order_matches_json_and_manual_movement(tmp_path,
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_metrics", lambda sid: ["Temperature"])
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_switch_identities", lambda: [])
     monkeypatch.setattr(saiWebRoutes.statter, "get_all_stats_fast", lambda: {})
-    saiWebRoutes._SENSOR_LOCATION_CACHE.clear()
-    saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
-    saiWebRoutes._DASHBOARD_DISPLAY_SETTINGS_CACHE = None
-    saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
+    app.state.route_state.sensor_locations.clear()
+    app.state.route_state.dashboard_inventory = None
+    app.state.route_state.dashboard_display_settings = None
+    app.state.route_state.dashboard_json.clear()
     ingest.mqtt_clients = []
     expected = ["aqi-b", "__switches__", "aqi-z", "aqi-a"] if mode == "location_device" else ["aqi-z", "__switches__", "aqi-a", "aqi-b"]
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
