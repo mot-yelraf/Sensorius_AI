@@ -188,7 +188,11 @@ function toggleCustomTime(enabled){ const el = document.getElementById('custom_t
         const encoded = btoa(unescape(encodeURIComponent(sid + '::' + label))).replace(/=/g,'');
         const id = 'ch_' + encoded;
         const wrap = document.createElement('label');
-        wrap.innerHTML = "<input type='checkbox' id='" + id + "' data-label='" + label + "'> " + label;
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.id = id;
+        input.dataset.label = label;
+        wrap.append(input, document.createTextNode(' ' + label));
         chBox.appendChild(wrap);
       });
     }

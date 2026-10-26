@@ -8,16 +8,20 @@ function checkScript(source, sourceType = 'script') {
   expect(comments).toEqual([]);
 }
 
-test('rendered scripts and extracted application assets contain no JavaScript comments', async ({ request }) => {
+test('rendered scripts and extracted application assets contain no JavaScript comments', async ({ request, page }) => {
   const response = await request.get('/');
   expect(response.ok()).toBeTruthy();
   const html = await response.text();
-  for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
-    const attrs = match[1];
-    if (attrs.includes('application/json')) {
-      expect(() => JSON.parse(match[2])).not.toThrow();
-    } else if (!/\bsrc\s*=/.test(attrs)) {
-      checkScript(match[2], attrs.includes('module') ? 'module' : 'script');
+  const scripts = await page.evaluate(source => Array.from(
+    new DOMParser().parseFromString(source, 'text/html').querySelectorAll('script'),
+    script => ({ type: script.type, external: script.hasAttribute('src'), source: script.textContent })
+  ), html);
+  expect(scripts.length).toBeGreaterThan(0);
+  for (const script of scripts) {
+    if (script.type === 'application/json') {
+      expect(() => JSON.parse(script.source)).not.toThrow();
+    } else if (!script.external) {
+      checkScript(script.source, script.type === 'module' ? 'module' : 'script');
     }
   }
   for (const name of ['dashboard_runtime.js', 'graph_workspace.js']) {
@@ -28,6 +32,24 @@ test('rendered scripts and extracted application assets contain no JavaScript co
   const comments = [];
   parse('const x = 1; // forbidden\n/* forbidden */ const y = 2;', { ecmaVersion: 'latest', onComment: comments });
   expect(comments.map(item => item.type)).toEqual(['Line', 'Block']);
+});
+
+test('Graphum switch labels remain literal text and preserve checkbox identity', async ({ page }) => {
+  const label = "Relay 'quoted' <img src=x onerror=alert(1)> & pump";
+  await page.setContent('<script id="graph-config" type="application/json">{}</script><select id="switch_select"><option value="switch-test">Switch</option></select><div id="channel_checkboxes"></div>');
+  await page.locator('#graph-config').evaluate((element, value) => {
+    element.textContent = JSON.stringify({ SWITCH_MAP: { 'switch-test': [value] } });
+  }, label);
+  await page.addScriptTag({ path: 'ui_static/js/graph_workspace.js' });
+  await page.evaluate(() => renderSwitchChannels());
+  const checkbox = page.locator('#channel_checkboxes input');
+  await expect(checkbox).toHaveAttribute('type', 'checkbox');
+  await expect(checkbox).toHaveAttribute('data-label', label);
+  await expect(checkbox).toHaveAttribute('id', 'ch_' + Buffer.from('switch-test::' + label).toString('base64').replace(/=/g, ''));
+  await expect(page.locator('#channel_checkboxes label')).toHaveText(' ' + label);
+  await expect(page.locator('#channel_checkboxes img')).toHaveCount(0);
+  await checkbox.check();
+  await expect(checkbox).toBeChecked();
 });
 
 for (const width of [1280, 390]) {
