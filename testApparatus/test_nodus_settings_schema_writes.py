@@ -6162,9 +6162,8 @@ async def test_switch_status_keeps_confirmed_state_and_exposes_pending_request(t
     saiWebRoutes._switch_status_cache_until = 0.0
     saiWebRoutes.switch_controllers = {}
 
-    ingest.config_result_by_message = {}
-    ingest.config_ack_by_message = {}
-    ingest.get_switch_command_status = lambda sid, label, channel: saiMQTTIngest.saiMQTTIngest.get_switch_command_status(ingest, sid, label, channel)
+    commands = saiMQTTIngest.MQTTCommandLifecycle()
+    ingest.get_switch_command_status = commands.get_switch_command_status
     ingest._switch_state_cache = {"switch-ykdvea": {"S1-ykdvea": "off"}}
     ingest._pending_set = {
         ("switch-ykdvea", "Fan"): {
@@ -6173,6 +6172,8 @@ async def test_switch_status_keeps_confirmed_state_and_exposes_pending_request(t
             "channel_id": "S1-ykdvea",
         }
     }
+
+    commands._pending_set = ingest._pending_set
 
     monkeypatch.setattr(
         saiWebRoutes.data_logger,
