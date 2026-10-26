@@ -11,10 +11,15 @@ import json
 import time
 import random
 import asyncio
+from typing import TYPE_CHECKING
+
 import socket
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
+if TYPE_CHECKING:
+    from .saiWebContracts import DashboardBroadcast
+
 from .saiInputUnits import display_automation_values
 from .saiAutomationEvaluation import (
     AutomationConditionEvaluator,
@@ -75,7 +80,7 @@ def is_remote_switch_settings(switch_settings) -> bool:
 class SwitchController:
     """Control local switch channels through the shared switch contract."""
 
-    def __init__(self, switch_settings=None, supervisor=None, sensor=None, data_logger=None, dashboard_broadcast=None):
+    def __init__(self, switch_settings=None, supervisor=None, sensor=None, data_logger=None, dashboard_broadcast: "DashboardBroadcast | None" = None):
         """Initialize switch control with an optional async dashboard callback."""
         self.dashboard_broadcast = dashboard_broadcast
         self.supervisor = supervisor
@@ -2643,7 +2648,7 @@ class SwitchController:
 class RemoteSwitchController(SwitchController):
     """MQTT-backed switch controller for remote Nodus/Pico devices."""
 
-    def __init__(self, switch_settings=None, supervisor=None, sensor=None, mqtt_ingest=None, data_logger=None, dashboard_broadcast=None):
+    def __init__(self, switch_settings=None, supervisor=None, sensor=None, mqtt_ingest=None, data_logger=None, dashboard_broadcast: "DashboardBroadcast | None" = None):
         """Initialize MQTT switch control with optional dashboard notifications."""
         self.is_remote = True
         self.mqtt_ingest = mqtt_ingest
@@ -2784,7 +2789,7 @@ class RemoteSwitchController(SwitchController):
         return super().set_state(name, on, force=force, event_source=event_source)
 
 
-def build_switch_controller(*, switch_settings=None, supervisor=None, sensor=None, mqtt_ingest=None, data_logger=None, dashboard_broadcast=None):
+def build_switch_controller(*, switch_settings=None, supervisor=None, sensor=None, mqtt_ingest=None, data_logger=None, dashboard_broadcast: "DashboardBroadcast | None" = None):
     """Build a shared controller, optionally supplying its async dashboard callback."""
     if _switch_type_from_settings(switch_settings) == "ecowitt":
         from .saiEcowittSwitch import EcowittSwitchController

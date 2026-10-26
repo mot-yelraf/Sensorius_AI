@@ -20,7 +20,10 @@ import smtplib
 import socket
 import threading
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .saiWebContracts import DashboardBroadcast
 
 from .saiUtils import debug_enabled, printDM
 
@@ -290,7 +293,7 @@ class EmailNotificationService:
         supervisor=None,
         sender=None,
         evaluate_readings: bool = True,
-        dashboard_broadcast=None,
+        dashboard_broadcast: DashboardBroadcast | None = None,
     ):
         self.settings = settings
         self.data_logger = data_logger
@@ -720,9 +723,9 @@ class AutomationNotificationService:
         self.supervisor = supervisor
         self.interval_sec = max(1.0, float(interval_sec))
         self._controller = None
-        self.dashboard_broadcast = None
+        self.dashboard_broadcast: DashboardBroadcast | None = None
 
-    def set_dashboard_broadcast(self, broadcaster) -> None:
+    def set_dashboard_broadcast(self, broadcaster: DashboardBroadcast | None) -> None:
         """Bind dashboard delivery for both existing and future system actors."""
         self.dashboard_broadcast = broadcaster
         if self._controller is not None:

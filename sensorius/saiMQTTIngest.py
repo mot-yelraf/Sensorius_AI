@@ -9,6 +9,11 @@ Responsibilities:
 - maintain device liveness, topic maps, and discovery caches
 """
 import asyncio
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .saiWebContracts import DashboardBroadcast
+
 from . import saiNodusShadowPersistence as nodus_shadow
 from .saiNodusShadowPersistence import _merge_nodus_pressure_calibration
 import copy
@@ -268,7 +273,7 @@ def _command_lifecycle_state(name):
 class saiMQTTIngest:
     """Ingest MQTT discovery, readings, commands, and Nodus state shadows."""
 
-    def __init__(self, broker="localhost", client_id="rpi_ingest", mqtt_clients=None, supervisor=None, settings=None, data_logger=None, dashboard_broadcast=None):
+    def __init__(self, broker="localhost", client_id="rpi_ingest", mqtt_clients=None, supervisor=None, settings=None, data_logger=None, dashboard_broadcast: "DashboardBroadcast | None" = None):
         """Initialize MQTT ingest with an optional async dashboard callback."""
         self.dashboard_broadcast = dashboard_broadcast
         self._started = False

@@ -16,6 +16,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
 from .saiRuntimeServices import RuntimeServices
+from .saiWebContracts import SettingsFactory, SensorSettingsFactory, SwitchSettingsFactory
 from .saiUtils import printDM, normalize_hostname_base, mdns_hostname, normalize_sensor_id
 
 MODULE = "saiWebRoutes"
@@ -31,10 +32,11 @@ from .saiOnboardingToken import OnboardingTokenManager
 
 def register_onboarding_routes(
     router: APIRouter, *, services: RuntimeServices, settings, main_loop,
-    settings_factory, sensor_settings_factory, switch_settings_factory,
-    deobfuscate_secret: Callable, system_base_dir, sensor_base_dir, switch_base_dir,
+    settings_factory: SettingsFactory, sensor_settings_factory: SensorSettingsFactory,
+    switch_settings_factory: SwitchSettingsFactory,
+    deobfuscate_secret: Callable[[str], str], system_base_dir, sensor_base_dir, switch_base_dir,
     debug: bool = False,
-) -> Callable:
+) -> Callable[[], bool]:
     """Register onboarding endpoints and return the feature-availability check."""
     saiSettings = settings_factory
     SensorSettingsManager = sensor_settings_factory

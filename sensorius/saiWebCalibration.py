@@ -15,6 +15,9 @@ from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from .saiRuntimeServices import RuntimeServices
 from .saiWebRouteState import RouteState
+from .saiWebContracts import (
+    FloatSetting, HostLock, SettingsFactory, SensorSettingsFactory, SoilOffset,
+)
 from .saiUtils import printDM, normalize_sensor_id
 
 MODULE = "saiWebRoutes"
@@ -33,15 +36,15 @@ _SOIL_EC_CAL_KEYS = ("SOIL_EC_CAL_VAL",)
 class CalibrationHelpers:
     """Share calibration presentation with the existing sensor settings pane."""
 
-    soil_offset_value: Callable
-    soil_device_offsets: Callable
-    append_system_altitude_calibration: Callable
+    soil_offset_value: SoilOffset
+    soil_device_offsets: Callable[[dict, FloatSetting], list[dict]]
+    append_system_altitude_calibration: Callable[[list[dict], str], None]
 
 
 def register_calibration_routes(
     router: APIRouter, *, services: RuntimeServices, route_state: RouteState,
-    settings, settings_factory: Callable, sensor_settings_factory: Callable,
-    get_host_lock: Callable, ack_timeout: float, result_timeout: float,
+    settings, settings_factory: SettingsFactory, sensor_settings_factory: SensorSettingsFactory,
+    get_host_lock: HostLock, ack_timeout: float, result_timeout: float,
     debug: bool = False,
 ) -> CalibrationHelpers:
     """Register calibration routes and return helpers used by sensor settings."""

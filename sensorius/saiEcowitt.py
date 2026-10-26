@@ -13,7 +13,10 @@ import subprocess
 import time
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .saiWebContracts import DashboardBroadcast
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -186,7 +189,7 @@ class EcowittGatewayIngest:
         self.data_logger.ecowitt_service = self
         self.supervisor = supervisor
         self.switch_controllers = {}
-        self.dashboard_broadcast = None
+        self.dashboard_broadcast: DashboardBroadcast | None = None
         self._request_lock = asyncio.Lock()
         self._last_rain_day: float | None = None
         self._last_rain_timestamp: str = ""
