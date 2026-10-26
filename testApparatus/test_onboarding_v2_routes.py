@@ -114,7 +114,7 @@ async def test_scan_nodus_setup_marks_macos_miss_inconclusive(tmp_path, monkeypa
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Darwin")
     monkeypatch.setattr("sensorius.saiAddDevice.PICOW_AP_SSID", "Nodus_Setup")
     monkeypatch.setattr("sensorius.saiAddDevice.PICOW_AP_PASSWORD", "password")
@@ -152,7 +152,7 @@ async def test_scan_nodus_setup_linux_rescans_wifi_interface(tmp_path, monkeypat
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Linux")
     monkeypatch.setattr("sensorius.saiAddDevice.PICOW_AP_SSID", "Nodus_Setup")
     monkeypatch.setattr("sensorius.saiAddDevice.PICOW_AP_PASSWORD", "password")
@@ -227,7 +227,7 @@ async def test_v2_start_and_session_and_retry(tmp_path, monkeypatch):
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
 
     orig_issue = OnboardingTokenManager.issue_token
 
@@ -276,7 +276,7 @@ async def test_v2_start_resolves_local_wifi_before_ap_connect(tmp_path, monkeypa
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
 
     calls: list[str] = []
 
@@ -319,7 +319,7 @@ async def test_v2_prepare_session_is_reused_by_start(tmp_path, monkeypatch):
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
     monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
     monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"accepted": True}, "error": ""})
@@ -353,7 +353,7 @@ async def test_v2_start_prefers_itaot_meta_device_id_and_hub_mdns_broker(tmp_pat
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr(saiWebRoutes.socket, "gethostname", lambda: "sensoria-hub-0")
     monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
     monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "my-password"))
@@ -397,7 +397,7 @@ async def test_v2_start_rewrites_ip_broker_to_hub_mdns(tmp_path, monkeypatch):
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr(saiWebRoutes.socket, "gethostname", lambda: "sensoria-hub-0")
     monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
     monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "my-password"))
@@ -434,7 +434,7 @@ async def test_v2_start_on_macos_requires_manual_join_without_network_mutation(t
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Darwin")
     monkeypatch.setattr("sensorius.saiAddDevice.mac_wifi_is_on_nodus_subnet", lambda: False)
     monkeypatch.setattr("sensorius.saiAddDevice.PICOW_AP_SSID", "Nodus_Setup")
@@ -470,7 +470,7 @@ async def test_v2_start_on_macos_uses_existing_manual_join(tmp_path, monkeypatch
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Darwin")
     monkeypatch.setattr("sensorius.saiAddDevice.mac_wifi_is_on_nodus_subnet", lambda: True)
     monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not connect on macOS")))
@@ -501,7 +501,7 @@ async def test_v2_start_on_macos_requires_explicit_home_wifi(tmp_path, monkeypat
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Darwin")
     monkeypatch.setattr("sensorius.saiAddDevice.mac_wifi_is_on_nodus_subnet", lambda: True)
     monkeypatch.setattr(
@@ -532,7 +532,7 @@ async def test_v2_restart_creates_new_session(tmp_path, monkeypatch):
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
     monkeypatch.setattr("sensorius.saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "apvpd-test123"}, "error": ""})
     monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
@@ -568,7 +568,7 @@ async def test_v2_start_init_failed_marks_failed(tmp_path, monkeypatch):
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
     monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
     monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": False, "status_code": 500, "body": None, "error": "boom"})
@@ -599,7 +599,7 @@ async def test_v2_start_meta_fetch_failed_marks_failed(tmp_path, monkeypatch):
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
     monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
     monkeypatch.setattr("sensorius.saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": False, "status_code": 500, "body": None, "error": "boom"})
@@ -630,7 +630,7 @@ async def test_v2_start_init_failed_restores_previous_ssid(tmp_path, monkeypatch
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
     monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "my-password"))
     monkeypatch.setattr("sensorius.saiAddDevice.post_itaot_init", lambda *a, **k: {"ok": False, "status_code": 500, "body": None, "error": "boom"})
@@ -663,7 +663,7 @@ async def test_v2_start_on_macos_init_failure_does_not_mutate_wifi(tmp_path, mon
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Darwin")
     monkeypatch.setattr("sensorius.saiAddDevice.mac_wifi_is_on_nodus_subnet", lambda: True)
     monkeypatch.setattr("sensorius.saiAddDevice.PICOW_AP_SSID", "Nodus_Setup")
@@ -700,7 +700,7 @@ async def test_v2_start_on_macos_init_timeout_waits_for_mqtt_hello(tmp_path, mon
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr(saiWebRoutes.platform, "system", lambda: "Darwin")
     monkeypatch.setattr("sensorius.saiAddDevice.mac_wifi_is_on_nodus_subnet", lambda: True)
     monkeypatch.setattr(
@@ -775,7 +775,7 @@ async def test_v2_start_success_restores_previous_ssid_before_waiting_for_hello(
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
     monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
     monkeypatch.setattr("sensorius.saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-waiting"}, "error": ""})
@@ -812,7 +812,7 @@ async def test_v2_start_success_fails_when_local_wifi_restore_fails(tmp_path, mo
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: True)
     monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("ExampleWiFi", "pw"))
     monkeypatch.setattr("sensorius.saiAddDevice.get_itaot_meta", lambda *a, **k: {"ok": True, "status_code": 200, "body": {"device_id": "aqi-restore-fail"}, "error": ""})
@@ -839,7 +839,7 @@ async def test_v2_start_ap_connect_failed_marks_failed_session(tmp_path, monkeyp
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: False)
     monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
     reconnect_calls: list[tuple[str, str]] = []
@@ -878,7 +878,7 @@ async def test_v2_start_network_control_not_authorized(tmp_path, monkeypatch):
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
     monkeypatch.setattr("sensorius.saiAddDevice.connect_to_sensor_ap", lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not connect")))
     monkeypatch.setattr("sensorius.saiAddDevice.resolve_pi_wifi_credentials", lambda: ("MyWiFi", "my-password"))
     monkeypatch.setattr("sensorius.saiAddDevice.linux_network_control_permission_status", lambda: (False, "network_control=auth"))
@@ -908,7 +908,7 @@ async def test_v2_hello_matches_token_valid_session_when_multiple_active(tmp_pat
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
 
     def _issue_deterministic(self, *, session_id: str, expected_device_id: str = "", ttl_sec=None):
         ttl = max(60, int(ttl_sec if ttl_sec is not None else self.default_ttl_sec))
@@ -975,7 +975,7 @@ async def test_v2_config_set_includes_onboard_token_and_settings_payload(tmp_pat
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
 
     def _issue_deterministic(self, *, session_id: str, expected_device_id: str = "", ttl_sec=None):
         ttl = max(60, int(ttl_sec if ttl_sec is not None else self.default_ttl_sec))
@@ -1047,7 +1047,7 @@ async def test_v2_ack_rejected_marks_failed(tmp_path, monkeypatch):
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
 
     def _issue_deterministic(self, *, session_id: str, expected_device_id: str = "", ttl_sec=None):
         ttl = max(60, int(ttl_sec if ttl_sec is not None else self.default_ttl_sec))
@@ -1111,7 +1111,7 @@ async def test_v2_ack_correlates_by_message_id_with_same_device(tmp_path, monkey
         def __init__(self, base_dir: str = "system_settings"):
             super().__init__(base_dir=str(tmp_path))
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
 
     def _issue_deterministic(self, *, session_id: str, expected_device_id: str = "", ttl_sec=None):
         ttl = max(60, int(ttl_sec if ttl_sec is not None else self.default_ttl_sec))
@@ -1188,7 +1188,7 @@ async def test_v2_start_disabled_by_feature_flag(tmp_path, monkeypatch):
             super().__init__()
             self._vals[("Onboarding", "ONBOARDING_V2_MQTT")] = False
 
-    monkeypatch.setattr(saiWebRoutes, "OnboardingSessionStore", _TmpStore)
+    monkeypatch.setattr("sensorius.saiWebOnboarding.OnboardingSessionStore", _TmpStore)
     app = FastAPI()
     settings = _FlagOffSettings()
     ingest = _FakeIngest()
