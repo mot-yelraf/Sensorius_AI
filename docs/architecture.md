@@ -44,9 +44,26 @@ macOS, Windows, and non-Pi Linux hub:
 - `sensorius/saiWebServer.py`: FastAPI app construction,
   static/template mounting, and
   uvicorn launch.
-- `sensorius/saiWebRoutes.py`: UI, API, onboarding, calibration, settings,
-  and switch routes. It supplies the existing access guard and platform/settings
-  helpers when registering the extracted statistics and diagnostics routes.
+- `sensorius/saiWebRoutes.py`: dashboard, system/sensor settings, onboarding,
+  and device-management routes, plus registration of the extracted route groups.
+  It supplies shared access, settings, device-resolution, and invalidation helpers.
+- `sensorius/saiWebRouteState.py`: app-owned dashboard, inventory, sensor-list,
+  switch-status, location, astronomical, and calibration-progress caches. Each
+  registration exposes its independent state as `app.state.route_state`; dynamic
+  switch-monitor tracking is also app-owned. Cache TTLs, size limits, refresh
+  generation checks, and invalidation triggers retain their existing behavior.
+- `sensorius/saiWebGraphs.py`: graph history queries, downsampling helper, and saved
+  graph configuration routes, using the owning logger and settings instance.
+- `sensorius/saiWebCalibration.py`: local/Nodus calibration routes, correlated
+  command handling, calibration shadows, and shared sensor-pane presentation
+  helpers. Device payloads, acknowledgement timing, and persistence stay compatible.
+- `sensorius/saiWebSwitches.py`: switch settings, toggles, timers, overrides,
+  history/status, WebSocket notifications, and automation editing/activation routes.
+  Explicit callbacks and `RuntimeServices` supply its dependencies. The shared
+  switch-controller contract and automation ownership rules are unchanged.
+  These extracted groups preserve endpoint parameters, response shapes, and access
+  rules; unexpected exception text is logged server-side instead of echoed in
+  error responses. Templates and Python-generated HTML/JS remain unchanged.
 - `sensorius/saiWebDiagnostics.py`: sensor/switch statistics endpoints and shared
   settings-pane builders, readiness/debug routes, network status, retained-command
   diagnostics, and Advanced status. It reads services from the supplied
@@ -177,8 +194,10 @@ macOS, Windows, and non-Pi Linux hub:
    Importing routes does not construct a database logger. Standalone registration
    creates a context from explicitly supplied app-state services or fresh defaults.
    Runtime replacements must update the context; `RuntimeServices.attach(app)`
-   refreshes its compatibility app-state aliases. Dashboard caches and background
-   task lifecycle are unchanged by this service-lookup cleanup.
+   refreshes its compatibility app-state aliases. Route registration also creates
+   an independent `RouteState`; registering or invalidating one app cannot clear
+   another app's route caches or calibration progress. Background task scheduling
+   and shutdown behavior remain unchanged.
    Route registration injects the async dashboard callback into MQTT ingest,
    existing switch controllers, Ecowitt, SMTP failure notifications, and the
    system automation notification service (including an already-created actor).

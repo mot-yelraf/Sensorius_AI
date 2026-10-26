@@ -159,9 +159,9 @@ async def test_dashboard_json_resolves_equivalent_units_without_rewriting_settin
     packet = {name: source_value for name in source_names}
     packet["Soil Moisture Deficit" if legacy_selection else "SMD"] = 12
     raw_stats = {name: {"min": source_value, "avg": source_value, "max": source_value, "samples": 1} for name in source_names}
-    routes._DASHBOARD_JSON_CACHE.clear()
-    routes._DASHBOARD_INVENTORY_CACHE = None
-    routes._DASHBOARD_DISPLAY_SETTINGS_CACHE = None
+    app.state.route_state.dashboard_json.clear()
+    app.state.route_state.dashboard_inventory = None
+    app.state.route_state.dashboard_display_settings = None
     stamp = datetime.now().isoformat()
     monkeypatch.setattr(routes.data_logger, "get_available_sensors", lambda: [sid])
     monkeypatch.setattr(routes.data_logger, "get_available_metrics", lambda _: list(packet))

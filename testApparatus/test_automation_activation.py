@@ -346,7 +346,7 @@ async def test_validation_errors_do_not_expose_exception_text(tmp_path, monkeypa
 
     doc = {"actions": [{"type": "none"}], "conditions": [{"type": kind}]}
     if kind == "sensor":
-        monkeypatch.setattr(routes, "normalize_condition_inputs", invalid)
+        monkeypatch.setattr("sensorius.saiWebSwitches.normalize_condition_inputs", invalid)
         expected = "Invalid sensor condition. Check the value, hysteresis, and units."
     elif kind == "calendar":
         doc["conditions"][0].update(calendar_kind="date_time", calendar_timezone="UTC")

@@ -113,7 +113,7 @@ def test_bd_transition_toast_is_persistent_and_shows_from_to():
 def test_bd_transition_test_endpoint_uses_live_dashboard_broadcaster():
     repo_root = Path(__file__).resolve().parents[1]
     routes_text = (
-        repo_root / "sensorius" / "saiWebRoutes.py"
+        repo_root / "sensorius" / "saiWebSwitches.py"
     ).read_text(encoding="utf-8")
 
     assert '@router.post("/advanced/automations/test-bd-transition"' in routes_text

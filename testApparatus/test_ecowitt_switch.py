@@ -215,7 +215,6 @@ async def test_real_routes_toggle_status_and_edit_without_mqtt(plug, monkeypatch
     monkeypatch.setattr(routes, "FastStats", _FastStats)
     monkeypatch.setattr(routes, "data_logger", logger)
     monkeypatch.setattr(routes, "switch_controllers", {SID: ctrl}, raising=False)
-    monkeypatch.setattr(routes, "_switch_status_cache_payload", None)
     monkeypatch.delenv("SENSORIUS_API_KEY", raising=False)
     state = 0
     async def request(command):

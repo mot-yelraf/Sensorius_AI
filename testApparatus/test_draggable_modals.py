@@ -232,7 +232,10 @@ def test_settings_status_feedback_uses_hidden_live_regions_and_common_footers():
 def test_obsolete_standalone_advanced_automation_modal_is_removed():
     repo_root = Path(__file__).resolve().parents[1]
     html = (repo_root / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
-    routes = (repo_root / "sensorius" / "saiWebRoutes.py").read_text(encoding="utf-8")
+    routes = "\n".join(
+        (repo_root / "sensorius" / module).read_text(encoding="utf-8")
+        for module in ("saiWebRoutes.py", "saiWebSwitches.py")
+    )
     automation_js = (repo_root / "ui_static" / "js" / "advanced_automation.js").read_text(encoding="utf-8")
     css = (repo_root / "ui_static" / "css" / "app.css").read_text(encoding="utf-8")
 
@@ -248,7 +251,10 @@ def test_obsolete_standalone_advanced_automation_modal_is_removed():
 
 def test_settings_full_page_fallbacks_escape_embedded_scripts_and_open_backdrops():
     repo_root = Path(__file__).resolve().parents[1]
-    routes = (repo_root / "sensorius" / "saiWebRoutes.py").read_text(encoding="utf-8")
+    routes = "\n".join(
+        (repo_root / "sensorius" / module).read_text(encoding="utf-8")
+        for module in ("saiWebRoutes.py", "saiWebSwitches.py")
+    )
 
     assert routes.count('json.dumps(modal_html).replace("</", "<\\\\/")') >= 2
     assert routes.count("if (backdrop) backdrop.style.display = 'flex';") >= 2
