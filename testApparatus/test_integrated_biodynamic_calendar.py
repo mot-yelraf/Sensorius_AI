@@ -4,6 +4,8 @@ The tests verify application context, routes, templates, and static integration
 for the calendar surface within the main Sensorius runtime.
 """
 
+from testApparatus.webui_contract_helpers import dashboard_sources
+
 import asyncio
 import json
 import time
@@ -175,7 +177,7 @@ def test_integrated_assets_use_namespaced_routes_and_dashboard_navigation():
         encoding="utf-8"
     )
     javascript = (root / "ui_static" / "biodynamic_calendar" / "app.js").read_text(encoding="utf-8")
-    dashboard = (root / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    dashboard = dashboard_sources()
 
     assert 'id="dashboardReturn" href="/?dashboard_return=true" aria-label="Return to Sensorius dashboard"' in template
     assert 'class="dashboard-return-spinner"' in template
@@ -273,7 +275,7 @@ def test_leaf_icons_are_green_without_changing_water_background_accent():
 
     root = Path(__file__).resolve().parents[1]
     stylesheet = (root / "ui_static" / "biodynamic_calendar" / "app.css").read_text(encoding="utf-8")
-    dashboard = (root / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    dashboard = dashboard_sources()
 
     assert ".legend-leaf { color: #277a00; }" in stylesheet
     assert ".day-part-icon.part-leaf { color: #277a00; }" in stylesheet
@@ -290,7 +292,7 @@ def test_fruit_uses_grape_purple_without_changing_fire_background_accent():
     from sensorius.biodynamic_calendar import core
 
     root = Path(__file__).resolve().parents[1]
-    dashboard = (root / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    dashboard = dashboard_sources()
 
     assert ".bio-legend-fruit{background:#4c3a7f}" in dashboard
     assert "const actionColors = biodynamicActionColors(cur);" in dashboard

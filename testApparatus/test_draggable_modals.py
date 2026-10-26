@@ -4,6 +4,8 @@ These tests inspect generated HTML, JavaScript, and CSS source rather than
 launching a browser.
 """
 
+from testApparatus.webui_contract_helpers import dashboard_sources
+
 import os
 import re
 import sys
@@ -14,7 +16,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 
 def test_dashboard_loads_draggable_modal_asset():
-    from sensorius.saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config
+    from testApparatus.webui_contract_helpers import render_dashboard
 
     html = "".join(
         render_dashboard(
@@ -95,7 +98,7 @@ def test_settings_titlebar_close_control_is_circular_and_keyboard_visible():
 
 def test_dashboard_window_close_controls_use_transparent_card_color_circles():
     repo_root = Path(__file__).resolve().parents[1]
-    dashboard_html = (repo_root / "sensorius/saiHtml.py").read_text(encoding="utf-8")
+    dashboard_html = dashboard_sources()
     caelus_css = (repo_root / "ui_static/weather_forecast/app.css").read_text(encoding="utf-8")
     biodynamic_css = (repo_root / "ui_static/biodynamic_calendar/app.css").read_text(encoding="utf-8")
 
@@ -231,7 +234,7 @@ def test_settings_status_feedback_uses_hidden_live_regions_and_common_footers():
 
 def test_obsolete_standalone_advanced_automation_modal_is_removed():
     repo_root = Path(__file__).resolve().parents[1]
-    html = (repo_root / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    html = dashboard_sources()
     routes = "\n".join(
         (repo_root / "sensorius" / module).read_text(encoding="utf-8")
         for module in ("saiWebRoutes.py", "saiWebSwitches.py")

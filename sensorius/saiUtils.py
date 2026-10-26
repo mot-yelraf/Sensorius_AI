@@ -802,3 +802,16 @@ class SettingsWrapper:
 
     def __contains__(self, section):
         return section in self.settings
+
+
+def json_safe(value):
+    """Return a JSONResponse-safe dashboard payload fragment."""
+    import math
+
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {str(k): json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(v) for v in value]
+    return value

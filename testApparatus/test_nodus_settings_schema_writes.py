@@ -6,6 +6,8 @@ handling, and Nodus-facing config payload generation.
 
 from __future__ import annotations
 
+from testApparatus.webui_contract_helpers import read_config
+
 import asyncio
 import io
 import json
@@ -4872,7 +4874,7 @@ async def test_dashboard_merges_switch_cards_for_same_location(tmp_path, monkeyp
         assert moved.status_code == 200
         assert moved.json()["order"] == ["__switches__", "co2-ykdvea"]
         restored = await client.get("/")
-        assert 'window.applySensorGroupOrder(["__switches__", "co2-ykdvea"]);' in restored.text
+        assert read_config(restored.text)["dashboardRowOrder"] == ["__switches__", "co2-ykdvea"]
         assert "aria-label='Move Switches row up'" in restored.text
         assert "aria-label='Move Switches row down'" in restored.text
 
@@ -5168,7 +5170,8 @@ async def test_dashboard_display_style_prefers_sensor_settings_over_global_defau
 
 
 def test_dashboard_gauge_init_preserves_configured_metric_display_style():
-    from sensorius.saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config
+    from testApparatus.webui_contract_helpers import render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -5193,7 +5196,8 @@ def test_dashboard_gauge_init_preserves_configured_metric_display_style():
 
 
 def test_dashboard_dynamic_sensor_settings_gear_uses_bound_sensor_id():
-    from sensorius.saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config
+    from testApparatus.webui_contract_helpers import render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -5217,7 +5221,8 @@ def test_dashboard_dynamic_sensor_settings_gear_uses_bound_sensor_id():
 
 
 def test_dashboard_biodynamic_calendar_card_has_calendar_button():
-    from sensorius.saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config
+    from testApparatus.webui_contract_helpers import render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -5265,7 +5270,8 @@ def test_dashboard_biodynamic_calendar_card_has_calendar_button():
 
 
 def test_dashboard_weather_forecast_card_has_caelus_button():
-    from sensorius.saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config
+    from testApparatus.webui_contract_helpers import render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -5339,7 +5345,8 @@ def test_dashboard_weather_forecast_card_has_caelus_button():
 
 
 def test_dashboard_weather_forecast_none_hides_forecast_card():
-    from sensorius.saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config
+    from testApparatus.webui_contract_helpers import render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -5361,13 +5368,14 @@ def test_dashboard_weather_forecast_none_hides_forecast_card():
 
     assert "24 Hour Forecast</div>" not in html
     assert "id='weatherForecastBox'" not in html
-    assert "const weatherForecastEnabled = false;" in html
+    assert read_config(html)["weatherForecastEnabled"] is False
     assert "if (weatherForecastEnabled && typeof loadWeatherForecast === 'function') {" in html
     assert "window.setInterval(function(){ loadWeatherForecast(false, true); }, 300000);" in html
 
 
 def test_dashboard_refresh_pauses_during_modal_and_hidden_tab():
-    from sensorius.saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config
+    from testApparatus.webui_contract_helpers import render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -5397,7 +5405,8 @@ def test_dashboard_refresh_pauses_during_modal_and_hidden_tab():
 
 
 def test_dashboard_micrograph_fetches_are_cached_and_throttled():
-    from sensorius.saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config
+    from testApparatus.webui_contract_helpers import render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -5443,7 +5452,8 @@ def test_dashboard_micrograph_fetches_are_cached_and_throttled():
 
 
 def test_dashboard_initial_graph_styles_are_refreshed_by_configured_style():
-    from sensorius.saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config
+    from testApparatus.webui_contract_helpers import render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -5469,7 +5479,8 @@ def test_dashboard_initial_graph_styles_are_refreshed_by_configured_style():
 
 
 def test_dashboard_metric_card_click_cycles_24hr_graph_to_6hr_graph():
-    from sensorius.saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config
+    from testApparatus.webui_contract_helpers import render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -5495,7 +5506,8 @@ def test_dashboard_metric_card_click_cycles_24hr_graph_to_6hr_graph():
 
 
 def test_dashboard_metric_card_reuses_chart_with_updated_graph_options():
-    from sensorius.saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config
+    from testApparatus.webui_contract_helpers import render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -5520,7 +5532,8 @@ def test_dashboard_metric_card_reuses_chart_with_updated_graph_options():
 
 
 def test_dashboard_metric_card_gauge_view_has_canvas_fallback():
-    from sensorius.saiHtml import get_gauge_config, render_dashboard
+    from sensorius.saiHtml import get_gauge_config
+    from testApparatus.webui_contract_helpers import render_dashboard
 
     ingest = SimpleNamespace(expected_gauge_map={})
     gauge_config = get_gauge_config()
@@ -5542,7 +5555,7 @@ def test_dashboard_metric_card_gauge_view_has_canvas_fallback():
     assert "function drawFallbackGauge(canvas, rawValue, config)" in html
     assert "if (typeof Gauge === 'function')" in html
     assert "drawFallbackGauge(canvas, gaugeValue ?? 0, config);" in html
-    assert "const metricCanvasWidth = 260;" in html
+    assert read_config(html)["metricCanvasWidth"] == 260
     assert "canvas.width = Math.round(canvasSize.cssWidth);" in html
     assert "canvas.style.width = '160px';" not in html
     assert "radiusScale: 0.9" in html

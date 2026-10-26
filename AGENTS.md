@@ -296,9 +296,18 @@ Rules:
   `sensorius/saiWebServer.py` and `sensorius/saiWebRoutes.py`.
 - Use existing UI templates under `ui_templates/` and assets under
   `ui_static/`.
-- In Python-rendered JS/HTML, especially `yield "..."` builders in
-  `sensorius/saiHtml.py`, do not emit JavaScript `//` comments inside generated strings.
-  Use Python comments outside emitted strings.
+- Do not add JavaScript comments of any form to Python-rendered JS/HTML or
+  extracted dashboard/graph application scripts. This includes `//`, `/* ... */`,
+  and HTML-style JavaScript comments. Use Python comments outside emitted strings
+  or explanatory documentation instead. Comment-marker text inside URLs, regular
+  expressions, or data strings is not a JavaScript comment.
+- `sensorius/saiHtml.py` yields fragments that are joined without separators.
+  Python source line breaks are not JavaScript line breaks; do not assume each
+  yielded fragment is a complete statement or string literal.
+- Keep dashboard configuration in escaped inert JSON and executable dashboard/
+  graph code in versioned assets. Preserve script ordering and exported browser
+  callbacks. Run the host gate, including real Gauge/Chart canvas tests and the
+  JavaScript comment/parser checks, after changing this boundary.
 
 ## Sensor Extension Requirements
 

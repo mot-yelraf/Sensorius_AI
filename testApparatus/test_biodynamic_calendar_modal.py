@@ -60,7 +60,8 @@ class _FakeIngest:
 
 def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     source = Path(__file__).resolve().parents[1] / "sensorius" / "saiHtml.py"
-    text = source.read_text(encoding="utf-8")
+    from testApparatus.webui_contract_helpers import dashboard_sources
+    text = dashboard_sources()
 
     assert "const hasSelectedDay = !!(st.selectedDate && days.some((d) => d && d.date === st.selectedDate));" in text
     assert "const today = days.find((d) => d && d.in_month && d.is_today) || null;" in text
@@ -150,7 +151,7 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "const biodynamicWarming = isDashboardWarmingPayload(data);" in text
     assert "window.__lastExtrasRefreshAtMs = now;" in text
     assert "return `${sign} Moon: ${fmtHm(seg && seg.start)} to ${fmtHm(seg && seg.end)}`;" in text
-    assert "return rows.length ? rows.join('\\\\n') : `${sign} Moon: ${fmtIsoHm(current && current.window_start)} to ${fmtIsoHm(current && current.window_end)}`;" in text
+    assert "return rows.length ? rows.join('\\n') : `${sign} Moon: ${fmtIsoHm(current && current.window_start)} to ${fmtIsoHm(current && current.window_end)}`;" in text
     assert "dateEl.textContent = fmtIsoDate(cur.timestamp);" in text
     assert "windowEl.textContent = buildBiodynamicWindowText(data, cur.timestamp, cur);" in text
     assert "const daylightEl = document.getElementById('bioDaylightLine');" in text

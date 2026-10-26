@@ -11,7 +11,8 @@ from sensorius.saiDisplayUnits import (
     convert_display_value,
     normalize_display_unit_system,
 )
-from sensorius.saiHtml import get_gauge_config, render_dashboard
+from sensorius.saiHtml import get_gauge_config
+from testApparatus.webui_contract_helpers import render_dashboard
 
 
 def test_display_unit_system_defaults_to_imperial():

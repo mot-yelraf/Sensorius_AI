@@ -14,7 +14,8 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from sensorius.saiDisplayUnits import apply_display_units_to_gauge_config
-from sensorius.saiHtml import APP_VERSION, get_gauge_config, render_dashboard, render_graph_modal
+from sensorius.saiHtml import APP_VERSION, get_gauge_config
+from testApparatus.webui_contract_helpers import render_dashboard, render_graph_modal
 
 
 def test_sgp_gauges_use_nodus_scales_and_palette():
@@ -59,7 +60,7 @@ def test_soil_fertility_index_gauge_config_uses_contract_scale_and_zones():
 def test_fullscreen_graph_uses_soil_fertility_gauge_zone_backgrounds():
     html = "".join(render_graph_modal(switch_installed=False))
 
-    assert "const GRAPH_GAUGE_CONFIG = " in html
+    assert '"GRAPH_GAUGE_CONFIG":' in html
     assert '"Soil Fertility Index"' in html
     assert "const gaugeZonesBackgroundGraph" in html
     assert "soilFertilityGaugeZones(metricName)" in html
@@ -627,7 +628,7 @@ def test_dashboard_switch_layout_drift_schedules_layout_refresh():
     assert (
         "} else {      if (scheduleLayoutRefresh(layoutDrift.reason, sig)) "
         "{ finishUpdateGaugesRun(finishOptions, { ok: true }); return; }    }"
-    ) in block
+    ) in block.replace("\n", "")
     assert block.count("for (const sid of available)") == 1
     assert block.count("const values     = d.values") == 1
 

@@ -5,6 +5,8 @@ dashboard integration without depending on live weather services.
 """
 from __future__ import annotations
 
+from testApparatus.webui_contract_helpers import dashboard_sources
+
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
@@ -676,7 +678,7 @@ async def test_weather_forecast_background_warm_is_reused_by_first_page_request(
 
 
 def test_dashboard_button_launches_full_screen_weather_app():
-    html_source = (ROOT / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    html_source = dashboard_sources()
     assert "window.location.assign('/weather-forecast')" in html_source
 
 
@@ -711,7 +713,7 @@ def test_dashboard_elemental_card_palettes_have_high_contrast():
 
 
 def test_dashboard_reuses_detailed_forecast_moon_surface_and_selectable_backgrounds():
-    html_source = (ROOT / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    html_source = dashboard_sources()
     dashboard_css = (ROOT / "ui_static" / "css" / "app.css").read_text(encoding="utf-8")
 
     assert "dashboardMoonSurfaceImage.src = '/ui_static/weather_forecast/moon-surface.png?v=1'" in html_source
@@ -748,7 +750,7 @@ def test_dashboard_reuses_detailed_forecast_moon_surface_and_selectable_backgrou
 
 
 def test_dashboard_forecast_combines_selected_sensor_readings_with_system_unit_ranges():
-    dashboard_source = (ROOT / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    dashboard_source = dashboard_sources()
     routes_source = (ROOT / "sensorius" / "saiWebRoutes.py").read_text(encoding="utf-8")
 
     assert "forecastCurrentTemperature(data)" in dashboard_source
@@ -785,7 +787,7 @@ def test_sunlight_path_contrast_and_sun_position_match_caelus():
 def test_weather_forecast_system_settings_are_present():
     template = (ROOT / "ui_templates" / "modals" / "system_settings.html").read_text(encoding="utf-8")
     stylesheet = (ROOT / "ui_static" / "weather_forecast" / "app.css").read_text(encoding="utf-8")
-    dashboard_source = (ROOT / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    dashboard_source = dashboard_sources()
     user_guide = (ROOT / "docs" / "user_guide.md").read_text(encoding="utf-8")
     assert "system-weather-forecast" in template
     assert 'name="weather_forecast_theme"' in template
@@ -828,7 +830,7 @@ def test_weather_forecast_system_settings_are_present():
     assert not (ROOT / "ui_static" / "weather_forecast" / "backgrounds" / "island.webp").exists()
     assert not (ROOT / "ui_static" / "weather_forecast" / "backgrounds" / "desert.webp").exists()
     assert "Failed to refresh General Settings state" in dashboard_source
-    assert "input[name=\\\"weather_forecast_theme\\\"]:checked" in dashboard_source
+    assert 'input[name="weather_forecast_theme"]:checked' in dashboard_source
     assert template.index('data-runtime-section="system-astral"') < template.index('data-runtime-section="system-weather-forecast"')
     assert template.index('data-runtime-section="system-notifications"') < template.index('data-runtime-section="system-weather-forecast"')
     assert "The forecast uses the Sensorius Astral location." not in template

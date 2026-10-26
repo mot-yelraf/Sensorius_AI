@@ -5,7 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from sensorius.saiHtml import get_gauge_config, render_dashboard
+from sensorius.saiHtml import get_gauge_config
+from testApparatus.webui_contract_helpers import render_dashboard
 
 
 def test_dashboard_sensor_rows_include_responsive_collapse_controls():

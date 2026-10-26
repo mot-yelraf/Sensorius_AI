@@ -4,18 +4,20 @@ The assertions inspect generated UI source for merge, websocket, and JSON
 refresh behavior.
 """
 
+from testApparatus.webui_contract_helpers import dashboard_sources
+
 from pathlib import Path
 
 
 def test_dashboard_event_merge_keeps_detailed_origin_labels():
-    source = (Path(__file__).resolve().parents[1] / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    source = dashboard_sources()
 
-    assert 'yield "    if (/\\\\((manual|auto)(\\\\s*-\\\\s*[^)]*)?\\\\)/.test(text)) return 2;"' in source
+    assert r"if (/\((manual|auto)(\s*-\s*[^)]*)?\)/.test(text)) return 2;" in source
     assert "const origin = _originFromSource(evt.source);" in source
 
 
 def test_switch_card_events_display_twelve_hour_times_without_changing_raw_identity():
-    source = (Path(__file__).resolve().parents[1] / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    source = dashboard_sources()
 
     assert "function formatSwitchEventDisplayLine(line)" in source
     assert "const hour12 = ((hour24 + 11) % 12) + 1;" in source
@@ -26,7 +28,7 @@ def test_switch_card_events_display_twelve_hour_times_without_changing_raw_ident
 
 
 def test_switch_websocket_prefers_ui_key_for_live_updates():
-    source = (Path(__file__).resolve().parents[1] / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    source = dashboard_sources()
 
     assert "const uiKey = msg.ui_key || key;" in source
     assert "updateSwitchVisuals(label, data, uiKey);" in source
@@ -36,7 +38,7 @@ def test_switch_websocket_prefers_ui_key_for_live_updates():
 
 
 def test_dashboard_json_refresh_also_triggers_switch_status_refresh():
-    source = (Path(__file__).resolve().parents[1] / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    source = dashboard_sources()
 
     assert "if (typeof refreshAndApplySwitchStatus === 'function') {" in source
     assert "if (!window.__lastSwitchStatusFromGaugesAt || (nowMs - window.__lastSwitchStatusFromGaugesAt) >= 12000) {" in source
