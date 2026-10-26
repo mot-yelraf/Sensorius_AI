@@ -4,6 +4,8 @@ These source-level checks keep current user-facing button terminology stable
 across generated markup and static interface files.
 """
 
+from testApparatus.webui_contract_helpers import dashboard_sources
+
 import re
 from pathlib import Path
 
@@ -28,7 +30,7 @@ def test_navigation_buttons_use_dashboard_label():
 
 
 def test_generated_calendar_navigation_uses_integrated_route():
-    text = (ROOT / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    text = dashboard_sources()
 
     assert "closeBtn.textContent = 'Back to Sensorius'" not in text
     assert "window.openBiodynamicCalendar = function(){" in text

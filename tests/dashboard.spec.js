@@ -1,3 +1,4 @@
+import { replaceDashboardConfig } from './helpers/dashboard-config.js';
 // @ts-check
 import { test, expect } from '@playwright/test';
 
@@ -390,7 +391,7 @@ test('refreshes warming Sun and Moon data while a dashboard image is still loadi
       } });
     }
     const response = await route.fetch();
-    const html = (await response.text()).replace(/const astroData = .*?;/, `const astroData = ${JSON.stringify(warming)};`);
+    const html = replaceDashboardConfig(await response.text(), { astroData: warming });
     await route.fulfill({ response, body: html });
   });
   try {
@@ -413,6 +414,11 @@ for (const initialResponse of ['warming', 'failed', 'missing', 'stalled']) {
     let pageRequests = 0;
     let releaseStalled;
     const stalledGate = new Promise(resolve => { releaseStalled = resolve; });
+    await page.route('**/ui_static/js/dashboard_runtime.js?*', async route => {
+      const response = await route.fetch();
+      const script = (await response.text()).replace('const dashboardFetchTimeoutMs = 12000;', 'const dashboardFetchTimeoutMs = 500;');
+      await route.fulfill({ response, body: script });
+    });
     await page.route('**/*', async route => {
       const url = new URL(route.request().url());
       if (url.pathname !== '/') return route.fallback();
@@ -438,9 +444,7 @@ for (const initialResponse of ['warming', 'failed', 'missing', 'stalled']) {
       }
       pageRequests += 1;
       const response = await route.fetch();
-      const html = (await response.text())
-        .replace(/const astroData = .*?;/, `const astroData = ${JSON.stringify(warming)};`)
-        .replace('const dashboardFetchTimeoutMs = 12000;', 'const dashboardFetchTimeoutMs = 500;');
+      const html = replaceDashboardConfig(await response.text(), { astroData: warming });
       await route.fulfill({ response, body: html });
     });
     try {

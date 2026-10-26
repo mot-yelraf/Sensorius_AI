@@ -11,7 +11,8 @@ from types import SimpleNamespace
 import pytest
 
 from sensorius.saiDisplayUnits import apply_display_units_to_gauge_config
-from sensorius.saiHtml import canonicalize_metric_name, get_gauge_config, render_dashboard
+from sensorius.saiHtml import canonicalize_metric_name, get_gauge_config
+from testApparatus.webui_contract_helpers import render_dashboard
 from sensorius.saiMetricNames import normalize_metric_keys, normalize_metric_stats
 
 

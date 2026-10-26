@@ -96,6 +96,7 @@ try:
 except Exception:
     _build_switch_key = None
 from .saiRuntimeServices import RuntimeServices
+from .saiUtils import json_safe as _dashboard_json_safe
 from .saiWebRouteState import RouteState
 from .saiWebDevices import DeviceRouteDependencies, register_device_routes
 from .saiWebOnboarding import register_onboarding_routes
@@ -543,17 +544,6 @@ _NODUS_CALIBRATION_RESULT_TIMEOUT_SEC: float = 20.0
 _ASTRO_PAYLOAD_CACHE_TTL_SEC: float = 60.0
 _DASHBOARD_EXTRAS_FAST_WAIT_SEC: float = 0.05
 _SENSOR_LOCATION_CACHE_TTL_SEC: float = 5.0
-
-
-def _dashboard_json_safe(value):
-    """Return a JSONResponse-safe dashboard payload fragment."""
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, dict):
-        return {str(k): _dashboard_json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_dashboard_json_safe(v) for v in value]
-    return value
 
 
 def _dashboard_payload_is_warming(payload: object) -> bool:

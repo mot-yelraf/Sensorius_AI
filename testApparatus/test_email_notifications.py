@@ -4,6 +4,8 @@ SMTP and time are faked except where the sender contract itself is exercised;
 temporary SQLite databases isolate persisted cooldown and rate-limit state.
 """
 
+from testApparatus.webui_contract_helpers import dashboard_sources
+
 import asyncio
 import json
 from pathlib import Path
@@ -607,7 +609,7 @@ def test_astral_and_timer_controls_fill_bounded_columns():
 
 def test_automation_stylesheet_is_versioned_for_layout_updates():
     root = Path(__file__).resolve().parents[1]
-    html_source = (root / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    html_source = dashboard_sources()
     routes_source = (root / "sensorius" / "saiWebRoutes.py").read_text(encoding="utf-8")
 
     assert "/ui_static/css/app.css?v={APP_VERSION}" in html_source

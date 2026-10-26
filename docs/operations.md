@@ -650,9 +650,12 @@ npm run validate:pr
 ```
 
 The host Playwright gate exercises actual rendered dashboard/calendar markup
-and interaction using an isolated fixture. It substitutes runtime services and
-Chart/Gauge implementations; it does not validate live brokers, physical sensors,
-external integrations, or chart-library rendering. Python route tests separately
+and interaction using an isolated fixture. Most tests substitute runtime services
+and Chart/Gauge implementations. The asset smoke tests additionally load pinned
+real Chart/Gauge libraries from test-only npm dependencies, check desktop/mobile
+canvas drawing and live refresh, and parse generated/extracted JavaScript to reject
+comments and syntax errors. They require no CDN connection. The gate does not
+validate live brokers, physical sensors, or external integrations. Python route tests separately
 verify graph responses and event-loop responsiveness. The Paho lifecycle test
 uses the installed library in a separate interpreter with simulated connection
 failures; its internal socket pair requires local socket binding permission.

@@ -1,3 +1,4 @@
+import { replaceDashboardConfig } from './helpers/dashboard-config.js';
 // @ts-check
 import { test, expect } from '@playwright/test';
 
@@ -95,7 +96,7 @@ test('transparent arrows contrast with changing forecast and biodynamic backgrou
     };
     await page.route('**/', async route => {
       const response = await route.fetch();
-      const html = (await response.text()).replace(/const biodynamicData = .*?;/, `const biodynamicData = ${JSON.stringify(payload)};`);
+      const html = replaceDashboardConfig(await response.text(), { biodynamicData: payload });
       await route.fulfill({ response, body: html });
     });
     await page.reload({ waitUntil: 'load' });

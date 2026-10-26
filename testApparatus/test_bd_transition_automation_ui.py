@@ -5,6 +5,8 @@ runtime app binding aligned with the UI behavior they support.
 """
 
 from pathlib import Path
+from testApparatus.webui_contract_helpers import dashboard_sources
+
 import re
 
 
@@ -85,12 +87,10 @@ def test_none_actor_is_available_for_astral_and_other_conditions():
 
 def test_bd_transition_toast_is_persistent_and_shows_from_to():
     repo_root = Path(__file__).resolve().parents[1]
-    html_builder = (
-        repo_root / "sensorius" / "saiHtml.py"
-    ).read_text(encoding="utf-8")
+    html_builder = dashboard_sources()
 
     assert "msg.type === 'bd_transition'" in html_builder
-    assert "`BD Transition @ ${when}\\n${transition}`" in html_builder
+    assert "`BD Transition @ ${when}\n${transition}`" in html_builder
     assert "From ${segmentText(msg.from)} → To ${segmentText(msg.to)}" in html_builder
     assert "t.style.whiteSpace = 'pre-line';" in html_builder
     assert "window.biodynamicActionColors = biodynamicActionColors;" in html_builder
@@ -123,16 +123,14 @@ def test_bd_transition_test_endpoint_uses_live_dashboard_broadcaster():
 
 def test_generic_automation_toast_is_persistent_and_click_dismissible():
     repo_root = Path(__file__).resolve().parents[1]
-    html_builder = (
-        repo_root / "sensorius" / "saiHtml.py"
-    ).read_text(encoding="utf-8")
+    html_builder = dashboard_sources()
     branch = html_builder[
         html_builder.index("msg.type === 'automation_notification'"):
         html_builder.index("msg.type === 'bd_transition'")
     ]
 
     assert "automation-notification-toast" in branch
-    assert "`${name} @ ${when}\\n${conditionText}\\n${valueText}`" in branch
+    assert "`${name} @ ${when}\n${conditionText}\n${valueText}`" in branch
     assert "conditions.join(' OR ')" in branch
     assert "triggerValues.join('; ')" in branch
     assert "msg.trigger && typeof msg.trigger === 'object'" in branch
@@ -152,7 +150,7 @@ def test_generic_automation_toast_is_persistent_and_click_dismissible():
 
 def test_email_failure_toast_is_persistent_error_and_click_dismissible():
     repo_root = Path(__file__).resolve().parents[1]
-    html_builder = (repo_root / "sensorius" / "saiHtml.py").read_text(encoding="utf-8")
+    html_builder = dashboard_sources()
     branch = html_builder[
         html_builder.index("msg.type === 'email_failure'"):
         html_builder.index("msg.type === 'bd_transition'")

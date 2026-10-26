@@ -44,6 +44,17 @@ macOS, Windows, and non-Pi Linux hub:
 - `sensorius/saiWebServer.py`: FastAPI app construction,
   static/template mounting, and
   uvicorn launch.
+- `sensorius/saiHtml.py`: dashboard/graph markup and escaped inert JSON
+  configuration. Executable code is served from versioned
+  `ui_static/js/dashboard_runtime.js` and `ui_static/js/graph_workspace.js`;
+  dashboard cards, notifications, and graph workspace styles have corresponding
+  static CSS assets. The dashboard module receives configuration and versioned
+  pressure/rain helpers explicitly. The graph script retains its classic-script
+  browser callbacks and loading position. DOM identifiers, style cascade order,
+  refresh timers, and chart-library versions are preserved.
+  Generated scripts and extracted dashboard/graph JavaScript contain no comments;
+  explanations belong in Python comments or documentation. JSON escapes HTML
+  delimiters so configuration values cannot terminate their script element.
 - `sensorius/saiWebRoutes.py`: dashboard and system/sensor settings routes,
   plus registration of the extracted route groups.
   It supplies shared access, settings, device-resolution, and invalidation helpers.
@@ -456,3 +467,71 @@ sensor-event, and switch-event transactions roll back on failure before releasin
 the writer lock. Failed batches do not publish successful cache/listener updates.
 Retention runs as bounded supervised maintenance outside the ingestion path.
 Task crash backoff resets after sustained execution, not at every heartbeat.
+
+## Dashboard rendering and assets
+
+The dashboard renderer emits HTML and inert configuration. It does not assemble
+the dashboard or graph application JavaScript from Python string fragments.
+
+### Loading and ownership
+
+- `sensorius/saiHtml.py` renders metric cards, controls, graph workspace markup,
+  and two `application/json` elements: `dashboard-config` and `graph-config`.
+- `ui_static/js/dashboard_runtime.js` exports `initializeDashboard`. The small
+  module bootstrap supplies parsed configuration and the versioned pressure/rain
+  helpers. Its state remains private to the page; existing `window` callbacks
+  remain available to controls, settings dialogs, and other assets.
+- `ui_static/js/graph_workspace.js` remains a classic script at the original
+  graph initialization position. It reads `graph-config` and preserves the
+  existing Graphum callbacks and chart lifecycle.
+- `dashboard_cards.css`, `dashboard_notifications.css`, and
+  `graph_workspace.css` replace the corresponding inline style blocks at their
+  original cascade positions. Existing `app.css` and other styles remain in place.
+- All extracted asset URLs include the application version. Changing the version
+  causes browsers to request the new assets along with the new configuration.
+
+The configuration retains the same gauge definitions, current readings,
+statistics, metric/display selections, canvas dimensions, astronomy/calendar
+payloads, weather settings, platform flag, row order, timezone, and switch map.
+Shared `json_safe` normalization represents non-finite numbers as missing values.
+HTML delimiters are escaped before JSON is placed inside script elements, so a
+sensor label or other value containing `</script>` cannot terminate the element.
+
+### Behavior preserved during extraction
+
+The dashboard module still registers its load handler before the browser's load
+event. Initial gauge setup, lazy overflow metrics, graph creation/destruction,
+15-second live refresh, 12-second dashboard request timeout, recovery notices,
+minute graph/status refresh, and WebSocket updates retain their existing order.
+The graph workspace retains its classic-script scope and native browser callbacks.
+No chart libraries, runtime package versions, metric identifiers, or wire APIs are
+changed by this extraction.
+
+### Comments and fragment boundaries
+
+Do not add JavaScript comments to generated output or these application assets.
+This includes line comments, block comments, and HTML-style JavaScript comments.
+Explain renderer logic with Python comments outside emitted strings; explain
+browser behavior in documentation. URLs and regular expressions containing slash
+characters are data/syntax, not comments.
+
+Remaining Python-rendered fragments are joined with no separator. A Python source
+newline does not create a JavaScript newline. Fragments can split string literals;
+blindly inserting newlines between fragments is unsafe. The extraction preserved
+JavaScript token structure and verified the formatting against its parsed AST.
+
+### Verification
+
+Run `npm run validate:pr` from the checkout. The asset tests parse executable
+inline scripts and extracted JavaScript with Acorn and reject comments. They use
+pinned, test-only npm copies of the existing Gauge.js/Chart.js libraries to verify
+painted metric canvases, live refresh, and full-screen Graphum on desktop and phone
+widths without depending on CDN access. The annotation plugin's test dependency
+peer override matches the Chart/plugin combination already loaded in production;
+it does not change the production versions. Other browser tests retain their
+lightweight chart stubs.
+
+Python tests cover configuration escaping, non-finite values, markup, and asset
+contracts. `testApparatus/webui_contract_helpers.py` reads referenced local assets
+for static assertions only; it is not used by the application or browser fixture.
+Device/broker behavior still requires deployment verification.
