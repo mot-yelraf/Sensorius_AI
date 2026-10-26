@@ -578,6 +578,9 @@ async def _build_app(tmp_path, monkeypatch, hub_settings=None, ota_service=None,
 
     _FakeSaiSettings.DEFAULT_BASE_DIR = str(system_root)
 
+    monkeypatch.setattr(saiWebRoutes, "_SYS_BASE_DIR", str(system_root))
+    monkeypatch.setattr(saiWebRoutes, "_SENSOR_BASE_DIR", str(sensor_root))
+    monkeypatch.setattr(saiWebRoutes, "_SWITCH_BASE_DIR", str(switch_root))
     monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
     monkeypatch.setattr(saiWebRoutes, "saiSettings", _FakeSaiSettings)
     monkeypatch.setattr(saiWebRoutes, "SystemSettingsManager", _FakeSystemSettingsManager, raising=False)
@@ -606,6 +609,9 @@ async def _build_app_base_dir_only(tmp_path, monkeypatch):
 
     _BaseDirOnlyFakeSaiSettings.DEFAULT_BASE_DIR = str(system_root)
 
+    monkeypatch.setattr(saiWebRoutes, "_SYS_BASE_DIR", str(system_root))
+    monkeypatch.setattr(saiWebRoutes, "_SENSOR_BASE_DIR", str(sensor_root))
+    monkeypatch.setattr(saiWebRoutes, "_SWITCH_BASE_DIR", str(switch_root))
     monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
     monkeypatch.setattr(saiWebRoutes, "saiSettings", _BaseDirOnlyFakeSaiSettings)
     monkeypatch.setattr(saiWebRoutes, "SystemSettingsManager", _FakeSystemSettingsManager, raising=False)

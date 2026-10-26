@@ -44,9 +44,19 @@ macOS, Windows, and non-Pi Linux hub:
 - `sensorius/saiWebServer.py`: FastAPI app construction,
   static/template mounting, and
   uvicorn launch.
-- `sensorius/saiWebRoutes.py`: dashboard, system/sensor settings, onboarding,
-  and device-management routes, plus registration of the extracted route groups.
+- `sensorius/saiWebRoutes.py`: dashboard and system/sensor settings routes,
+  plus registration of the extracted route groups.
   It supplies shared access, settings, device-resolution, and invalidation helpers.
+- `sensorius/saiWebOnboarding.py`: setup-network discovery, legacy bootstrap,
+  resumable onboarding sessions, token validation, MQTT hello/config handling,
+  and progress WebSockets. Session monitors and sockets remain per registration;
+  Wi-Fi restoration, correlation, retries, and timing retain existing behavior.
+- `sensorius/saiWebDevices.py`: device inventory, OTA, Wi-Fi updates, locations,
+  halt, removal, and rediscovery routes. It receives runtime services and explicit
+  access/cache/settings callbacks, and returns shared identity and paced config
+  helpers used by sensor, switch, and calibration routes. Shared host locks still
+  serialize commands to a physical device. Unexpected scan, folder-listing, and
+  location-update errors are logged rather than exposed as raw exception text.
 - `sensorius/saiWebRouteState.py`: app-owned dashboard, inventory, sensor-list,
   switch-status, location, astronomical, and calibration-progress caches. Each
   registration exposes its independent state as `app.state.route_state`; dynamic
@@ -130,14 +140,21 @@ macOS, Windows, and non-Pi Linux hub:
   receipt waits, and retained-command diagnostic redaction. Ingest delegates through
   its existing APIs and shared mutable state aliases. The component performs no
   MQTT I/O, settings writes, or task scheduling and needs no `RuntimeServices`
-  changes. Transport and settings-shadow processing remain in ingest.
+  changes. Transport remains in ingest; shadow writes use the persistence module.
 - `sensorius/saiNodusMeta.py`: stateless metadata field normalization, primary and
   child sensor selection, legacy bootstrap conversion, and config/switch companion
   snapshot merging. Ingest retains schema/identity guards for companions, cache
   lookup and update order, subscriptions, runtime state, correlated patch
-  application, and settings shadow writes. Existing ingest helper entry points
+  application, and orchestration of settings shadow writes. Existing ingest helper entry points
   remain compatible. This extraction changes no wire payloads and adds no Nodus
   processing, call-depth requirements, subscriptions, or polling.
+- `sensorius/saiNodusShadowPersistence.py`: system, sensor, and switch TOML shadow
+  materialization plus calibration patch persistence. It consumes normalized
+  descriptors without an MQTT client, preserving factory templates, nested
+  calibration, display preferences, channel identity/pruning, partial metadata,
+  and unchanged-value write avoidance. Ingest retains its compatibility writer
+  entry point and owns discovery/cache updates, live-data seeding guards, and
+  command correlation. No Nodus firmware changes or extra device calls are needed.
 - `sensorius/saiNodusLiveness.py`: shared MQTT receipt and heartbeat state,
   availability normalization, and online/degraded/offline timing decisions.
   Ingest retains identity resolution, callback serialization, offline-event
