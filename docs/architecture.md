@@ -54,6 +54,14 @@ macOS, Windows, and non-Pi Linux hub:
   settings, and platform probes run off the event loop. URLs, response shapes,
   and access rules remain compatible; live dashboard updates and integration or
   calibration status routes remain with their existing workflows.
+- `sensorius/saiWebIntegrations.py`: Home Assistant, WeeWX, farmOS, and Ecowitt
+  settings, status, and connection-test routes. The registrar uses the app's
+  `RuntimeServices` context for MQTT ingest, data logging, farmOS, and Ecowitt.
+  Lazy Ecowitt creation updates both that context and its app-state alias and
+  shares the existing switch controller map and dashboard callback. Shared WeeWX
+  settings/status helpers and dashboard invalidation are supplied by the caller.
+  Existing URLs, settings formats, responses, and integration protocols remain
+  unchanged.
 - `sensorius/saiSettings.py`: system settings in
   `system_settings/<device_id>/settings.toml`.
 - `sensorius/saiThemeManager.py`: custom theme manifests, safe palette
@@ -162,8 +170,14 @@ macOS, Windows, and non-Pi Linux hub:
    controller, and ingest instances. Statistics use the logger's database path,
    and `/stats` reuses the same statistics instance and cache.
    `app.state` service attributes and route-module aliases remain for compatibility;
-   importing routes no longer constructs a database logger. Standalone route
-   registration can create a context when none is supplied.
+   handlers read controllers, sensors, logger, and ingest from their owning context,
+   including calibration updates, device removal, and automation operations. They
+   do not fall back to route globals or the process-wide MQTT ingest singleton.
+   Importing routes does not construct a database logger. Standalone registration
+   creates a context from explicitly supplied app-state services or fresh defaults.
+   Runtime replacements must update the context; `RuntimeServices.attach(app)`
+   refreshes its compatibility app-state aliases. Dashboard caches and background
+   task lifecycle are unchanged by this service-lookup cleanup.
    Route registration injects the async dashboard callback into MQTT ingest,
    existing switch controllers, Ecowitt, SMTP failure notifications, and the
    system automation notification service (including an already-created actor).

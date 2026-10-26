@@ -1601,7 +1601,7 @@ async def test_submit_switch_settings_ajax_returns_json_success(tmp_path, monkey
         },
     )
     controller = SimpleNamespace(switch_id="switch-1", location="Old Room")
-    app.state.switch_controllers = {"switch-1": controller}
+    app.state.switch_controllers = app.state.runtime_services.switch_controllers = {"switch-1": controller}
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post(
@@ -2162,7 +2162,7 @@ async def test_sensor_settings_modal_shows_local_pi_board_and_sensor_type(tmp_pa
             "Display": {"METRIC_1": "CO2"},
         },
     )
-    app.state.sensor_map = [
+    app.state.sensor_map = app.state.runtime_services.sensor_map = [
         SimpleNamespace(
             sensor_id=sensor_id,
             sensor=SimpleNamespace(sensor_id=sensor_id, _co2_model="SCD4x"),
@@ -2186,7 +2186,7 @@ async def test_sensor_settings_modal_shows_local_pi_board_and_sensor_type(tmp_pa
 async def test_sensor_directory_keeps_local_pi_sensor_before_first_logged_reading(tmp_path, monkeypatch):
     app, _ingest, _system_root, _sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     sensor_id = "co2-i2c-1-sensorius-hub-2"
-    app.state.sensor_map = [SimpleNamespace(sensor_id=sensor_id)]
+    app.state.sensor_map = app.state.runtime_services.sensor_map = [SimpleNamespace(sensor_id=sensor_id)]
     saiWebRoutes._sensor_ids_cache_payload = None
     saiWebRoutes._sensor_ids_cache_until = 0.0
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: [])
@@ -4166,7 +4166,7 @@ async def test_dashboard_sensor_locations_ignore_unknown_live_cache_and_use_toml
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     saiWebRoutes._SENSOR_LOCATION_CACHE.clear()
     saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
-    app.state.sensor_map = [SimpleNamespace(sensor_id="apvpd-test123", location="Grow Tent")]
+    app.state.sensor_map = app.state.runtime_services.sensor_map = [SimpleNamespace(sensor_id="apvpd-test123", location="Grow Tent")]
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     sensor_mgr.save(
         "apvpd-test123",
@@ -4512,7 +4512,7 @@ async def test_dashboard_read_does_not_rewrite_metric_positions_for_offline_sens
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     saiWebRoutes._SENSOR_LOCATION_CACHE.clear()
     saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
-    app.state.sensor_map = []
+    app.state.sensor_map = app.state.runtime_services.sensor_map = []
     saiWebRoutes.sensor_map = []
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     for sid in ("aqi-a", "aqi-b", "aqi-c"):
@@ -4565,7 +4565,7 @@ async def test_dashboard_json_sanitizes_sideways_sensor_and_keeps_other_values(t
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
     saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
-    app.state.sensor_map = []
+    app.state.sensor_map = app.state.runtime_services.sensor_map = []
     saiWebRoutes.sensor_map = []
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     for sid in ("aqi-a", "aqi-b", "aqi-c"):
@@ -4614,7 +4614,7 @@ async def test_dashboard_json_falls_back_per_sensor_when_bulk_latest_values_fail
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
     saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
-    app.state.sensor_map = []
+    app.state.sensor_map = app.state.runtime_services.sensor_map = []
     saiWebRoutes.sensor_map = []
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     for sid in ("aqi-a", "aqi-b", "aqi-c"):
@@ -4667,7 +4667,7 @@ async def test_dashboard_metric_position_reorder_preserves_hidden_sensor_slots(t
     app, ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
     saiWebRoutes._SENSOR_LOCATION_CACHE.clear()
     saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
-    app.state.sensor_map = []
+    app.state.sensor_map = app.state.runtime_services.sensor_map = []
     saiWebRoutes.sensor_map = []
     sensor_mgr = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
     for sid in ("aqi-a", "aqi-b", "aqi-c"):
@@ -4718,7 +4718,7 @@ async def test_dashboard_metric_position_reorder_preserves_hidden_sensor_slots(t
 @pytest.mark.asyncio
 async def test_dashboard_switch_row_position_is_persisted(tmp_path, monkeypatch):
     app, ingest, *_ = await _build_app(tmp_path, monkeypatch)
-    app.state.sensor_map = []
+    app.state.sensor_map = app.state.runtime_services.sensor_map = []
     saiWebRoutes.sensor_map = []
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: ["aqi-a"])
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_latest_timestamp", lambda sid: datetime.now().isoformat())
@@ -4753,7 +4753,7 @@ async def test_dashboard_merges_switch_cards_for_same_location(tmp_path, monkeyp
     saiWebRoutes._SENSOR_LOCATION_CACHE.clear()
     saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
     saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
-    app.state.sensor_map = []
+    app.state.sensor_map = app.state.runtime_services.sensor_map = []
     saiWebRoutes.sensor_map = []
     saiWebRoutes.switch_controllers = {}
 
@@ -4952,7 +4952,7 @@ async def test_dashboard_json_reports_switch_only_nodus_discovery_for_layout_ref
     saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
     saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
     saiWebRoutes.switch_controllers = {}
-    app.state.switch_controllers = {}
+    app.state.switch_controllers = app.state.runtime_services.switch_controllers = {}
 
     switch_id = "relay-standalone"
     channel_id = "S1-standalone"
@@ -5078,7 +5078,7 @@ async def test_dashboard_json_ignores_incomplete_switch_identity_without_channel
     saiWebRoutes._DASHBOARD_JSON_CACHE.clear()
     saiWebRoutes._DASHBOARD_INVENTORY_CACHE = None
     saiWebRoutes.switch_controllers = {}
-    app.state.switch_controllers = {}
+    app.state.switch_controllers = app.state.runtime_services.switch_controllers = {}
 
     ingest.get_known_switch_devices = lambda: ["switch-test123"]
     ingest.nodus_switch_topic_map = {}
@@ -5936,7 +5936,7 @@ async def test_remove_device_expands_nodus_switch_suffix_cleanup(tmp_path, monke
             channel_id_for_label={"Pump": "S1-zbcalz"},
         )
     }
-    app.state.switch_controllers = dict(saiWebRoutes.switch_controllers)
+    app.state.switch_controllers = app.state.runtime_services.switch_controllers = saiWebRoutes.switch_controllers
 
     if not release_persisted:
         monkeypatch.setattr(ingest, "allow_nodus_devices", lambda *_args, **_kwargs: {"removed": [], "persisted": False})
@@ -6125,7 +6125,7 @@ async def test_remove_direct_i2c_sensor_purges_active_database_rows(tmp_path, mo
     monkeypatch.setattr(saiDataLoggerModule.saiDataLogger, "_schema_ready", False)
     logger = saiDataLoggerModule.saiDataLogger(str(tmp_path / "active-sensorius.db"))
     monkeypatch.setattr(saiWebRoutes, "data_logger", logger)
-    app.state.data_logger = logger
+    app.state.data_logger = app.state.runtime_services.data_logger = logger
     logger.log_readings("2026-06-27T16:00:00-06:00", sensor_id, {"Temperature": 24.0})
     logger.log_sensor_event(
         sensor_id,
@@ -6265,7 +6265,7 @@ async def test_switch_toggle_channel_fallback_returns_requested_state(tmp_path, 
     saiWebRoutes._switch_status_cache_payload = None
     saiWebRoutes._switch_status_cache_until = 0.0
     saiWebRoutes.switch_controllers = {}
-    app.state.switch_controllers = {}
+    app.state.switch_controllers = app.state.runtime_services.switch_controllers = {}
 
     ingest._switch_state_cache = {"switch-ykdvea": {"S1-ykdvea": "on", "Fan": "on"}}
     ingest.nodus_liveness["switch-ykdvea"] = {"state": "online"}
@@ -6462,8 +6462,8 @@ async def test_system_automation_save_reloads_action_target_controller(tmp_path,
     target_ctrl = _TargetController()
     controllers = {"switch-8y47n1": target_ctrl}
     saiWebRoutes.switch_controllers = controllers
-    app.state.switch_controllers = controllers
-    app.state.supervisor = SimpleNamespace(
+    app.state.switch_controllers = app.state.runtime_services.switch_controllers = controllers
+    app.state.supervisor = app.state.runtime_services.supervisor = SimpleNamespace(
         _task_names={"switch-8y47n1 Controladora Monitor"}
     )
 
@@ -7028,7 +7028,7 @@ async def test_dashboard_sensor_order_matches_json_and_manual_movement(tmp_path,
         "MetricPosition": {"aqi-z": 1, "__switches__": 2, "aqi-a": 3, "aqi-b": 4},
     }
     monkeypatch.setattr(saiWebRoutes, "saiSettings", _PersistentFakeSaiSettings)
-    app.state.sensor_map = []
+    app.state.sensor_map = app.state.runtime_services.sensor_map = []
     saiWebRoutes.sensor_map = []
     now_iso = datetime.now().isoformat()
     monkeypatch.setattr(saiWebRoutes.data_logger, "get_available_sensors", lambda: list(locations))

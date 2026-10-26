@@ -220,7 +220,7 @@ async def test_http_activation_paths(tmp_path, monkeypatch, operation):
         "SWITCH_DEVICE_ID": ctrl.switch_id, "SWITCH_1_LABEL": "Fan",
         "SWITCH_1_CHANNEL_ID": "S1-test", "SWITCH_2_LABEL": "Light", "SWITCH_2_CHANNEL_ID": "S2-test"}})
     monkeypatch.setitem(app.state.runtime_services.switch_controllers, ctrl.switch_id, ctrl)
-    app.state.supervisor = SimpleNamespace(_task_names={"switch-test Controladora Monitor"})
+    app.state.supervisor = app.state.runtime_services.supervisor = SimpleNamespace(_task_names={"switch-test Controladora Monitor"})
     doc = script(operation != "save_off")
     if operation in {"enable", "override", "failure", "enable_error", "override_error"}:
         Manager().upsert_advanced_rule("__system__", "fan", enabled=False, script={**doc, "enabled": False})
