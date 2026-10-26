@@ -98,6 +98,7 @@ try:
 except Exception:
     _build_switch_key = None
 from .saiRuntimeServices import RuntimeServices
+from .saiWebIntegrations import register_integration_routes
 from .saiWebDiagnostics import (
     AdvancedStatusConfiguration, DeviceStatistics, register_statistics_diagnostics_routes,
     _DB_RETENTION_MIN_DAYS, _DB_RETENTION_MAX_DAYS, _DB_RETENTION_DEFAULT_DAYS,
@@ -635,14 +636,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # Support standalone route registration and older integrations.
         logger = getattr(app.state, "data_logger", None)
         if logger is None:
-            logger = globals().get("data_logger")
-        if logger is None:
             logger = saiDataLogger()
         services = RuntimeServices(
             data_logger=logger,
             statter=getattr(app.state, "statter", None),
-            sensor_map=getattr(app.state, "sensor_map", globals().get("sensor_map", {})),
-            switch_controllers=getattr(app.state, "switch_controllers", globals().get("switch_controllers", {})),
+            sensor_map=getattr(app.state, "sensor_map", {}),
+            switch_controllers=getattr(app.state, "switch_controllers", {}),
             mqtt_ingest=mqtt_ingest,
             supervisor=getattr(app.state, "supervisor", None),
             farmos_bridge=getattr(app.state, "farmos_bridge", None),
@@ -1084,7 +1083,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return dict(await task)
 
     def _is_recent_sensor(sid: str, window: timedelta = timedelta(minutes=10)) -> bool:
-        ts = data_logger.get_latest_timestamp(sid)
+        ts = services.data_logger.get_latest_timestamp(sid)
         if not ts:
             return False
         try:
@@ -1108,7 +1107,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return []
 
         try:
-            timestamps = data_logger.get_latest_timestamps(clean_ids)
+            timestamps = services.data_logger.get_latest_timestamps(clean_ids)
         except Exception:
             return [sid for sid in clean_ids if _is_recent_sensor(sid, window=window)]
 
@@ -1186,7 +1185,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         sid_text = str(sid or "").strip()
         if not sid_text:
             return False
-        ing = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        ing = services.mqtt_ingest
         if ing is None:
             return False
         try:
@@ -1238,10 +1237,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return sorted(order_preserve)
 
     def _get_dashboard_sensor_map():
-        sm = getattr(app.state, "sensor_map", None)
-        if sm is None:
-            from . import saiWebRoutes as routes
-            sm = getattr(routes, "sensor_map", None)
+        sm = services.sensor_map
         return sm
 
     def _get_local_sensor_ids() -> list[str]:
@@ -1260,8 +1256,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return []
 
     def _current_dashboard_sensor_ids() -> list[str]:
-        sensors_from_logger = data_logger.get_available_sensors()
-        mqtt_discovered = mqtt_ingest.get_known_devices() if mqtt_ingest else []
+        sensors_from_logger = services.data_logger.get_available_sensors()
+        mqtt_discovered = services.mqtt_ingest.get_known_devices() if services.mqtt_ingest else []
         merged_local = list(_get_local_sensor_ids() or [])
         for sid in (sensors_from_logger or []):
             if sid and sid not in merged_local:
@@ -1927,10 +1923,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     def _resolve_channel_id_from_label(switch_id: str, label: str) -> str | None:
         try:
-            if not mqtt_ingest:
+            if not services.mqtt_ingest:
                 raise Exception("mqtt_ingest missing")
             norm_label = (label or "").strip().lower()
-            hit = (mqtt_ingest.nodus_label_to_channel or {}).get((str(switch_id), norm_label))
+            hit = (services.mqtt_ingest.nodus_label_to_channel or {}).get((str(switch_id), norm_label))
             if hit:
                 return hit
         except Exception:
@@ -1938,11 +1934,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # Fallback: use DB switch_ids table (label -> channel_id derived from switch_key)
         try:
-            if not data_logger:
+            if not services.data_logger:
                 return None
             target_sid = (switch_id or "").strip().lower()
             target_label = (label or "").strip().lower()
-            for row in (data_logger.get_switch_identities() or []):
+            for row in (services.data_logger.get_switch_identities() or []):
                 sid = str(row.get("switch_id", "")).strip().lower()
                 lab = str(row.get("label", "")).strip().lower()
                 if sid == target_sid and lab == target_label:
@@ -2554,10 +2550,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # --- make sensor_map accessible anywhere in this handler
             from collections.abc import Iterable
             def _get_sensor_map():
-                sm = getattr(app.state, "sensor_map", None)
-                if sm is None:
-                    from . import saiWebRoutes as routes
-                    sm = getattr(routes, "sensor_map", None)
+                sm = services.sensor_map
                 return sm
 
             def _get_local_sensor_ids() -> list[str]:
@@ -2574,10 +2567,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 return []
 
             def _get_local_switch_ids() -> list[str]:
-                sc = getattr(app.state, "switch_controllers", None)
-                if sc is None:
-                    from . import saiWebRoutes as routes
-                    sc = getattr(routes, "switch_controllers", None)
+                sc = services.switch_controllers
                 out = []
                 if isinstance(sc, dict):
                     for ctrl in sc.values():
@@ -2651,11 +2641,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     return "Unknown"
 
                 try:
-                    topic_map = getattr(mqtt_ingest, "nodus_switch_topic_map", {}) or {}
+                    topic_map = getattr(services.mqtt_ingest, "nodus_switch_topic_map", {}) or {}
                     for topic, meta in topic_map.items():
                         if str((meta or {}).get("switch_id", "") or "").strip().lower() != sw.lower():
                             continue
-                        loc = mqtt_ingest.device_location.get(topic)
+                        loc = services.mqtt_ingest.device_location.get(topic)
                         if isinstance(loc, str) and loc.strip() and not _is_unknown_location_value(loc):
                             return loc.strip()
                 except Exception:
@@ -2669,7 +2659,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     pass
 
                 try:
-                    sc = getattr(app.state, "switch_controllers", None)
+                    sc = services.switch_controllers
                     if isinstance(sc, dict):
                         for ctrl in sc.values():
                             sid = str(getattr(ctrl, "switch_id", "") or "").strip()
@@ -2733,10 +2723,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 target = str(switch_id or "").strip().lower()
                 if not target:
                     return []
-                sc = getattr(app.state, "switch_controllers", None)
-                if sc is None:
-                    from . import saiWebRoutes as routes
-                    sc = getattr(routes, "switch_controllers", None)
+                sc = services.switch_controllers
                 ctrls = sc.values() if isinstance(sc, dict) else ([sc] if sc else [])
                 labels: list[str] = []
                 for ctrl in ctrls:
@@ -2818,8 +2805,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 renderable_switch_controllers = list(inventory_payload.get("renderable_switch_controllers", []) or [])
                 sensor_locations_map = dict(inventory_payload.get("sensor_locations_map", {}) or {})
             else:
-                sensors_from_logger = await asyncio.to_thread(data_logger.get_available_sensors)
-                mqtt_discovered = mqtt_ingest.get_known_devices()
+                sensors_from_logger = await asyncio.to_thread(services.data_logger.get_available_sensors)
+                mqtt_discovered = services.mqtt_ingest.get_known_devices()
                 local_ids = _get_local_sensor_ids()
                 # Include sensors that have logged data, even if discovery missed /itaot.
                 merged_local = list(local_ids or [])
@@ -2850,8 +2837,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     switch_ids_discovered_channels = []
                     nodus_topic_map = {}
                     try:
-                        switch_ids_discovered = mqtt_ingest.get_known_switch_devices() or []
-                        nodus_topic_map = getattr(mqtt_ingest, "nodus_switch_topic_map", {}) or {}
+                        switch_ids_discovered = services.mqtt_ingest.get_known_switch_devices() or []
+                        nodus_topic_map = getattr(services.mqtt_ingest, "nodus_switch_topic_map", {}) or {}
                         for meta in nodus_topic_map.values():
                             sw_id = str((meta or {}).get("switch_id", "") or "").strip()
                             if sw_id:
@@ -2868,7 +2855,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     switch_ids_db_controllers = []
                     switch_identity_rows = []
                     try:
-                        switch_identity_rows = await asyncio.to_thread(data_logger.get_switch_identities)
+                        switch_identity_rows = await asyncio.to_thread(services.data_logger.get_switch_identities)
                         for row in (switch_identity_rows or []):
                             sw_id = str(row.get("switch_id", "")).strip()
                             label = str(row.get("label", "") or "").strip()
@@ -2900,7 +2887,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         + list(switch_ids_db_controllers),
                         allowed_extra=allowed_controller_ids,
                     )
-                    remote_cache = getattr(mqtt_ingest, "_switch_state_cache", {}) or {}
+                    remote_cache = getattr(services.mqtt_ingest, "_switch_state_cache", {}) or {}
                     renderable_switch_controllers = [
                         swid for swid in raw_renderable_switch_controllers
                         if _switch_has_renderable_channels(
@@ -2985,7 +2972,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             try:
                 values, timestamps = await asyncio.to_thread(
-                    data_logger.get_latest_values_and_timestamps,
+                    services.data_logger.get_latest_values_and_timestamps,
                     clean_ids,
                 )
                 return values or {}, timestamps or {}
@@ -2997,7 +2984,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             async def _latest_for_one(sid_text: str):
                 try:
-                    values = await asyncio.to_thread(data_logger.get_latest_values, sid_text)
+                    values = await asyncio.to_thread(services.data_logger.get_latest_values, sid_text)
                     values = values or {}
                 except Exception as exc:
                     printDM(
@@ -3007,7 +2994,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     values = {}
 
                 try:
-                    timestamp = await asyncio.to_thread(data_logger.get_latest_timestamp, sid_text)
+                    timestamp = await asyncio.to_thread(services.data_logger.get_latest_timestamp, sid_text)
                     timestamp = timestamp or ""
                 except Exception as exc:
                     printDM(
@@ -3041,7 +3028,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             if prefer_fast:
                 try:
-                    all_stats_fast = await asyncio.to_thread(statter.get_all_stats_fast)
+                    all_stats_fast = await asyncio.to_thread(services.statter.get_all_stats_fast)
                     all_stats_fast = all_stats_fast or {}
                     return {sid: (all_stats_fast.get(sid) or {}) for sid in clean_ids}
                 except Exception as exc:
@@ -3052,7 +3039,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             async def _stats_for_one(sid_text: str):
                 try:
-                    stats = await asyncio.to_thread(statter.get_24hr_stats, sid_text)
+                    stats = await asyncio.to_thread(services.statter.get_24hr_stats, sid_text)
                     return sid_text, (stats or {})
                 except Exception as exc:
                     printDM(
@@ -3150,7 +3137,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 configured_metrics = []
             metrics = list(configured_metrics or [])
             try:
-                stored_metrics = await asyncio.to_thread(data_logger.get_available_metrics, sid)
+                stored_metrics = await asyncio.to_thread(services.data_logger.get_available_metrics, sid)
                 stored_metrics = stored_metrics or []
             except Exception:
                 stored_metrics = []
@@ -3160,7 +3147,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             vals = all_values.get(sid) or {}
             if vals:
                 known_metrics.extend(list(vals.keys()))
-            known_metrics.extend(list(mqtt_ingest.expected_gauge_map.get(sid) or []))
+            known_metrics.extend(list(services.mqtt_ingest.expected_gauge_map.get(sid) or []))
             extend_gauge_config_for_metrics(gauge_config, known_metrics)
 
             known_canonical = {
@@ -3170,7 +3157,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             ordered_all = [k for k in gauge_config.keys() if k in known_canonical]
 
             if not all_metrics_mode and not metrics:
-                metrics = mqtt_ingest.expected_gauge_map.get(sid)
+                metrics = services.mqtt_ingest.expected_gauge_map.get(sid)
             if not all_metrics_mode and not metrics:
                 # If display metrics are blank, prefer per-sensor stored metrics
                 # rather than rendering every gauge_config metric.
@@ -3258,7 +3245,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         def _db_conn():
             # use the same DB the data logger is using
-            db_path = getattr(data_logger, "db_path", "sensorius_data.db")
+            db_path = getattr(services.data_logger, "db_path", "sensorius_data.db")
             return _sqlite_connect_with_recovery(db_path, source="current_data_page._db_conn")
 
         def _db_list_known_switch_keys(limit: int = 500) -> list[str]:
@@ -3323,8 +3310,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             seen_db_keys: set[str] = set()
 
             # A) Local Pi controllers (3-relay etc.)
-            if isinstance(switch_controllers, dict):
-                for ctrl in switch_controllers.values():
+            if isinstance(services.switch_controllers, dict):
+                for ctrl in services.switch_controllers.values():
                     switch_id = getattr(ctrl, "switch_id", "") or ""
                     if not switch_id:
                         continue
@@ -3345,7 +3332,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         states[ui_key] = {"state": current_state, "time": events}
 
             # B) Remote Pico / Nodus switches via MQTT cache
-            cache = getattr(mqtt_ingest, "_switch_state_cache", {}) or {}
+            cache = getattr(services.mqtt_ingest, "_switch_state_cache", {}) or {}
             for remote_switch_id, ch_map in cache.items():
                 if not isinstance(ch_map, dict):
                     continue
@@ -3396,9 +3383,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         return obj
             return None
 
-        # prefer the instance passed into register_routes; fallback to current if caller passed None
-        from .saiMQTTIngest import get_current_ingest as _get_ing
-        ing = mqtt_ingest or _get_ing()
+        ing = services.mqtt_ingest
 
         def _host_base_from_sid(sid: str) -> str | None:
             """
@@ -3459,7 +3444,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     snapshot_state = str(snapshot.get("state", "") or "").strip().lower()
                     if snapshot_sensor_id.lower() == sid_text.lower() and snapshot_state in {"online", "offline"}:
                         return snapshot_state
-                    latest_timestamp = bulk_timestamps.get(sid_text) or data_logger.get_latest_timestamp(sid_text)
+                    latest_timestamp = bulk_timestamps.get(sid_text) or services.data_logger.get_latest_timestamp(sid_text)
                     if latest_timestamp:
                         latest_dt = datetime.fromisoformat(str(latest_timestamp))
                         now_dt = datetime.now(latest_dt.tzinfo) if latest_dt.tzinfo else datetime.now()
@@ -3481,8 +3466,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         or WEEWX_DEFAULT_UPDATE_PERIOD_SEC
                     )
                     tz_name = str(current_settings.get_setting("Time", "TZ", "America/Denver") or "America/Denver")
-                    latest_timestamp = bulk_timestamps.get(sid_text) or data_logger.get_latest_timestamp(sid_text)
-                    latest_values = all_values.get(sid_text) or data_logger.get_latest_values(sid_text) or {}
+                    latest_timestamp = bulk_timestamps.get(sid_text) or services.data_logger.get_latest_timestamp(sid_text)
+                    latest_values = all_values.get(sid_text) or services.data_logger.get_latest_values(sid_text) or {}
                     st, _age = _weewx_measure_status_from_latest(
                         latest_timestamp=latest_timestamp,
                         latest_values=latest_values,
@@ -3499,7 +3484,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         battery_statuses = {}
         for sid in available:
             if sid.startswith("ecowitt-"):
-                battery_statuses[sid] = ecowitt_sensor_health(data_logger, sid)["battery_status"]
+                battery_statuses[sid] = ecowitt_sensor_health(services.data_logger, sid)["battery_status"]
             elif _is_weewx_dashboard_sensor(sid):
                 battery_statuses[sid] = (
                     weewx_battery_status(all_values.get(sid) or {})
@@ -3510,7 +3495,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if json_only:
             timestamps = await asyncio.to_thread(
                 lambda: {
-                    sid: (bulk_timestamps.get(sid) or data_logger.get_latest_timestamp(sid) or "")
+                    sid: (bulk_timestamps.get(sid) or services.data_logger.get_latest_timestamp(sid) or "")
                     for sid in all_values
                 }
             )
@@ -3610,11 +3595,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             )
             return JSONResponse(payload)
 
-        dashboard_switch_controllers = globals().get("switch_controllers")
-        if dashboard_switch_controllers is None:
-            dashboard_switch_controllers = getattr(app.state, "switch_controllers", None)
-        if dashboard_switch_controllers is None:
-            dashboard_switch_controllers = {}
+        dashboard_switch_controllers = services.switch_controllers
 
         dashboard_month_anchor = datetime.now().date().replace(day=1)
         astro_payload, biodynamic_payload = await asyncio.gather(
@@ -3630,7 +3611,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 available,
                 all_values, 
                 all_stats, 
-                mqtt_ingest,
+                services.mqtt_ingest,
                 switch_controllers = dashboard_switch_controllers,
                 sensor_locations = sensor_locations,
                 gauge_config=gauge_config, 
@@ -3792,7 +3773,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         from .saiUtils import printDM
 
         MODULE = "graph-data"
-        db_path = getattr(data_logger, "db_path", "sensorius_data.db")
+        db_path = getattr(services.data_logger, "db_path", "sensorius_data.db")
 
         # --- Local zone from settings (seconds offset) ---
         def _local_tz():
@@ -5146,8 +5127,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         Full JSON time payload for Nodus devices via HTTP.
         """
         try:
-            if mqtt_ingest and hasattr(mqtt_ingest, "_build_time_payload"):
-                payload = mqtt_ingest._build_time_payload()
+            if services.mqtt_ingest and hasattr(services.mqtt_ingest, "_build_time_payload"):
+                payload = services.mqtt_ingest._build_time_payload()
             else:
                 payload = _build_time_payload()
         except Exception:
@@ -5196,7 +5177,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             def _active_sensor_for(sid: str):
                 sid_l = (sid or "").lower()
                 try:
-                    sm = sensor_map  # provided by app bootstrap
+                    sm = services.sensor_map  # provided by app bootstrap
                 except NameError:
                     sm = None
                 if isinstance(sm, dict):
@@ -5587,7 +5568,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             "payload": payload_block,
         }
         topic = f"nodus/{device_id}/config/set"
-        ok = bool(mqtt_ingest.publish_json(topic, envelope, qos=1, retain=False, use_ha_client=False))
+        ok = bool(services.mqtt_ingest.publish_json(topic, envelope, qos=1, retain=False, use_ha_client=False))
         now = time.time()
         if not ok:
             _emit_onboarding_event("onboarding_failed", session_id=session_id, device_id=device_id, detail="config_publish_failed")
@@ -5721,10 +5702,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 _emit_onboarding_event("onboarding_failed", session_id=sid, device_id=device_id, detail=reason)
                 return
             try:
-                allow_removed = getattr(mqtt_ingest, "allow_nodus_devices", None)
+                allow_removed = getattr(services.mqtt_ingest, "allow_nodus_devices", None)
                 if callable(allow_removed):
                     allow_removed([device_id], persist=True)
-                refresh_retained = getattr(mqtt_ingest, "refresh_nodus_retained_metadata", None)
+                refresh_retained = getattr(services.mqtt_ingest, "refresh_nodus_retained_metadata", None)
                 if callable(refresh_retained):
                     refresh_result = refresh_retained(device_id)
                     if not bool((refresh_result or {}).get("ok", False)):
@@ -6174,7 +6155,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         summary_status = "skipped"
         summary_ms = 0.0
         try:
-            today_local = datetime.now(getattr(data_logger, "local_tz", ZoneInfo("America/Denver"))).date()
+            today_local = datetime.now(getattr(services.data_logger, "local_tz", ZoneInfo("America/Denver"))).date()
             summary_status, summary_ms = _request_biodynamic_summary_window(today_local)
         except Exception as exc:
             if DEBUG:
@@ -6196,12 +6177,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             try:
                 notes, daily_summaries = await asyncio.gather(
                     asyncio.to_thread(
-                        data_logger.get_biodynamic_notes_for_range,
+                        services.data_logger.get_biodynamic_notes_for_range,
                         range_start,
                         range_end,
                         raise_on_error=True,
                     ),
-                    asyncio.to_thread(data_logger.get_biodynamic_daily_summaries_for_range, range_start, range_end),
+                    asyncio.to_thread(services.data_logger.get_biodynamic_daily_summaries_for_range, range_start, range_end),
                 )
             except BiodynamicStorageError:
                 return JSONResponse({"ok": False, "error": "storage_unavailable"}, status_code=503)
@@ -6222,7 +6203,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     if repair_dates:
                         await asyncio.to_thread(daily_summary_service.repair_summaries_for_dates, repair_dates)
                         daily_summaries = await asyncio.to_thread(
-                            data_logger.get_biodynamic_daily_summaries_for_range,
+                            services.data_logger.get_biodynamic_daily_summaries_for_range,
                             range_start,
                             range_end,
                         )
@@ -6234,8 +6215,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         else:
             try:
                 notes, daily_summaries = await asyncio.gather(
-                    asyncio.to_thread(data_logger.get_biodynamic_notes_for_month, anchor, raise_on_error=True),
-                    asyncio.to_thread(data_logger.get_biodynamic_daily_summaries_for_month, anchor),
+                    asyncio.to_thread(services.data_logger.get_biodynamic_notes_for_month, anchor, raise_on_error=True),
+                    asyncio.to_thread(services.data_logger.get_biodynamic_daily_summaries_for_month, anchor),
                 )
             except BiodynamicStorageError:
                 return JSONResponse({"ok": False, "error": "storage_unavailable"}, status_code=503)
@@ -6256,7 +6237,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     @router.get("/api/weather-alerts", response_class=JSONResponse)
     async def api_weather_alerts():
         """Return cached official NWS weather events for the configured location."""
-        service = getattr(data_logger, "weather_alert_service", None)
+        service = getattr(services.data_logger, "weather_alert_service", None)
         payload = service.snapshot() if service else {
             "enabled": False, "active": False, "events": [], "message": "", "reason": "unavailable",
         }
@@ -6266,7 +6247,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     @router.post("/api/weather-alerts/{alert_id}/dismiss")
     async def dismiss_weather_alert(alert_id: str):
         """Acknowledge a weather Alert across browsers and application restarts."""
-        service = getattr(data_logger, "weather_alert_service", None)
+        service = getattr(services.data_logger, "weather_alert_service", None)
         if service is None or not service.dismiss_alert(alert_id):
             return JSONResponse({"ok": False}, status_code=404)
         return JSONResponse({"ok": True})
@@ -6286,7 +6267,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 forecast_settings = saiSettings(make_startup_backup=False, apply_live=False)
                 payload = await get_weather_forecast_payload(
                     forecast_settings,
-                    db_path=str(getattr(data_logger, "db_path", "sensorius_data.db") or "sensorius_data.db"),
+                    db_path=str(getattr(services.data_logger, "db_path", "sensorius_data.db") or "sensorius_data.db"),
                     force_refresh=bool(force_refresh),
                     min_days=int(days),
                     timeout_sec=8.0,
@@ -6343,7 +6324,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         except Exception:
             return JSONResponse({"error": "invalid_date"}, status_code=400)
 
-        ok = await asyncio.to_thread(data_logger.save_biodynamic_note, normalized_date, note_text)
+        ok = await asyncio.to_thread(services.data_logger.save_biodynamic_note, normalized_date, note_text)
         if not ok:
             return JSONResponse({"error": "save_failed"}, status_code=500)
         return JSONResponse({"ok": True, "date": normalized_date, "note": note_text.strip()})
@@ -6536,12 +6517,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     printDM(f"[onboard] update_hub_clients failed: {e}", location="saiWebRoutes")
                 # Nudge ingest discovery immediately (no restart required)
                 try:
-                    allow_removed = getattr(mqtt_ingest, "allow_nodus_devices", None)
+                    allow_removed = getattr(services.mqtt_ingest, "allow_nodus_devices", None)
                     if callable(allow_removed):
                         allow_removed([sensor_id_for_step], persist=True)
                     # match the form you persist in CLIENTS (you showed ".local")
                     host_for_ingest = mdns_hostname(sensor_id_for_step)
-                    mqtt_ingest.add_client(host_for_ingest)
+                    services.mqtt_ingest.add_client(host_for_ingest)
                     printDM(f"[onboard] nudged discovery for {host_for_ingest}", location="saiWebRoutes")
                 except Exception as e:
                     printDM(f"[onboard] add_client nudge failed: {e}", location="saiWebRoutes")
@@ -6673,7 +6654,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         (we find it via sys_host_index).
         For switch-only Nodus, <system-id> == 'switch-<serial>'.
         """
-        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        ingest = services.mqtt_ingest
         try:
             if ingest and getattr(ingest, 'resolve_nodus_hostname', None):
                 host = ingest.resolve_nodus_hostname(device_id, device_type=device_type)
@@ -7047,7 +7028,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         setting for that physical device.
         """
         sid = str(device_id or "").strip()
-        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        ingest = services.mqtt_ingest
         system_root = _resolve_system_settings_root()
         sys_host_index = _build_system_hostname_index(system_root)
         source_host = _read_hostname_from_system_settings(
@@ -7074,7 +7055,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         )
 
         if device_type == "sensor" and sid.startswith("ecowitt-"):
-            ip_address = ecowitt_sensor_health(data_logger, sid)["gateway_ip"]
+            ip_address = ecowitt_sensor_health(services.data_logger, sid)["gateway_ip"]
 
         return {
             "ip_address": ip_address or "Unknown",
@@ -7084,7 +7065,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     def _display_nodus_board_type(device_id: str, *, device_type: str, settings_block: dict | None = None) -> str:
         board_type = ""
-        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        ingest = services.mqtt_ingest
         if ingest and hasattr(ingest, "get_nodus_board_type"):
             try:
                 board_type = str(
@@ -7190,7 +7171,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     def _display_nodus_sensor_hardware(device_id: str, *, settings_block: dict | None = None) -> str:
         sensor_hardware = ""
-        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        ingest = services.mqtt_ingest
         if ingest and hasattr(ingest, "get_nodus_sensor_hardware"):
             try:
                 sensor_hardware = str(
@@ -7253,7 +7234,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # Gate the next queued update on Nodus confirming the apply completed.
             return isinstance(result_payload, dict) and result_payload.get("applied") is True
 
-        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        ingest = services.mqtt_ingest
         if not ingest or not hasattr(ingest, "publish_nodus_config"):
             if DEBUG:
                 printDM(
@@ -7351,7 +7332,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     return True
             return False
 
-        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        ingest = services.mqtt_ingest
         if not ingest:
             return False, "MQTT ingest unavailable"
 
@@ -7407,7 +7388,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     def _nodus_wifi_inventory() -> list[dict[str, Any]]:
         """Return deduplicated physical Nodus targets and current MQTT liveness."""
-        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        ingest = services.mqtt_ingest
         if not ingest:
             return []
         try:
@@ -7613,7 +7594,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 status_code=409,
             )
 
-        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        ingest = services.mqtt_ingest
         concurrency = asyncio.Semaphore(4)
 
         async def _stage_one(device_id: str) -> dict[str, Any]:
@@ -7869,13 +7850,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     sid = (switch_id or "").strip()
                     if not sid:
                         return None
-                    if isinstance(switch_controllers, dict):
-                        for cand in switch_controllers.values():
+                    if isinstance(services.switch_controllers, dict):
+                        for cand in services.switch_controllers.values():
                             if getattr(cand, "switch_id", "") in {sid, sid.lower()}:
                                 return cand
                     else:
-                        if getattr(switch_controllers, "switch_id", "") in {sid, sid.lower()}:
-                            return switch_controllers
+                        if getattr(services.switch_controllers, "switch_id", "") in {sid, sid.lower()}:
+                            return services.switch_controllers
                 except Exception:
                     pass
                 return None
@@ -7883,10 +7864,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             # --- make sensor_map accessible anywhere in this handler
             from collections.abc import Iterable
             def _get_sensor_map():
-                sm = getattr(app.state, "sensor_map", None)
-                if sm is None:
-                    from . import saiWebRoutes as routes
-                    sm = getattr(routes, "sensor_map", None)
+                sm = services.sensor_map
                 return sm
             sensor_map = _get_sensor_map()
 
@@ -7987,8 +7965,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
                         try:
                             topic = f"sensor/{dev_id}/data"
-                            if hasattr(mqtt_ingest, "device_location") and isinstance(mqtt_ingest.device_location, dict):
-                                mqtt_ingest.device_location[topic] = location or "Unknown"
+                            if hasattr(services.mqtt_ingest, "device_location") and isinstance(services.mqtt_ingest.device_location, dict):
+                                services.mqtt_ingest.device_location[topic] = location or "Unknown"
                         except Exception:
                             pass
                         _SENSOR_LOCATION_CACHE.pop(dev_id, None)
@@ -8156,11 +8134,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         """
         Aggregate IDs from MQTT discovery so the remove list reflects in-memory state.
         """
-        try:
-            from .saiMQTTIngest import get_current_ingest as _get_ing
-            ing = _get_ing()
-        except Exception:
-            ing = None
+        ing = services.mqtt_ingest
         if not ing:
             return []
 
@@ -8223,11 +8197,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     def _collect_db_ids() -> list[str]:
         ids: set[str] = set()
         try:
-            ids.update(data_logger.get_available_sensors() or [])
+            ids.update(services.data_logger.get_available_sensors() or [])
         except Exception:
             pass
         try:
-            for row in (data_logger.get_switch_identities() or []):
+            for row in (services.data_logger.get_switch_identities() or []):
                 switch_id = str((row or {}).get("switch_id") or "").strip()
                 if switch_id:
                     ids.add(switch_id)
@@ -8305,11 +8279,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             and not dev_id.lower().startswith("template")
         ]
 
-        try:
-            from .saiMQTTIngest import get_current_ingest as _get_ing
-            ingest = _get_ing()
-        except Exception:
-            ingest = None
+        ingest = services.mqtt_ingest
         persisted_hosts, _ = _persisted_nodus_sensor_groups()
         sensor_hosts = dict(persisted_hosts)
         if ingest:
@@ -8323,11 +8293,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return sorted(filtered_ids)
 
     def _collect_removable_details(device_ids: list[str]) -> dict[str, dict[str, Any]]:
-        try:
-            from .saiMQTTIngest import get_current_ingest as _get_ing
-            ingest = _get_ing()
-        except Exception:
-            ingest = None
+        ingest = services.mqtt_ingest
 
         _, persisted_groups = _persisted_nodus_sensor_groups()
         now_ts = time.time()
@@ -9094,14 +9060,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     sc_map.pop(key, None)
                     stats["switch_controllers_cleared"] += 1
 
-        try:
-            _purge_map(globals().get("switch_controllers"))
-        except Exception:
-            pass
-        try:
-            _purge_map(getattr(app.state, "switch_controllers", None))
-        except Exception:
-            pass
+        _purge_map(services.switch_controllers)
 
         for key, task in list(_dynamic_switch_monitor_tasks.items()):
             if str(key or "").strip().lower() not in ids_l:
@@ -9156,13 +9115,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return removed
 
     def _active_data_logger():
-        try:
-            logger = getattr(app.state, "data_logger", None)
-            if logger is not None:
-                return logger
-        except Exception:
-            pass
-        return globals().get("data_logger")
+        return services.data_logger
 
     def _get_db_path()->str:
         try:
@@ -9251,7 +9204,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         """List physical devices with explicit MQTT halt capability."""
         _require_protected_access(request, require_csrf=True)
         from .saiNodusHalt import halt_device_ids
-        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        ingest = services.mqtt_ingest
         devices = [device for device in halt_device_ids(ingest) if _is_valid_device_id(device)]
         return JSONResponse({"devices": devices}, headers={"Cache-Control": "no-store"})
 
@@ -9270,7 +9223,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if not isinstance(ids, list) or not ids or any(not isinstance(d, str) or not _is_valid_device_id(d) for d in ids):
             return JSONResponse({"error": "Invalid device_ids"}, status_code=400)
         ids = list(dict.fromkeys(ids))
-        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        ingest = services.mqtt_ingest
         supported = set(halt_device_ids(ingest))
         if any(d not in supported for d in ids):
             return JSONResponse({"error": "Device does not advertise halt support"}, status_code=400)
@@ -9326,11 +9279,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if invalid_ids:
             return JSONResponse({"error": "invalid_device_id", "count": len(invalid_ids)}, status_code=400)
 
-        try:
-            from .saiMQTTIngest import get_current_ingest as _get_ing
-            mqtt_ingest = _get_ing()
-        except Exception:
-            mqtt_ingest = None
+        mqtt_ingest = services.mqtt_ingest
 
         requested_ids = list(dict.fromkeys(device_ids))
         related_ids: list[str] = []
@@ -9496,9 +9445,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     async def retry_discovery(request: Request):
         data = await request.json()
         hostname = data.get("host")
-        if hostname in request.app.state.mqtt_ingest.discovery_failures:
-            del request.app.state.mqtt_ingest.discovery_failures[hostname]
-            request.app.state.mqtt_ingest.device_status[hostname] = "unknown"
+        if hostname in services.mqtt_ingest.discovery_failures:
+            del services.mqtt_ingest.discovery_failures[hostname]
+            services.mqtt_ingest.device_status[hostname] = "unknown"
             return JSONResponse(content={"status": "retrying"})
         return JSONResponse(content={"status": "unknown host"}, status_code=400)
 
@@ -9937,320 +9886,6 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 status_code=400,
             )
 
-    @router.post("/submit-homeassistant-settings")
-    async def submit_homeassistant_settings(request: Request):
-        settings = saiSettings()
-        try:
-            data = await request.json()
-        except Exception:
-            data = {}
-
-        enabled = bool(data.get("enabled", False))
-        use_tls = bool(data.get("use_tls", False))
-        broker = str(data.get("broker", "") or "").strip()
-        username = str(data.get("username", "") or "").strip()
-        password = str(data.get("password", "") or "").strip()
-        try:
-            port = int(data.get("port", 1883) or 1883)
-        except Exception:
-            port = 1883
-        if port < 1 or port > 65535:
-            port = 1883
-
-        settings.replace_setting("HomeAssistant", "ENABLED", enabled)
-        settings.replace_setting("HomeAssistant", "USE_TLS", use_tls)
-        settings.replace_setting("HomeAssistant", "HA_BROKER", broker)
-        settings.replace_setting("HomeAssistant", "HA_MQTTPORT", port)
-        settings.replace_setting("HomeAssistant", "HA_USERNAME", username)
-        settings.replace_setting("HomeAssistant", "HA_PASSWORD", saiSettings.obfuscate_secret(password))
-
-        return JSONResponse({"status": "ok"})
-
-    def _ecowitt_service(request: Request) -> EcowittGatewayIngest:
-        service = getattr(request.app.state, "ecowitt_service", None)
-        if service is None:
-            service = EcowittGatewayIngest(
-                settings=saiSettings(),
-                data_logger=getattr(request.app.state, "data_logger", None) or data_logger,
-                supervisor=getattr(request.app.state, "supervisor", None),
-            )
-            request.app.state.ecowitt_service = service
-        return service
-
-    @router.post("/ecowitt/discover")
-    async def ecowitt_discover(request: Request):
-        try:
-            payload = await request.json()
-        except Exception:
-            payload = {}
-        try:
-            result = await _ecowitt_service(request).discover(payload.get("gateway_url", ""))
-            return JSONResponse(result)
-        except EcowittError as exc:
-            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
-        except Exception as exc:
-            if DEBUG:
-                printDM(f"Ecowitt discovery failed: {exc}", location=MODULE)
-            return JSONResponse({"ok": False, "error": "Ecowitt discovery failed."}, status_code=502)
-
-    @router.post("/ecowitt/save")
-    async def ecowitt_save(request: Request):
-        try:
-            payload = await request.json()
-        except Exception:
-            payload = {}
-        service = _ecowitt_service(request)
-        try:
-            discovery = await service.discover(payload.get("gateway_url", ""))
-            await asyncio.to_thread(
-                service.save_configuration,
-                discovery,
-                payload.get("poll_interval_sec", ECOWITT_DEFAULT_POLL_INTERVAL_SEC),
-                payload.get("smart_plug_interval_sec", 30),
-            )
-            controllers = getattr(request.app.state, "switch_controllers", None)
-            if not isinstance(controllers, dict):
-                controllers = globals().get("switch_controllers")
-            service.dashboard_broadcast = _switch_broadcast
-            service.switch_controllers = controllers if isinstance(controllers, dict) else {}
-            globals()["switch_controllers"] = service.switch_controllers
-            request.app.state.switch_controllers = service.switch_controllers
-            services.switch_controllers = service.switch_controllers
-            await service.activate_smart_plugs()
-            _invalidate_dashboard_caches()
-            return JSONResponse({"ok": True, **discovery, "poll_interval_sec": service.poll_interval_sec,
-                                 "smart_plug_interval_sec": service.smart_plug_interval_sec})
-        except EcowittError as exc:
-            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
-        except Exception as exc:
-            printDM(f"Ecowitt settings save failed: {exc}", location=MODULE, level="warning")
-            return JSONResponse({"ok": False, "error": "Failed to save Ecowitt settings."}, status_code=500)
-
-    @router.get("/ecowitt/status")
-    async def ecowitt_status(request: Request):
-        return JSONResponse(_ecowitt_service(request).status())
-
-    @router.post("/ecowitt/disable")
-    async def ecowitt_disable(request: Request):
-        try:
-            await asyncio.to_thread(_ecowitt_service(request).disable)
-            return JSONResponse({"ok": True})
-        except Exception as exc:
-            printDM(f"Ecowitt disable failed: {exc}", location=MODULE, level="warning")
-            return JSONResponse({"ok": False, "error": "Failed to disable Ecowitt integration."}, status_code=500)
-
-    @router.post("/submit-weewx-settings")
-    async def submit_weewx_settings(request: Request):
-        settings = saiSettings()
-        try:
-            data = await request.json()
-        except Exception:
-            data = {}
-
-        mqtt_enabled = bool(data.get("mqtt_enabled", False))
-        db_path = str(data.get("db_path", WEEWX_DEFAULT_DB_PATH) or WEEWX_DEFAULT_DB_PATH).strip()
-        sensor_id = str(data.get("sensor_id", WEEWX_DEFAULT_SENSOR_ID) or WEEWX_DEFAULT_SENSOR_ID).strip()
-        mqtt_topic = str(data.get("mqtt_topic", WEEWX_DEFAULT_MQTT_TOPIC) or WEEWX_DEFAULT_MQTT_TOPIC).strip()
-        try:
-            update_period_sec = int(data.get("update_period_sec", WEEWX_DEFAULT_UPDATE_PERIOD_SEC) or WEEWX_DEFAULT_UPDATE_PERIOD_SEC)
-        except Exception:
-            update_period_sec = int(WEEWX_DEFAULT_UPDATE_PERIOD_SEC)
-        update_period_sec = max(15, min(3600, update_period_sec))
-
-        if not db_path.startswith("/"):
-            return JSONResponse({"ok": False, "error": "WeeWX database path must be absolute."}, status_code=400)
-        if not re.match(r"^[A-Za-z0-9._-]+$", sensor_id):
-            return JSONResponse({"ok": False, "error": "WeeWX sensor ID may contain only letters, numbers, dot, underscore, and dash."}, status_code=400)
-        if not mqtt_topic:
-            return JSONResponse({"ok": False, "error": "WeeWX MQTT topic filter is required."}, status_code=400)
-
-        settings.replace_setting("WeeWX", "MQTT_ENABLED", mqtt_enabled)
-        settings.replace_setting("WeeWX", "MQTT_TOPIC", mqtt_topic)
-        settings.replace_setting("WeeWX", "SENSOR_ID", sensor_id)
-        settings.replace_setting("WeeWX", "DB_PATH", db_path)
-        settings.replace_setting("WeeWX", "UPDATE_PERIOD_SEC", update_period_sec)
-        settings.replace_setting("WeeWX", "ENABLED", False)
-        settings.replace_setting("WeeWX", "AUTO_DISCOVER", False)
-
-        try:
-            ensure_weewx_sensor_settings(sensor_id, manager=SensorSettingsManager("sensor_settings"))
-        except Exception as exc:
-            printDM(f"WeeWX sensor settings materialization failed: {exc}", location=MODULE)
-            return JSONResponse(
-                {"ok": False, "error": "Failed to create WeeWX sensor settings."},
-                status_code=500,
-            )
-
-        applied_live = False
-        try:
-            from .saiMQTTIngest import get_current_ingest
-            ingest = get_current_ingest()
-            if ingest is not None and hasattr(ingest, "configure_weewx_mqtt"):
-                applied_live = bool(
-                    ingest.configure_weewx_mqtt(
-                        enabled=mqtt_enabled,
-                        topic_filter=mqtt_topic,
-                        sensor_id=sensor_id,
-                        update_period_sec=update_period_sec,
-                    )
-                )
-        except Exception as exc:
-            printDM(f"WeeWX MQTT live reconfigure skipped: {exc}", location=MODULE)
-
-        return JSONResponse({"status": "ok", "restart_required": not applied_live})
-
-    @router.get("/weewx/status")
-    async def weewx_status(request: Request):
-        settings = saiSettings(apply_live=False)
-        sensor_id = str(settings.get_setting("WeeWX", "SENSOR_ID", WEEWX_DEFAULT_SENSOR_ID) or WEEWX_DEFAULT_SENSOR_ID).strip() or WEEWX_DEFAULT_SENSOR_ID
-        db_path = str(settings.get_setting("WeeWX", "DB_PATH", WEEWX_DEFAULT_DB_PATH) or WEEWX_DEFAULT_DB_PATH).strip()
-        mqtt_enabled = bool(settings.get_setting("WeeWX", "MQTT_ENABLED", False))
-        sqlite_enabled = bool(settings.get_setting("WeeWX", "ENABLED", False))
-        auto_discover = bool(settings.get_setting("WeeWX", "AUTO_DISCOVER", False))
-        try:
-            update_period_sec = float(settings.get_setting("WeeWX", "UPDATE_PERIOD_SEC", WEEWX_DEFAULT_UPDATE_PERIOD_SEC) or WEEWX_DEFAULT_UPDATE_PERIOD_SEC)
-        except Exception:
-            update_period_sec = float(WEEWX_DEFAULT_UPDATE_PERIOD_SEC)
-        update_period_sec = max(15.0, update_period_sec)
-        offline_after_sec = update_period_sec * 3.0
-
-        latest_timestamp = None
-        latest_age_sec = None
-        latest_values = {}
-        try:
-            latest_timestamp = data_logger.get_latest_timestamp(sensor_id)
-            latest_values = data_logger.get_latest_values(sensor_id) or {}
-            tz_name = str(settings.get_setting("Time", "TZ", "America/Denver") or "America/Denver")
-            _status, latest_age_sec = _weewx_measure_status_from_latest(
-                latest_timestamp=latest_timestamp,
-                latest_values=latest_values,
-                update_period_sec=update_period_sec,
-                tz_name=tz_name,
-            )
-        except Exception:
-            latest_timestamp = None
-            latest_age_sec = None
-            latest_values = {}
-
-        configured = mqtt_enabled or sqlite_enabled or auto_discover
-        weewx_measure_status, latest_age_sec = _weewx_measure_status_from_latest(
-            latest_timestamp=latest_timestamp,
-            latest_values=latest_values,
-            update_period_sec=update_period_sec,
-            tz_name=str(settings.get_setting("Time", "TZ", "America/Denver") or "America/Denver"),
-        )
-        receiving = weewx_measure_status == "online"
-        stale = weewx_measure_status == "offline"
-
-        if mqtt_enabled:
-            mode = "MQTT configured"
-        elif sqlite_enabled or auto_discover:
-            mode = "SQLite fallback configured"
-        elif latest_timestamp:
-            mode = "Data present, integration switch disabled"
-        else:
-            mode = "Not configured"
-
-        if receiving:
-            state = "online"
-            label = "Receiving WeeWX weather data"
-        elif stale:
-            state = "offline"
-            label = "WeeWX data is stale"
-        elif not configured and not latest_timestamp:
-            state = "disabled"
-            label = "WeeWX integration disabled"
-        else:
-            state = "unknown"
-            label = "Waiting for WeeWX weather data"
-
-        note = ""
-        if latest_timestamp and not configured:
-            note = "The MQTT interface is disabled, but Sensorius has stored WeeWX station data."
-        elif mqtt_enabled:
-            note = "MQTT availability is inferred from weather data updates."
-
-        return JSONResponse({
-            "state": state,
-            "label": label,
-            "mode": mode,
-            "note": note,
-            "sensor_id": sensor_id,
-            "db_path": db_path,
-            "mqtt_enabled": mqtt_enabled,
-            "sqlite_enabled": sqlite_enabled,
-            "auto_discover": auto_discover,
-            "latest_timestamp": latest_timestamp or "",
-            "latest_age_sec": latest_age_sec,
-            "offline_after_sec": offline_after_sec,
-            "latest_metric_count": len(latest_values or {}),
-        })
-
-    @router.post("/submit-farmos-settings")
-    async def submit_farmos_settings(request: Request):
-        settings = saiSettings()
-        try:
-            data = await request.json()
-        except Exception:
-            data = {}
-
-        enabled = bool(data.get("enabled", False))
-        base_url = str(data.get("base_url", "") or "").strip().rstrip("/")
-        verify_tls = bool(data.get("verify_tls", True))
-        access_token = str(data.get("access_token", "") or "").strip()
-        client_id = str(data.get("client_id", "farm") or "farm").strip() or "farm"
-        client_secret = str(data.get("client_secret", "") or "").strip()
-        username = str(data.get("username", "") or "").strip()
-        password = str(data.get("password", "") or "").strip()
-        log_bundle = str(data.get("log_bundle", "observation") or "observation").strip().lower() or "observation"
-
-        settings.replace_setting("FarmOS", "ENABLED", enabled)
-        settings.replace_setting("FarmOS", "BASE_URL", base_url)
-        settings.replace_setting("FarmOS", "VERIFY_TLS", verify_tls)
-        settings.replace_setting("FarmOS", "ACCESS_TOKEN", saiSettings.obfuscate_secret(access_token))
-        settings.replace_setting("FarmOS", "CLIENT_ID", client_id)
-        settings.replace_setting("FarmOS", "CLIENT_SECRET", saiSettings.obfuscate_secret(client_secret))
-        settings.replace_setting("FarmOS", "USERNAME", username)
-        settings.replace_setting("FarmOS", "PASSWORD", saiSettings.obfuscate_secret(password))
-        settings.replace_setting("FarmOS", "LOG_BUNDLE", log_bundle)
-
-        return JSONResponse({"status": "ok"})
-
-    @router.get("/farmos/status")
-    async def farmos_status(request: Request):
-        bridge = getattr(request.app.state, "farmos_bridge", None)
-        if bridge and hasattr(bridge, "status_snapshot"):
-            try:
-                return JSONResponse(bridge.status_snapshot())
-            except Exception as exc:
-                return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-
-        settings = saiSettings(apply_live=False)
-        return JSONResponse({
-            "enabled": bool(settings.get_setting("FarmOS", "ENABLED", False)),
-            "base_url": str(settings.get_setting("FarmOS", "BASE_URL", "") or "").strip(),
-            "verify_tls": bool(settings.get_setting("FarmOS", "VERIFY_TLS", True)),
-            "log_bundle": str(settings.get_setting("FarmOS", "LOG_BUNDLE", "observation") or "observation").strip(),
-            "queue_depth": 0,
-            "has_static_token": bool(str(settings.get_setting("FarmOS", "ACCESS_TOKEN", "") or "").strip()),
-            "has_runtime_token": False,
-            "last_error": "FarmOS bridge not attached",
-        })
-
-    @router.post("/farmos/test")
-    async def farmos_test(request: Request):
-        bridge = getattr(request.app.state, "farmos_bridge", None)
-        if bridge and hasattr(bridge, "test_connection"):
-            try:
-                result = await bridge.test_connection()
-                code = 200 if bool(result.get("ok")) else 502
-                return JSONResponse(result, status_code=code)
-            except Exception as exc:
-                return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-
-        return JSONResponse({"ok": False, "error": "FarmOS bridge not attached"}, status_code=503)
-
-
     @router.post("/advanced/automations/test-bd-transition", response_class=JSONResponse)
     async def test_biodynamic_transition_alert(request: Request):
         """Broadcast a simulated BD transition without changing calendar or rule state."""
@@ -10369,7 +10004,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     async def advanced_database_archive(request: Request):
         _require_protected_access(request, require_csrf=True)
         try:
-            archive_path = await asyncio.to_thread(data_logger.create_database_archive)
+            archive_path = await asyncio.to_thread(services.data_logger.create_database_archive)
             archive_path = Path(archive_path)
         except Exception as ex:
             printDM(f"Database archive failed: {ex}", location=MODULE)
@@ -10459,10 +10094,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # 1) local sensors (from app.state or module var set by Sensorius)
         def _get_local_sensor_ids() -> list[str]:
-            sm = getattr(app.state, "sensor_map", None)
-            if sm is None:
-                from . import saiWebRoutes as routes
-                sm = getattr(routes, "sensor_map", None)
+            sm = services.sensor_map
             ids = []
             if isinstance(sm, dict):
                 ids = [k for k in sm.keys() if isinstance(k, str)]
@@ -10482,7 +10114,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # 2) discovered devices via MQTT (both sensors + switches) → filter
         discovered = []
         try:
-            discovered = [d for d in (mqtt_ingest.get_known_devices() or []) if not _is_switch_id(d)]
+            discovered = [d for d in (services.mqtt_ingest.get_known_devices() or []) if not _is_switch_id(d)]
             discovered = [_strip_local_suffix(d) for d in discovered]
         except Exception:
             discovered = []
@@ -10492,7 +10124,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # 3) ids that have already logged rows
         logged_ids = []
         try:
-            logged_ids = data_logger.get_available_sensors() or []
+            logged_ids = services.data_logger.get_available_sensors() or []
         except Exception:
             logged_ids = []
         if DEBUG:
@@ -10573,7 +10205,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return JSONResponse({name: input_descriptor(name, unit_system) if input_units else None for name in names})
         # Try 1: names seen in DB (distinct metrics for this sensor)
         try:
-            names = data_logger.get_available_metrics(sensor_id) or []
+            names = services.data_logger.get_available_metrics(sensor_id) or []
             if names:
                 return metric_response(names)
         except Exception:
@@ -10581,10 +10213,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # Try 2: live local sensor's declared measurements
         try:
-            smap = getattr(app.state, "sensor_map", None)
-            if smap is None:
-                from . import saiWebRoutes as routes
-                smap = getattr(routes, "sensor_map", None)
+            smap = services.sensor_map
             controller = None
             if isinstance(smap, dict):
                 controller = smap.get(sensor_id)
@@ -10678,7 +10307,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     return normalize_sensor_id(str(value))
             return ""
 
-        maps = [getattr(app.state, "sensor_map", None), globals().get("sensor_map")]
+        maps = [services.sensor_map]
         for smap in maps:
             if not smap:
                 continue
@@ -10996,7 +10625,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return applied_keys
 
     async def _sync_remote_calibration_shadow(sensor_id: str, message_id: str, *, timeout: float = 3.0) -> tuple[list[str], bool]:
-        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        ingest = services.mqtt_ingest
         if not ingest or not hasattr(ingest, "wait_for_nodus_meta_patch"):
             return [], False
         patch = await ingest.wait_for_nodus_meta_patch(
@@ -11011,7 +10640,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     async def _remote_calibration_meta_patch_fallback(message_id: str, action: str, *, timeout: float = 3.0) -> dict | None:
         if str(action or "").strip().lower() not in {"apply", "set", "update"}:
             return None
-        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        ingest = services.mqtt_ingest
         if not ingest or not hasattr(ingest, "wait_for_nodus_meta_patch"):
             return None
         patch = await ingest.wait_for_nodus_meta_patch(
@@ -11031,7 +10660,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
     def _resolve_remote_sensor_target(sensor_id: str) -> dict[str, str]:
         sid = str(sensor_id or "").strip()
-        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        ingest = services.mqtt_ingest
         resolver = getattr(ingest, "resolve_nodus_sensor_target", None)
         target = resolver(sid) if callable(resolver) else {}
         device_id = str((target or {}).get("device_id") or "").strip()
@@ -11073,7 +10702,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         ack_timeout: float = _NODUS_CALIBRATION_ACK_TIMEOUT_SEC,
         result_timeout: float = _NODUS_CALIBRATION_RESULT_TIMEOUT_SEC,
     ) -> tuple[bool, str, dict | None, dict | None]:
-        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        ingest = services.mqtt_ingest
         if not ingest or not hasattr(ingest, "publish_nodus_calibration"):
             return False, "MQTT ingest unavailable", None, None
 
@@ -11194,7 +10823,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         return corrected_ph - float(offset or 0.0)
 
     async def _run_remote_soil_ph_session(sensor_id: str, *, reference_ph: float, sample_count: int = 6, sample_interval_s: float = 10.0) -> tuple[bool, str, dict]:
-        ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+        ingest = services.mqtt_ingest
         if not ingest or not hasattr(ingest, "publish_nodus_calibration"):
             return False, "MQTT ingest unavailable", {}
         if not hasattr(ingest, "wait_for_calibration_samples"):
@@ -11300,19 +10929,19 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     ensure_weewx_sensor_settings(normalized_id, manager=manager)
                     settings_dict = manager.load(normalized_id)
                 else:
-                    ingest_for_shadow = getattr(request.app.state, "mqtt_ingest", None) or mqtt_ingest
+                    ingest_for_shadow = services.mqtt_ingest
                     expected_metrics = _nodus_expected_metrics_for_sensor(normalized_id, ingest_for_shadow)
                     observed_metrics: list[str] = []
                     try:
                         observed_metrics = list(
-                            await asyncio.to_thread(data_logger.get_available_metrics, normalized_id)
+                            await asyncio.to_thread(services.data_logger.get_available_metrics, normalized_id)
                             or []
                         )
                     except Exception:
                         observed_metrics = []
                     if not observed_metrics:
                         try:
-                            latest_values = await asyncio.to_thread(data_logger.get_latest_values, normalized_id)
+                            latest_values = await asyncio.to_thread(services.data_logger.get_latest_values, normalized_id)
                             if isinstance(latest_values, dict):
                                 observed_metrics = [str(k) for k in latest_values.keys() if str(k or "").strip()]
                         except Exception:
@@ -11321,7 +10950,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     known_live_sensor = bool(expected_metrics or observed_metrics)
                     if not known_live_sensor:
                         try:
-                            known_ids = list(await asyncio.to_thread(data_logger.get_available_sensors) or [])
+                            known_ids = list(await asyncio.to_thread(services.data_logger.get_available_sensors) or [])
                             known_live_sensor = any(str(sid or "").strip().lower() == normalized_id.lower() for sid in known_ids)
                         except Exception:
                             known_live_sensor = False
@@ -11380,7 +11009,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             gauge_config = get_gauge_config()
             available_metrics = [
                 canonicalize_metric_name(metric, gauge_config)
-                for metric in await asyncio.to_thread(data_logger.get_available_metrics, normalized_id)
+                for metric in await asyncio.to_thread(services.data_logger.get_available_metrics, normalized_id)
             ]
 
             display_block = settings_dict.get("Display", {}) or {}
@@ -11488,7 +11117,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 device_offsets.extend(_soil_device_offsets(device_section, _get_float))
             _append_system_altitude_calibration(device_offsets, device_kind)
 
-            ingest = getattr(request.app.state, "mqtt_ingest", None) or mqtt_ingest
+            ingest = services.mqtt_ingest
             nodus_firmware_version = ""
             if (
                 ingest
@@ -11520,7 +11149,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             network_info = await _build_device_network_info(normalized_id, device_type="sensor")
             sensor_statistics = await _build_sensor_statistics_payload(normalized_id)
 
-            cal_mgr = CalibrationManager(data_logger, manager)
+            cal_mgr = CalibrationManager(services.data_logger, manager)
             candidate_sensors = await asyncio.to_thread(cal_mgr.get_calibratable_sensors) or []
 
             # Render template
@@ -11734,7 +11363,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     return
                 try:
                     host = resolve_hostname(sensor_id_norm, live_doc)
-                    mqtt_ingest.add_client(host)   # marks 'pending' and forces an expedited check
+                    services.mqtt_ingest.add_client(host)   # marks 'pending' and forces an expedited check
                 except Exception:
                     pass
                 printDM(f"[{MODULE}] Pushed sensor updates to {device_file} for Nodus {lookup_device_id}",
@@ -11840,7 +11469,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             )
             device_toml = str(nodus_block.get("CONFIG_FILE") or "").strip()
             if not device_toml:
-                ingest_for_target = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+                ingest_for_target = services.mqtt_ingest
                 resolver = getattr(ingest_for_target, "resolve_nodus_sensor_target", None)
                 if callable(resolver):
                     target_info = resolver(old_id) or {}
@@ -11922,10 +11551,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         import asyncio
 
         def _get_sensor_map():
-            sm = getattr(app.state, "sensor_map", None)
-            if sm is None:
-                from . import saiWebRoutes as routes
-                sm = getattr(routes, "sensor_map", None)
+            sm = services.sensor_map
             return sm
 
         def _resolve_sensor(smap, sid: str):
@@ -12078,7 +11704,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     )
 
             # ───────────────── Nodus / remote sensors ─────────────────
-            ingest = getattr(app.state, "mqtt_ingest", None) or mqtt_ingest
+            ingest = services.mqtt_ingest
             mqtt_state = None
             if uses_remote_calibration and ingest and hasattr(ingest, "get_nodus_calibration_state"):
                 mqtt_state = ingest.get_nodus_calibration_state(sid_norm)
@@ -12305,7 +11931,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             # Live controller nudge so the UI can show "Calibrating" without a reload
             try:
-                from .saiWebRoutes import sensor_map
+                sensor_map = services.sensor_map
                 ctrl = sensor_map.get(sensor_id) if isinstance(sensor_map, dict) else None
                 if ctrl and hasattr(ctrl, "sensor") and hasattr(ctrl.sensor, "is_calibrated"):
                     try:
@@ -12390,7 +12016,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # ── live controller nudge so UI updates instantly (best-effort) ───────────
         try:
-            from .saiWebRoutes import sensor_map
+            sensor_map = services.sensor_map
             ctrl = sensor_map.get(sensor_id) if isinstance(sensor_map, dict) else None
             if ctrl and hasattr(ctrl, "sensor"):
                 if temp_offset is not None and hasattr(ctrl.sensor, "thp280_plant_temp_cal"):
@@ -12522,7 +12148,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         if not uses_remote_calibration:
             try:
-                supervisor = getattr(request.app.state, "supervisor", None)
+                supervisor = services.supervisor
                 notify_sensor_runtime_of_calibration(supervisor, sensor_id)
             except Exception as exc:
                 printDM(
@@ -12654,7 +12280,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             applied_keys, shadow_synced = await _sync_remote_calibration_shadow(sensor_id, message_id)
         else:
             try:
-                latest = data_logger.get_latest_values(sensor_id) or {}
+                latest = services.data_logger.get_latest_values(sensor_id) or {}
             except Exception as exc:
                 return JSONResponse(
                     {"status": "error", "message": f"Failed to read latest values for {sensor_id}: {exc}"},
@@ -12690,7 +12316,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         if not uses_remote_calibration:
             try:
-                supervisor = getattr(request.app.state, "supervisor", None)
+                supervisor = services.supervisor
                 notify_sensor_runtime_of_calibration(supervisor, sensor_id)
             except Exception as exc:
                 printDM(
@@ -12823,7 +12449,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         # add "apvpd" to the elif above, but right now we preserve existing behavior.
 
         # System calibration candidates via CalibrationManager (unchanged)
-        cal_mgr = CalibrationManager(data_logger, sensor_mgr)
+        cal_mgr = CalibrationManager(services.data_logger, sensor_mgr)
         candidate_sensors = cal_mgr.get_calibratable_sensors() or []
 
         context = {
@@ -12886,7 +12512,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         # Build helpers
         sensor_mgr = SensorSettingsManager("sensor_settings")
-        cal_mgr = CalibrationManager(data_logger, sensor_mgr)
+        cal_mgr = CalibrationManager(services.data_logger, sensor_mgr)
 
         # Compute offsets + sigmas (no disk writes)
         try:
@@ -12935,7 +12561,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             if selected_set and sid not in selected_set:
                 continue
 
-            latest = data_logger.get_latest_values(sid) or {}
+            latest = services.data_logger.get_latest_values(sid) or {}
 
             # Prefer ambient, fall back to plant metrics
             raw_temp = None
@@ -13060,7 +12686,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             start_ts = end_ts - 24.0 * 3600.0
 
         sensor_mgr = SensorSettingsManager("sensor_settings")
-        cal_mgr = CalibrationManager(data_logger, sensor_mgr)
+        cal_mgr = CalibrationManager(services.data_logger, sensor_mgr)
 
         applied: list[str] = []
         failures: list[dict] = []
@@ -13201,7 +12827,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             return JSONResponse({"error": "no offsets provided"}, status_code=400)
 
         # 2) notify local runtime (if this is a local Pi sensor)
-        supervisor = request.app.state.supervisor if hasattr(request.app.state, "supervisor") else None
+        supervisor = services.supervisor if hasattr(request.app.state, "supervisor") else None
         notify_sensor_runtime_of_calibration(supervisor, sensor_id)
 
         return JSONResponse({"ok": True})
@@ -13324,7 +12950,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         channels = _switch_channels_from_settings(settings_dict)
         channel_indices = [int(ch.get("index") or 1) for ch in channels]
 
-        ingest = getattr(request.app.state, "mqtt_ingest", None) or mqtt_ingest
+        ingest = services.mqtt_ingest
         nodus_firmware_version = ""
         switch_type = str(sw.get("TYPE", "") or "").strip().lower()
         if (
@@ -13597,7 +13223,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         _invalidate_dashboard_caches()
         try:
-            active_controllers = getattr(app.state, "switch_controllers", None) or switch_controllers
+            active_controllers = services.switch_controllers
             controller_values = active_controllers.values() if isinstance(active_controllers, dict) else [active_controllers]
             for controller in controller_values:
                 if str(getattr(controller, "switch_id", "") or "").strip().lower() == old_id:
@@ -13991,14 +13617,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         """Serialize UI activation and prepare switch baselines before persistence."""
         if not hasattr(request.app.state, "automation_activation_lock"):
             request.app.state.automation_activation_lock = asyncio.Lock()
-        controllers = getattr(request.app.state, "switch_controllers", None)
-        if not isinstance(controllers, dict):
-            controllers = globals().get("switch_controllers") or {}
+        controllers = services.switch_controllers
         try:
             return await activate_with_baselines(
                 manager, hostname, rules, controllers, commit,
                 lock=request.app.state.automation_activation_lock,
-                mqtt_ingest=mqtt_ingest,
+                mqtt_ingest=services.mqtt_ingest,
             )
         finally:
             global _switch_status_cache_payload, _switch_status_cache_until
@@ -14051,7 +13675,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                             override_val = (not eff_enabled)
                             switch_mgr.update_setting(sid, f"SWITCH_{channel_index}_OVERRIDE_SCRIPT", override_val)
                             try:
-                                sc = globals().get("switch_controllers")
+                                sc = services.switch_controllers
                                 if isinstance(sc, dict):
                                     for ctrl in sc.values():
                                         if getattr(ctrl, "switch_id", None) == sid:
@@ -14502,20 +14126,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 reload_switch_ids.add(switch_id)
 
             try:
-                sc = getattr(request.app.state, "switch_controllers", None)
-                if not isinstance(sc, dict):
-                    sc = globals().get("switch_controllers")
-                if not isinstance(sc, dict):
-                    sc = {}
-                globals()["switch_controllers"] = sc
-                request.app.state.switch_controllers = sc
-                services.switch_controllers = sc
+                sc = services.switch_controllers
 
                 eval_controllers: list[object] = []
                 switch_mgr = SwitchSettingsManager("switch_settings")
-                sensor_source = getattr(request.app.state, "sensor_map", None)
-                if sensor_source is None:
-                    sensor_source = globals().get("sensor_map") or []
+                sensor_source = services.sensor_map
                 sensor_candidates = (
                     sensor_source.values()
                     if isinstance(sensor_source, dict)
@@ -14562,7 +14177,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                                 switch_settings=sw_doc,
                                 supervisor=None,
                                 sensor=sensor_match,
-                                data_logger=data_logger,
+                                data_logger=services.data_logger,
                                 dashboard_broadcast=_switch_broadcast,
                             )
                             if bool(getattr(candidate_ctrl, "is_present", False)):
@@ -14578,7 +14193,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     eval_controllers.append(found_ctrl)
 
                     monitor_name = f"{target_switch_id} Controladora Monitor"
-                    supervisor = getattr(request.app.state, "supervisor", None)
+                    supervisor = services.supervisor
                     supervised_names = getattr(supervisor, "_task_names", set())
                     existing_task = _dynamic_switch_monitor_tasks.get(
                         target_switch_id
@@ -14652,7 +14267,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         override_val = (not eff_enabled)
                         switch_mgr.update_setting(sid, f"SWITCH_{channel_index}_OVERRIDE_SCRIPT", override_val)
                         try:
-                            sc = globals().get("switch_controllers")
+                            sc = services.switch_controllers
                             if isinstance(sc, dict):
                                 for ctrl in sc.values():
                                     if getattr(ctrl, "switch_id", None) == sid and isinstance(getattr(ctrl, "override_script", None), dict):
@@ -14713,7 +14328,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             raise HTTPException(status_code=422, detail="History window must be 1, 6, or 24 hours.")
         until = time.time()
         since = until - hours * 3600
-        events = data_logger.get_switch_history(switch_key, since, until)
+        events = services.data_logger.get_switch_history(switch_key, since, until)
         return {"events": events, "start_epoch": since, "end_epoch": until}
 
     @router.get("/switch-status-update")
@@ -14736,8 +14351,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         ctrl_by_switch_id: dict[str, object] = {}
         try:
-            if switch_controllers and isinstance(switch_controllers, dict):
-                for ctrl in switch_controllers.values():
+            if services.switch_controllers and isinstance(services.switch_controllers, dict):
+                for ctrl in services.switch_controllers.values():
                     sid = str(getattr(ctrl, "switch_id", "") or "").strip()
                     if sid:
                         ctrl_by_switch_id[sid] = ctrl
@@ -14787,7 +14402,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 return ""
 
             def _format_events(switch_key: str, sensor_id: str | None, limit: int = 10) -> list[str]:
-                evs = data_logger.get_last_switch_events(
+                evs = services.data_logger.get_last_switch_events(
                     switch_key,
                     sensor_id=sensor_id,
                     limit=limit,
@@ -14853,8 +14468,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     sid_text = str(sid or "").strip()
                     if not sid_text:
                         return {}
-                    dev_map = getattr(mqtt_ingest, "device_type", {}) or {}
-                    host_to_peer_ids = getattr(mqtt_ingest, "host_to_peer_ids", {}) or {}
+                    dev_map = getattr(services.mqtt_ingest, "device_type", {}) or {}
+                    host_to_peer_ids = getattr(services.mqtt_ingest, "host_to_peer_ids", {}) or {}
                     looks_remote = (
                         sid_text.startswith("switch-")
                         or str(dev_map.get(sid_text) or "").strip().lower() == "nodus"
@@ -14863,7 +14478,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     )
                     if not looks_remote:
                         return {}
-                    getter = getattr(mqtt_ingest, "get_nodus_liveness", None)
+                    getter = getattr(services.mqtt_ingest, "get_nodus_liveness", None)
                     if not callable(getter):
                         return {}
                     snapshot = getter(sid_text, device_type="switch")
@@ -14908,12 +14523,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 if cached_bool is not None:
                     latest_bool = cached_bool
                 else:
-                    latest = data_logger.get_latest_switch_state(db_key)
+                    latest = services.data_logger.get_latest_switch_state(db_key)
                     latest_bool = (latest == "On") if latest is not None else False
                 events = _format_events_remote(db_key, limit=10) or _format_events(db_key, None, limit=10)
                 payload = {"state": latest_bool, "time": events}
                 payload.update(_remote_liveness_payload(sid))
-                command_status = getattr(mqtt_ingest, "get_switch_command_status", None)
+                command_status = getattr(services.mqtt_ingest, "get_switch_command_status", None)
                 if callable(command_status):
                     payload.update(command_status(sid, label, _switch_channel_id_from_identity_row(row)))
                 states[db_key] = dict(payload)
@@ -14939,12 +14554,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     if cached_bool is not None:
                         latest_bool = cached_bool
                     else:
-                        latest = data_logger.get_latest_switch_state(db_key)
+                        latest = services.data_logger.get_latest_switch_state(db_key)
                         latest_bool = (latest == "On") if latest is not None else (str(human_state).lower() == "on")
                     events = _format_events_remote(db_key, limit=10) or _format_events(db_key, None, limit=10)
                     payload = {"state": latest_bool, "time": events}
                     payload.update(_remote_liveness_payload(remote_switch_id))
-                    command_status = getattr(mqtt_ingest, "get_switch_command_status", None)
+                    command_status = getattr(services.mqtt_ingest, "get_switch_command_status", None)
                     if callable(command_status):
                         channel = _resolve_channel_id_from_label(remote_switch_id, channel_label) or ""
                         payload.update(command_status(remote_switch_id, channel_label, channel))
@@ -14958,8 +14573,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             local_entries: list[dict[str, object]] = []
             timer_snapshots: dict[str, dict] = {}
 
-            if switch_controllers and isinstance(switch_controllers, dict):
-                for ctrl in switch_controllers.values():
+            if services.switch_controllers and isinstance(services.switch_controllers, dict):
+                for ctrl in services.switch_controllers.values():
                     if not getattr(ctrl, "is_present", False):
                         continue
                     if not isinstance(getattr(ctrl, "last_state", None), dict):
@@ -14993,8 +14608,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                             "last_state": bool(is_on),
                         })
 
-            remote_cache = copy.deepcopy(getattr(mqtt_ingest, "_switch_state_cache", {}) or {})
-            identity_rows = await asyncio.to_thread(lambda: list(data_logger.get_switch_identities() or []))
+            remote_cache = copy.deepcopy(getattr(services.mqtt_ingest, "_switch_state_cache", {}) or {})
+            identity_rows = await asyncio.to_thread(lambda: list(services.data_logger.get_switch_identities() or []))
             for row in (identity_rows or []):
                 sid = str(row.get("switch_id", "")).strip()
                 label = str(row.get("label", "")).strip()
@@ -15101,7 +14716,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
         def _remote_liveness_snapshot(target_id: str | None, *, channel_id: str | None = None) -> dict:
             try:
-                getter = getattr(mqtt_ingest, "get_nodus_liveness", None)
+                getter = getattr(services.mqtt_ingest, "get_nodus_liveness", None)
                 if callable(getter):
                     return dict(getter(str(target_id or channel_id or "").strip(), device_type="switch") or {})
             except Exception:
@@ -15211,7 +14826,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 return JSONResponse({"error": "bad_switch_name"}, status_code=400)
 
             try:
-                identity_rows = list(data_logger.get_switch_identities() or [])
+                identity_rows = list(services.data_logger.get_switch_identities() or [])
             except Exception:
                 identity_rows = []
 
@@ -15278,7 +14893,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 return wanted_l in aliases
 
             # ---- Find matching controllers ----
-            sc_map = switch_controllers if isinstance(switch_controllers, dict) else {}
+            sc_map = services.switch_controllers if isinstance(services.switch_controllers, dict) else {}
             matches: list[tuple[object, str]] = []
 
             for ctrl in sc_map.values():
@@ -15301,7 +14916,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 # Direct channel-ID fallback for remote Nodus switches (e.g., S1-xxxxxx).
                 try:
                     looks_channel = bool(re.match(r"^S\d+-[A-Za-z0-9._-]+$", str(switch_id_raw or "").strip()))
-                    if looks_channel and mqtt_ingest:
+                    if looks_channel and services.mqtt_ingest:
                         channel_id = str(switch_id_raw or "").strip()
                         resolved_sid = ""
                         resolved_db_key = ""
@@ -15325,7 +14940,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
                         current_on = None
                         try:
-                            cache = getattr(mqtt_ingest, "_switch_state_cache", {}) or {}
+                            cache = getattr(services.mqtt_ingest, "_switch_state_cache", {}) or {}
                             if resolved_sid:
                                 raw_state = (cache.get(resolved_sid, {}) or {}).get(channel_id)
                                 if raw_state is None:
@@ -15347,7 +14962,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
                         if current_on is None and resolved_db_key:
                             try:
-                                last = data_logger.get_latest_switch_state(resolved_db_key)
+                                last = services.data_logger.get_latest_switch_state(resolved_db_key)
                                 if last is not None:
                                     current_on = (str(last).strip().lower() == "on")
                             except Exception:
@@ -15357,7 +14972,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         blocked = _remote_liveness_block_response(resolved_sid or "", channel_id=channel_id)
                         if blocked is not None:
                             return blocked
-                        ok = bool(mqtt_ingest.set_switch_by_channel_id(resolved_sid or "", channel_id, new_state, reason="manual"))
+                        ok = bool(services.mqtt_ingest.set_switch_by_channel_id(resolved_sid or "", channel_id, new_state, reason="manual"))
                         if ok:
                             ts = time.time()
                             # Remote fallback path: do not persist UI-originated events.
@@ -15444,7 +15059,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 pass
 
             new_state = _desired_toggle_from_db(
-                data_logger,
+                services.data_logger,
                 sid,
                 matched_label,
                 ctrl,
@@ -15484,7 +15099,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 except Exception:
                     db_key = f"{sid}::{matched_label}"
                 sensor_lineage = f"Switch_{sid}" if sid else None
-                rows = data_logger.get_last_switch_events(
+                rows = services.data_logger.get_last_switch_events(
                     db_key,
                     sensor_id=sensor_lineage,
                     limit=limit,
@@ -15516,7 +15131,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 except Exception:
                     pass
                 if remote:
-                    status_getter = getattr(mqtt_ingest, "get_switch_command_status", None)
+                    status_getter = getattr(services.mqtt_ingest, "get_switch_command_status", None)
                     channel = str((getattr(ctrl, "channel_id_for_label", {}) or {}).get(matched_label, "") or "")
                     if callable(status_getter):
                         payload.update(status_getter(sid or "", matched_label, channel))
@@ -15543,10 +15158,10 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     printDM(f"[toggle_switch] ctrl.set_state (direct) failed: {e}", location=MODULE)
             else:
                 # Remote (Pico2 W via MQTT) — publish via injected mqtt_ingest
-                if not mqtt_ingest:
+                if not services.mqtt_ingest:
                     return JSONResponse({"error": "mqtt_not_ready", "detail": "ingest_not_injected"}, status_code=503)
 
-                if getattr(mqtt_ingest, "client", None) is None:
+                if getattr(services.mqtt_ingest, "client", None) is None:
                     return JSONResponse({"error": "mqtt_not_ready", "detail": "ingest_client_none"}, status_code=503)
 
                 # Primary: use ingest helper (finds correct base topic and emits {"set": "..."} JSON)
@@ -15559,7 +15174,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     if blocked is not None:
                         return blocked
                     try:
-                        ok = bool(mqtt_ingest.set_switch(sid, matched_label, new_state, event_origin="manual"))
+                        ok = bool(services.mqtt_ingest.set_switch(sid, matched_label, new_state, event_origin="manual"))
                     except Exception as e:
                         printDM(f"[toggle_switch] ingest.set_switch error: {e}", location=MODULE)
                 if ok:
@@ -15622,7 +15237,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                             # Fallback for older controllers
                             db_key = f"{sid}::{matched_label}"
 
-                        data_logger.log_switch_event(
+                        services.data_logger.log_switch_event(
                             switch_key=db_key,
                             is_on=bool(new_state),
                             source="ui",
@@ -15675,7 +15290,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         if not sid or not label_raw:
             return JSONResponse({"error": "bad_request"}, status_code=400)
 
-        sc_map = switch_controllers if isinstance(switch_controllers, dict) else {}
+        sc_map = services.switch_controllers if isinstance(services.switch_controllers, dict) else {}
         match_ctrl = None
         match_label = ""
         for ctrl in sc_map.values():
@@ -15757,7 +15372,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 return JSONResponse({"error": "bad_switch_name"}, status_code=400)
 
             try:
-                identity_rows_for_override = list(data_logger.get_switch_identities() or [])
+                identity_rows_for_override = list(services.data_logger.get_switch_identities() or [])
             except Exception:
                 identity_rows_for_override = []
             if switch_id_q and key_suffix_q:
@@ -15787,7 +15402,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     return []
 
             matches = []
-            for ctrl in (switch_controllers or {}).values():
+            for ctrl in (services.switch_controllers or {}).values():
                 ctrl_labels = _ctrl_labels(ctrl)
                 if not ctrl_labels:
                     if DEBUG:
@@ -15989,7 +15604,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 status_code=400,
             )
         try:
-            archive_path = await asyncio.to_thread(data_logger.archive_and_create_new_database)
+            archive_path = await asyncio.to_thread(services.data_logger.archive_and_create_new_database)
         except Exception as exc:
             printDM(f"[new-database] failed: {exc}", location=MODULE)
             return HTMLResponse(
@@ -16036,6 +15651,16 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         settings=settings,
         data_logger=data_logger,
         sensor_settings_manager=SensorSettingsManager("sensor_settings"),
+    )
+    register_integration_routes(
+        router, services=services, settings_factory=saiSettings,
+        ecowitt_factory=EcowittGatewayIngest,
+        ensure_weewx_settings=lambda sensor_id: ensure_weewx_sensor_settings(
+            sensor_id, manager=SensorSettingsManager("sensor_settings")),
+        evaluate_weewx_status=_weewx_measure_status_from_latest,
+        dashboard_broadcast=_switch_broadcast,
+        invalidate_dashboard_caches=_invalidate_dashboard_caches,
+        debug=DEBUG,
     )
     register_statistics_diagnostics_routes(
         router, services=services, statistics=statistics, net_mgr=net_mgr,

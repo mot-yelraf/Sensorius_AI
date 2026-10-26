@@ -248,7 +248,8 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
 
 
 @pytest.mark.asyncio
-async def test_biodynamic_calendar_api_default_month_uses_biodynamic_local_time(monkeypatch):
+async def test_biodynamic_calendar_api_default_month_uses_biodynamic_local_time(monkeypatch, route_logger):
+    logger = route_logger
     monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
 
     captured = []
@@ -281,10 +282,11 @@ async def test_biodynamic_calendar_api_default_month_uses_biodynamic_local_time(
     monkeypatch.setattr(saiWebRoutes, "datetime", _FixedDateTime)
     monkeypatch.setattr(saiWebRoutes, "get_biodynamic_payload", _fake_payload)
     monkeypatch.setattr(saiWebRoutes, "DailySummaryService", _FakeDailySummaryService)
-    monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_notes_for_month", lambda anchor, **_kwargs: {})
-    monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_daily_summaries_for_month", lambda anchor: {})
+    monkeypatch.setattr(logger, "get_biodynamic_notes_for_month", lambda anchor, **_kwargs: {})
+    monkeypatch.setattr(logger, "get_biodynamic_daily_summaries_for_month", lambda anchor: {})
 
     app = FastAPI()
+    app.state.data_logger = logger
     await saiWebRoutes.register_routes(app, _HubSettings(), _FakeNetMgr(), _FakeGcMgr(), _FakeIngest())
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -300,7 +302,8 @@ async def test_biodynamic_calendar_api_default_month_uses_biodynamic_local_time(
 
 
 @pytest.mark.asyncio
-async def test_biodynamic_calendar_api_concurrent_month_requests_single_flight(monkeypatch):
+async def test_biodynamic_calendar_api_concurrent_month_requests_single_flight(monkeypatch, route_logger):
+    logger = route_logger
     monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
 
     payload_calls = []
@@ -320,10 +323,11 @@ async def test_biodynamic_calendar_api_concurrent_month_requests_single_flight(m
 
     monkeypatch.setattr(saiWebRoutes, "get_biodynamic_payload", _fake_payload)
     monkeypatch.setattr(saiWebRoutes, "DailySummaryService", _FakeDailySummaryService)
-    monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_notes_for_month", lambda anchor, **_kwargs: {})
-    monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_daily_summaries_for_month", lambda anchor: {})
+    monkeypatch.setattr(logger, "get_biodynamic_notes_for_month", lambda anchor, **_kwargs: {})
+    monkeypatch.setattr(logger, "get_biodynamic_daily_summaries_for_month", lambda anchor: {})
 
     app = FastAPI()
+    app.state.data_logger = logger
     await saiWebRoutes.register_routes(app, _HubSettings(), _FakeNetMgr(), _FakeGcMgr(), _FakeIngest())
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -353,9 +357,10 @@ async def test_integrated_biodynamic_calendar_routes_replace_companion_probe(mon
 
 
 @pytest.mark.asyncio
-async def test_biodynamic_calendar_api_includes_spillover_day_summaries(monkeypatch):
+async def test_biodynamic_calendar_api_includes_spillover_day_summaries(monkeypatch, route_logger):
     monkeypatch.setattr(saiWebRoutes, "FastStats", _DummyFastStats)
 
+    logger = route_logger
     range_calls = []
 
     def _fake_payload(anchor):
@@ -383,23 +388,24 @@ async def test_biodynamic_calendar_api_includes_spillover_day_summaries(monkeypa
     monkeypatch.setattr(saiWebRoutes, "get_biodynamic_payload", _fake_payload)
     monkeypatch.setattr(saiWebRoutes, "DailySummaryService", _FakeDailySummaryService)
     monkeypatch.setattr(
-        saiWebRoutes.data_logger,
+        logger,
         "get_biodynamic_notes_for_range",
             lambda start_date, end_date, **_kwargs: (
             range_calls.append(("notes", start_date.isoformat(), end_date.isoformat())) or {"2026-04-01": "spillover note"}
         ),
     )
     monkeypatch.setattr(
-        saiWebRoutes.data_logger,
+        logger,
         "get_biodynamic_daily_summaries_for_range",
         lambda start_date, end_date: (
             range_calls.append(("summaries", start_date.isoformat(), end_date.isoformat())) or {"2026-04-01": "spillover summary"}
         ),
     )
-    monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_notes_for_month", lambda anchor: {})
-    monkeypatch.setattr(saiWebRoutes.data_logger, "get_biodynamic_daily_summaries_for_month", lambda anchor: {})
+    monkeypatch.setattr(logger, "get_biodynamic_notes_for_month", lambda anchor: {})
+    monkeypatch.setattr(logger, "get_biodynamic_daily_summaries_for_month", lambda anchor: {})
 
     app = FastAPI()
+    app.state.data_logger = logger
     await saiWebRoutes.register_routes(app, _HubSettings(), _FakeNetMgr(), _FakeGcMgr(), _FakeIngest())
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -411,3 +417,10 @@ async def test_biodynamic_calendar_api_includes_spillover_day_summaries(monkeypa
     assert body["notes"]["2026-04-01"] == "spillover note"
     assert ("notes", "2026-03-29", "2026-04-02") in range_calls
     assert ("summaries", "2026-03-29", "2026-04-02") in range_calls
+
+
+@pytest.fixture
+def route_logger(tmp_path):
+    """Provide each route app its own logger without relying on earlier tests."""
+    with saiWebRoutes.saiDataLogger(str(tmp_path / "calendar.db")) as logger:
+        yield logger

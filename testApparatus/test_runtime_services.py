@@ -86,3 +86,111 @@ async def test_owned_services_survive_registration_and_prewarm(tmp_path, monkeyp
             await web._prewarm()
             assert calls == [("values", "sensor"), ("stats", "sensor")]
         await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_routes_keep_own_services_after_another_app_registers(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from sensorius import saiWebRoutes as routes
+    from sensorius import saiMQTTIngest as mqtt_module
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(routes, "FastStats", _FastStats)
+    for name in ("app", "data_logger", "statter", "sensor_map", "switch_controllers"):
+        monkeypatch.setattr(routes, name, getattr(routes, name, None), raising=False)
+    monkeypatch.setattr(mqtt_module, "get_current_ingest",
+                        lambda: pytest.fail("Route consulted the process-wide ingest singleton"))
+
+    class Controller:
+        switch_id = "desk-hub"
+        location = "Desk"
+        channel_id_for_label = {"Fan": "S1-desk"}
+
+        def __init__(self):
+            self.last_state = {"Fan": False}
+            self.last_set_time = {"Fan": 0.0}
+            self.calls = []
+
+        def get_switch_names(self):
+            return ["Fan"]
+
+        def get_state(self, label):
+            return self.last_state[label]
+
+        def set_state(self, label, on, force=False):
+            self.calls.append((label, on))
+            self.last_state[label] = on
+            return True
+
+        def _switch_key(self, label):
+            return f"S1-desk::{label}"
+
+    with saiDataLogger(str(tmp_path / "first.db")) as first_logger, \
+            saiDataLogger(str(tmp_path / "second.db")) as second_logger:
+        hubs = []
+        for logger, metric in [(first_logger, "Temperature"), (second_logger, "Humidity")]:
+            sensor = SimpleNamespace(measurements=[{"name": metric}],
+                                     sensor=SimpleNamespace(is_calibrated="Not Calibrated"))
+            controller = Controller()
+            ingest = SimpleNamespace(discovery_failures={"device": "timeout"}, device_status={},
+                                     get_known_devices=lambda: [], get_known_switch_devices=lambda: [])
+            services = RuntimeServices(data_logger=logger, sensor_map={"sensor": sensor},
+                                       switch_controllers={"desk-hub": controller}, mqtt_ingest=ingest)
+            app = FastAPI()
+            services.attach(app)
+            await routes.register_routes(app, _Settings(), None, None, ingest)
+            hubs.append((app, services, metric))
+
+        # App-state aliases are intentionally stale: runtime routes must consult
+        # the owner, even when a controller map is replaced with an empty map.
+        first_app, first, _ = hubs[0]
+        other_app, second, _ = hubs[1]
+        assert routes.sensor_map is second.sensor_map
+        for app, services, metric in (hubs[0], hubs[1], hubs[0]):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test",
+                                   headers={"referer": "http://test/"}) as client:
+                response = await client.get('/sensor-metrics', params={'sensor_id': 'sensor'})
+                assert response.json() == {metric: None}
+                assert (await client.get('/remove-device-list')).status_code == 200
+        async with AsyncClient(transport=ASGITransport(app=first_app), base_url="http://test",
+                               headers={"referer": "http://test/"}) as client:
+            response = await client.post('/sensor-event', json={
+                'event': 'calibration_progress', 'payload': {'sensor_id': 'sensor', 'sample_index': 1}})
+            assert response.status_code == 200
+            assert first.sensor_map['sensor'].sensor.is_calibrated == 'Calibrating'
+            assert second.sensor_map['sensor'].sensor.is_calibrated == 'Not Calibrated'
+            assert (await client.post('/retry-discovery', json={'host': 'device'})).status_code == 200
+            assert first.mqtt_ingest.discovery_failures == {}
+            assert second.mqtt_ingest.discovery_failures == {'device': 'timeout'}
+            response = await client.post('/switch/toggle?switch_name=Fan&switch_id=desk-hub')
+            assert response.status_code == 200, response.text
+            assert first.switch_controllers['desk-hub'].calls == [('Fan', True)]
+            assert second.switch_controllers['desk-hub'].calls == []
+            first.sensor_map = {}
+            assert (await client.get('/sensor-metrics', params={'sensor_id': 'sensor'})).json() == {}
+
+
+@pytest.mark.asyncio
+async def test_standalone_registration_does_not_adopt_previous_app_globals(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from sensorius import saiWebRoutes as routes
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(routes, 'FastStats', _FastStats)
+    for name in ('app', 'data_logger', 'statter', 'sensor_map', 'switch_controllers'):
+        monkeypatch.setattr(routes, name, getattr(routes, name, None), raising=False)
+    with saiDataLogger(str(tmp_path / 'previous.db')) as previous:
+        monkeypatch.setattr(routes, 'data_logger', previous)
+        monkeypatch.setattr(routes, 'sensor_map', {'foreign': object()})
+        monkeypatch.setattr(routes, 'switch_controllers', {'foreign': object()})
+        app = FastAPI()
+        await routes.register_routes(app, _Settings(), None, None, None)
+        services = app.state.runtime_services
+        try:
+            assert services.data_logger is not previous
+            assert services.sensor_map == {}
+            assert services.switch_controllers == {}
+            assert services.mqtt_ingest is None
+        finally:
+            services.data_logger.close()

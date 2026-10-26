@@ -61,6 +61,7 @@ async def test_history_route_validates_windows_and_returns_complete_range(histor
     monkeypatch.setattr(routes.time, "time", lambda: end)
     monkeypatch.delenv("SENSORIUS_API_KEY", raising=False)
     app = FastAPI()
+    app.state.data_logger = logger
     await routes.register_routes(app, _Settings(), object(), object(), None)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
         for hours, count in ((24, 14), (6, 7), (1, 2)):
