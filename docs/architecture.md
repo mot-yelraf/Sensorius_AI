@@ -45,7 +45,15 @@ macOS, Windows, and non-Pi Linux hub:
   static/template mounting, and
   uvicorn launch.
 - `sensorius/saiWebRoutes.py`: UI, API, onboarding, calibration, settings,
-  and switch routes.
+  and switch routes. It supplies the existing access guard and platform/settings
+  helpers when registering the extracted statistics and diagnostics routes.
+- `sensorius/saiWebDiagnostics.py`: sensor/switch statistics endpoints and shared
+  settings-pane builders, readiness/debug routes, network status, retained-command
+  diagnostics, and Advanced status. It reads services from the supplied
+  `RuntimeServices` context without importing route globals. Blocking network,
+  settings, and platform probes run off the event loop. URLs, response shapes,
+  and access rules remain compatible; live dashboard updates and integration or
+  calibration status routes remain with their existing workflows.
 - `sensorius/saiSettings.py`: system settings in
   `system_settings/<device_id>/settings.toml`.
 - `sensorius/saiThemeManager.py`: custom theme manifests, safe palette
@@ -151,7 +159,8 @@ macOS, Windows, and non-Pi Linux hub:
    `RemoteSwitchController`.
 6. Startup supplies a `RuntimeServices` context to the web server. Routes,
    daily summaries, FastStats, and startup prewarm share its database, statistics,
-   controller, and ingest instances. Statistics use the logger's database path.
+   controller, and ingest instances. Statistics use the logger's database path,
+   and `/stats` reuses the same statistics instance and cache.
    `app.state` service attributes and route-module aliases remain for compatibility;
    importing routes no longer constructs a database logger. Standalone route
    registration can create a context when none is supplied.
