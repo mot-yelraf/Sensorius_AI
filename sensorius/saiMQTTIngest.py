@@ -28,6 +28,11 @@ from zoneinfo import ZoneInfo
 from .saiUtils import printDM, debug_enabled, get_timestamp, normalize_hostname_base, mdns_hostname
 from .saiDataLogger import SENSOR_EVENT_STATE_OFFLINE, SENSOR_EVENT_TYPE_LIVENESS, saiDataLogger, build_switch_key
 from .saiRuntimePaths import resolve_runtime_base_dir
+from .saiMQTTCommandLifecycle import (
+    MQTTCommandLifecycle,
+    NODUS_SWITCH_COMMAND_INFLIGHT_TTL_S,
+    NODUS_SWITCH_COMMAND_FAILED_COOLDOWN_S,
+)
 from . import saiNodusMeta as nodus_meta
 from .saiNodusMeta import (
     extract_board_type as _extract_nodus_board_type,
@@ -60,8 +65,6 @@ _NODUS_FAMILY_PREFIXES = {
 MODULE = "saiMQTTIngest"
 DEBUG = debug_enabled(MODULE)
 LEGACY_POLLER_SUNSET_DATE = "2026-06-30"
-NODUS_SWITCH_COMMAND_INFLIGHT_TTL_S = 45.0
-NODUS_SWITCH_COMMAND_FAILED_COOLDOWN_S = 5.0
 MQTT_CALLBACK_SLOW_SEC = 0.25
 MQTT_CALLBACK_SLOW_LOG_INTERVAL_SEC = 60.0
 
@@ -273,6 +276,17 @@ def get_current_ingest():
     """Return the process-wide MQTT ingest instance, if configured."""
     return _current_ingest
     
+def _command_lifecycle_state(name):
+    """Keep existing ingest state attributes backed by the lifecycle owner."""
+    def get_state(ingest):
+        return getattr(ingest._get_command_lifecycle(), name)
+
+    def set_state(ingest, value):
+        setattr(ingest._get_command_lifecycle(), name, value)
+
+    return property(get_state, set_state)
+
+
 class saiMQTTIngest:
     """Ingest MQTT discovery, readings, commands, and Nodus state shadows."""
 
@@ -368,24 +382,7 @@ class saiMQTTIngest:
         self._removed_nodus_ids: set[str] = self._load_removed_nodus_ids()
         self._callback_filters: set[str] = set()
         self._connected_evt = asyncio.Event()
-        self._config_lock = threading.RLock()
-        self.config_ack_by_message: dict[str, dict] = {}
-        self.config_result_by_message: dict[str, dict] = {}
-        self.config_message_device: dict[str, str] = {}
-        self._switch_config_command_lock = threading.RLock()
-        self._switch_config_command_inflight: dict[str, dict] = {}
-        self._switch_config_command_by_message: dict[str, str] = {}
-        self._calibration_lock = threading.RLock()
-        self.calibration_ack_by_message: dict[str, dict] = {}
-        self.calibration_result_by_message: dict[str, dict] = {}
-        self.calibration_status_by_sensor: dict[str, dict] = {}
-        self.calibration_progress_by_sensor: dict[str, dict] = {}
-        self.calibration_sample_by_sensor: dict[str, dict] = {}
-        self.calibration_samples_by_message: dict[str, list[dict]] = {}
-        self.calibration_event_result_by_sensor: dict[str, dict] = {}
-        self.calibration_message_device: dict[str, str] = {}
-        self._meta_patch_lock = threading.RLock()
-        self.meta_patch_by_message: dict[str, dict] = {}
+        self._command_lifecycle = MQTTCommandLifecycle(clock=lambda: time.time())
 
         unique_id = f"{socket.gethostname()}-ingest"
         self.client = mqtt.Client(client_id=unique_id)
@@ -524,8 +521,6 @@ class saiMQTTIngest:
                 })
             self.registered_topics.update(prefixed_topics)
         self.onboarding_event_handler = None
-        self._pending_set: dict[tuple[str, str], dict[str, object]] = {}
-        self._recent_switch_origin: dict[tuple[str, str], dict[str, object]] = {}
         self._loop = None  # set in start()
         
         try:
@@ -882,6 +877,34 @@ class saiMQTTIngest:
         AP-mode onboarding uses /itaot-meta and /itaot-init outside this ingest loop.
         """
         return False
+
+    def _get_command_lifecycle(self) -> MQTTCommandLifecycle:
+        """Return command state, including for compatibility construction paths."""
+        if not hasattr(self, "_command_lifecycle"):
+            self._command_lifecycle = MQTTCommandLifecycle(clock=lambda: time.time())
+        return self._command_lifecycle
+
+    # Mutable aliases preserve diagnostics and existing integrations.
+    _config_lock = _command_lifecycle_state("_config_lock")
+    config_ack_by_message = _command_lifecycle_state("config_ack_by_message")
+    config_result_by_message = _command_lifecycle_state("config_result_by_message")
+    config_message_device = _command_lifecycle_state("config_message_device")
+    _switch_config_command_lock = _command_lifecycle_state("_switch_config_command_lock")
+    _switch_config_command_inflight = _command_lifecycle_state("_switch_config_command_inflight")
+    _switch_config_command_by_message = _command_lifecycle_state("_switch_config_command_by_message")
+    _calibration_lock = _command_lifecycle_state("_calibration_lock")
+    calibration_ack_by_message = _command_lifecycle_state("calibration_ack_by_message")
+    calibration_result_by_message = _command_lifecycle_state("calibration_result_by_message")
+    calibration_status_by_sensor = _command_lifecycle_state("calibration_status_by_sensor")
+    calibration_progress_by_sensor = _command_lifecycle_state("calibration_progress_by_sensor")
+    calibration_sample_by_sensor = _command_lifecycle_state("calibration_sample_by_sensor")
+    calibration_samples_by_message = _command_lifecycle_state("calibration_samples_by_message")
+    calibration_event_result_by_sensor = _command_lifecycle_state("calibration_event_result_by_sensor")
+    calibration_message_device = _command_lifecycle_state("calibration_message_device")
+    _meta_patch_lock = _command_lifecycle_state("_meta_patch_lock")
+    meta_patch_by_message = _command_lifecycle_state("meta_patch_by_message")
+    _pending_set = _command_lifecycle_state("_pending_set")
+    _recent_switch_origin = _command_lifecycle_state("_recent_switch_origin")
 
     def _get_liveness(self) -> NodusLiveness:
         # Support compatibility callers that construct an unstarted ingest shell.
@@ -1367,119 +1390,11 @@ class saiMQTTIngest:
                 return False
 
             body = data if isinstance(data, dict) else {}
-            now = time.time()
-            with self._calibration_lock:
-                if family == "calibration" and leaf == "ack":
-                    message_id = str(body.get("message_id") or "").strip()
-                    if not message_id:
-                        return True
-                    self.calibration_ack_by_message[message_id] = {
-                        "message_id": message_id,
-                        "device_id": device_id,
-                        "accepted": bool(body.get("accepted", False)),
-                        "topic": topic,
-                        "retain": bool(retain),
-                        "received_at": now,
-                    }
-                    return True
-
-                if family == "calibration" and leaf == "result":
-                    message_id = str(body.get("message_id") or "").strip()
-                    status_payload = body.get("status") if isinstance(body.get("status"), dict) else {}
-                    sensor_id = str(
-                        body.get("sensor_id")
-                        or status_payload.get("sensor_id")
-                        or device_id
-                    ).strip()
-                    result = {
-                        "message_id": message_id,
-                        "device_id": device_id,
-                        "sensor_id": sensor_id,
-                        "name": str(body.get("name") or "").strip(),
-                        "applied": bool(body.get("applied", False)),
-                        "started": bool(body.get("started", False)),
-                        "updated": body.get("updated"),
-                        "error": str(body.get("error") or "").strip(),
-                        "status": self._normalize_calibration_payload(
-                            sensor_id,
-                            status_payload,
-                            topic=topic,
-                            retain=retain,
-                            kind="result_status",
-                        ),
-                        "topic": topic,
-                        "retain": bool(retain),
-                        "received_at": now,
-                    }
-                    if message_id:
-                        self.calibration_result_by_message[message_id] = result
-                    if result["status"]:
-                        self.calibration_status_by_sensor[sensor_id] = dict(result["status"])
-                    return True
-
-                if family == "event" and leaf == "calibration_sample":
-                    normalized_sample = self._normalize_calibration_sample_payload(
-                        device_id,
-                        body,
-                        topic=topic,
-                        retain=retain,
-                    )
-                    if not normalized_sample:
-                        return True
-                    sensor_id = str(normalized_sample.get("sensor_id") or device_id).strip()
-                    self.calibration_sample_by_sensor[sensor_id] = dict(normalized_sample)
-
-                    message_id = str(normalized_sample.get("message_id") or "").strip()
-                    if message_id:
-                        bucket = self.calibration_samples_by_message.setdefault(message_id, [])
-                        sample_index = normalized_sample.get("sample_index")
-                        replaced = False
-                        if sample_index is not None:
-                            for idx, row in enumerate(bucket):
-                                if row.get("sample_index") == sample_index:
-                                    bucket[idx] = dict(normalized_sample)
-                                    replaced = True
-                                    break
-                        if not replaced:
-                            bucket.append(dict(normalized_sample))
-                            bucket.sort(key=lambda row: (row.get("sample_index") is None, row.get("sample_index") or 0))
-
-                    sample_index = normalized_sample.get("sample_index")
-                    sample_total = normalized_sample.get("sample_count")
-                    derived_progress = {
-                        "sensor_id": sensor_id,
-                        "status": "in_progress",
-                        "calibrated": False,
-                        "timestamp": normalized_sample.get("timestamp"),
-                        "sample_index": sample_index,
-                        "sample_total": sample_total,
-                        "topic": topic,
-                        "retain": bool(retain),
-                        "kind": "calibration_sample",
-                        "received_at": normalized_sample.get("received_at"),
-                    }
-                    self.calibration_progress_by_sensor[sensor_id] = derived_progress
-                    return True
-
-                if family == "event" and leaf in {"calibration_status", "calibration_progress", "calibration_result"}:
-                    normalized = self._normalize_calibration_payload(
-                        device_id,
-                        body,
-                        topic=topic,
-                        retain=retain,
-                        kind=leaf,
-                    )
-                    if not normalized:
-                        return True
-                    sensor_id = str(normalized.get("sensor_id") or device_id).strip()
-                    self.calibration_status_by_sensor[sensor_id] = dict(normalized)
-                    if leaf == "calibration_progress":
-                        self.calibration_progress_by_sensor[sensor_id] = dict(normalized)
-                    elif leaf == "calibration_result":
-                        self.calibration_event_result_by_sensor[sensor_id] = dict(normalized)
-                    return True
-
-            return False
+            return self._get_command_lifecycle().record_calibration(
+                device_id, family, leaf, body, topic=topic, retain=retain,
+                normalize_status=self._normalize_calibration_payload,
+                normalize_sample=self._normalize_calibration_sample_payload,
+            )
         except Exception as e:
             if DEBUG:
                 printDM(f"[calibration] parse error: {e}", location=MODULE)
@@ -1519,8 +1434,7 @@ class saiMQTTIngest:
         topic = f"nodus/{device}/calibration/set"
         ok = bool(self.publish_json(topic, envelope, qos=qos, retain=False, use_ha_client=False))
         if ok:
-            with self._calibration_lock:
-                self.calibration_message_device[message_id] = device
+            self._get_command_lifecycle().record_published(message_id, device, calibration=True)
         return {"ok": ok, "message_id": message_id, "topic": topic, "payload": envelope}
 
     def publish_nodus_config(
@@ -1560,8 +1474,7 @@ class saiMQTTIngest:
                 location=MODULE,
             )
         if ok:
-            with self._config_lock:
-                self.config_message_device[message_id] = device
+            self._get_command_lifecycle().record_published(message_id, device, calibration=False)
         return {"ok": ok, "message_id": message_id, "topic": topic, "payload": envelope}
 
     def publish_nodus_restart(
@@ -1599,8 +1512,7 @@ class saiMQTTIngest:
                 location=MODULE,
             )
         if ok:
-            with self._config_lock:
-                self.config_message_device[message_id] = device
+            self._get_command_lifecycle().record_published(message_id, device, calibration=False)
         return {"ok": ok, "message_id": message_id, "topic": topic, "payload": envelope}
 
     def publish_nodus_halt(self, device_id: str, *, message_id: str | None = None) -> dict:
@@ -1613,111 +1525,36 @@ class saiMQTTIngest:
         topic = f"nodus/{device}/config/set"
         ok = bool(self.publish_json(topic, envelope, qos=1, retain=False, use_ha_client=False))
         if ok:
-            with self._config_lock:
-                self.config_message_device[message_id] = device
+            self._get_command_lifecycle().record_published(message_id, device, calibration=False)
         return {"ok": ok, "message_id": message_id, "topic": topic}
 
-    async def wait_for_config_ack(self, message_id: str, timeout: float = 3.0) -> dict | None:
-        deadline = time.time() + max(float(timeout), 0.0)
-        while time.time() < deadline:
-            with self._config_lock:
-                hit = self.config_ack_by_message.get(message_id)
-                if hit is not None:
-                    return dict(hit)
-            await asyncio.sleep(0.05)
-        return None
+    async def wait_for_config_ack(self, message_id: str, timeout: float=3.0) -> dict | None:
+        """Wait for config ack."""
+        return await self._get_command_lifecycle().wait_for_config_ack(message_id, timeout)
 
-    async def wait_for_config_result(self, message_id: str, timeout: float = 8.0) -> dict | None:
-        deadline = time.time() + max(float(timeout), 0.0)
-        while time.time() < deadline:
-            with self._config_lock:
-                hit = self.config_result_by_message.get(message_id)
-                if hit is not None:
-                    return dict(hit)
-            await asyncio.sleep(0.05)
-        return None
+    async def wait_for_config_result(self, message_id: str, timeout: float=8.0) -> dict | None:
+        """Wait for config result."""
+        return await self._get_command_lifecycle().wait_for_config_result(message_id, timeout)
 
-    async def wait_for_calibration_ack(self, message_id: str, timeout: float = 3.0) -> dict | None:
-        deadline = time.time() + max(float(timeout), 0.0)
-        while time.time() < deadline:
-            with self._calibration_lock:
-                hit = self.calibration_ack_by_message.get(message_id)
-                if hit is not None:
-                    return dict(hit)
-            await asyncio.sleep(0.05)
-        return None
+    async def wait_for_calibration_ack(self, message_id: str, timeout: float=3.0) -> dict | None:
+        """Wait for calibration ack."""
+        return await self._get_command_lifecycle().wait_for_calibration_ack(message_id, timeout)
 
-    async def wait_for_calibration_result(self, message_id: str, timeout: float = 8.0) -> dict | None:
-        deadline = time.time() + max(float(timeout), 0.0)
-        while time.time() < deadline:
-            with self._calibration_lock:
-                hit = self.calibration_result_by_message.get(message_id)
-                if hit is not None:
-                    return dict(hit)
-            await asyncio.sleep(0.05)
-        return None
+    async def wait_for_calibration_result(self, message_id: str, timeout: float=8.0) -> dict | None:
+        """Wait for calibration result."""
+        return await self._get_command_lifecycle().wait_for_calibration_result(message_id, timeout)
 
-    async def wait_for_calibration_samples(self, message_id: str, expected_count: int | None = None, timeout: float = 30.0) -> list[dict]:
-        deadline = time.time() + max(float(timeout), 0.0)
-        target = None
-        try:
-            if expected_count is not None:
-                target = max(int(expected_count), 0)
-        except Exception:
-            target = None
+    async def wait_for_calibration_samples(self, message_id: str, expected_count: int | None=None, timeout: float=30.0) -> list[dict]:
+        """Wait for calibration samples."""
+        return await self._get_command_lifecycle().wait_for_calibration_samples(message_id, expected_count, timeout)
 
-        last_seen: list[dict] = []
-        while time.time() < deadline:
-            with self._calibration_lock:
-                rows = [dict(item) for item in self.calibration_samples_by_message.get(message_id, [])]
-            last_seen = rows
-            if rows:
-                if target is None or target <= 0:
-                    return rows
-                if len(rows) >= target:
-                    return rows
-                highest_index = max(
-                    (int(row.get("sample_index")) for row in rows if row.get("sample_index") is not None),
-                    default=0,
-                )
-                if highest_index >= target:
-                    return rows
-            await asyncio.sleep(0.05)
-        return last_seen
-
-    async def wait_for_nodus_meta_patch(self, message_id: str, *, source: str | None = None, timeout: float = 4.0) -> dict | None:
-        deadline = time.time() + max(float(timeout), 0.0)
-        want_source = str(source or "").strip().lower()
-        while time.time() < deadline:
-            with self._meta_patch_lock:
-                hit = self.meta_patch_by_message.get(str(message_id or "").strip())
-                if isinstance(hit, dict):
-                    if not want_source or str(hit.get("source") or "").strip().lower() == want_source:
-                        return dict(hit)
-            await asyncio.sleep(0.05)
-        return None
+    async def wait_for_nodus_meta_patch(self, message_id: str, *, source: str | None=None, timeout: float=4.0) -> dict | None:
+        """Wait for nodus meta patch."""
+        return await self._get_command_lifecycle().wait_for_nodus_meta_patch(message_id, source=source, timeout=timeout)
 
     def get_nodus_calibration_state(self, sensor_id: str) -> dict | None:
-        sid = str(sensor_id or "").strip()
-        if not sid:
-            return None
-        with self._calibration_lock:
-            status = self.calibration_status_by_sensor.get(sid)
-            progress = self.calibration_progress_by_sensor.get(sid)
-            latest_sample = self.calibration_sample_by_sensor.get(sid)
-            final_result = self.calibration_event_result_by_sensor.get(sid)
-            if not any((status, progress, latest_sample, final_result)):
-                return None
-            out = {}
-            if status:
-                out["status"] = dict(status)
-            if progress:
-                out["progress"] = dict(progress)
-            if latest_sample:
-                out["sample"] = dict(latest_sample)
-            if final_result:
-                out["result"] = dict(final_result)
-            return out
+        """Get nodus calibration state."""
+        return self._get_command_lifecycle().get_nodus_calibration_state(sensor_id)
 
     def _maybe_handle_onboarding_topics(self, topic: str, payload_text: str, data: dict | None) -> bool:
         """
@@ -1759,44 +1596,10 @@ class saiMQTTIngest:
                 return False
 
             payload = data if isinstance(data, dict) else {}
-            now = time.time()
+            if family == "config":
+                self._get_command_lifecycle().record_config_reply(device_id, leaf, payload, topic=topic)
             with self._config_lock:
-                if family == "config" and leaf == "ack":
-                    message_id = str(payload.get("message_id") or "").strip()
-                    if message_id:
-                        self.config_ack_by_message[message_id] = {
-                            "message_id": message_id,
-                            "device_id": device_id,
-                            "accepted": bool(payload.get("accepted", False)),
-                            "duplicate": bool(payload.get("duplicate", False)),
-                            "error": str(payload.get("error") or "").strip(),
-                            "topic": topic,
-                            "received_at": now,
-                        }
-                        if not payload.get("accepted", False):
-                            self._clear_switch_config_command_by_message(message_id)
-                elif family == "config" and leaf == "result":
-                    message_id = str(payload.get("message_id") or "").strip()
-                    if message_id:
-                        result = {
-                            "message_id": message_id,
-                            "device_id": device_id,
-                            "sensor_id": str(payload.get("sensor_id") or "").strip(),
-                            "name": str(payload.get("name") or "").strip(),
-                            "applied": bool(payload.get("applied", False)),
-                            "persistence_mode": str(payload.get("persistence_mode") or ""),
-                            "updated": payload.get("updated"),
-                            "halt": payload.get("halt"),
-                            "phase": payload.get("phase"),
-                            "relays": payload.get("relays"),
-                            "duplicate": bool(payload.get("duplicate", False)),
-                            "error": str(payload.get("error") or "").strip(),
-                            "topic": topic,
-                            "received_at": now,
-                        }
-                        self.config_result_by_message[message_id] = result
-                        self._clear_switch_config_command_by_message(message_id)
-                elif family == "onboard" and leaf == "hello":
+                if family == "onboard" and leaf == "hello":
                     self._record_nodus_board_type(_extract_nodus_board_type(payload), device_id)
                     sensor_payload = payload.get("sensor") if isinstance(payload.get("sensor"), dict) else {}
                     self._record_nodus_sensor_hardware(
@@ -3285,8 +3088,7 @@ class saiMQTTIngest:
             return False, False
 
         if message_id:
-            with self._meta_patch_lock:
-                self.meta_patch_by_message[message_id] = dict(patch)
+            self._get_command_lifecycle().record_meta_patch(message_id, patch)
 
         # Explicit state patches are device reports, unlike startup snapshots.
         switch_meta = patched_meta.get("switch") if isinstance(patched_meta.get("switch"), dict) else {}
@@ -4259,126 +4061,32 @@ class saiMQTTIngest:
             return False
 
     def _switch_config_command_key(self, switch_id: str, channel_id: str) -> str:
-        ch = str(channel_id or "").strip().lower()
-        if ch:
-            return ch
-        sid = str(switch_id or "").strip().lower()
-        return f"switch:{sid}" if sid else ""
+        """Switch config command key."""
+        return self._get_command_lifecycle()._switch_config_command_key(switch_id, channel_id)
 
-    def _prune_switch_config_commands_locked(self, now_ts: float | None = None) -> None:
-        now_v = time.time() if now_ts is None else float(now_ts)
-        stale_keys: list[str] = []
-        for key, meta in list(self._switch_config_command_inflight.items()):
-            try:
-                expires_at = float((meta or {}).get("expires_at") or 0.0)
-            except Exception:
-                expires_at = 0.0
-            if expires_at <= 0.0:
-                try:
-                    expires_at = float((meta or {}).get("started_at") or 0.0) + NODUS_SWITCH_COMMAND_INFLIGHT_TTL_S
-                except Exception:
-                    expires_at = now_v - 1.0
-            if expires_at <= now_v:
-                stale_keys.append(key)
-        for key in stale_keys:
-            meta = self._switch_config_command_inflight.pop(key, None) or {}
-            message_id = str(meta.get("message_id") or "").strip() if isinstance(meta, dict) else ""
-            if message_id:
-                self._switch_config_command_by_message.pop(message_id, None)
+    def _prune_switch_config_commands_locked(self, now_ts: float | None=None) -> None:
+        """Prune switch config commands locked."""
+        return self._get_command_lifecycle()._prune_switch_config_commands_locked(now_ts)
 
     def _begin_switch_config_command(self, switch_id: str, channel_id: str, desired_state: bool) -> str:
-        key = self._switch_config_command_key(switch_id, channel_id)
-        if not key:
-            return "blocked"
-        now_v = time.time()
-        with self._switch_config_command_lock:
-            self._prune_switch_config_commands_locked(now_v)
-            existing = self._switch_config_command_inflight.get(key)
-            if isinstance(existing, dict):
-                if existing.get("failed"):
-                    if DEBUG:
-                        printDM(
-                            f"[switch-command] retry cooling down channel_id={channel_id}",
-                            location=MODULE,
-                        )
-                    return "blocked"
-                if bool(existing.get("state")) == bool(desired_state):
-                    if DEBUG:
-                        printDM(
-                            f"[switch-command] coalesced duplicate channel_id={channel_id} state={bool(desired_state)} message_id={existing.get('message_id')}",
-                            location=MODULE,
-                        )
-                    return "coalesced"
-                if DEBUG:
-                    printDM(
-                        f"[switch-command] blocked conflicting command channel_id={channel_id} existing_state={bool(existing.get('state'))} new_state={bool(desired_state)} message_id={existing.get('message_id')}",
-                        location=MODULE,
-                    )
-                return "blocked"
-            self._switch_config_command_inflight[key] = {
-                "switch_id": str(switch_id or "").strip(),
-                "channel_id": str(channel_id or "").strip(),
-                "state": bool(desired_state),
-                "started_at": now_v,
-                "expires_at": now_v + NODUS_SWITCH_COMMAND_INFLIGHT_TTL_S,
-                "message_id": "",
-                "topic": "",
-                "failed": False,
-            }
-            return "send"
+        """Begin switch config command."""
+        return self._get_command_lifecycle()._begin_switch_config_command(switch_id, channel_id, desired_state)
 
     def _mark_switch_config_command_published(self, switch_id: str, channel_id: str, message_id: str, topic: str) -> None:
-        key = self._switch_config_command_key(switch_id, channel_id)
-        mid = str(message_id or "").strip()
-        if not key:
-            return
-        with self._switch_config_command_lock:
-            meta = self._switch_config_command_inflight.get(key)
-            if not isinstance(meta, dict):
-                return
-            old_mid = str(meta.get("message_id") or "").strip()
-            if old_mid:
-                self._switch_config_command_by_message.pop(old_mid, None)
-            meta["message_id"] = mid
-            meta["topic"] = str(topic or "").strip()
-            meta["failed"] = False
-            if mid:
-                self._switch_config_command_by_message[mid] = key
+        """Mark switch config command published."""
+        return self._get_command_lifecycle()._mark_switch_config_command_published(switch_id, channel_id, message_id, topic)
 
     def _mark_switch_config_command_failed(self, switch_id: str, channel_id: str) -> None:
-        key = self._switch_config_command_key(switch_id, channel_id)
-        if not key:
-            return
-        now_v = time.time()
-        with self._switch_config_command_lock:
-            meta = self._switch_config_command_inflight.get(key)
-            if not isinstance(meta, dict):
-                return
-            mid = str(meta.get("message_id") or "").strip()
-            if mid:
-                self._switch_config_command_by_message.pop(mid, None)
-            meta["message_id"] = ""
-            meta["failed"] = True
-            meta["expires_at"] = now_v + NODUS_SWITCH_COMMAND_FAILED_COOLDOWN_S
+        """Mark switch config command failed."""
+        return self._get_command_lifecycle()._mark_switch_config_command_failed(switch_id, channel_id)
 
     def _clear_switch_config_command(self, switch_id: str, channel_id: str) -> None:
-        key = self._switch_config_command_key(switch_id, channel_id)
-        if not key:
-            return
-        with self._switch_config_command_lock:
-            meta = self._switch_config_command_inflight.pop(key, None) or {}
-            mid = str(meta.get("message_id") or "").strip() if isinstance(meta, dict) else ""
-            if mid:
-                self._switch_config_command_by_message.pop(mid, None)
+        """Clear switch config command."""
+        return self._get_command_lifecycle()._clear_switch_config_command(switch_id, channel_id)
 
     def _clear_switch_config_command_by_message(self, message_id: str) -> None:
-        mid = str(message_id or "").strip()
-        if not mid:
-            return
-        with self._switch_config_command_lock:
-            key = self._switch_config_command_by_message.pop(mid, None)
-            if key:
-                self._switch_config_command_inflight.pop(key, None)
+        """Clear switch config command by message."""
+        return self._get_command_lifecycle()._clear_switch_config_command_by_message(message_id)
 
     def set_switch_by_channel_id(self, switch_id: str, channel_id: str, new_state: bool, qos: int = 0, retain: bool = False, *, reason: str | None = None, rule_name: str | None = None) -> bool:
         """
@@ -4461,8 +4169,7 @@ class saiMQTTIngest:
                             message_id,
                             command_topic,
                         )
-                        with self._config_lock:
-                            self.config_message_device[message_id] = channel_id_text
+                        self._get_command_lifecycle().record_published(message_id, channel_id_text)
                         return True
                     self._mark_switch_config_command_failed(switch_id_text, channel_id_text)
 
@@ -6024,43 +5731,9 @@ class saiMQTTIngest:
             return
         
 
-    def _pending_switch_meta(self, switch_id: str, channel_id: str | None = None, label: str | None = None) -> dict | None:
-        try:
-            sid = str(switch_id or "").strip()
-            ch = str(channel_id or "").strip().lower()
-            lbl = str(label or "").strip().lower()
-            if not sid:
-                return None
-            for key, meta in list((self._pending_set or {}).items()):
-                if time.time() - float((meta or {}).get("ts") or 0.0) > NODUS_SWITCH_COMMAND_INFLIGHT_TTL_S:
-                    continue
-                key_sid = str((key or ("", ""))[0] or "").strip()
-                key_label = str((key or ("", ""))[1] or "").strip().lower()
-                if key_sid != sid:
-                    continue
-                meta_channel = str((meta or {}).get("channel_id") or "").strip().lower()
-                if lbl and key_label == lbl:
-                    return dict(meta or {})
-                if ch and meta_channel == ch:
-                    return dict(meta or {})
-            now = time.time()
-            for key, meta in list((self._recent_switch_origin or {}).items()):
-                expires_at = float((meta or {}).get("expires_at") or 0.0)
-                if expires_at and expires_at < now:
-                    self._recent_switch_origin.pop(key, None)
-                    continue
-                key_sid = str((key or ("", ""))[0] or "").strip()
-                key_label = str((key or ("", ""))[1] or "").strip().lower()
-                if key_sid != sid:
-                    continue
-                meta_channel = str((meta or {}).get("channel_id") or "").strip().lower()
-                if lbl and key_label == lbl:
-                    return dict(meta or {})
-                if ch and meta_channel == ch:
-                    return dict(meta or {})
-            return None
-        except Exception:
-            return None
+    def _pending_switch_meta(self, switch_id: str, channel_id: str | None=None, label: str | None=None) -> dict | None:
+        """Pending switch meta."""
+        return self._get_command_lifecycle()._pending_switch_meta(switch_id, channel_id, label)
 
     def set_switch(
         self,
@@ -6126,19 +5799,10 @@ class saiMQTTIngest:
                 rule_name=event_label,
             )
             if ok:
-                pending_key = (str(switch_id), str(channel_label))
-                command_key = self._switch_config_command_key(switch_id, channel_id)
-                command = self._switch_config_command_inflight.get(command_key) or {}
-                message_id = str(command.get("message_id") or "")
-                prior = self._pending_set.get(pending_key) or {}
-                self._pending_set[pending_key] = {
-                    "ts": prior["ts"] if prior.get("message_id") == message_id and message_id else time.time(),
-                    "message_id": message_id,
-                    "state": bool(new_state),
-                    "channel_id": str(channel_id or "").strip(),
-                    "event_origin": str(event_origin or "").strip().lower(),
-                    "event_label": str(event_label or "").strip(),
-                }
+                self._get_command_lifecycle().track_switch_request(
+                    switch_id, channel_label, channel_id, new_state,
+                    event_origin=event_origin, event_label=event_label,
+                )
                 if DEBUG:
                     printDM(
                         f"[set_switch] queued switch_id={switch_id} channel_id={channel_id} label={channel_label} new_state={new_state}",
@@ -6149,78 +5813,13 @@ class saiMQTTIngest:
             printDM(f"[set_switch] error: {e}", location=MODULE)
             return False
 
-    def get_switch_command_status(self, switch_id: str, label: str = "", channel_id: str = "") -> dict:
+    def get_switch_command_status(self, switch_id: str, label: str='', channel_id: str='') -> dict:
         """Describe an outbound request without treating it as device state."""
-        for (sid, pending_label), meta in list(self._pending_set.items()):
-            if str(sid) != str(switch_id):
-                continue
-            if pending_label != label and (not channel_id or str(meta.get("channel_id")) != channel_id):
-                continue
-            until = float(meta.get("ts") or 0) + NODUS_SWITCH_COMMAND_INFLIGHT_TTL_S
-            mid = str(meta.get("message_id") or "")
-            result = self.config_result_by_message.get(mid) or {}
-            ack = self.config_ack_by_message.get(mid) or {}
-            error = ""
-            if result and not result.get("applied"):
-                error = str(result.get("error") or "Device rejected the switch command.")
-            elif ack and not ack.get("accepted"):
-                error = str(ack.get("error") or "Device rejected the switch command.")
-            elif time.time() >= until:
-                error = "Device did not confirm the switch change."
-            return {"pending": not bool(error), "requested_state": bool(meta.get("state")),
-                    "pending_until": until, "command_message_id": mid, "command_error": error,
-                    "command_warning": "Device applied the change temporarily; settings were not saved." if result.get("persistence_mode") == "volatile" else ""}
-        for (sid, recent_label), meta in list(self._recent_switch_origin.items()):
-            if str(sid) != str(switch_id) or float(meta.get("expires_at") or 0) <= time.time():
-                continue
-            if recent_label != label and (not channel_id or str(meta.get("channel_id")) != channel_id):
-                continue
-            result = self.config_result_by_message.get(str(meta.get("message_id") or "")) or {}
-            if result.get("persistence_mode") == "volatile":
-                return {"pending": False, "command_error": "", "command_warning": "Device applied the change temporarily; settings were not saved."}
-        return {"pending": False, "command_error": ""}
+        return self._get_command_lifecycle().get_switch_command_status(switch_id, label, channel_id)
 
-    def clear_pending_switch_set(self, switch_id: str, channel_id: str | None = None, label: str | None = None, *, observed_state: bool | None = None) -> None:
-        """
-        Clear a request after a matching device state report, preserving its origin.
-        """
-        try:
-            sid = str(switch_id or "").strip()
-            ch = str(channel_id or "").strip().lower()
-            lbl = str(label or "").strip().lower()
-            if not sid:
-                return
-
-            keys_to_remove: list[tuple[str, str]] = []
-            for key, meta in list((self._pending_set or {}).items()):
-                key_sid = str((key or ("", ""))[0] or "").strip()
-                key_label = str((key or ("", ""))[1] or "").strip().lower()
-                if key_sid != sid:
-                    continue
-                if observed_state is not None and bool((meta or {}).get("state")) != observed_state:
-                    continue
-                meta_channel = str((meta or {}).get("channel_id") or "").strip().lower()
-                if lbl and key_label == lbl:
-                    keys_to_remove.append(key)
-                    continue
-                if ch and meta_channel == ch:
-                    keys_to_remove.append(key)
-                    continue
-            for key in keys_to_remove:
-                meta = self._pending_set.pop(key, None)
-                if isinstance(meta, dict):
-                    self._recent_switch_origin[key] = {
-                        **dict(meta),
-                        "expires_at": time.time() + 8.0,
-                        "confirmed_at": time.time(),
-                    }
-                    meta_channel = str(meta.get("channel_id") or "").strip()
-                    if meta_channel:
-                        self._clear_switch_config_command(sid, meta_channel)
-            if ch and (observed_state is None or keys_to_remove):
-                self._clear_switch_config_command(sid, ch)
-        except Exception:
-            pass
+    def clear_pending_switch_set(self, switch_id: str, channel_id: str | None=None, label: str | None=None, *, observed_state: bool | None=None) -> None:
+        """Clear a request after a matching device state report, preserving its origin."""
+        return self._get_command_lifecycle().clear_pending_switch_set(switch_id, channel_id, label, observed_state=observed_state)
 
     def toggle_switch(self, switch_id: str, channel_label: str, default_on: bool = True) -> bool:
         """
@@ -6861,68 +6460,12 @@ class saiMQTTIngest:
         return ti == len(topic_parts)
 
     def _retained_command_filters(self) -> list[str]:
-        filters = [
-            "nodus/+/config/set",
-            "nodus/+/calibration/set",
-        ]
-        base = str(getattr(self, "base_topic", "") or "").strip().strip("/")
-        if base and base != "nodus":
-            filters.extend([
-                f"{base}/nodus/+/config/set",
-                f"{base}/nodus/+/calibration/set",
-            ])
-        seen: set[str] = set()
-        out: list[str] = []
-        for item in filters:
-            if item and item not in seen:
-                seen.add(item)
-                out.append(item)
-        return out
+        """Retained command filters."""
+        return self._get_command_lifecycle()._retained_command_filters(getattr(self, "base_topic", ""))
 
     def _summarize_retained_command_payload(self, payload_text: str) -> dict:
-        raw = str(payload_text or "")
-        summary: dict = {
-            "payload_bytes": len(raw.encode("utf-8", errors="ignore")),
-            "payload_format": "text",
-        }
-        try:
-            data = json.loads(raw)
-        except Exception:
-            return summary
-        if not isinstance(data, dict):
-            summary["payload_format"] = type(data).__name__
-            return summary
-
-        summary["payload_format"] = "json"
-        summary["envelope_keys"] = sorted(str(k) for k in data.keys())
-        message_id = str(data.get("message_id") or "").strip()
-        if message_id:
-            summary["message_id"] = message_id
-        if "restart" in data:
-            summary["restart"] = bool(data.get("restart"))
-        action = str(data.get("action") or "").strip()
-        if action:
-            summary["action"] = action
-
-        payload = data.get("payload") if isinstance(data.get("payload"), dict) else {}
-        updates = payload.get("updates") if isinstance(payload.get("updates"), list) else []
-        redacted_updates: list[dict] = []
-        for item in updates:
-            if not isinstance(item, dict):
-                continue
-            redacted_updates.append({
-                "section": str(item.get("section") or "").strip(),
-                "key": str(item.get("key") or "").strip(),
-                "name": str(item.get("name") or "").strip(),
-            })
-        if redacted_updates:
-            summary["update_count"] = len(redacted_updates)
-            summary["updates"] = redacted_updates[:12]
-
-        settings_payload = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
-        if settings_payload:
-            summary["settings_sections"] = sorted(str(k) for k in settings_payload.keys())
-        return summary
+        """Summarize retained command payload."""
+        return self._get_command_lifecycle()._summarize_retained_command_payload(payload_text)
 
     def scan_retained_command_topics(self, *, timeout: float = 1.0, limit: int = 64) -> dict:
         """
@@ -7041,11 +6584,8 @@ class saiMQTTIngest:
         
     @staticmethod
     def _is_empty_retained_cleanup_payload(payload) -> bool:
-        if payload is None:
-            return True
-        if isinstance(payload, bytes):
-            return len(payload) == 0
-        return str(payload) == ""
+        """Is empty retained cleanup payload."""
+        return MQTTCommandLifecycle._is_empty_retained_cleanup_payload(payload)
 
     def publish_text(self, topic: str, payload: str, *, qos: int = 0, retain: bool = False, use_ha_client: bool = True) -> bool:
         try:

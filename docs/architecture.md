@@ -91,6 +91,12 @@ macOS, Windows, and non-Pi Linux hub:
   Broker connection setup is moved off the asyncio event loop. Inbound callback
   timing and contention counters are exposed through Advanced status without
   recording payload contents.
+- `sensorius/saiMQTTCommandLifecycle.py`: config/calibration reply correlation,
+  pending switch requests, duplicate/conflicting command guards, failure cooldowns,
+  receipt waits, and retained-command diagnostic redaction. Ingest delegates through
+  its existing APIs and shared mutable state aliases. The component performs no
+  MQTT I/O, settings writes, or task scheduling and needs no `RuntimeServices`
+  changes. Transport and settings-shadow processing remain in ingest.
 - `sensorius/saiNodusMeta.py`: stateless metadata field normalization, primary and
   child sensor selection, legacy bootstrap conversion, and config/switch companion
   snapshot merging. Ingest retains schema/identity guards for companions, cache

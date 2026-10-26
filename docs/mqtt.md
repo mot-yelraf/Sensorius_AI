@@ -18,6 +18,28 @@ Sensorius uses MQTT in three ways:
 The normal Nodus runtime path is MQTT-first. AP-mode HTTP is only for bootstrap
 and diagnostics.
 
+## Sensorius Command Lifecycle
+
+`sensorius/saiMQTTCommandLifecycle.py` owns in-memory request tracking and reply
+correlation behind the existing ingest APIs. MQTT publishing, subscriptions,
+payload normalization, and settings-shadow application remain in ingest. This
+separation adds no firmware call depth, messages, subscriptions, or polling.
+
+- Config and calibration replies remain correlated by `message_id`. Metadata
+  patches enter the receipt cache only after ingest accepts and applies them.
+- A duplicate switch request coalesces with the in-flight request; a conflicting
+  request is blocked. The existing in-flight window is 45 seconds and failed
+  publications retain their 5-second retry cooldown.
+- An ACK or successful config result does not itself confirm relay state. A
+  matching device-state report clears the pending UI request. Volatile results
+  continue warning that settings were not saved.
+- Waiters preserve their existing deadlines and 50 ms polling interval. Replies
+  remain available to later waiters, and cancelling a waiter does not discard
+  a receipt or generate a device command.
+- Nonempty retained `/set` publications remain refused. Empty retained payloads
+  remain available for explicit cleanup; diagnostic scans remain read-only and
+  redact update values. No automatic cleanup traffic is introduced.
+
 ## Broker Settings
 
 Primary Nodus broker settings live in `[SensorNetwork]`:
