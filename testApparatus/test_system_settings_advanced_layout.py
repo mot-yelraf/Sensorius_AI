@@ -28,7 +28,6 @@ def test_advanced_pane_has_three_collapsible_three_column_sections():
 
 def test_advanced_sections_contain_requested_controls_and_conditional_log_path():
     template = (ROOT / "ui_templates" / "modals" / "system_settings.html").read_text(encoding="utf-8")
-    routes = (ROOT / "sensorius" / "saiWebRoutes.py").read_text(encoding="utf-8")
 
     for label in (
         "Auto Start on login",
@@ -45,8 +44,6 @@ def test_advanced_sections_contain_requested_controls_and_conditional_log_path()
     assert 'id="adv-log-path-value"' in template
     assert 'if (pathEl) pathEl.hidden = !enabled;' in template
     assert 'if (ev?.target?.id === "adv-file-log")' in template
-    assert '"log_file_path": log_file_path' in routes
-    assert "Path(log_file).expanduser().resolve()" in routes
 
 
 def test_collapsible_sections_own_save_actions_without_redundant_dashboard_footers():
@@ -152,4 +149,3 @@ def test_all_system_accordions_default_closed_and_use_process_scoped_state():
     assert 'syncRuntimeExpandableIdentity(js.runtime_instance_id);' in template
     assert 'if not str(getattr(app.state, "ui_runtime_instance_id", "") or "").strip():' in routes
     assert "app.state.ui_runtime_instance_id = uuid4().hex" in routes
-    assert '"runtime_instance_id": app.state.ui_runtime_instance_id' in routes

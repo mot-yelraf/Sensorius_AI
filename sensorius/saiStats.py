@@ -408,12 +408,13 @@ class saiStats:
         self._all_stats_cache = (time.monotonic() + self._stats_cache_ttl_sec, dict(results))
         return results
 
-def create_stats_router(settings, gc_mgr, data_logger=None):
-    """Create the statistics router, optionally reusing the runtime logger."""
+def create_stats_router(settings, gc_mgr, data_logger=None, *, statter=None):
+    """Create statistics routes, optionally sharing the runtime logger and stats cache."""
     from .saiDataLogger import saiDataLogger
     router = APIRouter()
     data_logger = data_logger or saiDataLogger()
-    statter = saiStats(db_path=getattr(data_logger, "db_path", "sensorius_data.db"))
+    if statter is None:
+        statter = saiStats(db_path=getattr(data_logger, "db_path", "sensorius_data.db"))
 
     @router.get("/stats", response_class=JSONResponse)
     async def get_24hr_stats(sensor_id: str = Query(None)):
