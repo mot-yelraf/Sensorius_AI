@@ -171,4 +171,32 @@ async def test_farmos_runtime_bridge_and_failure_contracts():
         bridge.test_connection.side_effect = RuntimeError('connection failed')
         response = await client.post('/farmos/test')
         assert response.status_code == 500
-        assert response.json() == {'ok': False, 'error': 'connection failed'}
+        assert response.json() == {'ok': False, 'error': 'FarmOS connection test failed.'}
+
+
+@pytest.mark.asyncio
+async def test_integration_errors_do_not_expose_internal_details():
+    from sensorius.saiEcowitt import EcowittError
+
+    hub = build_app()
+    private_detail = "private-database-path-and-credentials"
+    async with client_for(hub) as client:
+        await client.get('/ecowitt/status')
+        service = hub.services.ecowitt_service
+        service.discover.side_effect = EcowittError(private_detail)
+        for path in ('/ecowitt/discover', '/ecowitt/save'):
+            response = await client.post(path, json={'gateway_url': 'http://gateway.local'})
+            assert response.status_code == 400
+            assert private_detail not in response.text
+            assert 'Check the gateway connection' in response.json()['error']
+        service.discover.side_effect = EcowittError('Ecowitt gateway URL is invalid.')
+        response = await client.post('/ecowitt/discover', json={'gateway_url': 'bad'})
+        assert response.json()['error'] == 'Ecowitt gateway URL is invalid.'
+
+        def fail_status():
+            raise RuntimeError(private_detail)
+
+        hub.services.farmos_bridge = SimpleNamespace(status_snapshot=fail_status)
+        response = await client.get('/farmos/status')
+        assert response.status_code == 500
+        assert response.json() == {'ok': False, 'error': 'Unable to read FarmOS status.'}

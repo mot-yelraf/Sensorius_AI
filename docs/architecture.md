@@ -60,8 +60,9 @@ macOS, Windows, and non-Pi Linux hub:
   Lazy Ecowitt creation updates both that context and its app-state alias and
   shares the existing switch controller map and dashboard callback. Shared WeeWX
   settings/status helpers and dashboard invalidation are supplied by the caller.
-  Existing URLs, settings formats, responses, and integration protocols remain
-  unchanged.
+  Existing URLs, settings formats, response shapes, and integration protocols
+  remain unchanged. Integration failures return trusted validation messages or
+  generic errors; unexpected exception details are logged only on the server.
 - `sensorius/saiSettings.py`: system settings in
   `system_settings/<device_id>/settings.toml`.
 - `sensorius/saiThemeManager.py`: custom theme manifests, safe palette

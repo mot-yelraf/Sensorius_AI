@@ -15,7 +15,10 @@ from fastapi.responses import JSONResponse
 from .saiEcowitt import EcowittError
 from .saiRuntimeServices import RuntimeServices
 from .saiUtils import printDM
-from .sensor_modules.station_ecowitt import DEFAULT_POLL_INTERVAL_SEC as ECOWITT_DEFAULT_POLL_INTERVAL_SEC
+from .sensor_modules.station_ecowitt import (
+    DEFAULT_POLL_INTERVAL_SEC as ECOWITT_DEFAULT_POLL_INTERVAL_SEC,
+    MIN_POLL_INTERVAL_SEC, MAX_POLL_INTERVAL_SEC,
+)
 from .sensor_modules.station_weewx import (
     DEFAULT_DB_PATH as WEEWX_DEFAULT_DB_PATH,
     DEFAULT_MQTT_TOPIC as WEEWX_DEFAULT_MQTT_TOPIC,
@@ -24,6 +27,27 @@ from .sensor_modules.station_weewx import (
 )
 
 MODULE = "saiWebRoutes"
+
+
+def _ecowitt_public_error(exc: EcowittError) -> str:
+    """Return trusted validation text without forwarding arbitrary exception details."""
+    validation_messages = (
+        "Ecowitt gateway URL is required.",
+        "Ecowitt gateway URL is invalid.",
+        "Ecowitt gateway URL must use plain HTTP.",
+        "Ecowitt gateway URL must contain a host and no credentials.",
+        "Enter only the gateway base URL without a path, query, or fragment.",
+        "Ecowitt gateway URL contains an invalid port.",
+        "Retrieval interval must be a whole number of seconds.",
+        f"Retrieval interval must be between {MIN_POLL_INTERVAL_SEC} and {MAX_POLL_INTERVAL_SEC} seconds.",
+        "Smart plug query interval must be a whole number from 15 to 60 seconds.",
+        "Gateway response schema is not supported.",
+        "The device does not identify itself as an Ecowitt gateway.",
+    )
+    for message in validation_messages:
+        if str(exc) == message:
+            return message
+    return "Ecowitt gateway operation failed. Check the gateway connection and Sensorius log."
 
 
 def register_integration_routes(
@@ -86,7 +110,8 @@ def register_integration_routes(
             result = await _ecowitt_service(request).discover(payload.get("gateway_url", ""))
             return JSONResponse(result)
         except EcowittError as exc:
-            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+            printDM(f"Ecowitt operation failed: {exc}", location=MODULE, level="warning")
+            return JSONResponse({"ok": False, "error": _ecowitt_public_error(exc)}, status_code=400)
         except Exception as exc:
             if debug:
                 printDM(f"Ecowitt discovery failed: {exc}", location=MODULE)
@@ -114,7 +139,8 @@ def register_integration_routes(
             return JSONResponse({"ok": True, **discovery, "poll_interval_sec": service.poll_interval_sec,
                                  "smart_plug_interval_sec": service.smart_plug_interval_sec})
         except EcowittError as exc:
-            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+            printDM(f"Ecowitt operation failed: {exc}", location=MODULE, level="warning")
+            return JSONResponse({"ok": False, "error": _ecowitt_public_error(exc)}, status_code=400)
         except Exception as exc:
             printDM(f"Ecowitt settings save failed: {exc}", location=MODULE, level="warning")
             return JSONResponse({"ok": False, "error": "Failed to save Ecowitt settings."}, status_code=500)
@@ -315,7 +341,8 @@ def register_integration_routes(
             try:
                 return JSONResponse(bridge.status_snapshot())
             except Exception as exc:
-                return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+                printDM(f"FarmOS status failed: {exc}", location=MODULE, level="warning")
+                return JSONResponse({"ok": False, "error": "Unable to read FarmOS status."}, status_code=500)
 
         settings = settings_factory(apply_live=False)
         return JSONResponse({
@@ -338,6 +365,7 @@ def register_integration_routes(
                 code = 200 if bool(result.get("ok")) else 502
                 return JSONResponse(result, status_code=code)
             except Exception as exc:
-                return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+                printDM(f"FarmOS connection test failed: {exc}", location=MODULE, level="warning")
+                return JSONResponse({"ok": False, "error": "FarmOS connection test failed."}, status_code=500)
 
         return JSONResponse({"ok": False, "error": "FarmOS bridge not attached"}, status_code=503)
