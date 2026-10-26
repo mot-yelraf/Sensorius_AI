@@ -31,6 +31,7 @@ saiDataLogger.__init__ = unexpected_storage
 from sensorius import saiWebRoutes
 assert saiWebRoutes.data_logger is None
 assert saiWebRoutes.statter is None
+assert not hasattr(saiWebRoutes, "app")
 """],
         cwd=Path(__file__).resolve().parents[1],
         capture_output=True, text=True,
@@ -45,7 +46,7 @@ async def test_owned_services_survive_registration_and_prewarm(tmp_path, monkeyp
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(routes, "FastStats", _FastStats)
     # Preserve compatibility aliases after this test registers multiple apps.
-    for name in ("app", "data_logger", "statter", "sensor_map", "switch_controllers"):
+    for name in ("data_logger", "statter", "sensor_map", "switch_controllers"):
         monkeypatch.setattr(routes, name, getattr(routes, name, None), raising=False)
     with saiDataLogger(str(tmp_path / "owned.db")) as logger:
         email = EmailNotificationService(settings=_Settings(), data_logger=logger)
@@ -88,6 +89,28 @@ async def test_owned_services_survive_registration_and_prewarm(tmp_path, monkeyp
         await asyncio.sleep(0)
 
 
+def test_dashboard_connection_indicators_use_explicit_sensor_owner(monkeypatch):
+    from sensorius import saiHtml
+    from sensorius import saiWebRoutes as routes
+
+    sid = "aht-i2c-1-owned"
+    first = {sid: SimpleNamespace(sensor=SimpleNamespace(meas_status="online"))}
+    other = {sid: SimpleNamespace(sensor=SimpleNamespace(meas_status="offline"))}
+    monkeypatch.setattr(routes, "sensor_map", other)
+
+    def render(sensor_map):
+        return "".join(saiHtml.render_dashboard(
+            "All", None, [sid], {}, {}, SimpleNamespace(expected_gauge_map={}),
+            runtime_sensor_map=sensor_map, expected_gauge_map={sid: ["Temperature"]},
+            gauge_config=saiHtml.get_gauge_config(),
+            astro_payload={"ok": False}, biodynamic_payload={"ok": False},
+        ))
+
+    assert "title='Connection status: online'" in render(first)
+    assert "title='Connection status: offline'" in render(other)
+    assert "title='Connection status: online'" in render(first)
+
+
 @pytest.mark.asyncio
 async def test_routes_keep_own_services_after_another_app_registers(tmp_path, monkeypatch):
     from fastapi import FastAPI
@@ -97,7 +120,7 @@ async def test_routes_keep_own_services_after_another_app_registers(tmp_path, mo
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(routes, "FastStats", _FastStats)
-    for name in ("app", "data_logger", "statter", "sensor_map", "switch_controllers"):
+    for name in ("data_logger", "statter", "sensor_map", "switch_controllers"):
         monkeypatch.setattr(routes, name, getattr(routes, name, None), raising=False)
     monkeypatch.setattr(mqtt_module, "get_current_ingest",
                         lambda: pytest.fail("Route consulted the process-wide ingest singleton"))

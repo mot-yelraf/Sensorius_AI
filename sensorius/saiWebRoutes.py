@@ -167,8 +167,7 @@ async def resolve_astral_location_async(settings_obj, *, persist_if_auto: bool, 
 
 MODULE = "saiWebRoutes"
 DEBUG = debug_enabled(MODULE)
-# Compatibility aliases populated during route registration, without import-time I/O.
-app = None
+# Legacy test/integration aliases. Runtime routes and renderers use owned services.
 data_logger = None
 statter = None
 sensor_map = {}
@@ -561,8 +560,6 @@ def _is_unknown_location_value(value: object) -> bool:
 
 async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     """Register Sensorius UI, API, integration, and diagnostics routes."""
-    # Retain the app binding for integrations that still use the web runtime.
-    globals()["app"] = app
     services = getattr(app.state, "runtime_services", None)
     if services is None:
         # Support standalone route registration and older integrations.
@@ -3329,6 +3326,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 all_values, 
                 all_stats, 
                 services.mqtt_ingest,
+                runtime_sensor_map=services.sensor_map,
                 switch_controllers = dashboard_switch_controllers,
                 sensor_locations = sensor_locations,
                 gauge_config=gauge_config, 

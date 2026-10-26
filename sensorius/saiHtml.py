@@ -5,6 +5,11 @@ web UI. It provides shared naming and branding constants, SVG fragments, metric
 canonicalization helpers, gauge configuration metadata, and other small
 presentation utilities reused by routes and templates.
 """
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .saiWebContracts import SensorMap
+
 import os
 import re
 from copy import deepcopy
@@ -220,7 +225,7 @@ def normalize_dashboard_metric_set(value: object) -> str:
     return "All" if compact in {"all", "showall"} else "Pick 6"
 
 
-def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6", dashboard_custom_theme_style="", pressure_altitude=None, pressure_sensor_context=None, battery_statuses=None, dashboard_row_order=None, switch_row_order="location_device", switch_card_order=None):
+def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6", dashboard_custom_theme_style="", pressure_altitude=None, pressure_sensor_context=None, battery_statuses=None, dashboard_row_order=None, switch_row_order="location_device", switch_card_order=None, runtime_sensor_map: "SensorMap | None" = None):
     """Yield the complete Sensorius dashboard HTML document."""
 
     requested = expected_gauge_map if expected_gauge_map is not None else getattr(mqtt_ingest, "expected_gauge_map", {})
@@ -1634,14 +1639,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     # --- measurement status helpers (direct vs MQTT) ---
     def _get_sensor_map():
         """
-        Try to access the live sensor objects (so we can read `sensor.meas_status`).
+        Use the owning app's sensor objects to read `sensor.meas_status`.
         Returns either a dict {sensor_id: obj} or an iterable of objs (each with .sensor_id).
         """
-        try:
-            from . import saiWebRoutes as routes
-            return getattr(routes, "sensor_map", None)
-        except Exception:
-            return None
+        return runtime_sensor_map
 
     def _active_sensor_for(sid: str):
         """

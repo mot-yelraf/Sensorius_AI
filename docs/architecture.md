@@ -68,6 +68,18 @@ macOS, Windows, and non-Pi Linux hub:
   helpers used by sensor, switch, and calibration routes. Shared host locks still
   serialize commands to a physical device. Unexpected scan, folder-listing, and
   location-update errors are logged rather than exposed as raw exception text.
+- `sensorius/saiNodusDeviceCommands.py`: ordered Nodus configuration batches and
+  correlated restarts. Routes supply hostname resolution, the shared per-host lock,
+  and a provider for the current MQTT transport. The service sends one key at a
+  time, waits for acceptance and application, and stops a batch on failure. It
+  preserves restart compatibility, timeouts, payload shapes, and non-retained
+  command publication through ingest.
+- `sensorius/saiWebContracts.py`: callback protocols shared by route groups,
+  including keyword-only access checks, settings construction, device resolution,
+  and asynchronous notifications/configuration operations. Runtime service fields
+  name concrete implementations; small protocols cover notification binding and
+  the command service's MQTT transport. These are static typing boundaries, with
+  no runtime validation or additional device traffic.
 - `sensorius/saiWebRouteState.py`: app-owned dashboard, inventory, sensor-list,
   switch-status, location, astronomical, and calibration-progress caches. Each
   registration exposes its independent state as `app.state.route_state`; dynamic
@@ -195,6 +207,18 @@ macOS, Windows, and non-Pi Linux hub:
 - `sensorius/saiNodusOTA.py`: Nodus OTA package and job support used by web
   routes.
 
+The dependency boundaries can be checked with:
+
+```sh
+python3 -m mypy --explicit-package-bases --follow-imports=silent sensorius/saiWebContracts.py sensorius/saiRuntimeServices.py sensorius/saiNodusDeviceCommands.py
+python3 -m pytest testApparatus/test_web_dependency_types.py testApparatus/test_nodus_device_commands.py
+```
+
+The dependency test uses the optional developer installation of mypy to verify
+real service compatibility and rejection of incorrect async/keyword signatures.
+Mypy is not a runtime dependency. The scoped check covers these boundaries;
+legacy route-body typing remains separate work.
+
 ## Startup Flow
 
 1. `Sensorius.py` loads the installed `sensorius` package and delegates to
@@ -215,10 +239,15 @@ macOS, Windows, and non-Pi Linux hub:
    daily summaries, FastStats, and startup prewarm share its database, statistics,
    controller, and ingest instances. Statistics use the logger's database path,
    and `/stats` reuses the same statistics instance and cache.
-   `app.state` service attributes and route-module aliases remain for compatibility;
+   `app.state` service attributes and the logger, statistics, sensor-map, and
+   switch-controller route-module aliases remain for legacy integrations and tests;
    handlers read controllers, sensors, logger, and ingest from their owning context,
    including calibration updates, device removal, and automation operations. They
    do not fall back to route globals or the process-wide MQTT ingest singleton.
+   The dashboard renderer receives its sensor map explicitly, so registering a
+   second app cannot redirect the first app's initial connection indicators.
+   The unused route-module `app` alias has been removed. Remaining aliases should
+   not gain new consumers; existing test consumers must migrate before removal.
    Importing routes does not construct a database logger. Standalone registration
    creates a context from explicitly supplied app-state services or fresh defaults.
    Runtime replacements must update the context; `RuntimeServices.attach(app)`

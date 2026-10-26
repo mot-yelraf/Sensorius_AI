@@ -13,9 +13,16 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Set
 from uuid import uuid4
-from fastapi import APIRouter, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
 from .saiRuntimeServices import RuntimeServices
+from .saiNodusDeviceCommands import NodusDeviceCommands
+from .saiWebContracts import (
+    BoardType, DeviceNetworkInfo, HostLock, HostnameResolver, ProtectedAccess,
+    PushSettingsBatch, RestartDevice, SensorHardware, SensorMap, SettingsFactory,
+    SensorSettingsFactory, SwitchSettingsFactory, SQLiteConnect, SystemRootResolver,
+    SystemSettingsFactory,
+)
 from .saiUtils import printDM, normalize_hostname_base, mdns_hostname, normalize_sensor_id
 
 MODULE = "saiWebRoutes"
@@ -36,38 +43,39 @@ from .saiAddDevice import get_hub_settings_path
 class DeviceRouteDependencies:
     """Supply shared access, settings, inventory, and cache operations."""
 
-    get_dashboard_sensor_map: Callable
-    get_host_lock: Callable
-    invalidate_dashboard_caches: Callable
-    is_switch_id: Callable
-    is_valid_device_id: Callable
-    require_protected_access: Callable
-    safe_child_path: Callable
-    sensor_shadow_is_remote_nodus: Callable
-    settings_base_path: Callable
-    sqlite_connect_with_recovery: Callable
+    get_dashboard_sensor_map: Callable[[], SensorMap]
+    get_host_lock: HostLock
+    invalidate_dashboard_caches: Callable[[], None]
+    is_switch_id: Callable[[str], bool]
+    is_valid_device_id: Callable[[str], bool]
+    require_protected_access: ProtectedAccess
+    safe_child_path: Callable[[Path, str], Path | None]
+    sensor_shadow_is_remote_nodus: Callable[[str], bool]
+    settings_base_path: Callable[[str | Path], Path]
+    sqlite_connect_with_recovery: SQLiteConnect
 
 
 @dataclass(frozen=True)
 class DeviceRouteHelpers:
     """Share device identity and configuration operations with other route groups."""
 
-    build_device_network_info: Callable
-    build_system_hostname_index: Callable
-    display_nodus_board_type: Callable
-    display_nodus_sensor_hardware: Callable
-    nodus_values_match: Callable
-    read_hostname_from_system_settings: Callable
-    request_nodus_device_restart: Callable
-    resolve_system_settings_root: Callable
-    push_nodus_settings_batch: Callable
+    build_device_network_info: DeviceNetworkInfo
+    build_system_hostname_index: Callable[[str], dict[str, str]]
+    display_nodus_board_type: BoardType
+    display_nodus_sensor_hardware: SensorHardware
+    nodus_values_match: Callable[[object, object], bool]
+    read_hostname_from_system_settings: HostnameResolver
+    request_nodus_device_restart: RestartDevice
+    resolve_system_settings_root: SystemRootResolver
+    push_nodus_settings_batch: PushSettingsBatch
 
 
 def register_device_routes(
-    router: APIRouter, *, app, services: RuntimeServices, route_state: RouteState,
-    settings, dependencies: DeviceRouteDependencies, settings_factory,
-    sensor_settings_factory, switch_settings_factory, get_system_settings_manager,
-    get_settings_default_root: Callable,
+    router: APIRouter, *, app: FastAPI, services: RuntimeServices, route_state: RouteState,
+    settings, dependencies: DeviceRouteDependencies, settings_factory: SettingsFactory,
+    sensor_settings_factory: SensorSettingsFactory, switch_settings_factory: SwitchSettingsFactory,
+    get_system_settings_manager: Callable[[], SystemSettingsFactory | None],
+    get_settings_default_root: Callable[[], str | Path | None],
     sensor_base_dir, switch_base_dir, system_base_dir,
     ack_timeout: float, result_timeout: float, debug: bool = False,
 ) -> DeviceRouteHelpers:
@@ -78,8 +86,6 @@ def register_device_routes(
     _SENSOR_BASE_DIR = sensor_base_dir
     _SWITCH_BASE_DIR = switch_base_dir
     _SYS_BASE_DIR = system_base_dir
-    _NODUS_CONFIG_ACK_TIMEOUT_SEC = ack_timeout
-    _NODUS_CONFIG_RESULT_TIMEOUT_SEC = result_timeout
     LOCATIONS_ROUTE_TAG = "device-locations"
     DEBUG = debug
     ota_service = getattr(app.state, "nodus_ota_service", None)
@@ -87,7 +93,6 @@ def register_device_routes(
         ota_service = NodusOTAService(settings=settings, mqtt_ingest=services.mqtt_ingest)
         app.state.nodus_ota_service = ota_service
     _get_dashboard_sensor_map = dependencies.get_dashboard_sensor_map
-    _get_host_lock = dependencies.get_host_lock
     _invalidate_dashboard_caches = dependencies.invalidate_dashboard_caches
     _is_switch_id = dependencies.is_switch_id
     _is_valid_device_id = dependencies.is_valid_device_id
@@ -926,202 +931,15 @@ def register_device_routes(
         return sensor_hardware
 
 
-    async def push_nodus_setting_simple(
-        *,
-        device_id: str,
-        device_type: str,
-        setting_file_key: str,
-        section: str,
-        key: str,
-        value,
-        sensor_file_name: str | None,
-        system_mgr=None,
-        system_root: str | None = None,
-        ip_hint: str | None = None,
-        sys_host_index: dict[str, str] | None = None,
-    ) -> bool:
-        update = {"section": section, "key": key, "value": value}
-        if setting_file_key == "sensor" and sensor_file_name:
-            update["name"] = sensor_file_name
-        elif setting_file_key == "switch":
-            update["name"] = "switch.toml"
-        return await push_nodus_settings_batch(
-            device_id=device_id,
-            device_type=device_type,
-            setting_file_key=setting_file_key,
-            updates=[(section, key, value)],
-            sensor_file_name=sensor_file_name,
-            system_mgr=system_mgr,
-            system_root=system_root,
-            ip_hint=ip_hint,
-            sys_host_index=sys_host_index,
-        )
-
-
-    async def _publish_nodus_config_update(
-        *,
-        target_device: str,
-        device_id: str,
-        device_type: str,
-        update_payload: dict[str, Any],
-    ) -> bool:
-        def _config_result_applied(result_payload: dict[str, Any] | None) -> bool:
-            # Gate the next queued update on Nodus confirming the apply completed.
-            return isinstance(result_payload, dict) and result_payload.get("applied") is True
-
-        ingest = services.mqtt_ingest
-        if not ingest or not hasattr(ingest, "publish_nodus_config"):
-            if DEBUG:
-                printDM(
-                    f"[push_nodus_setting:{device_type}:{device_id}] mqtt_ingest unavailable; skipping publish",
-                    location=MODULE,
-                )
-            return False
-
-        if DEBUG:
-            client_desc = ""
-            try:
-                if hasattr(ingest, "_describe_publish_client"):
-                    client_desc = str(ingest._describe_publish_client(use_ha_client=False) or "")
-            except Exception:
-                client_desc = ""
-            printDM(
-                f"[push_nodus_setting:{device_type}:{device_id}] preparing publish target={target_device} topic=nodus/{target_device}/config/set update={str(update_payload.get('section') or '').strip()}.{str(update_payload.get('key') or '').strip()} {client_desc}".strip(),
-                location=MODULE,
-            )
-
-        publish_result = ingest.publish_nodus_config(
-            target_device,
-            payload={"updates": [update_payload]},
-            restart=False,
-        )
-        if not bool(publish_result.get("ok", False)):
-            if DEBUG:
-                printDM(
-                    f"[push_nodus_setting:{device_type}:{device_id}] failed to publish config/set to nodus/{target_device}/config/set",
-                    location=MODULE,
-                )
-            return False
-
-        message_id = str(publish_result.get("message_id") or "").strip()
-        ack = await ingest.wait_for_config_ack(message_id, timeout=_NODUS_CONFIG_ACK_TIMEOUT_SEC)
-        if not ack or not bool(ack.get("accepted", False)):
-            if DEBUG:
-                printDM(
-                    f"[push_nodus_setting:{device_type}:{device_id}] config ack failed for nodus/{target_device}/config/set message_id={message_id}: {ack}",
-                    location=MODULE,
-                )
-            return False
-
-        result = await ingest.wait_for_config_result(message_id, timeout=_NODUS_CONFIG_RESULT_TIMEOUT_SEC)
-        if result is None:
-            if DEBUG:
-                printDM(
-                    f"[push_nodus_setting:{device_type}:{device_id}] config result timeout for nodus/{target_device}/config/set message_id={message_id}",
-                    location=MODULE,
-                )
-            return False
-        if not _config_result_applied(result):
-            if DEBUG:
-                printDM(
-                    f"[push_nodus_setting:{device_type}:{device_id}] config apply failed for nodus/{target_device}/config/set message_id={message_id}: {result}",
-                    location=MODULE,
-                )
-            return False
-
-        if DEBUG:
-            printDM(
-                f"[push_nodus_setting:{device_type}:{device_id}] OK via MQTT nodus/{target_device}/config/set: {str(update_payload.get('section') or '').strip()}.{str(update_payload.get('key') or '').strip()}",
-                location=MODULE,
-            )
-        return True
-
-
-    async def _request_nodus_device_restart(
-        *,
-        target_device: str,
-        device_id: str,
-        device_type: str,
-        restart_mode: str = "soft",
-    ) -> tuple[bool, str]:
-        def _truthy(value: Any) -> bool:
-            if isinstance(value, bool):
-                return value
-            if isinstance(value, (int, float)):
-                return value != 0
-            return str(value or "").strip().lower() in {"1", "true", "yes", "on", "ok", "accepted", "applied", "rebooting", "restarted"}
-
-        def _restart_ack_accepted(ack_payload: dict[str, Any] | None) -> bool:
-            if not isinstance(ack_payload, dict):
-                return False
-            if "accepted" in ack_payload:
-                return _truthy(ack_payload.get("accepted"))
-            if "ok" in ack_payload:
-                return _truthy(ack_payload.get("ok"))
-            return True
-
-        def _restart_result_applied(result_payload: dict[str, Any] | None) -> bool:
-            if not isinstance(result_payload, dict):
-                return False
-            for key in ("applied", "restarted", "rebooting", "accepted", "ok", "success"):
-                if key in result_payload and _truthy(result_payload.get(key)):
-                    return True
-            return False
-
-        ingest = services.mqtt_ingest
-        if not ingest:
-            return False, "MQTT ingest unavailable"
-
-        message_id = f"rst-{int(time.time())}-{uuid4().hex[:8]}"
-        publish_result: dict[str, Any] | None = None
-
-        if hasattr(ingest, "publish_nodus_restart"):
-            publish_result = ingest.publish_nodus_restart(
-                target_device,
-                restart_mode=restart_mode,
-                message_id=message_id,
-            )
-        elif hasattr(ingest, "publish_json"):
-            topic = f"nodus/{target_device}/config/set"
-            envelope = {
-                "message_id": message_id,
-                "payload": {},
-                "restart": True,
-                "restart_mode": restart_mode,
-            }
-            ok = bool(ingest.publish_json(topic, envelope, qos=1, retain=False, use_ha_client=False))
-            publish_result = {"ok": ok, "message_id": message_id, "topic": topic, "payload": envelope}
-        else:
-            return False, "MQTT publish unavailable"
-
-        if not bool((publish_result or {}).get("ok", False)):
-            return False, "Failed to publish restart request"
-
-        ack = None
-        if hasattr(ingest, "wait_for_config_ack"):
-            ack = await ingest.wait_for_config_ack(message_id, timeout=_NODUS_CONFIG_ACK_TIMEOUT_SEC)
-        if not isinstance(ack, dict):
-            return False, "Restart request was not acknowledged by the device"
-        if not _restart_ack_accepted(ack):
-            error_text = str(ack.get("error") or "").strip()
-            return False, error_text or "Restart request was rejected by the device"
-
-        result = None
-        if hasattr(ingest, "wait_for_config_result"):
-            result = await ingest.wait_for_config_result(message_id, timeout=_NODUS_CONFIG_RESULT_TIMEOUT_SEC)
-        if result is None:
-            return False, "Restart request timed out waiting for device result"
-        if not _restart_result_applied(result):
-            error_text = str((result or {}).get("error") or "").strip()
-            return False, error_text or "Restart request was not applied by the device"
-
-        if DEBUG:
-            printDM(
-                f"[restart_nodus_device:{device_type}:{device_id}] target={target_device} message_id={message_id} ack={ack} result={result}",
-                location=MODULE,
-            )
-        return True, "Device restarting..."
-
+    commands = NodusDeviceCommands(
+        get_ingest=lambda: services.mqtt_ingest,
+        resolve_hostname=_read_hostname_from_system_settings,
+        get_host_lock=dependencies.get_host_lock,
+        ack_timeout=ack_timeout, result_timeout=result_timeout, debug=debug,
+    )
+    push_nodus_setting_simple = commands.push_setting
+    push_nodus_settings_batch = commands.push_settings_batch
+    _request_nodus_device_restart = commands.request_restart
 
     def _nodus_wifi_inventory() -> list[dict[str, Any]]:
         """Return deduplicated physical Nodus targets and current MQTT liveness."""
@@ -1423,59 +1241,6 @@ def register_device_routes(
                 "results": ordered_results,
             }
         )
-
-
-    async def push_nodus_settings_batch(
-        *,
-        device_id: str,
-        device_type: str,
-        setting_file_key: str,
-        updates: list[tuple[str, str, Any]],
-        sensor_file_name: str | None,
-        system_mgr=None,
-        system_root: str | None = None,
-        ip_hint: str | None = None,
-        sys_host_index: dict[str, str] | None = None,
-    ) -> bool:
-        hostname = _read_hostname_from_system_settings(
-            device_id, system_mgr, system_root,
-            device_type=device_type, sys_host_index=sys_host_index
-        )
-        target_device = str(hostname or device_id or "").strip()
-        if not target_device:
-            if DEBUG:
-                printDM(
-                    f"[push_nodus_setting:{device_type}:{device_id}] no MQTT target device resolved; skipping publish",
-                    location=MODULE,
-                )
-            return False
-
-        updates_payload: list[dict[str, Any]] = []
-        for section, key, value in (updates or []):
-            item = {"section": section, "key": key, "value": value}
-            if setting_file_key == "sensor":
-                item["sensor_id"] = str(device_id or "").strip()
-                if sensor_file_name:
-                    item["name"] = sensor_file_name
-            elif setting_file_key == "switch":
-                item["name"] = "switch.toml"
-            updates_payload.append(item)
-        if not updates_payload:
-            return True
-        # Serialize config writes per physical Nodus host. This preserves the
-        # one-key-at-a-time behavior even when multiple routes/tasks target the
-        # same device concurrently (for example paired sensor + switch updates).
-        async with _get_host_lock(target_device):
-            for update_payload in updates_payload:
-                ok = await _publish_nodus_config_update(
-                    target_device=target_device,
-                    device_id=device_id,
-                    device_type=device_type,
-                    update_payload=update_payload,
-                )
-                if not ok:
-                    return False
-        return True
 
 
     def _nodus_values_match(previous: Any, current: Any) -> bool:

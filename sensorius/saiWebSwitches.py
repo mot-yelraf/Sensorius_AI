@@ -7,6 +7,7 @@ dashboard notifications without importing the main routes module.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable
 from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +22,11 @@ from fastapi import APIRouter, Form, HTTPException, Query, Request, WebSocket, W
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from .saiRuntimeServices import RuntimeServices
 from .saiWebRouteState import RouteState
+from .saiWebContracts import (
+    BoardType, DashboardBroadcast, DeviceNetworkInfo, HostnameResolver, ModalError,
+    ProfileLog, ProtectedAccess, PushSettingsBatch, RestartDevice, SettingsFactory,
+    SwitchSettingsFactory, SystemRootResolver, SystemSettingsFactory,
+)
 from .saiUtils import printDM
 
 MODULE = "saiWebRoutes"
@@ -41,30 +47,31 @@ except ImportError:
 class SwitchRouteDependencies:
     """Supply device, presentation, and access helpers to switch routes."""
 
-    build_device_network_info: Callable
-    build_switch_statistics_payload: Callable
-    build_system_hostname_index: Callable
-    display_nodus_board_type: Callable
-    env_map_with_defaults: Callable
-    invalidate_dashboard_caches: Callable
-    modal_error_response: Callable
-    nodus_values_match: Callable
-    read_hostname_from_system_settings: Callable
-    request_nodus_device_restart: Callable
-    require_protected_access: Callable
-    resolve_channel_id_from_label: Callable
-    resolve_system_settings_root: Callable
-    switch_broadcast: Callable
-    ui_profile_log: Callable
-    wants_modal_json: Callable
-    push_nodus_settings_batch: Callable
-    switch_channel_id_from_identity_row: Callable
+    build_device_network_info: DeviceNetworkInfo
+    build_switch_statistics_payload: Callable[[str, list[dict]], Awaitable[dict[str, Any]]]
+    build_system_hostname_index: Callable[[str], dict[str, str]]
+    display_nodus_board_type: BoardType
+    env_map_with_defaults: Callable[[], dict[str, str]]
+    invalidate_dashboard_caches: Callable[[], None]
+    modal_error_response: ModalError
+    nodus_values_match: Callable[[object, object], bool]
+    read_hostname_from_system_settings: HostnameResolver
+    request_nodus_device_restart: RestartDevice
+    require_protected_access: ProtectedAccess
+    resolve_channel_id_from_label: Callable[[str, str], str | None]
+    resolve_system_settings_root: SystemRootResolver
+    switch_broadcast: DashboardBroadcast
+    ui_profile_log: ProfileLog
+    wants_modal_json: Callable[[Request], bool]
+    push_nodus_settings_batch: PushSettingsBatch
+    switch_channel_id_from_identity_row: Callable[[dict], str]
 
 
 def register_switch_routes(
     router: APIRouter, *, services: RuntimeServices, route_state: RouteState,
-    settings, dependencies: SwitchRouteDependencies, settings_factory: Callable,
-    switch_settings_factory: Callable, get_system_settings_manager: Callable,
+    settings, dependencies: SwitchRouteDependencies, settings_factory: SettingsFactory,
+    switch_settings_factory: SwitchSettingsFactory,
+    get_system_settings_manager: Callable[[], SystemSettingsFactory | None],
     status_cache_ttl: float, debug: bool = False,
 ) -> None:
     """Register switch and automation endpoints using explicit runtime ownership."""
@@ -2864,7 +2871,7 @@ def register_switch_routes(
 
 
 def register_switch_events(router: APIRouter, *, app, services: RuntimeServices,
-                           debug: bool = False) -> Callable:
+                           debug: bool = False) -> DashboardBroadcast:
     """Register switch WebSocket delivery and bind runtime producer callbacks."""
     DEBUG = debug
     _SWITCH_SOCKETS: Set[WebSocket] = set()

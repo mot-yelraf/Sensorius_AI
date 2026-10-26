@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from datetime import datetime
-from typing import Callable
+from .saiWebContracts import SettingsFactory, SQLiteConnect
 import json
 import math
 import os
@@ -76,7 +76,7 @@ def _downsample_graph_points(timestamps, values, max_points: int = GRAPH_MAX_POI
 
 
 def register_graph_routes(router: APIRouter, *, services: RuntimeServices, settings,
-                          sqlite_connect: Callable, settings_factory: Callable) -> None:
+                          sqlite_connect: SQLiteConnect, settings_factory: SettingsFactory) -> None:
     """Register graph queries and saved setups for the supplied hub."""
     _sqlite_connect_with_recovery = sqlite_connect
     saiSettings = settings_factory

@@ -15,6 +15,7 @@ import re
 import subprocess
 import time
 from typing import Any, Callable
+from .saiWebContracts import ProtectedAccess, SwitchSettingsFactory
 
 from fastapi import HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -341,8 +342,8 @@ class AdvancedStatusConfiguration:
 
 def register_statistics_diagnostics_routes(
     router, *, services: RuntimeServices, statistics: DeviceStatistics, net_mgr,
-    require_protected_access, advanced: AdvancedStatusConfiguration,
-    switch_settings_manager,
+    require_protected_access: ProtectedAccess, advanced: AdvancedStatusConfiguration,
+    switch_settings_manager: SwitchSettingsFactory,
 ) -> None:
     """Register existing statistics and diagnostics URLs with explicit dependencies."""
     @router.get("/hayd", response_class=JSONResponse)

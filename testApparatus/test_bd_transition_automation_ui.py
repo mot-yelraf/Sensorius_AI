@@ -1,7 +1,8 @@
 """Test biodynamic-transition automation wiring in generated UI assets.
 
-These source-level checks also keep the canonical package version marker and
-runtime app binding aligned with the UI behavior they support.
+These source-level checks also keep the canonical package version marker aligned
+with the UI behavior. Runtime notification binding is exercised by the dashboard
+event-wiring tests.
 """
 
 from pathlib import Path
@@ -21,15 +22,6 @@ def test_repository_version_is_stored_once_and_reexported():
     assert re.search(r'^__version__\s*=\s*"[^"]+"', package_source, re.MULTILINE)
     assert "from .sensorius import __version__" in root_source
     assert "from sensorius import __version__" in root_source
-
-
-def test_web_routes_binds_the_runtime_app_for_background_broadcasts():
-    repo_root = Path(__file__).resolve().parents[1]
-    routes_text = (
-        repo_root / "sensorius" / "saiWebRoutes.py"
-    ).read_text(encoding="utf-8")
-
-    assert 'globals()["app"] = app' in routes_text
 
 
 def test_calendar_condition_serializes_selectors_and_loads_legacy_bd_rules():

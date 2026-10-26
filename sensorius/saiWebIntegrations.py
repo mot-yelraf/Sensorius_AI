@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 
 from .saiEcowitt import EcowittError
 from .saiRuntimeServices import RuntimeServices
+from .saiWebContracts import DashboardBroadcast, EcowittFactory, SecretSettingsFactory, WeeWXStatus
 from .saiUtils import printDM
 from .sensor_modules.station_ecowitt import (
     DEFAULT_POLL_INTERVAL_SEC as ECOWITT_DEFAULT_POLL_INTERVAL_SEC,
@@ -51,10 +52,10 @@ def _ecowitt_public_error(exc: EcowittError) -> str:
 
 
 def register_integration_routes(
-    router: APIRouter, *, services: RuntimeServices, settings_factory: Callable,
-    ecowitt_factory: Callable, ensure_weewx_settings: Callable,
-    evaluate_weewx_status: Callable, dashboard_broadcast: Callable,
-    invalidate_dashboard_caches: Callable, debug: bool = False,
+    router: APIRouter, *, services: RuntimeServices, settings_factory: SecretSettingsFactory,
+    ecowitt_factory: EcowittFactory, ensure_weewx_settings: Callable[[str], None],
+    evaluate_weewx_status: WeeWXStatus, dashboard_broadcast: DashboardBroadcast,
+    invalidate_dashboard_caches: Callable[[], None], debug: bool = False,
 ) -> None:
     """Register existing integration endpoints with app-owned services."""
     @router.post("/submit-homeassistant-settings")
