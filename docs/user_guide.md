@@ -1143,6 +1143,7 @@ at the bottom right. On narrow screens, these controls stack in the same order.
 - **Auto-start Sensorius on login**: creates or removes an auto-start entry for Sensorius.
 - **Auto-start scope**: **User-level (default)** starts for the current user. **System-level** is for system service style installs and may require elevated permissions outside the web UI.
 - **Save**: writes only the Start-up section.
+- **Restart System**: the red button at the bottom left restarts the Sensorius service, then reloads the dashboard when a new app instance responds. It is enabled only when the running instance belongs to an enabled automatic service: a system or user systemd service on Linux, a launchd service on macOS, or a Sensorius boot/login scheduled task on Windows. A manual launch or a Windows Startup-folder entry alone does not enable it. The operating system must allow the service account to restart its service/task; permission failures are shown in the pane. This restarts Sensorius, not the computer.
 
 ## Sensor Settings
 

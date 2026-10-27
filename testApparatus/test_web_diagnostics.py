@@ -21,6 +21,11 @@ from sensorius.saiWebDiagnostics import (
 )
 
 
+@pytest.fixture(autouse=True)
+def isolate_service_probes(monkeypatch):
+    monkeypatch.setattr("sensorius.saiWebDiagnostics.find_restart_service", lambda: None)
+
+
 class Logger:
     db_path = ":memory:"
 
@@ -165,6 +170,9 @@ async def test_real_registration_preserves_api_key_and_same_origin_access(tmp_pa
         app, *_ = await _build_app(tmp_path, monkeypatch, data_logger=logger)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             assert (await client.get("/debug/switch-controllers")).status_code == 401
+            assert (await client.post("/advanced/restart")).status_code == 401
+            assert (await client.get("/advanced/restart/status")).status_code == 401
+            assert (await client.post("/advanced/restart", headers={"sec-fetch-site": "same-origin"})).status_code == 409
             assert (await client.get("/debug/switch-controllers", headers={"x-api-key": "fixture-key"})).status_code == 200
             url = "/sensor-settings/statistics?sensor_id=sensor"
             assert (await client.get(url)).status_code == 401
@@ -172,3 +180,50 @@ async def test_real_registration_preserves_api_key_and_same_origin_access(tmp_pa
             assert (await client.get("/debug/switch-controllers", headers={"sec-fetch-site": "same-origin"})).status_code == 401
             response = await client.get("/debug/automation-state?switch_id=hub&label=Fan", headers={"x-api-key": "fixture-key"})
             assert response.status_code == 200 and response.json()["switch_key"] == "hub::Fan"
+
+
+@pytest.mark.asyncio
+async def test_restart_rechecks_eligibility_and_returns_before_manager_command(monkeypatch):
+    from sensorius.saiServiceRestart import RestartService
+    app, _ = build_app()
+    delivered = []
+    commands = []
+    async def observed_app(scope, receive, send):
+        async def observed_send(message):
+            if message['type'] == 'http.response.body':
+                delivered.append(True)
+            await send(message)
+        await app(scope, receive, observed_send)
+    async with AsyncClient(transport=ASGITransport(app=observed_app), base_url="http://test") as client:
+        response = await client.post("/advanced/restart")
+        assert response.status_code == 409
+        target = RestartService("test", ("test-restart",))
+        monkeypatch.setattr("sensorius.saiWebDiagnostics.find_restart_service", lambda: target)
+        status = (await client.get("/advanced/status")).json()
+        assert status["restart_enabled"] is True
+        delivered.clear()
+        def command(service):
+            assert delivered
+            commands.append(service)
+        monkeypatch.setattr("sensorius.saiWebDiagnostics.restart_service", command)
+        response = await client.post("/advanced/restart")
+        assert response.status_code == 202
+        assert response.json()["runtime_instance_id"] == "runtime-1"
+        assert commands == [target]
+        assert (await client.post("/advanced/restart")).status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_restart_failure_can_be_seen_and_retried(monkeypatch):
+    from sensorius.saiServiceRestart import RestartService
+    app, _ = build_app()
+    monkeypatch.setattr("sensorius.saiWebDiagnostics.find_restart_service",
+                        lambda: RestartService("test", ("test-restart",)))
+    def denied(service):
+        raise RuntimeError("Permission denied")
+    monkeypatch.setattr("sensorius.saiWebDiagnostics.restart_service", denied)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        assert (await client.post("/advanced/restart")).status_code == 202
+        status = (await client.get("/advanced/restart/status")).json()
+        assert status == {"runtime_instance_id": "runtime-1", "error": "Permission denied"}
+        assert (await client.post("/advanced/restart")).status_code == 202

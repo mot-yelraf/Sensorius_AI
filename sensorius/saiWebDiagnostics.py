@@ -1,4 +1,4 @@
-"""Register statistics and read-only runtime diagnostics routes.
+"""Register statistics, runtime diagnostics, and service restart routes.
 
 Services are supplied explicitly from the app's RuntimeServices context. Shared
 statistics builders also supply existing settings panes, preserving their payload
@@ -19,8 +19,10 @@ from .saiWebContracts import ProtectedAccess, SwitchSettingsFactory
 
 from fastapi import HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.background import BackgroundTask
 
 from .saiEcowitt import ecowitt_sensor_health
+from .saiServiceRestart import find_restart_service, restart_service
 from .saiRuntimeServices import RuntimeServices
 from .saiUtils import mdns_hostname, normalize_hostname_base, normalize_sensor_id, printDM
 
@@ -449,6 +451,7 @@ def register_statistics_diagnostics_routes(
         if autostart_scope not in {"user", "system"}:
             autostart_scope = "user"
         autostart_enabled = await asyncio.to_thread(advanced.autostart_is_enabled, autostart_scope)
+        restart_target = await asyncio.to_thread(find_restart_service)
         supervisor = services.supervisor
         mqtt_ingest = services.mqtt_ingest
         runtime_health = None
@@ -470,6 +473,9 @@ def register_statistics_diagnostics_routes(
             "platform": platform.system(),
             "autostart_scope": autostart_scope,
             "autostart_enabled": bool(autostart_enabled),
+            "restart_enabled": restart_target is not None,
+            "restart_message": (f"Restart the {restart_target.name}." if restart_target else
+                                "Restart is available when this instance is running under an enabled automatic service or scheduled task."),
             "log_level": log_level,
             "file_log": bool(file_log),
             "log_file_path": log_file_path,
@@ -482,6 +488,42 @@ def register_statistics_diagnostics_routes(
             "autostart_note": "If you manually run 'python Sensorius.py', stop that instance before enabling auto-start to avoid duplicate instances.",
             "autostart_scope_note": "macOS user-level launchctl is default. System-level may require admin privileges.",
         })
+
+    @router.get("/advanced/restart/status")
+    async def restart_status(request: Request):
+        """Let the browser distinguish a new process from a failed restart."""
+        require_protected_access(request, require_csrf=True)
+        return JSONResponse({
+            "runtime_instance_id": request.app.state.ui_runtime_instance_id,
+            "error": getattr(request.app.state, "service_restart_error", ""),
+        }, headers={"Cache-Control": "no-store"})
+
+    @router.post("/advanced/restart")
+    async def request_service_restart(request: Request):
+        """Recheck service ownership and acknowledge before restarting the app."""
+        require_protected_access(request, require_csrf=True)
+        state = request.app.state
+        if getattr(state, "service_restart_until", 0) > time.monotonic():
+            return JSONResponse({"error": "A restart is already in progress."}, status_code=409)
+        state.service_restart_until = time.monotonic() + 120
+        service = await asyncio.to_thread(find_restart_service)
+        if service is None:
+            state.service_restart_until = 0
+            return JSONResponse({"error": "This instance is not running under an enabled automatic service."}, status_code=409)
+        state.service_restart_error = ""
+
+        async def perform_restart():
+            await asyncio.sleep(0.5)
+            try:
+                await asyncio.to_thread(restart_service, service)
+            except Exception as exc:
+                state.service_restart_error = str(exc) or "Service restart failed."
+                state.service_restart_until = 0
+                printDM(f"Service restart failed: {exc}", location=MODULE)
+
+        return JSONResponse({
+            "status": "restarting", "runtime_instance_id": state.ui_runtime_instance_id,
+        }, status_code=202, background=BackgroundTask(perform_restart))
 
     @router.get("/sensor-settings/statistics", response_class=JSONResponse)
     async def sensor_settings_statistics(
