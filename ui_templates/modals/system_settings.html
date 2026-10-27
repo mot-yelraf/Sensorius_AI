@@ -199,6 +199,8 @@
   border-top: 1px solid #e6ece8;
 }
 #setupPiModal .section-action-footer { justify-content: flex-end; }
+#setupPiModal #btn-restart-system { margin-right: auto; }
+#setupPiModal #adv-restart-note { grid-column: 1 / -1; }
 #setupPiModal .pane-footer-actions-right { justify-content: flex-end; }
 #setupPiModal #automationEditorWrap > .pane-footer {
   margin-left: 0;
@@ -1904,7 +1906,9 @@
                       <option value="system">System-level</option>
                     </select>
                   </div>
+                  <div class="status-text" id="adv-restart-note">Checking service restart availability...</div>
                   <div class="pane-footer section-action-footer">
+                    <button type="button" class="button red" id="btn-restart-system" disabled aria-describedby="adv-restart-note">Restart System</button>
                     <button type="button" class="button blue btn-advanced-save">Save</button>
                   </div>
                 </div>
@@ -3662,14 +3666,16 @@
   }
 
   async function loadAdvancedSettings() {
+    document.getElementById("btn-restart-system").disabled = true;
     try {
-      setStatus("adv-status", "");
       const resp = await fetch("/advanced/status", { cache: "no-store" });
       if (!resp.ok) {
         throw new Error("HTTP " + resp.status);
       }
       const js = await resp.json();
       syncRuntimeExpandableIdentity(js.runtime_instance_id);
+      document.getElementById("btn-restart-system").disabled = !js.restart_enabled;
+      setStatus("adv-restart-note", js.restart_message || "Service restart is unavailable.");
       document.getElementById("adv-autostart-enabled").checked = !!js.autostart_enabled;
       document.getElementById("adv-autostart-scope").value = js.autostart_scope || "user";
       document.getElementById("adv-log-level").value = js.log_level || "DEBUG";
@@ -3703,6 +3709,42 @@
       console.error(e);
       setStatus("adv-status", "Failed to load Advanced settings.");
       showSettingsToast("Failed to load Advanced settings.", "error");
+    }
+  }
+
+  async function restartSystem() {
+    const button = document.getElementById("btn-restart-system");
+    if (!button || button.disabled) return;
+    button.disabled = true;
+    setStatus("adv-status", "Requesting service restart...");
+    try {
+      const resp = await fetch("/advanced/restart", { method: "POST" });
+      const js = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(js.error || ("HTTP " + resp.status));
+      setStatus("adv-status", "Restarting Sensorius. Waiting for the service to return...");
+      const deadline = Date.now() + 120000;
+      while (Date.now() < deadline) {
+        await new Promise(resolve => window.setTimeout(resolve, 2000));
+        let status;
+        try {
+          const poll = await fetch("/advanced/restart/status", { cache: "no-store", signal: AbortSignal.timeout(4000) });
+          if (!poll.ok) continue;
+          status = await poll.json();
+        } catch (e) {
+          continue;
+        }
+        if (status.runtime_instance_id && status.runtime_instance_id !== js.runtime_instance_id) {
+          window.location.reload();
+          return;
+        }
+        if (status.error) throw new Error(status.error);
+      }
+      throw new Error("Sensorius has not returned after the restart request. Check the service and its restart permissions.");
+    } catch (e) {
+      await loadAdvancedSettings();
+      const message = e && e.message ? e.message : "Service restart failed.";
+      setStatus("adv-status", message);
+      showSettingsToast(message, "error");
     }
   }
 
@@ -3757,6 +3799,7 @@
       showSettingsToast(msg, "error");
     } finally {
       setButtonBusy(saveButton, false);
+      if (saveButton?.closest(".advanced-section")?.id === "adv-section-startup") await loadAdvancedSettings();
     }
   }
 
@@ -5100,6 +5143,9 @@
     }
     if (ev.target && ev.target.id === "btn-archive-db") {
       archiveDatabase();
+    }
+    if (ev.target && ev.target.id === "btn-restart-system") {
+      restartSystem();
     }
     if (ev.target && ev.target.id === "btn-renew-db") {
       renewDatabase();
