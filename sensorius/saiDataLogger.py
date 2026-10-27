@@ -160,6 +160,7 @@ class saiDataLogger:
     def __init__(self, db_path="sensorius_data.db"):
         self.db_path = str(db_path)
         self._writer_lock = threading.RLock()   # serialize writers across sensors
+        self._consecutive_write_failures = 0
         self._writer_conn = None
         self.__class__._recovery_instances.add(self)
         self._init_db()
@@ -1447,6 +1448,16 @@ class saiDataLogger:
         
     # ------------------------------- SENSOR API -------------------
 
+    def database_write_health_snapshot(self) -> dict:
+        """Return the in-memory count of unrecovered reading/event write failures."""
+        return {"consecutive_failures": getattr(self, "_consecutive_write_failures", 0)}
+
+    def _record_database_write_result(self, succeeded: bool) -> None:
+        with self._writer_lock:
+            self._consecutive_write_failures = (
+                0 if succeeded else getattr(self, "_consecutive_write_failures", 0) + 1
+            )
+
     def log_readings(self, timestamp, sensor_id, values: dict) -> bool:
         """Persist readings, returning whether the write succeeded after recovery."""
         timestamp, ts_epoch = _normalize_timestamp_input(
@@ -1496,6 +1507,7 @@ class saiDataLogger:
                                 ],
                             )
                         self._writer_conn.commit()
+                    self._record_database_write_result(True)
                 write_elapsed = time.monotonic() - write_start
                 logged_values = dict(raw_values)
                 logged_values.update(derived_values)
@@ -1541,6 +1553,8 @@ class saiDataLogger:
             except Exception as e:
                 if attempt == 0 and self.recover_after_db_error(e, source="log_readings"):
                     continue
+                if isinstance(e, sqlite3.DatabaseError):
+                    self._record_database_write_result(False)
                 printDM(f"Error writing sensor data: {e}", location=MODULE)
                 return False
 
@@ -2979,6 +2993,7 @@ class saiDataLogger:
                             (timestamp, ts_epoch, switch_key, numeric, source, sensor_id)
                         )
                         self._writer_conn.commit()
+                    self._record_database_write_result(True)
 
                 # Notify post-write listeners (non-blocking; do not break writer path)
                 listeners = list(getattr(self, "_on_switch_event_written", []) or [])
@@ -3002,6 +3017,8 @@ class saiDataLogger:
             except Exception as e:
                 if attempt == 0 and self.recover_after_db_error(e, source="log_switch_event"):
                     continue
+                if isinstance(e, sqlite3.DatabaseError):
+                    self._record_database_write_result(False)
                 printDM(f"[log_switch_event] write error: {e}", location=MODULE)
                 return
 

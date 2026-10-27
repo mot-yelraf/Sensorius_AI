@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 import platform
 import re
+import shutil
 import subprocess
 import time
 from typing import Any, Callable
@@ -30,6 +31,48 @@ MODULE = "saiWebRoutes"
 _DB_RETENTION_MIN_DAYS = 30
 _DB_RETENTION_MAX_DAYS = 365
 _DB_RETENTION_DEFAULT_DAYS = 90
+
+
+def _format_storage_size(size: int) -> str:
+    """Format filesystem bytes using binary units."""
+    value = float(size)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB", "PiB"):
+        if value < 1024 or unit == "PiB":
+            return f"{int(value)} B" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+
+
+def _database_storage_snapshot(db_path: str) -> dict:
+    """Measure the database file family and available space on its filesystem.
+
+    Only file metadata is read. Missing transient SQLite sidecars are normal;
+    other probe failures remain unavailable rather than being reported as zero.
+    """
+    result = {"database_size_bytes": None, "database_size": "Unavailable",
+              "disk_free_bytes": None, "disk_free": "Unavailable"}
+    if not db_path or db_path == ":memory:" or db_path.startswith("file:"):
+        return result
+    try:
+        path = Path(db_path).expanduser().resolve()
+    except (OSError, RuntimeError, ValueError):
+        return result
+    try:
+        size = path.stat().st_size
+        for suffix in ("-wal", "-shm", "-journal"):
+            try:
+                size += path.with_name(path.name + suffix).stat().st_size
+            except FileNotFoundError:
+                pass
+        result.update(database_size_bytes=size, database_size=_format_storage_size(size))
+    except OSError:
+        pass
+    try:
+        free = shutil.disk_usage(path.parent).free
+        result.update(disk_free_bytes=free, disk_free=_format_storage_size(free))
+    except OSError:
+        pass
+    return result
+
 
 def _clamp_db_retention_days(raw: object, default: int = _DB_RETENTION_DEFAULT_DAYS) -> int:
     try:
@@ -430,6 +473,14 @@ def register_statistics_diagnostics_routes(
         except Exception as e:
             printDM(f"[debug_automation_state] {e}", location=MODULE)
             return JSONResponse({"error": "internal_error"}, status_code=500)
+
+    @router.get("/advanced/database/status")
+    async def database_storage_status():
+        """Return current database storage usage without opening SQLite."""
+        snapshot = await asyncio.to_thread(
+            _database_storage_snapshot, str(getattr(services.data_logger, "db_path", "") or ""),
+        )
+        return JSONResponse(snapshot, headers={"Cache-Control": "no-store"})
 
     @router.get("/advanced/status")
     async def advanced_status(request: Request):

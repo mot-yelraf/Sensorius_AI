@@ -542,6 +542,11 @@
 #setupPiModal #adv-section-database .adv-action-cell .button {
   margin-top: 0;
 }
+#setupPiModal #adv-section-database .adv-database-storage {
+  font-size: .78rem;
+  line-height: 1.35;
+  white-space: nowrap;
+}
 #setupPiModal .adv-log-path {
   margin-top: .42rem;
   padding: .42rem .5rem;
@@ -1841,6 +1846,10 @@
                 <div class="advanced-section-content advanced-section-grid">
                   <div class="field-stack adv-action-cell">
                     <button type="button" class="button neutral" id="btn-archive-db">Archive Database</button>
+                    <div class="detail adv-database-storage" aria-live="polite">
+                      <div>Database size: <span id="adv-db-size">Loading...</span></div>
+                      <div>Free disk space: <span id="adv-disk-free">Loading...</span></div>
+                    </div>
                   </div>
 
                   <div class="field-stack adv-action-cell">
@@ -3666,6 +3675,7 @@
   }
 
   async function loadAdvancedSettings() {
+    loadDatabaseStorage();
     document.getElementById("btn-restart-system").disabled = true;
     try {
       const resp = await fetch("/advanced/status", { cache: "no-store" });
@@ -3711,6 +3721,31 @@
       showSettingsToast("Failed to load Advanced settings.", "error");
     }
   }
+
+  let databaseStorageLoading = false;
+  async function loadDatabaseStorage() {
+    if (databaseStorageLoading) return;
+    databaseStorageLoading = true;
+    try {
+      const resp = await fetch("/advanced/database/status", { cache: "no-store" });
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const js = await resp.json();
+      document.getElementById("adv-db-size").textContent = js.database_size || "Unavailable";
+      document.getElementById("adv-disk-free").textContent = js.disk_free || "Unavailable";
+    } catch (e) {
+      document.getElementById("adv-db-size").textContent = "Unavailable";
+      document.getElementById("adv-disk-free").textContent = "Unavailable";
+    } finally {
+      databaseStorageLoading = false;
+    }
+  }
+  const databaseSection = document.getElementById("adv-section-database");
+  databaseSection.addEventListener("toggle", () => {
+    if (databaseSection.open) loadDatabaseStorage();
+  });
+  window.setInterval(() => {
+    if (!document.hidden && databaseSection.open && databaseSection.getClientRects().length) loadDatabaseStorage();
+  }, 30000);
 
   async function restartSystem() {
     const button = document.getElementById("btn-restart-system");

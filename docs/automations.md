@@ -67,6 +67,7 @@ Advanced rules can express:
 - Timer windows through `duration_min`, `period_min`, and legacy `freq_hours`.
 - Calendar events for filtered biodynamic transitions and the eight lunar phases.
 - **Severe Weather**: active NWS weather warnings and watches at the Astral location.
+- **System Status**: low disk space, failed database writes, sensor offline, or lost MQTT liveness.
 - Multi-action rules.
 - Email Notify actors with a per-action recipient when email is enabled.
 - `Alert` actors for Web UI-only notifications without relay or email actions.
@@ -111,7 +112,7 @@ Timer behavior:
 
 Calendar behavior:
 
-- The Type menu lists Sensor, Time of Day, Timer, Astral, Calendar, Severe Weather,
+- The Type menu lists Sensor, Time of Day, Timer, Astral, Calendar, Severe Weather, System Status,
   and Or, in that order. Calendar adds a category selector and event selector (or date/time field) to the right.
 - **Calendar → BD Transitions** offers **All**, **Earth/Root**, **Water/Leaf**,
   **Air/Flower**, and **Fire/Fruit**. The filter matches the incoming element.
@@ -267,6 +268,44 @@ the timer window enforces Green on and Yellow off. Also note
 that all action rows in a rule share the same condition groups; adding a second
 condition row does not bind one condition to one action and another condition
 to another action.
+
+## System Status
+
+Select **System Status** and choose one of the following on any supported host OS:
+
+| Status | Default | Behavior |
+| --- | --- | --- |
+| Low disk space | Below 1 GiB free | User-selectable GiB threshold on the filesystem containing the active database. Disk metadata refreshes every 30 seconds. |
+| Database write errors | 3 consecutive failures | User-selectable count of failed reading or switch-event writes after recovery attempts. A successful reading or switch-event write resets the count. |
+| Sensor offline | More than 60 minutes | Select a discovered MQTT sensor reporting offline while its physical host is still communicating. |
+| MQTT disconnected | More than 15 minutes | Select a discovered MQTT sensor or switch whose physical host has lost liveness. An offline child sensor alone does not indicate a disconnected host. |
+
+1 GiB is 1,073,741,824 bytes. Both device durations are editable in minutes.
+The device selector includes **All**. For Sensor offline this monitors all
+discovered MQTT sensors; for MQTT disconnected it monitors sensors and switches.
+The condition activates when **any** device exceeds its own outage duration,
+and reports the affected devices. Newly discovered devices join automatically.
+No discovered devices, or pending/unavailable status without a qualifying fault,
+keeps the condition unknown rather than reporting recovery.
+Device selections currently use Nodus discovery, heartbeat, report, and
+availability data; these conditions do not poll device HTTP endpoints.
+They cannot distinguish a host power/network failure from a broker outage.
+
+Use **Alert** for a dashboard notification or **Notify** for activation and
+recovery email. Standard AND/OR groups and switch actors also work. Unavailable
+telemetry does not activate or clear an alert, or change an active switch action,
+unless another known AND/OR condition decides the rule. Disk samples older than
+90 seconds are unavailable.
+
+Outage durations start when an enabled rule observes the fault, reset after
+reconnection or interrupted observation, and restart with Sensorius. During a
+duration warm-up, an existing alert remains active until an online state is
+observed or another known condition decides the rule. A host that
+stops communicating makes the sensor-offline status unavailable; use MQTT
+disconnected to monitor that outage. Database failure counts are also in memory
+and restart at zero. Input validation failures and post-write listener errors do
+not count as database write errors; errors in other database maintenance or
+metadata operations are outside this condition.
 
 ## Severe Weather
 

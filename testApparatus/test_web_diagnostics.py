@@ -18,6 +18,7 @@ from sensorius.saiRuntimeServices import RuntimeServices
 from sensorius.saiStats import create_stats_router
 from sensorius.saiWebDiagnostics import (
     AdvancedStatusConfiguration, DeviceStatistics, register_statistics_diagnostics_routes,
+    _database_storage_snapshot,
 )
 
 
@@ -74,6 +75,46 @@ def build_app(count=1, *, net_mgr=None, ingest=None, environment=None):
     app.include_router(create_stats_router(SimpleNamespace(get_all_sensor_ids=lambda: ["sensor"]),
                                          None, data_logger=logger, statter=statter))
     return app, services
+
+
+@pytest.mark.asyncio
+async def test_database_storage_uses_active_database_filesystem(tmp_path, monkeypatch):
+    path = tmp_path / "custom.sqlite3"
+    path.write_bytes(b"x" * 1024)
+    Path(str(path) + "-wal").write_bytes(b"x" * 2048)
+    Path(str(path) + "-shm").write_bytes(b"x" * 512)
+    Path(str(path) + "-journal").write_bytes(b"x" * 512)
+    (tmp_path / "archive.sqlite3").write_bytes(b"x" * 8192)
+    probes = []
+
+    def disk_usage(directory):
+        probes.append(directory)
+        return SimpleNamespace(free=5 * 1024**3)
+
+    monkeypatch.setattr("sensorius.saiWebDiagnostics.shutil.disk_usage", disk_usage)
+    app, services = build_app()
+    services.data_logger.db_path = str(path)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/advanced/database/status")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == {
+        "database_size_bytes": 4096, "database_size": "4.0 KiB",
+        "disk_free_bytes": 5 * 1024**3, "disk_free": "5.0 GiB",
+    }
+    assert probes == [tmp_path]
+
+
+def test_database_storage_failed_probes_are_not_zero(tmp_path, monkeypatch):
+    def fail_usage(directory):
+        raise OSError("Unavailable disk")
+
+    monkeypatch.setattr("sensorius.saiWebDiagnostics.shutil.disk_usage", fail_usage)
+    for path in (str(tmp_path / "missing.db"), ":memory:"):
+        assert _database_storage_snapshot(path) == {
+            "database_size_bytes": None, "database_size": "Unavailable",
+            "disk_free_bytes": None, "disk_free": "Unavailable",
+        }
 
 
 @pytest.mark.asyncio

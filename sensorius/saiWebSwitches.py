@@ -36,6 +36,7 @@ from html import escape
 from . import __version__ as SAI_APP_VERSION
 from .saiAutomationActivation import AutomationActivationError, activate_with_baselines
 from .saiInputUnits import normalize_condition_inputs
+from .saiSystemStatus import normalize_system_status_condition, system_status_devices
 from .saiWebDiagnostics import _is_true_text, _switch_channels_from_settings
 try:
     from .saiDataLogger import build_switch_key as _build_switch_key
@@ -864,6 +865,7 @@ def register_switch_routes(
         )
         return {
             "actors": actors,
+            "system_status_devices": system_status_devices(services.mqtt_ingest),
             "email_enabled": email_enabled,
             "executor_switch_id": "__system__",
             "calendar_timezone": str(settings.get_setting("Astral", "TIMEZONE", "") or settings.get_setting("Time", "TZ", "UTC") or "UTC"),
@@ -1121,6 +1123,12 @@ def register_switch_routes(
             save_anchor_epoch = int(time.time())
             for c in parsed.get("conditions", []) or []:
                 cond_type = str(c.get("type", "")).strip().lower()
+                if cond_type == "system_status":
+                    try:
+                        normalized_conditions.append(normalize_system_status_condition(c))
+                    except ValueError as exc:
+                        return error_response(str(exc), status_code=400)
+                    continue
                 if cond_type == "sensor":
                     try:
                         c = normalize_condition_inputs(c)
