@@ -37,6 +37,7 @@ from .saiSensorFactory import find_sensors
 from .saiSwitchFactory import detect_relay_board
 from .saiTimeSync import TimeSyncService
 from .saiWeatherAlerts import WeatherAlertService
+from .saiSystemStatus import SystemStatusService
 from .saiNodusAutomationStatus import NodusAutomationStatusPublisher
 from .saiEmailNotifications import AutomationNotificationService, EmailNotificationService
 from .saiInstanceLock import SensoriusInstanceLock
@@ -682,6 +683,9 @@ async def main(shutdown_requested: Event | None = None):
             printDM("No SensorNetwork.BROKER configured — MQTT ingest not started.", location=f"{MODULE}:main")
 
     # --- Always-on supervisors ---
+    system_status = SystemStatusService(data_logger=data_logger, mqtt_ingest=mqtt_ingest_clients, supervisor=supervisor)
+    data_logger.system_status_service = system_status
+    supervisor.add(system_status.run, name="System Status", fatal_on_timeout=False, fatal_on_error=False)
     weather_alerts = WeatherAlertService(settings=settings, data_logger=data_logger, supervisor=supervisor)
     data_logger.weather_alert_service = weather_alerts
     supervisor.add(weather_alerts.run, name="NWS Weather Alerts", fatal_on_timeout=False, fatal_on_error=False)

@@ -2135,6 +2135,74 @@ def _calendar_rule_controller(condition, actions=None):
     return ctrl
 
 
+@pytest.mark.parametrize("action_type", ["none", "notify"])
+def test_system_status_alert_edges_preserve_unknown_state(monkeypatch, action_type):
+    current = {"result": False}
+    ctrl = _calendar_rule_controller({"type": "system_status", "status": "disk_free"},
+        [{"type": action_type, "executor_switch_id": "sw1", "to": "grower@example.com"}])
+    ctrl.data_logger = types.SimpleNamespace(system_status_service=types.SimpleNamespace(
+        evaluate=lambda cond: (current["result"], "Free disk space 0.50 GiB < 1 GiB")))
+    broadcasts = []
+    monkeypatch.setattr(ctrl, "_broadcast_automation_notification", lambda **payload: broadcasts.append(payload))
+    delivery = _FakeAutomationEmailDelivery()
+    ctrl.email_delivery_service = delivery
+    for result in (False, True, None, True, False, True):
+        current["result"] = result
+        ctrl._evaluate_and_apply_advanced({})
+    if action_type == "none":
+        assert len(broadcasts) == 2
+    else:
+        assert len(delivery.sent) == 3
+        assert "ACTIVATED" in delivery.sent[0][0]
+        assert "CLEARED" in delivery.sent[1][0]
+        assert "0.50 GiB < 1 GiB" in delivery.sent[0][1]
+
+
+def test_system_status_unknown_preserves_active_switch_until_known_recovery(monkeypatch):
+    current = {"result": True}
+    ctrl = _calendar_rule_controller({"type": "system_status", "status": "disk_free"},
+        [{"type": "switch", "switch_key": "sw1::CH1", "set": True, "revert_action": "previous_state"}])
+    ctrl.data_logger = types.SimpleNamespace(system_status_service=types.SimpleNamespace(
+        evaluate=lambda cond: (current["result"], "Storage status")))
+    ctrl._persist_advanced_runtime_state = lambda: None
+    calls = []
+
+    def set_state(label, desired, **kwargs):
+        calls.append(desired)
+        ctrl.last_state[label] = desired
+        return True
+
+    ctrl.set_state = set_state
+    ctrl._evaluate_and_apply_advanced({})
+    assert calls == [True]
+    current["result"] = None
+    ctrl._evaluate_and_apply_advanced({})
+    assert calls == [True] and ctrl._advanced_active_actions
+    current["result"] = False
+    ctrl._evaluate_and_apply_advanced({})
+    assert calls == [True, False]
+
+
+def test_system_status_restart_warmup_does_not_email_false_recovery():
+    from sensorius.saiSystemStatus import SystemStatusService
+
+    condition = {"type": "system_status", "status": "mqtt_disconnected", "device_id": "node"}
+    ctrl = _calendar_rule_controller(condition,
+        [{"type": "notify", "executor_switch_id": "sw1", "to": "grower@example.com"}])
+    host = {"host": "node", "state": "offline", "last_report_s": 1000, "heartbeat_interval_s": 60}
+    status = SystemStatusService(data_logger=types.SimpleNamespace(),
+        mqtt_ingest=types.SimpleNamespace(get_nodus_liveness=lambda *args, **kwargs: host))
+    ctrl.data_logger = types.SimpleNamespace(system_status_service=status)
+    delivery = _FakeAutomationEmailDelivery()
+    delivery.states[("calendar", "grower@example.com")] = True
+    ctrl.email_delivery_service = delivery
+    ctrl._evaluate_and_apply_advanced({})
+    assert delivery.sent == []
+    host.update(state="online", last_report_s=0)
+    ctrl._evaluate_and_apply_advanced({})
+    assert len(delivery.sent) == 1 and "CLEARED" in delivery.sent[0][0]
+
+
 @pytest.mark.parametrize("element,expected", [("all", 1), ("earth", 1), ("water", 0), ("air", 0), ("fire", 0)])
 def test_calendar_bd_filters_incoming_element_and_skips_midnight(monkeypatch, element, expected):
     ctrl = _calendar_rule_controller({"type": "calendar", "calendar_kind": "bd_transitions", "calendar_event": element})

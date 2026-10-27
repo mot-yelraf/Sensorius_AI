@@ -9,6 +9,7 @@ let currentSwitchId = "";
 let automations = [];
 let selectedId = null;
 let sensorDirectory = [];
+let systemStatusDevices = [];
 let sensorUnitsReady = false;
 let switchLabels = {};
 let switchChannelIds = {};
@@ -382,6 +383,7 @@ function addCondition(modal, cond) {
     <option value="astral">Astral</option>
     <option value="calendar">Calendar</option>
     <option value="severe_weather">Severe Weather</option>
+    <option value="system_status">System Status</option>
     <option value="or">Or</option>`;
   typeSel.value = initialType;
   typeSel.style.width = "8rem";
@@ -745,6 +747,56 @@ function renderAsTime() {
     group.appendChild(row);
   }
 
+  const statusWrap = create("div");
+  const statusLabel = create("label");
+  statusLabel.textContent = "System Status";
+  const statusSelect = create("select", "system-status-kind");
+  statusSelect.setAttribute("aria-label", "System status metric");
+  statusSelect.innerHTML = '<option value="disk_free">Low disk space</option><option value="db_write_errors">Database write errors</option><option value="sensor_offline">Sensor offline</option><option value="mqtt_disconnected">MQTT disconnected</option>';
+  statusSelect.value = cond?.status || "disk_free";
+  statusWrap.append(statusLabel, statusSelect);
+  const statusValueWrap = create("div");
+  const statusValueLabel = create("label");
+  const statusValue = create("input", "system-status-value");
+  statusValue.type = "number";
+  statusValueWrap.append(statusValueLabel, statusValue);
+  const statusDeviceWrap = create("div", "system-status-device-row");
+  const statusDeviceLabel = create("label");
+  statusDeviceLabel.textContent = "MQTT device";
+  const statusDevice = create("select", "system-status-device");
+  statusDevice.setAttribute("aria-label", "System status device");
+  statusDevice.style.width = "100%";
+  statusDeviceWrap.append(statusDeviceLabel, statusDevice);
+  function configureSystemStatus(saved = false) {
+    const kind = statusSelect.value;
+    const isDisk = kind === "disk_free";
+    const isWrite = kind === "db_write_errors";
+    const defaultValue = isDisk ? 1 : isWrite ? 3 : kind === "sensor_offline" ? 60 : 15;
+    statusValueLabel.textContent = isDisk ? "Free space below (GiB)" : isWrite ? "Consecutive failures" : "Offline longer than (minutes)";
+    statusValue.setAttribute("aria-label", statusValueLabel.textContent);
+    statusValue.min = isDisk ? "0.01" : "1";
+    statusValue.max = isDisk ? "1048576" : isWrite ? "1000000" : "525600";
+    statusValue.step = isDisk ? "0.01" : "1";
+    statusValue.value = String(saved ? (isDisk ? cond?.threshold_gib : isWrite ? cond?.failures : cond?.duration_min) ?? defaultValue : defaultValue);
+    statusDeviceWrap.hidden = isDisk || isWrite;
+    const previous = saved && cond?.device_id ? `${cond.device_type || "sensor"}:${cond.device_id}` : statusDevice.value;
+    const choices = systemStatusDevices.filter(device => kind !== "sensor_offline" || device.type === "sensor");
+    const allValue = kind === "sensor_offline" ? "sensor:__all__" : "all:__all__";
+    statusDevice.replaceChildren(new Option("All", allValue), ...choices.map(device => new Option(`${device.label || device.id} (${device.type})`, `${device.type}:${device.id}`)));
+    if (saved && previous && !Array.from(statusDevice.options).some(option => option.value === previous)) {
+      statusDevice.add(new Option(`${cond.device_id} (unavailable)`, previous));
+    }
+    if (Array.from(statusDevice.options).some(option => option.value === previous)) statusDevice.value = previous;
+  }
+  configureSystemStatus(true);
+  statusSelect.addEventListener("change", () => configureSystemStatus());
+  function renderAsSystemStatus(){
+    group.innerHTML = "";
+    const row = create("div", "cond calendar system-status");
+    row.append(typeWrap, statusWrap, statusValueWrap, rem);
+    group.append(row, statusDeviceWrap);
+  }
+
   function renderAsSensor(){
     group.innerHTML = "";
     const top = create("div", "cond sensor-top");
@@ -767,6 +819,7 @@ function renderAsTime() {
   else if (initialType === "timer")   renderAsTimer();
   else if (initialType === "calendar") renderAsCalendar();
   else if (initialType === "severe_weather") renderAsSevereWeather();
+  else if (initialType === "system_status") renderAsSystemStatus();
   else if (initialType === "or")      renderAsOr();
   else                                renderAsSensor();
 
@@ -777,6 +830,7 @@ function renderAsTime() {
     else if (typeSel.value === "timer")   renderAsTimer();
     else if (typeSel.value === "calendar") renderAsCalendar();
     else if (typeSel.value === "severe_weather") renderAsSevereWeather();
+    else if (typeSel.value === "system_status") renderAsSystemStatus();
     else if (typeSel.value === "or")      renderAsOr();
     else                                  renderAsSensor();
     updateAstralDependencyWarning(modal);
@@ -982,6 +1036,17 @@ function serializeForm(modal){
       return condition;
     } else if (typeVal === "severe_weather") {
       return { type:"severe_weather" };
+    } else if (typeVal === "system_status") {
+      const status = group.querySelector(".system-status-kind").value;
+      const input = group.querySelector(".system-status-value");
+      if (!input.value || !input.checkValidity()) throw new Error("Enter a valid System Status threshold.");
+      const value = Number(input.value);
+      if (status === "disk_free") return {type: "system_status", status, threshold_gib: value};
+      if (status === "db_write_errors") return {type: "system_status", status, failures: value};
+      const device = group.querySelector(".system-status-device").value;
+      if (!device) throw new Error("Select a MQTT device for System Status.");
+      const [device_type, device_id] = device.split(":");
+      return {type: "system_status", status, device_type, device_id, duration_min: value};
     } else if (typeVal === "calendar") {
       const kind = group.querySelector(".calendar-kind").value;
       if (kind === "date_time") {
@@ -1081,11 +1146,12 @@ async function loadSwitchInfoInto(rootLike) {
   const modal = getModalRoot(rootLike);
   if (!modal) { console.warn("[AdvancedAutomation] modal root missing in loadSwitchInfoInto"); return; }
 
-  if (modal.querySelector("[data-automation-scope='system']")) {
-    const context = await fetchAutomationContext().catch(err => {
+  const context = await fetchAutomationContext().catch(err => {
       console.warn("[AdvancedAutomation] automation context failed:", err);
       return { actors: [], email_enabled: false, executor_switch_id: "" };
     });
+  systemStatusDevices = Array.isArray(context.system_status_devices) ? context.system_status_devices : [];
+  if (modal.querySelector("[data-automation-scope='system']")) {
     actorDirectory = Array.isArray(context.actors) ? context.actors : [];
     emailActorEnabled = !!context.email_enabled;
     calendarTimezone = String(context.calendar_timezone || "hub timezone");
@@ -1275,6 +1341,7 @@ window.initAdvancedAutomationModal = async function (modalEl) {
       scope.dataset?.switchId ||
       "";
     sensorDirectory = [];
+    systemStatusDevices = [];
     sensorUnitsReady = false;
     const editorWrap = modalRoot.querySelector("#automationEditorWrap");
     if (editorWrap) editorWrap.inert = true;

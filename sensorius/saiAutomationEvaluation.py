@@ -132,6 +132,7 @@ class AutomationConditionEvaluator:
         astral_condition: Callable, calendar_snapshot: Callable,
         biodynamic_transition: Callable, calendar_state: CalendarEvaluationState,
         weather_events: list[dict], debug: bool = False, log: Callable | None = None,
+        system_status: Callable | None = None,
     ):
         """Bind inputs without reading hardware, fetching data, or emitting events."""
         self.switch_id = switch_id
@@ -148,6 +149,7 @@ class AutomationConditionEvaluator:
         self.biodynamic_transition = biodynamic_transition
         self.calendar_state = calendar_state
         self.weather_events = weather_events
+        self.system_status = system_status
         self.debug = debug
         self.log = log
         self.calendar_results: dict[tuple, tuple[bool, dict]] = {}
@@ -166,6 +168,12 @@ class AutomationConditionEvaluator:
         legacy BD notification requests are collected for controller delivery.
         """
         ctype = str(cond.get("type", "") or "").strip().lower()
+
+        if ctype == "system_status":
+            result, report = self.system_status(cond) if self.system_status else (None, "System Status unavailable")
+            cond["_system_status_unknown"] = result is None
+            cond["_system_status_report"] = report
+            return bool(result)
 
         if ctype == "severe_weather":
             cond["_weather_events"] = self.weather_events

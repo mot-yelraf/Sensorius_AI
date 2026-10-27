@@ -26,7 +26,7 @@ test('Calendar loads legacy BD rules, filters elements and phases, and saves sel
   const row = modal.locator('.cond.calendar');
   const type = row.locator('select').nth(0);
   await expect(type).toHaveValue('calendar');
-  expect(await type.locator('option').allTextContents()).toEqual(['Sensor', 'Time of Day', 'Timer', 'Astral', 'Calendar', 'Severe Weather', 'Or']);
+  expect(await type.locator('option').allTextContents()).toEqual(['Sensor', 'Time of Day', 'Timer', 'Astral', 'Calendar', 'Severe Weather', 'System Status', 'Or']);
   const kind = row.getByRole('combobox', {name: 'Calendar event type', exact: true});
   const event = row.getByRole('combobox', {name: 'Calendar event', exact: true});
   await expect(kind).toHaveValue('bd_transitions');

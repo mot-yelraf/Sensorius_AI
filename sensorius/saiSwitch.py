@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from .saiWebContracts import DashboardBroadcast
 
 from .saiInputUnits import display_automation_values
+from .saiSystemStatus import system_status_groups_unknown
 from .saiAutomationEvaluation import (
     AutomationConditionEvaluator,
     CalendarEvaluationState,
@@ -1360,6 +1361,10 @@ class SwitchController:
         ctype = str(cond.get("type", "") or "").strip().lower()
         status = "TRUE" if result else "FALSE"
 
+        if ctype == "system_status":
+            status = "UNKNOWN" if cond.get("_system_status_unknown") else status
+            return f"[{status}] {cond.get('_system_status_report') or 'System Status unavailable'}"
+
         if ctype == "severe_weather":
             messages = [event.get("message", "") for event in cond.get("_weather_events", [])]
             return "\n\n".join(messages) or f"[{status}] Severe Weather: no active NWS event"
@@ -1943,6 +1948,7 @@ class SwitchController:
         )
         weather_service = getattr(getattr(self, "data_logger", None), "weather_alert_service", None)
         weather_events = weather_service.snapshot()["events"] if weather_service else []
+        system_status = getattr(getattr(self, "data_logger", None), "system_status_service", None)
 
         def _weather_context(evaluated_groups, action, rule_id):
             events = []
@@ -1975,6 +1981,7 @@ class SwitchController:
             biodynamic_transition=self._get_current_biodynamic_transition,
             calendar_state=self._calendar_evaluation_state(),
             weather_events=weather_events, debug=DEBUG, log=printDM,
+            system_status=system_status.evaluate if system_status else None,
         )
 
         def _eval_single_condition(cond, target_label, current_action_state=None, rule_id=""):
@@ -2041,6 +2048,7 @@ class SwitchController:
                     continue
 
                 has_weather = any(str(cond.get("type", "")).lower() == "severe_weather" for cond in conditions)
+                has_system_status = any(cond.get("type") == "system_status" for cond in conditions)
 
                 # Build AND groups separated by OR markers
                 groups = split_condition_groups(conditions)
@@ -2094,6 +2102,8 @@ class SwitchController:
                             groups, _eval_single_condition, target_label="",
                             current_action_state=was_active, rule_id=str(_rule_id),
                         )
+                        if system_status_groups_unknown(evaluated_groups):
+                            continue
                         rule_ok = any(
                             bool(group.get("result", False))
                             for group in evaluated_groups
@@ -2150,6 +2160,8 @@ class SwitchController:
                             groups, _eval_single_condition, target_label="",
                             current_action_state=was_active, rule_id=str(_rule_id),
                         )
+                        if system_status_groups_unknown(evaluated_groups):
+                            continue
                         rule_ok = any(
                             bool(group.get("result", False))
                             for group in evaluated_groups
@@ -2282,10 +2294,19 @@ class SwitchController:
                         continue
 
                     # AND inside group, OR across groups
-                    group_results = evaluate_switch_groups(
-                        groups, _eval_single_condition, target_label=target_label,
-                        rule_id=str(_rule_id),
-                    )
+                    status_unknown = False
+                    if has_system_status:
+                        evaluated_groups = evaluate_condition_groups(
+                            groups, _eval_single_condition, target_label=target_label,
+                            rule_id=str(_rule_id),
+                        )
+                        group_results = [group["result"] for group in evaluated_groups]
+                        status_unknown = system_status_groups_unknown(evaluated_groups)
+                    else:
+                        group_results = evaluate_switch_groups(
+                            groups, _eval_single_condition, target_label=target_label,
+                            rule_id=str(_rule_id),
+                        )
 
                     rule_ok = any(group_results)
                     desired = bool(act.get("set", True))
@@ -2310,6 +2331,7 @@ class SwitchController:
                         "revert_action": revert_action,
                         "delay_s": max(0, delay_s),
                         "rule_ok": rule_ok,
+                        "status_unknown": status_unknown,
                         "group_results": list(group_results),
                         "weather_events": events or None,
                         "weather_key": weather_key,
@@ -2370,6 +2392,9 @@ class SwitchController:
                 _revert_active_action(action_key, active if isinstance(active, dict) else {})
 
         for action_key, info in action_evals.items():
+            if info.get("status_unknown"):
+                pending_actions.pop(action_key, None)
+                continue
             target_label = str(info.get("target_label", "") or "").strip()
             skey = str(info.get("switch_key", "") or "").strip()
             desired = bool(info.get("desired", True))

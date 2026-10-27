@@ -424,6 +424,14 @@ Operational rules:
 
 ## Database Operations
 
+**General Settings > Advanced > Database** shows human-readable database size
+and free disk space below **Archive Database** on all platforms, including
+Raspberry Pi. Database size includes the main database and any active SQLite
+WAL, shared-memory, and journal files; archives are excluded. Free space is
+measured on the filesystem containing the active database. Values refresh when
+opening Advanced or Database and every 30 seconds while Database is visible.
+Failed measurements display **Unavailable** rather than zero.
+
 The database uses SQLite WAL mode and additive migrations. `sensorius.saiDataLogger`
 creates core telemetry tables and indexes at startup; `sensorius.saiWeatherForecast`
 creates the forecast cache table on first forecast use.
