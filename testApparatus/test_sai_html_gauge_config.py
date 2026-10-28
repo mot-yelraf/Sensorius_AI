@@ -825,7 +825,7 @@ def test_sun_position_card_renders_29_day_overlay():
     assert "id='sunBox' aria-live='polite' role='button'" in html
     assert "id='moonBox' aria-live='polite'" in html
     assert "id='moonBox' aria-live='polite' role='button'" not in html
-    assert "#sunBox{cursor:pointer;background:#ffa640;border-color:#b96510;}" in html
+    assert "#sunBox{cursor:pointer;background:#ffb45f;border-color:#b96510;}" in html
     assert ".astro-box.card-loading .dashboard-card-spinner{display:inline-block;}" in html
     assert "function setAstroCardsLoading(isLoading){" in html
     assert "['moonBox','sunBox','sunMoon29Card'].forEach((id) => setDashboardCardLoading(id, isLoading));" in html

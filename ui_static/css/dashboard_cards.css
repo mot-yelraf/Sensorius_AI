@@ -1,6 +1,6 @@
 .dash-top-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(206px,230px));justify-content:center;align-items:stretch;column-gap:.75rem;row-gap:.75rem;margin:1rem auto 0;width:min(100%,1198px);position:relative;}
 .dash-left-col,.dash-right-col,.dash-side-col{display:contents;}
-.dash-loc-form{position:relative;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:.45rem;background:#654080;color:#fff;border:1px solid #49275f;border-radius:10px;padding:.45rem .65rem .55rem;min-height:160px;min-width:230px;width:230px;box-sizing:border-box;}
+.dash-loc-form{position:relative;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:.45rem;background:#77578f;color:#fff;border:1px solid #49275f;border-radius:10px;padding:.45rem .65rem .55rem;min-height:160px;min-width:230px;width:230px;box-sizing:border-box;}
 .dash-loc-form .dash-theme-trigger{background:#422354;border-color:#321a42;color:#fff;}
 .dash-loc-head{display:flex;align-items:center;justify-content:space-between;gap:.1rem;}
 .dash-loc-label{font-size:.78rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;opacity:.85;}
@@ -12,7 +12,7 @@
 .astro-title{font-size:.78rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;opacity:.8;}
 .astro-meta{font-size:.74rem;line-height:1.25;text-align:center;color:#27313a;min-height:1.9em;white-space:normal;}
 #sunBox .astro-card{width:100%;min-width:0;height:100%;box-sizing:border-box;}
-#sunBox{cursor:pointer;background:#ffa640;border-color:#b96510;}
+#sunBox{cursor:pointer;background:#ffb45f;border-color:#b96510;}
 #sunMoon29Btn{background:#a64700;border-color:#853900;color:#fff;}
 #sunBox:focus-visible{outline:2px solid #2e4f89;outline-offset:3px;}
 #moonBox .astro-card{width:100%;min-width:0;align-items:stretch;box-sizing:border-box;height:100%;}
