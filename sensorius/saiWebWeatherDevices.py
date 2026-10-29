@@ -11,6 +11,14 @@ from .saiAcuRite import AcuRiteUsbIngest
 from .saiUtils import printDM
 
 
+_PUBLIC_CONFIGURATION_ERRORS = {message: message for message in (
+    "Expected an AcuRite configuration object.",
+    "Unsupported AcuRite USB console family",
+    "Invalid USB serial number.",
+    "Data retrieval interval must be 60–3600 seconds.",
+)}
+
+
 def register_weather_device_routes(router, *, services, settings_factory, require_protected_access, invalidate_dashboard_caches):
     """Expose AcuRite setup/status while keeping route handlers thin."""
     def service(request):
@@ -38,7 +46,10 @@ def register_weather_device_routes(router, *, services, settings_factory, requir
             invalidate_dashboard_caches()
             return JSONResponse({"ok": True, **await asyncio.to_thread(current.status)})
         except (ValueError, TypeError) as exc:
-            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+            message = _PUBLIC_CONFIGURATION_ERRORS.get(
+                str(exc), "Invalid AcuRite configuration. Check the console family, USB serial and retrieval interval."
+            )
+            return JSONResponse({"ok": False, "error": message}, status_code=400)
         except Exception as exc:
             printDM(f"AcuRite setup failed: {exc}", location=__name__)
             return JSONResponse({"ok": False, "error": "Unable to save AcuRite settings. Check the Sensorius log."}, status_code=500)

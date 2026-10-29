@@ -270,3 +270,35 @@ def test_dashboard_uses_acurite_health_instead_of_treating_cached_values_as_live
     ))
     assert "title='Connection status: offline'" in html
     assert f"id='{sid}_battery'" in html
+
+
+@pytest.mark.parametrize("exception", [ValueError("private-config-path: parser details"), TypeError("private-config-path: argument details")])
+def test_acurite_setup_hides_unexpected_exception_details(service, monkeypatch, exception):
+    current, settings, logger, manager = service
+    async def fail(payload):
+        raise exception
+    monkeypatch.setattr(current, "save_configuration", fail)
+    app = FastAPI()
+    register_weather_device_routes(app, services=SimpleNamespace(acurite_service=current), settings_factory=lambda: settings,
+                                   require_protected_access=lambda *a, **k: None, invalidate_dashboard_caches=lambda: None)
+    with TestClient(app) as client:
+        response = client.post("/acurite/save", json={"model": "01536"})
+    assert response.status_code == 400
+    assert response.json()["error"].startswith("Invalid AcuRite configuration.")
+    assert "private-config-path" not in response.text
+    assert str(exception) not in response.text
+
+
+def test_acurite_setup_preserves_known_validation_message_and_rejects_malformed_json(service):
+    current, settings, logger, manager = service
+    app = FastAPI()
+    register_weather_device_routes(app, services=SimpleNamespace(acurite_service=current), settings_factory=lambda: settings,
+                                   require_protected_access=lambda *a, **k: None, invalidate_dashboard_caches=lambda: None)
+    with TestClient(app) as client:
+        response = client.post("/acurite/save", json={"poll_interval_sec": 0})
+        assert response.status_code == 400
+        assert response.json()["error"] == "Data retrieval interval must be 60–3600 seconds."
+        response = client.post("/acurite/save", content='{"private-config-path":', headers={"content-type": "application/json"})
+        assert response.status_code == 400
+        assert "private-config-path" not in response.text
+        assert "line 1" not in response.text
