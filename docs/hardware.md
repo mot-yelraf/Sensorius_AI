@@ -79,3 +79,8 @@ console profiles and Linux permissions are documented in [AcuRite USB](acurite_u
 Ecowitt GW1100/GW1200/GW2000/GW3000 share the generic LAN HTTP adapter; gateway
 support does not automatically add every optional sensor channel. GW2000/GW3000
 coverage uses synthetic protocol fixtures and needs physical-device validation.
+
+Davis Vantage Vue consoles with USB serial dataloggers and Oregon Scientific
+WMR100-family USB consoles are additional supported weather-device classes.
+See [USB console support](weather_adapters.md#additional-usb-consoles) for model
+limits, connection requirements and physical-validation status.

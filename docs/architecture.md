@@ -25,7 +25,7 @@ macOS, Windows, and non-Pi Linux hub:
 
 - Skips local GPIO and direct sensor discovery.
 - Runs the web UI, database, MQTT ingest, Nodus onboarding, Home Assistant
-  bridge, farmOS export, WeeWX ingest, Ecowitt LAN and AcuRite USB acquisition,
+  bridge, farmOS export, WeeWX ingest, Ecowitt LAN, AcuRite USB, Davis Vue and Oregon Scientific USB acquisition,
   and automations for remote devices.
 - Uses native Wi-Fi tooling during Nodus onboarding where supported by the
   setup scripts.
@@ -193,8 +193,9 @@ macOS, Windows, and non-Pi Linux hub:
   worker.
 - `sensorius/saiWeeWX.py`: optional WeeWX SQLite archive ingest.
 - `sensorius/saiAcuRite.py`: supervised USB console acquisition through the normalized weather adapter contract.
-- `sensorius/weather_adapters/`: observation types, AcuRite transports/profiles, shared weather metrics and diagnostics.
-- `sensorius/saiWebWeatherDevices.py`: protected AcuRite setup/status routes.
+- `sensorius/saiUsbWeather.py`: supervised Davis Vue and Oregon Scientific acquisition, settings, canonical metric conversion and rain baselines.
+- `sensorius/weather_adapters/`: observation types, AcuRite/Davis/Oregon transports and decoders, shared weather metrics and diagnostics.
+- `sensorius/saiWebWeatherDevices.py`: protected AcuRite, Davis Vue and Oregon Scientific setup/status routes.
 - `sensorius/saiEcowitt.py`: read-only Ecowitt LAN discovery, status, and
   supervised live-data polling.
 - `sensorius/sensor_modules/station_ecowitt.py`: pure Ecowitt inventory,
@@ -571,7 +572,7 @@ Device/broker behavior still requires deployment verification.
 
 ## Weather device acquisition
 
-Ecowitt gateways and AcuRite USB consoles implement a normalized asynchronous
+Ecowitt gateways and AcuRite, Davis Vue and Oregon Scientific USB consoles implement a normalized asynchronous
 weather observation boundary. Persistence and dashboard metrics remain shared,
 while station identities, transport and rain policies remain independent. See
 [Weather adapters](weather_adapters.md) for the Caelus review, contract and steps

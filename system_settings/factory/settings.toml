@@ -58,6 +58,18 @@ MODEL = "01536"
 USB_SERIAL = ""
 POLL_INTERVAL_SEC = 60
 
+[DavisVue]
+ENABLED = false
+PORT = ""
+BAUD_RATE = 19200
+POLL_INTERVAL_SEC = 60
+
+[OregonScientific]
+ENABLED = false
+MODEL = "WMR100"
+USB_SERIAL = ""
+POLL_INTERVAL_SEC = 60
+
 [HomeAssistant]
 ENABLED = false
 HA_USERNAME = ""

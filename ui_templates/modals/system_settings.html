@@ -1693,6 +1693,9 @@
                   </div>
                 </div>
               </details>
+              <details class="integration-block" id="add-weather-section" open>
+                <summary>Weather Station</summary>
+                <div class="integration-block-content integrations-list">
               <details class="integration-block" id="add-ecowitt-section">
                 <summary>Ecowitt Gateway</summary>
                 <div class="integration-block-content">
@@ -1766,6 +1769,40 @@
                     <button type="button" class="button green" id="btn-acurite-save">Save Console</button>
                   </div>
                   <div id="acurite-status" class="detail" aria-live="polite"></div>
+                </div>
+              </details>
+              <details class="integration-block" id="add-davis-section">
+                <summary>Davis Vue USB Console</summary>
+                <div class="integration-block-content">
+                  <div class="detail">Requires a Vantage Vue console with a compatible USB serial datalogger and one Vue ISS transmitter. Match the console baud rate and leave setup screens. Close WeatherLink, WeeWX and other serial readers. Outdoor readings appear after reception progress is verified.</div>
+                  <div class="field-grid-stack">
+                    <div class="field-stack"><label for="davis-port">USB datalogger serial port</label><input id="davis-port" type="text" maxlength="256" placeholder="/dev/cu.usbserial-123 or COM3" autocomplete="off"></div>
+                    <div class="field-stack"><label for="davis-baud-rate">Console baud rate</label><select id="davis-baud-rate"><option value="1200">1200</option><option value="2400">2400</option><option value="4800">4800</option><option value="9600">9600</option><option value="14400">14400</option><option value="19200" selected>19200</option></select></div>
+                    <div class="field-stack"><label for="davis-poll-interval">Data retrieval interval (seconds)</label><input id="davis-poll-interval" type="number" min="60" max="3600" step="1" value="60"></div>
+                  </div>
+                  <div class="inline-actions" style="justify-content:flex-end;margin-top:.65rem;">
+                    <button type="button" class="button neutral" id="btn-davis-disable">Disable</button>
+                    <button type="button" class="button green" id="btn-davis-save">Save Console</button>
+                  </div>
+                  <div id="davis-status" class="detail" aria-live="polite"></div>
+                </div>
+              </details>
+              <details class="integration-block" id="add-oregon-section">
+                <summary>Oregon Scientific USB Console</summary>
+                <div class="integration-block-content">
+                  <div class="detail">Connect a supported WMR100-family console to this Sensorius host. Close WeeWX and other USB readers. Uses native HID on macOS/Windows and libusb on Linux/Pi. Other Oregon protocols, including WMR200 and WMR300, are not supported.</div>
+                  <div class="field-grid-stack">
+                    <div class="field-stack"><label for="oregon-model">Console model</label><select id="oregon-model"><option>WMR100</option><option>WMR100N</option><option>WMR88</option><option>WMR88A</option><option>WMR180</option><option>WMR180A</option><option>WMRS200</option></select></div>
+                    <div class="field-stack"><label for="oregon-usb-serial">USB serial number (optional)</label><input id="oregon-usb-serial" type="text" maxlength="128" autocomplete="off"><div class="detail">Leave blank for one console. Specify a serial number when several are attached.</div></div>
+                    <div class="field-stack"><label for="oregon-poll-interval">Data retrieval interval (seconds)</label><input id="oregon-poll-interval" type="number" min="60" max="3600" step="1" value="60"></div>
+                  </div>
+                  <div class="inline-actions" style="justify-content:flex-end;margin-top:.65rem;">
+                    <button type="button" class="button neutral" id="btn-oregon-disable">Disable</button>
+                    <button type="button" class="button green" id="btn-oregon-save">Save Console</button>
+                  </div>
+                  <div id="oregon-status" class="detail" aria-live="polite"></div>
+                </div>
+              </details>
                 </div>
               </details>
             </div>
@@ -2417,6 +2454,8 @@
       hydrateEcowittFromData();
       loadEcowittStatus();
       loadAcuriteStatus();
+      loadUsbWeatherStatus("davis");
+      loadUsbWeatherStatus("oregon");
     }
     if (paneId !== "pane-add") stopAddScan();
   }
@@ -3320,6 +3359,48 @@
     } finally {
       setButtonBusy("btn-weewx-save", false);
     }
+  }
+
+  async function loadUsbWeatherStatus(kind) {
+    try {
+      const resp = await fetch(`/${kind}/status`, { cache: "no-store" });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || "Unable to load console status.");
+      for (const [field, fallback] of [["port", ""], ["baud_rate", 19200], ["model", "WMR100"], ["usb_serial", ""], ["poll_interval_sec", 60]]) {
+        const suffix = {baud_rate: "baud-rate", usb_serial: "usb-serial", poll_interval_sec: "poll-interval"}[field] || field;
+        const element = document.getElementById(`${kind}-${suffix}`);
+        if (element) element.value = data[field] ?? fallback;
+      }
+      setStatus(`${kind}-status`, [data.label, data.state, data.last_error].filter(Boolean).join(" | "));
+    } catch (e) {
+      setStatus(`${kind}-status`, e.message || "Unable to load console status.");
+    }
+  }
+
+  async function saveUsbWeatherConsole(kind, disable) {
+    const button = `btn-${kind}-${disable ? "disable" : "save"}`;
+    setButtonBusy(button, true, disable ? "Disabling..." : "Saving...");
+    try {
+      const value = suffix => document.getElementById(`${kind}-${suffix}`)?.value;
+      const payload = { poll_interval_sec: value("poll-interval") };
+      if (kind === "davis") Object.assign(payload, { port: value("port"), baud_rate: value("baud-rate") });
+      else Object.assign(payload, { model: value("model"), usb_serial: value("usb-serial") });
+      const resp = await fetch(`/${kind}/${disable ? "disable" : "save"}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) throw new Error(data.error || "Unable to save console settings.");
+      setStatus(`${kind}-status`, disable ? "Acquisition disabled; historical readings retained." : "Console saved. Waiting for live weather reports.");
+    } catch (e) {
+      setStatus(`${kind}-status`, e.message || "Unable to save console settings.");
+    } finally {
+      setButtonBusy(button, false);
+    }
+  }
+
+  for (const kind of ["davis", "oregon"]) {
+    document.getElementById(`btn-${kind}-save`)?.addEventListener("click", () => saveUsbWeatherConsole(kind, false));
+    document.getElementById(`btn-${kind}-disable`)?.addEventListener("click", () => saveUsbWeatherConsole(kind, true));
   }
 
   function updateAcuriteModeHelp() {

@@ -621,3 +621,8 @@ Windows alongside MQTT and LAN weather devices. Updated Linux installers include
 libusb and a device-specific udev rule; macOS/Windows requirements include HIDAPI.
 Reconnect the console after Linux permission setup. See [AcuRite USB setup](acurite_usb.md)
 for profiles, mode 4 instructions and existing-installation steps.
+
+Davis Vantage Vue USB datalogger and Oregon Scientific WMR100-family setup is
+available under **General Settings > Add Device > Weather Station**. See
+[USB console support](weather_adapters.md#additional-usb-consoles) for serial-port
+permissions, Linux USB rule updates and supported models.

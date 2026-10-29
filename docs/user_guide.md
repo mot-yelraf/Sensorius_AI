@@ -6,9 +6,9 @@
 
 Sensorius Automatio Instrumentorum, also called Sensorius AI or Sensorius, is an environmental sensing and automation hub for gardens, greenhouses, grow rooms, small farms, and other places where environmental conditions matter. It gives you live readings, historical graphs, switch control, calibration tools, fully integrated Caelus Weather Forecast, Maria Thun-inspired Biodynamic Calendar, and optional integrations with Home Assistant, WeeWX, and farmOS.
 
-Sensorius can run as a Raspberry Pi hub with directly connected sensors and relays, as well as Wi-Fi Nodus sensors and switches that communicate via a lightweight, open-standard communications protocal, MQTT (Message Queuing Telemetry Transport), as well as Ecowitt Gateways (GW1100/GW1200/GW2000/GW3000) and supported AcuRite PC Connect USB consoles.
+Sensorius can run as a Raspberry Pi hub with directly connected sensors and relays, as well as Wi-Fi Nodus sensors and switches that communicate via a lightweight, open-standard communications protocal, MQTT (Message Queuing Telemetry Transport), as well as Ecowitt Gateways (GW1100/GW1200/GW2000/GW3000) and supported AcuRite PC Connect, Davis Vantage Vue USB datalogger, and Oregon Scientific WMR100-family USB consoles.
 
-Sensorius can also run on macOS, Windows, or Linux as a hub for Wi-Fi Nodus sensors and switches, as well as Ecowitt Gateways (GW1100/GW1200/GW2000/GW3000) and supported AcuRite PC Connect USB consoles. These devices appear together on the same dashboard.
+Sensorius can also run on macOS, Windows, or Linux as a hub for Wi-Fi Nodus sensors and switches, as well as Ecowitt Gateways (GW1100/GW1200/GW2000/GW3000) and supported AcuRite PC Connect, Davis Vantage Vue USB datalogger, and Oregon Scientific WMR100-family USB consoles. These devices appear together on the same dashboard.
 
 <!-- pdf-keep-together:start -->
 ## Dashboard Overview
@@ -814,8 +814,11 @@ use the new value.
 ### Add Device Pane
 
 Use Add Device to onboard a factory-bootstrapped Nodus device, add a local
-Ecowitt gateway, or connect an AcuRite USB console. Expandable sections appear
-in this order: **Nodus Device**, **Ecowitt Gateway**, **AcuRite USB Console**.
+weather station. The pane contains **Nodus Device** and **Weather Station**.
+Expand **Weather Station** for **Ecowitt Gateway**, **AcuRite USB Console**,
+**Davis Vue USB Console**, and **Oregon Scientific USB Console**. Each station
+section expands and collapses independently. See [USB console support](weather_adapters.md#additional-usb-consoles)
+for supported hardware and configuration.
 The descriptions below follow the same order. Screenshots use the running
 Sensorius app on samhain; private network values are replaced with examples.
 
@@ -972,7 +975,7 @@ the normalized metric names accepted during the most recent discovery or poll.
 
 ![Add Device AcuRite USB Console pane](<../assets/screenshots/system-settings-add-device-acurite.png>)
 
-Open **General Settings > Add Device > AcuRite USB Console**. Choose your console
+Open **General Settings > Add Device > Weather Station > AcuRite USB Console**. Choose your console
 family, optionally enter its USB serial, select the retrieval interval, and choose
 **Save Console**. Supported profiles include 01536-RX/06056, 01025, 01035,
 01036/01092/06006, 01525 and 02032/02033/01093/06037. Select mode 4 on consoles

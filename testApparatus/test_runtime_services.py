@@ -57,6 +57,7 @@ async def test_owned_services_survive_registration_and_prewarm(tmp_path, monkeyp
         services = RuntimeServices(
             data_logger=logger, sensor_map=[], switch_controllers={"hub": controller},
             mqtt_ingest=ingest, ecowitt_service=SimpleNamespace(),
+            davis_service=SimpleNamespace(), oregon_service=SimpleNamespace(),
             email_notifications=email, automation_notifications=automation,
         )
         assert services.statter.db_path == logger.db_path
@@ -69,7 +70,7 @@ async def test_owned_services_survive_registration_and_prewarm(tmp_path, monkeyp
         assert web.app.state.switch_controllers is services.switch_controllers
         assert web.app.state.daily_summary_service.data_logger is logger
         broadcast = web.app.state.switch_broadcast
-        for producer in (controller, ingest, services.ecowitt_service, email, actor):
+        for producer in (controller, ingest, services.ecowitt_service, services.davis_service, services.oregon_service, email, actor):
             assert producer.dashboard_broadcast is broadcast
 
         # A later app can replace compatibility globals without redirecting prewarm.

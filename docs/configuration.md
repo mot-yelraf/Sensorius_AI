@@ -622,3 +622,32 @@ AcuRite sensor calibration uses `[Calibration.Device]` in its sensor TOML:
 `ALTITUDE_METERS` (mirrored from system `[Astral].ALTITUDE`, not edited per sensor).
 Missing offsets default to zero. Changes affect future stored snapshots. See
 [AcuRite calibration](acurite_usb.md#sensor-calibration-and-pressure).
+
+## Davis Vue and Oregon Scientific USB devices
+
+**General Settings > Add Device > Weather Station** saves each console through
+the system settings manager. Defaults keep both disabled on existing hubs:
+
+```toml
+[DavisVue]
+ENABLED = false
+PORT = ""
+BAUD_RATE = 19200
+POLL_INTERVAL_SEC = 60
+
+[OregonScientific]
+ENABLED = false
+MODEL = "WMR100"
+USB_SERIAL = ""
+POLL_INTERVAL_SEC = 60
+```
+
+The device settings remain the source of truth in
+`/home/<user>/Sensorius/system_settings/<device_id>/settings.toml` on Linux/Pi or
+`/Users/<user>/Sensorius/system_settings/<device_id>/settings.toml` on macOS.
+`SENSOR_ID` is populated after acquisition; matching sensor TOML files are created
+under `/home/<user>/Sensorius/sensor_settings/<sensor_id>/sensor.toml` (Linux/Pi)
+or `/Users/<user>/Sensorius/sensor_settings/<sensor_id>/sensor.toml` (macOS).
+Missing sections use compatibility defaults. See
+[USB console support](weather_adapters.md#additional-usb-consoles) for models,
+serial permissions, freshness and rain limitations.

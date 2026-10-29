@@ -17,6 +17,7 @@ from .saiWebContracts import DashboardBinder, DashboardBroadcast, DashboardProdu
 if TYPE_CHECKING:
     from .saiDataLogger import saiDataLogger
     from .saiAcuRite import AcuRiteUsbIngest
+    from .saiUsbWeather import UsbWeatherIngest
     from .saiEcowitt import EcowittGatewayIngest
     from .saiEmailNotifications import EmailNotificationService
     from .saiFarmOSBridge import saiFarmOSBridge
@@ -42,6 +43,8 @@ class RuntimeServices:
     email_notifications: EmailNotificationService | None = None
     automation_notifications: DashboardBinder | None = None
     acurite_service: AcuRiteUsbIngest | None = None
+    davis_service: UsbWeatherIngest | None = None
+    oregon_service: UsbWeatherIngest | None = None
 
     def __post_init__(self) -> None:
         if self.statter is None:
@@ -56,7 +59,7 @@ class RuntimeServices:
     def bind_dashboard_broadcast(self, broadcaster: DashboardBroadcast | None) -> None:
         """Connect existing producers, including already-created system actors."""
         producers: tuple[DashboardProducer | None, ...] = (
-            self.mqtt_ingest, self.ecowitt_service, self.acurite_service, self.email_notifications,
+            self.mqtt_ingest, self.ecowitt_service, self.acurite_service, self.davis_service, self.oregon_service, self.email_notifications,
         )
         for service in producers:
             if service is not None:

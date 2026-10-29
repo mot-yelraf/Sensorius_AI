@@ -20,9 +20,10 @@ fi
 usb_rule_temp=$(mktemp)
 trap 'unlink "$usb_rule_temp"' EXIT
 printf 'SUBSYSTEM=="usb", ATTR{idVendor}=="24c0", ATTR{idProduct}=="0003", GROUP="%s", MODE="0660"\n' "$usb_group" > "$usb_rule_temp"
+printf 'SUBSYSTEM=="usb", ATTR{idVendor}=="0fde", ATTR{idProduct}=="ca01", GROUP="%s", MODE="0660"\n' "$usb_group" >> "$usb_rule_temp"
 mkdir -p /etc/udev/rules.d
 if ! cmp -s "$usb_rule_temp" /etc/udev/rules.d/70-sensorius-acurite.rules; then
   install -o root -g root -m 0644 "$usb_rule_temp" /etc/udev/rules.d/70-sensorius-acurite.rules
 fi
 udevadm control --reload-rules
-printf 'AcuRite USB access configured for group %s. Unplug/reconnect the console to apply it.\n' "$usb_group"
+printf 'AcuRite and Oregon Scientific USB access configured for group %s. Unplug/reconnect the console to apply it.\n' "$usb_group"

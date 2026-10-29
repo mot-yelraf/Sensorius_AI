@@ -1730,7 +1730,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             if (
                 sid_lower == WEEWX_DEFAULT_SENSOR_ID.lower()
                 or sid_lower.startswith("weewx")
-                or sid_lower.startswith(("ecowitt-", "acurite-"))
+                or sid_lower.startswith(("ecowitt-", "acurite-", "davis-", "oregon-"))
             ):
                 values = all_values.get(sid_text) or {}
                 if values:
@@ -1980,7 +1980,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             f"             border-radius:50%;vertical-align:middle;margin-right:6px;"
             f"             background:{_dot_color};border:1px solid #666;'></span>"
         )
-        if sid.startswith(("ecowitt-", "acurite-", "weewx")) or sid in (battery_statuses or {}):
+        if sid.startswith(("ecowitt-", "acurite-", "davis-", "oregon-", "weewx")) or sid in (battery_statuses or {}):
             battery_status = (battery_statuses or {}).get(sid, "UNKNOWN")
             if battery_status not in {"OK", "LOW", "UNKNOWN"}:
                 battery_status = "UNKNOWN"

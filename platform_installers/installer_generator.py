@@ -221,6 +221,7 @@ a = Analysis(
         "hid",
         "usb.backend.libusb1",
         "sensorius.weather_adapters.acurite_hid",
+        "sensorius.weather_adapters.wmr100_usb",
     ],
     hookspath=[],
     runtime_hooks=[str(project / "runtime_hook.py")],

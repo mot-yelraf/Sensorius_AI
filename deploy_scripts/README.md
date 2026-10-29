@@ -167,10 +167,12 @@ To update one configured host without touching the rest of the inventory:
 deploy_scripts/deploy_sai.sh --apply --host sensorius-hub-1
 ```
 
-## AcuRite USB support
+## Weather console USB support
 
 Linux/Pi installers include libusb and invoke `configure_acurite_usb.sh` to install
-a narrow `24c0:0003` udev rule for the runtime user group. Native Debian packages
+narrow AcuRite `24c0:0003` and Oregon Scientific `0fde:ca01` udev rules for the runtime user group. Native Debian packages
 use the `sensorius` service group. macOS/Windows requirements include platform-marked
 HIDAPI; keep their native HID drivers. The installer generator includes the helper
-and desktop HID worker. See [AcuRite setup](../docs/acurite_usb.md).
+and desktop HID workers. Davis Vue uses the existing PySerial dependency and
+requires serial-device permissions on Linux. See [AcuRite setup](../docs/acurite_usb.md)
+and [additional USB consoles](../docs/weather_adapters.md#additional-usb-consoles).
