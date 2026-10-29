@@ -1,4 +1,12 @@
 const { TZ_OFFSET_S, TZ_NAME, GRAPH_GAUGE_CONFIG, SWITCH_MAP } = JSON.parse(document.getElementById('graph-config').textContent);
+function graphMetricLabel(metric) {
+  return String(GRAPH_GAUGE_CONFIG?.[metric]?.display_label || metric);
+}
+function graphSeriesLabel(key) {
+  const metric = graphMetricNameFromKey(key);
+  const text = String(key);
+  return text.endsWith(metric) ? text.slice(0, text.length - metric.length) + graphMetricLabel(metric) : text;
+}
 function toggleCustomTime(enabled){ const el = document.getElementById('custom_time_inputs'); if(el) el.style.display = enabled ? 'grid' : 'none'; }
 
     function toLocalMs(rawTs){
@@ -146,7 +154,7 @@ function toggleCustomTime(enabled){ const el = document.getElementById('custom_t
         metricNames.forEach(name => {
           const opt = document.createElement('option');
           opt.value = name;
-          opt.textContent = name;
+          opt.textContent = graphMetricLabel(name);
           msel.appendChild(opt);
         });
       }finally{
@@ -692,8 +700,8 @@ function toggleCustomTime(enabled){ const el = document.getElementById('custom_t
         const group = graphOptionGroup(entry.sensor, (sensorLocations || {})[entry.sensor]);
         if(index === 0) group.details.open = true;
         entry.metrics.forEach(function(metric){
-          const display = entry.sensor + ' · ' + metric;
-          group.items.appendChild(graphCheckboxRow('fullscreen-metric-checkbox', metric, {
+          const display = entry.sensor + ' · ' + graphMetricLabel(metric);
+          group.items.appendChild(graphCheckboxRow('fullscreen-metric-checkbox', graphMetricLabel(metric), {
             'data-sensor': entry.sensor,
             'data-metric': metric,
             'data-display-label': display
@@ -1288,7 +1296,7 @@ function toggleCustomTime(enabled){ const el = document.getElementById('custom_t
 
         const baseColor = baseColors[idx % baseColors.length];
         datasets.push({
-          label: ((data.display_names && data.display_names[k]) || k) + (metricUnit ? ' (' + metricUnit + ')' : ''),
+          label: graphSeriesLabel((data.display_names && data.display_names[k]) || k) + (metricUnit ? ' (' + metricUnit + ')' : ''),
           data: points,
           borderColor: baseColor,
           yAxisID: yAxisID,

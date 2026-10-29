@@ -1,7 +1,7 @@
 # Sensors And Metrics
 
 Sensorius supports local Raspberry Pi sensors, MQTT-discovered Nodus sensors,
-optional WeeWX station ingest, and Ecowitt LAN gateway weather polling. All readings are normalized into the same
+optional WeeWX station ingest, Ecowitt LAN gateway weather polling, and AcuRite USB consoles. All readings are normalized into the same
 database and dashboard model.
 
 Each sensor defines a `measurements` list that determines the metric names
@@ -42,7 +42,7 @@ queries are independent of weather polling. Commands are followed by status
 confirmation; observed relay changes use the standard switch event history.
 See the Ecowitt section in the [user guide](user_guide.md#ecowitt-gateway).
 
-- Discovers GW1100 and GW1200 gateways, plus other compatible Ecowitt gateways,
+- Discovers GW1100, GW1200, GW2000 and GW3000 gateways, plus compatible Ecowitt gateways,
   and their registered sensors through the local generic HTTP API. GW1200
   support includes WH65/WS69-class traditional-rain arrays; the Ambient Weather
   WS-2000 outdoor array is sold as a WH65B and must use the same regional RF
@@ -271,3 +271,15 @@ the installed SGP model cannot provide.
 Do not rename stored metric keys casually. Existing database history,
 automation rules, Home Assistant entities, and display settings can depend on
 the exact strings.
+
+## AcuRite USB stations
+
+A PC Connect console aggregates its outdoor RF sensors as a station device.
+AcuRite uses the shared logger/dashboard path with distinct console temperature
+and Station Pressure fields. Outdoor temperature/RH offsets and system-altitude
+pressure correction apply before persistence; Baro-Pressure is the corrected
+sea-level metric. The raw pressure history key remains `Console Absolute Baro-Pressure`.
+GPIO support is not required. See [AcuRite USB](acurite_usb.md)
+for setup and [Weather adapters](weather_adapters.md) for units, freshness, rain
+limitations and extension guidance. GW2000/GW3000 and AcuRite coverage is based on
+protocol fixtures; physical hardware validation remains necessary.

@@ -23,6 +23,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.background import BackgroundTask
 
 from .saiEcowitt import ecowitt_sensor_health
+from .saiWeatherStation import station_health
 from .saiServiceRestart import find_restart_service, restart_service
 from .saiRuntimeServices import RuntimeServices
 from .saiUtils import mdns_hostname, normalize_hostname_base, normalize_sensor_id, printDM
@@ -263,7 +264,10 @@ class DeviceStatistics:
 
         return {
             "is_ecowitt": normalized_id.startswith("ecowitt-"),
+            "is_acurite": normalized_id.startswith("acurite-"),
             **(await asyncio.to_thread(ecowitt_sensor_health, data_logger, normalized_id)),
+            **(await asyncio.to_thread(station_health, data_logger, normalized_id)
+               if normalized_id.startswith("acurite-") else {}),
             "offline_events_24h": offline_events_24h,
             "last_offline_epoch": last_offline_epoch,
             "uptime_since_last_offline_label": _format_stats_duration(

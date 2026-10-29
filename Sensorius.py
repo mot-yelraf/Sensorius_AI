@@ -6,6 +6,11 @@ importing it aliases the module object to :mod:`sensorius.app` for compatibility
 
 import sys
 
+if __name__ == "__main__" and sys.argv[1:] == ["--acurite-hid-worker"]:
+    from sensorius.weather_adapters.acurite_hid import main
+    main()
+    raise SystemExit(0)
+
 from sensorius import app as _app
 
 

@@ -182,6 +182,13 @@ def sensor_settings(sensor_id: str = "aht-pr-check", documentation: bool = False
     """Render a sensor's real settings and calibration panes for mobile checks."""
     from sensorius.saiInputUnits import calibration_presentation
     offsets = [{"key": "Calibration.Device.TEMP_OFFSET", "label": "Temperature", "unit": "°C", "value": 1.0}]
+    is_acurite = sensor_id.startswith("acurite-")
+    if is_acurite:
+        offsets += [
+            {"key": "Calibration.Device.RH_OFFSET", "label": "Rel-Humidity", "unit": "%", "value": 0.0},
+            {"key": "Calibration.Device.ALTITUDE_METERS", "label": "System Altitude", "unit": "m", "value": 1624.0,
+             "readonly": True, "force_send": True, "title": "Altitude is edited in General Settings."},
+        ]
     presentation = calibration_presentation(offsets, 0.0, "Imperial")
     example = {
         "nodus_board_type": "xesp32s3", "nodus_sensor_hardware": "BME280",
@@ -190,7 +197,8 @@ def sensor_settings(sensor_id: str = "aht-pr-check", documentation: bool = False
         "last_packet_epoch": 1791979195, "data_packets_received": 1200,
     } if documentation else {}
     return HTMLResponse(templates.get_template("modals/sensor_settings.html").render(
-        device_kind="aht", device_offsets=offsets, **presentation,
+        device_kind="acurite_usb" if is_acurite else "aht", device_offsets=offsets, **presentation,
+        supports_device_calibration=True, supports_system_calibration=not is_acurite,
         candidate_sensors=["aht-pr-check", "reference"],
         sensor_id=sensor_id, is_ecowitt=sensor_id.startswith("ecowitt-"),
         battery_status="OK", network_info={"ip_address": "192.0.2.20", "broker": "mqtt.example.com", "broker_status": "Connected"}
@@ -250,7 +258,7 @@ def weather_forecast(request: Request, units: str = "Metric", native: bool = Fal
             "precip_probability": 59,
         } for day in range(1, 7)],
     }, units)
-    latest = {"is_ecowitt": station.startswith("ecowitt-"), "is_weewx": station in {"weewx-station", "custom-weather-station"}, "battery_status": battery if battery in {"OK", "LOW"} else "UNKNOWN", "sensor_id": station, "location": "Weather Station", "ok": True} if battery else {}
+    latest = {"is_ecowitt": station.startswith("ecowitt-"), "is_acurite": station.startswith("acurite-"), "is_weewx": station in {"weewx-station", "custom-weather-station"}, "battery_status": battery if battery in {"OK", "LOW"} else "UNKNOWN", "sensor_id": station, "location": "Weather Station", "ok": True} if battery else {}
     if thermal:
         from sensorius.saiWeatherForecastApp import WeatherForecastAppService
 

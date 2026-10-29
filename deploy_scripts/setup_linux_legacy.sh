@@ -121,6 +121,7 @@ install_system_packages() {
     python3-pip
     mosquitto
     mosquitto-clients
+    libusb-1.0-0
   )
 
   if [[ "${INSTALL_PYWEBVIEW}" == "1" ]]; then
@@ -145,6 +146,7 @@ install_system_packages() {
 
   run_with_heartbeat "APT install system packages" \
     sudo apt-get install -y --no-install-recommends "${apt_pkgs[@]}"
+  configure_acurite_usb_access
 }
 
 install_requirements() {

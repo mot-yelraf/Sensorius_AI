@@ -138,7 +138,7 @@ sudo apt update
 sudo apt upgrade -y
 sudo apt install -y \
   python3 python3-pip python3-venv python3-dev \
-  sqlite3 libatlas-base-dev libopenblas0 \
+  libusb-1.0-0 sqlite3 libatlas-base-dev libopenblas0 \
   build-essential git chrony locate cmake swig liblgpio-dev \
   raspi-gpio logrotate mosquitto mosquitto-clients \
   libgirepository1.0-dev \
@@ -148,6 +148,7 @@ sudo apt install -y \
   libffi-dev libssl-dev \
   libjpeg-dev zlib1g-dev libopenjp2-7 \
   cups cups-client cups-ipp-utils cups-filters-core-drivers avahi-daemon
+  configure_acurite_usb_access
 
 echo "Preparing Python 3.11 virtual environment..."
 # Create new venv with access to system packages (e.g., gi, GTK)

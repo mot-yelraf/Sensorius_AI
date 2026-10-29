@@ -89,3 +89,15 @@ def test_invalid_target_is_rejected_before_output_is_created(tmp_path):
 def test_macos_bundle_version_uses_three_numeric_components():
     assert generator.macos_bundle_version("0.26.230.16") == "26.230.16"
     assert generator.macos_bundle_version("2.4.6") == "2.4.6"
+
+
+def test_weather_usb_packaging_includes_permissions_and_desktop_worker(tmp_path):
+    release = generator.generate(tmp_path, ["linux-amd64", "macos-arm64", "windows-x64"], generator.canonical_version(), False)
+    assert (release / "payload/deploy_scripts/configure_acurite_usb.sh").is_file()
+    build = (release / "linux-amd64/build.sh").read_text()
+    assert "libusb-1.0-0, udev" in build
+    postinst = (release / "linux-amd64/postinst").read_text()
+    assert "configure_acurite_usb.sh sensorius 0" in postinst
+    spec = (release / "macos-arm64/Sensorius.spec").read_text()
+    assert '"hid"' in spec and '"sensorius.weather_adapters.acurite_hid"' in spec
+    assert 'hidapi==' in (release / "requirements/macos.txt").read_text()

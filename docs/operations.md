@@ -686,3 +686,13 @@ The repair retains the original as `lgpio_pin.py.sensorius-gpio-backup` beside
 the installed file, for example
 `/home/<user>/py311/lib/python3.11/site-packages/adafruit_blinka/microcontroller/generic_linux/lgpio_pin.py.sensorius-gpio-backup`.
 It does not renumber devices, alter GPIO permissions, or change pin states.
+
+## AcuRite USB diagnostics
+
+`GET /acurite/status` reports configured family, enabled state, USB connectivity,
+RF freshness, battery health and actionable errors without probing USB from the
+request. Setup uses `POST /acurite/save` and `POST /acurite/disable` through the
+existing protected-access policy. Changes apply on the next sample without a
+service restart. Check mode 4, exclusive USB access and Linux group permissions
+when reports are unavailable. See [AcuRite USB](acurite_usb.md). Physical hardware
+and native installed application behavior still require platform verification.

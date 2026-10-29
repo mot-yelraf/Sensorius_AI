@@ -73,7 +73,7 @@
                       <select name="metric_{{ i }}" id="metric_{{ i }}" class="sensor-metric-select">
                         {% for opt in metric_options %}
                         {% set val = opt or '' %}
-                        {% set label = opt if opt else 'Empty' %}
+                        {% set label = 'Station Pressure' if opt == 'Console Absolute Baro-Pressure' else (opt if opt else 'Empty') %}
                         <option
                           value="{{ val | e }}"
                           {% if val == current_metrics[i-1] %}selected{% endif %}
@@ -103,7 +103,7 @@
                       <select name="metric_{{ i }}" id="metric_{{ i }}" class="sensor-metric-select">
                         {% for opt in metric_options %}
                         {% set val = opt or '' %}
-                        {% set label = opt if opt else 'Empty' %}
+                        {% set label = 'Station Pressure' if opt == 'Console Absolute Baro-Pressure' else (opt if opt else 'Empty') %}
                         <option
                           value="{{ val | e }}"
                           {% if val == current_metrics[i-1] %}selected{% endif %}
@@ -301,6 +301,9 @@
 
                 {% elif device_offsets %}
                   <h4 class="section-title">Offsets</h4>
+                  {% if device_kind == 'acurite_usb' %}
+                  <p class="muted">Temperature and RH offsets correct outdoor readings before storage. System Altitude comes from General Settings and corrects Baro-Pressure; uncorrected Station Pressure remains available separately.</p>
+                  {% endif %}
                   <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
                     <tbody>
                       {% for off in device_offsets %}
@@ -465,7 +468,7 @@
               <div class="section">
                 <h4 class="section-title">Statistics</h4>
                 <div class="statistics-list">
-                  {% if is_ecowitt %}
+                  {% if is_ecowitt or is_acurite %}
                   <div class="statistics-row">
                     <span>Battery Status:</span>
                     <strong data-stat-value="battery-status">{{ battery_status | default('UNKNOWN') }}</strong>

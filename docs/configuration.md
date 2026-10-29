@@ -607,3 +607,18 @@ HTTP forms bind the units displayed when opened to each submission. The altitude
 form sends `astral_altitude_unit` (`m` or `ft`); requests without this field retain
 meter semantics. An unchanged altitude preserves its stored representation.
 See the user guide and automation documentation for threshold versus delta rules.
+
+## AcuRite USB device
+
+The hub TOML `[AcuRite]` section defaults to `ENABLED = false`, `MODEL = "01536"`,
+`USB_SERIAL = ""`, and `POLL_INTERVAL_SEC = 60` (60–3600). Missing sections retain
+these compatibility defaults. Add Device validates console profile/serial/interval
+and saves them together through the system settings manager. Station sensor TOML
+uses `TYPE = "station"`, `DEVICE = "acurite_usb"`; user location and display
+choices survive reconnects. See [AcuRite USB](acurite_usb.md) for absolute paths.
+
+AcuRite sensor calibration uses `[Calibration.Device]` in its sensor TOML:
+`TEMP_OFFSET` (Celsius difference), `RH_OFFSET` (percentage points), and
+`ALTITUDE_METERS` (mirrored from system `[Astral].ALTITUDE`, not edited per sensor).
+Missing offsets default to zero. Changes affect future stored snapshots. See
+[AcuRite calibration](acurite_usb.md#sensor-calibration-and-pressure).

@@ -70,3 +70,12 @@ Ecowitt first, place the gateway and Sensorius host on the same trusted LAN,
 and prefer a DHCP reservation. The gateway requires 2.4 GHz Wi-Fi. Sensorius
 does not use direct GPIO for Ecowitt devices and does not change gateway
 configuration.
+
+## Weather station consoles and gateways
+
+Direct GPIO/I2C sensors remain Raspberry Pi-only. USB weather consoles are a
+separate supported device class on all host platforms. Supported AcuRite PC Connect
+console profiles and Linux permissions are documented in [AcuRite USB](acurite_usb.md).
+Ecowitt GW1100/GW1200/GW2000/GW3000 share the generic LAN HTTP adapter; gateway
+support does not automatically add every optional sensor channel. GW2000/GW3000
+coverage uses synthetic protocol fixtures and needs physical-device validation.

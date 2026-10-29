@@ -10,7 +10,7 @@ PREFLIGHT_ONLY="${SENSORIUS_PREFLIGHT_ONLY:-0}"
 
 TRIXIE_APT_PKGS=(
   python3 python3-pip python3-venv python3-dev
-  sqlite3 libopenblas-dev
+  libusb-1.0-0 sqlite3 libopenblas-dev
   build-essential git chrony locate cmake swig liblgpio-dev
   logrotate mosquitto mosquitto-clients
   libgirepository1.0-dev
@@ -70,6 +70,7 @@ install_system_packages() {
   run_with_heartbeat "APT upgrade" sudo apt-get upgrade -y
 
   run_with_heartbeat "APT install system dependencies" sudo apt-get install -y "${TRIXIE_APT_PKGS[@]}"
+  configure_acurite_usb_access
 
   if ! command -v pinctrl >/dev/null 2>&1; then
     echo "Note: Raspberry Pi OS Trixie uses pinctrl instead of the retired raspi-gpio package."

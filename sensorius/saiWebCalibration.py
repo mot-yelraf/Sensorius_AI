@@ -193,6 +193,7 @@ def register_calibration_routes(
             "avpd",
             "bme280",
             "apvpd",
+            "acurite_usb",
         }
 
 
@@ -1229,9 +1230,14 @@ def register_calibration_routes(
 
         mgr = SensorSettingsManager("sensor_settings")
         try:
-            doc = _load_sensor_settings_with_direct_local_repair(mgr, sensor_id)
+            doc = await asyncio.to_thread(_load_sensor_settings_with_direct_local_repair, mgr, sensor_id)
         except FileNotFoundError:
             doc = {}
+        if str((doc.get("Sensor") or {}).get("DEVICE", "")).lower() == "acurite_usb":
+            device_kind = "acurite_usb"
+            allowed = {"Calibration.Device.TEMP_OFFSET", "Calibration.Device.RH_OFFSET", "Calibration.Device.ALTITUDE_METERS"}
+            if any(item.get("key") not in allowed for item in offsets):
+                return JSONResponse({"status": "error", "message": "Unsupported AcuRite calibration field."}, status_code=400)
         offsets = _filter_changed_device_offsets(doc, device_kind, offsets)
         if not offsets:
             return JSONResponse(
@@ -1255,7 +1261,7 @@ def register_calibration_routes(
                 return JSONResponse(body, status_code=status_code)
         else:
             try:
-                applied_keys = _apply_device_offsets_shadow(sensor_id, device_kind, offsets)
+                applied_keys = await asyncio.to_thread(_apply_device_offsets_shadow, sensor_id, device_kind, offsets)
             except Exception as exc:
                 printDM(f"[{MODULE}] device_calibration_apply save error: {exc}", location=MODULE)
                 return JSONResponse(
@@ -1561,7 +1567,7 @@ def register_calibration_routes(
             )
 
         # Non-APVPD VPD sensors (DEVICE="vpd" or "avpd")
-        elif device_kind in ("vpd", "avpd", "bme280", "aht", "aht10", "ahtx0"):
+        elif device_kind in ("vpd", "avpd", "bme280", "aht", "aht10", "ahtx0", "acurite_usb"):
             _add_offset("Calibration.Device.TEMP_OFFSET", "Temperature", "°C", "TEMP_OFFSET")
             _add_offset("Calibration.Device.RH_OFFSET",   "Rel-Humidity", "%", "RH_OFFSET")
         elif device_kind in ("soil",):

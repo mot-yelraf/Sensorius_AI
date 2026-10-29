@@ -1,5 +1,5 @@
 # Linux (Debian/Ubuntu) requirements for saiSensorius MQTT-only mode
-# No directly connected sensor/I2C packages are included.
+# USB weather consoles are supported; no direct GPIO/I2C packages are included.
 
 # Web stack
 fastapi==0.115.12

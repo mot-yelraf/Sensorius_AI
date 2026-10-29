@@ -6,9 +6,9 @@
 
 Sensorius Automatio Instrumentorum, also called Sensorius AI or Sensorius, is an environmental sensing and automation hub for gardens, greenhouses, grow rooms, small farms, and other places where environmental conditions matter. It gives you live readings, historical graphs, switch control, calibration tools, fully integrated Caelus Weather Forecast, Maria Thun-inspired Biodynamic Calendar, and optional integrations with Home Assistant, WeeWX, and farmOS.
 
-Sensorius can run as a Raspberry Pi hub with directly connected sensors and relays, as well as Wi-Fi Nodus sensors and switches that communicate via a lightweight, open-standard communications protocal, MQTT (Message Queuing Telemetry Transport), as well as Ecowitt Gateways (GW1100/GW1200) with weather sensor integration.
+Sensorius can run as a Raspberry Pi hub with directly connected sensors and relays, as well as Wi-Fi Nodus sensors and switches that communicate via a lightweight, open-standard communications protocal, MQTT (Message Queuing Telemetry Transport), as well as Ecowitt Gateways (GW1100/GW1200/GW2000/GW3000) and supported AcuRite PC Connect USB consoles.
 
-Sensorius can also run on macOS, Windows, or Linux as a hub for Wi-Fi Nodus sensors and switches, as well as Ecowitt Gateways (GW1100/GW1200) with weather sensor integration. In normal use, both kinds of devices appear together on the same dashboard.
+Sensorius can also run on macOS, Windows, or Linux as a hub for Wi-Fi Nodus sensors and switches, as well as Ecowitt Gateways (GW1100/GW1200/GW2000/GW3000) and supported AcuRite PC Connect USB consoles. These devices appear together on the same dashboard.
 
 <!-- pdf-keep-together:start -->
 ## Dashboard Overview
@@ -813,10 +813,89 @@ use the new value.
 
 ### Add Device Pane
 
-Use Add Device to onboard a factory-bootstrapped Nodus device or add a local
-Ecowitt gateway. The page groups device types into expandable sections.
-**Nodus Device(s)** contains the Nodus onboarding workflow. **Ecowitt Gateway**
-discovers and enables a read-only LAN weather-station connection.
+Use Add Device to onboard a factory-bootstrapped Nodus device, add a local
+Ecowitt gateway, or connect an AcuRite USB console. Expandable sections appear
+in this order: **Nodus Device**, **Ecowitt Gateway**, **AcuRite USB Console**.
+The descriptions below follow the same order. Screenshots use the running
+Sensorius app on samhain; private network values are replaced with examples.
+
+#### Nodus Device
+
+Use the instructions for the platform running Sensorius. Opening the dashboard
+in a browser on another computer does not change the hub's onboarding method.
+
+##### Nodus on Linux and Raspberry Pi
+
+![Add Device Nodus pane: Linux/Raspberry Pi platform preview](<../assets/screenshots/system-settings-add-device-linux-rpi.png>)
+
+The image previews the Linux/Raspberry Pi workflow using samhain’s live page
+with an example Linux scan response. Samhain itself runs macOS; this is not a
+physical Linux/Pi onboarding capture. No onboarding was performed.
+
+On Linux and Raspberry Pi, Sensorius scans for the Nodus setup access point,
+joins it, sends the bootstrap configuration, and restores the previous network.
+A failed scan leaves Add disabled; confirm that the Nodus AP is broadcasting,
+then use Retry. For Raspberry Pi deployments that onboard over Wi-Fi, use a
+2.4 GHz network path. If the router combines 2.4 GHz and 5 GHz under one SSID,
+ethernet on the Raspberry Pi is usually the most reliable setup. If Add Device
+reports `network_control_not_authorized`, the Linux/Raspberry Pi service install
+did not grant NetworkManager control; use the Operations guide to repair the
+service authorization.
+
+Before switching Wi-Fi, the page creates a resumable onboarding session. A
+browser connected through the Pi's Wi-Fi may be temporarily unreachable while
+the Pi joins the Nodus AP; progress polling resumes after the Pi restores its
+previous network. Run Sensorius through `sensorius.service`, not a foreground
+SSH process, during this transition.
+
+##### Nodus on macOS
+
+![Add Device Nodus pane on macOS](<../assets/screenshots/system-settings-add-device-macos.png>)
+
+macOS requires administrator authorization when an application changes Wi-Fi
+networks programmatically and may request the administrator username and
+password multiple times during one onboarding attempt. Even after the user
+authorizes those changes, macOS can report stale or incomplete Wi-Fi state.
+That makes automatic switching less predictable and less user-friendly than a
+single manual network selection, so Sensorius deliberately leaves the Wi-Fi
+change to the user.
+
+Enter the exact 2.4 GHz home Wi-Fi SSID and the password for that SSID in Add
+Device before changing networks. The SSID matters even when a router uses the
+same password for separate 2.4 GHz and 5 GHz networks; select the 2.4 GHz
+network because Nodus cannot join a 5 GHz-only SSID. Join the
+`Nodus-<serial-number>` setup network in macOS Wi-Fi, then return to Sensorius
+and click Add. A previously used Nodus may appear under Known Networks; a new
+one may appear under Other.
+
+Sensorius verifies the manual join using the `192.168.4.x` Wi-Fi address and
+the Nodus `/itaot-meta` endpoint. It does not use `networksetup` to join,
+inspect, or restore Wi-Fi because current macOS versions can report error
+`-3900` or stale association state after a successful graphical join. After
+bootstrap, rejoin the home network in macOS Wi-Fi if it does not reconnect
+automatically. Ethernet is not required: when Wi-Fi is the Mac's only network
+connection, keep Sensorius open at `http://127.0.0.1:8000`; the Nodus AP
+disappears after bootstrap and macOS can then reconnect to the home network.
+Sensorius waits for the MQTT handshake and the Nodus retries its broker
+connection until the Mac is reachable. If the AP disappears before its HTTP
+response reaches Sensorius, Add Device reports that the response was lost and
+continues waiting for the correlated MQTT hello instead of immediately
+declaring failure.
+
+##### Shared Nodus Fields and Status
+
+- **Scanning for Nodus_Setup**: Sensorius scans for the Nodus setup access point.
+- **Connected to Nodus setup AP**: confirms Sensorius or the host joined the Nodus setup network.
+- **Bootstrap sent to Nodus**: confirms Wi-Fi and broker bootstrap information was sent.
+- **Sensorius rejoined your Wi-Fi**: confirms the hub returned to the normal network.
+- **Waiting for Nodus to reboot and connect**: waits for the Nodus device to reboot, join Wi-Fi, connect to MQTT, and send its hello/config result.
+- **Retry**: retries the current onboarding session.
+- **Add**: starts onboarding after the platform-specific setup steps are complete.
+
+The legacy `Nodus_Setup` and `Nodus-Setup` names remain supported. When
+onboarding reaches Device Online, Sensorius automatically reloads the dashboard
+so the newly discovered Sensor Group, Sensor Tiles, and Switch Tiles appear
+without a manual browser refresh.
 
 #### Ecowitt Gateway
 
@@ -824,7 +903,7 @@ discovers and enables a read-only LAN weather-station connection.
 
 Ecowitt Gateway fields and controls are arranged in two columns:
 
-- **GW1100 / GW1200 URL**: the gateway base address, such as
+- **GW1100 / GW1200 / GW2000 / GW3000 URL**: the gateway base address, such as
   `http://192.168.1.100` or a local hostname. Do not include a path,
   credentials, query, or fragment.
 - **Find Devices**: queries the gateway's read-only version, network, sensor
@@ -843,7 +922,7 @@ Ecowitt Gateway fields and controls are arranged in two columns:
 - **Disable**: stops polling without deleting station settings or historical
   readings. It also prevents Sensorius plug commands while disabled.
 
-Configure the GW1100 or GW1200 on the same trusted LAN first. A DHCP reservation
+Configure the Ecowitt gateway on the same trusted LAN first. A DHCP reservation
 is recommended. For an Ambient Weather WS-2000 outdoor array, use a North
 American 915 MHz GW1200 and confirm that the gateway has registered the
 WH65/WS69-class array in the Ecowitt app before adding it to Sensorius. The
@@ -889,74 +968,25 @@ with the gateway firmware version; do not include Wi-Fi credentials or weather
 service keys. The read-only `/ecowitt/status` response includes `live_metrics`,
 the normalized metric names accepted during the most recent discovery or poll.
 
-#### Nodus on Linux and Raspberry Pi
+#### AcuRite USB Console
 
-![Add Device Nodus pane on Linux or Raspberry Pi](<../assets/screenshots/system-settings-add-device-linux-rpi.png>)
+![Add Device AcuRite USB Console pane](<../assets/screenshots/system-settings-add-device-acurite.png>)
 
-On Linux and Raspberry Pi, Sensorius scans for the Nodus setup access point,
-joins it, sends the bootstrap configuration, and restores the previous network.
-A failed scan leaves Add disabled; confirm that the Nodus AP is broadcasting,
-then use Retry. For Raspberry Pi deployments that onboard over Wi-Fi, use a
-2.4 GHz network path. If the router combines 2.4 GHz and 5 GHz under one SSID,
-ethernet on the Raspberry Pi is usually the most reliable setup. If Add Device
-reports `network_control_not_authorized`, the Linux/Raspberry Pi service install
-did not grant NetworkManager control; use the Operations guide to repair the
-service authorization.
+Open **General Settings > Add Device > AcuRite USB Console**. Choose your console
+family, optionally enter its USB serial, select the retrieval interval, and choose
+**Save Console**. Supported profiles include 01536-RX/06056, 01025, 01035,
+01036/01092/06006, 01525 and 02032/02033/01093/06037. Select mode 4 on consoles
+with a USB mode setting; the 01536 family uses it automatically. Connect the console
+to the Sensorius host and close other applications reading its USB interface.
 
-Before switching Wi-Fi, the page creates a resumable onboarding session. A
-browser connected through the Pi's Wi-Fi may be temporarily unreachable while
-the Pi joins the Nodus AP; progress polling resumes after the Pi restores its
-previous network. Run Sensorius through `sensorius.service`, not a foreground
-SSH process, during this transition.
-
-#### Nodus on macOS
-
-![Add Device Nodus pane on macOS](<../assets/screenshots/system-settings-add-device-macos.png>)
-
-macOS requires administrator authorization when an application changes Wi-Fi
-networks programmatically and may request the administrator username and
-password multiple times during one onboarding attempt. Even after the user
-authorizes those changes, macOS can report stale or incomplete Wi-Fi state.
-That makes automatic switching less predictable and less user-friendly than a
-single manual network selection, so Sensorius deliberately leaves the Wi-Fi
-change to the user.
-
-Enter the exact 2.4 GHz home Wi-Fi SSID and the password for that SSID in Add
-Device before changing networks. The SSID matters even when a router uses the
-same password for separate 2.4 GHz and 5 GHz networks; select the 2.4 GHz
-network because Nodus cannot join a 5 GHz-only SSID. Join the
-`Nodus-<serial-number>` setup network in macOS Wi-Fi, then return to Sensorius
-and click Add. A previously used Nodus may appear under Known Networks; a new
-one may appear under Other.
-
-Sensorius verifies the manual join using the `192.168.4.x` Wi-Fi address and
-the Nodus `/itaot-meta` endpoint. It does not use `networksetup` to join,
-inspect, or restore Wi-Fi because current macOS versions can report error
-`-3900` or stale association state after a successful graphical join. After
-bootstrap, rejoin the home network in macOS Wi-Fi if it does not reconnect
-automatically. Ethernet is not required: when Wi-Fi is the Mac's only network
-connection, keep Sensorius open at `http://127.0.0.1:8000`; the Nodus AP
-disappears after bootstrap and macOS can then reconnect to the home network.
-Sensorius waits for the MQTT handshake and the Nodus retries its broker
-connection until the Mac is reachable. If the AP disappears before its HTTP
-response reaches Sensorius, Add Device reports that the response was lost and
-continues waiting for the correlated MQTT hello instead of immediately
-declaring failure.
-
-Shared Nodus fields and status rows:
-
-- **Scanning for Nodus_Setup**: Sensorius scans for the Nodus setup access point.
-- **Connected to Nodus setup AP**: confirms Sensorius or the host joined the Nodus setup network.
-- **Bootstrap sent to Nodus**: confirms Wi-Fi and broker bootstrap information was sent.
-- **Sensorius rejoined your Wi-Fi**: confirms the hub returned to the normal network.
-- **Waiting for Nodus to reboot and connect**: waits for the Nodus device to reboot, join Wi-Fi, connect to MQTT, and send its hello/config result.
-- **Retry**: retries the current onboarding session.
-- **Add**: starts onboarding after the platform-specific setup steps are complete.
-
-The legacy `Nodus_Setup` and `Nodus-Setup` names remain supported. When
-onboarding reaches Device Online, Sensorius automatically reloads the dashboard
-so the newly discovered Sensor Group, Sensor Tiles, and Switch Tiles appear
-without a manual browser refresh.
+USB sampling continues every 18 seconds to capture alternating weather reports.
+The console becomes a separate station on the dashboard alongside Ecowitt and
+Nodus devices. Ecowitt and AcuRite dashboard headers show only the final six
+characters of their UUID; their full IDs remain in settings and history. For example,
+`ECOWITT-F85B1B51804C` displays as `ECOWITT-51804C`, and
+`ACURITE-B6A529FFB882C4F` displays as `ACURITE-882C4F`. **Disable** retains its settings and history. Use the current
+platform installer for USB dependencies and permissions. See [AcuRite USB](acurite_usb.md)
+for setup, supported fields and physical-validation limitations.
 
 ### Update Device Pane
 
@@ -1202,6 +1232,14 @@ it in General Settings > Astral, then apply device calibration. Sensorius stores
 altitude in meters and sends meters to Nodus. Device-native Nodus calibration and
 automation screens continue to use their own units; Sensorius' display preference
 does not change the firmware.
+
+For an AcuRite USB station, Sensor Calibration provides outdoor **Temperature**
+and **Rel-Humidity** offsets plus read-only **System Altitude**. Corrections
+apply before storage, including Fahrenheit and derived humidity/VPD metrics.
+Altitude changes in General Settings apply at the next stored snapshot.
+**Station Pressure** is the uncorrected local pressure; **Baro-Pressure** is the
+altitude-corrected sea-level value. Existing history stays unchanged. See
+[AcuRite calibration](acurite_usb.md#sensor-calibration-and-pressure).
 
 Calibration data comes from the sensor's `Calibration` section, Nodus metadata, and device-specific calibration endpoints. Apply small changes, then watch the dashboard and graphs to confirm the readings now track your trusted reference.
 

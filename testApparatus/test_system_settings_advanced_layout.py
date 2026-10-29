@@ -75,7 +75,7 @@ def test_automation_editor_actions_are_outside_the_scrollable_form():
         assert editor.index(f'id="{button_id}"') > form_end
 
 
-def test_expandable_sections_use_alphabetical_display_order():
+def test_expandable_sections_use_requested_display_order():
     template = (ROOT / "ui_templates" / "modals" / "system_settings.html").read_text(encoding="utf-8")
     system_pane = template[
         template.index('<div class="settings-pane" id="pane-system">'):
@@ -95,7 +95,7 @@ def test_expandable_sections_use_alphabetical_display_order():
         system_pane.index(section) for section in expected_sections
     )
     for pane_start, pane_end, expected_order in (
-        ('id="pane-add"', 'id="pane-update"', ('id="add-ecowitt-section"', 'id="add-nodus-section"')),
+        ('id="pane-add"', 'id="pane-update"', ('id="add-nodus-section"', 'id="add-ecowitt-section"', 'id="add-acurite-section"')),
         ('id="pane-integrations"', 'id="pane-locations"', ('integrations-farmos', 'integrations-home-assistant', 'integrations-weewx')),
         ('id="pane-advanced"', '<script>', ('id="adv-section-database"', 'id="adv-section-debug"', 'id="adv-section-startup"')),
     ):

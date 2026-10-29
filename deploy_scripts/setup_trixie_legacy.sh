@@ -148,7 +148,7 @@ sudo apt upgrade -y
 # Base packages, plus Python build deps for pyenv.
 apt_pkgs=(
   python3 python3-pip python3-venv python3-dev
-  sqlite3 libopenblas-dev
+  libusb-1.0-0 sqlite3 libopenblas-dev
   build-essential git chrony locate cmake swig liblgpio-dev
   logrotate mosquitto mosquitto-clients
   libgirepository1.0-dev
@@ -162,6 +162,7 @@ apt_pkgs=(
   xz-utils tk-dev libxml2-dev libxmlsec1-dev liblzma-dev
 )
 sudo apt install -y "${apt_pkgs[@]}"
+  configure_acurite_usb_access
 
 if ! command -v pinctrl >/dev/null 2>&1; then
   echo "Note: Raspberry Pi OS Trixie uses pinctrl instead of the retired raspi-gpio package."

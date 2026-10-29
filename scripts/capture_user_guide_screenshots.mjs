@@ -226,7 +226,7 @@ try {
     payloads['/scan-nodus-setup'] = {platform, found: platform === 'Linux', ssids: ['Nodus_Setup'],
       manual_join_required: platform === 'Darwin', current_ssid: 'Example Garden',
       message: platform === 'Darwin' ? 'Join a Nodus setup network in macOS Wi-Fi, then click Add.' : 'Nodus setup network found'};
-    await systemCapture(`system-settings-add-device-${filename}.png`, 'Add Device', 'Nodus Device(s)', async page => {
+    await systemCapture(`system-settings-add-device-${filename}.png`, 'Add Device', 'Nodus Device', async page => {
       await page.waitForFunction(() => !document.querySelector('#btn-onboard-add').disabled);
     });
   }

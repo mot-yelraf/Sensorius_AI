@@ -450,7 +450,7 @@ class rPiHomeAssistantBridge:
             from .saiSensorSettingsManager import SensorSettingsManager
             sensor_mgr = SensorSettingsManager("sensor_settings")
             sensor_device = str(sensor_mgr.get_setting(sensor_id, "Sensor.DEVICE", "") or "").strip().lower()
-            if sensor_device == "ecowitt":
+            if sensor_device in {"ecowitt", "acurite_usb"}:
                 return dict(values)
             display_metrics = sensor_mgr.get_display_metrics(sensor_id) or []
         except Exception:
@@ -765,6 +765,7 @@ METRIC_META = {
     "Absolute Baro-Pressure": _metric_meta("hPa", device_class="atmospheric_pressure", precision=1),
     "Gateway Baro-Pressure": _metric_meta("hPa", device_class="atmospheric_pressure", precision=1),
     "Gateway Absolute Baro-Pressure": _metric_meta("hPa", device_class="atmospheric_pressure", precision=1),
+    "Console Absolute Baro-Pressure": _metric_meta("hPa", device_class="atmospheric_pressure", precision=1),
 }
 
 METRIC_ALIAS_NAMES = [
