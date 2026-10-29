@@ -30,7 +30,7 @@ def ensure_station_settings(sensor_id, *, device, model, metrics, manager=None):
 
 def station_health(data_logger, sensor_id):
     """Resolve adapter health locally without probing a station from a web request."""
-    for name in ("acurite_service", "ecowitt_service"):
+    for name in ("acurite_service", "ecowitt_service", "davis_service", "oregon_service"):
         service = getattr(data_logger, name, None)
         if service is not None:
             snapshot = service.status()

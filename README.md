@@ -13,7 +13,7 @@ For illustrated setup and operating instructions, see the
 - Discovers Nodus sensors and switches via MQTT and retained `nodus/<device_id>/meta` metadata 
   - Nodus Sensors Metrics gathered include:
     - Temperature, Relative Humidity, Vapor Pressure Deficit, Barometric Pressure, CO2, AQI, Light, and more
-  - Support for Ecowitt and Acurite weather sensors that also include Rain and Wind
+- Support for Ecowitt gateways, AcuRite USB consoles, Davis Vantage Vue USB dataloggers, and Oregon Scientific WMR100-family USB consoles, including rain and wind sensors ([supported hardware](docs/weather_adapters.md#additional-usb-consoles))
 - Stores sensor readings and switch events in a local SQLite database
 - Provides live dashboards, historical graphing, and location-based views
 - Shows Astral-based sun position and moon phase cards in the dashboard when location/timezone are available

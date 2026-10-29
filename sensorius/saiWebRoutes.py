@@ -577,6 +577,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             farmos_bridge=getattr(app.state, "farmos_bridge", None),
             ecowitt_service=getattr(app.state, "ecowitt_service", None),
             acurite_service=getattr(app.state, "acurite_service", None),
+            davis_service=getattr(app.state, "davis_service", None),
+            oregon_service=getattr(app.state, "oregon_service", None),
             email_notifications=getattr(app.state, "email_notifications", None),
             automation_notifications=getattr(app.state, "automation_notifications", None),
         )
@@ -3153,8 +3155,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             try:
                 current_settings = saiSettings(apply_live=False)
-                if sid_text.lower().startswith("acurite-"):
-                    service = services.acurite_service
+                if sid_text.lower().startswith(("acurite-", "davis-", "oregon-")):
+                    service = getattr(services, sid_text.split("-", 1)[0] + "_service", None)
                     snapshot = service.status() if service else {}
                     if snapshot.get("sensor_id") == sid_text:
                         return "online" if snapshot.get("state") == "online" else "offline"
@@ -3207,7 +3209,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         for sid in available:
             if sid.startswith("ecowitt-"):
                 battery_statuses[sid] = ecowitt_sensor_health(services.data_logger, sid)["battery_status"]
-            elif sid.startswith("acurite-"):
+            elif sid.startswith(("acurite-", "davis-", "oregon-")):
                 battery_statuses[sid] = station_health(services.data_logger, sid)["battery_status"]
             elif _is_weewx_dashboard_sensor(sid):
                 battery_statuses[sid] = (
@@ -3342,7 +3344,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 gauge_config=gauge_config, 
                 gauge_size = gaugeSize,
                 battery_statuses = battery_statuses,
-                sensor_statuses={sid: _resolve_meas_status_for_sid(sid) for sid in available if sid.startswith("acurite-")},
+                sensor_statuses={sid: _resolve_meas_status_for_sid(sid) for sid in available if sid.startswith(("acurite-", "davis-", "oregon-"))},
                 dashboard_row_order = _effective_dashboard_row_order(available + ["__switches__"], sensor_locations),
                 switch_row_order = display_settings.get("switch_row_order", "location_device"),
                 switch_card_order = display_settings.get("switch_card_order", []),
@@ -5444,6 +5446,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             raw_device = str(sensor_section.get("DEVICE", "") or "")
             device_kind = raw_device.strip().lower()
             is_acurite = device_kind == "acurite_usb" or normalized_id.lower().startswith("acurite-")
+            is_usb_weather = device_kind in {"davis_vue", "wmr100_usb"}
             is_weewx = sensor_type == "weewx" or device_kind == "weewx" or normalized_id.lower().startswith("weewx")
             if is_weewx:
                 for metric in WEEWX_DISPLAY_METRICS:
@@ -5534,7 +5537,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 settings_block=sensor_section,
             )
             weewx_station_model = ""
-            if is_weewx or is_acurite:
+            if is_weewx or is_acurite or is_usb_weather:
                 for key in ("STATION_MODEL", "station_model", "MODEL", "model", "STATION_TYPE", "station_type"):
                     weewx_station_model = str(sensor_section.get(key) or "").strip()
                     if weewx_station_model:
@@ -5572,8 +5575,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 device_offsets=device_offsets,
                 candidate_sensors=candidate_sensors,
                 default_range_hours=24,
-                supports_device_calibration=not is_weewx,
-                supports_system_calibration=not (is_weewx or is_acurite),
+                supports_device_calibration=not (is_weewx or is_usb_weather),
+                supports_system_calibration=not (is_weewx or is_acurite or is_usb_weather),
                 can_restart_device=(sensor_type in ("picow", "pico2w", "nodus", "remote", "mqtt")),
                 network_info=network_info,
                 **sensor_statistics,

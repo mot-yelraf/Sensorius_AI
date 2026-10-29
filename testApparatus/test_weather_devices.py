@@ -302,3 +302,126 @@ def test_acurite_setup_preserves_known_validation_message_and_rejects_malformed_
         assert response.status_code == 400
         assert "private-config-path" not in response.text
         assert "line 1" not in response.text
+
+
+@pytest.mark.parametrize("kind,payload", [
+    ("davis", {"port": "/dev/test-vue", "baud_rate": 19200}),
+    ("oregon", {"model": "WMR88A", "usb_serial": "console-1"}),
+])
+def test_additional_console_routes_validate_protection_and_preserve_history(service, kind, payload):
+    from sensorius.saiUsbWeather import UsbWeatherIngest
+    _, settings, logger, manager = service
+    current = UsbWeatherIngest(kind, settings=settings, data_logger=logger, sensor_manager=manager)
+    app = FastAPI()
+    services = SimpleNamespace(acurite_service=None, **{f"{kind}_service": current})
+
+    def protected(request, **kwargs):
+        assert kwargs["require_csrf"]
+        if request.headers.get("x-test-auth") != "yes":
+            raise HTTPException(401)
+
+    register_weather_device_routes(app, services=services, settings_factory=lambda: settings,
+                                   require_protected_access=protected, invalidate_dashboard_caches=lambda: None)
+    with TestClient(app) as client:
+        assert client.post(f"/{kind}/save", json=payload).status_code == 401
+        headers = {"x-test-auth": "yes"}
+        for invalid in ([], {**payload, "poll_interval_sec": 59}, {**payload, "poll_interval_sec": True},
+                        {"port": "https://example.com", "model": "WMR200"}):
+            assert client.post(f"/{kind}/save", headers=headers, json=invalid).status_code == 400
+            assert settings.get_setting(current.section, "ENABLED", False) is False
+        result = client.post(f"/{kind}/save", headers=headers, json=payload)
+        assert result.status_code == 200 and result.json()["enabled"]
+        assert client.get(f"/{kind}/status").json()["state"] == "offline"
+        assert client.post(f"/{kind}/disable", headers=headers).json()["enabled"] is False
+        assert settings.get_setting(current.section, "PORT" if kind == "davis" else "MODEL") == payload.get("port", payload.get("model"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["davis", "oregon"])
+async def test_additional_consoles_persist_canonical_metrics_and_stale_health(service, kind):
+    from dataclasses import replace
+    from sensorius.saiUsbWeather import UsbWeatherIngest
+    from test_davis_adapter import FakeTransport as DavisTransport
+    from test_wmr100_adapter import FakeTransport as OregonTransport
+    _, settings, logger, manager = service
+    transport = DavisTransport() if kind == "davis" else OregonTransport()
+    current = UsbWeatherIngest(kind, settings=settings, data_logger=logger, sensor_manager=manager, transport=transport)
+    current.configure({"port": "/dev/test-vue", "model": "WMR100"})
+    assert await current.poll_once()
+    if kind == "davis":
+        transport.current = replace(transport.current, received_packets=102)
+        current._last_write = float("-inf")
+        assert await current.poll_once()
+    sid = current.status()["sensor_id"]
+    assert sid.startswith(kind + "-")
+    assert manager.get_setting(sid, "Sensor.DEVICE") == current.device
+    with closing(__import__("sqlite3").connect(logger.db_path)) as connection:
+        rows = connection.execute("SELECT metric, value FROM readings WHERE sensor_id = ?", (sid,)).fetchall()
+    values = {row[0]: row[1] for row in rows if row[1] is not None}
+    assert "Temperature" in values and "Temperature_F" in values
+    assert values["Console Absolute Baro-Pressure"] > 900
+    assert "temperature" not in values
+    assert "Rain" not in values
+    if kind == "davis":
+        assert values["Temperature_F"] == -12.5
+        assert values["Wind Speed"] == 0
+    else:
+        assert values["Temperature"] == 14.5
+        assert "Rain Day" not in values
+    await current.disable_device()
+    assert not current.status()["station"]["reporting"]
+    from sensorius.saiWeatherStation import station_health
+    assert not station_health(logger, sid)["reporting"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["davis", "oregon"])
+async def test_console_rain_commits_after_storage_and_rebaselines_gaps(service, monkeypatch, kind):
+    from sensorius.saiUsbWeather import UsbWeatherIngest
+    from sensorius.weather_adapters.observations import RainPolicy
+    _, settings, logger, manager = service
+    current = UsbWeatherIngest(kind, settings=settings, data_logger=logger, sensor_manager=manager)
+    current.configure({"port": "/dev/test-vue"})
+    monkeypatch.setattr(current.adapter, "status", lambda: {"station": {"reporting": True}})
+    start = datetime(2026, 10, 29, 12, tzinfo=timezone.utc)
+    samples = []
+    saved = []
+    fail = [False]
+
+    async def read():
+        return samples.pop(0)
+
+    def log_readings(stamp, sid, values):
+        if fail[0]:
+            return False
+        saved.append(dict(values))
+        return True
+
+    monkeypatch.setattr(current, "read", read)
+    monkeypatch.setattr(logger, "log_readings", log_readings)
+
+    async def poll(counter, seconds, channel="rain"):
+        at = start + timedelta(seconds=seconds)
+        samples.append(Observation("console-test", at, at, {"Wind Speed": 0},
+                                   RainPolicy("rolling", channel, modulus=655.36), counter, at))
+        current._last_write = float("-inf")
+        return await current.poll_once()
+
+    assert await poll(1, 0)
+    assert saved[-1]["Rain"] is None
+    fail[0] = True
+    with pytest.raises(RuntimeError, match="saved"):
+        await poll(1.1, 60)
+    fail[0] = False
+    assert await poll(1.2, 120)
+    assert saved[-1]["Rain"] == pytest.approx(.2)
+    assert await poll(1.2, 120)
+    assert saved[-1]["Rain"] is None
+    assert await poll(4, 300)
+    assert saved[-1]["Rain"] is None
+    assert await poll(.1, 360)
+    assert saved[-1]["Rain"] is None
+    assert await poll(.2, 420, "new-bucket")
+    assert saved[-1]["Rain"] is None
+    assert await poll(.3, 480, "new-bucket")
+    assert saved[-1]["Rain"] == pytest.approx(.1)

@@ -265,9 +265,10 @@ class DeviceStatistics:
         return {
             "is_ecowitt": normalized_id.startswith("ecowitt-"),
             "is_acurite": normalized_id.startswith("acurite-"),
+            "is_usb_weather": normalized_id.startswith(("davis-", "oregon-")),
             **(await asyncio.to_thread(ecowitt_sensor_health, data_logger, normalized_id)),
             **(await asyncio.to_thread(station_health, data_logger, normalized_id)
-               if normalized_id.startswith("acurite-") else {}),
+               if normalized_id.startswith(("acurite-", "davis-", "oregon-")) else {}),
             "offline_events_24h": offline_events_24h,
             "last_offline_epoch": last_offline_epoch,
             "uptime_since_last_offline_label": _format_stats_duration(

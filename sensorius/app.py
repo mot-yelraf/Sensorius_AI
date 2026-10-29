@@ -31,6 +31,7 @@ from .saiFarmOSBridge import saiFarmOSBridge
 from .saiWeeWX import WeeWXArchiveIngest
 from .saiEcowitt import EcowittGatewayIngest
 from .saiAcuRite import AcuRiteUsbIngest
+from .saiUsbWeather import UsbWeatherIngest
 from .saiSettings import saiSettings
 from .saiSensorSettingsManager import SensorSettingsManager
 from .saiUtils import SettingsWrapper
@@ -693,6 +694,8 @@ async def main(shutdown_requested: Event | None = None):
     weewx_ingest = WeeWXArchiveIngest(settings=settings, data_logger=data_logger, supervisor=supervisor)
     ecowitt_ingest = EcowittGatewayIngest(settings=settings, data_logger=data_logger, supervisor=supervisor)
     acurite_ingest = AcuRiteUsbIngest(settings=settings, data_logger=data_logger, supervisor=supervisor)
+    davis_ingest = UsbWeatherIngest("davis", settings=settings, data_logger=data_logger, supervisor=supervisor)
+    oregon_ingest = UsbWeatherIngest("oregon", settings=settings, data_logger=data_logger, supervisor=supervisor)
     ecowitt_ingest.switch_controllers = switch_controllers
     await ecowitt_ingest.activate_smart_plugs()
     farmos_bridge = saiFarmOSBridge(settings=settings, data_logger=data_logger, supervisor=supervisor)
@@ -714,6 +717,8 @@ async def main(shutdown_requested: Event | None = None):
     )
     supervisor.add(weewx_ingest.run, name="WeeWX Archive Ingest", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(ecowitt_ingest.run_smart_plugs, name="Ecowitt Smart Plugs", fatal_on_timeout=False, fatal_on_error=False)
+    for service in (davis_ingest, oregon_ingest):
+        supervisor.add(service.run, name=service.label, fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(acurite_ingest.run, name="AcuRite USB Ingest", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(ecowitt_ingest.run, name="Ecowitt Gateway Ingest", fatal_on_timeout=False, fatal_on_error=False)
     supervisor.add(data_logger.run_retention, supervisor, name="Database Retention", fatal_on_timeout=False, fatal_on_error=False)
@@ -791,6 +796,8 @@ async def main(shutdown_requested: Event | None = None):
         farmos_bridge=farmos_bridge,
         ecowitt_service=ecowitt_ingest,
         acurite_service=acurite_ingest,
+        davis_service=davis_ingest,
+        oregon_service=oregon_ingest,
         email_notifications=email_notifications,
         automation_notifications=automation_notifications,
     )

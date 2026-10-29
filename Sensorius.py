@@ -11,6 +11,11 @@ if __name__ == "__main__" and sys.argv[1:] == ["--acurite-hid-worker"]:
     main()
     raise SystemExit(0)
 
+if __name__ == "__main__" and sys.argv[1:] == ["--wmr100-hid-worker"]:
+    from sensorius.weather_adapters.wmr100_usb import main
+    main()
+    raise SystemExit(0)
+
 from sensorius import app as _app
 
 

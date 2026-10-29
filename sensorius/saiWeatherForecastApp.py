@@ -652,10 +652,11 @@ class WeatherForecastAppService:
         )
         payload["is_ecowitt"] = sensor_id.startswith("ecowitt-")
         payload["is_acurite"] = sensor_id.startswith("acurite-")
+        payload["is_usb_weather"] = sensor_id.startswith(("davis-", "oregon-"))
         configured_weewx_id = str(self.settings.get_setting("WeeWX", "SENSOR_ID", "weewx-station") or "").strip().lower()
         payload["is_weewx"] = sensor_id.lower().startswith("weewx") or sensor_id.lower() == configured_weewx_id
         payload["thermal_metrics"] = []
-        if payload["is_ecowitt"] or payload["is_weewx"] or payload["is_acurite"]:
+        if payload["is_ecowitt"] or payload["is_weewx"] or payload["is_acurite"] or payload["is_usb_weather"]:
             # Only outdoor aliases qualify; gateway/indoor temperatures are excluded.
             outdoor_f = _find_metric(values, "Temperature_F", "Outdoor Temperature_F", "Air Temperature_F")
             outdoor_c = _find_metric(values, "Temperature", "Temperature_C", "Outdoor Temperature", "Air Temperature")
@@ -667,7 +668,7 @@ class WeatherForecastAppService:
                 )
         if payload["is_ecowitt"]:
             payload.update(ecowitt_sensor_health(self.data_logger, sensor_id))
-        elif payload["is_acurite"]:
+        elif payload["is_acurite"] or payload["is_usb_weather"]:
             payload["battery_status"] = station_health(self.data_logger, sensor_id)["battery_status"]
         elif payload["is_weewx"]:
             payload["battery_status"] = weewx_battery_status(values)
@@ -685,6 +686,9 @@ class WeatherForecastAppService:
             configured = self.settings.get_setting("Ecowitt", "POLL_INTERVAL_SEC", ECOWITT_DEFAULT_POLL_INTERVAL_SEC)
         elif device == "acurite_usb":
             configured = self.settings.get_setting("AcuRite", "POLL_INTERVAL_SEC", 60)
+        elif device in {"davis_vue", "wmr100_usb"}:
+            section = "DavisVue" if device == "davis_vue" else "OregonScientific"
+            configured = self.settings.get_setting(section, "POLL_INTERVAL_SEC", 60)
         elif device == "weewx":
             configured = self.settings.get_setting("WeeWX", "UPDATE_PERIOD_SEC", WEEWX_DEFAULT_UPDATE_PERIOD_SEC)
         else:

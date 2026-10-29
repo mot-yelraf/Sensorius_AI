@@ -468,7 +468,7 @@
               <div class="section">
                 <h4 class="section-title">Statistics</h4>
                 <div class="statistics-list">
-                  {% if is_ecowitt or is_acurite %}
+                  {% if is_ecowitt or is_acurite or is_usb_weather %}
                   <div class="statistics-row">
                     <span>Battery Status:</span>
                     <strong data-stat-value="battery-status">{{ battery_status | default('UNKNOWN') }}</strong>

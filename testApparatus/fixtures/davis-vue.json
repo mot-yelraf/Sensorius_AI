@@ -1,0 +1,7 @@
+{
+  "provenance": "Synthetic Vue packets from the Davis Serial Communication Reference 2.6.1; not a hardware capture.",
+  "configuration": "04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 10",
+  "loop": "4c 4f 4f 00 00 ff ff ab 75 d5 02 2d 83 ff 00 ff 68 01 ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 00 ff ff ff ff ff ff ff 05 00 ff ff ff 0c 00 ff ff 0a 00 64 00 e8 03 ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 04 00 02 ff ff ff ff ff ff 0a 0d e9 0e",
+  "loop2": "4c 4f 4f 00 01 ff ff ab 75 d5 02 2d 83 ff 00 ff 68 01 ff ff ff ff 7b 00 ff ff ff ff ff ff ff ff ff 00 ff ff ff ff ff ff ff 05 00 ff ff ff 0c 00 ff ff 0a 00 ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff c4 6d ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 0a 0d 65 f3",
+  "received_packets": 101
+}

@@ -283,3 +283,13 @@ GPIO support is not required. See [AcuRite USB](acurite_usb.md)
 for setup and [Weather adapters](weather_adapters.md) for units, freshness, rain
 limitations and extension guidance. GW2000/GW3000 and AcuRite coverage is based on
 protocol fixtures; physical hardware validation remains necessary.
+
+## Davis Vue and Oregon Scientific USB stations
+
+Direct weather-station acquisition also supports Davis Vantage Vue with a USB
+serial datalogger and the Oregon Scientific WMR100 USB family (WMR100, WMR100N,
+WMR88/A, WMR180/A, WMRS200). They run independently alongside Ecowitt and AcuRite,
+without WeeWX or GPIO, on Raspberry Pi, Linux, macOS and Windows. Expand
+**General Settings > Add Device > Weather Station** to configure them. See
+[USB console support](weather_adapters.md#additional-usb-consoles) for exact
+hardware requirements and protocol-fixture validation limits.

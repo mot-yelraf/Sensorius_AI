@@ -5,7 +5,7 @@ WeeWX commonly communicates with those aggregators; direct sensor access is also
 possible with suitable drivers/extensions. Sensorius can ingest WeeWX's archive
 or MQTT output, or acquire directly through a supported weather device adapter.
 These are separate acquisition paths. WeeWX is not required for direct Ecowitt
-or AcuRite support.
+AcuRite, Davis Vue or Oregon Scientific support.
 
 ## Review of Caelus and implementation in Sensorius
 
@@ -23,8 +23,8 @@ freshness, fixtures, settings, and installer setup. The useful boundaries are:
 
 Sensorius preserves its existing SQLite schema, sensor IDs and metric names
 rather than importing Caelus's database layout or station-selection model.
-Ecowitt and AcuRite run concurrently as distinct station devices. There is one
-configured gateway and one configured USB console per hub in this implementation.
+Ecowitt, AcuRite, Davis Vue and Oregon Scientific run concurrently as distinct
+station devices. There is one configured device per family per hub.
 A console serial selects one device when several are attached; it does not enable
 simultaneous acquisition from all attached consoles.
 
@@ -117,3 +117,53 @@ This integration keeps using the canonical logger; a separate, consistent
 connection-lifecycle fix is preferable to adding adapter-specific database
 access. Normal integration checks pass; USB/HID-only checks also pass with
 warnings treated as errors.
+
+## Additional USB consoles
+
+Caelus's `davis.py`, `wmr100.py`, and `wmr100_usb.py` were reviewed and adapted
+into Sensorius's weather adapters. Sensorius supervises their samplers itself;
+it does not start Caelus's independent tasks or use Caelus storage/settings.
+
+| Add Device section | Supported hardware | Connection |
+| --- | --- | --- |
+| Davis Vue USB Console | Legacy Vantage Vue console with a compatible USB serial datalogger; one enabled Vue ISS transmitter | Explicit local serial port and matching baud rate |
+| Oregon Scientific USB Console | WMR100, WMR100N, WMR88, WMR88A, WMR180, WMR180A, WMRS200 | USB HID (`0fde:ca01`), optional USB serial selector |
+
+These are protocol-fixture-tested integrations, not physical-device validation.
+Other Davis console families and Oregon WMR200/WMR300 protocols are excluded.
+A Vue console without a datalogger does not provide this USB serial interface.
+Davis support reads live LOOP/LOOP2 packets, configuration and reception counters;
+it does not change console time, calibration, pairing or archives. Outdoor Vue
+fields remain unavailable until the received-packet counter advances, then expire
+after 120 seconds without progress. Oregon samples expire individually after
+180 seconds. Indoor/pressure packets cannot refresh stale outdoor readings.
+
+Open **General Settings > Add Device > Weather Station**, then expand the console
+section. Davis requires a local port, for example `/dev/ttyUSB0` on Linux/Pi,
+`/dev/cu.usbserial-123` on macOS, or `COM3` on Windows. Baud defaults to 19200.
+Oregon requires selecting a supported model; leave the USB serial blank when
+only one matching console is attached. Close competing readers first. Save to
+enable acquisition without restarting Sensorius. Disable releases USB ownership
+while retaining history. Retrieval intervals are 60–3600 seconds; Davis samples
+every 10 seconds and Oregon continuously drains bounded USB report batches.
+
+All host platforms use the existing PySerial/PyUSB dependencies. Oregon uses
+native HIDAPI in a bounded worker on macOS/Windows; retain the operating system's
+HID driver. Linux/Pi installers also install the narrow Oregon USB permission
+rule alongside AcuRite's rule in `/etc/udev/rules.d/70-sensorius-acurite.rules`.
+Existing Linux installations need that updated installer helper and a console
+reconnect. Davis serial access requires the runtime user to have access to its
+serial device (commonly the `dialout` group on Linux); it does not use that USB
+rule. No installer or hardware changes are performed by saving console settings.
+
+Readings use the existing logger, history, automation, Home Assistant and farmOS
+listener paths. Each family has its own stable sensor ID. Oregon's raw rain
+counter is not labeled daily rainfall. Davis retains console daily/monthly/yearly
+and event totals. Interval `Rain` is emitted only between newer successful
+counter samples of the same source, rain configuration and (for Davis) local day,
+within twice the retrieval interval. Disconnects, resets, configuration changes,
+backwards counters and process restarts rebaseline; no rain is invented for gaps
+or counter rollovers. Baselines are in memory. System altitude supplies Oregon's
+corrected pressure while preserving absolute station pressure; Davis's supplied
+barometer and absolute pressure remain separate. Outdoor temperature and humidity
+also feed the shared derived air metrics.

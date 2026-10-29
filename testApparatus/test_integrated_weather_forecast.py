@@ -1035,3 +1035,34 @@ def test_hourly_thermal_metrics_use_unrounded_forecast_inputs(units, expected):
     payload["hourly"][0]["wind_mps"] = None
     metrics = weather_app.build_weather_display_forecast(payload, units)["hours"][0]["thermal_metrics"]
     assert [metric["value"] for metric in metrics] == [None, None]
+
+
+@pytest.mark.parametrize("kind,device,section", [
+    ("davis", "davis_vue", "DavisVue"), ("oregon", "wmr100_usb", "OregonScientific"),
+])
+def test_usb_console_current_readings_expose_health_and_retrieval_interval(kind, device, section):
+    from types import SimpleNamespace
+
+    sensor_id = kind + "-fixture"
+    settings = _Settings()
+    settings.values = {("WeatherForecast", "CURRENT_SENSOR_ID"): sensor_id, (section, "POLL_INTERVAL_SEC"): 300}
+    logger = SimpleNamespace(
+        get_latest_values=lambda sid: {"Temperature": 20, "Rel-Humidity": 50},
+        get_latest_timestamp=lambda sid: "2026-10-29T12:00:00-06:00",
+    )
+    setattr(logger, kind + "_service", SimpleNamespace(status=lambda: {
+        "sensor_id": sensor_id, "station": {"reporting": False, "battery_status": "UNKNOWN"},
+    }))
+    service = weather_app.WeatherForecastAppService(
+        settings=settings, data_logger=logger,
+        sensor_settings_manager=SimpleNamespace(
+            get_display_metrics=lambda sid: ["Temperature"],
+            get_setting=lambda sid, key, default=None: device if key == "Sensor.DEVICE" else default,
+        ),
+    )
+    payload = service.current_readings()
+    assert payload["is_usb_weather"]
+    assert not payload["is_ecowitt"] and not payload["is_acurite"]
+    assert payload["battery_status"] == "UNKNOWN"
+    assert payload["refresh_interval_sec"] == 300
+    assert payload["thermal_metrics"]

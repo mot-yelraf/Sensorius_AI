@@ -100,4 +100,5 @@ def test_weather_usb_packaging_includes_permissions_and_desktop_worker(tmp_path)
     assert "configure_acurite_usb.sh sensorius 0" in postinst
     spec = (release / "macos-arm64/Sensorius.spec").read_text()
     assert '"hid"' in spec and '"sensorius.weather_adapters.acurite_hid"' in spec
+    assert '"sensorius.weather_adapters.wmr100_usb"' in spec
     assert 'hidapi==' in (release / "requirements/macos.txt").read_text()
