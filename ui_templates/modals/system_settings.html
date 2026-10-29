@@ -1642,48 +1642,8 @@
           <div class="settings-pane" id="pane-add" hidden>
             <h3 class="pane-title">Add Device</h3>
             <div class="integrations-list">
-              <details class="integration-block" id="add-ecowitt-section">
-                <summary>Ecowitt Gateway</summary>
-                <div class="integration-block-content">
-                  <div class="field-grid-stack">
-                    <div class="field-stack">
-                      <label for="ecowitt-gateway-url">GW1100 / GW1200 URL</label>
-                      <input type="url" id="ecowitt-gateway-url" name="ecowitt_gateway_url" placeholder="http://192.168.1.100" autocomplete="url">
-                    </div>
-                    <div class="field-stack">
-                      <label>Gateway Discovery</label>
-                      <button type="button" class="button yellow" id="btn-ecowitt-find">Find Devices</button>
-                    </div>
-                    <div class="field-stack">
-                      <label>Discovered GW Sensors</label>
-                      <div id="ecowitt-sensor-list" class="integration-state" role="list" aria-live="polite">
-                        <div class="integration-state-detail">Enter the gateway URL and choose Find Devices.</div>
-                      </div>
-                    </div>
-                    <div class="field-stack">
-                      <label for="ecowitt-polling-interval">Data Retrieval Interval</label>
-                      <input type="number" id="ecowitt-polling-interval" name="ecowitt_polling_interval" value="{{ ecowitt_poll_interval_sec | default(300) }}" min="60" max="3600" step="1" inputmode="numeric">
-                    </div>
-                    <div class="field-stack">
-                      <label>Discovered GW Smart Plugs</label>
-                      <div id="ecowitt-smart-plug-list" class="integration-state" role="list" aria-live="polite">
-                        <div class="integration-state-detail">Choose Find Devices to discover GW1200 smart plugs.</div>
-                      </div>
-                    </div>
-                    <div class="field-stack">
-                      <label for="ecowitt-smart-plug-interval">Smart Plug Query Interval (seconds)</label>
-                      <input type="number" id="ecowitt-smart-plug-interval" value="30" min="15" max="60" step="1" inputmode="numeric">
-                    </div>
-                  </div>
-                  <div class="inline-actions" style="justify-content:flex-end;margin-top:.65rem;">
-                    <button type="button" class="button neutral" id="btn-ecowitt-disable">Disable</button>
-                    <button type="button" class="button green" id="btn-ecowitt-save" disabled>Save Gateway</button>
-                  </div>
-                  <div class="detail" id="ecowitt-status" aria-live="polite" style="margin-top:.55rem;"></div>
-                </div>
-              </details>
               <details class="integration-block" id="add-nodus-section" open>
-                <summary>Nodus Device(s)</summary>
+                <summary>Nodus Device</summary>
                 <div class="integration-block-content">
                   <div class="status-text">Onboard one Nodus setup network at a time. Follow the platform instructions below, then click <strong>Add</strong>.</div>
                   <div class="status-text" id="add-scan-status" aria-live="polite">Scanning for Nodus devices...</div>
@@ -1731,6 +1691,81 @@
                       <button type="button" class="button green" id="btn-onboard-add" disabled>Add</button>
                     </div>
                   </div>
+                </div>
+              </details>
+              <details class="integration-block" id="add-ecowitt-section">
+                <summary>Ecowitt Gateway</summary>
+                <div class="integration-block-content">
+                  <div class="field-grid-stack">
+                    <div class="field-stack">
+                      <label for="ecowitt-gateway-url">GW1100 / GW1200 / GW2000 / GW3000 URL</label>
+                      <input type="url" id="ecowitt-gateway-url" name="ecowitt_gateway_url" placeholder="http://192.168.1.100" autocomplete="url">
+                    </div>
+                    <div class="field-stack">
+                      <label>Gateway Discovery</label>
+                      <button type="button" class="button yellow" id="btn-ecowitt-find">Find Devices</button>
+                    </div>
+                    <div class="field-stack">
+                      <label>Discovered GW Sensors</label>
+                      <div id="ecowitt-sensor-list" class="integration-state" role="list" aria-live="polite">
+                        <div class="integration-state-detail">Enter the gateway URL and choose Find Devices.</div>
+                      </div>
+                    </div>
+                    <div class="field-stack">
+                      <label for="ecowitt-polling-interval">Data Retrieval Interval</label>
+                      <input type="number" id="ecowitt-polling-interval" name="ecowitt_polling_interval" value="{{ ecowitt_poll_interval_sec | default(300) }}" min="60" max="3600" step="1" inputmode="numeric">
+                    </div>
+                    <div class="field-stack">
+                      <label>Discovered GW Smart Plugs</label>
+                      <div id="ecowitt-smart-plug-list" class="integration-state" role="list" aria-live="polite">
+                        <div class="integration-state-detail">Choose Find Devices to discover GW1200 smart plugs.</div>
+                      </div>
+                    </div>
+                    <div class="field-stack">
+                      <label for="ecowitt-smart-plug-interval">Smart Plug Query Interval (seconds)</label>
+                      <input type="number" id="ecowitt-smart-plug-interval" value="30" min="15" max="60" step="1" inputmode="numeric">
+                    </div>
+                  </div>
+                  <div class="inline-actions" style="justify-content:flex-end;margin-top:.65rem;">
+                    <button type="button" class="button neutral" id="btn-ecowitt-disable">Disable</button>
+                    <button type="button" class="button green" id="btn-ecowitt-save" disabled>Save Gateway</button>
+                  </div>
+                  <div class="detail" id="ecowitt-status" aria-live="polite" style="margin-top:.55rem;"></div>
+                </div>
+              </details>
+              <details class="integration-block" id="add-acurite-section">
+                <summary>AcuRite USB Console</summary>
+                <div class="integration-block-content">
+                  <div class="detail">Connect a PC Connect console by USB to this Sensorius host. Close other USB readers, including WeeWX or PC Connect.</div>
+                  <div class="field-grid-stack">
+                    <div class="field-stack">
+                      <label for="acurite-model">Console family</label>
+                      <select id="acurite-model">
+                        <option value="01536">01536-RX / 06056</option>
+                        <option value="01025">01025</option>
+                        <option value="01035">01035</option>
+                        <option value="01036">01036 / 01092 / 06006</option>
+                        <option value="01525">01525</option>
+                        <option value="02032">02032 / 02033 / 01093 / 06037</option>
+                      </select>
+                      <div id="acurite-mode-help" class="detail">01536-RX / 06056 uses USB mode 4 automatically.</div>
+                    </div>
+                    <div class="field-stack">
+                      <label for="acurite-usb-serial">USB serial number (optional)</label>
+                      <input id="acurite-usb-serial" type="text" maxlength="128" autocomplete="off">
+                      <div class="detail">Leave blank for one console. Select a serial number when multiple consoles are attached.</div>
+                    </div>
+                    <div class="field-stack">
+                      <label for="acurite-poll-interval">Data retrieval interval (seconds)</label>
+                      <input id="acurite-poll-interval" type="number" min="60" max="3600" step="1" value="60">
+                      <div class="detail">Live USB sampling continues every 18 seconds to capture alternating reports.</div>
+                    </div>
+                  </div>
+                  <div class="inline-actions" style="justify-content:flex-end;margin-top:.65rem;">
+                    <button type="button" class="button neutral" id="btn-acurite-disable">Disable</button>
+                    <button type="button" class="button green" id="btn-acurite-save">Save Console</button>
+                  </div>
+                  <div id="acurite-status" class="detail" aria-live="polite"></div>
                 </div>
               </details>
             </div>
@@ -2381,6 +2416,7 @@
       startAddScan();
       hydrateEcowittFromData();
       loadEcowittStatus();
+      loadAcuriteStatus();
     }
     if (paneId !== "pane-add") stopAddScan();
   }
@@ -3285,6 +3321,58 @@
       setButtonBusy("btn-weewx-save", false);
     }
   }
+
+  function updateAcuriteModeHelp() {
+    const automatic = document.getElementById("acurite-model")?.value === "01536";
+    const help = document.getElementById("acurite-mode-help");
+    if (help) help.textContent = automatic
+      ? "01536-RX / 06056 uses USB mode 4 automatically."
+      : "Select USB MODE or PC CONNECT MODE 4 on the console. Recheck after power loss. Sensorius does not change the console mode.";
+  }
+
+  async function loadAcuriteStatus() {
+    try {
+      const resp = await fetch("/acurite/status", { cache: "no-store" });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || "Unable to load AcuRite status.");
+      document.getElementById("acurite-model").value = data.model || "01536";
+      document.getElementById("acurite-usb-serial").value = data.usb_serial || "";
+      document.getElementById("acurite-poll-interval").value = data.poll_interval_sec || 60;
+      updateAcuriteModeHelp();
+      setStatus("acurite-status", [data.label, data.state, data.last_error].filter(Boolean).join(" | "));
+    } catch (e) {
+      setStatus("acurite-status", e.message || "Unable to load AcuRite status.");
+    }
+  }
+
+  async function saveAcuriteConsole(disable) {
+    const button = disable ? "btn-acurite-disable" : "btn-acurite-save";
+    setButtonBusy(button, true, disable ? "Disabling..." : "Saving...");
+    try {
+      const resp = await fetch(disable ? "/acurite/disable" : "/acurite/save", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: document.getElementById("acurite-model").value,
+          usb_serial: document.getElementById("acurite-usb-serial").value.trim(),
+          poll_interval_sec: document.getElementById("acurite-poll-interval").value
+        })
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) throw new Error(data.error || "Unable to save AcuRite settings.");
+      setStatus("acurite-status", disable
+        ? "AcuRite acquisition disabled; historical readings retained."
+        : "Console saved. Waiting for USB reports; initial weather fields can take up to two minutes.");
+      showSettingsToast(disable ? "AcuRite disabled" : "AcuRite console saved", "ok");
+    } catch (e) {
+      setStatus("acurite-status", e.message || "Unable to save AcuRite settings.");
+    } finally {
+      setButtonBusy(button, false);
+    }
+  }
+
+  document.getElementById("acurite-model")?.addEventListener("change", updateAcuriteModeHelp);
+  document.getElementById("btn-acurite-save")?.addEventListener("click", () => saveAcuriteConsole(false));
+  document.getElementById("btn-acurite-disable")?.addEventListener("click", () => saveAcuriteConsole(true));
 
   let ecowittDiscovery = null;
 

@@ -195,7 +195,7 @@ def test_add_device_ui_selects_discovered_ap_and_reloads_dashboard_after_success
 
     assert 'id="add-device-network" name="target_ap"' in text
     assert '<details class="integration-block" id="add-nodus-section" open>' in text
-    assert '<summary>Nodus Device(s)</summary>' in text
+    assert '<summary>Nodus Device</summary>' in text
     assert '<details class="integration-block" id="add-ecowitt-section">' in text
     assert '<summary>Ecowitt Gateway</summary>' in text
     assert 'id="ecowitt-gateway-url" name="ecowitt_gateway_url"' in text

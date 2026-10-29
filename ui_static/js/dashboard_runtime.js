@@ -1,4 +1,9 @@
 export function initializeDashboard(config, { pressureGaugeConfig, startRainGauges }) {
+function displaySensorId(sid) {
+  const label = String(sid || '').toUpperCase();
+  const match = label.match(/^(ECOWITT|ACURITE)-([A-Z0-9]+)$/);
+  return match ? `${match[1]}-${match[2].slice(-6)}` : label;
+}
 let pressureAltitude = config.pressureAltitude;
 let pressureSensorContext = config.pressureSensorContext;
 let stepCount = 0;
@@ -1981,7 +1986,7 @@ function ensureSensorInSelector(sid) {
   if (![...sel.options].some(o => o.value === sid)) {
     const opt = document.createElement('option');
     opt.value = sid;
-    opt.textContent = sid;
+    opt.textContent = displaySensorId(sid);
     sel.appendChild(opt);
   }
 }
@@ -2021,8 +2026,8 @@ function ensureSensorUI(sid, metricList, locationText) {
     headerWrap.style.textAlign = 'center';
     headerWrap.style.width = '100%';
     headerWrap.style.marginTop = '1rem';
-    const locText = (locationText || sid);
-    const sidUpper = (sid || '').toUpperCase();
+    const locText = (locationText || displaySensorId(sid));
+    const sidUpper = displaySensorId(sid);
     const sidLower = (sid || '').toLowerCase();
     const pendingColor = '#ffc107';
     const header = document.createElement('h3');
@@ -2094,7 +2099,7 @@ function ensureSensorUI(sid, metricList, locationText) {
     const gaugeVisual = lazyVisual ? '' : `<div class='gauge-view' id='${safe}GaugeContainer'><canvas id='${safe}Gauge'></canvas></div>`;
     const graphVisual = lazyVisual ? '' : `<div class='graph-view' id='${safe}GraphContainer'><canvas class='micrograph-canvas' id='${safe}Micrograph' width='${metricCanvasWidth}' height='${metricCanvasHeight}'></canvas></div>`;
     container.innerHTML =
-      `<div class='metric-title'>${metric}</div>` +
+      `<div class='metric-title'>${gaugeConfig?.[metric]?.display_label || metric}</div>` +
       `<div class='gauge-container'>${gaugeVisual}</div>` +
       `<div class='graph-container'>${graphVisual}</div>` +
       `<div class='metric-current-value'><span id='${safe}_val'>--</span>` +
@@ -2163,7 +2168,7 @@ window.refreshSensorRowCollapse = function(group){
   }
   overflowCards.forEach((card) => card.classList.add('sensor-metric-overflow'));
   const expanded = group.dataset.sensorExpanded === 'true';
-  const sidUpper = sid.toUpperCase();
+  const sidUpper = displaySensorId(sid);
   row.classList.toggle('is-collapsed', !expanded);
   if (expanded && typeof window.materializeExpandedMetricVisuals === 'function') {
     window.materializeExpandedMetricVisuals(group);

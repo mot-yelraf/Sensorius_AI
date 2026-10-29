@@ -35,6 +35,7 @@ TARGETS = (
 
 PAYLOAD_PATHS = (
     "Sensorius.py",
+    "deploy_scripts/configure_acurite_usb.sh",
     "sensorius",
     "ui_static",
     "ui_templates",
@@ -217,6 +218,9 @@ a = Analysis(
         "sensorius.sensor_modules.station_ecowitt",
         "sensorius.sensor_modules.station_weewx",
         "webview",
+        "hid",
+        "usb.backend.libusb1",
+        "sensorius.weather_adapters.acurite_hid",
     ],
     hookspath=[],
     runtime_hooks=[str(project / "runtime_hook.py")],
@@ -294,7 +298,7 @@ Section: misc
 Priority: optional
 Architecture: {architecture}
 Maintainer: Peace Hill Studios
-Depends: python3 (>= ${{PYTHON_VERSION}}), python3 (<< ${{PYTHON_NEXT_MINOR}}), mosquitto{extra_depends}
+Depends: python3 (>= ${{PYTHON_VERSION}}), python3 (<< ${{PYTHON_NEXT_MINOR}}), mosquitto, libusb-1.0-0, udev{extra_depends}
 Description: Sensorius environmental sensing and automation hub
  Cross-platform MQTT, web UI, environmental sensing, and automation runtime.
 EOF
@@ -370,6 +374,7 @@ fi
 if ! getent passwd sensorius >/dev/null 2>&1; then
   adduser --system --ingroup sensorius --home /var/lib/sensorius --no-create-home sensorius >> "${{LOG_FILE}}" 2>&1
 fi
+sh /opt/sensorius/deploy_scripts/configure_acurite_usb.sh sensorius 0 >> "${{LOG_FILE}}" 2>&1
 install -d -o sensorius -g sensorius -m 0750 /var/lib/sensorius /var/lib/sensorius/Sensorius
 if [ ! -f /var/lib/sensorius/Sensorius/.env ] && [ -f /opt/sensorius/.env.def ]; then
   install -o sensorius -g sensorius -m 0600 /opt/sensorius/.env.def /var/lib/sensorius/Sensorius/.env

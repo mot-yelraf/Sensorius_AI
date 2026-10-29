@@ -14,7 +14,7 @@ test('pressure ranges cover altitude bounds, fallback and corrected readings', (
     expect(scale.ticks[0]).toBe(scale.min);
     expect(scale.ticks.at(-1)).toBe(scale.max);
   }
-  for (const device of ['bme280', 'bme680', 'bme688', 'vpd', 'avpd', 'apvpd', 'aqi', 'ecowitt', 'weewx']) {
+  for (const device of ['bme280', 'bme680', 'bme688', 'vpd', 'avpd', 'apvpd', 'aqi', 'ecowitt', 'weewx', 'acurite_usb']) {
     const context = { device, altitude: 1609.3 };
     expect(pressureGaugeConfig('Baro-Pressure', base, 1609.3, context).min).toBe(960);
     expect(pressureGaugeConfig('Absolute Baro-Pressure', base, 1609.3, context).min).toBe(780);

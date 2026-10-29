@@ -644,3 +644,9 @@ EOF
   rm -f "${tmp_file}"
   echo "Sensorius GUI will open at the next graphical desktop login."
 }
+
+configure_acurite_usb_access() {
+  local usb_group
+  usb_group="$(id -gn "${SUDO_USER:-$(id -un)}")"
+  sudo sh "${SCRIPT_DIR}/configure_acurite_usb.sh" "${usb_group}" 0
+}

@@ -25,7 +25,8 @@ macOS, Windows, and non-Pi Linux hub:
 
 - Skips local GPIO and direct sensor discovery.
 - Runs the web UI, database, MQTT ingest, Nodus onboarding, Home Assistant
-  bridge, farmOS export, WeeWX ingest, and automations for remote devices.
+  bridge, farmOS export, WeeWX ingest, Ecowitt LAN and AcuRite USB acquisition,
+  and automations for remote devices.
 - Uses native Wi-Fi tooling during Nodus onboarding where supported by the
   setup scripts.
 
@@ -191,6 +192,9 @@ macOS, Windows, and non-Pi Linux hub:
 - `sensorius/saiFarmOSBridge.py`: farmOS JSON:API export queue and flush
   worker.
 - `sensorius/saiWeeWX.py`: optional WeeWX SQLite archive ingest.
+- `sensorius/saiAcuRite.py`: supervised USB console acquisition through the normalized weather adapter contract.
+- `sensorius/weather_adapters/`: observation types, AcuRite transports/profiles, shared weather metrics and diagnostics.
+- `sensorius/saiWebWeatherDevices.py`: protected AcuRite setup/status routes.
 - `sensorius/saiEcowitt.py`: read-only Ecowitt LAN discovery, status, and
   supervised live-data polling.
 - `sensorius/sensor_modules/station_ecowitt.py`: pure Ecowitt inventory,
@@ -564,3 +568,13 @@ Python tests cover configuration escaping, non-finite values, markup, and asset
 contracts. `testApparatus/webui_contract_helpers.py` reads referenced local assets
 for static assertions only; it is not used by the application or browser fixture.
 Device/broker behavior still requires deployment verification.
+
+## Weather device acquisition
+
+Ecowitt gateways and AcuRite USB consoles implement a normalized asynchronous
+weather observation boundary. Persistence and dashboard metrics remain shared,
+while station identities, transport and rain policies remain independent. See
+[Weather adapters](weather_adapters.md) for the Caelus review, contract and steps
+for adding a station family. WeeWX ingest remains an independent archive/MQTT
+source; WeeWX can communicate with aggregating consoles/gateways or use direct
+sensor extensions.

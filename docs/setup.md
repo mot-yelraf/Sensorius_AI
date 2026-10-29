@@ -613,3 +613,11 @@ Review prompts carefully. Back up `/home/<user>/Sensorius/system_settings`,
 `/home/<user>/Sensorius/switch_settings`, and the database before removing a
 production install. Use `/Users/<user>/Sensorius/...` on macOS and
 `C:\Users\<user>\Sensorius\...` on Windows.
+
+## USB weather consoles
+
+AcuRite PC Connect USB consoles are supported on Raspberry Pi, Linux, macOS and
+Windows alongside MQTT and LAN weather devices. Updated Linux installers include
+libusb and a device-specific udev rule; macOS/Windows requirements include HIDAPI.
+Reconnect the console after Linux permission setup. See [AcuRite USB setup](acurite_usb.md)
+for profiles, mode 4 instructions and existing-installation steps.

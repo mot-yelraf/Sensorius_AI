@@ -166,3 +166,11 @@ To update one configured host without touching the rest of the inventory:
 ```bash
 deploy_scripts/deploy_sai.sh --apply --host sensorius-hub-1
 ```
+
+## AcuRite USB support
+
+Linux/Pi installers include libusb and invoke `configure_acurite_usb.sh` to install
+a narrow `24c0:0003` udev rule for the runtime user group. Native Debian packages
+use the `sensorius` service group. macOS/Windows requirements include platform-marked
+HIDAPI; keep their native HID drivers. The installer generator includes the helper
+and desktop HID worker. See [AcuRite setup](../docs/acurite_usb.md).

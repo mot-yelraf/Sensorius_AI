@@ -52,6 +52,12 @@ INVENTORY_JSON = "[]"
 RAIN_SOURCE = ""
 RAIN_RESET_HOUR = 0
 
+[AcuRite]
+ENABLED = false
+MODEL = "01536"
+USB_SERIAL = ""
+POLL_INTERVAL_SEC = 60
+
 [HomeAssistant]
 ENABLED = false
 HA_USERNAME = ""

@@ -21,6 +21,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
+from .weather_adapters.observations import Observation, RainPolicy, ChannelCapability, persist_observation
 from .saiSensorSettingsManager import SensorSettingsManager
 from .saiEcowittRecovery import request_in_fresh_process
 from .saiUtils import debug_enabled, printDM
@@ -31,6 +32,7 @@ from .sensor_modules.station_ecowitt import (
     MAX_POLL_INTERVAL_SEC,
     MIN_POLL_INTERVAL_SEC,
     normalize_ecowitt_livedata,
+    gateway_family,
     normalize_sensor_inventory,
     normalized_gateway_sensor_id,
     rain_reset_hour_from_totals,
@@ -338,6 +340,7 @@ class EcowittGatewayIngest:
             "gateway_url": base_url,
             "sensor_id": sensor_id,
             "gateway_model": version_text or "Ecowitt Gateway",
+            "gateway_family": gateway_family(version_text),
             "firmware": version_text,
             "inventory": inventory,
             "smart_plugs": smart_plugs,
@@ -461,6 +464,15 @@ class EcowittGatewayIngest:
         if not same_gateway or not fresh or result["state"] != "online":
             result["battery_status"] = "UNKNOWN"
         result.setdefault("battery_status", "UNKNOWN")
+        reporting = result["enabled"] and result["state"] == "online" and fresh and same_gateway
+        result.update(
+            source_id=f"ecowitt:{result['sensor_id']}:{self.gateway_url}",
+            connected=result["enabled"] and result["state"] == "online",
+            observation_fresh=reporting,
+            station={"reporting": reporting, "battery_status": result["battery_status"]},
+            sensors=result.get("inventory", []),
+            gateway_family=gateway_family(result.get("gateway_model")),
+        )
         result["gateway_ip"] = (result.get("gateway_ip") if same_gateway else None) or gateway_ip_address({}, self.gateway_url)
         return result
 
@@ -518,8 +530,8 @@ class EcowittGatewayIngest:
             values["Rain"] = 0.0
         return now.isoformat()
 
-    async def poll_once(self) -> bool:
-        """Fetch and store one live reading from the configured gateway."""
+    async def read(self) -> Observation:
+        """Acquire one bounded HTTP snapshot in stable Sensorius storage units."""
         base_url = normalize_gateway_url(self.gateway_url)
         sensor_id = self.sensor_id
         if not sensor_id:
@@ -582,8 +594,33 @@ class EcowittGatewayIngest:
         if not values:
             raise EcowittError("Gateway returned no supported live sensor values.")
         self._status["last_gateway_success"] = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(timezone.utc)
+        return Observation(
+            source_id=f"ecowitt:{sensor_id}:{base_url}", observed_at=now, received_at=now,
+            measurements=values,
+            rain=RainPolicy(kind="daily" if self._rain_source != "none" else "none",
+                            channel_id=self._rain_source or "none", reset_hour=self._rain_reset_hour),
+        )
+
+    def capabilities(self) -> tuple[ChannelCapability, ...]:
+        """Declare live parser fields; inventory determines available channels."""
+        from .sensor_modules.station_ecowitt import ECOWITT_GAUGE_CONFIG
+        return (ChannelCapability("station", tuple(ECOWITT_GAUGE_CONFIG) + (
+            "Temperature", "Temperature_F", "Rel-Humidity", "Humidity", "Ambient VPD",
+            "Wind Speed", "Wind Direction", "Rain", "Light Intensity",
+            "Gateway Temperature", "Gateway Temperature_F", "Gateway Rel-Humidity",
+        )),)
+
+    async def poll_once(self) -> bool:
+        """Persist a normalized observation while retaining established rain behavior."""
+        sensor_id = self.sensor_id
+        observation = await self.read()
+        current_source = f"ecowitt:{self.sensor_id}:{self.gateway_url.rstrip('/')}"
+        if observation.source_id != current_source:
+            return False
+        values = observation.measurements
         rain_timestamp = self._add_interval_rain(values, sensor_id)
-        written = await asyncio.to_thread(self.data_logger.log_readings, None, sensor_id, values)
+        written = await persist_observation(self.data_logger, sensor_id, observation)
         if written is not True:
             raise EcowittError("Ecowitt readings could not be saved to the database.")
         if rain_timestamp is not None:

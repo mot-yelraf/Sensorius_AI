@@ -7,6 +7,8 @@ identities, and rain-source settings for dashboard and persistence consumers.
 from __future__ import annotations
 
 import copy
+import math
+from ..weather_adapters.metrics import derive_outdoor_air_metrics
 import re
 from typing import Any
 
@@ -107,7 +109,11 @@ def _number(value: Any) -> float | None:
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        return float(value)
+        try:
+            number = float(value)
+            return number if math.isfinite(number) else None
+        except OverflowError:
+            return None
     text = str(value).strip()
     if not text or text.lower() in {"none", "null", "nan", "--"}:
         return None
@@ -115,8 +121,9 @@ def _number(value: Any) -> float | None:
     if not match:
         return None
     try:
-        return float(match.group(0))
-    except ValueError:
+        number = float(match.group(0))
+        return number if math.isfinite(number) else None
+    except (ValueError, OverflowError):
         return None
 
 
@@ -144,6 +151,8 @@ def _pressure_hpa(value: float, unit: str) -> float | None:
         return value
     if u in {"inhg", "in/hg"}:
         return value * 33.8638866667
+    if u == "mmhg":
+        return value * 1.33322387415
     if u == "pa":
         return value / 100.0
     return None
@@ -192,24 +201,6 @@ def _put_temperature(out: dict[str, float], base: str, value: float, unit: str) 
     out[f"{base}_F"] = round((celsius * 9.0 / 5.0) + 32.0, 1)
 
 
-def _derive_outdoor_air_metrics(out: dict[str, float]) -> None:
-    """Add Sensorius absolute-humidity and VPD metrics from outdoor T/RH."""
-    temperature = out.get("Temperature")
-    relative_humidity = out.get("Rel-Humidity")
-    if temperature is None or relative_humidity is None:
-        return
-    try:
-        temp_c = float(temperature)
-        rh = max(0.0, min(100.0, float(relative_humidity)))
-        saturation_pa = 610.78 * 10 ** ((7.5 * temp_c) / (237.3 + temp_c))
-        actual_pa = saturation_pa * (rh / 100.0)
-        absolute_humidity = (actual_pa * 18.016) / (8314.3 * (temp_c + 273.15)) * 1000.0
-        vpd = (1.0 - (rh / 100.0)) * saturation_pa / 1000.0
-    except (TypeError, ValueError, ZeroDivisionError, OverflowError):
-        return
-    out["Humidity"] = round(max(0.0, absolute_humidity), 2)
-    out["Ambient VPD"] = round(max(0.0, min(5.0, vpd)), 3)
-
 
 def _item_id(item: dict[str, Any]) -> str:
     return str(item.get("id", "") or "").strip().lower()
@@ -225,7 +216,11 @@ def _parse_common(payload: dict[str, Any], out: dict[str, float]) -> None:
         if value is None:
             continue
         unit = _unit(item, raw)
-        if item_id == "0x02":
+        if item_id == "0x01":
+            _put_temperature(out, "Gateway Temperature", value, unit)
+        elif item_id == "0x06":
+            out["Gateway Rel-Humidity"] = round(value, 1)
+        elif item_id == "0x02":
             _put_temperature(out, "Temperature", value, unit)
         elif item_id == "0x03":
             _put_temperature(out, "Dew Point", value, unit)
@@ -247,7 +242,9 @@ def _parse_common(payload: dict[str, Any], out: dict[str, float]) -> None:
                 name = {"0x0b": "Wind Speed", "0x0c": "Wind Gust", "0x19": "Daily Maximum Wind"}[item_id]
                 out[name] = round(normalized, 1)
         elif item_id == "0x15":
-            if unit in {"lux", "lx"}:
+            if unit in {"klux", "klx"}:
+                out["Light Intensity"] = round(value * 1000, 1)
+            elif unit in {"lux", "lx"}:
                 out["Light Intensity"] = round(value, 1)
             elif unit in {"w/m2", "w/m²", "wm2"}:
                 out["Solar Radiation"] = round(value, 1)
@@ -392,10 +389,12 @@ def normalize_ecowitt_livedata(payload: dict[str, Any], *, rain_source: str = "t
     selected_rain = None if rain_source == "none" else (
         payload.get("piezoRain") if rain_source == "piezo" else payload.get("rain")
     )
+    if rain_source == "traditional":
+        _parse_rain(payload.get("common_list"), out)
     _parse_rain(selected_rain, out)
     _parse_indoor_and_air(payload, out)
     _parse_channel_arrays(payload, out)
-    _derive_outdoor_air_metrics(out)
+    derive_outdoor_air_metrics(out)
     return out
 
 
@@ -457,6 +456,12 @@ def rain_reset_hour_from_totals(payload: dict[str, Any] | None) -> int:
     except Exception:
         value = 0
     return max(0, min(23, value))
+
+
+def gateway_family(version: Any) -> str:
+    """Identify supported generic-HTTP families without inferring sensor support."""
+    match = re.search(r"\b(GW\d{4})(?:[A-Z])?(?=_|\b)", str(version or "").upper())
+    return match.group(1) if match and match.group(1) in {"GW1100", "GW1200", "GW2000", "GW3000"} else ""
 
 
 def normalized_gateway_sensor_id(mac: Any) -> str:

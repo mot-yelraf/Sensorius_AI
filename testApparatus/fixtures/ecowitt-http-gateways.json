@@ -1,0 +1,53 @@
+{
+  "provenance": "Synthetic protocol-derived fixtures, not captures from physical gateways. Version strings reflect documented naming conventions, not a minimum firmware requirement.",
+  "protocol": "https://oss.ecowitt.net/uploads/20260109/HTTP%20API%20interface%20Protocol%20(Generic)-(V1.0.5-2025-10-08)%20.pdf",
+  "gateways": [
+    {
+      "family": "GW2000",
+      "version": {"platform": "ecowitt", "version": "Version: GW2000B_V2.1.4"},
+      "network": {"mac": "02:00:00:20:00:01", "ethIP": "192.0.2.20", "ssid": "", "wifi_pwd": "not-public"},
+      "inventory": [
+        [{"img": "wh80", "type": "2", "name": "Temp & Humidity & Solar & Wind", "id": "80AB", "batt": "5", "signal": "4", "idst": "1"},
+         {"img": "wh40", "type": "3", "name": "Rain", "id": "40AB", "batt": "5", "signal": "3", "idst": "1"}],
+        [{"img": "wh31", "type": "6", "name": "Temp & Humidity CH1", "id": "31AB", "batt": "0", "signal": "0", "idst": "1"}]
+      ],
+      "rain_totals": {"rainFallPriority": "1", "rstRainDay": "9"},
+      "live": {
+        "common_list": [
+          {"id": "0x02", "val": "20.0", "unit": "C"}, {"id": "0x07", "val": "65%"},
+          {"id": "0x0A", "val": "0"}, {"id": "0x0B", "val": "0.0 m/s"},
+          {"id": "0x0C", "val": "4.4704 m/s"}, {"id": "0x15", "val": "350 W/m2"},
+          {"id": "0x17", "val": "3"}
+        ],
+        "rain": [{"id": "0x0E", "val": "0.0 mm/Hr"}, {"id": "0x10", "val": "25.4 mm"}],
+        "wh25": [{"intemp": "21.0", "unit": "C", "inhumi": "45%", "abs": "1000.0 hPa", "rel": "1013.25 hPa"}],
+        "ch_aisle": [{"channel": "1", "temp": "30.0", "unit": "C", "humidity": "70%"}]
+      },
+      "expected": {"temperature": 68.0, "humidity": 65.0, "wind_speed": 0.0, "wind_dir": 0, "wind_gust": 10.0, "solar_radiation": 350.0, "uv": 3.0, "rain_rate": 0.0, "rain_total": 1.0, "indoor_temperature": 69.8, "indoor_humidity": 45.0, "indoor_pressure": 29.921}
+    },
+    {
+      "family": "GW3000",
+      "version": {"platform": "ecowitt", "version": "GW3000C_V1.0.0"},
+      "network": {"mac": "02:00:00:30:00:01", "ethIP": "192.0.2.30", "ssid": "private-network", "wifi_pwd": "not-public"},
+      "inventory": [
+        [{"img": "wh90", "type": "48", "name": "Temp & Humidity & Solar & Wind & Rain", "id": "90AB", "batt": "4", "signal": "4", "idst": "1"}],
+        [{"img": "wh51", "type": "14", "name": "Soil moisture CH1", "id": "51AB", "batt": "0", "signal": "3", "idst": "1"}]
+      ],
+      "rain_totals": {"rainFallPriority": "2", "rstRainDay": "0", "piezo": "1"},
+      "live": {
+        "common_list": [
+          {"id": "0x01", "val": "70.0 F"}, {"id": "0x06", "val": "40%"},
+          {"id": "0x02", "val": "68.0", "unit": "F"}, {"id": "0x07", "val": "65%"},
+          {"id": "0x08", "val": "750.0 mmHg"}, {"id": "0x09", "val": "760.0 mmHg"},
+          {"id": "0x0A", "val": "0"}, {"id": "0x0B", "val": "0.0 mph"},
+          {"id": "0x0C", "val": "10.0 mph"}, {"id": "0x15", "val": "35.0 Klux"}, {"id": "0x17", "val": "0"}
+        ],
+        "rain": [{"id": "0x10", "val": "99.0 in"}],
+        "piezoRain": [{"id": "0x0E", "val": "0.0 in/Hr"}, {"id": "0x10", "val": "0.1 in"}],
+        "ch_soil": [{"channel": "1", "humidity": "0%", "battery": "0"}],
+        "debug": [{"heap": "91272"}]
+      },
+      "expected": {"temperature": 68.0, "humidity": 65.0, "wind_speed": 0.0, "wind_dir": 0, "wind_gust": 10.0, "light_intensity": 35000.0, "uv": 0.0, "rain_rate": 0.0, "rain_total": 0.1, "indoor_temperature": 70.0, "indoor_humidity": 40.0, "absolute_pressure": 29.528, "pressure": 29.921}
+    }
+  ]
+}

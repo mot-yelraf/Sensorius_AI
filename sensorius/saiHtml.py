@@ -17,6 +17,7 @@ from .saiUtils import printDM, debug_enabled, html_escape, normalize_hostname_ba
 from .saiBiodynamics import get_biodynamic_payload, get_skyfield_runtime_if_installed
 from .sensor_modules.station_weewx import DEFAULT_SENSOR_ID as WEEWX_DEFAULT_SENSOR_ID, WEEWX_GAUGE_CONFIG
 from .sensor_modules.station_ecowitt import ECOWITT_GAUGE_CONFIG, ecowitt_gauge_config_for_metric
+from .weather_adapters.metrics import ACURITE_GAUGE_CONFIG
 from .saiRainClimate import style_rain_gauges
 from .saiDisplayUnits import convert_display_value
 from .saiMetricNames import METRIC_FAMILIES, native_metric_name, normalize_metric_keys, normalize_metric_stats
@@ -30,6 +31,13 @@ DEBUG = debug_enabled(MODULE)
 APP_TITLE = "Sensorius"
 APP_NAME_SHORT = f"{APP_TITLE} AI"
 APP_NAME_LONG = f"{APP_TITLE} Automatio Instrumentorum"
+
+
+def dashboard_sensor_label(sensor_id: str) -> str:
+    """Shorten weather station UUIDs for display without changing canonical IDs."""
+    label = str(sensor_id or "").upper()
+    match = re.fullmatch(r"(ECOWITT|ACURITE)-([A-Z0-9]+)", label)
+    return f"{match[1]}-{match[2][-6:]}" if match else label
 
 
 def _json_script(element_id: str, payload: dict) -> str:
@@ -171,6 +179,7 @@ def get_gauge_config():
     gauge_config["Soil Temperature"] = deepcopy(gauge_config["Soil Temp_C"])
     gauge_config.update(WEEWX_GAUGE_CONFIG)
     gauge_config.update(ECOWITT_GAUGE_CONFIG)
+    gauge_config.update(ACURITE_GAUGE_CONFIG)
     # Full-screen graph selectors retain the native names stored in history.
     for family in METRIC_FAMILIES:
         for name in family:
@@ -225,7 +234,7 @@ def normalize_dashboard_metric_set(value: object) -> str:
     return "All" if compact in {"all", "showall"} else "Pick 6"
 
 
-def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6", dashboard_custom_theme_style="", pressure_altitude=None, pressure_sensor_context=None, battery_statuses=None, dashboard_row_order=None, switch_row_order="location_device", switch_card_order=None, runtime_sensor_map: "SensorMap | None" = None):
+def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6", dashboard_custom_theme_style="", pressure_altitude=None, pressure_sensor_context=None, battery_statuses=None, dashboard_row_order=None, switch_row_order="location_device", switch_card_order=None, runtime_sensor_map: "SensorMap | None" = None, sensor_statuses=None):
     """Yield the complete Sensorius dashboard HTML document."""
 
     requested = expected_gauge_map if expected_gauge_map is not None else getattr(mqtt_ingest, "expected_gauge_map", {})
@@ -1681,8 +1690,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
           2) MQTT ingest device_status[hostname or hostname.local]
           3) WeeWX rows rendered from stored station data
           4) Fallback: 'unknown'
-        Returns one of: 'online' | 'degraded' | 'offline' | 'unknown' | 'migration_required'
+        Returns one of: 'online' | 'degraded' | 'offline' | 'unknown' | 'migration_required'.
+        Explicit app-owned status overrides take precedence over these fallbacks.
         """
+        if sid in (sensor_statuses or {}):
+            return sensor_statuses[sid]
         sid_text = str(sid or "").strip()
         # 1) direct/local sensor object
         try:
@@ -1718,7 +1730,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             if (
                 sid_lower == WEEWX_DEFAULT_SENSOR_ID.lower()
                 or sid_lower.startswith("weewx")
-                or sid_lower.startswith("ecowitt-")
+                or sid_lower.startswith(("ecowitt-", "acurite-"))
             ):
                 values = all_values.get(sid_text) or {}
                 if values:
@@ -1937,7 +1949,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     # Per-sensor gauge blocks
     for sid, sensor_metrics in expected_gauge_map.items():
         sidLower = sid.lower()
-        sidUpper = sid.upper()
+        sidUpper = dashboard_sensor_label(sid)
         values = all_values.get(sid) or {}
         stats  = all_stats.get(sid)  or {}
         topic = f"sensor/{sid}/data"
@@ -1968,7 +1980,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             f"             border-radius:50%;vertical-align:middle;margin-right:6px;"
             f"             background:{_dot_color};border:1px solid #666;'></span>"
         )
-        if sid.startswith(("ecowitt-", "weewx")) or sid in (battery_statuses or {}):
+        if sid.startswith(("ecowitt-", "acurite-", "weewx")) or sid in (battery_statuses or {}):
             battery_status = (battery_statuses or {}).get(sid, "UNKNOWN")
             if battery_status not in {"OK", "LOW", "UNKNOWN"}:
                 battery_status = "UNKNOWN"
@@ -2086,7 +2098,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             lazy_metric_visual = not default_expanded and metric_pos > 6
             lazy_visual_attr = " data-lazy-metric-visual='1'" if lazy_metric_visual else ""
             yield f"<div class='metric-container' id='{safe_id}_container' data-sensor='{sid}' data-metric='{metric}' data-display-style='{metric_display_style}'{lazy_visual_attr}>"
-            yield f"<div class='metric-title'>{metric_title_prefix}{metric} ({config['unit']})</div>"
+            yield f"<div class='metric-title'>{metric_title_prefix}{html_escape(config.get('display_label') or metric)} ({config['unit']})</div>"
 
             yield "<div class='gauge-container'>"
             if not lazy_metric_visual:

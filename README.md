@@ -2,7 +2,7 @@
 
 **Environmental Sensing + Automation Hub**
 
-Sensorius is a sensor, relay-switch automation hub with a robust web UI, MQTT ingestion, and optional Home Assistant and farmOS integrations, with a focus on gardening, farming, greenhouse monitor and control. When using Raspberry Pi's it can auto-detects directly-connected sensors, relay-switch(es) and on all supported platforms it automatically discovers Nodus WiFi/MQTT devices, and turns those data into live dashboards, automation controls, historical data; the application also includes integrated weather forecast and biodynamic calendar .
+Sensorius is a sensor, relay-switch automation hub with a robust web UI, extensive Automation Rule user-created definitions, WiFi Sensor/Switch monitoring via MQTT, and optional Home Assistant and farmOS integrations. The application's focus is on gardening, farming, greenhouse monitor and control, but can be used to control other environments as well. When using Raspberry Pi's it can auto-detects directly-connected sensors, relay-switch(es) and on all supported platforms it automatically discovers Nodus WiFi/MQTT devices, and turns those data into live dashboards, automation controls, historical data; the application also includes integrated weather forecast and biodynamic calendar .
 
 For illustrated setup and operating instructions, see the
 [Sensorius AI User Guide](docs/user_guide.md).
@@ -11,6 +11,9 @@ For illustrated setup and operating instructions, see the
 
 - Auto-detects locally attached sensors (Raspberry Pi deployments)
 - Discovers Nodus sensors and switches via MQTT and retained `nodus/<device_id>/meta` metadata 
+  - Nodus Sensors Metrics gathered include:
+    - Temperature, Relative Humidity, Vapor Pressure Deficit, Barometric Pressure, CO2, AQI, Light, and more
+  - Support for Ecowitt and Acurite weather sensors that also include Rain and Wind
 - Stores sensor readings and switch events in a local SQLite database
 - Provides live dashboards, historical graphing, and location-based views
 - Shows Astral-based sun position and moon phase cards in the dashboard when location/timezone are available

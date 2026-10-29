@@ -55,7 +55,7 @@ install_system_packages() {
 
   run_with_heartbeat "APT install system dependencies" sudo apt-get install -y \
     python3 python3-pip python3-venv python3-dev \
-    sqlite3 libatlas-base-dev libopenblas0 \
+    libusb-1.0-0 sqlite3 libatlas-base-dev libopenblas0 \
     build-essential git chrony locate cmake swig liblgpio-dev \
     raspi-gpio logrotate mosquitto mosquitto-clients \
     libgirepository1.0-dev \
@@ -66,6 +66,7 @@ install_system_packages() {
     libjpeg-dev zlib1g-dev libopenjp2-7 \
     ca-certificates curl \
     cups cups-client cups-ipp-utils cups-filters-core-drivers avahi-daemon
+  configure_acurite_usb_access
 }
 
 ensure_uv() {

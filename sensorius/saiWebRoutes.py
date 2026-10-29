@@ -87,6 +87,7 @@ from .saiDisplayUnits import (
     apply_display_units_to_gauge_config,
     normalize_display_unit_system,
 )
+from .saiWeatherStation import station_health
 from .saiEcowitt import EcowittError, EcowittGatewayIngest, ecowitt_sensor_health
 from .sensor_modules.station_ecowitt import DEFAULT_POLL_INTERVAL_SEC as ECOWITT_DEFAULT_POLL_INTERVAL_SEC
 from .saiRuntimePaths import resolve_runtime_base_dir
@@ -575,6 +576,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             supervisor=getattr(app.state, "supervisor", None),
             farmos_bridge=getattr(app.state, "farmos_bridge", None),
             ecowitt_service=getattr(app.state, "ecowitt_service", None),
+            acurite_service=getattr(app.state, "acurite_service", None),
             email_notifications=getattr(app.state, "email_notifications", None),
             automation_notifications=getattr(app.state, "automation_notifications", None),
         )
@@ -3151,6 +3153,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             try:
                 current_settings = saiSettings(apply_live=False)
+                if sid_text.lower().startswith("acurite-"):
+                    service = services.acurite_service
+                    snapshot = service.status() if service else {}
+                    if snapshot.get("sensor_id") == sid_text:
+                        return "online" if snapshot.get("state") == "online" else "offline"
+                    return "offline"
                 if sid_text.lower().startswith("ecowitt-"):
                     service = getattr(app.state, "ecowitt_service", None)
                     snapshot = service.status() if service is not None and hasattr(service, "status") else {}
@@ -3199,6 +3207,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         for sid in available:
             if sid.startswith("ecowitt-"):
                 battery_statuses[sid] = ecowitt_sensor_health(services.data_logger, sid)["battery_status"]
+            elif sid.startswith("acurite-"):
+                battery_statuses[sid] = station_health(services.data_logger, sid)["battery_status"]
             elif _is_weewx_dashboard_sensor(sid):
                 battery_statuses[sid] = (
                     weewx_battery_status(all_values.get(sid) or {})
@@ -3332,6 +3342,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 gauge_config=gauge_config, 
                 gauge_size = gaugeSize,
                 battery_statuses = battery_statuses,
+                sensor_statuses={sid: _resolve_meas_status_for_sid(sid) for sid in available if sid.startswith("acurite-")},
                 dashboard_row_order = _effective_dashboard_row_order(available + ["__switches__"], sensor_locations),
                 switch_row_order = display_settings.get("switch_row_order", "location_device"),
                 switch_card_order = display_settings.get("switch_card_order", []),
@@ -5432,6 +5443,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             sensor_type = str(sensor_section.get("TYPE", "") or "").strip().lower()
             raw_device = str(sensor_section.get("DEVICE", "") or "")
             device_kind = raw_device.strip().lower()
+            is_acurite = device_kind == "acurite_usb" or normalized_id.lower().startswith("acurite-")
             is_weewx = sensor_type == "weewx" or device_kind == "weewx" or normalized_id.lower().startswith("weewx")
             if is_weewx:
                 for metric in WEEWX_DISPLAY_METRICS:
@@ -5492,7 +5504,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             elif device_kind in ("veml", "lux"):
                 _add_offset("Calibration.Device.LUX_OFFSET", "Light Intensity", "lux", "LUX_OFFSET")
                 _add_offset("Calibration.Device.PPFD_OFFSET", "Estimated PPFD", "µmol/m²/s", "PPFD_OFFSET")
-            elif device_kind in ("vpd", "avpd", "bme280", "aht", "aht10", "ahtx0"):
+            elif device_kind in ("vpd", "avpd", "bme280", "aht", "aht10", "ahtx0", "acurite_usb"):
                 _add_offset("Calibration.Device.TEMP_OFFSET", "Temperature", "°C", "TEMP_OFFSET")
                 _add_offset("Calibration.Device.RH_OFFSET", "Rel-Humidity", "%", "RH_OFFSET")
             elif device_kind in ("soil",):
@@ -5522,7 +5534,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 settings_block=sensor_section,
             )
             weewx_station_model = ""
-            if is_weewx:
+            if is_weewx or is_acurite:
                 for key in ("STATION_MODEL", "station_model", "MODEL", "model", "STATION_TYPE", "station_type"):
                     weewx_station_model = str(sensor_section.get(key) or "").strip()
                     if weewx_station_model:
@@ -5561,7 +5573,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 candidate_sensors=candidate_sensors,
                 default_range_hours=24,
                 supports_device_calibration=not is_weewx,
-                supports_system_calibration=not is_weewx,
+                supports_system_calibration=not (is_weewx or is_acurite),
                 can_restart_device=(sensor_type in ("picow", "pico2w", "nodus", "remote", "mqtt")),
                 network_info=network_info,
                 **sensor_statistics,
@@ -6094,6 +6106,12 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             push_nodus_settings_batch=push_nodus_settings_batch,
             switch_channel_id_from_identity_row=_switch_channel_id_from_identity_row,
         ),
+    )
+    from .saiWebWeatherDevices import register_weather_device_routes
+    register_weather_device_routes(
+        router, services=services, settings_factory=saiSettings,
+        require_protected_access=_require_protected_access,
+        invalidate_dashboard_caches=_invalidate_dashboard_caches,
     )
     register_integration_routes(
         router, services=services, settings_factory=saiSettings,

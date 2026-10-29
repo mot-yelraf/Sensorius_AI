@@ -36,6 +36,7 @@ from .saiWeatherAstronomy import astronomy_context
 from .saiWeatherForecast import forecast_condition, get_weather_forecast_payload
 from .saiThemeManager import ThemeManager, normalize_theme_selection
 from .saiEcowitt import ecowitt_sensor_health
+from .saiWeatherStation import station_health
 from .sensor_modules.station_ecowitt import DEFAULT_POLL_INTERVAL_SEC as ECOWITT_DEFAULT_POLL_INTERVAL_SEC
 from .sensor_modules.station_weewx import (
     DEFAULT_UPDATE_PERIOD_SEC as WEEWX_DEFAULT_UPDATE_PERIOD_SEC,
@@ -149,7 +150,7 @@ def build_display_metrics(
         display_value = convert_display_value(numeric, metric_config) if numeric is not None else None
         display_metrics.append(
             {
-                "name": name,
+                "name": str(metric_config.get("display_label") or name),
                 "value": round(display_value, precision) if display_value is not None else None,
                 "unit": str(metric_config.get("unit") or ""),
             }
@@ -650,10 +651,11 @@ class WeatherForecastAppService:
             self.settings.get_setting("Display", "unit_system", "Imperial"),
         )
         payload["is_ecowitt"] = sensor_id.startswith("ecowitt-")
+        payload["is_acurite"] = sensor_id.startswith("acurite-")
         configured_weewx_id = str(self.settings.get_setting("WeeWX", "SENSOR_ID", "weewx-station") or "").strip().lower()
         payload["is_weewx"] = sensor_id.lower().startswith("weewx") or sensor_id.lower() == configured_weewx_id
         payload["thermal_metrics"] = []
-        if payload["is_ecowitt"] or payload["is_weewx"]:
+        if payload["is_ecowitt"] or payload["is_weewx"] or payload["is_acurite"]:
             # Only outdoor aliases qualify; gateway/indoor temperatures are excluded.
             outdoor_f = _find_metric(values, "Temperature_F", "Outdoor Temperature_F", "Air Temperature_F")
             outdoor_c = _find_metric(values, "Temperature", "Temperature_C", "Outdoor Temperature", "Air Temperature")
@@ -665,6 +667,8 @@ class WeatherForecastAppService:
                 )
         if payload["is_ecowitt"]:
             payload.update(ecowitt_sensor_health(self.data_logger, sensor_id))
+        elif payload["is_acurite"]:
+            payload["battery_status"] = station_health(self.data_logger, sensor_id)["battery_status"]
         elif payload["is_weewx"]:
             payload["battery_status"] = weewx_battery_status(values)
         payload["location"] = sensor_location
@@ -679,6 +683,8 @@ class WeatherForecastAppService:
             device = ""
         if device == "ecowitt":
             configured = self.settings.get_setting("Ecowitt", "POLL_INTERVAL_SEC", ECOWITT_DEFAULT_POLL_INTERVAL_SEC)
+        elif device == "acurite_usb":
+            configured = self.settings.get_setting("AcuRite", "POLL_INTERVAL_SEC", 60)
         elif device == "weewx":
             configured = self.settings.get_setting("WeeWX", "UPDATE_PERIOD_SEC", WEEWX_DEFAULT_UPDATE_PERIOD_SEC)
         else:

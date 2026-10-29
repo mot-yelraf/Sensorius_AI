@@ -1,0 +1,14 @@
+{
+  "provenance": "Synthetic shared PC Connect R1/R2 reports from documented reverse-engineered AcuRite USB layouts. These are not captures from the user's hardware.",
+  "reference": "https://github.com/weewx/weewx/blob/v5.2.0/src/weewx/drivers/acurite.py",
+  "temperature": "01 c1 23 78 00 08 38 41 03 ff",
+  "north_dry": "01 c1 23 71 00 06 00 00 03 ff",
+  "north_rain_one_inch": "01 c1 23 71 00 06 00 64 03 ff",
+  "wind_east": "01 c1 23 71 01 0a 00 64 03 ff",
+  "rf_lost": "01 c1 23 78 00 08 38 41 00 ff",
+  "sensor_absent": "01 cf ff ff ff ff ff ff 00 00",
+  "rain_before_wrap": "01 c1 23 71 00 06 3f 7e 03 ff",
+  "rain_after_wrap": "01 c1 23 71 00 06 00 02 03 ff",
+  "console_linear": "02 00 00 80 00 00 00 00 00 04 00 10 00 00 00 09 60 01 01 01 01 00 00 4c 54",
+  "console_hp03": "02 00 00 4c be 0d ec 01 52 03 62 7e 38 18 ee 09 c4 08 22 06 07 7e 38 80 00"
+}
