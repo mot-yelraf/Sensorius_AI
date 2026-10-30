@@ -176,7 +176,7 @@ nutrients, light, and PPFD.
 
 Each Sensor Tile can appear as:
 
-- **Gauge**: shows the current value against a colored range.
+- **Gauge**: shows the current value against a colored range with a 270° sweep.
 - **6Hr Graph**: shows the last six hours inside the Sensor Tile.
 - **24Hr Graph**: shows the last 24 hours inside the Sensor Tile.
 
@@ -1217,6 +1217,8 @@ The four finishes use the same readings, gauge zones, and graph colors:
 - **Chrome** adds a silver metal background and raised metal bezels around gauges and inset graph panels.
 - **Brass** uses warm gold metal, matching gauge faces, and rivets around the gauge and graph bezels.
 - **Mahogany & Brass** combines a dark wood background with brass trim and contrasting cream text. Sensor gauges use brass faces; switch tables and event graphs have brass frames.
+
+Automation-enabled switch state cells use a darker version of the selected metal face: silver for Chrome and brass for Brass or Mahogany & Brass. Theme keeps its light green automation highlight.
 
 These live examples come from Samhain. Theme, Chrome, and Brass are sensor tiles;
 Mahogany & Brass is a switch location card. Click an image to see it at full size.
