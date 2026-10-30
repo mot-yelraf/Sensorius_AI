@@ -1313,6 +1313,7 @@ Fields and controls:
 
 - **Location**: where the switch device or relay box is installed. This is saved in `switch_settings/<switch_id>/switch.toml` and is shown on the dashboard and location editor.
 - **Channel label for switch_N**: friendly label for each channel, such as Exhaust Fan, Irrigation Pump, Heat Mat, North Vent, or Lights. Labels are saved in switch settings.
+- **Switch Tile Style**: choose **Theme**, **Chrome**, **Brass**, or **Mahogany & Brass** for the shared location card. The finish changes the background, table frame, and event graph frame. Saving from any switch applies the finish to all switches at that location. Switching, timers, automation ownership, and event colors stay the same.
 - **Dashboard timer gear**: opens the channel's manual auto-off timer. Use `0` to disable it or 30-9999 seconds; the dashboard rounds entries to a 30-second step. The value lasts only until Sensorius restarts.
 - **Circled ×**: closes Switch Settings and returns to the dashboard.
 - **Restart Device**: appears for supported remote switches and sends a restart request.

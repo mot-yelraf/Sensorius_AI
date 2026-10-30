@@ -118,7 +118,7 @@ for (const width of [1280, 390]) {
       });
       expect(centerError.x).toBeLessThan(1);
       expect(centerError.y).toBeLessThan(1);
-      expect(centerError.face).toContain('linear-gradient');
+      expect(centerError.face).toContain('gradient(');
     }
 
     await card.locator('.gauge-view').click();

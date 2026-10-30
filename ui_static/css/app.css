@@ -1223,10 +1223,13 @@ canvas{
   margin-bottom:.25rem;
   text-align:center;
 }
-#sensorSettingsForm .display-metrics-section select{
+#sensorSettingsForm .display-metrics-section select,
+#sensorSettingsForm #metric_tile_style,
+#switchSettingsModal #switch_tile_style{
   /* Avoid native theme insets clipping text in the Pi webview. */
   -webkit-appearance:none;
   appearance:none;
+  text-align:left;
   height:auto;
   min-height:32px;
   flex-shrink:0;
@@ -1553,7 +1556,10 @@ select.op-select{ max-width:80px; width:100%; }
 
 .metric-container[data-tile-style="Chrome"],
 .metric-container[data-tile-style="Brass"],
-.metric-container[data-tile-style="Mahogany & Brass"]{
+.metric-container[data-tile-style="Mahogany & Brass"],
+.switch-metric-container[data-tile-style="Chrome"],
+.switch-metric-container[data-tile-style="Brass"],
+.switch-metric-container[data-tile-style="Mahogany & Brass"]{
   --tile-rim:linear-gradient(135deg,#f9fcff 0%,#9aa3ab 19%,#f5f8fa 34%,#646e78 50%,#e9eef2 67%,#8a949e 84%,#f7fafc 100%);
   --tile-panel:linear-gradient(135deg,#f3f7f9,#bbc6cc 24%,#d8e1e6 40%,#aab9c2 53%,#e5edf1 74%,#c2cdd3 90%,#f2f7fa);
   --tile-edge:#78828c;
@@ -1563,14 +1569,46 @@ select.op-select{ max-width:80px; width:100%; }
   box-shadow:inset 0 1px 2px #fff9,inset 0 -2px 3px #0006,0 3px 6px #0004;
 }
 .metric-container[data-tile-style="Brass"],
-.metric-container[data-tile-style="Mahogany & Brass"]{
-  --tile-rim:linear-gradient(135deg,#fff0b3 0%,#a77c30 19%,#f5d57b 34%,#76501c 50%,#ebc667 67%,#a0762e 84%,#ffe9a0 100%);
-  --tile-panel:linear-gradient(135deg,#fff0b3,#ddbe70 24%,#f4d98d 40%,#c8a45b 53%,#f2d486 74%,#dfc17b 90%,#fff0b3);
-  --tile-edge:#866024;
-  --tile-bezel:conic-gradient(from -35deg,#795315,#ffeeb0 12%,#b4812c 24%,#f9d979 39%,#825419 53%,#fff1b1 69%,#ac7624 84%,#ebc46a 94%,#795315);
-  --tile-dial:linear-gradient(135deg,#fff0b7,#dcc17b 35%,#f4dfa1 62%,#c8aa62);
+.metric-container[data-tile-style="Mahogany & Brass"],
+.switch-metric-container[data-tile-style="Brass"],
+.switch-metric-container[data-tile-style="Mahogany & Brass"]{
+  --tile-rim:linear-gradient(135deg,#e8cc8e 0%,#8a622c 19%,#d6b46c 34%,#573b1d 50%,#cba35a 67%,#92703a 84%,#eed49b 100%);
+  --tile-panel:linear-gradient(135deg,#ead59f,#c3a066 24%,#dfc286 40%,#b99352 53%,#ddbe7d 74%,#c5a36b 90%,#ead59f);
+  --tile-edge:#684a27;
+  --tile-bezel:conic-gradient(from -35deg,#614221,#e6cb8c 12%,#9e7538 24%,#d8b568 39%,#65431f 53%,#f0d79b 69%,#987039 84%,#d0aa60 94%,#614221);
+  --tile-dial:repeating-conic-gradient(from -35deg,#fff2bd03 0deg .4deg,#4e321303 .5deg .85deg,transparent .9deg 1.6deg),conic-gradient(from -40deg,#ceb174,#efdaa3 11%,#c09c59 24%,#dcc087 35%,#f1dda7 49%,#bd9956 64%,#e5c98e 80%,#ceb174);
+  /* Keep rivet centers on the midpoint of the fixed 11px bezel at every tile size. */
+  --tile-bezel-rivets:radial-gradient(circle at calc(50.00000% + 0.00000px) calc(0.00000% + 5.50000px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(75.00000% - 2.75000px) calc(6.69873% + 4.76313px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(93.30127% - 4.76313px) calc(25.00000% + 2.75000px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(100.00000% - 5.50000px) calc(50.00000% + 0.00000px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(93.30127% - 4.76313px) calc(75.00000% - 2.75000px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(75.00000% - 2.75000px) calc(93.30127% - 4.76313px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(50.00000% - 0.00000px) calc(100.00000% - 5.50000px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(25.00000% + 2.75000px) calc(93.30127% - 4.76313px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(6.69873% + 4.76313px) calc(75.00000% - 2.75000px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(0.00000% + 5.50000px) calc(50.00000% - 0.00000px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(6.69873% + 4.76313px) calc(25.00000% + 2.75000px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(25.00000% + 2.75000px) calc(6.69873% + 4.76313px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px);
+  --tile-frame-rivets:radial-gradient(circle at 5px 5px,#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(100% - 5px) 5px,#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at 5px calc(100% - 5px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(100% - 5px) calc(100% - 5px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(25% + 2.5px) 3.5px,#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(25% + 2.5px) calc(100% - 3.5px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at 3.5px calc(25% + 2.5px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(100% - 3.5px) calc(25% + 2.5px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(50% + 0px) 3.5px,#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(50% + 0px) calc(100% - 3.5px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at 3.5px calc(50% + 0px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(100% - 3.5px) calc(50% + 0px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(75% - 2.5px) 3.5px,#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(75% - 2.5px) calc(100% - 3.5px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at 3.5px calc(75% - 2.5px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px),
+    radial-gradient(circle at calc(100% - 3.5px) calc(75% - 2.5px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px);
 }
-.metric-container[data-tile-style="Mahogany & Brass"]{
+.metric-container[data-tile-style="Mahogany & Brass"],
+.switch-metric-container[data-tile-style="Mahogany & Brass"]{
   background:repeating-linear-gradient(3deg,#ffffff04 0 1px,#19050014 2px 3px,transparent 4px 9px),linear-gradient(100deg,#3b150f,#833f29 30%,#542319 53%,#743620 75%,#36130e);
   color:#fff0ce;border-color:#ac853b;
 }
@@ -1586,7 +1624,8 @@ select.op-select{ max-width:80px; width:100%; }
 }
 .metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .gauge-view::after{
   content:"";position:absolute;inset:3px;pointer-events:none;border:1px solid #fff7;border-radius:50%;
-  background:linear-gradient(135deg,#fff3,transparent 45%,transparent 70%,#00000008);
+  background-image:var(--tile-bezel-rivets,linear-gradient(135deg,#fff3,transparent 45%,transparent 70%,#00000008));
+  background-origin:border-box;background-repeat:no-repeat;
 }
 .metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .gauge-view canvas{
   position:relative;margin:0;transform:scale(.84) translateY(var(--gauge-center-shift,0%));z-index:1;
@@ -1599,7 +1638,8 @@ select.op-select{ max-width:80px; width:100%; }
 }
 .metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .graph-view::before{
   content:"";position:absolute;inset:0;pointer-events:none;border:7px solid transparent;border-radius:8px;
-  background:var(--tile-rim) border-box;
+  background-image:var(--tile-frame-rivets,linear-gradient(transparent,transparent)),var(--tile-rim);
+  background-origin:border-box;background-repeat:no-repeat;
   mask:linear-gradient(#fff 0 0) padding-box,linear-gradient(#fff 0 0);mask-composite:exclude;
   z-index:2;
 }
@@ -1613,3 +1653,49 @@ select.op-select{ max-width:80px; width:100%; }
   width:100% !important;height:auto !important;margin:0;
 }
 .metric-container[data-tile-style="Mahogany & Brass"] .trend-arrow{color:#fff0ce;}
+.metric-container:is([data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .gauge-view::after{
+  inset:0;border-color:transparent;
+}
+
+.switch-tile-style-section{margin:.5rem 1rem 1rem;text-align:center;}
+.switch-tile-style-section .section-title{margin:.4rem 0;}
+.switch-tile-style-section label{display:block;margin-bottom:.35rem;color:var(--muted);font-size:.85rem;}
+.switch-tile-style-slot{grid-column:2;min-width:0;}
+.switch-tile-style-slot select{width:100%;}
+.switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .switch-view{
+  position:relative;box-sizing:border-box;padding:7px;border-radius:9px;background:var(--tile-rim);
+  box-shadow:0 1px 3px #0007,inset 0 1px 1px #fff8;
+}
+.switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .switch-view::after{
+  content:"";position:absolute;inset:0;pointer-events:none;border:7px solid transparent;border-radius:9px;
+  background-image:var(--tile-frame-rivets,linear-gradient(transparent,transparent));background-origin:border-box;background-repeat:no-repeat;
+  mask:linear-gradient(#fff 0 0) padding-box,linear-gradient(#fff 0 0);mask-composite:exclude;
+}
+.switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .switch-table{
+  margin-top:0;background:var(--tile-dial);color:#17232b;
+}
+.switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .switch-table :is(th,td){
+  background:transparent;color:#17232b;border-color:#5b514c66;
+}
+.switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .switch-table thead{background:#ffffff30;}
+.switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .switch-events{
+  border:4px solid transparent;border-radius:8px;
+  background:var(--tile-dial) padding-box,var(--tile-rim) border-box;color:#17232b;
+  box-shadow:inset 0 1px 4px #0005,0 1px 1px #fff8;
+}
+.switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .switch-history-plot{background:#ffffff30;}
+.switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .switch-table .switch-state-td.automation-enabled{background:#dff4d7;}
+.switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .switch-time{color:#27313a;}
+@media (max-width:700px){
+  .switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]){max-width:100%;min-width:0;}
+  .switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .switch-table{table-layout:fixed;font-size:.8rem;}
+  .switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .switch-table :is(th,td){padding:.25rem .2rem;overflow-wrap:anywhere;}
+  .switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .switch-table th:first-child{width:18%;}
+  .switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .switch-table th:nth-child(2){width:35%;}
+  .switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .switch-events{min-width:0;}
+}
+@media (max-width:700px){
+  .switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .switch-history-ticks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;font-size:.48rem;}
+  .switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .switch-history-ticks > span{min-width:0;white-space:normal;overflow-wrap:anywhere;}
+  .switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .switch-history-ticks > span > span{max-width:100%;}
+}

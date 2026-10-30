@@ -122,6 +122,7 @@
   .mobile-settings .row.two, .mobile-settings .row.three,
   .mobile-settings .display-metrics-row { grid-template-columns:minmax(0, 1fr); }
   #sensorSettingsForm .metric-tile-style-row .metric-tile-style-slot { grid-column:1; }
+  .mobile-settings .switch-tile-style-slot { grid-column:1; }
   #setupPiModal.mobile-settings .thumbnail-options {
     min-width:0;
     grid-template-columns:repeat(2, minmax(0, 1fr));

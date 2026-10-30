@@ -2520,6 +2520,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 local_ids = list(inventory_payload.get("local_ids", []) or [])
                 available = list(inventory_payload.get("available", []) or [])
                 available_switches = list(inventory_payload.get("available_switches", []) or [])
+                switch_settings_ids = list(inventory_payload.get("switch_settings_ids", []) or [])
                 renderable_switch_controllers = list(inventory_payload.get("renderable_switch_controllers", []) or [])
                 sensor_locations_map = dict(inventory_payload.get("sensor_locations_map", {}) or {})
             else:
@@ -2542,11 +2543,13 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 # Build a switch inventory for debug visibility (local + discovered + DB identities).
                 available_switches = []
                 renderable_switch_controllers = []
+                switch_settings_ids = []
                 try:
                     switch_ids_local = []
                     try:
                         switch_ids_local = await asyncio.to_thread(switch_settings_mgr.list_switches) if switch_settings_mgr else []
                         switch_ids_local = switch_ids_local or []
+                        switch_settings_ids = list(switch_ids_local)
                     except Exception:
                         switch_ids_local = []
                     switch_ids_live = _get_local_switch_ids()
@@ -2629,6 +2632,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         "available": list(available),
                         "available_switches": list(available_switches),
                         "renderable_switch_controllers": list(renderable_switch_controllers),
+                        "switch_settings_ids": switch_settings_ids,
                         "sensor_locations_map": dict(sensor_locations_map),
                     },
                 )
@@ -2838,6 +2842,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         expected_gauge_map = {}
         expected_display_style_map = {}
         metric_tile_style_map = {}
+        switch_style_mgr = _get_switch_settings_manager()
+        switch_tile_style_map = await asyncio.to_thread(switch_style_mgr.get_tile_styles_by_location, switch_settings_ids) if switch_style_mgr else {}
         pressure_sensor_context = {}
         for sid in all_values:
             if sensor_mgr is not None:
@@ -3280,6 +3286,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "expected_gauge_map": expected_gauge_map,
                 "expected_display_style_map": expected_display_style_map,
                 "metric_tile_style_map": metric_tile_style_map,
+                "switch_tile_style_map": switch_tile_style_map,
                 "pressure_altitude": display_settings.get("pressure_altitude"),
                 "pressure_sensor_context": pressure_sensor_context,
                 "available_switches": available_switches,
@@ -3356,6 +3363,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 expected_gauge_map = expected_gauge_map,
                 expected_display_style_map = expected_display_style_map,
                 metric_tile_style_map = metric_tile_style_map,
+                switch_tile_style_map = switch_tile_style_map,
                 display_style = displayStyle,
                 dashboard_background_theme = dashboardBackgroundTheme,
                 dashboard_custom_theme_style = theme_manager.style_attribute(

@@ -57,6 +57,16 @@ for (const screenWidth of [1, 600]) {
           await expect(finish.locator('option')).toHaveText(['Theme', 'Chrome', 'Brass', 'Mahogany & Brass']);
           await finish.selectOption('Mahogany & Brass');
           await expect(finish).toHaveValue('Mahogany & Brass');
+          const selectProperties = ['appearance', 'minHeight', 'lineHeight', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'borderRadius', 'backgroundSize', 'backgroundPosition'];
+          const finishStyle = await finish.evaluate((el, properties) => properties.map(key => getComputedStyle(el)[key]), selectProperties);
+          const metricStyle = await root.locator('#metric_2').evaluate((el, properties) => properties.map(key => getComputedStyle(el)[key]), selectProperties);
+          expect(finishStyle).toEqual(metricStyle);
+          expect(await finish.evaluate(el => {
+            const style = getComputedStyle(el);
+            const context = document.createElement("canvas").getContext("2d");
+            context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+            return context.measureText(el.selectedOptions[0].textContent.trim()).width <= el.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight);
+          })).toBe(true);
           await page.screenshot({ path: testInfo.outputPath('sensor-tile-style-setting.png') });
         }
         await page.goto('/', { waitUntil: 'domcontentloaded' });

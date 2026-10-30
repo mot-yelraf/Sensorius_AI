@@ -51,6 +51,7 @@ def test_metadata_replay_is_idempotent_and_partial_snapshot_preserves_shadows(tm
     logger = SimpleNamespace(prune_switch_identities=lambda **kwargs: None)
     info = {'HOSTNAME': 'avpd-test', 'MQTT': {'BROKER': 'broker.local'}}
     shadows.persist_metadata(logger, info, 'avpd-test', [sensor], [switch])
+    SwitchSettingsManager().set_location_tile_style('switch-test', 'Brass')
     assert writes
     writes.clear()
     shadows.persist_metadata(logger, info, 'avpd-test', [sensor], [switch])
@@ -60,6 +61,7 @@ def test_metadata_replay_is_idempotent_and_partial_snapshot_preserves_shadows(tm
     saved = sensor_mgr.load('avpd-test')
     assert saved['Display']['METRIC_1'] == 'Temperature'
     assert saved['Calibration']['Device']['TEMP_CAL_VAL'] == 1.25
+    assert SwitchSettingsManager().load('switch-test')['Display']['SWITCH_TILE_STYLE'] == 'Brass'
     saved_switch = SwitchSettingsManager().load('switch-test')['Switch']
     assert saved_switch['SWITCH_1_CHANNEL_ID'] == 'S1-test'
     assert saved_switch['SWITCH_2_CHANNEL_ID'] == 'S2-test'

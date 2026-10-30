@@ -7122,3 +7122,32 @@ async def test_sensor_tile_finish_persists_and_reopens(tmp_path, monkeypatch, st
     assert saved["Display"]["METRIC_TILE_STYLE"] == expected
     assert saved["Display"]["METRIC_1"] == "Temperature"
     assert saved["Display"]["Style"]["METRIC_1"] == "Graph24hr"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("style,expected", [("Theme", "Theme"), ("Chrome", "Chrome"), ("Brass", "Brass"), ("Mahogany & Brass", "Mahogany & Brass"), ("unsupported", "Theme")])
+async def test_switch_tile_style_is_local_and_shared_by_location(tmp_path, monkeypatch, style, expected):
+    app, ingest, _system_root, _sensor_root, switch_root = await _build_app(tmp_path, monkeypatch)
+    app.state.templates = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
+    manager = _REAL_SWITCH_SETTINGS_MANAGER(str(switch_root))
+    for switch_id, location in [("switch-a", "Grow Tent"), ("switch-b", "grow tent"), ("switch-c", "Garden")]:
+        manager.save(switch_id, {"Switch": {"TYPE": "nodus", "SWITCH_DEVICE_ID": switch_id, "SWITCH_LOCATION": location, "SWITCH_1_LABEL": "Fan", "SWITCH_1_CHANNEL_ID": f"{switch_id}-1", "SWITCH_1_LAST_STATE": True}, "Display": {"OTHER_SETTING": "preserve"}})
+    before = {sid: manager.load(sid)["Switch"] for sid in ("switch-a", "switch-b", "switch-c")}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/submit-switch-settings", data={"switch_id": "switch-a", "location": "Grow Tent", "SWITCH_1_LABEL": "Fan", "switch_tile_style": style}, headers={"Accept": "application/json"})
+        assert response.status_code == 200, response.text
+        reopened = await client.get("/edit-switch", params={"switch_id": "switch-b", "embed": 1})
+        assert reopened.status_code == 200, reopened.text
+    from html import escape
+    assert f'<option value="{escape(expected)}" selected>{escape(expected)}</option>' in reopened.text
+    assert manager.get_tile_style("switch-a") == expected
+    assert manager.get_tile_style("switch-b") == expected
+    assert manager.get_tile_style("switch-c") == "Theme"
+    assert manager.get_tile_styles_by_location()["grow tent"] == expected
+    assert not ingest.published_json
+    for switch_id in before:
+        saved = manager.load(switch_id)
+        assert saved["Switch"] == before[switch_id]
+        assert saved["Display"]["OTHER_SETTING"] == "preserve"
+    manager.save("switch-new", {"Switch": {"TYPE": "nodus", "SWITCH_DEVICE_ID": "switch-new", "SWITCH_LOCATION": "Grow Tent"}})
+    assert manager.get_tile_style("switch-new") == expected
