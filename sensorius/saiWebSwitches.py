@@ -28,6 +28,7 @@ from .saiWebContracts import (
     SwitchSettingsFactory, SystemRootResolver, SystemSettingsFactory,
 )
 from .saiUtils import printDM
+from .saiSensorSettingsManager import METRIC_TILE_STYLES
 
 MODULE = "saiWebRoutes"
 
@@ -316,6 +317,8 @@ def register_switch_routes(
             switch_id=switch_id,
             settings=settings_dict,
             channel_indices=channel_indices,
+            switch_tile_style_options=METRIC_TILE_STYLES,
+            current_switch_tile_style=await asyncio.to_thread(manager.get_tile_style, switch_id),
             channels=channels,
             nodus_firmware_version=nodus_firmware_version,
             nodus_board_type=nodus_board_type,
@@ -558,6 +561,8 @@ def register_switch_routes(
                 for section_name, section_map in merged_doc.items():
                     manager.save(old_id, OrderedDict([(section_name, section_map)]))
 
+        if "switch_tile_style" in form:
+            await asyncio.to_thread(manager.set_location_tile_style, old_id, str(form.get("switch_tile_style") or "Theme"))
         _invalidate_dashboard_caches()
         try:
             active_controllers = services.switch_controllers

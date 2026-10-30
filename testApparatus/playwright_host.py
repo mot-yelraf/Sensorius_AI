@@ -62,7 +62,7 @@ async def switch_updates(websocket: WebSocket) -> None:
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(battery: str = "", station: str = "", documentation: bool = False, switches: bool = False, switches_first: bool = False, soil: bool = False, legacy: bool = False, unit_system: str = "Imperial", tile_style: str = "Theme") -> HTMLResponse:
+def dashboard(battery: str = "", station: str = "", documentation: bool = False, switches: bool = False, switches_first: bool = False, soil: bool = False, legacy: bool = False, unit_system: str = "Imperial", tile_style: str = "Theme", switch_tile_style: str = "Theme") -> HTMLResponse:
     """Render a deterministic dashboard with enough metrics to test interaction."""
     sensor_id = station or ("ecowitt-pr-check" if battery else "aht-pr-check")
     metrics = {
@@ -123,6 +123,7 @@ def dashboard(battery: str = "", station: str = "", documentation: bool = False,
             expected_gauge_map={sid: selected_metrics for sid in available},
             expected_display_style_map={sensor_id: {}},
             metric_tile_style_map={sensor_id: tile_style},
+            switch_tile_style_map={"test room": switch_tile_style, "unknown": switch_tile_style, "__unknown__": switch_tile_style},
             display_style="Gauge",
             dashboard_background_theme="fruit" if documentation else "leaf",
             astro_payload={"ok": False, "reason": "documentation_fixture"} if documentation else None,
@@ -226,6 +227,8 @@ def switch_settings(documentation: bool = False) -> HTMLResponse:
     return HTMLResponse(templates.get_template("modals/switch_settings.html").render(
         switch_id="switch-demo" if documentation else "switch-pr-check", settings={"Switch": {"SWITCH_LOCATION": "Greenhouse"}},
         channels=[{"index": 0, "label": "Pump"}], channel_indices=[0],
+        switch_tile_style_options=("Theme", "Chrome", "Brass", "Mahogany & Brass"),
+        current_switch_tile_style="Theme",
         **example,
     ))
 

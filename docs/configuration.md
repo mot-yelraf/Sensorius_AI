@@ -466,7 +466,10 @@ Sensor Settings > Metric Tile Style (below Display Metrics) selects **Theme**,
 **Chrome**, **Brass**, or **Mahogany & Brass** for every metric tile belonging to
 that sensor. Theme preserves the active dashboard theme. The other finishes add
 round raised metal bezels and matching metal faces for gauges, and recessed
-graph panels with matching metal surrounds. Mahogany & Brass adds a wood panel. Gauge and graph data colors and the existing
+graph panels with matching metal surrounds. Brass finishes use warm aged-gold
+shading, brushed faces, bezel rivets, and graph-frame rivets at each corner
+and three evenly spaced positions along each edge.
+Mahogany & Brass adds a wood panel. Gauge and graph data colors and the existing
 24-hour graph → 6-hour graph → gauge cycle remain unchanged.
 
 The hub saves this local presentation preference as `[Display].METRIC_TILE_STYLE`
@@ -496,6 +499,14 @@ Important `[Switch]` keys:
 - `SWITCH_N_CHANNEL_ID`: stable channel ID used for DB identity and MQTT.
 - `SWITCH_N_LAST_STATE`: persisted startup/default state.
 - `SWITCH_N_OVERRIDE_SCRIPT`: per-channel override flag.
+
+Switch Settings > Switch Tile Style selects Theme (the compatibility default),
+Chrome, Brass, or Mahogany & Brass. A location shares one switch card, so saving
+the finish from any device writes `[Display].SWITCH_TILE_STYLE` through the
+switch settings manager for all devices at that normalized location. The
+presentation preference is local to the hub and is not sent to Nodus firmware.
+The switch table, tile background, and event graph frame use the finish.
+Newly discovered switches at an already styled location inherit its appearance.
 
 The canonical UI/action key is:
 

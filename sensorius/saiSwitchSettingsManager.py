@@ -17,6 +17,7 @@ from pathlib import Path
 from collections import OrderedDict
 from .saiUtils import printDM, debug_enabled
 from .saiRuntimePaths import resolve_runtime_base_dir
+from .saiSensorSettingsManager import SensorSettingsManager
 from .saiLocalIdentity import (
     is_placeholder_channel_id,
     make_channel_id,
@@ -60,6 +61,48 @@ class SwitchSettingsManager:
         self.base_dir.mkdir(parents=True, exist_ok=True)
         if DEBUG:
             printDM(f"Initialized with base_dir={self.base_dir}", location=MODULE)
+
+    @staticmethod
+    def tile_location_key(location) -> str:
+        """Return the dashboard's canonical location key for a shared switch card."""
+        key = str(location or "").strip().lower()
+        return "__unknown__" if key in {"", "unknown", "n/a", "na", "none", "-"} else key
+
+    def get_tile_styles_by_location(self, switch_ids: list[str] | None = None) -> dict[str, str]:
+        """Return explicit local tile finishes, shared by switches at each location."""
+        styles = {}
+        for switch_id in self.list_switches() if switch_ids is None else switch_ids:
+            doc = self.load(switch_id) or {}
+            display = doc.get("Display") or {}
+            if isinstance(display, dict) and "SWITCH_TILE_STYLE" in display:
+                key = self.tile_location_key((doc.get("Switch") or {}).get("SWITCH_LOCATION"))
+                styles[key] = SensorSettingsManager.normalize_metric_tile_style(display["SWITCH_TILE_STYLE"])
+        return styles
+
+    def get_tile_style(self, switch_id: str) -> str:
+        """Return the finish for the switch's shared location card."""
+        doc = self.load(switch_id) or {}
+        key = self.tile_location_key((doc.get("Switch") or {}).get("SWITCH_LOCATION"))
+        display = doc.get("Display") or {}
+        fallback = SensorSettingsManager.normalize_metric_tile_style(display.get("SWITCH_TILE_STYLE") if isinstance(display, dict) else None)
+        return self.get_tile_styles_by_location().get(key, fallback)
+
+    def set_location_tile_style(self, switch_id: str, style: str) -> None:
+        """Persist one local presentation finish on all switches sharing a location."""
+        source = self.load(switch_id) or {}
+        location = self.tile_location_key((source.get("Switch") or {}).get("SWITCH_LOCATION"))
+        style = SensorSettingsManager.normalize_metric_tile_style(style)
+        with self._lock:
+            for candidate in sorted(set(self.list_switches()) | {switch_id}):
+                doc = self.load(candidate) or {}
+                if self.tile_location_key((doc.get("Switch") or {}).get("SWITCH_LOCATION")) != location:
+                    continue
+                if not isinstance(doc.get("Display"), dict):
+                    doc["Display"] = OrderedDict()
+                display = doc["Display"]
+                if display.get("SWITCH_TILE_STYLE") != style:
+                    display["SWITCH_TILE_STYLE"] = style
+                    self.save(candidate, doc)
 
     # --------------- cache control ---------------
     @classmethod

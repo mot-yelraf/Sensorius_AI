@@ -2899,6 +2899,11 @@ async function updateGauges() {
   const nextExpMap = d.expected_gauge_map || {};
   const nextStyleMap = d.expected_display_style_map || {};
   Object.assign(metricTileStyleMap, d.metric_tile_style_map || {});
+  if (d.switch_tile_style_map) {
+    document.querySelectorAll('.switch-metric-container[data-switch-location]').forEach(card => {
+      card.dataset.tileStyle = d.switch_tile_style_map[card.dataset.switchLocation] || 'Theme';
+    });
+  }
   const renderableSwitches = Array.isArray(d.renderable_switches_view) ? d.renderable_switches_view : (Array.isArray(d.renderable_switches) ? d.renderable_switches : []);
   const locations  = d.locations || {};
   let layoutDrift = null;

@@ -234,7 +234,7 @@ def normalize_dashboard_metric_set(value: object) -> str:
     return "All" if compact in {"all", "showall"} else "Pick 6"
 
 
-def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6", dashboard_custom_theme_style="", pressure_altitude=None, pressure_sensor_context=None, battery_statuses=None, dashboard_row_order=None, switch_row_order="location_device", switch_card_order=None, runtime_sensor_map: "SensorMap | None" = None, sensor_statuses=None, metric_tile_style_map=None):
+def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6", dashboard_custom_theme_style="", pressure_altitude=None, pressure_sensor_context=None, battery_statuses=None, dashboard_row_order=None, switch_row_order="location_device", switch_card_order=None, runtime_sensor_map: "SensorMap | None" = None, sensor_statuses=None, metric_tile_style_map=None, switch_tile_style_map=None):
     """Yield the complete Sensorius dashboard HTML document."""
 
     requested = expected_gauge_map if expected_gauge_map is not None else getattr(mqtt_ingest, "expected_gauge_map", {})
@@ -867,6 +867,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         pass
 
     # Initialize buckets
+    resolved_switch_tile_styles = switch_tile_style_map is not None
+    switch_tile_style_map = dict(switch_tile_style_map or {})
     switches_by_loc: dict[str, list] = defaultdict(list)
 
     # ---- Preload on-disk locations (id → location) to avoid stale in-memory values
@@ -1376,6 +1378,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             try:
                 doc = sw_mgr.load(sw_id) or {}
                 sw_blk = doc.get("Switch", {}) if isinstance(doc, dict) else {}
+                display = doc.get("Display") or {}
+                if not resolved_switch_tile_styles and isinstance(display, dict) and "SWITCH_TILE_STYLE" in display:
+                    raw_style = display["SWITCH_TILE_STYLE"]
+                    switch_tile_style_map[_norm_loc(location)] = raw_style if raw_style in METRIC_TILE_STYLES else "Theme"
 
                 sw_type = str(sw_blk.get("TYPE", "") or "").strip().lower()
                 has_en_keys = (
@@ -1468,7 +1474,8 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         switch_ids_attr = ",".join(switch_ids_here)
         multi_switch_card = len(switch_ids_here) > 1
         header_id = _safe(f"{'_'.join(switch_ids_here) if switch_ids_here else location}_header")
-        yield f"<div class='switch-metric-container' data-switch-ids='{switch_ids_attr}' data-switch-location='{html_escape(_norm_loc(location))}'>"
+        switch_tile_style = switch_tile_style_map.get(_norm_loc(location), 'Theme')
+        yield f"<div class='switch-metric-container' data-switch-ids='{switch_ids_attr}' data-switch-location='{html_escape(_norm_loc(location))}' data-tile-style='{html_escape(switch_tile_style)}'>"
         yield "<div class='switch-card-title-row'>"
         yield f"<button type='button' class='switch-card-order-arrow' data-switch-card-move='up' aria-label='Move {html_escape(location)} switch card left' title='Move left' disabled><span aria-hidden='true'>←</span></button>"
         if switch_ids_here:
