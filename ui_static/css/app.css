@@ -1559,7 +1559,13 @@ select.op-select{ max-width:80px; width:100%; }
 .metric-container[data-tile-style="Mahogany & Brass"],
 .switch-metric-container[data-tile-style="Chrome"],
 .switch-metric-container[data-tile-style="Brass"],
-.switch-metric-container[data-tile-style="Mahogany & Brass"]{
+.switch-metric-container[data-tile-style="Mahogany & Brass"],
+body.dashboard-page .sensor-group-header[data-tile-style="Chrome"],
+body.dashboard-page .sensor-group-header[data-tile-style="Brass"],
+body.dashboard-page .sensor-group-header[data-tile-style="Mahogany & Brass"],
+.switch-card-title-row[data-tile-style="Chrome"],
+.switch-card-title-row[data-tile-style="Brass"],
+.switch-card-title-row[data-tile-style="Mahogany & Brass"]{
   --tile-rim:linear-gradient(135deg,#f9fcff 0%,#9aa3ab 19%,#f5f8fa 34%,#646e78 50%,#e9eef2 67%,#8a949e 84%,#f7fafc 100%);
   --tile-panel:linear-gradient(135deg,#f3f7f9,#bbc6cc 24%,#d8e1e6 40%,#aab9c2 53%,#e5edf1 74%,#c2cdd3 90%,#f2f7fa);
   --tile-edge:#78828c;
@@ -1571,7 +1577,11 @@ select.op-select{ max-width:80px; width:100%; }
 .metric-container[data-tile-style="Brass"],
 .metric-container[data-tile-style="Mahogany & Brass"],
 .switch-metric-container[data-tile-style="Brass"],
-.switch-metric-container[data-tile-style="Mahogany & Brass"]{
+.switch-metric-container[data-tile-style="Mahogany & Brass"],
+body.dashboard-page .sensor-group-header[data-tile-style="Brass"],
+body.dashboard-page .sensor-group-header[data-tile-style="Mahogany & Brass"],
+.switch-card-title-row[data-tile-style="Brass"],
+.switch-card-title-row[data-tile-style="Mahogany & Brass"]{
   --tile-rim:linear-gradient(135deg,#e8cc8e 0%,#8a622c 19%,#d6b46c 34%,#573b1d 50%,#cba35a 67%,#92703a 84%,#eed49b 100%);
   --tile-panel:linear-gradient(135deg,#ead59f,#c3a066 24%,#dfc286 40%,#b99352 53%,#ddbe7d 74%,#c5a36b 90%,#ead59f);
   --tile-edge:#684a27;
@@ -1608,7 +1618,9 @@ select.op-select{ max-width:80px; width:100%; }
     radial-gradient(circle at calc(100% - 3.5px) calc(75% - 2.5px),#e9ca8d 0 .9px,#96703a 1.1px 1.7px,#513719 1.9px 2.4px,transparent 2.8px);
 }
 .metric-container[data-tile-style="Mahogany & Brass"],
-.switch-metric-container[data-tile-style="Mahogany & Brass"]{
+.switch-metric-container[data-tile-style="Mahogany & Brass"],
+body.dashboard-page .sensor-group-header[data-tile-style="Mahogany & Brass"],
+.switch-card-title-row[data-tile-style="Mahogany & Brass"]{
   background:repeating-linear-gradient(3deg,#ffffff04 0 1px,#19050014 2px 3px,transparent 4px 9px),linear-gradient(100deg,#3b150f,#833f29 30%,#542319 53%,#743620 75%,#36130e);
   color:#fff0ce;border-color:#ac853b;
 }
@@ -1699,3 +1711,11 @@ select.op-select{ max-width:80px; width:100%; }
   .switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .switch-history-ticks > span{min-width:0;white-space:normal;overflow-wrap:anywhere;}
   .switch-metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .switch-history-ticks > span > span{max-width:100%;}
 }
+
+.switch-card-title-row:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]){
+  box-sizing:border-box;border:1px solid var(--tile-edge);border-radius:10px;
+  margin:0 0 .5rem;padding:.25rem .5rem;
+}
+.sensor-group-header[data-tile-style]:not([data-tile-style="Theme"]) :is(a,.sensor-order-item,.sensor-collapse-toggle),
+.switch-card-title-row[data-tile-style]:not([data-tile-style="Theme"]) :is(a,.switch-card-order-arrow){color:inherit;}
+[data-stats-loaded="0"] .statistics-list [data-stat-value]{visibility:hidden;}

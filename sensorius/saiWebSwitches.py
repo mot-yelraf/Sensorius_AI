@@ -561,8 +561,13 @@ def register_switch_routes(
                 for section_name, section_map in merged_doc.items():
                     manager.save(old_id, OrderedDict([(section_name, section_map)]))
 
+        tile_style_updates = {}
         if "switch_tile_style" in form:
-            await asyncio.to_thread(manager.set_location_tile_style, old_id, str(form.get("switch_tile_style") or "Theme"))
+            tile_style = str(form.get("switch_tile_style") or "Theme")
+            tile_style = tile_style if tile_style in METRIC_TILE_STYLES else "Theme"
+            await asyncio.to_thread(manager.set_location_tile_style, old_id, tile_style)
+            location_key = manager.tile_location_key((merged_doc.get("Switch") or {}).get("SWITCH_LOCATION"))
+            tile_style_updates[location_key] = tile_style
         _invalidate_dashboard_caches()
         try:
             active_controllers = services.switch_controllers
@@ -574,7 +579,7 @@ def register_switch_routes(
             pass
 
         if _wants_modal_json(request):
-            return JSONResponse({"ok": True, "message": "Switch settings saved.", "switch_id": new_id})
+            return JSONResponse({"ok": True, "message": "Switch settings saved.", "switch_id": new_id, "switch_tile_style_map": tile_style_updates})
         return RedirectResponse(url="/", status_code=303)
 
 

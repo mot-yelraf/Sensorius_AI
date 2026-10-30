@@ -117,6 +117,19 @@ recorded and the corresponding modal scenarios are skipped. Review both load
 and refresh errors alongside timing summaries. The profiler timeout does not
 change the dashboard's own 12-second request deadline.
 
+Sensor Settings opens with its editable fields first. The dashboard requests
+`/edit-sensor?embed=1&defer_details=1`; Sensor Info statistics and System
+Calibration reference choices are fetched only when their panes are opened.
+Direct `/edit-sensor` requests retain the eager response unless `defer_details=1`
+is supplied. Historical counters still use the existing statistics query path,
+so an Info pane on a large database may take longer than the settings form.
+
+An unchanged General Settings Display save keeps the dashboard open. Changes to
+units, metric set, display style, gauge size, or row ordering reload the dashboard;
+built-in background themes apply immediately. Switch finish changes update the
+existing location cards without reloading. Profile initial startup separately
+from these save-triggered reloads when comparing releases.
+
 For Ecowitt troubleshooting, confirm the Sensorius host can reach the saved GW
 URL over plain HTTP, the gateway remains on the same LAN address, and **Find
 Sensors** succeeds in **General Settings > Add Device > Ecowitt Gateway**. A

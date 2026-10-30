@@ -20,6 +20,7 @@ window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
       else item.classList.remove("active");
     });
     const activePane = Array.from(panes).find((pane) => pane.id === paneId);
+    if (activePane && paneId === "system-calibration-pane") loadCalibrationCandidates(activePane);
     if (activePane && activePane.matches("[data-stat-panel]")) {
       refreshStatsPanel(activePane);
     }
@@ -33,6 +34,56 @@ window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
       if (target) showPane(target);
     });
   });
+
+  async function loadCalibrationCandidates(pane) {
+    if (!pane || pane.dataset.candidatesState === "ready" || pane.dataset.candidatesState === "loading") return;
+    pane.dataset.candidatesState = "loading";
+    const status = pane.querySelector("#sysCalStatus");
+    const reference = pane.querySelector("#sysCalRefSensor");
+    const table = pane.querySelector("#sysCalSensorsTable");
+    const preview = pane.querySelector("#sysCalPreviewBtn");
+    if (preview) preview.disabled = true;
+    if (status) status.textContent = "Loading reference sensors…";
+    try {
+      const response = await fetch("/sensor-settings/calibration-candidates", { cache: "no-store", headers: { Accept: "application/json", "X-Requested-With": "XMLHttpRequest" } });
+      const data = await response.json();
+      if (!response.ok || data.ok === false || !Array.isArray(data.sensor_ids)) throw new Error("Reference sensors unavailable");
+      const ids = [...new Set(data.sensor_ids.map(String))];
+      const sensorId = modalEl.dataset.sensorId || "";
+      reference.replaceChildren(new Option("-- Select reference --", ""));
+      table.replaceChildren();
+      ids.forEach(id => {
+        reference.appendChild(new Option(id, id, false, id === sensorId));
+        const row = document.createElement("tr");
+        row.dataset.sensorId = id;
+        const use = document.createElement("td");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "sysCalSensorCheck";
+        checkbox.value = id;
+        checkbox.checked = id !== sensorId;
+        use.appendChild(checkbox);
+        const label = document.createElement("td");
+        label.textContent = id;
+        row.append(use, label);
+        ["sysCalDeltaTemp", "sysCalDeltaRh"].forEach(className => {
+          const cell = document.createElement("td");
+          cell.className = className;
+          cell.textContent = "–";
+          cell.style.textAlign = "right";
+          row.appendChild(cell);
+        });
+        row.querySelectorAll("td").forEach(cell => { cell.style.padding = "0.25rem 0.5rem"; });
+        table.appendChild(row);
+      });
+      pane.dataset.candidatesState = "ready";
+      if (preview) preview.disabled = ids.length === 0;
+      if (status) status.textContent = ids.length ? "" : "No eligible reference sensors are available.";
+    } catch (_err) {
+      pane.dataset.candidatesState = "failed";
+      if (status) status.textContent = "Could not load reference sensors. Open this pane again to retry.";
+    }
+  }
 
   function formatStatDuration(seconds) {
     if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) return "No offline events";
@@ -87,7 +138,7 @@ window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
   }
 
   function renderStatsPanel(panel) {
-    if (!panel) return;
+    if (!panel || panel.dataset.statsLoaded === "0") return;
     const reset = readStatReset(panel);
     const rawOffline = numberFromDataset(panel, "offlineEvents24h");
     const rawPackets = numberFromDataset(panel, "packetsReceived");
@@ -112,6 +163,11 @@ window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
 
   function applyStatsPayload(panel, data) {
     if (!panel || !data || data.ok === false) return;
+    panel.dataset.statsLoaded = "1";
+    panel.setAttribute("aria-busy", "false");
+    const message = panel.querySelector("[data-stats-message]");
+    if (message) message.hidden = true;
+    panel.querySelectorAll("[data-stat-reset]").forEach(button => { button.disabled = false; });
     const gatewayIp = panel.querySelector('[data-stat-value="gateway-ip"]');
     if (gatewayIp && data.is_ecowitt) gatewayIp.textContent = data.gateway_ip || "Unknown";
     const battery = panel.querySelector('[data-stat-value="battery-status"]');
@@ -136,17 +192,25 @@ window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
   }
 
   async function refreshStatsPanel(panel) {
-    if (!panel || !panel.dataset.statsUrl) return;
+    if (!panel || !panel.dataset.statsUrl || panel.dataset.statsLoading === "1") return;
+    panel.dataset.statsLoading = "1";
     try {
       const resp = await fetch(panel.dataset.statsUrl, {
         cache: "no-store",
         headers: { Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
       });
       const data = await resp.json().catch(() => ({}));
-      if (!resp.ok || data.ok === false) return;
+      if (!resp.ok || data.ok === false) throw new Error("Statistics unavailable");
       applyStatsPayload(panel, data);
     } catch (_err) {
-      void _err;
+      const message = panel.querySelector("[data-stats-message]");
+      if (message) {
+        message.hidden = false;
+        message.textContent = "Could not load statistics. Open Sensor Info again to retry.";
+      }
+      panel.setAttribute("aria-busy", "false");
+    } finally {
+      delete panel.dataset.statsLoading;
     }
   }
 

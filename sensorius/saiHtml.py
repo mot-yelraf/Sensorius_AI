@@ -1476,7 +1476,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         header_id = _safe(f"{'_'.join(switch_ids_here) if switch_ids_here else location}_header")
         switch_tile_style = switch_tile_style_map.get(_norm_loc(location), 'Theme')
         yield f"<div class='switch-metric-container' data-switch-ids='{switch_ids_attr}' data-switch-location='{html_escape(_norm_loc(location))}' data-tile-style='{html_escape(switch_tile_style)}'>"
-        yield "<div class='switch-card-title-row'>"
+        yield f"<div class='switch-card-title-row' data-tile-style='{html_escape(switch_tile_style)}'>"
         yield f"<button type='button' class='switch-card-order-arrow' data-switch-card-move='up' aria-label='Move {html_escape(location)} switch card left' title='Move left' disabled><span aria-hidden='true'>←</span></button>"
         if switch_ids_here:
             header_sw_id = switch_ids_here[0]
@@ -1970,7 +1970,10 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         default_expanded = normalize_dashboard_metric_set(dashboard_metric_set) == "All"
         expanded_text = "true" if default_expanded else "false"
         yield f"<div class='sensor-group' id='group_{sid}' data-dashboard-row-id='{sid}' data-sensor-id='{sid}' data-sensor-expanded='{expanded_text}' style='width:100%; flex:0 0 100%; display:block;'>"
-        yield "<div class='sensor-group-header'>"
+        header_style = metric_tile_style_map.get(sid, "Theme")
+        if header_style not in METRIC_TILE_STYLES:
+            header_style = "Theme"
+        yield f"<div class='sensor-group-header' data-tile-style='{html_escape(header_style)}'>"
         yield f"<h3 id='{sid}_header' class='sensor-group-title'>"      
         yield (
             f" <button type='button' class='sensor-collapse-toggle' data-sensor-id='{sid}'"
@@ -2165,7 +2168,11 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
 
     if selected_switch_locations:
         yield "<div class='sensor-group switch-group' id='group_switches' data-dashboard-row-id='__switches__' style='width:100%; flex:0 0 100%; display:block;'>"
-        yield "<div class='sensor-group-header'>"
+        switch_header_styles = {switch_tile_style_map.get(loc, "Theme") for loc, _ in selected_switch_locations}
+        switch_header_style = next(iter(switch_header_styles)) if len(switch_header_styles) == 1 else "Theme"
+        if switch_header_style not in METRIC_TILE_STYLES:
+            switch_header_style = "Theme"
+        yield f"<div class='sensor-group-header' data-tile-style='{html_escape(switch_header_style)}'>"
         yield "<h3 id='switches_header' class='sensor-group-title'>SWITCHES</h3>"
         yield (
             "<div class='sensor-order-wrap' data-sensor-order='__switches__'>"

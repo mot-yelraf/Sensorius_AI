@@ -7136,6 +7136,7 @@ async def test_switch_tile_style_is_local_and_shared_by_location(tmp_path, monke
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post("/submit-switch-settings", data={"switch_id": "switch-a", "location": "Grow Tent", "SWITCH_1_LABEL": "Fan", "switch_tile_style": style}, headers={"Accept": "application/json"})
         assert response.status_code == 200, response.text
+        assert response.json()["switch_tile_style_map"] == {"grow tent": expected}
         reopened = await client.get("/edit-switch", params={"switch_id": "switch-b", "embed": 1})
         assert reopened.status_code == 200, reopened.text
     from html import escape
@@ -7151,3 +7152,52 @@ async def test_switch_tile_style_is_local_and_shared_by_location(tmp_path, monke
         assert saved["Display"]["OTHER_SETTING"] == "preserve"
     manager.save("switch-new", {"Switch": {"TYPE": "nodus", "SWITCH_DEVICE_ID": "switch-new", "SWITCH_LOCATION": "Grow Tent"}})
     assert manager.get_tile_style("switch-new") == expected
+
+
+@pytest.mark.asyncio
+async def test_sensor_modal_defers_history_and_calibration_queries(tmp_path, monkeypatch):
+    monkeypatch.setenv("SAI_WEB_API_KEY", "test-key")
+    from sensorius.saiCalibration import CalibrationManager
+
+    app, _ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    app.state.templates = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
+    sid = "aqi-lazy"
+    _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root)).save(sid, {
+        "Sensor": {"TYPE": "local", "DEVICE": "aqi", "SENSOR_ID": sid},
+        "Display": {"METRIC_1": "Temperature"},
+    })
+    calls = []
+
+    def packet_count(*args, **kwargs):
+        calls.append("statistics")
+        return 123
+
+    def candidates(self):
+        calls.append("calibration")
+        return [sid, "reference"]
+
+    monkeypatch.setattr(saiWebRoutes.data_logger, "get_sensor_packet_count", packet_count)
+    monkeypatch.setattr(CalibrationManager, "get_calibratable_sensors", candidates)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/sensor-settings/calibration-candidates")
+        assert response.status_code == 401
+        assert not calls
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers={"x-api-key": "test-key"}) as client:
+        response = await client.get("/edit-sensor", params={"sensor_id": sid, "embed": 1, "defer_details": 1})
+        assert response.status_code == 200, response.text
+        assert 'data-stats-loaded="0"' in response.text
+        assert 'data-candidates-state="pending"' in response.text
+        assert not calls
+        response = await client.get("/sensor-settings/statistics", params={"sensor_id": sid}, headers={"X-Requested-With": "XMLHttpRequest"})
+        assert response.status_code == 200
+        assert response.json()["data_packets_received"] == 123
+        assert calls == ["statistics"]
+        response = await client.get("/sensor-settings/calibration-candidates", headers={"X-Requested-With": "XMLHttpRequest"})
+        assert response.status_code == 200
+        assert response.json() == {"ok": True, "sensor_ids": [sid, "reference"]}
+        assert calls == ["statistics", "calibration"]
+        response = await client.get("/edit-sensor", params={"sensor_id": sid, "embed": 1})
+        assert response.status_code == 200
+        assert 'data-stats-loaded="1"' in response.text
+        assert 'data-candidates-state="ready"' in response.text
+        assert calls == ["statistics", "calibration", "statistics", "calibration"]

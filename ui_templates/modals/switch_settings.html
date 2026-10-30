@@ -200,8 +200,6 @@
   const restartBtn = document.getElementById("switchRestartBtn");
   const locationInput = form ? form.querySelector('input[name="location"]') : null;
   const initialLocation = locationInput ? String(locationInput.value || "").trim() : "";
-  const tileStyleInput = form ? form.querySelector('[name="switch_tile_style"]') : null;
-  const initialTileStyle = tileStyleInput ? tileStyleInput.value : "Theme";
   if (!modal || !form || !saveBtn || !statusEl) return;
   if (form.dataset.ajaxBound === "1") return;
   form.dataset.ajaxBound = "1";
@@ -256,8 +254,12 @@
       setStatus("Saved.");
       if (typeof window.showToast === "function") window.showToast("Switch settings saved", "ok");
       const savedLocation = locationInput ? String(locationInput.value || "").trim() : "";
-      if (savedLocation !== initialLocation || (tileStyleInput && tileStyleInput.value !== initialTileStyle)) {
+      if (savedLocation !== initialLocation) {
         window.setTimeout(() => window.location.reload(), 400);
+      } else if (typeof window.applySwitchTileStyles === "function" && js.switch_tile_style_map) {
+        window.applySwitchTileStyles(js.switch_tile_style_map);
+      } else if (typeof window.updateGauges === "function") {
+        window.updateGauges({ ignoreModal: true });
       }
     } catch (err) {
       const msg = err && err.message ? err.message : "Failed to save switch settings.";

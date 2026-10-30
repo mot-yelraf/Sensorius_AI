@@ -5307,12 +5307,24 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
     # --- Edit Sensor (modal / template) ---
 
 
+    @router.get("/sensor-settings/calibration-candidates", response_class=JSONResponse)
+    async def sensor_calibration_candidates(request: Request):
+        """Load historical calibration choices only when their pane is requested."""
+        _require_protected_access(request, require_csrf=True)
+        from .saiCalibration import CalibrationManager
+        manager = SensorSettingsManager("sensor_settings")
+        calibration = CalibrationManager(services.data_logger, manager)
+        candidates = await asyncio.to_thread(calibration.get_calibratable_sensors)
+        return JSONResponse({"ok": True, "sensor_ids": candidates or []})
+
     @router.get("/edit-sensor", response_class=HTMLResponse)
     async def edit_sensor_page(
         request: Request,
         sensor_id: str = Query(...),
         embed: int = Query(0),
+        defer_details: bool = Query(False),
     ):
+        """Render sensor settings, optionally deferring hidden historical details."""
         _route_started = time.monotonic()
         from .saiSensorSettingsManager import SensorSettingsManager
         from .saiCalibration import CalibrationManager
@@ -5556,10 +5568,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                         break
 
             network_info = await _build_device_network_info(normalized_id, device_type="sensor")
-            sensor_statistics = await _build_sensor_statistics_payload(normalized_id)
-
-            cal_mgr = CalibrationManager(services.data_logger, manager)
-            candidate_sensors = await asyncio.to_thread(cal_mgr.get_calibratable_sensors) or []
+            sensor_statistics = {} if defer_details else await _build_sensor_statistics_payload(normalized_id)
+            candidate_sensors = []
+            if not defer_details:
+                cal_mgr = CalibrationManager(services.data_logger, manager)
+                candidate_sensors = await asyncio.to_thread(cal_mgr.get_calibratable_sensors) or []
 
             # Render template
             templates = request.app.state.templates
@@ -5588,6 +5601,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 soil_ph_offset=soil_ph_offset,
                 device_offsets=device_offsets,
                 candidate_sensors=candidate_sensors,
+                details_deferred=defer_details,
                 default_range_hours=24,
                 supports_device_calibration=not (is_weewx or is_usb_weather),
                 supports_system_calibration=not (is_weewx or is_acurite or is_usb_weather),
