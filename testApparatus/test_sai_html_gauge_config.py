@@ -705,7 +705,10 @@ def test_pick_six_lazily_materializes_overflow_metric_canvases():
         )
     )
 
-    assert "data-metric='Baro-Pressure' data-display-style='Gauge' data-lazy-metric-visual='1'" in html
+    overflow_tag = next(tag for tag in html.split(">") if "id='station-a_Baro-Pressure_container'" in tag)
+    assert "data-metric='Baro-Pressure'" in overflow_tag
+    assert "data-display-style='Gauge'" in overflow_tag
+    assert "data-lazy-metric-visual='1'" in overflow_tag
     assert "id='station-a_Baro-PressureGauge'" not in html
     assert "window.materializeExpandedMetricVisuals = function(group)" in html
     assert "window.releaseCollapsedMetricVisuals = function(group)" in html
