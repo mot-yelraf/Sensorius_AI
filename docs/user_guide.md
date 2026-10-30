@@ -19,8 +19,10 @@ The dashboard is the main operating view. It is where you check current conditio
 <!-- pdf-keep-together:end -->
 
 The dashboard example was captured from the running Sensorius app with live
-metric graphs and gauges and the **Fruit** dashboard theme selected. Settings screenshots use
-example devices and locations with the same warm peach-and-brown palette. Sensor
+metric graphs and gauges and the **Fruit** dashboard theme selected. The Sensor
+Settings and Switch Settings tile-style panes and the finish examples were captured
+from Samhain. Most other settings screenshots use example devices and locations
+with the same warm peach-and-brown palette. Sensor
 names, locations, metrics, switch channels, forecast source, selected theme,
 and live values will vary by installation.
 
@@ -1186,14 +1188,14 @@ readings, or check device health.
 
 ### Sensor Settings Pane
 
-![Sensor settings pane](<../assets/screenshots/sensor-settings-display-metrics.png>)
+![Sensor Settings with Display Metrics and the Chrome Metric Tile Style selected](<../assets/screenshots/sensor-settings-display-metrics.png>)
 
 Fields and selectors:
 
 - **Location**: the practical place where the sensor is installed, such as Greenhouse, Seed Rack, Bed 2, Propagation Tent, or North Field. This is saved in that sensor's `sensor.toml` and is also used by the dashboard, location editor, and automation selector labels.
 - **Metric 1-6**: dashboard metric slots. Options come from the sensor's available metric list. That list is built from device metadata, known database metrics, and Sensorius gauge configuration.
 - **Display Style 1-6**: display style for each selected metric. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
-- **Metric Tile Style**: below Display Metrics, choose **Theme**, **Chrome**, **Brass**, or **Mahogany & Brass** for all tiles on this sensor. Theme keeps the current appearance; the other finishes add round metal gauge bezels with matching metal faces and inset graph panels, with a wood panel for Mahogany & Brass. Gauge zones, graph data colors, and the **24Hr Graph → 6Hr Graph → Gauge** click cycle stay the same. Click **Save** to keep the choice.
+- **Metric Tile Style**: below Display Metrics, choose **Theme**, **Chrome**, **Brass**, or **Mahogany & Brass** for all tiles on this sensor. Theme keeps the current appearance; the other finishes add round metal gauge bezels with matching metal faces and inset graph panels, with a wood panel for Mahogany & Brass. Gauge zones, graph data colors, and the **24Hr Graph → 6Hr Graph → Gauge** click cycle stay the same. The sensor row title uses the same finish. Click **Save** to keep the choice.
 - **Circled ×**: closes Sensor Settings and returns to the dashboard.
 - **Restart Device**: appears for devices that support remote restart, such as supported Nodus devices. It sends a restart request to the device.
 - **Save**: writes only the Sensor Settings pane values to
@@ -1204,6 +1206,39 @@ Fields and selectors:
 Use clear location names. They are visible to nontechnical users and make later automation rules easier to understand.
 
 Metric slot order is authoritative in **Pick 6** mode: Metric 1 is the leftmost Sensor Tile and Metric 6 is the rightmost. Display Style 1 applies to Metric 1, Display Style 2 to Metric 2, and so on. Saving these fields is the supported way to make a dashboard order or display style persistent.
+
+<a id="tile-style-examples"></a>
+
+### Tile Style Examples
+
+The four finishes use the same readings, gauge zones, and graph colors:
+
+- **Theme** follows the selected dashboard theme.
+- **Chrome** adds a silver metal background and raised metal bezels around gauges and inset graph panels.
+- **Brass** uses warm gold metal, matching gauge faces, and rivets around the gauge and graph bezels.
+- **Mahogany & Brass** combines a dark wood background with brass trim and contrasting cream text. Sensor gauges use brass faces; switch tables and event graphs have brass frames.
+
+These live examples come from Samhain. Theme, Chrome, and Brass are sensor tiles;
+Mahogany & Brass is a switch location card. Click an image to see it at full size.
+
+<table>
+  <thead>
+    <tr>
+      <th width="25%" scope="col" valign="top" style="text-align:center;border-bottom:0;">Theme</th>
+      <th width="25%" scope="col" valign="top" style="text-align:center;border-bottom:0;">Chrome</th>
+      <th width="25%" scope="col" valign="top" style="text-align:center;border-bottom:0;">Brass</th>
+      <th width="25%" scope="col" valign="top" style="text-align:center;border-bottom:0;">Mahogany &amp; Brass</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td width="25%" valign="top" style="vertical-align:top;border-top:0;"><a href="../assets/screenshots/metric-tile-style-theme.png"><img src="../assets/screenshots/metric-tile-style-theme.png" alt="Live Theme temperature graph tile on Samhain" width="100%" style="display:block;margin:0 auto;"></a></td>
+      <td width="25%" valign="top" style="vertical-align:top;border-top:0;"><a href="../assets/screenshots/metric-tile-style-chrome.png"><img src="../assets/screenshots/metric-tile-style-chrome.png" alt="Live Chrome pressure gauge with a silver metal face and round bezel on Samhain" width="100%" style="display:block;margin:0 auto;"></a></td>
+      <td width="25%" valign="top" style="vertical-align:top;border-top:0;"><a href="../assets/screenshots/metric-tile-style-brass.png"><img src="../assets/screenshots/metric-tile-style-brass.png" alt="Live Brass light intensity graph with an inset panel and riveted gold frame on Samhain" width="100%" style="display:block;margin:0 auto;"></a></td>
+      <td width="25%" valign="top" style="vertical-align:top;border-top:0;"><a href="../assets/screenshots/switch-tile-style-mahogany-brass.png"><img src="../assets/screenshots/switch-tile-style-mahogany-brass.png" alt="Live Mahogany and Brass switch card with a wood background and brass table and event graph frames on Samhain" width="100%" style="display:block;margin:0 auto;"></a></td>
+    </tr>
+  </tbody>
+</table>
 
 ### Sensor Calibration Pane
 
@@ -1266,6 +1301,8 @@ Fields and selectors:
 
 This tool reads historical samples from the SQLite database. It works best when sensors have been near each other long enough to collect comparable data.
 
+Reference sensor choices load when you open **System Calibration**. If loading fails, reopen that pane to retry.
+
 For the best calibration results:
 
 1. Make sure the Nodus sensors have been added to Sensorius.
@@ -1279,7 +1316,7 @@ For the best calibration results:
 
 ![Sensor information pane](<../assets/screenshots/sensor-settings-device-info.png>)
 
-The Sensor Info pane is a health and diagnostics view.
+The Sensor Info pane is a health and diagnostics view. Statistics load when you open this pane, so opening Sensor Settings does not wait for historical counters. A loading message appears until they are available; **Clear** becomes available after loading. If loading fails, reopen Sensor Info to retry.
 
 Fields shown:
 
@@ -1307,13 +1344,13 @@ and edit rules separately under **General Settings > Automations**.
 
 ### Switch Settings Pane
 
-![Switch settings pane](<../assets/screenshots/switch-settings-channels.png>)
+![Switch Settings with channel labels and the Mahogany & Brass Switch Tile Style selected](<../assets/screenshots/switch-settings-channels.png>)
 
 Fields and controls:
 
 - **Location**: where the switch device or relay box is installed. This is saved in `switch_settings/<switch_id>/switch.toml` and is shown on the dashboard and location editor.
 - **Channel label for switch_N**: friendly label for each channel, such as Exhaust Fan, Irrigation Pump, Heat Mat, North Vent, or Lights. Labels are saved in switch settings.
-- **Switch Tile Style**: choose **Theme**, **Chrome**, **Brass**, or **Mahogany & Brass** for the shared location card. The finish changes the background, table frame, and event graph frame. Saving from any switch applies the finish to all switches at that location. Switching, timers, automation ownership, and event colors stay the same.
+- **Switch Tile Style**: choose **Theme**, **Chrome**, **Brass**, or **Mahogany & Brass** for the shared location card. See [Tile Style Examples](#tile-style-examples) for the four finishes. The finish changes the background, location title, table frame, and event graph frame. The Switches row title uses the common finish when all visible location cards agree; mixed finishes use Theme. Saving from any switch applies the finish to all switches at that location immediately. A location change reloads the dashboard to regroup cards. Switching, timers, automation ownership, and event colors stay the same.
 - **Dashboard timer gear**: opens the channel's manual auto-off timer. Use `0` to disable it or 30-9999 seconds; the dashboard rounds entries to a 30-second step. The value lasts only until Sensorius restarts.
 - **Circled ×**: closes Switch Settings and returns to the dashboard.
 - **Restart Device**: appears for supported remote switches and sends a restart request.

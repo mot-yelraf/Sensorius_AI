@@ -180,7 +180,7 @@ def system_settings(documentation: bool = False) -> HTMLResponse:
 
 
 @app.get("/edit-sensor", response_class=HTMLResponse)
-def sensor_settings(sensor_id: str = "aht-pr-check", documentation: bool = False) -> HTMLResponse:
+def sensor_settings(sensor_id: str = "aht-pr-check", documentation: bool = False, defer_details: bool = False) -> HTMLResponse:
     """Render a sensor's real settings and calibration panes for mobile checks."""
     from sensorius.saiInputUnits import calibration_presentation
     offsets = [{"key": "Calibration.Device.TEMP_OFFSET", "label": "Temperature", "unit": "°C", "value": 1.0}]
@@ -201,15 +201,22 @@ def sensor_settings(sensor_id: str = "aht-pr-check", documentation: bool = False
     return HTMLResponse(templates.get_template("modals/sensor_settings.html").render(
         device_kind="acurite_usb" if is_acurite else "aht", device_offsets=offsets, **presentation,
         supports_device_calibration=True, supports_system_calibration=not is_acurite,
-        candidate_sensors=["aht-pr-check", "reference"],
+        candidate_sensors=[] if defer_details else ["aht-pr-check", "reference"],
         sensor_id=sensor_id, is_ecowitt=sensor_id.startswith("ecowitt-"),
         battery_status="OK", network_info={"ip_address": "192.0.2.20", "broker": "mqtt.example.com", "broker_status": "Connected"}
         if documentation else {"ip_address": "192.0.2.10"}, current_metrics=["Temperature"] + [""] * 5,
         metric_options=["", "Temperature"], settings={}, location="Greenhouse",
         metric_tile_style_options=("Theme", "Chrome", "Brass", "Mahogany & Brass"),
         current_metric_tile_style="Theme",
+        details_deferred=defer_details,
         **example,
     ))
+
+
+@app.get("/sensor-settings/calibration-candidates")
+def calibration_candidates() -> dict:
+    """Supply deferred calibration choices without production history queries."""
+    return {"ok": True, "sensor_ids": ["aht-pr-check", "reference"]}
 
 
 @app.get("/edit-switch", response_class=HTMLResponse)

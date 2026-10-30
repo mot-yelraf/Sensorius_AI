@@ -39,6 +39,23 @@ function fetchWithTimeout(url, options = {}, timeoutMs = dashboardFetchTimeoutMs
   return Promise.race([response, timeout]).finally(() => window.clearTimeout(timer));
 }
 const metricTileStyleMap = config.metricTileStyleMap || {};
+function normalizeTileStyle(style) {
+  return ['Chrome', 'Brass', 'Mahogany & Brass'].includes(style) ? style : 'Theme';
+}
+window.applySwitchTileStyles = function(styles = {}, replace = false) {
+  const finishes = new Set();
+  document.querySelectorAll('.switch-metric-container[data-switch-location]').forEach(card => {
+    const location = card.dataset.switchLocation;
+    if (replace || Object.prototype.hasOwnProperty.call(styles, location)) card.dataset.tileStyle = normalizeTileStyle(styles[location]);
+    const style = normalizeTileStyle(card.dataset.tileStyle);
+    const title = card.querySelector('.switch-card-title-row');
+    if (title) title.dataset.tileStyle = style;
+    finishes.add(style);
+  });
+  const header = document.querySelector('#group_switches > .sensor-group-header');
+  if (header) header.dataset.tileStyle = finishes.size === 1 ? [...finishes][0] : 'Theme';
+};
+window.applySwitchTileStyles();
 const displayStyle = config.displayStyle;
 window.displayStyle = displayStyle;
 function toSafe(s) { return (s || '').replace(/[^A-Za-z0-9_-]/g, '_'); }
@@ -2024,9 +2041,8 @@ function ensureSensorUI(sid, metricList, locationText) {
   const headerId = `${sid}_header`;
   if (!document.getElementById(headerId)) {
     const headerWrap = document.createElement('div');
-    headerWrap.style.textAlign = 'center';
-    headerWrap.style.width = '100%';
-    headerWrap.style.marginTop = '1rem';
+    headerWrap.className = 'sensor-group-header';
+    headerWrap.dataset.tileStyle = normalizeTileStyle(metricTileStyleMap[sid]);
     const locText = (locationText || displaySensorId(sid));
     const sidUpper = displaySensorId(sid);
     const sidLower = (sid || '').toLowerCase();
@@ -2899,11 +2915,7 @@ async function updateGauges() {
   const nextExpMap = d.expected_gauge_map || {};
   const nextStyleMap = d.expected_display_style_map || {};
   Object.assign(metricTileStyleMap, d.metric_tile_style_map || {});
-  if (d.switch_tile_style_map) {
-    document.querySelectorAll('.switch-metric-container[data-switch-location]').forEach(card => {
-      card.dataset.tileStyle = d.switch_tile_style_map[card.dataset.switchLocation] || 'Theme';
-    });
-  }
+  if (d.switch_tile_style_map) window.applySwitchTileStyles(d.switch_tile_style_map, true);
   const renderableSwitches = Array.isArray(d.renderable_switches_view) ? d.renderable_switches_view : (Array.isArray(d.renderable_switches) ? d.renderable_switches : []);
   const locations  = d.locations || {};
   let layoutDrift = null;
@@ -2933,6 +2945,8 @@ async function updateGauges() {
   for (const sid of available) {
     try {
     const metrics = Array.isArray(nextExpMap[sid]) ? nextExpMap[sid] : [];
+    const header = document.getElementById(`${sid}_header`)?.closest('.sensor-group-header');
+    if (header) header.dataset.tileStyle = normalizeTileStyle(metricTileStyleMap[sid]);
     if (!metrics.length) continue;
 
     if (!knownSensors.has(sid)) {
@@ -3919,7 +3933,7 @@ window.ModalBusyCursor = window.ModalBusyCursor || (function(){
 window.editSensorSettings = async function(id) {
   window.ModalBusyCursor.begin();
   try {
-    const url = `/edit-sensor?sensor_id=${encodeURIComponent(id)}&embed=1&t=${Date.now()}`;
+    const url = `/edit-sensor?sensor_id=${encodeURIComponent(id)}&embed=1&defer_details=1&t=${Date.now()}`;
     const res = await fetch(url, { cache: 'no-store' });
     const html = await res.text();
     if (!res.ok) {
@@ -4574,6 +4588,8 @@ window.initSwitchSettingsModal = function(modalEl){
         if (typeof window.showToast === 'function') window.showToast('Switch settings saved', 'ok');
         const savedLocation = locationInput ? String(locationInput.value || '').trim() : '';
         if (savedLocation !== initialLocation) setTimeout(() => window.location.reload(), 400);
+        else if (js.switch_tile_style_map) window.applySwitchTileStyles(js.switch_tile_style_map);
+        else if (typeof window.updateGauges === 'function') window.updateGauges({ ignoreModal: true });
       } catch (err) {
         const msg = err && err.message ? err.message : 'Failed to save switch settings.';
         setStatus(msg);

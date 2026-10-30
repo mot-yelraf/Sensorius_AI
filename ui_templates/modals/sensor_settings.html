@@ -364,7 +364,7 @@
           {% endif %}
 
           {% if supports_system_calibration | default(true) %}
-          <div class="sensor-pane-view" id="system-calibration-pane" style="display:none; flex:1; flex-direction:column; min-height:0;">
+          <div class="sensor-pane-view" id="system-calibration-pane" data-candidates-state="{{ 'pending' if details_deferred else 'ready' }}" style="display:none; flex:1; flex-direction:column; min-height:0;">
             <div class="list-header sensor-pane-header">
               <span>System Calibration</span>
             </div>
@@ -431,7 +431,7 @@
             <div class="modal-footer sensor-pane-footer">
               <div class="sensor-pane-footer-row sensor-pane-footer-row-end">
                 <div class="sensor-pane-footer-actions">
-                  <button type="button" class="button blue" id="sysCalPreviewBtn">
+                  <button type="button" class="button blue" id="sysCalPreviewBtn" {% if details_deferred %}disabled{% endif %}>
                     Preview Calibration
                   </button>
                   <button type="button" class="button green" id="sysCalApplyBtn" disabled>
@@ -449,6 +449,8 @@
             id="sensor-statistics-pane"
             style="display:none; flex:1; flex-direction:column; min-height:0;"
             data-stat-panel="sensor"
+            data-stats-loaded="{{ '0' if details_deferred else '1' }}"
+            aria-busy="{{ 'true' if details_deferred else 'false' }}"
             data-stat-id="{{ sensor_id | e }}"
             data-stats-url="/sensor-settings/statistics?sensor_id={{ sensor_id | e }}"
             data-offline-events-24h="{{ offline_events_24h | default(0) }}"
@@ -460,6 +462,7 @@
               <span>Sensor Info{% if nodus_board_type %}: Board Type: {{ nodus_board_type }}{% endif %}{% if nodus_sensor_hardware %}{% if nodus_board_type %} {% else %}: {% endif %}Sensor:{{ nodus_sensor_hardware }}{% endif %}{% if weewx_station_model %}{% if nodus_board_type or nodus_sensor_hardware %} {% else %}: {% endif %}Station: {{ weewx_station_model }}{% endif %}</span>
             </div>
             <div class="form sensor-pane-scroll compact-info-form">
+              <p class="muted" data-stats-message role="status" {% if not details_deferred %}hidden{% endif %}>Loading statistics…</p>
               <div class="section">
                 <h4 class="section-title">Network</h4>
                 <div class="network-info-grid">
@@ -512,7 +515,7 @@
             </div>
             <div class="modal-footer sensor-pane-footer">
               <div class="sensor-pane-footer-row sensor-pane-footer-row-end">
-                <button type="button" class="button red" data-stat-reset>
+                <button type="button" class="button red" data-stat-reset {% if details_deferred %}disabled{% endif %}>
                   Clear
                 </button>
               </div>

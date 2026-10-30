@@ -2045,6 +2045,8 @@
   const root = document.getElementById("setupPiModal");
   if (!root || root.dataset.initialized === "1") return;
   root.dataset.initialized = "1";
+  const savedDisplayValues = new Map(Array.from(root.querySelectorAll('[data-runtime-section="system-display"] [name]'), control => [control.name, control.value]));
+
 
   const shell = root.querySelector(".system-settings-shell");
   const runtimeSectionStore = window.__sensoriusExpandableSectionState || (window.__sensoriusExpandableSectionState = {
@@ -3099,6 +3101,7 @@
       setStatus("system-status", "Saving...");
       syncNotificationRulesInput();
       const body = sectionFormBody(section);
+      const changedDisplayFields = new Set([...body.keys()].filter(name => savedDisplayValues.has(name) && savedDisplayValues.get(name) !== body.get(name)));
       const resp = await fetch(form.action, {
         method: "POST",
         headers: {
@@ -3121,16 +3124,19 @@
       const savedMessage = String(js.message || "Saved.");
       setStatus("system-status", savedMessage);
       showSettingsToast("General settings saved", "ok");
-      if (body.has("weather_forecast_provider")) {
+      if (changedDisplayFields.has("weather_forecast_provider") || changedDisplayFields.has("weather_forecast_theme")) {
         applyDashboardWeatherForecastChange(body.get("weather_forecast_provider"));
       }
-      if (body.has("dashboard_background_theme")) {
+      if (changedDisplayFields.has("dashboard_background_theme")) {
         const selectedDashboardTheme = String(body.get("dashboard_background_theme") || "");
         if (selectedDashboardTheme.startsWith("custom:")) scheduleDashboardReloadAfterSettingsSave();
         else applyDashboardBackgroundTheme(selectedDashboardTheme);
       }
-      if (body.has("metric_set") || body.has("unit_system")) {
+      if (["metric_set", "unit_system", "display_style", "gauge_size", "sensor_row_order", "switch_row_order"].some(name => changedDisplayFields.has(name))) {
         scheduleDashboardReloadAfterSettingsSave();
+      }
+      for (const [name, value] of body) {
+        if (savedDisplayValues.has(name)) savedDisplayValues.set(name, value);
       }
     } catch (e) {
       console.error(e);
