@@ -52,8 +52,9 @@ test('Graphum switch labels remain literal text and preserve checkbox identity',
   await expect(checkbox).toBeChecked();
 });
 
+for (const tileStyle of ['Theme', 'Chrome', 'Brass', 'Mahogany & Brass']) {
 for (const width of [1280, 390]) {
-  test(`real Gauge and Chart libraries draw metric cards at ${width}px`, async ({ page }, testInfo) => {
+  test(`real Gauge and Chart libraries draw ${tileStyle} metric cards at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
@@ -69,9 +70,12 @@ for (const width of [1280, 390]) {
       return route.fulfill({ contentType: 'application/javascript', body: readFileSync(`node_modules/${entry[1]}`) });
     });
     let value = 72.4;
-    await page.route('**/*json_only=true*', route => route.fulfill({ json: {
+    let currentFinish = tileStyle;
+    await page.route('**/*json_only=true*', async route => route.fulfill({ json: {
       available: ['aht-pr-check'], values: { 'aht-pr-check': { Temperature: value } },
       timestamps: { 'aht-pr-check': String(value) }, stats: {},
+      expected_gauge_map: await page.locator('#dashboard-config').evaluate(el => JSON.parse(el.textContent).expectedGaugeMap),
+      metric_tile_style_map: { 'aht-pr-check': currentFinish },
     } }));
     await page.route('**/graph-data?*', route => {
       const query = new URL(route.request().url()).searchParams;
@@ -85,15 +89,38 @@ for (const width of [1280, 390]) {
     await page.route('**/sensor-ids', route => route.fulfill({ json: ['aht-pr-check'] }));
     await page.route('**/sensor-metrics?*', route => route.fulfill({ json: ['Temperature'] }));
     await page.route('**/graph-setups', route => route.fulfill({ json: { setups: [] } }));
-    await page.goto('/', { waitUntil: 'load' });
+    await page.goto('/?tile_style=' + encodeURIComponent(tileStyle), { waitUntil: 'load' });
     const card = page.locator('#aht-pr-check_Temperature_container');
     await card.scrollIntoViewIfNeeded();
+    await expect(card).toHaveAttribute('data-tile-style', tileStyle);
+    if (tileStyle !== 'Theme') {
+      expect(await card.locator('.gauge-view').evaluate(el => getComputedStyle(el).borderRadius)).toBe('50%');
+      expect(await card.evaluate(el => getComputedStyle(el).backgroundImage)).toContain('linear-gradient');
+    }
     await expect.poll(() => page.evaluate(() => window['aht-pr-check_Temperature_gauge'] instanceof window.Gauge)).toBe(true);
     const painted = canvas => {
       const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
       return pixels.some((v, i) => i % 4 === 3 && v > 0);
     };
     await expect.poll(() => card.locator('.gauge-view canvas').evaluate(painted)).toBe(true);
+    if (tileStyle !== 'Theme') {
+      const centerError = await card.evaluate(el => {
+        const canvas = el.querySelector('.gauge-view canvas');
+        const gauge = window['aht-pr-check_Temperature_gauge'];
+        const dial = el.querySelector('.gauge-view').getBoundingClientRect();
+        const rect = canvas.getBoundingClientRect();
+        const pivot = canvas.height * gauge.paddingTop + gauge.availableHeight - (gauge.radius + gauge.lineWidth / 2) * gauge.extraPadding;
+        return {
+          x: Math.abs(rect.left + rect.width / 2 - (dial.left + dial.width / 2)),
+          y: Math.abs(rect.top + rect.height * pivot / canvas.height - (dial.top + dial.height / 2)),
+          face: getComputedStyle(el.querySelector('.gauge-view'), '::before').backgroundImage,
+        };
+      });
+      expect(centerError.x).toBeLessThan(1);
+      expect(centerError.y).toBeLessThan(1);
+      expect(centerError.face).toContain('linear-gradient');
+    }
+
     await card.locator('.gauge-view').click();
     await expect.poll(() => card.locator('.micrograph-canvas').evaluate(canvas => {
       const chart = window.Chart.getChart(canvas);
@@ -101,9 +128,19 @@ for (const width of [1280, 390]) {
     })).toBe(3);
     await expect.poll(() => card.locator('.micrograph-canvas').evaluate(painted)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath('metric-cards.png') });
+    for (const nextStyle of ['Graph6hr', 'Gauge', 'Graph24hr']) {
+      await card.click({ delay: 300 });
+      await expect(card).toHaveAttribute('data-display-style', nextStyle);
+      await expect(card).toHaveAttribute('data-tile-style', tileStyle);
+    }
+    currentFinish = tileStyle === 'Theme' ? 'Chrome' : 'Theme';
     value = 81.2;
     await page.evaluate(() => window.updateGauges({ ignoreVisibility: true, ignoreModal: true }));
     await expect(card.locator('[id$="_val"]')).toContainText('81.2');
+    await expect(card).toHaveAttribute('data-display-style', 'Graph24hr');
+    for (const metricCard of await page.locator('.metric-container').all()) {
+      await expect(metricCard).toHaveAttribute('data-tile-style', currentFinish);
+    }
     await page.getByRole('link', { name: 'Full Screen Graphs' }).click();
     await expect(page.locator('.fullscreen-metric-checkbox')).toHaveCount(1);
     await page.locator('.fullscreen-metric-checkbox').check();
@@ -114,4 +151,5 @@ for (const width of [1280, 390]) {
     await expect(card).toBeVisible();
     expect(errors).toEqual([]);
   });
+}
 }

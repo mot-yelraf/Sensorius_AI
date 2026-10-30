@@ -38,6 +38,7 @@ function fetchWithTimeout(url, options = {}, timeoutMs = dashboardFetchTimeoutMs
   const response = fetch(url, opts).then(res => consumeResponse ? consumeResponse(res) : res);
   return Promise.race([response, timeout]).finally(() => window.clearTimeout(timer));
 }
+const metricTileStyleMap = config.metricTileStyleMap || {};
 const displayStyle = config.displayStyle;
 window.displayStyle = displayStyle;
 function toSafe(s) { return (s || '').replace(/[^A-Za-z0-9_-]/g, '_'); }
@@ -2089,6 +2090,7 @@ function ensureSensorUI(sid, metricList, locationText) {
     container.className = 'metric-container';
     container.id = containerId;
     container.dataset.sensor = sid;
+    container.dataset.tileStyle = metricTileStyleMap[sid] || 'Theme';
     container.dataset.metric = metric;
     const styleKey = `METRIC_${idx + 1}`;
     container.dataset.displayStyle = window.normalizeDisplayStyle(styleMap[styleKey] || window.displayStyle || 'Gauge');
@@ -2301,6 +2303,7 @@ function normalizeDegrees(value) {
 
 function drawCompassGauge(canvas, rawValue) {
   if (!canvas) return;
+  canvas.style.setProperty('--gauge-center-shift', '0%');
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   const dpr = window.devicePixelRatio || 1;
@@ -2388,6 +2391,7 @@ function getMetricCanvasSize(canvas) {
 
 function drawFallbackGauge(canvas, rawValue, config) {
   if (!canvas || !config) return;
+  canvas.style.setProperty('--gauge-center-shift', '-6%');
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   const size = getMetricCanvasSize(canvas);
@@ -2522,6 +2526,10 @@ function initGauge() {
         gauge.animationSpeed = 32;
         gauge.set(gaugeValue ?? 0);
         gauge.render();
+        const pivotY = canvas.height * gauge.paddingTop + gauge.availableHeight - (gauge.radius + gauge.lineWidth / 2) * gauge.extraPadding;
+        if (Number.isFinite(pivotY) && canvas.height > 0) {
+          canvas.style.setProperty('--gauge-center-shift', String((0.5 - pivotY / canvas.height) * 100) + '%');
+        }
         gauge.__sensoriusCanvas = canvas;
         window[`${safe}_gauge`] = gauge;
       } catch (e) {
@@ -2890,6 +2898,7 @@ async function updateGauges() {
   const available = Array.isArray(d.available) ? d.available : [];
   const nextExpMap = d.expected_gauge_map || {};
   const nextStyleMap = d.expected_display_style_map || {};
+  Object.assign(metricTileStyleMap, d.metric_tile_style_map || {});
   const renderableSwitches = Array.isArray(d.renderable_switches_view) ? d.renderable_switches_view : (Array.isArray(d.renderable_switches) ? d.renderable_switches : []);
   const locations  = d.locations || {};
   let layoutDrift = null;
@@ -2947,6 +2956,7 @@ async function updateGauges() {
         const safeM = (typeof toSafe === 'function') ? toSafe(metric) : metric.replace(/[^a-zA-Z0-9_\-]/g,'_');
         const container = document.getElementById(`${sid}_${safeM}_container`);
         if (!container) return;
+        container.dataset.tileStyle = metricTileStyleMap[sid] || 'Theme';
         if (container.dataset.userDisplayStyle === '1') return;
         const nextStyle = window.normalizeDisplayStyle(styleMap[`METRIC_${idx + 1}`] || container.dataset.displayStyle || window.displayStyle || 'Gauge');
         container.dataset.displayStyle = nextStyle;
@@ -3473,7 +3483,8 @@ async function showMicrographForContainer(container, options = {}) {
       return clock + (hour24 < 12 ? ' AM' : ' PM');
     };
 
-    const yScaleOptions = { title: { display: false }, ticks: { callback: formatYAxisTick } };
+    const panelTickColor = ['Chrome', 'Brass', 'Mahogany & Brass'].includes(container.dataset.tileStyle) ? '#17232b' : undefined;
+    const yScaleOptions = { title: { display: false }, ticks: { callback: formatYAxisTick, color: panelTickColor } };
     if (isSoilFertilityIndex) {
       const cfgMin = Number(metricConfig?.min);
       const cfgMax = Number(metricConfig?.max);
@@ -3518,7 +3529,8 @@ async function showMicrographForContainer(container, options = {}) {
             maxTicksLimit: fixedThreeHourTicks ? 9 : 6,
             major: { enabled: true },
             font: { size: 10 },
-            callback: formatXAxisTick
+            callback: formatXAxisTick,
+            color: panelTickColor
           },
           grid: { display: true }
         },

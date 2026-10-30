@@ -126,6 +126,19 @@
                     {% endfor %}
                   </div>
                 </div>
+                <div class="section">
+                  <h4 class="section-title">Metric Tile Style</h4>
+                  <label for="metric_tile_style">Style for all metrics on this sensor</label>
+                  <div class="row three metric-tile-style-row">
+                    <div class="metric-slot metric-tile-style-slot">
+                      <select name="metric_tile_style" id="metric_tile_style">
+                        {% for style in metric_tile_style_options %}
+                        <option value="{{ style | e }}" {% if style == current_metric_tile_style %}selected{% endif %}>{{ style | e }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div class="modal-footer sensor-pane-footer">

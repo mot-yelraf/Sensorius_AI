@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 // Screen geometry can disagree with the available desktop window geometry.
 for (const screenWidth of [1, 600]) {
-  test(`wide desktop settings ignore a ${screenWidth}px screen report`, async ({ browser, baseURL }) => {
+  test(`wide desktop settings ignore a ${screenWidth}px screen report`, async ({ browser, baseURL }, testInfo) => {
     const page = await browser.newPage({
       baseURL,
       viewport: { width: 1280, height: 900 },
@@ -46,6 +46,19 @@ for (const screenWidth of [1, 600]) {
         await expect(root.locator('.mobile-settings-menu')).toBeVisible();
         await expect(root.locator('.mobile-settings-content')).toBeVisible();
         await expect(root.locator('#location')).toBeVisible();
+        if (kind === 'Sensor') {
+          const finish = root.getByLabel('Style for all metrics on this sensor');
+          await finish.scrollIntoViewIfNeeded();
+          await expect(finish).toHaveValue('Theme');
+          const finishBox = await finish.boundingBox();
+          const metricBox = await root.locator('#metric_2').boundingBox();
+          expect(Math.abs(finishBox.x - metricBox.x)).toBeLessThan(1);
+          expect(Math.abs(finishBox.width - metricBox.width)).toBeLessThan(1);
+          await expect(finish.locator('option')).toHaveText(['Theme', 'Chrome', 'Brass', 'Mahogany & Brass']);
+          await finish.selectOption('Mahogany & Brass');
+          await expect(finish).toHaveValue('Mahogany & Brass');
+          await page.screenshot({ path: testInfo.outputPath('sensor-tile-style-setting.png') });
+        }
         await page.goto('/', { waitUntil: 'domcontentloaded' });
       }
       await expect(page.locator('meta[name="viewport"]')).toHaveCount(0);

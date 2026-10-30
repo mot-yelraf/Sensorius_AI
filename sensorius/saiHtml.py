@@ -234,7 +234,7 @@ def normalize_dashboard_metric_set(value: object) -> str:
     return "All" if compact in {"all", "showall"} else "Pick 6"
 
 
-def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6", dashboard_custom_theme_style="", pressure_altitude=None, pressure_sensor_context=None, battery_statuses=None, dashboard_row_order=None, switch_row_order="location_device", switch_card_order=None, runtime_sensor_map: "SensorMap | None" = None, sensor_statuses=None):
+def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_ingest, switch_controllers=None, sensor_locations=None, gauge_config=None, gauge_size="Small", expected_gauge_map=None, expected_display_style_map=None, display_style=None, astro_payload=None, biodynamic_payload=None, weather_forecast_provider="met_no", weather_forecast_theme="pollinator", dashboard_background_theme="leaf", dashboard_metric_set="Pick 6", dashboard_custom_theme_style="", pressure_altitude=None, pressure_sensor_context=None, battery_statuses=None, dashboard_row_order=None, switch_row_order="location_device", switch_card_order=None, runtime_sensor_map: "SensorMap | None" = None, sensor_statuses=None, metric_tile_style_map=None):
     """Yield the complete Sensorius dashboard HTML document."""
 
     requested = expected_gauge_map if expected_gauge_map is not None else getattr(mqtt_ingest, "expected_gauge_map", {})
@@ -254,7 +254,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
     from .saiSettings import saiSettings
     from .saiWeatherForecast import normalize_weather_forecast_provider
     from . import saiAddDevice
-    from .saiSensorSettingsManager import SensorSettingsManager
+    from .saiSensorSettingsManager import SensorSettingsManager, METRIC_TILE_STYLES
     from .saiHtml import render_graph_modal
     try:
         from astral import LocationInfo
@@ -1277,6 +1277,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
       f"--canvas-height:{layout['canvas_height']};'>"
     )    
     # Sensor settings resolution and lookup map
+    metric_tile_style_map = dict(metric_tile_style_map or {})
     sensor_display_map = {}
     sensor_style_map = {}
     if isinstance(expected_gauge_map, dict) and expected_gauge_map:
@@ -1303,6 +1304,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                     except Exception:
                         metrics = list(gauge_config.keys())
                     sensor_display_map[sid] = metrics
+                    metric_tile_style_map[sid] = mgr.get_metric_tile_style(actual_id)
                     styles = mgr.get_display_styles(actual_id, default_style="Gauge")
                     sensor_style_map[sid] = {
                         f"METRIC_{idx + 1}": styles[idx] if idx < len(styles) else "Gauge"
@@ -2095,9 +2097,12 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
             elif str(metric_display_style).lower() == "graph24hr":
                 metric_title_prefix = "24hr "
 
+            tile_style = metric_tile_style_map.get(sid, "Theme")
+            if tile_style not in METRIC_TILE_STYLES:
+                tile_style = "Theme"
             lazy_metric_visual = not default_expanded and metric_pos > 6
             lazy_visual_attr = " data-lazy-metric-visual='1'" if lazy_metric_visual else ""
-            yield f"<div class='metric-container' id='{safe_id}_container' data-sensor='{sid}' data-metric='{metric}' data-display-style='{metric_display_style}'{lazy_visual_attr}>"
+            yield f"<div class='metric-container' id='{safe_id}_container' data-sensor='{sid}' data-metric='{metric}' data-display-style='{metric_display_style}' data-tile-style='{html_escape(tile_style)}'{lazy_visual_attr}>"
             yield f"<div class='metric-title'>{metric_title_prefix}{html_escape(config.get('display_label') or metric)} ({config['unit']})</div>"
 
             yield "<div class='gauge-container'>"
@@ -2181,6 +2186,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
         "sensorStats": all_stats,
         "expectedGaugeMap": expected_gauge_map,
         "expectedDisplayStyleMap": expected_display_style_map or {},
+        "metricTileStyleMap": metric_tile_style_map,
         "dashboardMetricSet": normalize_dashboard_metric_set(dashboard_metric_set),
         "metricCanvasWidth": int(layout['canvas_width']),
         "metricCanvasHeight": int(layout['canvas_height']),

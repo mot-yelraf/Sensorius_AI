@@ -1193,6 +1193,7 @@ Fields and selectors:
 - **Location**: the practical place where the sensor is installed, such as Greenhouse, Seed Rack, Bed 2, Propagation Tent, or North Field. This is saved in that sensor's `sensor.toml` and is also used by the dashboard, location editor, and automation selector labels.
 - **Metric 1-6**: dashboard metric slots. Options come from the sensor's available metric list. That list is built from device metadata, known database metrics, and Sensorius gauge configuration.
 - **Display Style 1-6**: display style for each selected metric. Options are **Gauge**, **6Hr Graph**, and **24Hr Graph**.
+- **Metric Tile Style**: below Display Metrics, choose **Theme**, **Chrome**, **Brass**, or **Mahogany & Brass** for all tiles on this sensor. Theme keeps the current appearance; the other finishes add round metal gauge bezels with matching metal faces and inset graph panels, with a wood panel for Mahogany & Brass. Gauge zones, graph data colors, and the **24Hr Graph → 6Hr Graph → Gauge** click cycle stay the same. Click **Save** to keep the choice.
 - **Circled ×**: closes Sensor Settings and returns to the dashboard.
 - **Restart Device**: appears for devices that support remote restart, such as supported Nodus devices. It sends a restart request to the device.
 - **Save**: writes only the Sensor Settings pane values to
