@@ -62,7 +62,7 @@ async def switch_updates(websocket: WebSocket) -> None:
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(battery: str = "", station: str = "", documentation: bool = False, switches: bool = False, switches_first: bool = False, soil: bool = False, legacy: bool = False, unit_system: str = "Imperial") -> HTMLResponse:
+def dashboard(battery: str = "", station: str = "", documentation: bool = False, switches: bool = False, switches_first: bool = False, soil: bool = False, legacy: bool = False, unit_system: str = "Imperial", tile_style: str = "Theme") -> HTMLResponse:
     """Render a deterministic dashboard with enough metrics to test interaction."""
     sensor_id = station or ("ecowitt-pr-check" if battery else "aht-pr-check")
     metrics = {
@@ -122,6 +122,7 @@ def dashboard(battery: str = "", station: str = "", documentation: bool = False,
             gauge_config=apply_display_units_to_gauge_config(get_gauge_config(), unit_system) if soil or legacy else get_gauge_config(),
             expected_gauge_map={sid: selected_metrics for sid in available},
             expected_display_style_map={sensor_id: {}},
+            metric_tile_style_map={sensor_id: tile_style},
             display_style="Gauge",
             dashboard_background_theme="fruit" if documentation else "leaf",
             astro_payload={"ok": False, "reason": "documentation_fixture"} if documentation else None,
@@ -204,6 +205,8 @@ def sensor_settings(sensor_id: str = "aht-pr-check", documentation: bool = False
         battery_status="OK", network_info={"ip_address": "192.0.2.20", "broker": "mqtt.example.com", "broker_status": "Connected"}
         if documentation else {"ip_address": "192.0.2.10"}, current_metrics=["Temperature"] + [""] * 5,
         metric_options=["", "Temperature"], settings={}, location="Greenhouse",
+        metric_tile_style_options=("Theme", "Chrome", "Brass", "Mahogany & Brass"),
+        current_metric_tile_style="Theme",
         **example,
     ))
 

@@ -134,7 +134,7 @@ from .sensor_modules.station_weewx import (
     weewx_battery_status,
 )
 from .saiFastStats import FastStats
-from .saiSensorSettingsManager import SensorSettingsManager, infer_direct_local_device, is_direct_local_sensor_id
+from .saiSensorSettingsManager import METRIC_TILE_STYLES, SensorSettingsManager, infer_direct_local_device, is_direct_local_sensor_id
 from .saiSwitchSettingsManager import SwitchSettingsManager
 from .saiBiodynamics import get_biodynamic_payload, get_biodynamic_local_now, get_skyfield_runtime_if_installed
 from .saiBiodynamicCalendarApp import BIODYNAMIC_CALENDAR_THEMES, normalize_biodynamic_calendar_theme
@@ -2837,6 +2837,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
         sensor_mgr = sensor_settings_mgr or _get_sensor_settings_manager()
         expected_gauge_map = {}
         expected_display_style_map = {}
+        metric_tile_style_map = {}
         pressure_sensor_context = {}
         for sid in all_values:
             if sensor_mgr is not None:
@@ -2916,6 +2917,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             for idx in range(6, len(deduped)):
                 style_map[f"METRIC_{idx + 1}"] = displayStyle
             expected_display_style_map[sid] = style_map
+            metric_tile_style_map[sid] = sensor_mgr.get_metric_tile_style(sid) if sensor_mgr else "Theme"
         phase_ms["expected_metrics"] = (
             (time.monotonic() - _phase_started) * 1000.0
             - phase_ms.get("inventory", 0.0)
@@ -3277,6 +3279,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 "locations": sensor_locations,
                 "expected_gauge_map": expected_gauge_map,
                 "expected_display_style_map": expected_display_style_map,
+                "metric_tile_style_map": metric_tile_style_map,
                 "pressure_altitude": display_settings.get("pressure_altitude"),
                 "pressure_sensor_context": pressure_sensor_context,
                 "available_switches": available_switches,
@@ -3352,6 +3355,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 pressure_sensor_context=pressure_sensor_context,
                 expected_gauge_map = expected_gauge_map,
                 expected_display_style_map = expected_display_style_map,
+                metric_tile_style_map = metric_tile_style_map,
                 display_style = displayStyle,
                 dashboard_background_theme = dashboardBackgroundTheme,
                 dashboard_custom_theme_style = theme_manager.style_attribute(
@@ -5559,6 +5563,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 current_metrics=current_metrics,
                 display_style_options=display_style_options,
                 current_metric_styles=current_metric_styles,
+                metric_tile_style_options=METRIC_TILE_STYLES,
+                current_metric_tile_style=manager.get_metric_tile_style(normalized_id),
                 location=location,
                 device_kind=device_kind,
                 device_label=device_label,
@@ -5824,6 +5830,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             display_updates["Display"]["Style"] = {
                 f"METRIC_{i}": metric_style_list[i - 1] for i in range(1, 7)
             }
+        if "metric_tile_style" in form:
+            display_updates.setdefault("Display", {})["METRIC_TILE_STYLE"] = manager.normalize_metric_tile_style(form.get("metric_tile_style"))
         # Deep-merge the changes into the existing doc
         merged_doc = deep_merge_ordered(OrderedDict(existing_doc), sensor_updates)
         if display_updates:

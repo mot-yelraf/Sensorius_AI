@@ -29,6 +29,7 @@ DEBUG = debug_enabled(MODULE)
 DISPLAY_METRIC_MODE_PICK6 = "Pick 6"
 DISPLAY_METRIC_MODE_ALL = "All"
 DISPLAY_METRIC_MODE_KEY = "METRIC_DISPLAY_MODE"
+METRIC_TILE_STYLES = ("Theme", "Chrome", "Brass", "Mahogany & Brass")
 _DIRECT_LOCAL_BUS_TOKENS = ("i2c", "spi", "uart", "rs485")
 
 
@@ -292,6 +293,20 @@ class SensorSettingsManager:
             if isinstance(raw_val, str) and raw_val.strip():
                 ordered_metrics.append(raw_val.strip())
         return ordered_metrics
+
+    @staticmethod
+    def normalize_metric_tile_style(value) -> str:
+        """Return a supported sensor tile finish, defaulting to the active theme."""
+        return value if isinstance(value, str) and value in METRIC_TILE_STYLES else "Theme"
+
+    def get_metric_tile_style(self, sensor_id: str) -> str:
+        """Return the local dashboard finish shared by every metric of a sensor."""
+        try:
+            settings = self.load(sensor_id)
+        except FileNotFoundError:
+            return "Theme"
+        display = settings.get("Display", {})
+        return self.normalize_metric_tile_style(display.get("METRIC_TILE_STYLE") if isinstance(display, dict) else None)
 
     def get_display_styles(self, sensor_id: str, default_style: str = "Gauge") -> list[str]:
         try:

@@ -1206,6 +1206,8 @@ canvas{
   padding-top:.75rem;
   padding-bottom:.85rem;
 }
+#sensorSettingsForm .metric-tile-style-slot{grid-column:2;}
+#sensorSettingsForm .metric-tile-style-row{column-gap:1rem;}
 #sensorSettingsForm .display-metrics-row{
   column-gap:1rem;
 }
@@ -1548,3 +1550,66 @@ select.op-select{ max-width:80px; width:100%; }
 #moonBox,#sunBox{--at-a-glance-arrow-color:#27313a;}
 .dash-top-row .astro-box .dashboard-card-spinner{right:1.5rem;}
 .dash-top-row .moon-view-toggle{margin-right:12px;}
+
+.metric-container[data-tile-style="Chrome"],
+.metric-container[data-tile-style="Brass"],
+.metric-container[data-tile-style="Mahogany & Brass"]{
+  --tile-rim:linear-gradient(135deg,#f9fcff 0%,#9aa3ab 19%,#f5f8fa 34%,#646e78 50%,#e9eef2 67%,#8a949e 84%,#f7fafc 100%);
+  --tile-panel:linear-gradient(135deg,#f3f7f9,#bbc6cc 24%,#d8e1e6 40%,#aab9c2 53%,#e5edf1 74%,#c2cdd3 90%,#f2f7fa);
+  --tile-edge:#78828c;
+  --tile-bezel:conic-gradient(from -35deg,#5d6872,#faffff 12%,#8c969e 24%,#e4edf2 39%,#64707a 53%,#f8fdff 69%,#818b94 84%,#dce7ee 94%,#5d6872);
+  --tile-dial:linear-gradient(135deg,#f0f4f5,#c2ccd2 35%,#e6ecef 62%,#acbac2);
+  background:var(--tile-panel);color:#17232b;border-color:var(--tile-edge);
+  box-shadow:inset 0 1px 2px #fff9,inset 0 -2px 3px #0006,0 3px 6px #0004;
+}
+.metric-container[data-tile-style="Brass"],
+.metric-container[data-tile-style="Mahogany & Brass"]{
+  --tile-rim:linear-gradient(135deg,#fff0b3 0%,#a77c30 19%,#f5d57b 34%,#76501c 50%,#ebc667 67%,#a0762e 84%,#ffe9a0 100%);
+  --tile-panel:linear-gradient(135deg,#fff0b3,#ddbe70 24%,#f4d98d 40%,#c8a45b 53%,#f2d486 74%,#dfc17b 90%,#fff0b3);
+  --tile-edge:#866024;
+  --tile-bezel:conic-gradient(from -35deg,#795315,#ffeeb0 12%,#b4812c 24%,#f9d979 39%,#825419 53%,#fff1b1 69%,#ac7624 84%,#ebc46a 94%,#795315);
+  --tile-dial:linear-gradient(135deg,#fff0b7,#dcc17b 35%,#f4dfa1 62%,#c8aa62);
+}
+.metric-container[data-tile-style="Mahogany & Brass"]{
+  background:repeating-linear-gradient(3deg,#ffffff04 0 1px,#19050014 2px 3px,transparent 4px 9px),linear-gradient(100deg,#3b150f,#833f29 30%,#542319 53%,#743620 75%,#36130e);
+  color:#fff0ce;border-color:#ac853b;
+}
+.metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .gauge-view{
+  position:relative;width:100%;height:auto;aspect-ratio:1;border-radius:50%;
+  background:var(--tile-bezel);color:#27313a;
+  box-shadow:0 2px 4px #0009,0 0 0 1px #513c25,inset 0 1px 1px #fff;
+  margin:.15rem 0 .6rem;
+}
+.metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .gauge-view::before{
+  content:"";position:absolute;inset:11px;pointer-events:none;border-radius:50%;background:var(--tile-dial);
+  box-shadow:0 0 0 1px #fff7,0 0 0 3px #0003,inset 0 2px 5px #0007,inset 0 -1px 2px #fff9;
+}
+.metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .gauge-view::after{
+  content:"";position:absolute;inset:3px;pointer-events:none;border:1px solid #fff7;border-radius:50%;
+  background:linear-gradient(135deg,#fff3,transparent 45%,transparent 70%,#00000008);
+}
+.metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .gauge-view canvas{
+  position:relative;margin:0;transform:scale(.84) translateY(var(--gauge-center-shift,0%));z-index:1;
+}
+.metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .graph-view{
+  position:relative;width:100%;height:auto;aspect-ratio:1;padding:10px;box-sizing:border-box;
+  border-radius:8px;background:var(--tile-dial);color:#17232b;
+  box-shadow:0 0 0 1px #0009,0 2px 2px #fff7,inset 0 3px 9px #28342080;
+  margin:.15rem 0 .6rem;
+}
+.metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .graph-view::before{
+  content:"";position:absolute;inset:0;pointer-events:none;border:7px solid transparent;border-radius:8px;
+  background:var(--tile-rim) border-box;
+  mask:linear-gradient(#fff 0 0) padding-box,linear-gradient(#fff 0 0);mask-composite:exclude;
+  z-index:2;
+}
+.metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .graph-view::after{
+  content:"";position:absolute;inset:7px;pointer-events:none;border-radius:2px;
+  background:repeating-linear-gradient(0deg,#24342009 0 1px,transparent 1px 3px),linear-gradient(145deg,#ffffff26,transparent 48%,#53624614);
+  box-shadow:inset 0 3px 6px #17200f88,inset 2px 0 4px #17200f55,inset 0 -1px 1px #faffdf99;
+  z-index:1;
+}
+.metric-container:is([data-tile-style="Chrome"],[data-tile-style="Brass"],[data-tile-style="Mahogany & Brass"]) .graph-view canvas{
+  width:100% !important;height:auto !important;margin:0;
+}
+.metric-container[data-tile-style="Mahogany & Brass"] .trend-arrow{color:#fff0ce;}

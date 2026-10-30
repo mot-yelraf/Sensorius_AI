@@ -460,6 +460,21 @@ Remote sensor settings are local shadows of device metadata and should not be
 treated as independent truth when a Nodus device publishes a newer retained
 `meta` or correlated `meta/patch`.
 
+### Per-sensor metric tile finish
+
+Sensor Settings > Metric Tile Style (below Display Metrics) selects **Theme**,
+**Chrome**, **Brass**, or **Mahogany & Brass** for every metric tile belonging to
+that sensor. Theme preserves the active dashboard theme. The other finishes add
+round raised metal bezels and matching metal faces for gauges, and recessed
+graph panels with matching metal surrounds. Mahogany & Brass adds a wood panel. Gauge and graph data colors and the existing
+24-hour graph → 6-hour graph → gauge cycle remain unchanged.
+
+The hub saves this local presentation preference as `[Display].METRIC_TILE_STYLE`
+in `/home/<user>/Sensorius/sensor_settings/<sensor_id>/sensor.toml` on Linux or
+`/Users/<user>/Sensorius/sensor_settings/<sensor_id>/sensor.toml` on macOS. Missing
+or unsupported values use Theme. This preference is independent of
+`[Display.Style]` initial per-metric views and is not sent to Nodus firmware.
+
 ## Switch Settings
 
 Switch settings are stored in:

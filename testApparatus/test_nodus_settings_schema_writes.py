@@ -1669,6 +1669,7 @@ async def test_submit_sensor_settings_pushes_sensor_and_display_updates_for_nodu
                 "sensor_id_field": "apvpd-test123",
                 "device": "aqi",
                 "location": "Grow Tent",
+                "metric_tile_style": "Brass",
                 "metric_1": "Temperature",
                 "metric_2": "Humidity",
                 "metric_3": "PM2.5",
@@ -1684,6 +1685,7 @@ async def test_submit_sensor_settings_pushes_sensor_and_display_updates_for_nodu
             },
         )
 
+    assert sensor_mgr.get_metric_tile_style("apvpd-test123") == "Brass"
     assert res.status_code == 303
     assert len(ingest.published_json) == 13
     assert all(len((((row.get("payload") or {}).get("payload") or {}).get("updates") or [])) == 1 for row in ingest.published_json)
@@ -1704,6 +1706,7 @@ async def test_submit_sensor_settings_pushes_sensor_and_display_updates_for_nodu
     assert not any(p["section"] == "Sensor" and p["key"] == "DEVICE" for p in posted)
     assert not any(p["section"] == "Sensor" and p["key"] == "SENSOR_ID" for p in posted)
     assert any(p.get("name") == "sensor_i2c.toml" for p in posted)
+    assert not any(p["key"] == "METRIC_TILE_STYLE" for p in posted)
     assert ingest.refreshed == []
     saved = sensor_mgr.load("apvpd-test123")
     assert saved["Sensor"]["DEVICE"] == "aqi"
@@ -5128,6 +5131,7 @@ async def test_dashboard_display_style_prefers_sensor_settings_over_global_defau
             "Sensor": {"TYPE": "nodus", "DEVICE": "aqi", "SENSOR_ID": "apvpd-test123", "LOCATION": "Grow Tent"},
             "Display": {
                 "METRIC_1": "Temperature",
+                "METRIC_TILE_STYLE": "Chrome",
                 "Style": {
                     "METRIC_1": "Graph6hr",
                 },
@@ -5164,6 +5168,7 @@ async def test_dashboard_display_style_prefers_sensor_settings_over_global_defau
 
     assert res.status_code == 200
     body = res.json()
+    assert body["metric_tile_style_map"]["apvpd-test123"] == "Chrome"
     style_map = body["expected_display_style_map"]["apvpd-test123"]
     assert style_map["METRIC_1"] == "Graph6hr"
     assert style_map["METRIC_2"] == "Gauge"
@@ -7096,3 +7101,24 @@ async def test_manual_switch_card_order_persists_and_preserves_hidden_locations(
             response = await client.post("/dashboard/switch-order", json=body)
             assert response.status_code == 400
         assert _RouteFakeSaiSettings.STORED_SETTINGS["Display"]["switch_card_order"] == ["garden", "attic", "offline"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("style,expected", [("Theme", "Theme"), ("Chrome", "Chrome"), ("Brass", "Brass"), ("Mahogany & Brass", "Mahogany & Brass"), ("unsupported", "Theme")])
+async def test_sensor_tile_finish_persists_and_reopens(tmp_path, monkeypatch, style, expected):
+    app, _ingest, _system_root, sensor_root, _switch_root = await _build_app(tmp_path, monkeypatch)
+    app.state.templates = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent.parent / "ui_templates")))
+    manager = _REAL_SENSOR_SETTINGS_MANAGER(str(sensor_root))
+    manager.save("apvpd-test123", {"Sensor": {"TYPE": "local", "DEVICE": "aqi", "SENSOR_ID": "apvpd-test123"}, "Display": {"METRIC_1": "Temperature", "Style": {"METRIC_1": "Graph24hr"}}})
+    assert manager.get_metric_tile_style("apvpd-test123") == "Theme"
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/submit-sensor-settings", data={"sensor_id": "apvpd-test123", "metric_tile_style": style}, headers={"Accept": "application/json"})
+        assert response.status_code == 200
+        reopened = await client.get("/edit-sensor", params={"sensor_id": "apvpd-test123", "embed": "1"})
+    assert reopened.status_code == 200, reopened.text
+    from html import escape
+    assert f'<option value="{escape(expected)}" selected>{escape(expected)}</option>' in reopened.text
+    saved = manager.load("apvpd-test123")
+    assert saved["Display"]["METRIC_TILE_STYLE"] == expected
+    assert saved["Display"]["METRIC_1"] == "Temperature"
+    assert saved["Display"]["Style"]["METRIC_1"] == "Graph24hr"
