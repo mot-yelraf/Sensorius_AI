@@ -2427,8 +2427,8 @@ function drawFallbackGauge(canvas, rawValue, config) {
   const min = Number(config.min);
   const max = Number(config.max);
   const value = Number(rawValue);
-  const start = Math.PI * 0.82;
-  const end = Math.PI * 2.18;
+  const start = Math.PI * 0.75;
+  const end = Math.PI * 2.25;
   const span = end - start;
   const zones = Array.isArray(config.zones) ? config.zones : [];
   function angleFor(v) {
@@ -2518,7 +2518,7 @@ function initGauge() {
       return;
     }
     const opts = {
-      angle: -0.2, lineWidth: 0.25, radiusScale: 0.9,
+      angle: -0.25, lineWidth: 0.25, radiusScale: 0.9,
       pointer: { length: 0.5, strokeWidth: 0.035, color: '#000000' },
       staticZones: config.zones || [],
       limitMax: Boolean(config.rain_period),
