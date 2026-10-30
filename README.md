@@ -2,7 +2,7 @@
 
 **Environmental Sensing + Automation Hub**
 
-Sensorius is a sensor, relay-switch automation hub with a robust web UI, extensive Automation Rule user-created definitions, WiFi Sensor/Switch monitoring via MQTT, and optional Home Assistant and farmOS integrations. The application's focus is on gardening, farming, greenhouse monitor and control, but can be used to control other environments as well. When using Raspberry Pi's it can auto-detects directly-connected sensors, relay-switch(es) and on all supported platforms it automatically discovers Nodus WiFi/MQTT devices, and turns those data into live dashboards, automation controls, historical data; the application also includes integrated weather forecast and biodynamic calendar .
+Sensorius is a sensor, relay-switch automation hub with a robust web UI, user-defined Automation Rules with extensive condition/action definitions, WiFi Sensor/Switch monitoring via MQTT, support for a variety of weather sensors/stations, and optional Home Assistant and farmOS integrations. The application's focus is on gardening, farming, greenhouse monitor and control, but can be used to control other environments as well. When using Raspberry Pi's it can auto-detects directly-connected sensors, relay-switch(es) and on all supported platforms it automatically discovers Nodus WiFi/MQTT devices, and turns those data into live dashboards, automation controls, historical data; the application also includes integrated weather forecast and biodynamic calendar.
 
 For illustrated setup and operating instructions, see the
 [Sensorius AI User Guide](docs/user_guide.md).
