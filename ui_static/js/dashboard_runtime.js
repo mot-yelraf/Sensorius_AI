@@ -78,7 +78,7 @@ function astronomyLocalDateKey(now) {
 }
 function updateAstronomyDates(data){
   const timezoneName = String((data && (data.timezone || data.tz)) || (window.__weatherForecastPayload && window.__weatherForecastPayload.location && window.__weatherForecastPayload.location.timezone) || (biodynamicData && biodynamicData.tz) || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
-  const date = new Intl.DateTimeFormat('en-US', { timeZone:timezoneName, weekday:'long', month:'long', day:'2-digit', year:'numeric' }).format(new Date());
+  const date = new Intl.DateTimeFormat('en-US', { timeZone:timezoneName, weekday:'long', month:'long', day:'numeric' }).format(new Date());
   for (const id of ['moonDateLine', 'sunDateLine', 'forecastDateLine']) {
     const el = document.getElementById(id);
     if (el) el.textContent = date;
@@ -88,7 +88,7 @@ function updateLocalTime() {
   const now = new Date();
   const ts = document.getElementById('update_time');
   if (ts) {
-    const formatted = now.toLocaleString('en-CA', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' }).replace(',', '');
+    const formatted = now.toLocaleString('en-CA', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' }).replace(',', '').replace(/-/g, '/');
     const weekday = now.toLocaleDateString('en-CA', { weekday:'short' });
     ts.textContent = `${weekday} ${formatted}`;
   }
@@ -957,9 +957,8 @@ function drawMoonPhase(data){
     const s = fmtRaw(v);
     const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (!m) return s;
-    const yy = m[1].slice(-2);
-    const mon = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][Math.max(0, Math.min(11, parseInt(m[2],10)-1))];
-    return `${m[3]}${mon}${yy}`;
+    const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][Math.max(0, Math.min(11, parseInt(m[2],10)-1))];
+    return `${mon} ${parseInt(m[3], 10)}`;
   };
   const setMoonNextPhaseLabel = (rawLabel) => {
     const label = fmtRaw(rawLabel) === '--' ? 'Next Phase' : fmtRaw(rawLabel);
@@ -1383,7 +1382,7 @@ function drawBiodynamic(data){
     if (!parts || !parts.year || !parts.month || !parts.day) return '--';
     const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     const monthName = months[Math.max(0, Math.min(11, parseInt(parts.month, 10) - 1))] || '--';
-    return `${parts.weekday || '--'}, ${monthName} ${parts.day}, ${parts.year}`;
+    return `${parts.weekday || '--'}, ${monthName} ${parseInt(parts.day, 10)}`;
   };
   const isoDayKey = (iso) => {
     const parts = fmtParts(iso);
@@ -2605,7 +2604,7 @@ function formatIsoForStats(ts) {
   if (!match) return noTz.replace('T', '<br>').replace(' ', '<br>');
   const hour24 = Number.parseInt(match[2], 10);
   const hour12 = ((hour24 + 11) % 12) + 1;
-  return `${match[1]}<br>${hour12}:${match[3]}:${match[4]} ${hour24 < 12 ? 'AM' : 'PM'}`;
+  return `${match[1].replace(/-/g, '/')}<br>${hour12}:${match[3]}:${match[4]} ${hour24 < 12 ? 'AM' : 'PM'}`;
 }
 
 function renderStatsHtml(minVal, avgVal, maxVal, minTs, maxTs) {

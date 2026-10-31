@@ -58,7 +58,7 @@ test('transition plot uses green On and black Off lines and cycles 24hr > 6hr > 
   });
   expect(colors.green).toBeGreaterThan(0);
   expect(colors.black).toBeGreaterThan(0);
-  await expect(page.locator('.switch-history-detail')).toHaveText(/^On: .+ · manual$/);
+  await expect(page.locator('.switch-history-detail')).toHaveText(/^On: 2026\/10\/16, .+ · manual$/);
   await expect(page.locator('.switch-history-detail')).not.toContainText('Green =');
   const latestDetail = await page.locator('.switch-history-detail').textContent();
   await plot.hover({ position: { x: 28, y: 10 } });
