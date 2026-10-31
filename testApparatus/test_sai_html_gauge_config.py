@@ -276,9 +276,9 @@ def test_metric_card_extrema_timestamps_use_twelve_hour_times():
         )
     )
 
-    assert "2026-08-11<br>12:56:35 AM" in html
-    assert "2026-08-10<br>5:22:46 PM" in html
-    assert "return `${match[1]}<br>${hour12}:${match[3]}:${match[4]} ${hour24 < 12 ? 'AM' : 'PM'}`;" in html
+    assert "2026/08/11<br>12:56:35 AM" in html
+    assert "2026/08/10<br>5:22:46 PM" in html
+    assert "return `${match[1].replace(/-/g, '/')}<br>${hour12}:${match[3]}:${match[4]} ${hour24 < 12 ? 'AM' : 'PM'}`;" in html
 
 
 def test_dashboard_gauge_title_has_no_graph_duration():

@@ -66,6 +66,10 @@ test('renders the Sensorius dashboard and expands additional metrics', async ({ 
   const response = await page.goto('/', { waitUntil: 'domcontentloaded' });
   expect(response?.ok()).toBeTruthy();
   await expect(page).toHaveTitle(/Sensorius/i);
+  await expect(page.locator('#update_time')).toHaveText(/^[A-Za-z]{3} \d{4}\/\d{2}\/\d{2} /);
+  for (const id of ['moonDateLine', 'sunDateLine', 'forecastDateLine']) {
+    await expect(page.locator(`#${id}`)).toHaveText(/^[A-Za-z]+, [A-Za-z]+ \d{1,2}$/);
+  }
 
   const sensorGroup = page.locator(".sensor-group[data-sensor-id='aht-pr-check']");
   await expect(sensorGroup).toBeVisible();
@@ -128,7 +132,7 @@ test('keeps the header image above sensors after moving the bottom sensor up', a
     const moonBox = await page.locator('#moonBox').boundingBox();
     expect(brandBox.width).toBeCloseTo(moonBox.width, 1);
     const clock = page.locator('#update_time');
-    for (const text of ['Tue 2026-10-13 01:11:11 AM', 'Wed 2026-12-30 08:58:58 PM']) {
+    for (const text of ['Tue 2026/10/13 01:11:11 AM', 'Wed 2026/12/30 08:58:58 PM']) {
       await clock.evaluate((element, value) => { element.textContent = value; }, text);
       expect((await clock.boundingBox()).width).toBeCloseTo(brandBox.width, 1);
       const textFits = await clock.evaluate((element) => {

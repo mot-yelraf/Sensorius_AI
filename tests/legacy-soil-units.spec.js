@@ -27,5 +27,6 @@ for (const [system, unit, initial, refreshed] of [
     await page.evaluate(() => window.updateGauges({ ignoreVisibility: true, ignoreModal: true }));
     await expect(card.locator('[id$="_val"]')).toContainText(`${refreshed} ${unit}`);
     await expect(card.locator('[id$="_stats"]')).not.toContainText('--');
+    await expect(card.locator('[id$="_stats"]')).toContainText('2026/10/18');
   });
 }

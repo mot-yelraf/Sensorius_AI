@@ -2061,7 +2061,7 @@ def render_dashboard(sensor_id, sensor, available, all_values, all_stats, mqtt_i
                     if dt.tzinfo:
                         dt = dt.replace(tzinfo=None)
                     hour = dt.strftime("%I").lstrip("0") or "12"
-                    return f"{dt:%Y-%m-%d}<br>{hour}:{dt:%M:%S} {dt:%p}"
+                    return f"{dt:%Y/%m/%d}<br>{hour}:{dt:%M:%S} {dt:%p}"
                 except Exception:
                     return ts
         

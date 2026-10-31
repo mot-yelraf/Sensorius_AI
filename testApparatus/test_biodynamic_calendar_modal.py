@@ -136,7 +136,7 @@ def test_biodynamic_calendar_modal_defaults_to_today_when_present():
     assert "if (cur.timestamp && !document.getElementById('biodynamicCalendarModal')) window.__bioModalState.month = bioMonthKeyFromDate(new Date(cur.timestamp));" in text
     assert "weekday: 'long'," in text
     assert "const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];" in text
-    assert "return `${parts.weekday || '--'}, ${monthName} ${parts.day}, ${parts.year}`;" in text
+    assert "return `${parts.weekday || '--'}, ${monthName} ${parseInt(parts.day, 10)}`;" in text
     assert "const buildBiodynamicWindowText = (payload, currentIso, current) => {" in text
     assert "if (reason === 'warming') return '';" in text
     assert "Biodynamic calendar is warming in the background." not in text

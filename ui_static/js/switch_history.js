@@ -28,10 +28,12 @@
   }
 
   function timestamp(at) {
-    return new Date(at).toLocaleString([], {
-      year: 'numeric', month: '2-digit', day: '2-digit',
+    const date = new Date(at);
+    const day = `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`;
+    const time = date.toLocaleTimeString([], {
       hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
     });
+    return `${day}, ${time}`;
   }
 
   function eventText(event) {
