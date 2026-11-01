@@ -252,6 +252,10 @@ sudo systemctl restart sensorius.service
 
 ## Logs
 
+OTA request failures, invalid System Status automation conditions, and test-email
+failures return safe messages in the web UI. Internal exception details stay in
+the Sensorius log; consult it when these messages do not explain the cause.
+
 The optional `/ws/live` statistics broadcaster does not query SQLite until a
 client subscribes. Its 24-hour aggregation runs in a worker thread so a large
 readings database cannot block dashboard HTTP requests, MQTT ingest, sensor

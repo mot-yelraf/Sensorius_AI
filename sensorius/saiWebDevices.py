@@ -103,7 +103,11 @@ def register_device_routes(
     _sqlite_connect_with_recovery = dependencies.sqlite_connect_with_recovery
 
     def _ota_error_response(exc: Exception, *, status_code: int = 400) -> JSONResponse:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=status_code)
+        printDM(f"[nodus-ota] request failed: {exc}", location=MODULE)
+        return JSONResponse(
+            {"ok": False, "error": "Nodus OTA request failed. Check the Sensorius log."},
+            status_code=status_code,
+        )
 
 
     @router.get("/api/nodus-ota/devices", response_class=JSONResponse)

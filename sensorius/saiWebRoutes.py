@@ -4996,8 +4996,9 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
             )
             return JSONResponse({"ok": True, "message": "Test email sent."})
         except Exception as exc:
+            printDM(f"Test email failed: {exc}", location=MODULE)
             return JSONResponse(
-                {"ok": False, "error": f"Test email failed: {exc}"},
+                {"ok": False, "error": "Test email failed. Check the SMTP settings and Sensorius log."},
                 status_code=400,
             )
 
