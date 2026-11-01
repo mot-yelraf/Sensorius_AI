@@ -1137,7 +1137,8 @@ def register_switch_routes(
                     try:
                         normalized_conditions.append(normalize_system_status_condition(c))
                     except ValueError as exc:
-                        return error_response(str(exc), status_code=400)
+                        printDM(f"Invalid automation system status condition: {exc}", location=MODULE)
+                        return error_response("Invalid System Status condition. Check the status, device, and thresholds.", status_code=400)
                     continue
                 if cond_type == "sensor":
                     try:

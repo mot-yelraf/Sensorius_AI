@@ -331,7 +331,7 @@ async def test_prepared_timer_applies_and_restores_opposite_baseline(tmp_path, m
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", ["sensor", "calendar", "unit_parse"])
+@pytest.mark.parametrize("kind", ["sensor", "calendar", "unit_parse", "system_status"])
 @pytest.mark.parametrize("form", [False, True])
 async def test_validation_errors_do_not_expose_exception_text(tmp_path, monkeypatch, kind, form):
     from httpx import ASGITransport, AsyncClient
@@ -348,6 +348,9 @@ async def test_validation_errors_do_not_expose_exception_text(tmp_path, monkeypa
     if kind == "sensor":
         monkeypatch.setattr("sensorius.saiWebSwitches.normalize_condition_inputs", invalid)
         expected = "Invalid sensor condition. Check the value, hysteresis, and units."
+    elif kind == "system_status":
+        monkeypatch.setattr("sensorius.saiWebSwitches.normalize_system_status_condition", invalid)
+        expected = "Invalid System Status condition. Check the status, device, and thresholds."
     elif kind == "calendar":
         doc["conditions"][0].update(calendar_kind="date_time", calendar_timezone="UTC")
         monkeypatch.setattr(calendar, "normalize_calendar_datetime", invalid)
