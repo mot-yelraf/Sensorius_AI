@@ -356,7 +356,11 @@ async def test_battery_health_refresh_failure_and_expiry(monkeypatch):
     for raw, expected in [("0", "OK"), ("1", "LOW"), ("9", "UNKNOWN")]:
         _Client.responses[("get_sensors_info", 1)][0]["batt"] = raw
         await service.poll_once()
-        assert ecowitt_sensor_health(logger, sid) == {"battery_status": expected, "gateway_ip": "192.0.2.10"}
+        health = ecowitt_sensor_health(logger, sid)
+        assert health["battery_status"] == expected
+        assert health["gateway_ip"] == "192.0.2.10"
+        assert health["signal_strength_label"] == "3/4 (outdoor RF)"
+        assert health["uptime_started_epoch"] is not None
         assert set(logger.rows[-1][2]) == {"Temperature", "Temperature_F"}
     _Client.responses[("get_sensors_info", 1)][0]["batt"] = "0"
     await service.poll_once()

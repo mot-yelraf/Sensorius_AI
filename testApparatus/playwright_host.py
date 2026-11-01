@@ -203,6 +203,7 @@ def sensor_settings(sensor_id: str = "aht-pr-check", documentation: bool = False
         supports_device_calibration=True, supports_system_calibration=not is_acurite,
         candidate_sensors=[] if defer_details else ["aht-pr-check", "reference"],
         sensor_id=sensor_id, is_ecowitt=sensor_id.startswith("ecowitt-"),
+        is_usb_console=is_acurite, tracks_reporting_uptime=is_acurite or sensor_id.startswith("ecowitt-"),
         battery_status="OK", network_info={"ip_address": "192.0.2.20", "broker": "mqtt.example.com", "broker_status": "Connected"}
         if documentation else {"ip_address": "192.0.2.10"}, current_metrics=["Temperature"] + [""] * 5,
         metric_options=["", "Temperature"], settings={}, location="Greenhouse",
@@ -319,13 +320,13 @@ def ac1100_dashboard() -> HTMLResponse:
 
 
 @app.get("/rain-gauges", response_class=HTMLResponse)
-def rain_gauges(unit_system: str = "Metric") -> HTMLResponse:
+def rain_gauges(unit_system: str = "Metric", value: float = .25) -> HTMLResponse:
     """Render rain accumulation gauges with deterministic readings for UI checks."""
     from sensorius.saiDisplayUnits import apply_display_units_to_gauge_config
     from sensorius.saiRainClimate import RAIN_PERIODS
 
     sensor_id = "rain-pr-check"
-    metrics = {metric: .25 for metric in RAIN_PERIODS}
+    metrics = {metric: value for metric in RAIN_PERIODS}
     html = "".join(render_dashboard(
         "All", None, [sensor_id], {sensor_id: metrics}, {},
         SimpleNamespace(expected_gauge_map={}),

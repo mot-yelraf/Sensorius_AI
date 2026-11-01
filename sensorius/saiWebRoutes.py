@@ -3167,7 +3167,7 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                     service = getattr(services, sid_text.split("-", 1)[0] + "_service", None)
                     snapshot = service.status() if service else {}
                     if snapshot.get("sensor_id") == sid_text:
-                        return "online" if snapshot.get("state") == "online" else "offline"
+                        return snapshot.get("state") if snapshot.get("state") in {"online", "degraded", "offline"} else "offline"
                     return "offline"
                 if sid_text.lower().startswith("ecowitt-"):
                     service = getattr(app.state, "ecowitt_service", None)
@@ -5570,6 +5570,11 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
 
             network_info = await _build_device_network_info(normalized_id, device_type="sensor")
             sensor_statistics = {} if defer_details else await _build_sensor_statistics_payload(normalized_id)
+            sensor_statistics.update(
+                is_ecowitt=(device_kind == "ecowitt" or normalized_id.lower().startswith("ecowitt-")),
+                is_acurite=is_acurite,
+                is_usb_weather=is_usb_weather,
+            )
             candidate_sensors = []
             if not defer_details:
                 cal_mgr = CalibrationManager(services.data_logger, manager)
@@ -5608,6 +5613,8 @@ async def register_routes(app, settings, net_mgr, gc_mgr, mqtt_ingest):
                 supports_system_calibration=not (is_weewx or is_acurite or is_usb_weather),
                 can_restart_device=(sensor_type in ("picow", "pico2w", "nodus", "remote", "mqtt")),
                 network_info=network_info,
+                is_usb_console=(is_acurite or is_usb_weather),
+                tracks_reporting_uptime=(is_acurite or is_usb_weather or device_kind == "ecowitt" or normalized_id.startswith("ecowitt-")),
                 **sensor_statistics,
             )
 

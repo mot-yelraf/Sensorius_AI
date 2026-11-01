@@ -145,6 +145,88 @@ def test_alternating_packets_merge_only_fresh_fields(acquisition):
     assert adapter.status()["observation_fresh"] is False
 
 
+def test_one_invalid_outdoor_report_is_tolerated_but_two_invalidate(acquisition):
+    adapter, transport, clock = acquisition
+    adapter.sample_once()
+    adapter.read()
+    last_outdoor = adapter._last_outdoor
+    transport.reports[1] = bytes(10)
+    clock.advance()
+    adapter.sample_once()
+    assert adapter.status()["invalid_outdoor_reports"] == 1
+    assert adapter.status()["station"]["reporting"] is True
+    assert adapter._last_outdoor == last_outdoor
+    assert adapter.read() is None
+    clock.advance()
+    adapter.sample_once()
+    assert adapter.status()["invalid_outdoor_reports"] == 2
+    assert adapter.status()["station"]["reporting"] is False
+    assert adapter.status()["connected"] is True
+    assert adapter._counter is None
+    assert "temperature" not in adapter._samples
+
+
+def test_success_resets_each_consecutive_failure_counter(acquisition):
+    adapter, transport, clock = acquisition
+    adapter.sample_once()
+    for _ in range(2):
+        transport.error = AcuRiteError("USB unavailable")
+        clock.advance()
+        adapter.sample_once()
+        assert adapter.status()["usb_read_failures"] == 1
+        transport.error = None
+        clock.advance()
+        adapter.sample_once()
+        assert adapter.status()["usb_read_failures"] == 0
+    for _ in range(2):
+        transport.reports[1] = bytes(10)
+        clock.advance()
+        adapter.sample_once()
+        assert adapter.status()["invalid_outdoor_reports"] == 1
+        transport.reports[1] = packet("temperature")
+        clock.advance()
+        adapter.sample_once()
+        assert adapter.status()["invalid_outdoor_reports"] == 0
+        assert adapter.status()["station"]["reporting"] is True
+
+
+@pytest.mark.parametrize("failure", ["access", "report"])
+def test_tolerated_failure_does_not_extend_freshness(acquisition, failure):
+    adapter, transport, clock = acquisition
+    adapter.sample_once()
+    adapter.read()
+    if failure == "access":
+        transport.error = AcuRiteError("USB unavailable")
+    else:
+        transport.reports[1] = bytes(10)
+    clock.advance(121)
+    adapter.sample_once()
+    assert adapter.status()["station"]["reporting"] is False
+    observation = adapter.read()
+    assert observation is None or "Temperature_F" not in observation.measurements
+
+
+def test_rf_zero_is_immediate_and_disable_resets_failure_counts(acquisition):
+    adapter, transport, clock = acquisition
+    adapter.sample_once()
+    transport.reports[1] = packet("rf_lost")
+    clock.advance()
+    adapter.sample_once()
+    assert adapter.status()["station"]["reporting"] is False
+    assert adapter.status()["invalid_outdoor_reports"] == 0
+    transport.reports[1] = bytes(10)
+    clock.advance()
+    adapter.sample_once()
+    transport.error = AcuRiteError("USB unavailable")
+    adapter.sample_once()
+    assert adapter.status()["invalid_outdoor_reports"] == 1
+    assert adapter.status()["usb_read_failures"] == 1
+    adapter.settings.acurite_enabled = False
+    adapter.sample_once()
+    assert adapter.status()["invalid_outdoor_reports"] == 0
+    assert adapter.status()["usb_read_failures"] == 0
+
+
 def test_source_change_and_usb_disconnect_clear_caches(acquisition):
     adapter, transport, clock = acquisition
     adapter.sample_once()
@@ -158,8 +240,11 @@ def test_source_change_and_usb_disconnect_clear_caches(acquisition):
     assert "Temperature_F" not in observation.measurements
     clock.advance()
     transport.error = AcuRiteError("USB unavailable")
-    adapter.sample_once()
-    assert adapter.read() is None
+    for attempt in range(3):
+        adapter.sample_once()
+        assert adapter.read() is None
+        assert adapter.status()["connected"] is (attempt < 2)
+        clock.advance()
     assert adapter.status()["connected"] is False
     transport.error = None
     clock.advance()

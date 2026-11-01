@@ -153,8 +153,10 @@ window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
     if (packetsEl) packetsEl.textContent = String(Math.max(0, rawPackets - packetsBase));
     if (uptimeEl) {
       const lastOfflineEpoch = Number(panel.dataset.lastOfflineEpoch || 0);
-      const baseEpoch = Math.max(lastOfflineEpoch > 0 ? lastOfflineEpoch : 0, resetEpoch > 0 ? resetEpoch : 0);
-      uptimeEl.textContent = baseEpoch > 0 ? formatStatDuration((Date.now() / 1000) - baseEpoch) : "No offline events";
+      const reporting = panel.dataset.reportingUptime === "1";
+      const startEpoch = reporting ? Number(panel.dataset.uptimeStartedEpoch || 0) : lastOfflineEpoch;
+      const baseEpoch = reporting && startEpoch <= 0 ? 0 : Math.max(startEpoch, resetEpoch > 0 ? resetEpoch : 0);
+      uptimeEl.textContent = baseEpoch > 0 ? formatStatDuration((Date.now() / 1000) - baseEpoch) : reporting ? (panel.dataset.uptimeEmptyLabel || "Waiting for station data") : "No offline events";
     }
     if (lastPacketEl) {
       lastPacketEl.textContent = formatStatAgeFromEpoch(panel.dataset.lastPacketEpoch, "No packets");
@@ -170,6 +172,23 @@ window.initSensorSettingsModal = function initSensorSettingsModal(modalEl) {
     panel.querySelectorAll("[data-stat-reset]").forEach(button => { button.disabled = false; });
     const gatewayIp = panel.querySelector('[data-stat-value="gateway-ip"]');
     if (gatewayIp && data.is_ecowitt) gatewayIp.textContent = data.gateway_ip || "Unknown";
+    for (const [key, target] of [["usb_connection", "usb-connection"], ["usb_status", "usb-status"], ["station_reception", "station-reception"]]) {
+      const value = panel.querySelector('[data-stat-value="' + target + '"]');
+      if (value && Object.prototype.hasOwnProperty.call(data, key)) value.textContent = String(data[key]);
+    }
+    if (Object.prototype.hasOwnProperty.call(data, "uptime_started_epoch")) {
+      panel.dataset.uptimeStartedEpoch = data.uptime_started_epoch == null ? "" : String(data.uptime_started_epoch);
+    }
+    if (data.uptime_empty_label) panel.dataset.uptimeEmptyLabel = String(data.uptime_empty_label);
+    if (Object.prototype.hasOwnProperty.call(data, "has_reporting_uptime")) {
+      panel.dataset.reportingUptime = data.has_reporting_uptime ? "1" : "0";
+    }
+    const signalRow = panel.querySelector("[data-stat-signal-row]");
+    if (signalRow) {
+      const signal = data.signal_strength_label;
+      signalRow.hidden = !signal || signal === "Unavailable";
+      signalRow.querySelector('[data-stat-value="signal-strength"]').textContent = signal || "Unavailable";
+    }
     const battery = panel.querySelector('[data-stat-value="battery-status"]');
     if (battery) battery.textContent = ['OK', 'LOW'].includes(data.battery_status) ? data.battery_status : 'UNKNOWN';
     if (Object.prototype.hasOwnProperty.call(data, "offline_events_24h")) {

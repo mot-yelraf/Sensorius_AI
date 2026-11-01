@@ -2503,12 +2503,16 @@ function initGauge() {
     const gaugeValue = convertForDisplay(value, config);
     const existingGauge = window[`${safe}_gauge`];
     if (existingGauge && existingGauge.__sensoriusCanvas === canvas && typeof existingGauge.set === 'function') {
-      if (existingGauge.maxValue !== config.max || existingGauge.minValue !== config.min) {
+      const rangeChanged = existingGauge.maxValue !== config.max || existingGauge.minValue !== config.min;
+      if (rangeChanged) {
         existingGauge.maxValue = config.max;
         existingGauge.setMinValue(config.min);
         existingGauge.setOptions({...existingGauge.options, staticZones: config.zones, staticLabels: {...existingGauge.options.staticLabels, labels: config.ticks}});
+        const ctx = canvas.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
       }
       existingGauge.set(gaugeValue ?? 0);
+      if (rangeChanged) existingGauge.render();
       label.innerText = isNull ? '--' : formatCurrentValue(value, config);
       if (window.registerContainerStyle) {
         const existingStyle = window.normalizeDisplayStyle(container.dataset.displayStyle || window.displayStyle || 'Gauge');

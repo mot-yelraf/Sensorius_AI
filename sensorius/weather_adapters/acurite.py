@@ -26,6 +26,8 @@ USB_PRODUCT = 0x0003
 SAMPLE_SECONDS = 18
 CONSOLE_SECONDS = 60
 MAX_AGE_SECONDS = 120
+USB_READ_FAILURE_LIMIT = 3
+INVALID_OUTDOOR_REPORT_LIMIT = 2
 # N, NNE, NE, ... in the console's encoded order.
 COMPASS_CODES = (6, 14, 12, 8, 10, 11, 9, 13, 15, 7, 5, 1, 3, 2, 0, 4)
 
@@ -309,6 +311,7 @@ class AcuRiteUsbReader:
         self._identity = ""
         self._sensor = ""
         self._signal = 0
+        self._signal_at = None
         self._battery = "UNKNOWN"
         self._last_outdoor = 0.0
         self._last_console = float("-inf")
@@ -317,6 +320,8 @@ class AcuRiteUsbReader:
         self._error = ""
         self._console_error = ""
         self._outdoor_error = ""
+        self._usb_read_failures = 0
+        self._invalid_outdoor_reports = 0
 
     @property
     def device_identity(self) -> str:
@@ -332,6 +337,8 @@ class AcuRiteUsbReader:
                 self._counter = None
                 self._connected = False
                 self._last_console = float("-inf")
+                self._signal_at = None
+                self._usb_read_failures = self._invalid_outdoor_reports = 0
             return
         now, clock = datetime.now(timezone.utc), monotonic()
         try:
@@ -348,36 +355,46 @@ class AcuRiteUsbReader:
                     self._samples.clear()
                     self._counter = None
                     self._connected = False
+                    self._usb_read_failures = self._invalid_outdoor_reports = 0
                     return
+                self._usb_read_failures = 0
                 self._accept_reports(identity, reports, errors, now, clock)
         except AcuRiteError as exc:
             with self._lock:
                 if self._error != str(exc):
                     report_error("AcuRite: %s", exc)
                 self._error = str(exc)
-                self._connected = False
-                self._clear_outdoor()
-                self._samples.clear()
-                self._last_console = float("-inf")
+                self._usb_read_failures = min(USB_READ_FAILURE_LIMIT, self._usb_read_failures + 1)
+                if self._usb_read_failures >= USB_READ_FAILURE_LIMIT:
+                    self._connected = False
+                    self._clear_outdoor()
+                    self._signal_at = None
+                    self._samples.clear()
+                    self._last_console = float("-inf")
 
     def _accept_reports(self, identity, reports, errors, now, clock) -> None:
         if identity != self._identity:
             self._samples.clear()
+            self._clear_outdoor()
             self._counter = None
             self._sensor = ""
             self._last_outdoor = 0
+            self._signal_at = None
             self._identity = identity
             self._console_error = self._outdoor_error = ""
+            self._invalid_outdoor_reports = 0
             self._last_console = float("-inf")
         self._connected = True
         if 1 in reports:
             try:
                 outdoor = decode_outdoor(reports[1])
                 self._outdoor_error = ""
+                self._invalid_outdoor_reports = 0
                 if outdoor.sensor_id != self._sensor:
                     self._clear_outdoor()
                     self._sensor = outdoor.sensor_id
                 self._signal, self._battery = outdoor.signal, outdoor.battery
+                self._signal_at = clock
                 if not outdoor.signal:
                     self._clear_outdoor()
                 else:
@@ -387,7 +404,10 @@ class AcuRiteUsbReader:
                     if outdoor.rain_counter is not None:
                         self._counter = (outdoor.rain_counter, now, clock)
             except AcuRiteError as exc:
-                self._clear_outdoor()
+                self._invalid_outdoor_reports = min(INVALID_OUTDOOR_REPORT_LIMIT, self._invalid_outdoor_reports + 1)
+                if self._invalid_outdoor_reports >= INVALID_OUTDOOR_REPORT_LIMIT:
+                    self._clear_outdoor()
+                    self._signal_at = None
                 self._outdoor_error = str(exc)
         if 2 in reports:
             self._last_console = clock
@@ -488,8 +508,14 @@ class AcuRiteUsbReader:
                 "requires_mode4_selection": profile.requires_mode4_selection,
                 "usb_mode_help": profile.mode_help,
                 "last_error": error,
+                "usb_read_failures": self._usb_read_failures,
+                "invalid_outdoor_reports": self._invalid_outdoor_reports,
                 "observation_fresh": fresh,
-                "station": {"reporting": fresh, "battery_status": battery},
+                "station": {
+                    "reporting": fresh, "battery_status": battery,
+                    "signal": self._signal if enabled and self._connected and self._signal_at is not None
+                    and monotonic() - self._signal_at <= MAX_AGE_SECONDS else None,
+                },
                 "sensors": [
                     {
                         "sensor_id": self._sensor,

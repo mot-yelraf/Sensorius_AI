@@ -457,6 +457,9 @@
             data-last-offline-epoch="{{ last_offline_epoch if last_offline_epoch is defined and last_offline_epoch is not none else '' }}"
             data-last-packet-epoch="{{ last_packet_epoch if last_packet_epoch is defined and last_packet_epoch is not none else '' }}"
             data-packets-received="{{ data_packets_received | default(0) }}"
+            data-reporting-uptime="{{ '1' if tracks_reporting_uptime else '0' }}"
+            data-uptime-started-epoch="{{ uptime_started_epoch if uptime_started_epoch is defined and uptime_started_epoch is not none else '' }}"
+            data-uptime-empty-label="{{ uptime_empty_label | default('Waiting for station data') }}"
           >
             <div class="list-header sensor-pane-header">
               <span>Sensor Info{% if nodus_board_type %}: Board Type: {{ nodus_board_type }}{% endif %}{% if nodus_sensor_hardware %}{% if nodus_board_type %} {% else %}: {% endif %}Sensor:{{ nodus_sensor_hardware }}{% endif %}{% if weewx_station_model %}{% if nodus_board_type or nodus_sensor_hardware %} {% else %}: {% endif %}Station: {{ weewx_station_model }}{% endif %}</span>
@@ -464,8 +467,22 @@
             <div class="form sensor-pane-scroll compact-info-form">
               <p class="muted" data-stats-message role="status" {% if not details_deferred %}hidden{% endif %}>Loading statistics…</p>
               <div class="section">
-                <h4 class="section-title">Network</h4>
+                <h4 class="section-title">{{ 'Connection' if is_usb_console else 'Network' }}</h4>
                 <div class="network-info-grid">
+                  {% if is_usb_console %}
+                  <div class="network-info-cell">
+                    <span>USB Connection:</span>
+                    <strong data-stat-value="usb-connection">{{ usb_connection | default('Waiting for connection details') }}</strong>
+                  </div>
+                  <div class="network-info-cell">
+                    <span>USB Status:</span>
+                    <strong data-stat-value="usb-status">{{ usb_status | default('Waiting') }}</strong>
+                  </div>
+                  <div class="network-info-cell">
+                    <span>Sensor Reception:</span>
+                    <strong data-stat-value="station-reception">{{ station_reception | default('Waiting') }}</strong>
+                  </div>
+                  {% else %}
                   <div class="network-info-cell">
                     <span>IP Address:</span>
                     <strong data-stat-value="gateway-ip">{{ (network_info | default({})).ip_address | default('Unknown') }}</strong>
@@ -478,24 +495,29 @@
                     <span>Broker Status:</span>
                     <strong>{{ (network_info | default({})).broker_status | default('Unknown') }}</strong>
                   </div>
+                  {% endif %}
                 </div>
               </div>
 
               <div class="section">
                 <h4 class="section-title">Statistics</h4>
                 <div class="statistics-list">
-                  {% if is_ecowitt or is_acurite or is_usb_weather %}
+                  {% if is_ecowitt or is_acurite or is_usb_weather or is_usb_console %}
                   <div class="statistics-row">
                     <span>Battery Status:</span>
                     <strong data-stat-value="battery-status">{{ battery_status | default('UNKNOWN') }}</strong>
                   </div>
                   {% endif %}
+                  <div class="statistics-row" data-stat-signal-row {% if not signal_strength_label or signal_strength_label == 'Unavailable' %}hidden{% endif %}>
+                    <span>Signal strength:</span>
+                    <strong data-stat-value="signal-strength">{{ signal_strength_label | default('Unavailable') }}</strong>
+                  </div>
                   <div class="statistics-row">
                     <span>Last 24hr offline events:</span>
                     <strong data-stat-value="offline-events">{{ offline_events_24h | default(0) }}</strong>
                   </div>
                   <div class="statistics-row">
-                    <span>Uptime since last offline event:</span>
+                    <span>{{ 'Reporting uptime:' if tracks_reporting_uptime else 'Uptime since last offline event:' }}</span>
                     <strong data-stat-value="uptime">{{ uptime_since_last_offline_label | default('No offline events') }}</strong>
                   </div>
                   <div class="statistics-row">

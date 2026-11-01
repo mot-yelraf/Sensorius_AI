@@ -23,6 +23,7 @@ import httpx
 
 from .weather_adapters.observations import Observation, RainPolicy, ChannelCapability, persist_observation
 from .saiSensorSettingsManager import SensorSettingsManager
+from .saiWeatherStation import StationReportingHealth
 from .saiEcowittRecovery import request_in_fresh_process
 from .saiUtils import debug_enabled, printDM
 from .sensor_modules.station_ecowitt import (
@@ -62,7 +63,7 @@ def gateway_ip_address(network: Any, base_url: str) -> str:
     return "Unknown"
 
 
-def ecowitt_sensor_health(data_logger: Any, sensor_id: str) -> dict[str, str]:
+def ecowitt_sensor_health(data_logger: Any, sensor_id: str) -> dict[str, Any]:
     """Return current array health for the configured gateway-backed station."""
     result = {"battery_status": "UNKNOWN", "gateway_ip": "Unknown"}
     service = getattr(data_logger, "ecowitt_service", None)
@@ -71,6 +72,14 @@ def ecowitt_sensor_health(data_logger: Any, sensor_id: str) -> dict[str, str]:
     snapshot = service.status()
     result["battery_status"] = snapshot["battery_status"]
     result["gateway_ip"] = snapshot["gateway_ip"]
+    result.update({key: snapshot[key] for key in ("uptime_started_epoch", "uptime_empty_label") if key in snapshot})
+    arrays = [sensor for sensor in snapshot.get("inventory", [])
+              if sensor.get("registered") and sensor.get("type") in {"0", "2", "48"}]
+    signals = [sensor.get("signal") for sensor in arrays if sensor.get("signal") is not None]
+    result["signal_strength_label"] = (
+        ", ".join(f"{signal}/4" for signal in signals) + " (outdoor RF)"
+        if snapshot.get("observation_fresh") and signals else "Unavailable"
+    )
     return result
 
 
@@ -189,6 +198,9 @@ class EcowittGatewayIngest:
         self.settings = settings
         self.data_logger = data_logger
         self.data_logger.ecowitt_service = self
+        self._health = StationReportingHealth(data_logger, retry_seconds=0)
+        self._last_reading_mono = None
+        self._last_reading_source = ""
         self.supervisor = supervisor
         self.switch_controllers = {}
         self.dashboard_broadcast: DashboardBroadcast | None = None
@@ -474,6 +486,14 @@ class EcowittGatewayIngest:
             gateway_family=gateway_family(result.get("gateway_model")),
         )
         result["gateway_ip"] = (result.get("gateway_ip") if same_gateway else None) or gateway_ip_address({}, self.gateway_url)
+        reporting_fresh = (
+            result["enabled"] and result["state"] == "online"
+            and self._last_reading_mono is not None
+            and time.monotonic() - self._last_reading_mono <= max(180, self.poll_interval_sec * 3)
+            and self._last_reading_source == result["source_id"]
+        )
+        monitored = self._health.decorate({**result, "station": {"reporting": reporting_fresh}})
+        result.update({key: monitored[key] for key in ("uptime_started_epoch", "uptime_empty_label")})
         return result
 
     def _record_health(self, inventory: list[dict], network: Any, base_url: str) -> None:
@@ -637,6 +657,9 @@ class EcowittGatewayIngest:
             "live_metrics": sorted(values),
             "rain_source": self._rain_source,
         })
+        self._last_reading_mono = time.monotonic()
+        self._last_reading_source = observation.source_id
+        await self._health.update(sensor_id, {"enabled": self.enabled, "station": {"reporting": True}})
         return True
 
     async def run(self) -> None:
@@ -645,6 +668,7 @@ class EcowittGatewayIngest:
             self._feed_watchdog()
             if not self.enabled or not self.gateway_url:
                 self._status.update({"state": "disabled", "label": "Ecowitt integration disabled"})
+                await self._health.update(self.sensor_id, self.status())
                 await self._sleep_with_heartbeat(self.poll_interval_sec)
                 continue
             try:
@@ -658,6 +682,7 @@ class EcowittGatewayIngest:
                 self._feed_watchdog(error=True)
                 message = str(exc) if isinstance(exc, EcowittError) else "Ecowitt polling failed."
                 self._status.update({"state": "offline", "label": "Ecowitt gateway unavailable", "last_error": message})
+                await self._health.update(self.sensor_id, self.status())
                 now_mono = time.monotonic()
                 if now_mono - self._last_error_log_mono >= 300.0:
                     self._last_error_log_mono = now_mono

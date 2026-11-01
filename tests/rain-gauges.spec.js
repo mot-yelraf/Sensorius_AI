@@ -1,6 +1,42 @@
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
 const maxima = { day: 50.8, week: 127, month: 254, year: 1016 };
+
+test('a stationary zero rain gauge has no corner pointer after a range update', async ({ page }, testInfo) => {
+  await page.route('https://cdn.jsdelivr.net/**', route => route.fulfill({
+    contentType: 'application/javascript',
+    body: route.request().url().includes('gaugeJS') ? readFileSync('node_modules/gaugeJS/dist/gauge.min.js') : '',
+  }));
+  let release;
+  const history = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/rain-climate', async route => {
+    await history;
+    await route.fulfill({ json: { status: 'ready', maxima_mm: maxima } });
+  });
+  await page.goto('/rain-gauges?value=0', { waitUntil: 'domcontentloaded' });
+  const card = page.locator('.metric-container[data-metric="Rain"]');
+  await expect.poll(() => page.evaluate(() => window['rain-pr-check_Rain_gauge'] instanceof window.Gauge)).toBe(true);
+  await page.evaluate(() => { window.initialRainGauge = window['rain-pr-check_Rain_gauge']; });
+  release();
+  await expect(card).toHaveAttribute('data-rain-climate-status', 'ready');
+  const result = await card.locator('.gauge-view canvas').evaluate(canvas => {
+    const ctx = canvas.getContext('2d');
+    const corner = ctx.getImageData(0, 0, 20, 20).data;
+    const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let blackCornerPixels = 0;
+    for (let i = 0; i < corner.length; i += 4) {
+      if (corner[i + 3] > 0 && corner[i] < 20 && corner[i + 1] < 20 && corner[i + 2] < 20) blackCornerPixels++;
+    }
+    const gauge = window['rain-pr-check_Rain_gauge'];
+    return {
+      blackCornerPixels, painted: pixels.some((v, i) => i % 4 === 3 && v > 0),
+      sameGauge: gauge === window.initialRainGauge, max: gauge.maxValue, value: gauge.gp[0].displayedValue,
+    };
+  });
+  expect(result).toEqual({ blackCornerPixels: 0, painted: true, sameGauge: true, max: 50.8, value: 0 });
+  await card.screenshot({ path: testInfo.outputPath('zero-rain-after-range-update.png') });
+});
 
 for (const units of ['Metric', 'Imperial']) {
   test(`rain gauges load historical limits and blue bands in ${units}`, async ({ page }, testInfo) => {
