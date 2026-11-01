@@ -1,0 +1,66 @@
+name: Bug report
+description: Report a reproducible problem.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search existing issues before submitting a report.
+        Do not include credentials, precise coordinates, private addresses, or unredacted logs.
+        Report suspected security vulnerabilities privately using the Security report link in the issue chooser.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem and its effect on your use of the project.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reliable sequence that demonstrates the problem.
+      placeholder: |
+        1. Set up...
+        2. Open or run...
+        3. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Project version or commit
+      description: Enter the version or commit you are using, or say unknown if you cannot find it.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Raspberry Pi
+        - macOS
+        - Windows
+        - Linux
+        - CircuitPython / microcontroller
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment and hardware
+      description: Include OS, Python or CircuitPython version, browser, board, sensors, and integrations as relevant. Identify the platform here if you selected Other.
+  - type: textarea
+    id: context
+    attributes:
+      label: Logs, screenshots, and additional context
+      description: Include relevant excerpts or screenshots after removing credentials and private information.
