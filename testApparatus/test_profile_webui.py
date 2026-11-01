@@ -43,6 +43,55 @@ def test_select_scenarios_filters_and_deduplicates_by_name():
     assert [scenario.name for scenario in selected] == ["sensor_settings", "weather_forecast", "fullscreen_graph", "calendar_month_selectors", "calendar"]
 
 
+def test_scroll_summary_keeps_unavailable_native_metrics_missing():
+    scenario, = profile_webui.select_scenarios("dashboard_scroll")
+    summary = profile_webui.build_summary({"dashboard_scroll": [{"ok": True, "passes": [
+        {"mode": "normal", "frame_p95_ms": 18, "long_task_total_ms": None},
+        {"mode": "hover_disabled", "frame_p95_ms": 17, "hover_plugin_calls": 0},
+    ]}]}, (scenario,))["dashboard_scroll"]
+    assert summary["passes"]["normal"]["frame_p95_ms"]["median_ms"] == 18
+    assert summary["passes"]["normal"]["long_task_total_ms"] is None
+    assert summary["passes"]["hover_disabled"]["hover_plugin_calls"]["median_count"] == 0
+    assert profile_webui.performance_delta({}, {}) == {}
+
+
+@pytest.mark.asyncio
+async def test_native_evaluator_handles_promises_and_multiple_statements():
+    scripts = []
+    class Window:
+        def evaluate_js(self, script, callback):
+            scripts.append(script)
+            callback({"ok": True, "value": 42})
+    client = profile_webui.PywebviewClient(Window(), .1)
+    assert await client.evaluate("window.a=1; 42") == 42
+    assert 'eval("window.a=1; 42")' in scripts[0]
+
+
+def test_native_mac_profiler_rejects_unbundled_launch_before_opening_gui(monkeypatch):
+    monkeypatch.setattr(profile_webui.sys, "platform", "darwin")
+    monkeypatch.setattr(profile_webui.sys, "executable", "/usr/local/bin/python3")
+    with pytest.raises(RuntimeError, match="app-bundled Python"):
+        profile_webui.run_native(SimpleNamespace())
+
+
+def test_native_linux_profiler_matches_application_backend_and_environment(monkeypatch):
+    from sensorius import saiGuiEnvironment
+    calls = []
+    window = SimpleNamespace(destroy=lambda: calls.append("destroy"))
+    async def run(args, native_window=None):
+        assert native_window is window
+        return {"ok": True}
+    def start(worker, **kwargs):
+        calls.append(kwargs)
+        worker()
+    monkeypatch.setattr(profile_webui.sys, "platform", "linux")
+    monkeypatch.setattr(saiGuiEnvironment, "configure_gui_environment", lambda: calls.append("environment"))
+    monkeypatch.setattr(profile_webui, "run", run)
+    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(create_window=lambda *args, **kwargs: window, start=start))
+    assert profile_webui.run_native(SimpleNamespace()) == {"ok": True}
+    assert calls == ["environment", {"private_mode": True, "gui": "gtk"}, "destroy"]
+
+
 def test_build_js_helper_discovers_current_dashboard_target_shapes():
     helper = profile_webui.build_js_helper(1000)
 

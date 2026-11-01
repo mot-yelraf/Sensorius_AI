@@ -52,9 +52,13 @@ test('Graphum switch labels remain literal text and preserve checkbox identity',
   await expect(checkbox).toBeChecked();
 });
 
+for (const deviceScaleFactor of [1, 2]) {
+test.describe(`canvas pixel scale ${deviceScaleFactor}`, () => {
+test.use({ deviceScaleFactor });
+for (const gaugeSize of ['Small', 'Large']) {
 for (const tileStyle of ['Theme', 'Chrome', 'Brass', 'Mahogany & Brass']) {
-for (const width of [1280, 390]) {
-  test(`real Gauge and Chart libraries draw ${tileStyle} metric cards at ${width}px`, async ({ page }, testInfo) => {
+for (const width of gaugeSize === 'Large' ? [1280] : [1280, 390]) {
+  test(`real Gauge and Chart libraries draw ${gaugeSize} ${tileStyle} metric cards at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
@@ -79,17 +83,18 @@ for (const width of [1280, 390]) {
     } }));
     await page.route('**/graph-data?*', route => {
       const query = new URL(route.request().url()).searchParams;
+      const key = `${query.get('sensor_id')}::${query.get('metric1')}`;
+      const duration = query.get('range') === '6h' ? 6 : 24;
+      const ts = Array.from({ length: 49 }, (_, i) => new Date(Date.UTC(2026, 9, 26) + i * duration * 3600000 / 48).toISOString());
       return route.fulfill({ json: { series: {
-        [`${query.get('sensor_id')}::${query.get('metric1')}`]: {
-          ts: ['2026-10-26T10:00:00', '2026-10-26T11:00:00', '2026-10-26T12:00:00'], vals: [68, 74, 71],
-        },
-      } } });
+        [key]: { ts, vals: ts.map((_, i) => 68 + i / 8) },
+      }, simple_avg: { [key]: { ts, vals: ts.map(() => 69) } } } });
     });
     await page.route('**/device-locations', route => route.fulfill({ json: [] }));
     await page.route('**/sensor-ids', route => route.fulfill({ json: ['aht-pr-check'] }));
     await page.route('**/sensor-metrics?*', route => route.fulfill({ json: ['Temperature'] }));
     await page.route('**/graph-setups', route => route.fulfill({ json: { setups: [] } }));
-    await page.goto('/?tile_style=' + encodeURIComponent(tileStyle), { waitUntil: 'load' });
+    await page.goto('/?tile_style=' + encodeURIComponent(tileStyle) + '&gauge_size=' + gaugeSize, { waitUntil: 'load' });
     const card = page.locator('#aht-pr-check_Temperature_container');
     await card.scrollIntoViewIfNeeded();
     await expect(card).toHaveAttribute('data-tile-style', tileStyle);
@@ -125,13 +130,56 @@ for (const width of [1280, 390]) {
     await expect.poll(() => card.locator('.micrograph-canvas').evaluate(canvas => {
       const chart = window.Chart.getChart(canvas);
       return chart?.data.datasets[0].data.length || 0;
-    })).toBe(3);
+    })).toBe(49);
     await expect.poll(() => card.locator('.micrograph-canvas').evaluate(painted)).toBe(true);
+    const checkDataHover = async (constrain = false) => {
+      const canvas = card.locator('.micrograph-canvas');
+      await expect(card).toHaveAttribute('data-micrograph-loading', '0');
+      await expect.poll(() => canvas.evaluate(el => window.Chart.getChart(el)?.data.datasets.length)).toBe(2);
+      await canvas.evaluate((el, constrain) => {
+        if (constrain) el.style.setProperty('max-width', '88%', 'important');
+        else el.style.removeProperty('max-width');
+      }, constrain);
+      const targets = await canvas.evaluate(el => {
+        const chart = window.Chart.getChart(el);
+        const rect = el.getBoundingClientRect();
+        const area = chart.chartArea;
+        const points = chart.getDatasetMeta(0).data;
+        return [
+          { x: points[12].x, y: area.top + 4, index: 12 },
+          { x: points[24].x, y: chart.getDatasetMeta(1).data[24].y, index: 24 },
+          { x: points[48].x + 3, y: points[48].y, index: 48 },
+          { x: area.right - 1, y: (area.top + area.bottom) / 2, index: 48 },
+          { x: points[48].x, y: points[48].y, index: 48 },
+          { x: points[0].x, y: points[0].y, index: 0 },
+        ].map(point => ({
+          x: rect.left + point.x * rect.width / chart.width,
+          y: rect.top + point.y * rect.height / chart.height,
+          index: point.index,
+        }));
+      });
+      for (const target of targets) {
+        await page.mouse.move(target.x, target.y);
+        await expect.poll(() => canvas.evaluate(el => {
+          const chart = window.Chart.getChart(el);
+          return {
+            tooltip: chart.tooltip.opacity > 0 ? chart.tooltip.dataPoints.map(item => [item.datasetIndex, item.dataIndex]) : [],
+            active: chart.getActiveElements().map(item => [item.datasetIndex, item.index]),
+          };
+        })).toEqual({ tooltip: [[0, target.index]], active: [[0, target.index]] });
+      }
+    };
+    await checkDataHover();
+    await checkDataHover(true);
     await page.screenshot({ path: testInfo.outputPath('metric-cards.png') });
     for (const nextStyle of ['Graph6hr', 'Gauge', 'Graph24hr']) {
       await card.click({ delay: 300 });
       await expect(card).toHaveAttribute('data-display-style', nextStyle);
       await expect(card).toHaveAttribute('data-tile-style', tileStyle);
+      if (nextStyle.startsWith('Graph')) {
+        await checkDataHover();
+        await checkDataHover(true);
+      }
     }
     currentFinish = tileStyle === 'Theme' ? 'Chrome' : 'Theme';
     value = 81.2;
@@ -144,7 +192,7 @@ for (const width of [1280, 390]) {
     await page.getByRole('link', { name: 'Full Screen Graphs' }).click();
     await expect(page.locator('.fullscreen-metric-checkbox')).toHaveCount(1);
     await page.locator('.fullscreen-metric-checkbox').check();
-    await expect.poll(() => page.evaluate(() => window.graphChart?.data.datasets[0]?.data.length || 0)).toBe(3);
+    await expect.poll(() => page.evaluate(() => window.graphChart?.data.datasets[0]?.data.length || 0)).toBe(49);
     await expect.poll(() => page.locator('#fullscreen_graph').evaluate(painted)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath('graph-workspace.png') });
     await page.getByRole('button', { name: 'Return to dashboard' }).click();
@@ -152,4 +200,7 @@ for (const width of [1280, 390]) {
     expect(errors).toEqual([]);
   });
 }
+}
+}
+});
 }

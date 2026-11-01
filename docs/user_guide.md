@@ -206,7 +206,7 @@ arrow communicates direction and relative strength, not whether the change is
 good or bad. The small history graph comes from `/graph-data`, which reads
 stored samples from the local database for that sensor and metric.
 
-The solid line is the stored reading series. The dashed line is the arithmetic average of the visible graph window, repeated across the window as a reference line; it is not another sensor reading or an automation set point. The Min, Avg, and Max values below each Sensor Tile are calculated from the last 24 hours. Min and Max include their exact timestamps so you can correlate an extreme with a switch event, weather change, irrigation cycle, or equipment problem. Consequently, a six-hour Sensor Tile can show a 24-hour minimum or maximum that lies outside the six hours drawn in that Sensor Tile.
+The solid line is the stored reading series. The dashed line is the arithmetic average of the visible graph window, repeated across the window as a reference line; it is not another sensor reading or an automation set point. Hover anywhere within a six-hour or 24-hour tile plot to see the stored reading nearest that time; the average line has no tooltip. The Min, Avg, and Max values below each Sensor Tile are calculated from the last 24 hours. Min and Max include their exact timestamps so you can correlate an extreme with a switch event, weather change, irrigation cycle, or equipment problem. Consequently, a six-hour Sensor Tile can show a 24-hour minimum or maximum that lies outside the six hours drawn in that Sensor Tile.
 
 #### Graph Background Colors And Thresholds
 

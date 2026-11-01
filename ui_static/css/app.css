@@ -1727,3 +1727,13 @@ body.dashboard-page .sensor-group-header[data-tile-style="Mahogany & Brass"],
 .sensor-group-header[data-tile-style]:not([data-tile-style="Theme"]) :is(a,.sensor-order-item,.sensor-collapse-toggle),
 .switch-card-title-row[data-tile-style]:not([data-tile-style="Theme"]) :is(a,.switch-card-order-arrow){color:inherit;}
 [data-stats-loaded="0"] .statistics-list [data-stat-value]{visibility:hidden;}
+
+/* Avoid expensive shadow repainting in the Raspberry Pi GTK webview. */
+html.native-pi-window :is(.metric-container,.switch-metric-container),
+html.native-pi-window :is(.metric-container,.switch-metric-container) *,
+html.native-pi-window :is(.metric-container,.switch-metric-container)::before,
+html.native-pi-window :is(.metric-container,.switch-metric-container)::after,
+html.native-pi-window :is(.metric-container,.switch-metric-container) *::before,
+html.native-pi-window :is(.metric-container,.switch-metric-container) *::after{
+  box-shadow:none!important;
+}
